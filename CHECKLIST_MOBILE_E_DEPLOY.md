@@ -42,10 +42,13 @@ Esse gate faz:
 Se o dry-run estiver correto:
 
 ```bash
-rsync -avu --delete \
+rsync -avu \
   --exclude '.git' \
   --exclude 'node_modules' \
   --exclude '.env' \
+  --exclude 'auth_whatsapp' \
+  --exclude 'uploads' \
+  --exclude '*.log' \
   --exclude 'snapshots' \
   --exclude 'backup' \
   --exclude 'backups' \

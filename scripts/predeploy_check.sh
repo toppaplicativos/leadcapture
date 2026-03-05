@@ -53,10 +53,13 @@ else
 fi
 
 echo "[5/6] Dry-run do rsync (nada será alterado)..."
-rsync -avun --delete \
+rsync -avun \
   --exclude '.git' \
   --exclude 'node_modules' \
   --exclude '.env' \
+  --exclude 'auth_whatsapp' \
+  --exclude 'uploads' \
+  --exclude '*.log' \
   --exclude 'snapshots' \
   --exclude 'backup' \
   --exclude 'backups' \
@@ -69,4 +72,4 @@ rsync -avun --delete \
 
 echo "[6/6] Checklist concluído."
 echo "Se o dry-run estiver correto, aplique o deploy com:"
-echo "rsync -avu --delete --exclude '.git' --exclude 'node_modules' --exclude '.env' --exclude 'snapshots' --exclude 'backup' --exclude 'backups' --exclude 'deploy_backup_*' --exclude 'dist.bak_*' --exclude 'dist.backup_*' --exclude 'public.bak_*' --exclude 'public.deploybak_*' \"$LOCAL_DIR/\" \"$PROD_DIR/\""
+echo "rsync -avu --exclude '.git' --exclude 'node_modules' --exclude '.env' --exclude 'auth_whatsapp' --exclude 'uploads' --exclude '*.log' --exclude 'snapshots' --exclude 'backup' --exclude 'backups' --exclude 'deploy_backup_*' --exclude 'dist.bak_*' --exclude 'dist.backup_*' --exclude 'public.bak_*' --exclude 'public.deploybak_*' \"$LOCAL_DIR/\" \"$PROD_DIR/\""

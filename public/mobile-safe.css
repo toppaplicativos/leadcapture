@@ -1,0 +1,59 @@
+html,
+body,
+#root {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+img,
+svg,
+canvas,
+video,
+table {
+  max-width: 100%;
+}
+
+@media (max-width: 768px) {
+  body {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  #root,
+  main,
+  section,
+  article,
+  aside,
+  header,
+  footer,
+  nav,
+  div {
+    min-width: 0;
+  }
+
+  input,
+  textarea,
+  select,
+  button,
+  [role="button"],
+  a {
+    min-height: 44px;
+    touch-action: manipulation;
+  }
+
+  table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  [style*="width:"],
+  [style*="min-width:"] {
+    max-width: 100% !important;
+  }
+}

@@ -1,0 +1,16 @@
+[
+  {
+    "name": "Promo",
+    "description": "",
+    "products": [
+      {
+        "productId": "prod-1771475758883-3brxv",
+        "customPromoPrice": 11,
+        "includeInCampaign": true
+      }
+    ],
+    "active": true,
+    "id": "pt-1771475803562-dxflj",
+    "createdAt": "2026-02-19T04:36:43.562Z"
+  }
+]

@@ -1,0 +1,14 @@
+[
+  {
+    "name": "Alho",
+    "description": "",
+    "category": "cat-1771474911283-7ivvr",
+    "price": 15,
+    "unit": "Kg",
+    "features": [],
+    "active": true,
+    "id": "prod-1771475758883-3brxv",
+    "createdAt": "2026-02-19T04:35:58.883Z",
+    "updatedAt": "2026-02-19T04:35:58.883Z"
+  }
+]

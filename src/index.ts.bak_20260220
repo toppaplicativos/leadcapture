@@ -1,0 +1,356 @@
+import express from "express";
+import cors from "cors";
+import path from "path";
+import { config } from "./config";
+import { InstanceManager } from "./core/instanceManager";
+import { GooglePlacesService } from "./services/googlePlaces";
+import { GeminiService } from "./services/gemini";
+import { RateLimiter } from "./core/rateLimiter";
+import { Lead, CampaignConfig } from "./types";
+import { logger } from "./utils/logger";
+import { ProductsService } from "./services/products";
+import authRoutes from "./routes/auth";
+import customersRoutes from "./routes/customers";
+import knowledgeBaseRoutes from "./routes/knowledgeBase";
+import aiRoutes from "./routes/ai";
+import mediaRoutes from "./routes/media";
+import companiesRoutes from "./routes/companies";
+import clientsRoutes from "./routes/clients";
+import sessionsRoutes from "./routes/sessions";
+import { CustomersService } from "./services/customers";
+import { KnowledgeBaseService } from "./services/knowledgeBase";
+import { authMiddleware, AuthRequest, requireRole } from "./middleware/auth";
+
+import inboxRoutes from "./routes/inbox";
+import categoriesRoutes from "./routes/categories";
+import productsRoutes from "./routes/products";
+import priceTablesRoutes from "./routes/pricetables";
+import { InboxService } from "./services/inbox";
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+app.use(express.static(path.join(__dirname, "../public")));
+app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
+
+// ==================== PUBLIC ROUTES ====================
+app.use("/api/auth", authRoutes);
+
+// Health check (public)
+app.get("/api/health", (req, res) => {
+  res.json({
+    status: "ok",
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString(),
+    instances: instanceManager.getAllInstances().length,
+  });
+});
+
+// ==================== PROTECTED ROUTES ====================
+app.use("/api/customers", authMiddleware, customersRoutes);
+app.use("/api/knowledge-base", authMiddleware, knowledgeBaseRoutes);
+app.use("/api/ai", authMiddleware, aiRoutes);
+app.use("/api/media", authMiddleware, mediaRoutes);
+app.use("/api/companies", authMiddleware, companiesRoutes);
+app.use("/api/clients", authMiddleware, clientsRoutes);
+app.use("/api/sessions", authMiddleware, sessionsRoutes);
+app.use("/api/inbox", authMiddleware, inboxRoutes);
+app.use("/api/categories", authMiddleware, categoriesRoutes);
+app.use("/api/products", authMiddleware, productsRoutes);
+app.use("/api/pricetables", authMiddleware, priceTablesRoutes);
+
+// Services
+const instanceManager = new InstanceManager();
+app.set("instanceManager", instanceManager);
+const inboxService = new InboxService();
+instanceManager.onGlobalMessage(async (instanceId, msg) => {
+  await inboxService.handleIncomingMessage(instanceId, msg);
+});
+const googlePlaces = new GooglePlacesService();
+const gemini = new GeminiService();
+const rateLimiter = new RateLimiter(3, 200);
+const productsService = new ProductsService();
+const customersService = new CustomersService();
+const knowledgeBaseService = new KnowledgeBaseService();
+
+// In-memory campaign tracking
+const campaignsActive: Map<string, boolean> = new Map();
+
+// ==================== INSTANCE ROUTES (protected) ====================
+
+app.post("/api/instances", authMiddleware, async (req: any, res) => {
+  try {
+    const { name } = req.body;
+    if (!name) return res.status(400).json({ error: "Name is required" });
+    const instance = await instanceManager.createInstance(name);
+    res.json({ success: true, instance });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/instances/:id/connect", authMiddleware, async (req: any, res) => {
+  try {
+    const qr = await instanceManager.connectInstance(req.params.id);
+    res.json({ success: true, qrCode: qr });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/instances/:id/qr", authMiddleware, async (req: any, res) => {
+  try {
+    const qr = instanceManager.getInstanceQR(req.params.id);
+    if (qr) {
+      res.json({ success: true, qrCode: qr });
+    } else {
+      res.json({ success: false, message: "QR not available" });
+    }
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/instances/:id/disconnect", authMiddleware, async (req: any, res) => {
+  try {
+    await instanceManager.disconnectInstance(req.params.id);
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete("/api/instances/:id", authMiddleware, async (req: any, res) => {
+  try {
+    await instanceManager.deleteInstance(req.params.id);
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/instances", authMiddleware, async (req: any, res) => {
+  try {
+    const instances = instanceManager.getAllInstances();
+    res.json({ success: true, instances });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/instances/:id", authMiddleware, async (req: any, res) => {
+  try {
+    const instance = instanceManager.getInstance(req.params.id);
+    if (!instance) return res.status(404).json({ error: "Instance not found" });
+    res.json({ success: true, instance });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================== LEADS ROUTES (protected) ====================
+
+// Search leads via Google Places V2 and persist to MySQL
+app.post("/api/leads/search", authMiddleware, async (req: any, res) => {
+  try {
+    const { query, location, radius, maxResults } = req.body;
+    if (!query || !location) {
+      return res.status(400).json({ error: "Query and location are required" });
+    }
+
+    logger.info(`Searching leads: "${query}" in "${location}"`);
+
+    // Use new Google Places V2 (RapidAPI) - returns raw place objects
+    const places = await googlePlaces.searchText({ query, location, radius, maxResults });
+
+    // Persist to MySQL customers table (deduplicates by google_place_id)
+    const { created, skipped } = await customersService.bulkCreateFromPlaces(places);
+
+    logger.info(`Lead search complete: ${places.length} found, ${created} created, ${skipped} skipped`);
+
+    // Also return the mapped lead format for frontend compatibility
+    const leads = places.map((place: any) => ({
+      id: place.id,
+      name: place.displayName?.text || "Unknown",
+      phone: place.internationalPhoneNumber || place.nationalPhoneNumber || "",
+      address: place.formattedAddress || "",
+      rating: place.rating || 0,
+      reviews: place.userRatingCount || 0,
+      category: place.types?.[0] || "",
+      placeId: place.id,
+      website: place.websiteUri || "",
+      googleMapsUri: place.googleMapsUri || "",
+      businessStatus: place.businessStatus || "",
+      location: place.location || null,
+    }));
+
+    res.json({
+      success: true,
+      leads,
+      total: leads.length,
+      persisted: { created, skipped },
+    });
+  } catch (error: any) {
+    logger.error(`Lead search error: ${error.message}`);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get all leads/customers from MySQL
+app.get("/api/leads", authMiddleware, async (req: any, res) => {
+  try {
+    const { status, source, category, city, search, limit, offset } = req.query;
+    const result = await customersService.getAll({
+      status: status as string,
+      source: source as string,
+      category: category as string,
+      city: city as string,
+      search: search as string,
+      limit: limit ? parseInt(limit as string) : 50,
+      offset: offset ? parseInt(offset as string) : 0,
+    });
+    res.json({ success: true, leads: result.customers, total: result.total });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete a specific customer/lead
+app.delete("/api/leads/:id", authMiddleware, async (req: any, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const deleted = await customersService.delete(id);
+    if (!deleted) return res.status(404).json({ error: "Lead not found" });
+    res.json({ success: true, message: "Lead deleted" });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================== MESSAGE ROUTES (protected) ====================
+
+app.post("/api/messages/generate", authMiddleware, async (req: any, res) => {
+  try {
+    const { lead, templatePrompt } = req.body;
+    if (!lead || !templatePrompt) {
+      return res.status(400).json({ error: "Lead and templatePrompt are required" });
+    }
+    const message = await gemini.generateMessage(lead, templatePrompt);
+    res.json({ success: true, message });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/messages/send", authMiddleware, async (req: any, res) => {
+  try {
+    const { instanceId, phone, message } = req.body;
+    if (!instanceId || !phone || !message) {
+      return res.status(400).json({ error: "instanceId, phone, and message are required" });
+    }
+    if (!rateLimiter.canSend(instanceId)) {
+      return res.status(429).json({ error: "Rate limit exceeded. Try again later." });
+    }
+    const sent = await instanceManager.sendMessage(instanceId, phone, message);
+    if (sent) {
+      rateLimiter.recordSend(instanceId);
+    }
+    res.json({ success: sent, message: sent ? "Message sent" : "Failed to send (number not on WhatsApp)" });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/messages/rate-limit/:instanceId", authMiddleware, async (req: any, res) => {
+  try {
+    const status = rateLimiter.getStatus(req.params.instanceId);
+    res.json({ success: true, ...status });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================== CAMPAIGN ROUTES (protected) ====================
+
+app.post("/api/campaigns/start", authMiddleware, async (req: any, res) => {
+  try {
+    const { instanceId, leads, templatePrompt, delaySeconds = 30, maxPerDay = 200 } = req.body;
+    if (!instanceId || !leads || !templatePrompt) {
+      return res.status(400).json({ error: "instanceId, leads, and templatePrompt are required" });
+    }
+    const campaignId = `campaign-${Date.now()}`;
+    campaignsActive.set(campaignId, true);
+
+    // Run campaign in background
+    (async () => {
+      let sent = 0;
+      for (const lead of leads) {
+        if (!campaignsActive.get(campaignId)) {
+          logger.info(`Campaign ${campaignId} stopped`);
+          break;
+        }
+        if (!rateLimiter.canSend(instanceId)) {
+          logger.info(`Rate limit reached, waiting...`);
+          await new Promise((r) => setTimeout(r, 60000));
+          continue;
+        }
+        try {
+          const message = await gemini.generateMessage(lead, templatePrompt);
+          const success = await instanceManager.sendMessage(instanceId, lead.phone, message);
+          if (success) {
+            // Update customer status in MySQL
+            if (lead.id) {
+              await customersService.updateStatus(
+                typeof lead.id === "number" ? lead.id : parseInt(lead.id),
+                "contacted"
+              );
+            }
+            rateLimiter.recordSend(instanceId);
+            sent++;
+            logger.info(`Campaign ${campaignId}: sent ${sent}/${leads.length} to ${lead.name}`);
+          } else {
+            if (lead.id) {
+              await customersService.updateStatus(
+                typeof lead.id === "number" ? lead.id : parseInt(lead.id),
+                "failed"
+              );
+            }
+          }
+        } catch (err: any) {
+          logger.error(`Campaign error for ${lead.name}: ${err.message}`);
+        }
+        const delay = (delaySeconds + Math.random() * 15) * 1000;
+        await new Promise((r) => setTimeout(r, delay));
+      }
+      campaignsActive.delete(campaignId);
+      logger.info(`Campaign ${campaignId} completed. Sent: ${sent}/${leads.length}`);
+    })();
+
+    res.json({ success: true, campaignId, message: `Campaign started with ${leads.length} leads` });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/campaigns/:id/stop", authMiddleware, async (req: any, res) => {
+  try {
+    campaignsActive.set(req.params.id, false);
+    res.json({ success: true, message: "Campaign stop requested" });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ==================== STATIC / SPA ====================
+
+app.get("*", (req, res) => {
+  if (!req.path.startsWith("/api")) {
+    res.sendFile(path.join(__dirname, "../public/index.html"));
+  }
+});
+
+// ===== INICIAR SERVIDOR =====
+const PORT = process.env.PORT || 3001;
+app.listen(PORT, () => {
+  logger.info(`Server running on port ${PORT}`);
+});

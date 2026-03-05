@@ -1,0 +1,20 @@
+[
+  {
+    "name": "Alho premium",
+    "description": "Alho para preparação premium",
+    "color": "#25D366",
+    "id": "cat-1771474911283-7ivvr"
+  },
+  {
+    "name": "Alho medio",
+    "description": "Alho comercial",
+    "color": "#f39c12",
+    "id": "cat-1771475694386-y6tjy"
+  },
+  {
+    "name": "Alho comum",
+    "description": "",
+    "color": "#3498db",
+    "id": "cat-1771475715367-7za71"
+  }
+]

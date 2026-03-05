@@ -1,0 +1,81 @@
+{
+  "name": "Lead System",
+  "short_name": "Leads",
+  "description": "Sistema completo de gestão de leads, campanhas e automações",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0c111a",
+  "theme_color": "#0f82ff",
+  "categories": ["business", "productivity"],
+  "screenshots": [
+    {
+      "src": "./logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "icons": [
+    {
+      "src": "./logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "./logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Dashboard",
+      "short_name": "Dashboard",
+      "description": "Visualize os dados principais",
+      "url": "./dashboard",
+      "icons": [{ "src": "./logo.png", "sizes": "512x512" }]
+    },
+    {
+      "name": "Buscas",
+      "short_name": "Buscas",
+      "description": "Busque leads e clientes",
+      "url": "./busca",
+      "icons": [{ "src": "./logo.png", "sizes": "512x512" }]
+    },
+    {
+      "name": "Mensagens",
+      "short_name": "Mensagens",
+      "description": "Gerencie mensagens",
+      "url": "./mensagens",
+      "icons": [{ "src": "./logo.png", "sizes": "512x512" }]
+    }
+  ]
+}

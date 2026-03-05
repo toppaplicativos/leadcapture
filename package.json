@@ -7,7 +7,8 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
-    "snapshot": "bash scripts/snapshot_vps.sh /root/lead-system /root/lead-system/snapshots"
+    "snapshot": "bash scripts/snapshot_vps.sh /root/lead-system /root/lead-system/snapshots",
+    "predeploy:check": "bash scripts/predeploy_check.sh /root/lead-system-local /root/lead-system"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.0",

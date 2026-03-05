@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Catálogo | Compra rápida</title>
+    <link rel="stylesheet" href="/catalogo-simples.css" />
+  </head>
+  <body>
+    <header class="hero" id="topo">
+      <div class="hero-inner container-inline">
+        <div class="hero-main">
+          <p class="badge">Catálogo Online</p>
+          <h1 id="storeName">Sua Loja</h1>
+          <p id="storeSubtitle">Compre em poucos cliques, com acompanhamento até a entrega.</p>
+          <nav class="nav">
+            <a href="#mais-vendidos">Mais vendidos</a>
+            <a href="#produtos">Outros produtos</a>
+            <a href="#checkout">Checkout</a>
+            <a href="#acompanhar">Acompanhar pedido</a>
+          </nav>
+        </div>
+        <div class="hero-card">
+          <h3>Compra simples</h3>
+          <ul>
+            <li>1. Escolha os produtos</li>
+            <li>2. Informe preferência do pedido</li>
+            <li>3. Finalize e acompanhe em tempo real</li>
+          </ul>
+          <button id="scrollToProducts" type="button">Ver produtos agora</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="container">
+      <section class="stats" aria-label="Resumo do catálogo">
+        <article>
+          <p>Total de produtos</p>
+          <strong id="statProducts">0</strong>
+        </article>
+        <article>
+          <p>Categorias</p>
+          <strong id="statCategories">0</strong>
+        </article>
+        <article>
+          <p>Pedidos registrados</p>
+          <strong id="statOrders">0</strong>
+        </article>
+      </section>
+
+      <section id="mais-vendidos">
+        <div class="section-head">
+          <h2>Produtos mais vendidos</h2>
+          <p>Escolhas com maior saída para agilizar sua decisão.</p>
+        </div>
+        <div id="bestSellers" class="grid"></div>
+      </section>
+
+      <section id="produtos">
+        <div class="section-head">
+          <h2>Outros produtos</h2>
+          <p>Use os filtros para encontrar rápido o que você precisa.</p>
+        </div>
+
+        <div class="filters">
+          <input id="searchInput" type="search" placeholder="Buscar por nome ou descrição" />
+          <select id="categoryFilter">
+            <option value="">Todas categorias</option>
+          </select>
+          <select id="sortFilter">
+            <option value="relevancia">Ordenar: relevância</option>
+            <option value="menor_preco">Menor preço</option>
+            <option value="maior_preco">Maior preço</option>
+            <option value="nome">Nome (A-Z)</option>
+          </select>
+        </div>
+
+        <div id="otherProducts" class="grid"></div>
+      </section>
+
+      <section id="checkout" class="checkout-wrap">
+        <div>
+          <div class="section-head compact">
+            <h2>Resumo do pedido</h2>
+            <p>Ajuste quantidades antes de finalizar.</p>
+          </div>
+          <div id="cartItems" class="cart-list"></div>
+          <div class="total-row">
+            <strong>Total</strong>
+            <strong id="cartTotal">R$ 0,00</strong>
+          </div>
+        </div>
+
+        <form id="checkoutForm" class="checkout-form">
+          <h3>Checkout e pagamento</h3>
+          <input name="name" placeholder="Nome completo" required />
+          <input name="phone" placeholder="WhatsApp" required />
+          <input name="email" type="email" placeholder="E-mail (opcional)" />
+          <input name="address" placeholder="Endereço (opcional)" />
+
+          <label class="field-label" for="payment-method">Forma de pagamento</label>
+          <select id="payment-method" name="payment_method" required>
+            <option value="">Selecione</option>
+            <option value="pix">PIX</option>
+            <option value="cartao">Cartão</option>
+            <option value="boleto">Boleto</option>
+          </select>
+
+          <div class="preference-group" role="group" aria-label="Preferência do pedido">
+            <p class="field-label">Preferência do pedido</p>
+            <label><input type="radio" name="order_preference" value="entrega_rapida" /> Entrega rápida</label>
+            <label><input type="radio" name="order_preference" value="retirada" /> Retirada no local</label>
+            <label><input type="radio" name="order_preference" value="agendar" /> Agendar entrega</label>
+          </div>
+
+          <textarea name="notes" rows="3" placeholder="Observações do pedido"></textarea>
+          <button type="submit">Concluir pedido</button>
+          <p id="checkoutMessage" class="message" aria-live="polite"></p>
+        </form>
+      </section>
+
+      <section id="conclusao" class="order-success hidden" aria-live="polite">
+        <div class="section-head compact">
+          <h2>Pedido concluído</h2>
+          <p>Guarde os dados abaixo para acompanhamento.</p>
+        </div>
+        <div class="success-card" id="successCard"></div>
+      </section>
+
+      <section id="acompanhar">
+        <div class="section-head">
+          <h2>Acompanhamento do pedido</h2>
+          <p>Consulte o status com número do pedido + telefone.</p>
+        </div>
+
+        <form id="trackForm" class="track-form">
+          <input name="order_number" placeholder="Número do pedido (ex: SF2603051234)" required />
+          <input name="phone" placeholder="Telefone usado no pedido" required />
+          <button type="submit">Acompanhar</button>
+        </form>
+
+        <div id="trackResult" class="track-result"></div>
+      </section>
+    </main>
+
+    <script src="/catalogo-simples.js"></script>
+  </body>
+</html>

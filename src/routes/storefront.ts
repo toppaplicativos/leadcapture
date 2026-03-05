@@ -2,7 +2,7 @@ import { Router } from "express";
 import { attachBrandContext, BrandRequest } from "../middleware/brandContext";
 import { GeminiService } from "../services/gemini";
 import { StorefrontService } from "../services/storefront";
-import { queryOne } from "../config/database";
+import { query, queryOne } from "../config/database";
 import { logger } from "../utils/logger";
 
 const router = Router();
@@ -36,6 +36,25 @@ function parseOptionalInt(value: unknown): number | undefined {
   const raw = Array.isArray(value) ? value[0] : value;
   const parsed = Number.parseInt(String(raw), 10);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function parseImageList(value: unknown): string[] {
+  const parsed = parseJson<any>(value, []);
+  if (Array.isArray(parsed)) {
+    return parsed.map((item) => String(item || "").trim()).filter(Boolean).slice(0, 12);
+  }
+
+  const raw = String(value || "").trim();
+  if (!raw) return [];
+  return raw
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 12);
+}
+
+function normalizePhone(value: unknown): string {
+  return String(value || "").replace(/\D/g, "");
 }
 
 function toOrderStatus(
@@ -760,6 +779,99 @@ publicRouter.get("/stores/:slug", async (req, res) => {
   }
 });
 
+publicRouter.get("/stores/:slug/catalog", async (req, res) => {
+  try {
+    const slug = String(req.params.slug || "").trim();
+    const bundle = await storefront.resolvePublicStore({ slug });
+    if (!bundle) return res.status(404).json({ error: "Store not found" });
+
+    const productsRaw = Array.isArray(bundle.products) ? bundle.products : [];
+    const products = productsRaw.map((item: any) => {
+      const images = parseImageList(item?.images_json);
+      return {
+        id: String(item?.id || ""),
+        slug: String(item?.slug || ""),
+        name: String(item?.name || "Produto"),
+        description: String(item?.description || "").trim() || null,
+        category: String(item?.category || "").trim() || "Outros",
+        price: Number(item?.price || 0),
+        compare_at_price: item?.compare_at_price !== undefined && item?.compare_at_price !== null
+          ? Number(item.compare_at_price)
+          : null,
+        image: images[0] || null,
+        images,
+        position: Number(item?.position || 0),
+      };
+    });
+
+    const salesRows = (await query<any[]>(
+      `SELECT items_json
+       FROM storefront_orders
+       WHERE store_id = ?
+         AND status <> 'cancelado'
+       ORDER BY created_at DESC
+       LIMIT 600`,
+      [String(bundle.store.id)]
+    )) as any[];
+
+    const soldByProductId = new Map<string, number>();
+    for (const row of salesRows) {
+      const items = parseJson<any[]>(row?.items_json, []);
+      if (!Array.isArray(items)) continue;
+
+      for (const rawItem of items) {
+        const productId = String(rawItem?.product_id || "").trim();
+        if (!productId) continue;
+        const quantity = Math.max(1, Number(rawItem?.quantity || 1));
+        soldByProductId.set(productId, (soldByProductId.get(productId) || 0) + quantity);
+      }
+    }
+
+    const ranked = products
+      .map((product) => ({
+        ...product,
+        sold_quantity: soldByProductId.get(product.id) || 0,
+      }))
+      .sort((a, b) => {
+        if (b.sold_quantity !== a.sold_quantity) return b.sold_quantity - a.sold_quantity;
+        if (a.position !== b.position) return a.position - b.position;
+        return a.name.localeCompare(b.name, "pt-BR");
+      });
+
+    const bestSellers = ranked.filter((item) => item.sold_quantity > 0).slice(0, 8);
+    const fallbackBest = bestSellers.length > 0 ? bestSellers : ranked.slice(0, Math.min(6, ranked.length));
+    const bestIds = new Set(fallbackBest.map((item) => item.id));
+    const others = ranked.filter((item) => !bestIds.has(item.id));
+
+    const categoryMap = new Map<string, number>();
+    for (const product of ranked) {
+      const category = String(product.category || "Outros").trim() || "Outros";
+      categoryMap.set(category, (categoryMap.get(category) || 0) + 1);
+    }
+
+    res.json({
+      success: true,
+      store: {
+        id: bundle.store.id,
+        slug: bundle.store.slug,
+        name: bundle.store.name,
+        brand: bundle.store.brand || {},
+        theme: bundle.store.theme || {},
+      },
+      categories: Array.from(categoryMap.entries()).map(([name, count]) => ({ name, count })),
+      best_sellers: fallbackBest,
+      other_products: others,
+      all_products: ranked,
+      stats: {
+        total_products: ranked.length,
+        total_orders: salesRows.length,
+      },
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || "Failed to load catalog" });
+  }
+});
+
 publicRouter.get("/stores/:slug/products/:productSlug", async (req, res) => {
   try {
     const product = await storefront.getPublicProduct(String(req.params.slug), String(req.params.productSlug));
@@ -789,6 +901,70 @@ publicRouter.post("/stores/:slug/orders", async (req, res) => {
     const badRequest = message.includes("required") || message.includes("invalid") || message.includes("not available") || message.includes("at least");
     const status = message === "Store not found" ? 404 : badRequest ? 400 : 500;
     res.status(status).json({ error: message || "Failed to create order" });
+  }
+});
+
+publicRouter.get("/stores/:slug/orders/track", async (req, res) => {
+  try {
+    const slug = String(req.params.slug || "").trim();
+    const orderNumber = String(req.query.order_number || "").trim().toUpperCase();
+    const customerPhone = normalizePhone(req.query.phone || req.query.customer_phone || "");
+
+    if (!orderNumber || !customerPhone) {
+      return res.status(400).json({ error: "order_number e phone são obrigatórios" });
+    }
+
+    const bundle = await storefront.resolvePublicStore({ slug });
+    if (!bundle) return res.status(404).json({ error: "Store not found" });
+
+    const order = await queryOne<any>(
+      `SELECT *
+       FROM storefront_orders
+       WHERE store_id = ?
+         AND order_number = ?
+       LIMIT 1`,
+      [String(bundle.store.id), orderNumber]
+    );
+
+    if (!order) return res.status(404).json({ error: "Pedido não encontrado" });
+
+    const orderPhone = normalizePhone(order.customer_phone);
+    if (!orderPhone || !orderPhone.endsWith(customerPhone.slice(-8))) {
+      return res.status(403).json({ error: "Telefone não confere para este pedido" });
+    }
+
+    const timeline = await query<any[]>(
+      `SELECT event_type, status_before, status_after, actor_type, actor_name, payload_json, created_at
+       FROM storefront_order_timeline
+       WHERE store_id = ?
+         AND order_id = ?
+       ORDER BY created_at ASC`,
+      [String(bundle.store.id), String(order.id)]
+    );
+
+    const items = parseJson<any[]>(order.items_json, []);
+
+    res.json({
+      success: true,
+      order: {
+        id: order.id,
+        order_number: order.order_number,
+        status: order.status,
+        total: Number(order.total || 0),
+        payment_method: order.payment_method || null,
+        customer_name: order.customer_name || null,
+        customer_phone: order.customer_phone || null,
+        created_at: order.created_at,
+        updated_at: order.updated_at,
+        items,
+      },
+      timeline: (timeline || []).map((entry: any) => ({
+        ...entry,
+        payload: parseJson(entry?.payload_json, {}),
+      })),
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || "Failed to track order" });
   }
 });
 

@@ -81,6 +81,14 @@ app.get("/api/health", (req, res) => {
   });
 });
 
+app.get("/catalogo/:slug", (req, res) => {
+  res.sendFile(path.join(__dirname, "../public/catalogo-simples.html"));
+});
+
+app.get("/catalogo", (_req, res) => {
+  res.sendFile(path.join(__dirname, "../public/catalogo-simples.html"));
+});
+
 // ==================== PROTECTED ROUTES ====================
 app.use("/api/customers", authMiddleware, customersRoutes);
 app.use("/api/knowledge-base", authMiddleware, knowledgeBaseRoutes);

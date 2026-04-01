@@ -347,7 +347,10 @@ export class StorefrontService {
       twitter_url: String(brandUnit.twitter_url || "").trim() || currentBrand.twitter_url || null,
       tiktok_url: String(brandUnit.tiktok_url || "").trim() || currentBrand.tiktok_url || null,
       domain: String(brandUnit.domain || "").trim() || currentBrand.domain || null,
-      status: String(brandUnit.status || currentBrand.status || "active").trim() || "active",
+      // Preserve 'aberto'/'fechado' if explicitly set; otherwise sync from brand_units.status
+      status: (currentBrand.status === "aberto" || currentBrand.status === "fechado")
+        ? currentBrand.status
+        : String(brandUnit.status || "active").trim() || "active",
       synced_at: this.toIsoNow(),
     } as Record<string, any>;
 

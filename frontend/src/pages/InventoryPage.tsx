@@ -5,7 +5,7 @@ import {
   Search, Plus, ArrowDown, ArrowUp, Scale, History, Settings, Pencil, X,
   ChevronLeft, ChevronRight, RefreshCw, Upload, Loader2, LogOut, Menu,
   PackageOpen, Zap, ShoppingCart, Minus, User, Phone, Mail, CreditCard,
-  Banknote, CheckCircle2, Receipt,
+  Banknote, CheckCircle2, Receipt, Palette, Globe,
 } from 'lucide-react'
 import { inventoryApi } from '@/lib/api-admin'
 
@@ -84,7 +84,7 @@ function getAuthHeaders(): Record<string, string> {
 /* ══════════════════════════════════════════════
    MAIN COMPONENT
    ══════════════════════════════════════════════ */
-type ViewKey = 'overview' | 'products' | 'movements' | 'expedition' | 'alerts' | 'sales' | 'reports'
+type ViewKey = 'overview' | 'products' | 'movements' | 'expedition' | 'alerts' | 'sales' | 'reports' | 'design'
 
 export function InventoryPage() {
   const navigate = useNavigate()
@@ -141,8 +141,9 @@ export function InventoryPage() {
     { key: 'alerts', icon: AlertTriangle, label: 'Alertas', badge: alertCount },
     { key: 'sales' as ViewKey, icon: ShoppingCart, label: 'Vendas' },
     { key: 'reports', icon: BarChart3, label: 'Relatórios' },
+    { key: 'design' as ViewKey, icon: Palette, label: 'Design' },
   ]
-  const bottomItems = navItems.filter(n => !['expedition', 'reports'].includes(n.key))
+  const bottomItems = navItems.filter(n => !['expedition', 'reports', 'design'].includes(n.key))
 
   return (
     <div className="min-h-screen bg-bg">
@@ -207,6 +208,7 @@ export function InventoryPage() {
           {view === 'alerts' && <AlertsView showToast={showToast} onAlertCount={setAlertCount} onRefresh={() => setRefreshKey(k => k + 1)} />}
           {view === 'sales' && <SalesView showToast={showToast} onPDV={() => setShowPDV(true)} />}
           {view === 'reports' && <ReportsView showToast={showToast} />}
+          {view === 'design' && <DesignView showToast={showToast} />}
         </main>
       </div>
 
@@ -1912,6 +1914,328 @@ function PDVModal({ onClose, showToast, onOrderCreated }: {
             </div>
           </div>
         )}
+      </div>
+    </div>
+  )
+}
+
+/* ══════════════════════════════════════════════
+   DESIGN VIEW — Configurações do Catálogo
+   ══════════════════════════════════════════════ */
+function DesignView({ showToast }: { showToast: (t: string, tp?: 'success' | 'error') => void }) {
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [storeId, setStoreId] = useState('')
+  const [brandId, setBrandId] = useState('')
+  const [slug, setSlug] = useState('')
+  const [currentBrand, setCurrentBrand] = useState<Record<string, any>>({})
+
+  // Brand identity
+  const [brandName, setBrandName] = useState('')
+  const [slogan, setSlogan] = useState('')
+  const [description, setDescription] = useState('')
+  const [logoUrl, setLogoUrl] = useState('')
+  const [primaryColor, setPrimaryColor] = useState('#111827')
+  const [secondaryColor, setSecondaryColor] = useState('#3b82f6')
+  const [coverImage, setCoverImage] = useState('')
+
+  // Logistics
+  const [deliveryFee, setDeliveryFee] = useState('')
+  const [deliveryRadius, setDeliveryRadius] = useState('')
+  const [freeShippingAbove, setFreeShippingAbove] = useState('')
+  const [deliveryTimeText, setDeliveryTimeText] = useState('')
+  const [etaMinutes, setEtaMinutes] = useState('')
+
+  // Checkout
+  const [collectEmail, setCollectEmail] = useState(true)
+  const [collectAddress, setCollectAddress] = useState(true)
+
+  // Status
+  const [storeStatus, setStoreStatus] = useState<'aberto' | 'fechado'>('aberto')
+
+  function getHeaders(): Record<string, string> {
+    const h: Record<string, string> = { 'Content-Type': 'application/json' }
+    const token = localStorage.getItem('lead-system-token')
+    if (token) h['Authorization'] = `Bearer ${token}`
+    const bid = localStorage.getItem('lead-system:active-brand-id')
+    if (bid) h['x-brand-id'] = bid
+    return h
+  }
+
+  useEffect(() => {
+    setLoading(true)
+    const headers = getHeaders()
+    fetch('/api/storefront/stores', { headers })
+      .then(r => r.json())
+      .then(async d => {
+        const stores = d.stores || []
+        if (!stores.length) { setLoading(false); return }
+        const store = stores[0]
+        setStoreId(store.id)
+        setSlug(store.slug || '')
+
+        const r2 = await fetch(`/api/storefront/stores/${store.id}`, { headers })
+        const d2 = await r2.json()
+        const s = d2.store || {}
+        const brand = s.brand || {}
+        const settings = s.settings || {}
+        const logistics = settings.logistics || {}
+        const checkout = settings.checkout || {}
+
+        setCurrentBrand(brand)
+        setBrandId(brand.id || store.brand_id || '')
+        setBrandName(brand.name || s.name || '')
+        setSlogan(brand.slogan || '')
+        setDescription(brand.description || '')
+        setLogoUrl(brand.logo_url || s.theme?.logo_url || '')
+        setPrimaryColor(brand.primary_color || s.theme?.primary_color || '#111827')
+        setSecondaryColor(brand.secondary_color || s.theme?.secondary_color || '#3b82f6')
+        setCoverImage(brand.cover_image || s.theme?.cover_image || '')
+        setDeliveryFee(logistics.delivery_fee != null ? String(logistics.delivery_fee) : '')
+        setDeliveryRadius(logistics.delivery_radius_km != null ? String(logistics.delivery_radius_km) : '')
+        setFreeShippingAbove(logistics.free_shipping_above != null ? String(logistics.free_shipping_above) : '')
+        setDeliveryTimeText(logistics.delivery_time_text || '')
+        setEtaMinutes(logistics.default_eta_minutes != null ? String(logistics.default_eta_minutes) : '')
+        setCollectEmail(checkout.collect_email !== false)
+        setCollectAddress(checkout.collect_address !== false)
+        setStoreStatus(brand.status === 'fechado' ? 'fechado' : 'aberto')
+        setLoading(false)
+      })
+      .catch(err => {
+        showToast(err.message || 'Erro ao carregar configurações', 'error')
+        setLoading(false)
+      })
+  }, [])
+
+  async function handleSave() {
+    if (!storeId) return
+    setSaving(true)
+    try {
+      const headers = getHeaders()
+      // Save brand identity to brand_units
+      if (brandId) {
+        const br = await fetch(`/api/brands/${brandId}`, {
+          method: 'PATCH', headers,
+          body: JSON.stringify({ name: brandName, slogan, logo_url: logoUrl, primary_color: primaryColor, secondary_color: secondaryColor }),
+        })
+        if (!br.ok) { const e = await br.json(); throw new Error(e.error || 'Erro ao salvar marca') }
+      }
+      // Save store settings (logistics, checkout, status, cover_image via brand)
+      const sr = await fetch(`/api/storefront/stores/${storeId}`, {
+        method: 'PATCH', headers,
+        body: JSON.stringify({
+          brand: { ...currentBrand, name: brandName, slogan, description, logo_url: logoUrl, primary_color: primaryColor, secondary_color: secondaryColor, cover_image: coverImage, status: storeStatus },
+          settings: {
+            logistics: {
+              ...(deliveryFee !== '' ? { delivery_fee: parseFloat(deliveryFee) } : {}),
+              ...(deliveryRadius !== '' ? { delivery_radius_km: parseFloat(deliveryRadius) } : {}),
+              ...(freeShippingAbove !== '' ? { free_shipping_above: parseFloat(freeShippingAbove) } : {}),
+              ...(deliveryTimeText ? { delivery_time_text: deliveryTimeText } : {}),
+              ...(etaMinutes !== '' ? { default_eta_minutes: parseInt(etaMinutes) } : {}),
+            },
+            checkout: { collect_email: collectEmail, collect_address: collectAddress },
+          },
+        }),
+      })
+      if (!sr.ok) { const e = await sr.json(); throw new Error(e.error || 'Erro ao salvar loja') }
+      showToast('Configurações salvas! O catálogo foi atualizado.')
+    } catch (e: any) {
+      showToast(e.message || 'Erro ao salvar', 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const Toggle = ({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) => (
+    <button type="button" onClick={() => onChange(!value)}
+      className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${value ? 'bg-emerald-500' : 'bg-gray-300'}`}>
+      <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${value ? 'translate-x-5' : 'translate-x-0'}`} />
+    </button>
+  )
+
+  const Field = ({ label, children }: { label: string; children: React.ReactNode }) => (
+    <div>
+      <label className="text-xs font-semibold text-gray-500 mb-1.5 block">{label}</label>
+      {children}
+    </div>
+  )
+
+  const inputCls = 'w-full px-3 py-2.5 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400 bg-white'
+
+  if (loading) return <Skeleton rows={10} />
+
+  return (
+    <div className="space-y-5 pb-10">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h2 className="text-lg font-bold text-gray-900">Design do Catálogo</h2>
+          <p className="text-sm text-muted mt-0.5">Aparência, frete e configurações do catálogo público</p>
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          {slug && (
+            <a href={`/catalogo/${slug}`} target="_blank" rel="noreferrer"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-border text-sm font-medium text-gray-600 hover:bg-gray-50 transition">
+              <Globe size={14} /> Visualizar Catálogo
+            </a>
+          )}
+          <button onClick={handleSave} disabled={saving}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-500 text-white text-sm font-semibold hover:bg-blue-600 disabled:opacity-60 transition shadow-sm">
+            {saving ? <><Loader2 size={14} className="animate-spin" /> Salvando...</> : 'Salvar Alterações'}
+          </button>
+        </div>
+      </div>
+
+      {/* ── 1. Identidade Visual ── */}
+      <section className="bg-white border border-border rounded-2xl p-5 space-y-4">
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 bg-purple-50 rounded-lg grid place-items-center shrink-0">
+            <Palette size={15} className="text-purple-500" />
+          </div>
+          <h3 className="text-sm font-bold">Identidade Visual</h3>
+        </div>
+
+        <Field label="Logo da Loja">
+          <div className="flex items-center gap-3">
+            <div className="w-14 h-14 rounded-xl border border-border bg-gray-50 flex items-center justify-center overflow-hidden shrink-0">
+              {logoUrl
+                ? <img src={logoUrl} alt="Logo" className="w-full h-full object-cover" onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
+                : <Package size={20} className="text-muted-light" />}
+            </div>
+            <input type="url" value={logoUrl} onChange={e => setLogoUrl(e.target.value)}
+              placeholder="https://... URL da imagem" className={inputCls} />
+          </div>
+        </Field>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <Field label="Nome da Loja">
+            <input type="text" value={brandName} onChange={e => setBrandName(e.target.value)} placeholder="Ex: Minha Loja" className={inputCls} />
+          </Field>
+          <Field label="Slogan / Subtítulo">
+            <input type="text" value={slogan} onChange={e => setSlogan(e.target.value)} placeholder="Ex: Qualidade que você pode confiar" className={inputCls} />
+          </Field>
+        </div>
+
+        <Field label="Descrição / Sobre nós">
+          <textarea value={description} onChange={e => setDescription(e.target.value)} rows={2}
+            placeholder="Conte um pouco sobre sua loja..."
+            className={inputCls + ' resize-none'} />
+        </Field>
+
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Cor Primária">
+            <div className="flex items-center gap-3 px-3 py-2 border border-border rounded-xl bg-white">
+              <input type="color" value={primaryColor} onChange={e => setPrimaryColor(e.target.value)}
+                className="w-8 h-8 rounded-lg cursor-pointer border-0 p-0 bg-transparent" />
+              <span className="text-sm font-mono text-gray-600">{primaryColor}</span>
+            </div>
+          </Field>
+          <Field label="Cor Secundária">
+            <div className="flex items-center gap-3 px-3 py-2 border border-border rounded-xl bg-white">
+              <input type="color" value={secondaryColor} onChange={e => setSecondaryColor(e.target.value)}
+                className="w-8 h-8 rounded-lg cursor-pointer border-0 p-0 bg-transparent" />
+              <span className="text-sm font-mono text-gray-600">{secondaryColor}</span>
+            </div>
+          </Field>
+        </div>
+
+        <Field label="Imagem de Capa / Banner">
+          <input type="url" value={coverImage} onChange={e => setCoverImage(e.target.value)}
+            placeholder="https://... URL da imagem de capa" className={inputCls} />
+        </Field>
+        {coverImage && (
+          <div className="relative h-28 rounded-xl overflow-hidden border border-border bg-gray-100">
+            <img src={coverImage} alt="Capa" className="w-full h-full object-cover"
+              onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
+          </div>
+        )}
+      </section>
+
+      {/* ── 2. Frete e Entrega ── */}
+      <section className="bg-white border border-border rounded-2xl p-5 space-y-4">
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 bg-blue-50 rounded-lg grid place-items-center shrink-0">
+            <Truck size={15} className="text-blue-500" />
+          </div>
+          <h3 className="text-sm font-bold">Frete e Entrega</h3>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Taxa de Entrega (R$)">
+            <input type="number" step="0.01" min="0" value={deliveryFee} onChange={e => setDeliveryFee(e.target.value)}
+              placeholder="0,00" className={inputCls} />
+          </Field>
+          <Field label="Raio de Entrega (km)">
+            <input type="number" step="1" min="0" value={deliveryRadius} onChange={e => setDeliveryRadius(e.target.value)}
+              placeholder="Ex: 30" className={inputCls} />
+          </Field>
+          <Field label="Frete Grátis acima de (R$)">
+            <input type="number" step="0.01" min="0" value={freeShippingAbove} onChange={e => setFreeShippingAbove(e.target.value)}
+              placeholder="Ex: 200,00" className={inputCls} />
+          </Field>
+          <Field label="Tempo estimado (minutos)">
+            <input type="number" step="1" min="0" value={etaMinutes} onChange={e => setEtaMinutes(e.target.value)}
+              placeholder="Ex: 40" className={inputCls} />
+          </Field>
+        </div>
+
+        <Field label="Texto de entrega (exibido no catálogo)">
+          <input type="text" value={deliveryTimeText} onChange={e => setDeliveryTimeText(e.target.value)}
+            placeholder="Ex: Entrega em até 3 dias úteis" className={inputCls} />
+        </Field>
+      </section>
+
+      {/* ── 3. Checkout ── */}
+      <section className="bg-white border border-border rounded-2xl p-5 space-y-3">
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 bg-emerald-50 rounded-lg grid place-items-center shrink-0">
+            <ShoppingCart size={15} className="text-emerald-500" />
+          </div>
+          <h3 className="text-sm font-bold">Checkout</h3>
+        </div>
+        {[
+          { label: 'Coletar e-mail do cliente', sub: 'Campo de e-mail no formulário de pedido', value: collectEmail, onChange: setCollectEmail },
+          { label: 'Coletar endereço de entrega', sub: 'Campo de endereço no formulário de pedido', value: collectAddress, onChange: setCollectAddress },
+        ].map(({ label, sub, value, onChange }) => (
+          <div key={label} className="flex items-center justify-between gap-4 py-2.5 border-b border-border last:border-0">
+            <div>
+              <p className="text-sm font-medium text-gray-800">{label}</p>
+              <p className="text-xs text-muted">{sub}</p>
+            </div>
+            <Toggle value={value} onChange={onChange} />
+          </div>
+        ))}
+      </section>
+
+      {/* ── 4. Status da Loja ── */}
+      <section className="bg-white border border-border rounded-2xl p-5 space-y-4">
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 bg-amber-50 rounded-lg grid place-items-center shrink-0">
+            <Globe size={15} className="text-amber-500" />
+          </div>
+          <h3 className="text-sm font-bold">Status da Loja</h3>
+        </div>
+        <p className="text-sm text-muted -mt-2">Controla o badge "Aberto/Fechado" exibido no catálogo</p>
+        <div className="flex gap-3">
+          {(['aberto', 'fechado'] as const).map(s => (
+            <button key={s} type="button" onClick={() => setStoreStatus(s)}
+              className={`flex-1 py-3 rounded-xl text-sm font-bold transition ${
+                storeStatus === s
+                  ? s === 'aberto' ? 'bg-emerald-500 text-white shadow-sm' : 'bg-red-500 text-white shadow-sm'
+                  : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+              }`}>
+              {s === 'aberto' ? '🟢 Aberto' : '🔴 Fechado'}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {/* Bottom save */}
+      <div className="flex justify-end">
+        <button onClick={handleSave} disabled={saving}
+          className="flex items-center gap-2 px-6 py-3 rounded-xl bg-blue-500 text-white font-semibold hover:bg-blue-600 disabled:opacity-60 transition shadow-sm">
+          {saving ? <><Loader2 size={16} className="animate-spin" /> Salvando...</> : 'Salvar Alterações'}
+        </button>
       </div>
     </div>
   )

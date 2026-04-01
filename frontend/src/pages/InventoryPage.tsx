@@ -524,54 +524,83 @@ function MovementsView({ showToast }: { showToast: (t: string, tp?: 'success' | 
    EXPEDITION VIEW
    ══════════════════════════════════════════════ */
 function ExpeditionView({ showToast }: { showToast: (t: string, tp?: 'success' | 'error') => void }) {
-  const [items, setItems] = useState<Expedition[]>([])
-  const [page, setPage] = useState(1)
-  const [total, setTotal] = useState(0)
+  const [orders, setOrders] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [modal, setModal] = useState(false)
-  const limit = 50
 
-  const load = useCallback((pg: number) => {
+  useEffect(() => {
     setLoading(true)
-    inventoryApi.expedition(pg, limit)
-      .then(d => { setItems(Array.isArray(d.items) ? d.items : []); setTotal(d.total || 0) })
-      .catch(e => showToast(e.message, 'error'))
-      .finally(() => setLoading(false))
+    fetch('/api/orders?limit=50', { headers: getAuthHeaders() })
+      .then(r => r.json())
+      .then(d => {
+        setOrders(d.orders || [])
+        setLoading(false)
+      })
+      .catch(() => setLoading(false))
   }, [])
 
-  useEffect(() => { load(1) }, [])
+  if (loading) return <Skeleton rows={4} />
 
-  const totalPages = Math.ceil(total / limit)
+  const columns = [
+    { key: 'aguardando', label: 'Aguardando', color: 'text-amber-600', bg: 'bg-amber-50', statuses: ['pago', 'aprovado'] },
+    { key: 'separando', label: 'Separando', color: 'text-orange-600', bg: 'bg-orange-50', statuses: ['em_preparacao'] },
+    { key: 'pronto', label: 'Pronto Envio', color: 'text-blue-600', bg: 'bg-blue-50', statuses: ['pronto'] },
+    { key: 'rota', label: 'Em Rota', color: 'text-purple-600', bg: 'bg-purple-50', statuses: ['em_entrega', 'saiu_para_entrega'] },
+    { key: 'entregue', label: 'Entregue', color: 'text-emerald-600', bg: 'bg-emerald-50', statuses: ['entregue'] },
+  ]
+
+  const grouped: Record<string, any[]> = {}
+  columns.forEach(c => { grouped[c.key] = [] })
+
+  orders.forEach(o => {
+    const st = o.business_status || o.status_pedido || ''
+    if (['cancelado', 'aguardando_pagamento', 'novo', 'criado', 'estornado', 'abandonado'].includes(st)) return
+    const col = columns.find(c => c.statuses.includes(st))
+    if (col) grouped[col.key].push(o)
+  })
+
+  const totalInKanban = Object.values(grouped).reduce((s, arr) => s + arr.length, 0)
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-bold">Expedição</h2>
-        <button onClick={() => setModal(true)} className="flex items-center gap-1 text-xs font-semibold bg-blue-500 text-white px-3 py-2 rounded-lg hover:bg-blue-600 transition">
-          <Plus size={14} /> Nova
-        </button>
+        <span className="text-sm text-muted">{totalInKanban} pedido(s) em fluxo</span>
       </div>
 
-      {loading ? <Skeleton rows={4} /> : items.length === 0 ? (
-        <EmptyState text="Nenhuma expedição registrada" />
+      {totalInKanban === 0 ? (
+        <div className="text-center py-16 text-muted">
+          <Truck className="w-10 h-10 mx-auto mb-3 opacity-30" />
+          <p className="font-medium">Nenhum pedido em expedição</p>
+          <p className="text-sm mt-1">Pedidos pagos aparecerão aqui automaticamente</p>
+        </div>
       ) : (
-        <>
-          <div className="space-y-2">
-            {items.map((e, i) => (
-              <div key={i} className="bg-white border border-border rounded-xl p-3 flex items-center gap-3">
-                <div className="w-9 h-9 rounded-lg bg-blue-100 text-blue-600 grid place-items-center flex-shrink-0"><Truck size={16} /></div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold">Pedido #{e.order_id}</p>
-                  <p className="text-xs text-muted">{dt(e.expedition_date)} • {num(e.items_count)} item(ns) • {num(e.total_units)} un</p>
+        <div className="flex gap-3 overflow-x-auto pb-4 -mx-4 px-4 scrollbar-hide">
+          {columns.map(col => {
+            const items = grouped[col.key] || []
+            return (
+              <div key={col.key} className="shrink-0 w-64 min-w-[256px]">
+                <div className={`flex items-center justify-between px-3 py-2 rounded-t-xl ${col.bg}`}>
+                  <span className={`text-xs font-bold uppercase tracking-wide ${col.color}`}>{col.label}</span>
+                  <span className={`text-[10px] font-bold ${col.color} bg-white/80 rounded-full px-1.5 py-0.5`}>{items.length}</span>
+                </div>
+                <div className="bg-gray-50/50 rounded-b-xl border border-border border-t-0 min-h-[200px] p-2 space-y-2">
+                  {items.length === 0 ? (
+                    <p className="text-center text-xs text-muted py-8">Vazio</p>
+                  ) : items.map((o, i) => (
+                    <div key={i} className="bg-white border border-border rounded-xl p-3 shadow-sm hover:shadow transition">
+                      <p className="text-sm font-semibold truncate">{o.customer_name || 'Cliente'}</p>
+                      <div className="flex items-center justify-between mt-1">
+                        <span className="text-xs text-muted">{dt(o.created_at)}</span>
+                        <span className="text-sm font-bold">{money(o.valor_total || o.total)}</span>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
-            ))}
-          </div>
-          <Pagination page={page} totalPages={totalPages} onChange={(p) => { setPage(p); load(p) }} />
-        </>
+            )
+          })}
+        </div>
       )}
-
-      {modal && <ExpeditionModal onClose={() => setModal(false)} onDone={() => { setModal(false); load(1) }} showToast={showToast} />}
     </div>
   )
 }

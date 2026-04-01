@@ -1,10 +1,12 @@
-import { useState, useEffect, FormEvent } from 'react'
+import { useState, useEffect, useRef, FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Search, MapPin, Loader2, Star, Phone, Globe, ExternalLink,
   CheckCircle2, Sparkles, Zap, ChevronDown, ChevronUp, ArrowLeft,
-  Building2, Navigation, Users, Filter,
+  Building2, Navigation, Users, Filter, Map as MapIcon, List,
 } from 'lucide-react'
+import L from 'leaflet'
+import 'leaflet/dist/leaflet.css'
 
 /* ── Helpers ── */
 function getHeaders(): Record<string, string> {
@@ -47,9 +49,13 @@ export function LeadSearchPage() {
   const [stats, setStats] = useState<{ total: number; created: number; skipped: number; automationQueued: number } | null>(null)
   const [searched, setSearched] = useState(false)
 
-  // Filter
+  // Filter + Map
   const [statusFilter, setStatusFilter] = useState<'all' | 'new' | 'captured'>('all')
   const [searchFilter, setSearchFilter] = useState('')
+  const [viewMode, setViewMode] = useState<'list' | 'map'>('list')
+  const [capturedPoints, setCapturedPoints] = useState<any[]>([])
+  const mapRef = useRef<HTMLDivElement>(null)
+  const mapInstance = useRef<L.Map | null>(null)
 
   // Brand
   const [brandName, setBrandName] = useState('')
@@ -82,12 +88,16 @@ export function LeadSearchPage() {
       const d = await r.json()
       if (!r.ok) throw new Error(d.error || `Erro ${r.status}`)
       setLeads(d.leads || [])
+      setCapturedPoints(d.capturedPoints || [])
       setStats({
         total: d.total || 0,
         created: d.persisted?.created || 0,
         skipped: d.persisted?.skipped || 0,
         automationQueued: d.automation?.queued_jobs || 0,
       })
+      // Auto-switch to map if results have locations
+      const hasLocations = (d.leads || []).some((l: any) => l.location?.latitude)
+      if (hasLocations) setViewMode('map')
     } catch (err: any) {
       setError(err.message || 'Erro na busca')
     } finally {
@@ -238,15 +248,29 @@ export function LeadSearchPage() {
         {/* ── Results ── */}
         {searched && !loading && leads.length > 0 && (
           <div className="space-y-3">
-            {/* Filter bar */}
+            {/* Filter bar + view toggle */}
             <div className="flex items-center justify-between gap-3 flex-wrap">
-              <div className="flex gap-1 bg-gray-100 p-0.5 rounded-lg">
-                {([['all', `Todos (${leads.length})`], ['new', `Novos (${newCount})`], ['captured', `Existentes (${capturedCount})`]] as const).map(([k, l]) => (
-                  <button key={k} onClick={() => setStatusFilter(k)}
-                    className={`px-3 py-1.5 rounded-md text-[11px] font-semibold transition ${
-                      statusFilter === k ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-                    }`}>{l}</button>
-                ))}
+              <div className="flex items-center gap-2">
+                {/* View mode toggle */}
+                <div className="flex gap-0.5 bg-gray-100 p-0.5 rounded-lg">
+                  <button onClick={() => setViewMode('map')}
+                    className={`p-1.5 rounded-md transition ${viewMode === 'map' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-400 hover:text-gray-600'}`}>
+                    <MapIcon size={14} />
+                  </button>
+                  <button onClick={() => setViewMode('list')}
+                    className={`p-1.5 rounded-md transition ${viewMode === 'list' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-400 hover:text-gray-600'}`}>
+                    <List size={14} />
+                  </button>
+                </div>
+                {/* Status filter */}
+                <div className="flex gap-1 bg-gray-100 p-0.5 rounded-lg">
+                  {([['all', `Todos (${leads.length})`], ['new', `Novos (${newCount})`], ['captured', `Existentes (${capturedCount})`]] as const).map(([k, l]) => (
+                    <button key={k} onClick={() => setStatusFilter(k)}
+                      className={`px-3 py-1.5 rounded-md text-[11px] font-semibold transition ${
+                        statusFilter === k ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                      }`}>{l}</button>
+                  ))}
+                </div>
               </div>
               <div className="relative">
                 <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" />
@@ -256,12 +280,19 @@ export function LeadSearchPage() {
               </div>
             </div>
 
-            {/* Lead cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
-              {filtered.map(lead => (
-                <LeadCard key={lead.id} lead={lead} />
-              ))}
-            </div>
+            {/* Map view */}
+            {viewMode === 'map' && (
+              <LeadMap leads={filtered} capturedPoints={capturedPoints} mapRef={mapRef} mapInstance={mapInstance} />
+            )}
+
+            {/* List view */}
+            {viewMode === 'list' && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                {filtered.map(lead => (
+                  <LeadCard key={lead.id} lead={lead} />
+                ))}
+              </div>
+            )}
 
             {filtered.length === 0 && (
               <p className="text-center text-sm text-muted py-8">Nenhum resultado para o filtro selecionado</p>
@@ -290,6 +321,80 @@ export function LeadSearchPage() {
             </p>
           </div>
         )}
+      </div>
+    </div>
+  )
+}
+
+/* ── Leaflet Map ── */
+function LeadMap({ leads, capturedPoints, mapRef, mapInstance }: {
+  leads: Lead[]; capturedPoints: any[]
+  mapRef: React.RefObject<HTMLDivElement | null>; mapInstance: React.MutableRefObject<L.Map | null>
+}) {
+  useEffect(() => {
+    if (!mapRef.current) return
+    // Destroy previous
+    if (mapInstance.current) { mapInstance.current.remove(); mapInstance.current = null }
+
+    const allPts: [number, number][] = []
+    leads.forEach(l => { if (l.location?.latitude) allPts.push([l.location.latitude, l.location.longitude]) })
+    capturedPoints.forEach(p => { if (p.latitude) allPts.push([p.latitude, p.longitude]) })
+    if (allPts.length === 0) return
+
+    const center = allPts.reduce((acc, pt) => [acc[0] + pt[0] / allPts.length, acc[1] + pt[1] / allPts.length], [0, 0]) as [number, number]
+
+    const map = L.map(mapRef.current, { zoomControl: false }).setView(center, 13)
+    L.control.zoom({ position: 'bottomright' }).addTo(map)
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OSM',
+      maxZoom: 18,
+    }).addTo(map)
+
+    // Captured points (gray, smaller)
+    capturedPoints.forEach(p => {
+      if (!p.latitude) return
+      const isInResults = leads.some(l => l.location?.latitude === p.latitude && l.location?.longitude === p.longitude)
+      if (isInResults) return // skip duplicates
+      L.circleMarker([p.latitude, p.longitude], {
+        radius: 4, color: '#9ca3af', fillColor: '#d1d5db', fillOpacity: 0.6, weight: 1,
+      }).addTo(map).bindPopup(`<b style="font-size:12px">${p.name}</b><br><span style="font-size:10px;color:#888">${(p.queryLabels || []).join(', ')}</span>`)
+    })
+
+    // Current search results
+    const bounds: [number, number][] = []
+    leads.forEach(l => {
+      if (!l.location?.latitude) return
+      const pos: [number, number] = [l.location.latitude, l.location.longitude]
+      bounds.push(pos)
+      const isNew = l.captureStatus === 'new'
+      const color = isNew ? '#10b981' : '#3b82f6'
+      const fillColor = isNew ? '#34d399' : '#60a5fa'
+      L.circleMarker(pos, {
+        radius: 7, color, fillColor, fillOpacity: 0.85, weight: 2,
+      }).addTo(map).bindPopup(
+        `<div style="min-width:160px">` +
+        `<b style="font-size:13px">${l.name}</b>` +
+        (l.rating > 0 ? `<br><span style="font-size:11px;color:#d97706">★ ${l.rating.toFixed(1)} (${l.reviews})</span>` : '') +
+        (l.phone ? `<br><span style="font-size:11px">${l.phone}</span>` : '') +
+        (l.address ? `<br><span style="font-size:10px;color:#888">${l.address}</span>` : '') +
+        `<br><span style="font-size:10px;font-weight:600;color:${isNew ? '#10b981' : '#6b7280'}">${isNew ? '● NOVO' : '● EXISTENTE'}</span>` +
+        `</div>`
+      )
+    })
+
+    if (bounds.length > 1) map.fitBounds(bounds, { padding: [40, 40] })
+    mapInstance.current = map
+
+    return () => { if (mapInstance.current) { mapInstance.current.remove(); mapInstance.current = null } }
+  }, [leads, capturedPoints])
+
+  return (
+    <div className="bg-white border border-border rounded-2xl overflow-hidden shadow-sm">
+      <div ref={mapRef} className="w-full" style={{ height: '420px' }} />
+      <div className="px-4 py-2.5 border-t border-border bg-gray-50/80 flex items-center gap-4 text-[10px] text-muted">
+        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block" /> Novos desta busca</span>
+        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-blue-500 inline-block" /> Existentes</span>
+        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-gray-300 inline-block" /> Capturados anteriormente</span>
       </div>
     </div>
   )

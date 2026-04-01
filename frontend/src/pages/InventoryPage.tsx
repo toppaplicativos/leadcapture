@@ -147,16 +147,16 @@ export function InventoryPage() {
   return (
     <div className="min-h-screen bg-bg">
       {/* ── Top bar (mobile) ── */}
-      <header className="sticky top-0 z-50 bg-slate-900 text-white flex items-center justify-between px-4 h-14 lg:hidden">
+      <header className="sticky top-0 z-50 bg-gradient-to-r from-gray-900 to-gray-800 text-white flex items-center justify-between px-4 h-14 lg:hidden shadow-lg">
         <div className="flex items-center gap-2.5">
           <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-1"><Menu size={20} /></button>
-          {brand.logo_url && <img src={brand.logo_url} alt="" className="w-7 h-7 rounded-lg object-cover" />}
-          <h1 className="text-sm font-bold truncate">{brand.name || 'Inventário'}</h1>
+          {brand.logo_url && <img src={brand.logo_url} alt="" className="w-8 h-8 rounded-xl object-cover ring-2 ring-white/20 shadow" />}
+          <h1 className="text-sm font-bold truncate max-w-[140px]">{brand.name || 'Inventário'}</h1>
         </div>
         <div className="flex gap-2">
-          <button onClick={() => setShowPDV(true)} className="bg-emerald-500 rounded-lg px-2.5 py-1.5 hover:bg-emerald-600 transition flex items-center gap-1 text-xs font-bold"><ShoppingCart size={14} /> PDV</button>
-          <button onClick={handleSync} className="bg-white/10 rounded-lg p-2 hover:bg-white/20 transition"><RefreshCw size={14} /></button>
-          <button onClick={logout} className="bg-white/10 rounded-lg p-2 hover:bg-white/20 transition"><LogOut size={14} /></button>
+          <button onClick={() => setShowPDV(true)} className="bg-emerald-500 rounded-xl px-3 py-1.5 hover:bg-emerald-400 active:scale-95 transition-all flex items-center gap-1.5 text-xs font-bold shadow-sm"><ShoppingCart size={14} /> PDV</button>
+          <button onClick={handleSync} className="bg-white/10 rounded-xl p-2 hover:bg-white/20 active:scale-95 transition-all"><RefreshCw size={14} /></button>
+          <button onClick={logout} className="bg-white/10 rounded-xl p-2 hover:bg-white/20 active:scale-95 transition-all"><LogOut size={14} /></button>
         </div>
       </header>
 
@@ -170,8 +170,8 @@ export function InventoryPage() {
           <nav className="flex-1 py-2 overflow-y-auto">
             {navItems.map(n => (
               <button key={n.key} onClick={() => switchView(n.key)}
-                className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm transition ${
-                  view === n.key ? 'bg-blue-50 text-blue-600 font-semibold' : 'text-gray-600 hover:bg-gray-50'
+                className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm transition rounded-lg mx-1 w-[calc(100%-8px)] ${
+                  view === n.key ? 'bg-blue-50 text-blue-600 font-semibold' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-700'
                 }`}>
                 <n.icon size={18} />
                 <span className="flex-1 text-left">{n.label}</span>
@@ -211,11 +211,11 @@ export function InventoryPage() {
       </div>
 
       {/* ── Bottom Nav (mobile) ── */}
-      <nav className="fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-border flex h-15 lg:hidden">
+      <nav className="fixed bottom-0 left-0 right-0 z-50 bg-white/95 backdrop-blur border-t border-border flex h-16 lg:hidden safe-area-inset-bottom">
         {bottomItems.map(n => (
           <button key={n.key} onClick={() => switchView(n.key)}
-            className={`flex-1 flex flex-col items-center justify-center gap-0.5 text-[10px] transition ${
-              view === n.key ? 'text-blue-600 font-bold' : 'text-muted'
+            className={`flex-1 flex flex-col items-center justify-center gap-0.5 text-[10px] font-medium transition ${
+              view === n.key ? 'text-blue-600' : 'text-gray-400'
             }`}>
             <span className="relative">
               <n.icon size={20} />
@@ -276,18 +276,18 @@ function OverviewView({ showToast, onAlertCount, refreshKey }: { showToast: (t: 
 
   return (
     <div className="space-y-5">
-      <h2 className="text-lg font-bold">Visão Geral</h2>
+      <h2 className="text-lg font-bold text-gray-900">Visão Geral</h2>
 
       {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
-        <KpiCard label="Produtos" value={num(data?.total_products)} />
-        <KpiCard label="Sem Estoque" value={num(data?.out_of_stock)} color="text-red-500" />
-        <KpiCard label="Estoque Baixo" value={num(data?.low_stock)} color="text-amber-500" />
-        <KpiCard label="Valor Total" value={money(data?.total_value)} color="text-emerald-500" />
-        <KpiCard label="Entradas Hoje" value={num(data?.entries_today)} color="text-blue-500" />
-        <KpiCard label="Saídas Hoje" value={num(data?.exits_today)} color="text-orange-500" />
-        <KpiCard label="Total Unidades" value={num(data?.total_units)} />
-        <KpiCard label="Reservado" value={num(data?.total_reserved)} color="text-indigo-500" />
+        <KpiCard label="Produtos" value={num(data?.total_products)} icon={Package} bg="bg-blue-50" color="text-blue-600" />
+        <KpiCard label="Sem Estoque" value={num(data?.out_of_stock)} icon={AlertTriangle} bg="bg-red-50" color="text-red-500" />
+        <KpiCard label="Estoque Baixo" value={num(data?.low_stock)} icon={Zap} bg="bg-amber-50" color="text-amber-500" />
+        <KpiCard label="Valor Total" value={money(data?.total_value)} icon={BarChart3} bg="bg-emerald-50" color="text-emerald-500" />
+        <KpiCard label="Entradas Hoje" value={num(data?.entries_today)} icon={ArrowDown} bg="bg-emerald-50" color="text-emerald-500" />
+        <KpiCard label="Saídas Hoje" value={num(data?.exits_today)} icon={ArrowUp} bg="bg-orange-50" color="text-orange-500" />
+        <KpiCard label="Total Unidades" value={num(data?.total_units)} icon={Scale} bg="bg-indigo-50" color="text-indigo-500" />
+        <KpiCard label="Reservado" value={num(data?.total_reserved)} icon={Package} bg="bg-purple-50" color="text-purple-500" />
       </div>
 
       {/* Top Selling */}
@@ -378,7 +378,7 @@ function ProductsView({ showToast, categories, refreshKey, onRefresh }: {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-bold">Produtos</h2>
+        <h2 className="text-lg font-bold text-gray-900">Produtos</h2>
         <button onClick={() => setModal({ type: 'edit' })} className="flex items-center gap-1 text-xs font-semibold bg-blue-500 text-white px-3 py-2 rounded-lg hover:bg-blue-600 transition">
           <Plus size={14} /> Novo
         </button>
@@ -415,14 +415,14 @@ function ProductsView({ showToast, categories, refreshKey, onRefresh }: {
               const sb = stockBadge(p.status)
               return (
                 <div key={pid} onClick={() => setModal({ type: 'actions', product: p })}
-                  className="bg-white border border-border rounded-xl p-3.5 cursor-pointer hover:border-blue-200 transition">
+                  className="bg-white border border-border rounded-2xl p-3.5 cursor-pointer hover:border-blue-200 hover:shadow-sm transition-all">
                   <div className="flex items-start gap-2.5">
                     {img ? <img src={img} alt="" className="w-12 h-12 rounded-lg object-cover bg-gray-100 flex-shrink-0" loading="lazy" />
                       : <div className="w-12 h-12 rounded-lg bg-gray-100 grid place-items-center text-gray-400 flex-shrink-0">📦</div>}
                     <div className="flex-1 min-w-0">
                       <p className="font-bold text-sm truncate">{name}</p>
                       <p className="text-xs text-muted mt-0.5">
-                        {p.product_sku || p.sku ? `SKU: ${p.product_sku || p.sku} • ` : ''}
+                        {(p.product_sku || p.sku) ? `SKU: ${(p.product_sku || p.sku || '').substring(0, 12)} • ` : ''}
                         {unitShort(p.product_unit || p.unit)} • {typeLabel(p.product_type)}
                       </p>
                     </div>
@@ -490,7 +490,7 @@ function MovementsView({ showToast }: { showToast: (t: string, tp?: 'success' | 
 
   return (
     <div className="space-y-3">
-      <h2 className="text-lg font-bold">Movimentações</h2>
+      <h2 className="text-lg font-bold text-gray-900">Movimentações</h2>
       <div className="flex gap-1.5 overflow-x-auto pb-1 no-scrollbar">
         {filters.map(f => (
           <button key={f} onClick={() => onFilter(f)}
@@ -579,7 +579,7 @@ function ExpeditionView({ showToast }: { showToast: (t: string, tp?: 'success' |
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-bold">Expedição</h2>
+        <h2 className="text-lg font-bold text-gray-900">Expedição</h2>
         <span className="text-sm text-muted">{totalInKanban} pedido(s) em fluxo</span>
       </div>
 
@@ -646,7 +646,7 @@ function AlertsView({ showToast, onAlertCount, onRefresh }: {
 
   return (
     <div className="space-y-3">
-      <h2 className="text-lg font-bold">Alertas ({alerts.length})</h2>
+      <h2 className="text-lg font-bold text-gray-900">Alertas ({alerts.length})</h2>
       {alerts.length === 0 ? (
         <EmptyState text="Nenhum alerta no momento ✓" />
       ) : (
@@ -730,7 +730,7 @@ function ReportsView({ showToast }: { showToast: (t: string, tp?: 'success' | 'e
 
   return (
     <div className="space-y-5">
-      <h2 className="text-lg font-bold">Relatórios</h2>
+      <h2 className="text-lg font-bold text-gray-900">Relatórios</h2>
 
       {/* Date filters */}
       <div className="flex gap-2 items-end flex-wrap">
@@ -1330,11 +1330,20 @@ function EditProductModal({ product, categories, onClose, onDone, showToast }: {
    SHARED UI
    ══════════════════════════════════════════════ */
 
-function KpiCard({ label, value, color }: { label: string; value: string; color?: string }) {
+function KpiCard({ label, value, color, icon: Icon, bg }: {
+  label: string; value: string; color?: string; icon?: any; bg?: string
+}) {
   return (
-    <div className="bg-white border border-border rounded-xl p-3.5">
-      <p className="text-[11px] text-muted uppercase tracking-wide mb-1">{label}</p>
-      <p className={`text-xl font-extrabold ${color || ''}`}>{value}</p>
+    <div className="bg-white border border-border rounded-2xl p-4 hover:shadow-md transition-shadow">
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-[10px] font-bold text-muted uppercase tracking-widest">{label}</span>
+        {Icon && (
+          <div className={`w-8 h-8 rounded-xl grid place-items-center ${bg || 'bg-gray-50'}`}>
+            <Icon size={15} className={color || 'text-muted'} />
+          </div>
+        )}
+      </div>
+      <p className={`text-2xl font-extrabold tracking-tight ${color || 'text-gray-900'}`}>{value}</p>
     </div>
   )
 }
@@ -1357,13 +1366,22 @@ function Pagination({ page, totalPages, onChange }: { page: number; totalPages: 
 }
 
 function EmptyState({ text }: { text: string }) {
-  return <div className="text-center py-12 text-muted"><Package size={40} className="mx-auto mb-3 opacity-40" /><p className="text-sm">{text}</p></div>
+  return (
+    <div className="flex flex-col items-center justify-center py-16 text-center">
+      <div className="w-16 h-16 bg-gray-100 rounded-2xl grid place-items-center mb-4">
+        <Package size={28} className="text-muted-light" />
+      </div>
+      <p className="text-sm font-medium text-muted">{text}</p>
+    </div>
+  )
 }
 
 function Skeleton({ rows }: { rows: number }) {
   return (
-    <div className="space-y-3 animate-pulse">
-      {[...Array(rows)].map((_, i) => <div key={i} className="h-16 bg-gray-100 rounded-xl" />)}
+    <div className="space-y-3">
+      {[...Array(rows)].map((_, i) => (
+        <div key={i} className="skeleton rounded-2xl" style={{ height: i === 0 ? 80 : 64, opacity: 1 - i * 0.1 }} />
+      ))}
     </div>
   )
 }
@@ -1410,16 +1428,16 @@ function SalesView({ showToast, onPDV }: { showToast: (t: string, tp?: 'success'
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-bold">Vendas</h2>
+        <h2 className="text-lg font-bold text-gray-900">Vendas</h2>
         <button onClick={onPDV} className="flex items-center gap-1.5 text-xs font-semibold bg-emerald-500 text-white px-3 py-2 rounded-lg hover:bg-emerald-600 transition">
           <Plus size={14} /> Novo Pedido
         </button>
       </div>
 
       <div className="grid grid-cols-3 gap-2.5">
-        <KpiCard label="Vendas Hoje" value={money(totalToday)} color="text-emerald-500" />
-        <KpiCard label="Ticket Médio" value={money(avgTicket)} color="text-blue-500" />
-        <KpiCard label="Pendentes" value={String(pending)} color="text-amber-500" />
+        <KpiCard label="Vendas Hoje" value={money(totalToday)} icon={BarChart3} bg="bg-emerald-50" color="text-emerald-600" />
+        <KpiCard label="Ticket Médio" value={money(avgTicket)} icon={CreditCard} bg="bg-blue-50" color="text-blue-600" />
+        <KpiCard label="Pendentes" value={String(pending)} icon={Zap} bg="bg-amber-50" color="text-amber-500" />
       </div>
 
       <div className="space-y-2">

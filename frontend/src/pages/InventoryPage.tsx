@@ -283,7 +283,7 @@ function OverviewView({ showToast, onAlertCount, refreshKey }: { showToast: (t: 
         <KpiCard label="Produtos" value={num(data?.total_products)} icon={Package} bg="bg-blue-50" color="text-blue-600" />
         <KpiCard label="Sem Estoque" value={num(data?.out_of_stock)} icon={AlertTriangle} bg="bg-red-50" color="text-red-500" />
         <KpiCard label="Estoque Baixo" value={num(data?.low_stock)} icon={Zap} bg="bg-amber-50" color="text-amber-500" />
-        <KpiCard label="Valor Total" value={money(data?.total_value)} icon={BarChart3} bg="bg-emerald-50" color="text-emerald-500" />
+        <KpiCard label="Valor Total" value={Number(data?.total_value) > 0 ? money(data.total_value) : '—'} icon={BarChart3} bg="bg-emerald-50" color={Number(data?.total_value) > 0 ? "text-emerald-500" : "text-muted"} />
         <KpiCard label="Entradas Hoje" value={num(data?.entries_today)} icon={ArrowDown} bg="bg-emerald-50" color="text-emerald-500" />
         <KpiCard label="Saídas Hoje" value={num(data?.exits_today)} icon={ArrowUp} bg="bg-orange-50" color="text-orange-500" />
         <KpiCard label="Total Unidades" value={num(data?.total_units)} icon={Scale} bg="bg-indigo-50" color="text-indigo-500" />
@@ -1415,14 +1415,18 @@ function SalesView({ showToast, onPDV }: { showToast: (t: string, tp?: 'success'
     return st === 'aguardando_pagamento' || st === 'novo' || st === 'criado'
   }).length
 
-  const statusColor: Record<string, string> = {
-    pago: 'bg-emerald-100 text-emerald-700',
-    aguardando_pagamento: 'bg-amber-100 text-amber-800',
-    cancelado: 'bg-red-100 text-red-700',
-    em_entrega: 'bg-blue-100 text-blue-700',
-    entregue: 'bg-emerald-100 text-emerald-700',
-    novo: 'bg-gray-100 text-gray-600',
-    criado: 'bg-gray-100 text-gray-600',
+  const statusConfig: Record<string, { label: string; cls: string }> = {
+    pago:                { label: 'Pago',          cls: 'bg-emerald-100 text-emerald-700' },
+    aguardando_pagamento:{ label: 'Aguardando',    cls: 'bg-amber-100 text-amber-800' },
+    cancelado:           { label: 'Cancelado',     cls: 'bg-red-100 text-red-700' },
+    em_entrega:          { label: 'Em entrega',    cls: 'bg-blue-100 text-blue-700' },
+    saiu_para_entrega:   { label: 'Saiu p/ entrega', cls: 'bg-blue-100 text-blue-700' },
+    entregue:            { label: 'Entregue',      cls: 'bg-emerald-100 text-emerald-700' },
+    em_preparacao:       { label: 'Preparando',    cls: 'bg-orange-100 text-orange-700' },
+    pronto:              { label: 'Pronto',        cls: 'bg-teal-100 text-teal-700' },
+    novo:                { label: 'Novo',          cls: 'bg-gray-100 text-gray-600' },
+    criado:              { label: 'Novo',          cls: 'bg-gray-100 text-gray-600' },
+    aprovado:            { label: 'Aprovado',      cls: 'bg-emerald-100 text-emerald-700' },
   }
 
   return (
@@ -1448,20 +1452,23 @@ function SalesView({ showToast, onPDV }: { showToast: (t: string, tp?: 'success'
           </div>
         ) : orders.map((o, i) => {
           const st = o.business_status || o.status_pedido || 'novo'
+          const stCfg = statusConfig[st] || { label: st.replace(/_/g, ' '), cls: 'bg-gray-100 text-gray-600' }
+          const customerName = (o.customer_name || '').trim()
+          const displayName = customerName && customerName !== 'Cliente' ? customerName : (o.customer_email || o.customer_phone || 'Cliente')
           return (
-            <div key={i} className="bg-white border border-border rounded-xl p-3">
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-sm font-bold">#{(o.id || '').substring(0, 8)}</span>
-                <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${statusColor[st] || 'bg-gray-100 text-gray-600'}`}>
-                  {st.replace(/_/g, ' ')}
+            <div key={i} className="bg-white border border-border rounded-2xl p-3.5 hover:border-blue-100 hover:shadow-sm transition-all">
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-xs font-bold text-muted-light">#{(o.order_number || o.id || '').substring(0, 8)}</span>
+                <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${stCfg.cls}`}>
+                  {stCfg.label}
                 </span>
               </div>
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm">{o.customer_name || 'Cliente'}</p>
+                  <p className="text-sm font-semibold">{displayName}</p>
                   <p className="text-xs text-muted">{dt(o.created_at)}</p>
                 </div>
-                <span className="text-sm font-bold">{money(o.valor_total || o.total)}</span>
+                <span className="text-base font-bold text-gray-900">{money(o.valor_total || o.total)}</span>
               </div>
             </div>
           )

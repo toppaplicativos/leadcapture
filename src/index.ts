@@ -268,6 +268,7 @@ app.get("/app-estoque/:brand", (req, res) => {
 app.get("/login", (_req, res) => { serveCatalogSPA(res, "index.html"); });
 app.get("/admin", (_req, res) => { serveCatalogSPA(res, "index.html"); });
 app.get("/busca", (_req, res) => { serveCatalogSPA(res, "index.html"); });
+app.get("/leads", (_req, res) => { serveCatalogSPA(res, "index.html"); });
 
 app.get("/estoque", (_req, res) => {
   serveCatalogSPA(res, "inventario.html");

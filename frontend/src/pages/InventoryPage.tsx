@@ -4,7 +4,8 @@ import {
   LayoutDashboard, Package, ArrowLeftRight, Truck, AlertTriangle, BarChart3,
   Search, Plus, ArrowDown, ArrowUp, Scale, History, Settings, Pencil, X,
   ChevronLeft, ChevronRight, RefreshCw, Upload, Loader2, LogOut, Menu,
-  PackageOpen, Zap, ShoppingCart,
+  PackageOpen, Zap, ShoppingCart, Minus, User, Phone, Mail, CreditCard,
+  Banknote, CheckCircle2, Receipt,
 } from 'lucide-react'
 import { inventoryApi } from '@/lib/api-admin'
 
@@ -95,6 +96,7 @@ export function InventoryPage() {
   const [categories, setCategories] = useState<Category[]>([])
   const [refreshKey, setRefreshKey] = useState(0)
 
+  const [showPDV, setShowPDV] = useState(false)
   const token = localStorage.getItem('lead-system-token')
   useEffect(() => { if (!token) navigate('/', { replace: true }) }, [token])
 
@@ -152,7 +154,7 @@ export function InventoryPage() {
           <h1 className="text-sm font-bold truncate">{brand.name || 'Inventário'}</h1>
         </div>
         <div className="flex gap-2">
-          <button onClick={() => switchView('sales')} className="bg-emerald-500 rounded-lg px-2.5 py-1.5 hover:bg-emerald-600 transition flex items-center gap-1 text-xs font-bold"><ShoppingCart size={14} /> PDV</button>
+          <button onClick={() => setShowPDV(true)} className="bg-emerald-500 rounded-lg px-2.5 py-1.5 hover:bg-emerald-600 transition flex items-center gap-1 text-xs font-bold"><ShoppingCart size={14} /> PDV</button>
           <button onClick={handleSync} className="bg-white/10 rounded-lg p-2 hover:bg-white/20 transition"><RefreshCw size={14} /></button>
           <button onClick={logout} className="bg-white/10 rounded-lg p-2 hover:bg-white/20 transition"><LogOut size={14} /></button>
         </div>
@@ -179,13 +181,18 @@ export function InventoryPage() {
               </button>
             ))}
           </nav>
-          <div className="p-3 border-t border-border flex gap-2">
-            <button onClick={handleSync} className="flex-1 flex items-center justify-center gap-1.5 text-xs font-semibold py-2 rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition">
-              <RefreshCw size={12} /> Sincronizar
+          <div className="p-3 border-t border-border space-y-2">
+            <button onClick={() => setShowPDV(true)} className="w-full flex items-center justify-center gap-1.5 text-xs font-semibold py-2.5 rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 transition">
+              <ShoppingCart size={13} /> Novo Pedido (PDV)
             </button>
-            <button onClick={logout} className="px-3 py-2 rounded-lg bg-gray-100 text-gray-500 hover:bg-gray-200 transition">
-              <LogOut size={14} />
-            </button>
+            <div className="flex gap-2">
+              <button onClick={handleSync} className="flex-1 flex items-center justify-center gap-1.5 text-xs font-semibold py-2 rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition">
+                <RefreshCw size={12} /> Sincronizar
+              </button>
+              <button onClick={logout} className="px-3 py-2 rounded-lg bg-gray-100 text-gray-500 hover:bg-gray-200 transition">
+                <LogOut size={14} />
+              </button>
+            </div>
           </div>
         </aside>
         {/* overlay */}
@@ -198,7 +205,7 @@ export function InventoryPage() {
           {view === 'movements' && <MovementsView showToast={showToast} />}
           {view === 'expedition' && <ExpeditionView showToast={showToast} />}
           {view === 'alerts' && <AlertsView showToast={showToast} onAlertCount={setAlertCount} onRefresh={() => setRefreshKey(k => k + 1)} />}
-          {view === 'sales' && <SalesView showToast={showToast} />}
+          {view === 'sales' && <SalesView showToast={showToast} onPDV={() => setShowPDV(true)} />}
           {view === 'reports' && <ReportsView showToast={showToast} />}
         </main>
       </div>
@@ -220,6 +227,15 @@ export function InventoryPage() {
           </button>
         ))}
       </nav>
+
+      {/* PDV Modal */}
+      {showPDV && (
+        <PDVModal
+          onClose={() => setShowPDV(false)}
+          showToast={showToast}
+          onOrderCreated={() => { setRefreshKey(k => k + 1); switchView('sales') }}
+        />
+      )}
 
       {/* Toast */}
       {toast && (
@@ -1355,7 +1371,7 @@ function Skeleton({ rows }: { rows: number }) {
 /* ══════════════════════════════════════════════
    SALES VIEW
    ══════════════════════════════════════════════ */
-function SalesView({ showToast }: { showToast: (t: string, tp?: 'success' | 'error') => void }) {
+function SalesView({ showToast, onPDV }: { showToast: (t: string, tp?: 'success' | 'error') => void; onPDV?: () => void }) {
   const [orders, setOrders] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -1393,7 +1409,12 @@ function SalesView({ showToast }: { showToast: (t: string, tp?: 'success' | 'err
 
   return (
     <div className="space-y-5">
-      <h2 className="text-lg font-bold">Vendas</h2>
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-bold">Vendas</h2>
+        <button onClick={onPDV} className="flex items-center gap-1.5 text-xs font-semibold bg-emerald-500 text-white px-3 py-2 rounded-lg hover:bg-emerald-600 transition">
+          <Plus size={14} /> Novo Pedido
+        </button>
+      </div>
 
       <div className="grid grid-cols-3 gap-2.5">
         <KpiCard label="Vendas Hoje" value={money(totalToday)} color="text-emerald-500" />
@@ -1459,6 +1480,414 @@ function FieldSelect({ label, value, onChange, options }: { label: string; value
         className="w-full px-3 py-2.5 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30">
         {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
       </select>
+    </div>
+  )
+}
+
+/* ══════════════════════════════════════════════
+   PDV MODAL — Ponto de Venda
+   ══════════════════════════════════════════════ */
+interface CartItem {
+  product_id: string
+  product_name: string
+  price: number
+  qty: number
+  unit: string
+  image?: string
+}
+
+const ORIGINS = [
+  ['balcao', '🏪 Balcão'],
+  ['whatsapp', '💬 WhatsApp'],
+  ['telefone', '📞 Telefone'],
+  ['instagram', '📸 Instagram'],
+  ['site', '🌐 Site'],
+]
+const PAYMENTS = [
+  ['pix', 'PIX'],
+  ['dinheiro', 'Dinheiro'],
+  ['cartao_credito', 'Cartão Crédito'],
+  ['cartao_debito', 'Cartão Débito'],
+  ['boleto', 'Boleto'],
+  ['fiado', 'Fiado'],
+]
+
+function PDVModal({ onClose, showToast, onOrderCreated }: {
+  onClose: () => void
+  showToast: (t: string, tp?: 'success' | 'error') => void
+  onOrderCreated?: () => void
+}) {
+  const [step, setStep] = useState<'cart' | 'customer' | 'success'>('cart')
+  const [products, setProducts] = useState<InventoryProduct[]>([])
+  const [search, setSearch] = useState('')
+  const [searchRes, setSearchRes] = useState<InventoryProduct[]>([])
+  const [cart, setCart] = useState<CartItem[]>([])
+  const [customerName, setCustomerName] = useState('')
+  const [customerPhone, setCustomerPhone] = useState('')
+  const [customerEmail, setCustomerEmail] = useState('')
+  const [origin, setOrigin] = useState('balcao')
+  const [paymentMethod, setPaymentMethod] = useState('pix')
+  const [notes, setNotes] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [createdOrder, setCreatedOrder] = useState<any>(null)
+  const searchTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    inventoryApi.products(1, 500)
+      .then(d => setProducts(Array.isArray(d.items) ? d.items : []))
+      .catch(() => {})
+  }, [])
+
+  function onSearch(q: string) {
+    setSearch(q)
+    clearTimeout(searchTimer.current)
+    if (!q.trim()) { setSearchRes([]); return }
+    searchTimer.current = setTimeout(() => {
+      const lower = q.toLowerCase()
+      setSearchRes(
+        products
+          .filter(p => (p.product_name || p.name || '').toLowerCase().includes(lower))
+          .slice(0, 8)
+      )
+    }, 150)
+  }
+
+  function addToCart(p: InventoryProduct) {
+    const pid = p.product_id || p.id || ''
+    setCart(prev => {
+      const existing = prev.find(c => c.product_id === pid)
+      if (existing) return prev.map(c => c.product_id === pid ? { ...c, qty: c.qty + 1 } : c)
+      return [...prev, {
+        product_id: pid,
+        product_name: p.product_name || p.name || '',
+        price: Number(p.product_price || p.price || 0),
+        qty: 1,
+        unit: unitShort(p.product_unit || p.unit),
+        image: p.product_image || p.image_url || '',
+      }]
+    })
+    setSearch(''); setSearchRes([])
+    searchInputRef.current?.focus()
+  }
+
+  function updateQty(pid: string, delta: number) {
+    setCart(prev => prev
+      .map(c => c.product_id === pid ? { ...c, qty: c.qty + delta } : c)
+      .filter(c => c.qty > 0)
+    )
+  }
+
+  function setQtyDirect(pid: string, val: string) {
+    const n = parseFloat(val)
+    if (isNaN(n) || n <= 0) { setCart(prev => prev.filter(c => c.product_id !== pid)); return }
+    setCart(prev => prev.map(c => c.product_id === pid ? { ...c, qty: n } : c))
+  }
+
+  const total = cart.reduce((s, c) => s + c.price * c.qty, 0)
+
+  async function submitOrder() {
+    if (cart.length === 0) { showToast('Carrinho vazio', 'error'); return }
+    if (!customerName.trim()) { showToast('Informe o nome do cliente', 'error'); return }
+    setSaving(true)
+    try {
+      const originLabel = ORIGINS.find(o => o[0] === origin)?.[1].replace(/.*\s/, '') || origin
+      const payload = {
+        items: cart.map(c => ({ product_id: c.product_id, quantity: c.qty })),
+        customer: {
+          name: customerName.trim(),
+          phone: customerPhone.trim() || '00000000000',
+          email: customerEmail.trim() || undefined,
+        },
+        payment_method: paymentMethod,
+        notes: [notes.trim(), `Canal: ${originLabel}`].filter(Boolean).join(' | '),
+        channel: origin,
+      }
+      const res = await fetch('/api/orders', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(payload),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || data.message || `Erro ${res.status}`)
+      setCreatedOrder(data.order || data)
+      setStep('success')
+      onOrderCreated?.()
+    } catch (e: any) { showToast(e.message, 'error') }
+    finally { setSaving(false) }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[250] bg-black/50 flex items-stretch md:items-center justify-center" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="bg-white w-full md:max-w-2xl md:rounded-2xl md:max-h-[90vh] flex flex-col overflow-hidden shadow-2xl">
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-gradient-to-r from-emerald-600 to-emerald-500 text-white flex-shrink-0">
+          <div className="flex items-center gap-2">
+            <Receipt size={20} />
+            <span className="font-bold text-base">
+              {step === 'cart' ? 'Ponto de Venda' : step === 'customer' ? 'Dados do Cliente' : 'Pedido Criado!'}
+            </span>
+          </div>
+          <button onClick={onClose} className="p-1 hover:bg-white/20 rounded-lg transition"><X size={20} /></button>
+        </div>
+
+        {/* Step: Cart */}
+        {step === 'cart' && (
+          <div className="flex flex-col flex-1 overflow-hidden">
+            {/* Product Search */}
+            <div className="px-4 py-3 border-b border-border flex-shrink-0">
+              <div className="relative">
+                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  ref={searchInputRef}
+                  type="search"
+                  value={search}
+                  onChange={e => onSearch(e.target.value)}
+                  placeholder="Buscar produto para adicionar..."
+                  autoFocus
+                  className="w-full pl-9 pr-4 py-2.5 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
+                />
+              </div>
+              {/* Search Results */}
+              {searchRes.length > 0 && (
+                <div className="mt-2 border border-border rounded-xl overflow-hidden shadow-lg bg-white z-10">
+                  {searchRes.map(p => {
+                    const pid = p.product_id || p.id || ''
+                    const img = p.product_image || p.image_url || ''
+                    return (
+                      <button key={pid} onClick={() => addToCart(p)}
+                        className="w-full flex items-center gap-3 px-3 py-2.5 text-sm hover:bg-emerald-50 transition text-left border-b border-border last:border-b-0">
+                        {img ? <img src={img} alt="" className="w-8 h-8 rounded-lg object-cover flex-shrink-0" />
+                          : <div className="w-8 h-8 rounded-lg bg-gray-100 grid place-items-center text-gray-400 flex-shrink-0 text-xs">📦</div>}
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold truncate">{p.product_name || p.name}</p>
+                          <p className="text-xs text-muted">{unitShort(p.product_unit || p.unit)} • estoque: {num(p.stock_available ?? p.stock_current)}</p>
+                        </div>
+                        <span className="font-bold text-emerald-600 flex-shrink-0">{money(p.product_price || p.price)}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Cart Items */}
+            <div className="flex-1 overflow-y-auto px-4 py-3">
+              {cart.length === 0 ? (
+                <div className="text-center py-16 text-muted">
+                  <ShoppingCart className="w-12 h-12 mx-auto mb-3 opacity-20" />
+                  <p className="font-medium">Carrinho vazio</p>
+                  <p className="text-sm mt-1">Busque produtos acima para adicionar</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {cart.map(item => (
+                    <div key={item.product_id} className="bg-white border border-border rounded-xl p-3 flex items-center gap-3">
+                      {item.image ? <img src={item.image} alt="" className="w-10 h-10 rounded-lg object-cover flex-shrink-0" />
+                        : <div className="w-10 h-10 rounded-lg bg-gray-100 grid place-items-center text-gray-400 flex-shrink-0">📦</div>}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold truncate">{item.product_name}</p>
+                        <p className="text-xs text-muted">{money(item.price)} / {item.unit}</p>
+                      </div>
+                      {/* Qty controls */}
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        <button onClick={() => updateQty(item.product_id, -1)}
+                          className="w-7 h-7 rounded-lg bg-gray-100 hover:bg-red-100 text-gray-600 hover:text-red-600 transition grid place-items-center">
+                          <Minus size={14} />
+                        </button>
+                        <input
+                          type="number"
+                          value={item.qty}
+                          onChange={e => setQtyDirect(item.product_id, e.target.value)}
+                          className="w-12 text-center border border-border rounded-lg text-sm font-bold py-1"
+                          min={0.01}
+                          step="0.001"
+                        />
+                        <button onClick={() => updateQty(item.product_id, 1)}
+                          className="w-7 h-7 rounded-lg bg-gray-100 hover:bg-emerald-100 text-gray-600 hover:text-emerald-600 transition grid place-items-center">
+                          <Plus size={14} />
+                        </button>
+                      </div>
+                      <div className="text-sm font-bold text-right min-w-[60px]">{money(item.price * item.qty)}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="px-4 py-4 border-t border-border flex-shrink-0 bg-gray-50">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-sm text-muted">{cart.length} item(s)</span>
+                <div className="text-right">
+                  <p className="text-xs text-muted">Total</p>
+                  <p className="text-xl font-bold text-emerald-600">{money(total)}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setStep('customer')}
+                disabled={cart.length === 0}
+                className="w-full py-3 rounded-xl bg-emerald-500 text-white font-bold text-sm hover:bg-emerald-600 disabled:opacity-40 transition"
+              >
+                Continuar → Dados do Cliente
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Step: Customer */}
+        {step === 'customer' && (
+          <div className="flex flex-col flex-1 overflow-hidden">
+            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+
+              {/* Order Summary */}
+              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3">
+                <p className="text-xs font-semibold text-emerald-700 mb-2">{cart.length} produto(s) no carrinho</p>
+                <div className="space-y-1 max-h-28 overflow-y-auto">
+                  {cart.map(c => (
+                    <div key={c.product_id} className="flex justify-between text-sm">
+                      <span className="text-gray-700 truncate flex-1 mr-2">{c.qty}× {c.product_name}</span>
+                      <span className="font-semibold flex-shrink-0">{money(c.price * c.qty)}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="border-t border-emerald-200 mt-2 pt-2 flex justify-between">
+                  <span className="font-bold text-emerald-700">Total</span>
+                  <span className="font-bold text-emerald-700 text-base">{money(total)}</span>
+                </div>
+              </div>
+
+              {/* Customer fields */}
+              <div>
+                <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-1.5"><User size={12} /> Cliente</p>
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-xs font-semibold text-gray-500 mb-1 block">Nome *</label>
+                    <div className="relative">
+                      <User size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                      <input type="text" value={customerName} onChange={e => setCustomerName(e.target.value)}
+                        placeholder="Nome completo"
+                        className="w-full pl-9 pr-4 py-2.5 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/50" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-gray-500 mb-1 block">Telefone / WhatsApp</label>
+                    <div className="relative">
+                      <Phone size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                      <input type="tel" value={customerPhone} onChange={e => setCustomerPhone(e.target.value)}
+                        placeholder="(99) 99999-9999"
+                        className="w-full pl-9 pr-4 py-2.5 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/50" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-gray-500 mb-1 block">E-mail</label>
+                    <div className="relative">
+                      <Mail size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                      <input type="email" value={customerEmail} onChange={e => setCustomerEmail(e.target.value)}
+                        placeholder="email@exemplo.com"
+                        className="w-full pl-9 pr-4 py-2.5 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/50" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Origin & Payment */}
+              <div>
+                <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-1.5"><CreditCard size={12} /> Pagamento e Canal</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-semibold text-gray-500 mb-1 block">Canal de venda</label>
+                    <div className="flex flex-col gap-1">
+                      {ORIGINS.map(([val, label]) => (
+                        <button key={val} onClick={() => setOrigin(val)}
+                          className={`text-left px-3 py-2 rounded-lg text-sm transition border ${
+                            origin === val ? 'bg-emerald-50 border-emerald-400 text-emerald-700 font-semibold' : 'border-border text-gray-600 hover:bg-gray-50'
+                          }`}>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-gray-500 mb-1 block">Forma de pagamento</label>
+                    <div className="flex flex-col gap-1">
+                      {PAYMENTS.map(([val, label]) => (
+                        <button key={val} onClick={() => setPaymentMethod(val)}
+                          className={`text-left px-3 py-2 rounded-lg text-sm transition border ${
+                            paymentMethod === val ? 'bg-blue-50 border-blue-400 text-blue-700 font-semibold' : 'border-border text-gray-600 hover:bg-gray-50'
+                          }`}>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Notes */}
+              <div>
+                <label className="text-xs font-semibold text-gray-500 mb-1 block">Observações</label>
+                <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2}
+                  placeholder="Endereço de entrega, instruções especiais..."
+                  className="w-full px-3 py-2.5 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/50 resize-none" />
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="px-4 py-4 border-t border-border flex-shrink-0 bg-gray-50 flex gap-2">
+              <button onClick={() => setStep('cart')} className="px-4 py-3 rounded-xl bg-gray-100 text-gray-600 font-semibold text-sm hover:bg-gray-200 transition">
+                ← Voltar
+              </button>
+              <button onClick={submitOrder} disabled={saving || !customerName.trim()}
+                className="flex-1 py-3 rounded-xl bg-emerald-500 text-white font-bold text-sm hover:bg-emerald-600 disabled:opacity-50 transition flex items-center justify-center gap-2">
+                {saving ? <><Loader2 size={16} className="animate-spin" /> Criando pedido...</> : <><Banknote size={16} /> Finalizar Pedido · {money(total)}</>}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Step: Success */}
+        {step === 'success' && (
+          <div className="flex flex-col flex-1 items-center justify-center px-6 py-10 text-center">
+            <div className="w-20 h-20 bg-emerald-100 rounded-full grid place-items-center mb-5">
+              <CheckCircle2 size={44} className="text-emerald-500" />
+            </div>
+            <h3 className="text-xl font-bold mb-2">Pedido criado!</h3>
+            <p className="text-muted text-sm mb-1">
+              {customerName && <span className="font-semibold text-gray-700">{customerName}</span>}
+            </p>
+            {createdOrder?.order_number && (
+              <p className="text-sm text-muted mb-2">Pedido #{createdOrder.order_number}</p>
+            )}
+            <p className="text-2xl font-bold text-emerald-600 mb-1">{money(total)}</p>
+            <p className="text-xs text-muted mb-2">
+              {PAYMENTS.find(p => p[0] === paymentMethod)?.[1]} · {ORIGINS.find(o => o[0] === origin)?.[1]}
+            </p>
+
+            {/* Cart recap */}
+            <div className="w-full bg-gray-50 rounded-xl p-3 mb-6 text-left">
+              {cart.map(c => (
+                <div key={c.product_id} className="flex justify-between text-sm py-1">
+                  <span className="text-gray-600">{c.qty}× {c.product_name}</span>
+                  <span className="font-semibold">{money(c.price * c.qty)}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex gap-3 w-full">
+              <button onClick={() => { setStep('cart'); setCart([]); setCustomerName(''); setCustomerPhone(''); setCustomerEmail(''); setNotes('') }}
+                className="flex-1 py-3 rounded-xl bg-gray-100 text-gray-600 font-semibold text-sm hover:bg-gray-200 transition">
+                Novo Pedido
+              </button>
+              <button onClick={onClose}
+                className="flex-1 py-3 rounded-xl bg-emerald-500 text-white font-bold text-sm hover:bg-emerald-600 transition">
+                Fechar
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

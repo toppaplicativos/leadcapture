@@ -16,6 +16,8 @@ import { StockLoginPage } from '@/pages/StockLoginPage'
 import { StockPanelPage } from '@/pages/StockPanelPage'
 import { InventoryPage } from '@/pages/InventoryPage'
 import { ProductDetailPage } from '@/pages/ProductDetailPage'
+import { LoginPage } from '@/pages/LoginPage'
+import { AdminDashboard } from '@/pages/AdminDashboard'
 
 function CatalogShell() {
   const [activeTab, setActiveTab] = useState('catalogo')
@@ -60,42 +62,42 @@ export default function App() {
   return (
     <>
       <Routes>
-        {/* Catálogo principal (custom domain ou /catalogo/:slug ou /loja/:slug) */}
-        <Route path="/" element={<CatalogShell />} />
-        <Route path="/catalogo/:slug" element={<CatalogShell />} />
-        <Route path="/loja/:slug" element={<CatalogShell />} />
+        {/* ── Admin Panel ── */}
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/admin" element={<AdminDashboard />} />
 
-        {/* Checkout */}
-        <Route path="/checkout" element={<CheckoutPage />} />
-        <Route path="/catalogo/:slug/checkout" element={<CheckoutPage />} />
-        <Route path="/loja/:slug/checkout" element={<CheckoutPage />} />
+        {/* ── Inventário (full management) ── */}
+        <Route path="/estoque" element={<InventoryPage />} />
+        <Route path="/inventario" element={<InventoryPage />} />
 
-        {/* Pedido (tracking) */}
-        <Route path="/pedido" element={<OrderPage />} />
-        <Route path="/catalogo/:slug/pedido" element={<OrderPage />} />
-        <Route path="/loja/:slug/pedido" element={<OrderPage />} />
-
-        {/* Histórico */}
-        <Route path="/historico" element={<HistoryPage />} />
-        <Route path="/catalogo/:slug/historico" element={<HistoryPage />} />
-        <Route path="/loja/:slug/historico" element={<HistoryPage />} />
-
-        {/* Produto detalhe */}
-        <Route path="/produto/:productSlug" element={<ProductDetailPage />} />
-        <Route path="/catalogo/:slug/produto/:productSlug" element={<ProductDetailPage />} />
-        <Route path="/loja/:slug/produto/:productSlug" element={<ProductDetailPage />} />
-
-        {/* Brand Onboarding */}
-        <Route path="/brand-onboarding" element={<OnboardingPage />} />
-
-        {/* App Estoque */}
+        {/* ── App Estoque (stock managers) ── */}
         <Route path="/app-estoque" element={<StockLoginPage />} />
         <Route path="/app-estoque/:brand" element={<StockLoginPage />} />
         <Route path="/app-estoque/painel" element={<StockPanelPage />} />
 
-        {/* Inventário */}
-        <Route path="/estoque" element={<InventoryPage />} />
-        <Route path="/inventario" element={<InventoryPage />} />
+        {/* ── Brand Onboarding ── */}
+        <Route path="/brand-onboarding" element={<OnboardingPage />} />
+
+        {/* ── Catálogo público ── */}
+        <Route path="/catalogo/:slug" element={<CatalogShell />} />
+        <Route path="/loja/:slug" element={<CatalogShell />} />
+        <Route path="/catalogo/:slug/checkout" element={<CheckoutPage />} />
+        <Route path="/loja/:slug/checkout" element={<CheckoutPage />} />
+        <Route path="/catalogo/:slug/pedido" element={<OrderPage />} />
+        <Route path="/loja/:slug/pedido" element={<OrderPage />} />
+        <Route path="/catalogo/:slug/historico" element={<HistoryPage />} />
+        <Route path="/loja/:slug/historico" element={<HistoryPage />} />
+        <Route path="/catalogo/:slug/produto/:productSlug" element={<ProductDetailPage />} />
+        <Route path="/loja/:slug/produto/:productSlug" element={<ProductDetailPage />} />
+
+        {/* ── Generic storefront routes ── */}
+        <Route path="/checkout" element={<CheckoutPage />} />
+        <Route path="/pedido" element={<OrderPage />} />
+        <Route path="/historico" element={<HistoryPage />} />
+        <Route path="/produto/:productSlug" element={<ProductDetailPage />} />
+
+        {/* ── Root (custom domain catalog or redirect) ── */}
+        <Route path="/" element={<CatalogShell />} />
       </Routes>
 
       <Toast />

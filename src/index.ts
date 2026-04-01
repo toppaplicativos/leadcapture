@@ -157,9 +157,9 @@ app.use(async (req: express.Request, res: express.Response, next: express.NextFu
   next();
 });
 
-// Redirects that must run BEFORE static/SPA catch-all
-app.get("/site-workspace", (_req, res) => res.redirect(301, "/estoque"));
-app.get("/site-workspace/*", (_req, res) => res.redirect(301, "/estoque"));
+// Legacy redirects
+app.get("/site-workspace", (_req, res) => res.redirect(301, "/admin"));
+app.get("/site-workspace/*", (_req, res) => res.redirect(301, "/admin"));
 
 // ── Serve React frontend build (catalog SPA) ──
 const reactDistPath = path.join(__dirname, "../frontend/dist");
@@ -264,13 +264,15 @@ app.get("/app-estoque/:brand", (req, res) => {
   res.redirect(`/app-estoque?brand=${encodeURIComponent(brand)}`);
 });
 
+// Admin panel routes
+app.get("/login", (_req, res) => { serveCatalogSPA(res, "index.html"); });
+app.get("/admin", (_req, res) => { serveCatalogSPA(res, "index.html"); });
+
 app.get("/estoque", (_req, res) => {
   serveCatalogSPA(res, "inventario.html");
 });
 
-app.get("/inventario", (_req, res) => {
-  serveCatalogSPA(res, "inventario.html");
-});
+app.get("/inventario", (_req, res) => res.redirect(301, "/estoque"));
 
 app.get("/brand-onboarding", (_req, res) => {
   serveCatalogSPA(res, "brand-onboarding.html");
@@ -2044,7 +2046,8 @@ app.get("*", async (req, res) => {
     const slug = await resolveSlugByDomain(host);
     if (slug) return serveCatalogWithSlug(res, "catalogo-publico.html", slug);
   }
-  res.sendFile(path.join(__dirname, "../public/index.html"));
+  // Serve React SPA for all unmatched routes
+  serveCatalogSPA(res, "index.html");
 });
 
 // ==================== START SERVER ====================

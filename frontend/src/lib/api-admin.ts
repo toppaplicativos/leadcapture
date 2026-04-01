@@ -191,6 +191,35 @@ export function getStockBrandRef(): string | null {
   return localStorage.getItem(STOCK_BRAND_REF_KEY)
 }
 
+/* ══════════════════════════════════════════════
+   ADMIN PANEL APIs (clients, inbox, campaigns, orders)
+   ══════════════════════════════════════════════ */
+
+export const adminApi = {
+  // Clients/Leads
+  clients: (page = 1, limit = 50, search = '') => {
+    const q = new URLSearchParams({ page: String(page), limit: String(limit) })
+    if (search) q.set('search', search)
+    return authFetch<any>(`/api/clients?${q}`, getAdminHeaders())
+  },
+  clientDetail: (id: string) => authFetch<any>(`/api/clients/${id}`, getAdminHeaders()),
+
+  // Inbox
+  inbox: (page = 1, limit = 50) =>
+    authFetch<any>(`/api/inbox?page=${page}&limit=${limit}`, getAdminHeaders()),
+
+  // Campaigns
+  campaigns: () => authFetch<any>('/api/campaigns', getAdminHeaders()),
+  campaignDetail: (id: string) => authFetch<any>(`/api/campaigns/${id}`, getAdminHeaders()),
+
+  // Orders
+  orders: (page = 1, limit = 50) =>
+    authFetch<any>(`/api/orders?page=${page}&limit=${limit}`, getAdminHeaders()),
+
+  // Products (commerce)
+  products: () => authFetch<any>('/api/products', getAdminHeaders()),
+}
+
 /* ── Onboarding API (public) ── */
 export function submitOnboarding(data: Record<string, unknown>) {
   return authFetch<any>('/api/public/brand-onboarding', { 'Content-Type': 'application/json' }, {

@@ -98,7 +98,7 @@ export function InventoryPage() {
 
   const [showPDV, setShowPDV] = useState(false)
   const token = localStorage.getItem('lead-system-token')
-  useEffect(() => { if (!token) navigate('/', { replace: true }) }, [token])
+  useEffect(() => { if (!token) navigate('/login', { replace: true }) }, [token])
 
   // Bootstrap
   useEffect(() => {

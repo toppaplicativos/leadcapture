@@ -1,0 +1,18 @@
+﻿/* ═══════════════════════════════════════════════════════
+   CATALOGO PUBLICO — CSS overrides
+   Base styles now live in /shared/ design system.
+   This file only contains catalog-page-specific tweaks.
+   ═══════════════════════════════════════════════════════ */
+
+/*
+ * Brand variables (--brand-primary, --brand-secondary, etc.)
+ * are defined in /shared/design-tokens.css with defaults
+ * and overridden at runtime by catalogo-publico.js per brand.
+ *
+ * All shared UI (topbar, bottom-nav, cards, forms, buttons,
+ * modal, toast, badges, hero, grid, checkout) is loaded by
+ * /shared/loader.js — see each page's data-components attr.
+ */
+
+/* Currently no catalog-specific overrides needed.
+   Add any brand-page-only tweaks here in the future. */

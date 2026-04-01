@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Produto</title>
+    <script src="/shared/loader.js" data-components="topbar,cards,forms,buttons,grid"></script>
+    <link rel="stylesheet" href="/catalogo-publico.css" />
+  </head>
+  <body data-page="product">
+    <header class="hero">
+      <div class="hero-inner">
+        <h1>Produto</h1>
+        <nav class="nav">
+          <a data-link="">Catálogo</a>
+          <a data-link="checkout">Checkout</a>
+          <a data-link="pedido">Pedido</a>
+          <a data-link="historico">Histórico</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="container">
+      <p id="alert" class="muted"></p>
+      <section class="card">
+        <img id="productImage" class="cover" src="" alt="Imagem do produto" onerror="this.style.display='none'" />
+        <h2 id="productName" class="section-title">Produto</h2>
+        <p id="productCategory" class="muted"></p>
+        <p id="productDescription"></p>
+        <p class="price" id="productPrice"></p>
+        <div class="actions" style="grid-template-columns: 120px 1fr;">
+          <input id="productQty" type="number" min="1" value="1" />
+          <button id="addCurrentProduct" type="button">Adicionar e ir para checkout</button>
+        </div>
+      </section>
+    </main>
+
+    <script src="/catalogo-publico.js"></script>
+  </body>
+</html>

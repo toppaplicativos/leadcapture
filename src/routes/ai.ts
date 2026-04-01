@@ -11,6 +11,7 @@ import { AIAgentProfileService } from "../services/aiAgentProfile";
 import { KnowledgeBaseService } from "../services/knowledgeBase";
 import { CreativeStudioService } from "../services/creativeStudio";
 import { ContextEnginePayload, ContextEngineService } from "../services/contextEngine";
+import { AgentWorkspaceService } from "../services/agentWorkspace";
 import { logger } from "../utils/logger";
 
 const router = Router();
@@ -19,6 +20,7 @@ const aiAgentProfileService = new AIAgentProfileService();
 const knowledgeBaseService = new KnowledgeBaseService();
 const creativeStudio = new CreativeStudioService();
 const contextEngine = new ContextEngineService();
+const agentWorkspaceService = new AgentWorkspaceService();
 
 router.use(requireBrandContext);
 
@@ -204,6 +206,19 @@ router.put("/agent-profile", async (req: BrandRequest, res: Response) => {
   } catch (error: any) {
     logger.error(`Error updating AI agent profile: ${error.message}`);
     res.status(500).json({ error: error.message || "Failed to update AI agent profile" });
+  }
+});
+
+router.get("/workspace-overview", async (req: BrandRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId as string | undefined;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+    const overview = await agentWorkspaceService.getOverview(userId, resolveBrandCompanyId(req));
+    res.json({ success: true, overview });
+  } catch (error: any) {
+    logger.error(`Error fetching AI workspace overview: ${error.message}`);
+    res.status(500).json({ error: error.message || "Failed to load AI workspace overview" });
   }
 });
 

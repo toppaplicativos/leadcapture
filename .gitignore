@@ -16,6 +16,7 @@ uploads/
 
 *.bak
 *.backup
+pid*_cmd.txt
 
 dist.bak_*/
 dist.backup_*/
@@ -31,5 +32,10 @@ backup/
 backups/
 snapshots/
 deploy/releases/**/*.zip
+
+data/mysql_schema_export.json
+data/pg_schema.sql
+data/pg_data.sql
+data/pg_data_summary.json
 
 auth_whatsapp/

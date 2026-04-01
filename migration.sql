@@ -1,4 +1,91 @@
 
+-- Users table (base)
+CREATE TABLE IF NOT EXISTS users (
+  id VARCHAR(36) PRIMARY KEY,
+  email VARCHAR(255) NOT NULL UNIQUE,
+  password_hash VARCHAR(255) NOT NULL,
+  name VARCHAR(255) NOT NULL,
+  phone VARCHAR(20) NULL,
+  role ENUM('admin','manager','operator') NOT NULL DEFAULT 'operator',
+  avatar_url TEXT NULL,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  last_login_at TIMESTAMP NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_users_email (email),
+  INDEX idx_users_role (role),
+  INDEX idx_users_active (is_active)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- WhatsApp instances (base)
+CREATE TABLE IF NOT EXISTS whatsapp_instances (
+  id VARCHAR(36) PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  phone VARCHAR(20) NULL,
+  status ENUM('disconnected','connecting','connected','error') NOT NULL DEFAULT 'disconnected',
+  created_by VARCHAR(36) NULL,
+  brand_id VARCHAR(36) NULL,
+  messages_sent INT NOT NULL DEFAULT 0,
+  messages_received INT NOT NULL DEFAULT 0,
+  last_connected_at TIMESTAMP NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+  INDEX idx_whatsapp_instances_created_by (created_by),
+  INDEX idx_whatsapp_instances_status (status),
+  INDEX idx_whatsapp_instances_brand (brand_id),
+  INDEX idx_whatsapp_instances_last_connected (last_connected_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Customers / leads (base)
+CREATE TABLE IF NOT EXISTS customers (
+  id VARCHAR(36) PRIMARY KEY,
+  owner_user_id VARCHAR(36) NULL,
+  user_id VARCHAR(36) NULL,
+  company_id VARCHAR(36) NULL,
+  brand_id VARCHAR(36) NULL,
+  google_place_id VARCHAR(255) NULL,
+  name VARCHAR(255) NOT NULL,
+  trade_name VARCHAR(255) NULL,
+  phone VARCHAR(20) NULL,
+  phone_secondary VARCHAR(20) NULL,
+  email VARCHAR(255) NULL,
+  website VARCHAR(255) NULL,
+  address TEXT NULL,
+  city VARCHAR(100) NULL,
+  state VARCHAR(50) NULL,
+  zip_code VARCHAR(15) NULL,
+  latitude DECIMAL(10,7) NULL,
+  longitude DECIMAL(10,7) NULL,
+  category VARCHAR(150) NULL,
+  subcategory VARCHAR(150) NULL,
+  google_rating DECIMAL(3,2) NULL,
+  google_reviews_count INT NULL,
+  google_maps_uri TEXT NULL,
+  business_status VARCHAR(80) NULL,
+  tags JSON NULL,
+  notes TEXT NULL,
+  source ENUM('google_places','manual','import','referral','website','whatsapp') NOT NULL DEFAULT 'manual',
+  source_details JSON NULL,
+  has_whatsapp TINYINT(1) NULL,
+  whatsapp_validation_status VARCHAR(32) NULL,
+  whatsapp_validated_at TIMESTAMP NULL,
+  whatsapp_jid VARCHAR(120) NULL,
+  assigned_to VARCHAR(36) NULL,
+  status ENUM('new','contacted','replied','negotiating','converted','lost','inactive') NOT NULL DEFAULT 'new',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE SET NULL,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
+  INDEX idx_customers_owner_user (owner_user_id),
+  INDEX idx_customers_user (user_id),
+  INDEX idx_customers_brand (brand_id),
+  INDEX idx_customers_google_place (google_place_id),
+  INDEX idx_customers_phone (phone),
+  INDEX idx_customers_status (status),
+  INDEX idx_customers_created_at (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Companies table
 CREATE TABLE IF NOT EXISTS companies (
   id VARCHAR(36) PRIMARY KEY,

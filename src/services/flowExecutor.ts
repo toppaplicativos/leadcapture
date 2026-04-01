@@ -933,6 +933,21 @@ export class FlowExecutorService {
     const pool = getPool();
 
     await pool.execute(`
+      CREATE TABLE IF NOT EXISTS flow_automations (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) NOT NULL,
+        name VARCHAR(255) NOT NULL DEFAULT 'Novo Fluxo',
+        status ENUM('draft','active','paused') NOT NULL DEFAULT 'draft',
+        nodes_json JSON NOT NULL,
+        connections_json JSON NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_flow_user (user_id),
+        INDEX idx_flow_status (status)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    await pool.execute(`
       CREATE TABLE IF NOT EXISTS flow_automation_executions (
         id VARCHAR(64) PRIMARY KEY,
         flow_id VARCHAR(36) NOT NULL,

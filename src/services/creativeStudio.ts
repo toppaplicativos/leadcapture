@@ -350,7 +350,7 @@ export class CreativeStudioService {
         prompt TEXT NULL,
         model VARCHAR(120) NULL,
         status ENUM('processing','completed','failed') NOT NULL DEFAULT 'completed',
-        text_content LONGTEXT NULL,
+        text_content TEXT NULL,
         file_url TEXT NULL,
         parent_asset_id VARCHAR(36) NULL,
         operation_name VARCHAR(255) NULL,
@@ -372,7 +372,7 @@ export class CreativeStudioService {
 
     await query(`
       CREATE TABLE IF NOT EXISTS creative_account_credits (
-        account_id VARCHAR(36) NOT NULL PRIMARY KEY,
+        account_id VARCHAR(120) NOT NULL PRIMARY KEY,
         images_generated_month INT NOT NULL DEFAULT 0,
         credits_remaining INT NOT NULL DEFAULT 200,
         monthly_limit INT NOT NULL DEFAULT 200,
@@ -380,6 +380,10 @@ export class CreativeStudioService {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
       )
     `);
+
+    await query(
+      "ALTER TABLE creative_account_credits ALTER COLUMN account_id TYPE VARCHAR(120)"
+    ).catch(() => undefined);
 
     this.creditsTableReady = true;
   }
@@ -390,8 +394,9 @@ export class CreativeStudioService {
     const monthRef = this.currentMonthRef();
 
     await query(
-      `INSERT IGNORE INTO creative_account_credits (account_id, images_generated_month, credits_remaining, monthly_limit, month_ref)
-       VALUES (?, 0, 200, 200, ?)`,
+      `INSERT INTO creative_account_credits (account_id, images_generated_month, credits_remaining, monthly_limit, month_ref)
+       VALUES (?, 0, 200, 200, ?)
+       ON CONFLICT (account_id) DO NOTHING`,
       [accountId, monthRef]
     );
 

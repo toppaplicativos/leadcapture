@@ -39,6 +39,12 @@ export class KnowledgeBaseService {
     return columns.has(name);
   }
 
+  private isNumericType(meta: ColumnMeta | undefined): boolean {
+    if (!meta) return false;
+    const t = String(meta.type || "").toLowerCase();
+    return /\b(bigint|integer|int|smallint|serial|bigserial)\b/.test(t);
+  }
+
   private async tableExists(tableName: string): Promise<boolean> {
     const row = await queryOne<{ total: number }>(
       `SELECT COUNT(*) AS total
@@ -95,6 +101,7 @@ export class KnowledgeBaseService {
     const idMeta = columns.get("id");
     const needsManualId =
       !!idMeta &&
+      !this.isNumericType(idMeta) &&
       !String(idMeta.extra || "").toLowerCase().includes("auto_increment") &&
       (idMeta.defaultValue === null || idMeta.defaultValue === undefined);
 
@@ -102,15 +109,16 @@ export class KnowledgeBaseService {
     if (needsManualId) values.push(["id", randomUUID()]);
     if (ownerCol) values.push([ownerCol, userId]);
     if (this.hasColumn(columns, "name")) values.push(["name", "Empresa Principal"]);
-    if (this.hasColumn(columns, "is_active")) values.push(["is_active", 1]);
-    if (this.hasColumn(columns, "active")) values.push(["active", 1]);
+    if (this.hasColumn(columns, "is_active")) values.push(["is_active", true]);
+    if (this.hasColumn(columns, "active")) values.push(["active", true]);
 
     const nonNullNoDefault = Array.from(columns.values())
       .filter(
         (col) =>
           !col.nullable &&
           col.defaultValue == null &&
-          !String(col.extra || "").toLowerCase().includes("auto_increment")
+          !String(col.extra || "").toLowerCase().includes("auto_increment") &&
+          !(col.field === "id" && this.isNumericType(col))
       )
       .map((col) => col.field);
 
@@ -141,7 +149,10 @@ export class KnowledgeBaseService {
 
   private async resolveCompanyIdForInsert(userId: string, requestedCompanyId?: string): Promise<string | null> {
     const normalizedRequested = String(requestedCompanyId || "").trim();
-    if (normalizedRequested) return normalizedRequested;
+    if (normalizedRequested) {
+      const exists = await queryOne<{ id: string }>("SELECT id FROM companies WHERE id = ?", [normalizedRequested]);
+      if (exists) return normalizedRequested;
+    }
 
     const knowledgeColumns = await this.getColumns();
     const companyMeta = knowledgeColumns.get("company_id");
@@ -237,6 +248,7 @@ export class KnowledgeBaseService {
     const idMeta = columns.get("id");
     const needsManualId =
       !!idMeta &&
+      !this.isNumericType(idMeta) &&
       !String(idMeta.extra || "").toLowerCase().includes("auto_increment") &&
       (idMeta.defaultValue === null || idMeta.defaultValue === undefined);
     if (needsManualId && this.hasColumn(columns, "id")) {
@@ -259,7 +271,7 @@ export class KnowledgeBaseService {
     const normalizedTags = this.normalizeTags(columns, dto.tags);
     if (normalizedTags !== undefined) entries.push(["tags", normalizedTags]);
 
-    if (activeColumn) entries.push([activeColumn, dto.active !== false ? 1 : 0]);
+    if (activeColumn) entries.push([activeColumn, dto.active !== false]);
 
     const sqlColumns = entries.map(([name]) => name).join(", ");
     const placeholders = entries.map(() => "?").join(", ");
@@ -350,7 +362,7 @@ export class KnowledgeBaseService {
     const activeColumn = this.resolveActiveColumn(columns);
     if (data.active !== undefined && activeColumn) {
       fields.push(`${activeColumn} = ?`);
-      values.push(data.active ? 1 : 0);
+      values.push(data.active ? true : false);
     }
 
     if (fields.length === 0) return this.getById(id, userId);

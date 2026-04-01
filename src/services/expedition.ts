@@ -86,6 +86,46 @@ export class ExpeditionService {
   private async ensureBrandColumns(): Promise<void> {
     if (this.schemaChecked) return;
 
+    await query(`
+      CREATE TABLE IF NOT EXISTS expedition_dispatchers (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) NOT NULL,
+        brand_id VARCHAR(36) NULL,
+        company_id VARCHAR(36) NULL,
+        name VARCHAR(120) NOT NULL,
+        phone VARCHAR(40) NOT NULL,
+        notes TEXT NULL,
+        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await query(`
+      CREATE TABLE IF NOT EXISTS expedition_orders (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) NOT NULL,
+        brand_id VARCHAR(36) NULL,
+        company_id VARCHAR(36) NULL,
+        dispatcher_id VARCHAR(36) NOT NULL,
+        whatsapp_instance_id VARCHAR(64) NOT NULL,
+        customer_name VARCHAR(160) NOT NULL,
+        customer_phone VARCHAR(40) NULL,
+        delivery_address TEXT NULL,
+        items_json JSONB NOT NULL,
+        subtotal DECIMAL(12,2) NOT NULL DEFAULT 0,
+        discount DECIMAL(12,2) NOT NULL DEFAULT 0,
+        shipping_fee DECIMAL(12,2) NOT NULL DEFAULT 0,
+        total DECIMAL(12,2) NOT NULL DEFAULT 0,
+        notes TEXT NULL,
+        status VARCHAR(24) NOT NULL DEFAULT 'created',
+        whatsapp_status VARCHAR(24) NOT NULL DEFAULT 'pending',
+        sent_at TIMESTAMP NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
     const dispatcherBrand = await query<any[]>("SHOW COLUMNS FROM expedition_dispatchers LIKE 'brand_id'");
     if (!dispatcherBrand.length) {
       await query("ALTER TABLE expedition_dispatchers ADD COLUMN brand_id VARCHAR(36) NULL");
@@ -103,7 +143,7 @@ export class ExpeditionService {
         brand_id VARCHAR(36) NULL,
         logistic_status ENUM('aguardando_separacao','em_separacao','pronto_para_envio','em_rota','entregue','falha_entrega') NOT NULL DEFAULT 'aguardando_separacao',
         assigned_to VARCHAR(36) NULL,
-        estimated_delivery DATETIME NULL,
+        estimated_delivery TIMESTAMP NULL,
         route_id VARCHAR(64) NULL,
         route_link TEXT NULL,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -214,12 +254,12 @@ export class ExpeditionService {
       `INSERT INTO order_dispatch_status (
         order_id, user_id, brand_id, logistic_status, assigned_to, estimated_delivery, route_id, route_link
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      ON DUPLICATE KEY UPDATE
-        logistic_status = VALUES(logistic_status),
-        assigned_to = COALESCE(VALUES(assigned_to), assigned_to),
-        estimated_delivery = COALESCE(VALUES(estimated_delivery), estimated_delivery),
-        route_id = COALESCE(VALUES(route_id), route_id),
-        route_link = COALESCE(VALUES(route_link), route_link),
+      ON CONFLICT (order_id) DO UPDATE SET
+        logistic_status = EXCLUDED.logistic_status,
+        assigned_to = COALESCE(EXCLUDED.assigned_to, order_dispatch_status.assigned_to),
+        estimated_delivery = COALESCE(EXCLUDED.estimated_delivery, order_dispatch_status.estimated_delivery),
+        route_id = COALESCE(EXCLUDED.route_id, order_dispatch_status.route_id),
+        route_link = COALESCE(EXCLUDED.route_link, order_dispatch_status.route_link),
         updated_at = CURRENT_TIMESTAMP`,
       [
         orderId,

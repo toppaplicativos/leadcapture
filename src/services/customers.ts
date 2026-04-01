@@ -89,13 +89,28 @@ export class CustomersService {
         );
       }
 
-      const ownerIndexExists = await queryOne<{ total: number }>(
-        `SELECT COUNT(*) AS total
-         FROM information_schema.STATISTICS
-         WHERE TABLE_SCHEMA = DATABASE()
-           AND TABLE_NAME = 'customers'
-           AND INDEX_NAME = 'idx_customers_owner_user'`
-      );
+      let ownerIndexExists: { total: number } | null = null;
+      try {
+        ownerIndexExists = await queryOne<{ total: number }>(
+          `SELECT COUNT(*) AS total
+           FROM pg_indexes
+           WHERE tablename = 'customers'
+             AND indexname = 'idx_customers_owner_user'`
+        );
+      } catch {
+        try {
+          ownerIndexExists = await queryOne<{ total: number }>(
+            `SELECT COUNT(*) AS total
+             FROM information_schema.STATISTICS
+             WHERE TABLE_SCHEMA = DATABASE()
+               AND TABLE_NAME = 'customers'
+               AND INDEX_NAME = 'idx_customers_owner_user'`
+          );
+        } catch {
+          const showRows = await query<any[]>("SHOW INDEX FROM customers WHERE Key_name = ?", ["idx_customers_owner_user"]);
+          ownerIndexExists = { total: Array.isArray(showRows) && showRows.length > 0 ? 1 : 0 };
+        }
+      }
       if (Number(ownerIndexExists?.total || 0) === 0) {
         await query(`CREATE INDEX idx_customers_owner_user ON customers (owner_user_id)`);
       }
@@ -188,6 +203,19 @@ export class CustomersService {
     if (value === undefined) return undefined;
 
     const type = String(columnMeta.type || "").toLowerCase();
+    if (type.includes("bool")) {
+      if (value === null) return null;
+      if (typeof value === "boolean") return value;
+      if (typeof value === "number") return value !== 0;
+      if (typeof value === "string") {
+        const normalized = value.trim().toLowerCase();
+        if (!normalized) return null;
+        if (["1", "true", "t", "yes", "y", "sim"].includes(normalized)) return true;
+        if (["0", "false", "f", "no", "n", "nao", "não"].includes(normalized)) return false;
+      }
+      return Boolean(value);
+    }
+
     if (!type.includes("json")) {
       return value;
     }
@@ -362,26 +390,26 @@ export class CustomersService {
 
   private resolveHasWhatsAppExpression(columns: Map<string, ColumnMeta>): string | null {
     if (this.hasColumn(columns, "has_whatsapp")) {
-      return "has_whatsapp = 1";
+      return "has_whatsapp = TRUE";
     }
     if (this.hasColumn(columns, "whatsapp_valid")) {
-      return "whatsapp_valid = 1";
+      return "whatsapp_valid = TRUE";
     }
     if (this.hasColumn(columns, "source_details")) {
-      return "LOWER(JSON_UNQUOTE(JSON_EXTRACT(source_details, '$.whatsapp_validation.has_whatsapp'))) IN ('true', '1')";
+      return "LOWER(COALESCE(source_details::jsonb->'whatsapp_validation'->>'has_whatsapp', '')) IN ('true', '1')";
     }
     return null;
   }
 
   private resolveWithoutWhatsAppExpression(columns: Map<string, ColumnMeta>): string | null {
     if (this.hasColumn(columns, "has_whatsapp")) {
-      return "has_whatsapp = 0";
+      return "has_whatsapp = FALSE";
     }
     if (this.hasColumn(columns, "whatsapp_valid")) {
-      return "whatsapp_valid = 0";
+      return "whatsapp_valid = FALSE";
     }
     if (this.hasColumn(columns, "source_details")) {
-      return "LOWER(JSON_UNQUOTE(JSON_EXTRACT(source_details, '$.whatsapp_validation.has_whatsapp'))) IN ('false', '0')";
+      return "LOWER(COALESCE(source_details::jsonb->'whatsapp_validation'->>'has_whatsapp', '')) IN ('false', '0')";
     }
     return null;
   }
@@ -395,7 +423,7 @@ export class CustomersService {
     }
 
     if (this.hasColumn(columns, "source_details")) {
-      return "JSON_EXTRACT(source_details, '$.whatsapp_validation.checked_at') IS NOT NULL";
+      return "(source_details::jsonb->'whatsapp_validation'->>'checked_at') IS NOT NULL";
     }
 
     return null;
@@ -499,7 +527,7 @@ export class CustomersService {
         const bySourceDetails = await queryOne<Customer>(
           `SELECT id, source_details, tags
            FROM customers
-           WHERE JSON_UNQUOTE(JSON_EXTRACT(source_details, '$.google_place_id')) = ?${ownerWhere}${brandWhere}
+           WHERE source_details::jsonb->>'google_place_id' = ?${ownerWhere}${brandWhere}
            LIMIT 1`,
           params
         );
@@ -852,7 +880,7 @@ export class CustomersService {
         where += " AND category = ?";
         params.push(filters.category);
       } else if (this.hasColumn(columns, "source_details")) {
-        where += " AND JSON_UNQUOTE(JSON_EXTRACT(source_details, '$.category')) = ?";
+        where += " AND source_details::jsonb->>'category' = ?";
         params.push(filters.category);
       }
     }
@@ -896,7 +924,7 @@ export class CustomersService {
         where += " AND whatsapp_valid IS NULL";
         if (phoneCol) where += ` AND ${phoneCol} IS NOT NULL AND ${phoneCol} != ''`;
       } else if (this.hasColumn(columns, "source_details")) {
-        where += " AND (JSON_EXTRACT(source_details, '$.whatsapp_validation.has_whatsapp') IS NULL)";
+        where += " AND (source_details::jsonb->'whatsapp_validation'->>'has_whatsapp' IS NULL)";
         if (phoneCol) where += ` AND ${phoneCol} IS NOT NULL AND ${phoneCol} != ''`;
       }
     }
@@ -1043,9 +1071,9 @@ export class CustomersService {
     }
 
     const createdColumn = this.hasColumn(columns, "created_at") ? "created_at" : null;
-    const todayExpr = createdColumn ? `DATE(${createdColumn}) = CURDATE()` : "FALSE";
-    const weekExpr = createdColumn ? `${createdColumn} >= DATE_SUB(NOW(), INTERVAL 7 DAY)` : "FALSE";
-    const monthExpr = createdColumn ? `${createdColumn} >= DATE_SUB(NOW(), INTERVAL 30 DAY)` : "FALSE";
+    const todayExpr = createdColumn ? `DATE(${createdColumn}) = CURRENT_DATE` : "FALSE";
+    const weekExpr = createdColumn ? `${createdColumn} >= CURRENT_TIMESTAMP - INTERVAL '7 day'` : "FALSE";
+    const monthExpr = createdColumn ? `${createdColumn} >= CURRENT_TIMESTAMP - INTERVAL '30 day'` : "FALSE";
 
     const hasWhatsExpr = this.resolveHasWhatsAppExpression(columns) || "FALSE";
     const noWhatsExpr = this.resolveWithoutWhatsAppExpression(columns) || "FALSE";
@@ -1126,12 +1154,12 @@ export class CustomersService {
 
     if (this.hasColumn(columns, "has_whatsapp")) {
       fields.push("has_whatsapp = ?");
-      values.push(payload.hasWhatsApp ? 1 : 0);
+      values.push(this.normalizeColumnValue(columns.get("has_whatsapp"), payload.hasWhatsApp));
     }
 
     if (this.hasColumn(columns, "whatsapp_valid")) {
       fields.push("whatsapp_valid = ?");
-      values.push(payload.hasWhatsApp ? 1 : 0);
+      values.push(this.normalizeColumnValue(columns.get("whatsapp_valid"), payload.hasWhatsApp));
     }
 
     if (this.hasColumn(columns, "whatsapp_validation_status")) {

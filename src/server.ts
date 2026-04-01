@@ -34,10 +34,10 @@ const NODE_ENV = process.env.NODE_ENV || 'development';
 
 // CORS
 app.use(cors({
-    origin: process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000',
+    origin: process.env.NEXT_PUBLIC_APP_URL || true,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-brand-id'],
 }));
 
 // Body parser
@@ -46,6 +46,7 @@ app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
 // Servir arquivos estáticos
 app.use(express.static(path.join(__dirname, '../public')));
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // Logging de requisições
 app.use((req: Request, res: Response, next: NextFunction) => {

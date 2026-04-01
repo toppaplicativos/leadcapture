@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 import { insert, query, queryOne, update } from "../config/database";
+import { config } from "../config";
 
 export type BrandUnit = {
   id: string;
@@ -35,6 +36,12 @@ function toSlug(value: string): string {
     .slice(0, 120);
 }
 
+function normalizeLogoUrl(value: unknown): string | null {
+  const normalized = String(value ?? "").trim();
+  if (!normalized) return null;
+  return normalized;
+}
+
 export class BrandUnitsService {
   private schemaReady = false;
   private schemaReadyPromise: Promise<void> | null = null;
@@ -60,13 +67,33 @@ export class BrandUnitsService {
   }
 
   private async indexExists(tableName: string, indexName: string): Promise<boolean> {
-    const row = await queryOne<{ total: number }>(
-      `SELECT COUNT(*) AS total
-       FROM information_schema.STATISTICS
-       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?`,
-      [tableName, indexName]
-    );
-    return Number(row?.total || 0) > 0;
+    try {
+      const row = await queryOne<{ total: number }>(
+        `SELECT COUNT(*) AS total
+         FROM pg_indexes
+         WHERE tablename = ?
+           AND indexname = ?`,
+        [tableName, indexName]
+      );
+      return Number(row?.total || 0) > 0;
+    } catch {
+      try {
+        const row = await queryOne<{ total: number }>(
+          `SELECT COUNT(*) AS total
+           FROM information_schema.STATISTICS
+           WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?`,
+          [tableName, indexName]
+        );
+        return Number(row?.total || 0) > 0;
+      } catch {
+        try {
+          const rows = await query<any[]>(`SHOW INDEX FROM ${tableName} WHERE Key_name = ?`, [indexName]);
+          return Array.isArray(rows) && rows.length > 0;
+        } catch {
+          return false;
+        }
+      }
+    }
   }
 
   private async ensureTableBrandColumnAndIndex(
@@ -98,6 +125,69 @@ export class BrandUnitsService {
   }
 
   async ensureSchema(): Promise<void> {
+    if (config.postgres.connectionString || config.postgres.host) {
+      if (this.schemaReady) return;
+      if (this.schemaReadyPromise) {
+        await this.schemaReadyPromise;
+        return;
+      }
+
+      this.schemaReadyPromise = (async () => {
+        await query(`
+          CREATE TABLE IF NOT EXISTS brand_units (
+            id VARCHAR(36) PRIMARY KEY,
+            user_id VARCHAR(36) NOT NULL,
+            name VARCHAR(120) NOT NULL,
+            slug VARCHAR(140) NOT NULL,
+            logo_url TEXT NULL,
+            site_url TEXT NULL,
+            sales_page_url TEXT NULL,
+            instagram_url TEXT NULL,
+            facebook_url TEXT NULL,
+            twitter_url TEXT NULL,
+            tiktok_url TEXT NULL,
+            slogan VARCHAR(255) NULL,
+            primary_color VARCHAR(24) NULL,
+            secondary_color VARCHAR(24) NULL,
+            theme_json JSON NULL,
+            voice_json JSON NULL,
+            domain VARCHAR(255) NULL,
+            status VARCHAR(20) NOT NULL DEFAULT 'active',
+            is_default BOOLEAN NOT NULL DEFAULT FALSE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (user_id, slug)
+          )
+        `);
+
+        await query(`
+          CREATE TABLE IF NOT EXISTS user_brand_context (
+            user_id VARCHAR(36) PRIMARY KEY,
+            active_brand_id VARCHAR(36) NULL,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          )
+        `);
+
+        await this.ensureTableColumn("brand_units", "site_url", "TEXT NULL");
+        await this.ensureTableColumn("brand_units", "sales_page_url", "TEXT NULL");
+        await this.ensureTableColumn("brand_units", "instagram_url", "TEXT NULL");
+        await this.ensureTableColumn("brand_units", "facebook_url", "TEXT NULL");
+        await this.ensureTableColumn("brand_units", "twitter_url", "TEXT NULL");
+        await this.ensureTableColumn("brand_units", "tiktok_url", "TEXT NULL");
+        await this.ensureTableColumn("brand_units", "slogan", "VARCHAR(255) NULL");
+        await this.ensureTableColumn("brand_units", "primary_color", "VARCHAR(24) NULL");
+        await this.ensureTableColumn("brand_units", "secondary_color", "VARCHAR(24) NULL");
+
+        this.schemaReady = true;
+      })().finally(() => {
+        this.schemaReadyPromise = null;
+      });
+
+      await this.schemaReadyPromise;
+      this.schemaReady = true;
+      return;
+    }
+
     if (this.schemaReady) return;
 
     if (this.schemaReadyPromise) {
@@ -181,17 +271,37 @@ export class BrandUnitsService {
       `SELECT * FROM brand_units WHERE user_id = ? ORDER BY is_default DESC, created_at ASC`,
       [userId]
     );
-    return rows || [];
+    return (rows || []).map((item) => this.hydrateBrandUnit(item));
   }
 
   async getById(userId: string, brandId: string): Promise<BrandUnit | null> {
     await this.ensureSchema();
-    return (
+    const row =
       (await queryOne<BrandUnit>(
         `SELECT * FROM brand_units WHERE id = ? AND user_id = ? LIMIT 1`,
         [brandId, userId]
-      )) || null
+      )) || null;
+    return row ? this.hydrateBrandUnit(row) : null;
+  }
+
+  private hydrateBrandUnit(item: BrandUnit): BrandUnit {
+    const next = { ...(item || {}) } as BrandUnit;
+
+    let themeJsonParsed: any = next.theme_json;
+    if (typeof themeJsonParsed === "string") {
+      try {
+        themeJsonParsed = JSON.parse(themeJsonParsed);
+      } catch {
+        themeJsonParsed = null;
+      }
+    }
+
+    const fallbackLogo = normalizeLogoUrl(
+      themeJsonParsed?.logo_url || themeJsonParsed?.logoUrl || themeJsonParsed?.logo
     );
+
+    next.logo_url = normalizeLogoUrl(next.logo_url) || fallbackLogo;
+    return next;
   }
 
   async create(
@@ -229,7 +339,7 @@ export class BrandUnitsService {
     if (!slug) throw new Error("Brand slug is invalid");
 
     if (shouldBeDefault) {
-      await update(`UPDATE brand_units SET is_default = 0 WHERE user_id = ?`, [userId]);
+      await update(`UPDATE brand_units SET is_default = FALSE WHERE user_id = ?`, [userId]);
     }
 
     const id = randomUUID();
@@ -242,7 +352,7 @@ export class BrandUnitsService {
         userId,
         name,
         slug,
-        payload.logo_url || null,
+        normalizeLogoUrl(payload.logo_url),
         payload.site_url || null,
         payload.sales_page_url || null,
         payload.instagram_url || null,
@@ -255,7 +365,7 @@ export class BrandUnitsService {
         payload.theme_json ? JSON.stringify(payload.theme_json) : null,
         payload.voice_json ? JSON.stringify(payload.voice_json) : null,
         payload.domain || null,
-        shouldBeDefault ? 1 : 0,
+        shouldBeDefault,
       ]
     );
 
@@ -296,16 +406,20 @@ export class BrandUnitsService {
     const values: any[] = [];
 
     if (payload.name !== undefined) {
+      const name = String(payload.name || "").trim();
+      if (!name) throw new Error("Brand name is required");
       fields.push("name = ?");
-      values.push(String(payload.name || "").trim());
+      values.push(name);
     }
     if (payload.slug !== undefined) {
+      const slug = toSlug(payload.slug);
+      if (!slug) throw new Error("Brand slug is invalid");
       fields.push("slug = ?");
-      values.push(toSlug(payload.slug));
+      values.push(slug);
     }
     if (payload.logo_url !== undefined) {
       fields.push("logo_url = ?");
-      values.push(payload.logo_url || null);
+      values.push(normalizeLogoUrl(payload.logo_url));
     }
     if (payload.site_url !== undefined) {
       fields.push("site_url = ?");
@@ -353,16 +467,19 @@ export class BrandUnitsService {
     }
     if (payload.domain !== undefined) {
       fields.push("domain = ?");
-      values.push(payload.domain || null);
+      values.push(String(payload.domain || "").trim() || null);
     }
     if (payload.status !== undefined) {
+      if (payload.status !== "active" && payload.status !== "archived") {
+        throw new Error("Brand status is invalid");
+      }
       fields.push("status = ?");
       values.push(payload.status);
     }
 
     if (payload.is_default === true) {
-      await update(`UPDATE brand_units SET is_default = 0 WHERE user_id = ?`, [userId]);
-      fields.push("is_default = 1");
+      await update(`UPDATE brand_units SET is_default = FALSE WHERE user_id = ?`, [userId]);
+      fields.push("is_default = TRUE");
     }
 
     if (fields.length === 0) return this.getById(userId, brandId);

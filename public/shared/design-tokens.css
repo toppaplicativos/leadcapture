@@ -1,0 +1,130 @@
+/* ═══════════════════════════════════════════════════════
+   DESIGN TOKENS — Fonte única de verdade para todo o app
+   ═══════════════════════════════════════════════════════ */
+
+:root {
+  /* ── Brand (sobrescrito por JS em runtime para catálogo) ── */
+  --brand-primary: #111827;
+  --brand-secondary: #3b82f6;
+  --brand-primary-light: #f0f4ff;
+  --brand-secondary-light: #eff6ff;
+
+  /* ── Core palette ── */
+  --color-bg: #f8fafc;
+  --color-bg-alt: #f5f7fa;
+  --color-card: #ffffff;
+  --color-text: #111827;
+  --color-text-secondary: #1e293b;
+  --color-muted: #6b7280;
+  --color-muted-light: #94a3b8;
+  --color-border: #e2e8f0;
+  --color-border-light: #f1f5f9;
+  --color-hover: #f8fafc;
+
+  /* ── Status ── */
+  --color-success: #16a34a;
+  --color-success-light: #dcfce7;
+  --color-warning: #ca8a04;
+  --color-warning-light: #fef9c3;
+  --color-danger: #dc2626;
+  --color-danger-light: #fee2e2;
+  --color-info: #2563eb;
+  --color-info-light: #dbeafe;
+
+  /* ── Radius ── */
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+  --radius-xl: 14px;
+  --radius-2xl: 16px;
+  --radius-3xl: 20px;
+  --radius-full: 999px;
+
+  /* ── Shadows ── */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 8px 30px rgba(0, 0, 0, 0.1);
+  --shadow-xl: 0 12px 40px rgba(0, 0, 0, 0.15);
+
+  /* ── Spacing ── */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  /* ── Typography ── */
+  --font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: 'SF Mono', SFMono-Regular, ui-monospace, Menlo, Consolas, monospace;
+
+  --text-xs: 10px;
+  --text-sm: 12px;
+  --text-base: 14px;
+  --text-md: 15px;
+  --text-lg: 16px;
+  --text-xl: 18px;
+  --text-2xl: 20px;
+  --text-3xl: 24px;
+  --text-4xl: 28px;
+
+  --font-normal: 400;
+  --font-medium: 500;
+  --font-semibold: 600;
+  --font-bold: 700;
+  --font-extrabold: 800;
+
+  --line-height: 1.6;
+  --line-tight: 1.2;
+  --line-snug: 1.35;
+
+  /* ── Layout ── */
+  --max-width: 1100px;
+  --max-width-narrow: 960px;
+  --max-width-form: 480px;
+
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --bottom-nav-h: 60px;
+
+  /* ── Transitions ── */
+  --ease-default: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-bounce: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-fast: 0.15s;
+  --duration-normal: 0.2s;
+  --duration-slow: 0.3s;
+
+  /* ── Z-Index Scale ── */
+  --z-dropdown: 50;
+  --z-sticky: 100;
+  --z-overlay: 300;
+  --z-modal: 1000;
+  --z-toast: 2000;
+  --z-splash: 9999;
+
+  /* ── Color Scheme ── */
+  color-scheme: light;
+}
+
+/* ── Aliases para retrocompatibilidade (inventário usa --primary) ── */
+:root {
+  --primary: var(--brand-secondary);
+  --primary-light: var(--color-info-light);
+  --primary-dark: #1d4ed8;
+  --bg: var(--color-bg);
+  --card: var(--color-card);
+  --border: var(--color-border);
+  --text: var(--color-text);
+  --muted: var(--color-muted);
+  --success: var(--color-success);
+  --success-light: var(--color-success-light);
+  --warning: var(--color-warning);
+  --warning-light: var(--color-warning-light);
+  --danger: var(--color-danger);
+  --danger-light: var(--color-danger-light);
+  --radius: var(--radius-xl);
+}

@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Catálogo Público</title>
+    <script src="/shared/loader.js" data-components="topbar,bottom-nav,cards,forms,buttons,modal,toast,badges,grid,hero,skeleton"></script>
+    <link rel="stylesheet" href="/catalogo-publico.css" />
+  </head>
+  <body data-page="home">
+
+    <!-- Top Header Bar -->
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="topbar-left">
+          <img id="storeLogo" class="topbar-logo" src="" alt="Logo" onerror="this.style.display='none';var a=document.getElementById('storeAvatar');if(a){a.textContent=(document.getElementById('storeName').textContent||'L').charAt(0);a.style.display='flex'}" />
+          <span id="storeAvatar" class="topbar-avatar" style="display:none"></span>
+          <h1 id="storeName">Loja</h1>
+        </div>
+        <div class="topbar-right">
+          <a data-link="checkout" class="topbar-cart" id="cartBadge" aria-label="Carrinho">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>
+            <span class="topbar-cart-count" id="cartCount">0</span>
+          </a>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+      <p id="alert" class="muted"></p>
+
+      <!-- Tab: Catálogo -->
+      <section id="tabCatalogo" class="tab-panel active">
+
+        <!-- Hero Banner -->
+        <div class="skeleton skeleton-hero" id="skeletonHero"></div>
+        <div class="hero-banner" id="heroBanner" style="display:none">
+          <img id="coverImage" class="hero-cover" src="" alt="Capa da loja" onerror="this.parentElement.classList.add('no-cover')" />
+          <div class="hero-gradient"></div>
+          <div class="hero-brand-row">
+            <img id="heroLogo" class="hero-logo" src="" alt="Logo" onerror="this.style.display='none'" />
+            <div class="hero-brand-text">
+              <h2 id="heroName" class="hero-name">Loja</h2>
+              <p id="heroSlogan" class="hero-slogan">Catálogo de produtos</p>
+            </div>
+            <span id="heroStatus" class="hero-status open">Aberto</span>
+          </div>
+        </div>
+
+        <!-- Store Info Strip -->
+        <div class="skeleton-info-strip" id="skeletonInfoStrip">
+          <div class="skeleton skeleton-bar"></div>
+          <div class="skeleton skeleton-bar"></div>
+          <div class="skeleton skeleton-bar"></div>
+          <div class="skeleton skeleton-bar"></div>
+        </div>
+        <div class="info-strip" id="storeInfoSection" style="display:none">
+          <div class="info-item">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+            <div><span class="info-label">Endereço</span><span class="info-value" id="storeAddress">—</span></div>
+          </div>
+          <div class="info-item">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+            <div><span class="info-label">Taxa entrega</span><span class="info-value" id="deliveryFee">—</span></div>
+          </div>
+          <div class="info-item">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            <div><span class="info-label">Raio entrega</span><span class="info-value" id="deliveryRadius">—</span></div>
+          </div>
+          <div class="info-item">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
+            <div><span class="info-label">Produtos</span><span class="info-value" id="productCount">0</span></div>
+          </div>
+        </div>
+
+        <h2 class="section-title">Produtos</h2>
+
+        <!-- Skeleton grid (visível enquanto carrega) -->
+        <div class="skeleton-grid" id="skeletonGrid">
+          <div class="skeleton-card"><div class="skeleton skeleton-card-img"></div><div class="skeleton-card-body"><div class="skeleton skeleton-bar w-80 h-lg"></div><div class="skeleton skeleton-bar w-40"></div><div class="skeleton skeleton-bar w-60"></div><div class="skeleton skeleton-bar w-40 h-lg"></div><div class="skeleton skeleton-bar w-full h-btn"></div></div></div>
+          <div class="skeleton-card"><div class="skeleton skeleton-card-img"></div><div class="skeleton-card-body"><div class="skeleton skeleton-bar w-60 h-lg"></div><div class="skeleton skeleton-bar w-40"></div><div class="skeleton skeleton-bar w-80"></div><div class="skeleton skeleton-bar w-40 h-lg"></div><div class="skeleton skeleton-bar w-full h-btn"></div></div></div>
+          <div class="skeleton-card"><div class="skeleton skeleton-card-img"></div><div class="skeleton-card-body"><div class="skeleton skeleton-bar w-80 h-lg"></div><div class="skeleton skeleton-bar w-40"></div><div class="skeleton skeleton-bar w-60"></div><div class="skeleton skeleton-bar w-40 h-lg"></div><div class="skeleton skeleton-bar w-full h-btn"></div></div></div>
+          <div class="skeleton-card"><div class="skeleton skeleton-card-img"></div><div class="skeleton-card-body"><div class="skeleton skeleton-bar w-60 h-lg"></div><div class="skeleton skeleton-bar w-40"></div><div class="skeleton skeleton-bar w-80"></div><div class="skeleton skeleton-bar w-40 h-lg"></div><div class="skeleton skeleton-bar w-full h-btn"></div></div></div>
+          <div class="skeleton-card"><div class="skeleton skeleton-card-img"></div><div class="skeleton-card-body"><div class="skeleton skeleton-bar w-80 h-lg"></div><div class="skeleton skeleton-bar w-40"></div><div class="skeleton skeleton-bar w-60"></div><div class="skeleton skeleton-bar w-40 h-lg"></div><div class="skeleton skeleton-bar w-full h-btn"></div></div></div>
+          <div class="skeleton-card"><div class="skeleton skeleton-card-img"></div><div class="skeleton-card-body"><div class="skeleton skeleton-bar w-60 h-lg"></div><div class="skeleton skeleton-bar w-40"></div><div class="skeleton skeleton-bar w-80"></div><div class="skeleton skeleton-bar w-40 h-lg"></div><div class="skeleton skeleton-bar w-full h-btn"></div></div></div>
+        </div>
+
+        <div id="productsGrid" class="grid"></div>
+      </section>
+
+      <!-- Tab: Pedidos -->
+      <section id="tabPedidos" class="tab-panel">
+        <h2 class="section-title">Meus Pedidos</h2>
+        <p class="muted" id="pedidosInfo">Consulte seus pedidos informando e-mail ou telefone.</p>
+        <form id="pedidosSearchForm" class="profile-form">
+          <input type="email" id="pedidosEmail" placeholder="Seu e-mail" autocomplete="email" />
+          <input type="tel" id="pedidosPhone" placeholder="Seu telefone" autocomplete="tel" />
+          <button type="submit" class="btn-primary">Buscar pedidos</button>
+        </form>
+        <div id="pedidosResult" class="pedidos-list"></div>
+      </section>
+
+      <!-- Tab: Perfil -->
+      <section id="tabPerfil" class="tab-panel">
+        <h2 class="section-title">Meu Cadastro</h2>
+        <p class="muted">Preencha seus dados para agilizar pedidos e entregas.</p>
+        <form id="profileForm" class="profile-form">
+          <div class="form-group">
+            <label for="profileName">Nome completo</label>
+            <input type="text" id="profileName" placeholder="Seu nome" autocomplete="name" required />
+          </div>
+          <div class="form-group">
+            <label for="profilePhone">Telefone / WhatsApp</label>
+            <input type="tel" id="profilePhone" placeholder="(00) 00000-0000" autocomplete="tel" required />
+          </div>
+          <div class="form-group">
+            <label for="profileEmail">E-mail</label>
+            <input type="email" id="profileEmail" placeholder="seu@email.com" autocomplete="email" />
+          </div>
+          <div class="form-group">
+            <label for="profileAddress">Endereço de entrega</label>
+            <input type="text" id="profileAddress" placeholder="Rua, número, bairro" autocomplete="street-address" />
+          </div>
+          <div class="form-group">
+            <label for="profileEstablishment">Estabelecimento (opcional)</label>
+            <input type="text" id="profileEstablishment" placeholder="Nome do estabelecimento" />
+          </div>
+          <button type="submit" class="btn-primary" id="profileSaveBtn">Salvar cadastro</button>
+          <p id="profileMsg" class="profile-msg"></p>
+        </form>
+      </section>
+    </main>
+
+    <!-- Mobile Bottom Navigation -->
+    <nav class="bottom-nav" id="bottomNav">
+      <button class="bottom-nav-item active" data-tab="tabCatalogo" aria-label="Catálogo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+        <span>Catálogo</span>
+      </button>
+      <button class="bottom-nav-item" data-tab="tabPedidos" aria-label="Pedidos">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+        <span>Pedidos</span>
+      </button>
+      <button class="bottom-nav-item" data-tab="tabPerfil" aria-label="Perfil">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        <span>Perfil</span>
+      </button>
+    </nav>
+
+    <!-- Product Detail Modal -->
+    <div class="modal-overlay" id="productModal">
+      <div class="modal">
+        <button class="modal-close" id="modalClose" aria-label="Fechar">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+        <img class="modal-image" id="modalImage" src="" alt="" onerror="this.style.display='none'" />
+        <div class="modal-content">
+          <h2 id="modalName"></h2>
+          <span class="modal-category" id="modalCategory"></span>
+          <p class="modal-description" id="modalDescription"></p>
+          <div class="modal-details" id="modalDetails"></div>
+          <div class="modal-price-section">
+            <span class="modal-price" id="modalPrice"></span>
+            <span class="modal-compare-price" id="modalComparePrice"></span>
+          </div>
+          <div class="qty-section">
+            <div class="qty-label">Quantidade</div>
+            <div class="qty-control">
+              <button type="button" id="qtyMinus">−</button>
+              <input type="number" class="qty-value" id="modalQty" value="1" min="1" max="999" />
+              <button type="button" id="qtyPlus">+</button>
+            </div>
+          </div>
+          <div class="modal-subtotal" id="modalSubtotalSection">
+            <span class="modal-subtotal-label">Total</span>
+            <span class="modal-subtotal-value" id="modalSubtotal">R$ 0,00</span>
+          </div>
+          <button type="button" class="modal-add-cart" id="modalAddCart">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>
+            Adicionar ao carrinho
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast -->
+    <div class="toast" id="toast"></div>
+
+    <script src="/catalogo-publico.js"></script>
+  </body>
+</html>

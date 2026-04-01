@@ -1,0 +1,555 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Cadastro de Brand | Lead System</title>
+    <script src="/shared/loader.js" data-components="cards,forms,buttons,toast"></script>
+    <style>
+      :root { --primary: #0f82ff; --brand-secondary: #0f82ff; --primary-dark: #0b6fdb; }
+
+      body { background: #f0f4f8; }
+
+      /* -- Wizard Shell -- */
+      .wizard-shell {
+        min-height: 100vh; min-height: 100dvh;
+        display: flex; flex-direction: column;
+      }
+      .wizard-header {
+        background: #fff; border-bottom: 1px solid #e2e8f0;
+        padding: 20px 16px 0; position: sticky; top: 0; z-index: 10;
+      }
+      .wizard-brand {
+        display: flex; align-items: center; gap: 10px; margin-bottom: 18px;
+      }
+      .wizard-brand-icon {
+        width: 40px; height: 40px; border-radius: 12px;
+        background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+        display: flex; align-items: center; justify-content: center;
+        color: #fff; font-size: 20px; flex-shrink: 0;
+      }
+      .wizard-brand h1 { font-size: 18px; font-weight: 700; margin: 0; color: #0f172a; }
+      .wizard-brand p { font-size: 12px; color: #64748b; margin: 2px 0 0; }
+
+      /* -- Stepper -- */
+      .stepper {
+        display: flex; align-items: center; gap: 0;
+        padding-bottom: 16px; overflow-x: auto;
+        scrollbar-width: none;
+      }
+      .stepper::-webkit-scrollbar { display: none; }
+      .step-item {
+        display: flex; align-items: center; gap: 8px;
+        flex-shrink: 0; padding: 0 4px; cursor: default;
+      }
+      .step-dot {
+        width: 32px; height: 32px; border-radius: 50%;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 13px; font-weight: 700;
+        background: #e2e8f0; color: #94a3b8;
+        transition: all .3s ease; flex-shrink: 0;
+      }
+      .step-item.active .step-dot {
+        background: var(--primary); color: #fff;
+        box-shadow: 0 2px 12px rgba(15, 130, 255, .3);
+      }
+      .step-item.done .step-dot {
+        background: #16a34a; color: #fff;
+      }
+      .step-label {
+        font-size: 12px; font-weight: 600; color: #94a3b8;
+        white-space: nowrap; transition: color .3s;
+      }
+      .step-item.active .step-label { color: var(--primary); }
+      .step-item.done .step-label { color: #16a34a; }
+      .step-line {
+        flex: 1; height: 2px; background: #e2e8f0;
+        min-width: 16px; transition: background .3s;
+      }
+      .step-line.done { background: #16a34a; }
+
+      /* -- Content area -- */
+      .wizard-body {
+        flex: 1; padding: 20px 16px 120px;
+        max-width: 640px; margin: 0 auto; width: 100%;
+      }
+
+      /* -- Steps (only active visible) -- */
+      .wz-step {
+        display: none;
+        animation: wzFadeIn .35s ease;
+      }
+      .wz-step.active { display: block; }
+      @keyframes wzFadeIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+
+      .wz-step-header {
+        margin-bottom: 20px;
+      }
+      .wz-step-icon {
+        width: 52px; height: 52px; border-radius: 16px;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 26px; margin-bottom: 12px;
+      }
+      .wz-step-header h2 { font-size: 22px; font-weight: 800; margin: 0; color: #0f172a; letter-spacing: -.3px; }
+      .wz-step-header p { font-size: 14px; color: #64748b; margin: 6px 0 0; line-height: 1.5; }
+
+      /* -- Step icon colors -- */
+      .wz-step-icon.blue { background: #dbeafe; color: #2563eb; }
+      .wz-step-icon.purple { background: #f3e8ff; color: #7c3aed; }
+      .wz-step-icon.amber { background: #fef3c7; color: #d97706; }
+      .wz-step-icon.green { background: #dcfce7; color: #16a34a; }
+
+      /* -- Form fields -- */
+      .wz-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+      .wz-grid .full { grid-column: 1 / -1; }
+      .wz-field { display: flex; flex-direction: column; gap: 5px; }
+      .wz-field label { font-size: 13px; font-weight: 600; color: #475569; }
+      .wz-field label .req { color: var(--primary); }
+      .wz-field input, .wz-field select, .wz-field textarea {
+        width: 100%; border: 1.5px solid #e2e8f0; border-radius: 12px;
+        padding: 12px 14px; font-size: 15px; background: #fff; color: #0f172a;
+        transition: border-color .2s, box-shadow .2s; box-sizing: border-box;
+      }
+      .wz-field input:focus, .wz-field select:focus, .wz-field textarea:focus {
+        outline: none; border-color: var(--primary);
+        box-shadow: 0 0 0 3px rgba(15, 130, 255, .12);
+      }
+      .wz-field input.invalid, .wz-field select.invalid {
+        border-color: #ef4444; box-shadow: 0 0 0 3px rgba(239, 68, 68, .1);
+      }
+      .wz-field textarea { min-height: 80px; resize: vertical; font-family: inherit; }
+      .wz-field select {
+        appearance: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+        background-repeat: no-repeat; background-position: right 12px center; padding-right: 36px;
+      }
+
+      /* -- Chips (multi-select) -- */
+      .wz-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+      .wz-chip {
+        border: 1.5px solid #e2e8f0; border-radius: 999px;
+        padding: 8px 14px; font-size: 13px; font-weight: 600;
+        color: #475569; background: #fff; cursor: pointer;
+        display: inline-flex; align-items: center; gap: 6px;
+        transition: all .15s; user-select: none;
+      }
+      .wz-chip:hover { border-color: #cbd5e1; background: #f8fafc; }
+      .wz-chip input { display: none; }
+      .wz-chip.selected {
+        background: rgba(15, 130, 255, .08); border-color: var(--primary);
+        color: var(--primary);
+      }
+      .wz-chip .chip-icon { font-size: 16px; }
+
+      /* -- Bottom bar (fixed nav) -- */
+      .wizard-footer {
+        position: fixed; bottom: 0; left: 0; right: 0; z-index: 10;
+        background: #fff; border-top: 1px solid #e2e8f0;
+        padding: 14px 16px; padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 14px);
+      }
+      .wizard-footer-inner {
+        max-width: 640px; margin: 0 auto;
+        display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      }
+      .wz-btn {
+        border: none; border-radius: 12px; padding: 14px 28px;
+        font-size: 15px; font-weight: 700; cursor: pointer;
+        display: inline-flex; align-items: center; gap: 8px;
+        transition: all .15s; min-height: 48px;
+      }
+      .wz-btn-back {
+        background: #f1f5f9; color: #475569;
+      }
+      .wz-btn-back:hover { background: #e2e8f0; }
+      .wz-btn-back:disabled { opacity: 0; pointer-events: none; }
+      .wz-btn-next {
+        background: var(--primary); color: #fff; margin-left: auto;
+      }
+      .wz-btn-next:hover { background: var(--primary-dark); }
+      .wz-btn-next:disabled { opacity: .6; cursor: not-allowed; }
+
+      /* -- Success screen -- */
+      .wz-success {
+        display: none; text-align: center; padding: 60px 20px;
+        animation: wzFadeIn .5s ease;
+      }
+      .wz-success.active { display: block; }
+      .wz-success-icon {
+        width: 80px; height: 80px; border-radius: 50%;
+        background: #dcfce7; color: #16a34a;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 40px; margin: 0 auto 20px;
+        animation: wzPop .5s cubic-bezier(.17,.67,.4,1.2);
+      }
+      @keyframes wzPop { 0% { transform: scale(0); } 100% { transform: scale(1); } }
+      .wz-success h2 { font-size: 24px; font-weight: 800; margin: 0 0 8px; color: #0f172a; }
+      .wz-success p { font-size: 15px; color: #64748b; line-height: 1.6; max-width: 400px; margin: 0 auto; }
+      .wz-success .wz-btn { margin-top: 24px; }
+
+      /* -- Error msg -- */
+      .wz-error {
+        background: #fef2f2; border: 1px solid #fecaca; border-radius: 12px;
+        padding: 12px 16px; color: #b91c1c; font-size: 14px; font-weight: 600;
+        margin-bottom: 16px; display: none;
+      }
+      .wz-error.show { display: block; animation: wzFadeIn .2s ease; }
+
+      @media (max-width: 600px) {
+        .wz-grid { grid-template-columns: 1fr; }
+        .wz-step-header h2 { font-size: 19px; }
+        .step-label { display: none; }
+        .wizard-body { padding: 16px 14px 110px; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wizard-shell">
+
+      <!-- Header + Stepper -->
+      <div class="wizard-header">
+        <div class="wizard-brand">
+          <div class="wizard-brand-icon">&#x1F680;</div>
+          <div>
+            <h1>Criar sua Brand</h1>
+            <p>Configure sua operacao de vendas em minutos</p>
+          </div>
+        </div>
+        <div class="stepper" id="stepper">
+          <div class="step-item active" data-step="0">
+            <div class="step-dot">1</div>
+            <span class="step-label">Voce</span>
+          </div>
+          <div class="step-line"></div>
+          <div class="step-item" data-step="1">
+            <div class="step-dot">2</div>
+            <span class="step-label">Marca</span>
+          </div>
+          <div class="step-line"></div>
+          <div class="step-item" data-step="2">
+            <div class="step-dot">3</div>
+            <span class="step-label">Produto</span>
+          </div>
+          <div class="step-line"></div>
+          <div class="step-item" data-step="3">
+            <div class="step-dot">4</div>
+            <span class="step-label">Operacao</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Form -->
+      <form id="brand-onboarding-form" novalidate>
+        <div class="wizard-body">
+          <div id="wz-error" class="wz-error"></div>
+
+          <!-- Step 1: Dados do Cliente -->
+          <div class="wz-step active" data-step="0">
+            <div class="wz-step-header">
+              <div class="wz-step-icon blue">&#x1F464;</div>
+              <h2>Seus dados de contato</h2>
+              <p>Precisamos saber quem esta criando a brand para manter contato durante a configuracao.</p>
+            </div>
+            <div class="wz-grid">
+              <div class="wz-field full"><label>Nome completo <span class="req">*</span></label><input id="customer_name" name="customer_name" required placeholder="Como voce se chama?" /></div>
+              <div class="wz-field"><label>Telefone/WhatsApp <span class="req">*</span></label><input id="customer_phone" name="customer_phone" required placeholder="(00) 00000-0000" /></div>
+              <div class="wz-field"><label>Email <span class="req">*</span></label><input id="customer_email" name="customer_email" type="email" required placeholder="seu@email.com" /></div>
+              <div class="wz-field"><label>CPF/CNPJ</label><input id="customer_document" name="customer_document" placeholder="Opcional" /></div>
+              <div class="wz-field"><label>Cidade</label><input id="customer_city" name="customer_city" /></div>
+              <div class="wz-field"><label>Estado</label><input id="customer_state" name="customer_state" /></div>
+              <div class="wz-field full"><label>Endereco completo</label><input id="customer_address" name="customer_address" placeholder="Rua, numero, bairro" /></div>
+            </div>
+          </div>
+
+          <!-- Step 2: Dados da Marca -->
+          <div class="wz-step" data-step="1">
+            <div class="wz-step-header">
+              <div class="wz-step-icon purple">&#x1F3EA;</div>
+              <h2>Sobre a sua marca</h2>
+              <p>Conte sobre o negocio. Essas informacoes serao usadas para configurar seu catalogo e identidade visual.</p>
+            </div>
+            <div class="wz-grid">
+              <div class="wz-field full"><label>Nome da marca <span class="req">*</span></label><input id="brand_name" name="brand_name" required placeholder="Ex: Doces da Maria" /></div>
+              <div class="wz-field"><label>Slug (URL amigavel)</label><input id="brand_slug" name="brand_slug" placeholder="Ex: doces-da-maria" /></div>
+              <div class="wz-field">
+                <label>Segmento</label>
+                <select id="business_segment" name="business_segment">
+                  <option value="">Selecione o segmento</option>
+                  <option>Alimentacao</option>
+                  <option>Moda</option>
+                  <option>Beleza</option>
+                  <option>Saude</option>
+                  <option>Tecnologia</option>
+                  <option>Servicos</option>
+                  <option>Outro</option>
+                </select>
+              </div>
+              <div class="wz-field"><label>Razao social</label><input id="company_name" name="company_name" placeholder="Opcional" /></div>
+              <div class="wz-field"><label>Instagram</label><input id="instagram_url" name="instagram_url" placeholder="@suamarca" /></div>
+              <div class="wz-field"><label>Site</label><input id="website_url" name="website_url" placeholder="https://..." /></div>
+            </div>
+          </div>
+
+          <!-- Step 3: Produto -->
+          <div class="wz-step" data-step="2">
+            <div class="wz-step-header">
+              <div class="wz-step-icon amber">&#x1F4E6;</div>
+              <h2>Seu primeiro produto</h2>
+              <p>Cadastre o produto principal que sera vendido. Voce podera adicionar mais depois.</p>
+            </div>
+            <div class="wz-grid">
+              <div class="wz-field full"><label>Nome do produto <span class="req">*</span></label><input id="product_name" name="product_name" required placeholder="Ex: Kit Brigadeiro Gourmet" /></div>
+              <div class="wz-field"><label>Categoria</label><input id="product_category" name="product_category" placeholder="Ex: Doces" /></div>
+              <div class="wz-field"><label>Preco de venda</label><input id="product_price" name="product_price" placeholder="R$ 0,00" inputmode="decimal" /></div>
+              <div class="wz-field"><label>Custo estimado</label><input id="product_cost" name="product_cost" placeholder="R$ 0,00" inputmode="decimal" /></div>
+              <div class="wz-field full"><label>Descricao do produto</label><textarea id="product_description" name="product_description" placeholder="Descreva o produto, diferenciais, ingredientes..."></textarea></div>
+              <div class="wz-field full"><label>Publico-alvo</label><textarea id="target_audience" name="target_audience" placeholder="Quem compra seu produto? Faixa etaria, interesses..."></textarea></div>
+            </div>
+          </div>
+
+          <!-- Step 4: Comercial e Logistica -->
+          <div class="wz-step" data-step="3">
+            <div class="wz-step-header">
+              <div class="wz-step-icon green">&#x1F69A;</div>
+              <h2>Operacao e logistica</h2>
+              <p>Como voce vende e entrega? Essas configuracoes podem ser ajustadas depois.</p>
+            </div>
+            <div class="wz-grid">
+              <div class="wz-field full">
+                <label>Canais de venda</label>
+                <div class="wz-chips">
+                  <label class="wz-chip"><input type="checkbox" name="sales_channels" value="WhatsApp" /><span class="chip-icon">&#x1F4AC;</span> WhatsApp</label>
+                  <label class="wz-chip"><input type="checkbox" name="sales_channels" value="Instagram" /><span class="chip-icon">&#x1F4F8;</span> Instagram</label>
+                  <label class="wz-chip"><input type="checkbox" name="sales_channels" value="Loja Online" /><span class="chip-icon">&#x1F6D2;</span> Loja Online</label>
+                  <label class="wz-chip"><input type="checkbox" name="sales_channels" value="Marketplace" /><span class="chip-icon">&#x1F3EC;</span> Marketplace</label>
+                  <label class="wz-chip"><input type="checkbox" name="sales_channels" value="Loja Fisica" /><span class="chip-icon">&#x1F3E0;</span> Loja Fisica</label>
+                </div>
+              </div>
+              <div class="wz-field full">
+                <label>Formas de pagamento</label>
+                <div class="wz-chips">
+                  <label class="wz-chip"><input type="checkbox" name="payment_methods" value="PIX" /><span class="chip-icon">&#x26A1;</span> PIX</label>
+                  <label class="wz-chip"><input type="checkbox" name="payment_methods" value="Cartao de credito" /><span class="chip-icon">&#x1F4B3;</span> Credito</label>
+                  <label class="wz-chip"><input type="checkbox" name="payment_methods" value="Cartao de debito" /><span class="chip-icon">&#x1F4B3;</span> Debito</label>
+                  <label class="wz-chip"><input type="checkbox" name="payment_methods" value="Boleto" /><span class="chip-icon">&#x1F4C4;</span> Boleto</label>
+                  <label class="wz-chip"><input type="checkbox" name="payment_methods" value="Dinheiro" /><span class="chip-icon">&#x1F4B5;</span> Dinheiro</label>
+                </div>
+              </div>
+              <div class="wz-field">
+                <label>Modelo de entrega</label>
+                <select id="shipping_mode" name="shipping_mode">
+                  <option value="">Selecione</option>
+                  <option value="retirada">Retirada no local</option>
+                  <option value="entrega_local">Entrega local (motoboy)</option>
+                  <option value="transportadora">Transportadora / Correios</option>
+                </select>
+              </div>
+              <div class="wz-field"><label>Raio de entrega (km)</label><input id="delivery_radius_km" name="delivery_radius_km" placeholder="Ex: 15" inputmode="numeric" /></div>
+              <div class="wz-field"><label>Taxa de entrega</label><input id="delivery_fee" name="delivery_fee" placeholder="R$ 0,00" inputmode="decimal" /></div>
+              <div class="wz-field"><label>Prazo de lancamento</label><input id="launch_deadline" name="launch_deadline" placeholder="Ex: 15 dias" /></div>
+              <div class="wz-field full"><label>Observacoes gerais</label><textarea id="notes" name="notes" placeholder="Algo mais que devemos saber?"></textarea></div>
+            </div>
+          </div>
+
+          <!-- Success Screen -->
+          <div class="wz-success" id="wz-success">
+            <div class="wz-success-icon">&#x2713;</div>
+            <h2>Cadastro enviado!</h2>
+            <p>Recebemos todas as informacoes da sua brand. Nossa equipe vai analisar e entrar em contato em breve para finalizar a configuracao.</p>
+            <button type="button" class="wz-btn wz-btn-next" onclick="location.reload()">Cadastrar outra brand</button>
+          </div>
+        </div>
+
+        <!-- Fixed bottom bar -->
+        <div class="wizard-footer" id="wz-footer">
+          <div class="wizard-footer-inner">
+            <button type="button" class="wz-btn wz-btn-back" id="wz-back" disabled>&#x2190; Voltar</button>
+            <button type="button" class="wz-btn wz-btn-next" id="wz-next">Continuar &#x2192;</button>
+          </div>
+        </div>
+      </form>
+    </div>
+
+    <script>
+    (function () {
+      var currentStep = 0;
+      var totalSteps = 4;
+      var steps = document.querySelectorAll('.wz-step');
+      var stepItems = document.querySelectorAll('.step-item');
+      var stepLines = document.querySelectorAll('.step-line');
+      var btnBack = document.getElementById('wz-back');
+      var btnNext = document.getElementById('wz-next');
+      var errorEl = document.getElementById('wz-error');
+      var footer = document.getElementById('wz-footer');
+      var successEl = document.getElementById('wz-success');
+      var form = document.getElementById('brand-onboarding-form');
+
+      /* Chip toggle */
+      document.querySelectorAll('.wz-chip').forEach(function (chip) {
+        chip.addEventListener('click', function (e) {
+          var cb = chip.querySelector('input[type="checkbox"]');
+          if (e.target !== cb) { cb.checked = !cb.checked; }
+          chip.classList.toggle('selected', cb.checked);
+        });
+      });
+
+      function goTo(step) {
+        if (step < 0 || step >= totalSteps) return;
+        currentStep = step;
+
+        /* Show/hide steps */
+        steps.forEach(function (el, i) { el.classList.toggle('active', i === step); });
+
+        /* Update stepper */
+        stepItems.forEach(function (el, i) {
+          el.classList.remove('active', 'done');
+          if (i < step) el.classList.add('done');
+          else if (i === step) el.classList.add('active');
+
+          var dot = el.querySelector('.step-dot');
+          if (i < step) dot.textContent = '\u2713';
+          else dot.textContent = String(i + 1);
+        });
+        stepLines.forEach(function (el, i) {
+          el.classList.toggle('done', i < step);
+        });
+
+        /* Buttons */
+        btnBack.disabled = step === 0;
+        btnNext.textContent = step === totalSteps - 1 ? 'Enviar cadastro \uD83D\uDE80' : 'Continuar \u2192';
+
+        /* Scroll to top */
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+
+        hideError();
+      }
+
+      function showError(msg) {
+        errorEl.textContent = msg;
+        errorEl.classList.add('show');
+        errorEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+      function hideError() {
+        errorEl.classList.remove('show');
+      }
+
+      /* Validation per step */
+      var validations = [
+        function () {
+          var name = form.customer_name.value.trim();
+          var phone = form.customer_phone.value.trim();
+          var email = form.customer_email.value.trim();
+          if (!name) { form.customer_name.classList.add('invalid'); showError('Preencha seu nome completo.'); return false; }
+          form.customer_name.classList.remove('invalid');
+          if (!phone) { form.customer_phone.classList.add('invalid'); showError('Informe seu telefone/WhatsApp.'); return false; }
+          form.customer_phone.classList.remove('invalid');
+          if (!email || !email.includes('@')) { form.customer_email.classList.add('invalid'); showError('Informe um email valido.'); return false; }
+          form.customer_email.classList.remove('invalid');
+          return true;
+        },
+        function () {
+          var brandName = form.brand_name.value.trim();
+          if (!brandName) { form.brand_name.classList.add('invalid'); showError('Informe o nome da sua marca.'); return false; }
+          form.brand_name.classList.remove('invalid');
+          return true;
+        },
+        function () {
+          var productName = form.product_name.value.trim();
+          if (!productName) { form.product_name.classList.add('invalid'); showError('Informe o nome do produto.'); return false; }
+          form.product_name.classList.remove('invalid');
+          return true;
+        },
+        function () { return true; }
+      ];
+
+      /* Remove invalid on input */
+      form.querySelectorAll('input, select, textarea').forEach(function (el) {
+        el.addEventListener('input', function () { el.classList.remove('invalid'); hideError(); });
+      });
+
+      btnNext.addEventListener('click', function () {
+        if (currentStep < totalSteps - 1) {
+          if (validations[currentStep]()) goTo(currentStep + 1);
+        } else {
+          if (validations[currentStep]()) submitForm();
+        }
+      });
+
+      btnBack.addEventListener('click', function () {
+        goTo(currentStep - 1);
+      });
+
+      function getFormPayload() {
+        var fd = new FormData(form);
+        return {
+          customer_name: String(fd.get('customer_name') || '').trim(),
+          customer_document: String(fd.get('customer_document') || '').trim(),
+          customer_phone: String(fd.get('customer_phone') || '').trim(),
+          customer_email: String(fd.get('customer_email') || '').trim(),
+          customer_city: String(fd.get('customer_city') || '').trim(),
+          customer_state: String(fd.get('customer_state') || '').trim(),
+          customer_address: String(fd.get('customer_address') || '').trim(),
+          brand_name: String(fd.get('brand_name') || '').trim(),
+          brand_slug: String(fd.get('brand_slug') || '').trim(),
+          company_name: String(fd.get('company_name') || '').trim(),
+          business_segment: String(fd.get('business_segment') || '').trim(),
+          instagram_url: String(fd.get('instagram_url') || '').trim(),
+          website_url: String(fd.get('website_url') || '').trim(),
+          product_name: String(fd.get('product_name') || '').trim(),
+          product_category: String(fd.get('product_category') || '').trim(),
+          product_description: String(fd.get('product_description') || '').trim(),
+          product_price: String(fd.get('product_price') || '').trim(),
+          product_cost: String(fd.get('product_cost') || '').trim(),
+          target_audience: String(fd.get('target_audience') || '').trim(),
+          sales_channels: fd.getAll('sales_channels').map(function (x) { return String(x).trim(); }).filter(Boolean),
+          payment_methods: fd.getAll('payment_methods').map(function (x) { return String(x).trim(); }).filter(Boolean),
+          shipping_mode: String(fd.get('shipping_mode') || '').trim(),
+          delivery_radius_km: String(fd.get('delivery_radius_km') || '').trim(),
+          delivery_fee: String(fd.get('delivery_fee') || '').trim(),
+          launch_deadline: String(fd.get('launch_deadline') || '').trim(),
+          notes: String(fd.get('notes') || '').trim()
+        };
+      }
+
+      async function submitForm() {
+        btnNext.disabled = true;
+        btnNext.textContent = 'Enviando...';
+        hideError();
+
+        try {
+          var payload = getFormPayload();
+          var response = await fetch('/api/public/brand-onboarding', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          var result = await response.json().catch(function () { return {}; });
+
+          if (!response.ok || !result.success) {
+            showError(String(result.error || 'Nao foi possivel enviar agora. Tente novamente.'));
+            return;
+          }
+
+          /* Success */
+          steps.forEach(function (el) { el.classList.remove('active'); });
+          successEl.classList.add('active');
+          footer.style.display = 'none';
+          stepItems.forEach(function (el) {
+            el.classList.remove('active');
+            el.classList.add('done');
+            el.querySelector('.step-dot').textContent = '\u2713';
+          });
+          stepLines.forEach(function (el) { el.classList.add('done'); });
+        } catch (_err) {
+          showError('Falha de conexao. Verifique sua internet e tente novamente.');
+        } finally {
+          btnNext.disabled = false;
+          btnNext.textContent = 'Enviar cadastro \uD83D\uDE80';
+        }
+      }
+
+      /* Prevent form native submit */
+      form.addEventListener('submit', function (e) { e.preventDefault(); });
+    })();
+    </script>
+  </body>
+</html>

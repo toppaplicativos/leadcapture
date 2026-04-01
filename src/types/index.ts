@@ -240,6 +240,9 @@ export interface Product {
   features: string[];
   image?: string;
   imageUrl?: string;
+  images?: string[];
+  galleryImages?: string[];
+  metadata?: Record<string, any>;
   is_active: boolean;
   active?: boolean;
   createdAt: Date;
@@ -251,6 +254,7 @@ export interface ProductCategory {
   name: string;
   description?: string;
   color: string;
+  coverImage?: string;
 }
 
 export interface PriceTable {

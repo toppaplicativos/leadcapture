@@ -1,0 +1,92 @@
+/* ═══════════════════════════════════════════════════════
+   COMPONENTE: SKELETON LOADING
+   Placeholders animados enquanto conteúdo carrega
+   ═══════════════════════════════════════════════════════ */
+
+@keyframes shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 800px 100%;
+  animation: shimmer 1.5s infinite ease-in-out;
+  border-radius: var(--radius-md, 10px);
+  pointer-events: none;
+}
+
+/* ── Hero skeleton ── */
+.skeleton-hero {
+  width: 100%;
+  min-height: 180px;
+  border-radius: var(--radius-3xl, 18px);
+  margin-bottom: 0;
+}
+
+/* ── Info strip skeleton ── */
+.skeleton-info-strip {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0;
+  background: var(--color-card, #fff);
+  border: 1px solid var(--color-border, #e2e8f0);
+  border-radius: var(--radius-xl, 14px);
+  margin: -20px 12px 20px;
+  position: relative;
+  z-index: 2;
+  overflow: hidden;
+}
+.skeleton-info-strip .skeleton-bar {
+  height: 48px;
+  margin: 10px;
+  border-radius: 8px;
+}
+
+/* ── Product card skeleton ── */
+.skeleton-card {
+  background: var(--color-card, #fff);
+  border: 1px solid var(--color-border, #e2e8f0);
+  border-radius: var(--radius-2xl, 16px);
+  overflow: hidden;
+}
+.skeleton-card-img {
+  width: 100%;
+  aspect-ratio: 1/1;
+  border-radius: 0;
+}
+.skeleton-card-body {
+  padding: 14px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.skeleton-bar {
+  height: 14px;
+  border-radius: 6px;
+}
+.skeleton-bar.w-60 { width: 60%; }
+.skeleton-bar.w-40 { width: 40%; }
+.skeleton-bar.w-80 { width: 80%; }
+.skeleton-bar.w-full { width: 100%; }
+.skeleton-bar.h-lg { height: 20px; }
+.skeleton-bar.h-btn { height: 40px; border-radius: 10px; }
+
+/* ── Product grid skeleton ── */
+.skeleton-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: var(--space-4, 16px);
+}
+
+/* ── Hide skeletons when content loaded ── */
+.loaded .skeleton-hero,
+.loaded .skeleton-info-strip,
+.loaded .skeleton-grid {
+  display: none;
+}
+
+@media (max-width: 860px) {
+  .skeleton-grid { grid-template-columns: repeat(auto-fill, minmax(155px, 1fr)); gap: 10px; }
+  .skeleton-info-strip { grid-template-columns: repeat(2, 1fr); margin: -16px 8px 16px; }
+}

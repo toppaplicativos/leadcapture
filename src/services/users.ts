@@ -36,57 +36,69 @@ export interface UserLoginDTO {
 type SafeUser = Omit<DBUser, "password_hash">;
 
 export class UsersService {
-  async create(dto: UserCreateDTO): Promise<SafeUser> {
-    const existing = await queryOne<DBUser>(
-      "SELECT id FROM users WHERE email = ?",
-      [dto.email]
-    );
-    if (existing) {
-      throw new Error("Email already registered");
-    }
-
-    const id = uuidv4();
-    const password_hash = await bcrypt.hash(dto.password, 12);
-
-    await query(
-      `INSERT INTO users (id, email, password_hash, name, phone, role, is_active)
-       VALUES (?, ?, ?, ?, ?, ?, true)`,
-      [id, dto.email, password_hash, dto.name, dto.phone || null, dto.role || "operator"]
-    );
-
-    logger.info(`User created: ${dto.email} (ID: ${id})`);
-    const user = await this.getById(id);
-    return user!;
-  }
-
-  async login(dto: UserLoginDTO): Promise<{ token: string; user: SafeUser }> {
-    const user = await queryOne<DBUser>(
-      "SELECT * FROM users WHERE email = ? AND is_active = true",
-      [dto.email]
-    );
-    if (!user) {
-      throw new Error("Invalid credentials");
-    }
-
-    const valid = await bcrypt.compare(dto.password, user.password_hash);
-    if (!valid) {
-      throw new Error("Invalid credentials");
-    }
-
-    await query("UPDATE users SET last_login_at = NOW() WHERE id = ?", [user.id]);
-
+  signToken(user: Pick<DBUser, "id" | "email" | "role">): string {
     const payload: AuthPayload = {
       userId: user.id as any,
       email: user.email,
       role: user.role,
     };
 
-    const token = jwt.sign(payload, config.jwtSecret, {
+    return jwt.sign(payload, config.jwtSecret, {
       expiresIn: config.jwtExpiresIn as any,
     });
+  }
+
+  async create(dto: UserCreateDTO): Promise<SafeUser> {
+    const normalizedEmail = String(dto.email || "").trim().toLowerCase();
+    const normalizedName = String(dto.name || "").trim();
+    const normalizedPhone = String(dto.phone || "").trim() || undefined;
+    const normalizedPassword = String(dto.password || "");
+
+    const existing = await queryOne<DBUser>(
+      "SELECT id FROM users WHERE LOWER(email) = LOWER(?)",
+      [normalizedEmail]
+    );
+    if (existing) {
+      throw new Error("Email already registered");
+    }
+
+    const id = uuidv4();
+    const password_hash = await bcrypt.hash(normalizedPassword, 12);
+
+    await query(
+      `INSERT INTO users (id, email, password_hash, name, phone, role, is_active)
+       VALUES (?, ?, ?, ?, ?, ?, true)`,
+      [id, normalizedEmail, password_hash, normalizedName, normalizedPhone || null, dto.role || "operator"]
+    );
+
+    logger.info(`User created: ${normalizedEmail} (ID: ${id})`);
+    const user = await this.getById(id);
+    return user!;
+  }
+
+  async login(dto: UserLoginDTO): Promise<{ token: string; user: SafeUser }> {
+    const normalizedEmail = String(dto.email || "").trim().toLowerCase();
+    const normalizedPassword = String(dto.password || "").trim();
+
+    const user = await queryOne<DBUser>(
+      "SELECT * FROM users WHERE LOWER(email) = LOWER(?) AND is_active = true",
+      [normalizedEmail]
+    );
+    if (!user) {
+      throw new Error("Invalid credentials");
+    }
+
+    const valid = await bcrypt.compare(normalizedPassword, user.password_hash);
+    if (!valid) {
+      throw new Error("Invalid credentials");
+    }
+
+    await query("UPDATE users SET last_login_at = NOW() WHERE id = ?", [user.id]);
+
+    const token = this.signToken(user);
 
     const { password_hash, ...safeUser } = user;
-    logger.info(`User logged in: ${dto.email}`);
+    logger.info(`User logged in: ${normalizedEmail}`);
     return { token, user: safeUser };
   }
 

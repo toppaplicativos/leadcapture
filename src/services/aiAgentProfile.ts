@@ -67,13 +67,33 @@ export class AIAgentProfileService {
   }
 
   private async indexExists(tableName: string, indexName: string): Promise<boolean> {
-    const row = await queryOne<{ total: number }>(
-      `SELECT COUNT(*) AS total
-       FROM information_schema.STATISTICS
-       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?`,
-      [tableName, indexName]
-    );
-    return Number(row?.total || 0) > 0;
+    try {
+      const row = await queryOne<{ total: number }>(
+        `SELECT COUNT(*) AS total
+         FROM pg_indexes
+         WHERE tablename = ?
+           AND indexname = ?`,
+        [tableName, indexName]
+      );
+      return Number(row?.total || 0) > 0;
+    } catch {
+      try {
+        const row = await queryOne<{ total: number }>(
+          `SELECT COUNT(*) AS total
+           FROM information_schema.STATISTICS
+           WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?`,
+          [tableName, indexName]
+        );
+        return Number(row?.total || 0) > 0;
+      } catch {
+        try {
+          const rows = await query<any[]>(`SHOW INDEX FROM ${tableName} WHERE Key_name = ?`, [indexName]);
+          return Array.isArray(rows) && rows.length > 0;
+        } catch {
+          return false;
+        }
+      }
+    }
   }
 
   private async ensureSchema(): Promise<void> {
@@ -92,7 +112,7 @@ export class AIAgentProfileService {
           agent_name VARCHAR(120) NOT NULL DEFAULT 'Assistente Comercial',
           tone VARCHAR(32) NOT NULL DEFAULT 'professional',
           language VARCHAR(16) NOT NULL DEFAULT 'pt-BR',
-          include_emojis TINYINT(1) NOT NULL DEFAULT 1,
+          include_emojis BOOLEAN NOT NULL DEFAULT TRUE,
           max_length INT NOT NULL DEFAULT 500,
           objective TEXT NULL,
           business_context TEXT NULL,
@@ -116,7 +136,7 @@ export class AIAgentProfileService {
           agent_name VARCHAR(120) NOT NULL DEFAULT 'Assistente Comercial',
           tone VARCHAR(32) NOT NULL DEFAULT 'professional',
           language VARCHAR(16) NOT NULL DEFAULT 'pt-BR',
-          include_emojis TINYINT(1) NOT NULL DEFAULT 1,
+          include_emojis BOOLEAN NOT NULL DEFAULT TRUE,
           max_length INT NOT NULL DEFAULT 500,
           objective TEXT NULL,
           business_context TEXT NULL,
@@ -130,6 +150,32 @@ export class AIAgentProfileService {
           KEY idx_ai_agent_profiles_user_company (user_id, company_id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`
       );
+
+      await query(
+        `ALTER TABLE ai_agent_profiles_brand
+         ALTER COLUMN include_emojis TYPE BOOLEAN
+         USING CASE
+           WHEN include_emojis::text IN ('1','true','t','yes','on') THEN TRUE
+           ELSE FALSE
+         END`
+      ).catch(() => undefined);
+      await query(
+        `ALTER TABLE ai_agent_profiles_brand
+         ALTER COLUMN include_emojis SET DEFAULT TRUE`
+      ).catch(() => undefined);
+
+      await query(
+        `ALTER TABLE ai_agent_profiles
+         ALTER COLUMN include_emojis TYPE BOOLEAN
+         USING CASE
+           WHEN include_emojis::text IN ('1','true','t','yes','on') THEN TRUE
+           ELSE FALSE
+         END`
+      ).catch(() => undefined);
+      await query(
+        `ALTER TABLE ai_agent_profiles
+         ALTER COLUMN include_emojis SET DEFAULT TRUE`
+      ).catch(() => undefined);
 
       const hasCompanyColumn = await this.columnExists("ai_agent_profiles", "company_id");
       if (!hasCompanyColumn) {
@@ -284,18 +330,18 @@ export class AIAgentProfileService {
         `INSERT INTO ai_agent_profiles_brand
           (user_id, brand_id, agent_name, tone, language, include_emojis, max_length, objective, business_context, communication_rules, training_notes, forbidden_terms, preferred_terms)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE
-           agent_name = VALUES(agent_name),
-           tone = VALUES(tone),
-           language = VALUES(language),
-           include_emojis = VALUES(include_emojis),
-           max_length = VALUES(max_length),
-           objective = VALUES(objective),
-           business_context = VALUES(business_context),
-           communication_rules = VALUES(communication_rules),
-           training_notes = VALUES(training_notes),
-           forbidden_terms = VALUES(forbidden_terms),
-           preferred_terms = VALUES(preferred_terms),
+         ON CONFLICT (user_id, brand_id) DO UPDATE SET
+           agent_name = EXCLUDED.agent_name,
+           tone = EXCLUDED.tone,
+           language = EXCLUDED.language,
+           include_emojis = EXCLUDED.include_emojis,
+           max_length = EXCLUDED.max_length,
+           objective = EXCLUDED.objective,
+           business_context = EXCLUDED.business_context,
+           communication_rules = EXCLUDED.communication_rules,
+           training_notes = EXCLUDED.training_notes,
+           forbidden_terms = EXCLUDED.forbidden_terms,
+           preferred_terms = EXCLUDED.preferred_terms,
            updated_at = CURRENT_TIMESTAMP`,
         [
           userId,

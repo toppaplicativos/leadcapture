@@ -1,7 +1,11 @@
-import { randomUUID } from "crypto";
+import { createHash, randomUUID } from "crypto";
+import { resolve4, resolveCname, resolveTxt } from "dns/promises";
 import QRCode from "qrcode";
+import { config } from "../config";
 import { getPool, query, queryOne, update } from "../config/database";
 import { logger } from "../utils/logger";
+import { InventoryService } from "./inventory";
+import { ProductsService } from "./products";
 
 type StoreStatus = "draft" | "active" | "archived";
 type OrderStatus =
@@ -120,6 +124,19 @@ function domainCandidates(host: string): string[] {
   return Array.from(set);
 }
 
+function buildDomainVerificationToken(storeId: string, domain: string): string {
+  return createHash("sha256")
+    .update(`${config.jwtSecret}:${storeId}:${sanitizeDomain(domain)}`)
+    .digest("hex")
+    .slice(0, 24);
+}
+
+function normalizePublicHost(value: string): string | null {
+  const host = sanitizeDomain(value);
+  if (!host || host === "localhost" || host === "127.0.0.1") return null;
+  return host;
+}
+
 function defaultStoreSettings(): Record<string, any> {
   return {
     checkout: { collect_email: true, collect_address: true },
@@ -234,8 +251,11 @@ function formatMoneyBr(value: number): string {
 }
 
 export class StorefrontService {
+  static _syncThrottle = new Map<string, number>();
   private schemaReady = false;
   private schemaPromise: Promise<void> | null = null;
+  private productsService = new ProductsService();
+  private inventoryService = new InventoryService();
 
   private async columnExists(tableName: string, columnName: string): Promise<boolean> {
     const row = await queryOne<{ total: number }>(
@@ -279,6 +299,251 @@ export class StorefrontService {
       sections: parseJson<string[]>(row.sections_json, []),
       style: parseJson<Record<string, any>>(row.style_json, {}),
     };
+  }
+
+  private parseObjectJson(value: unknown): Record<string, any> {
+    return parseJson<Record<string, any>>(value, {});
+  }
+
+  private toIsoNow(): string {
+    return new Date().toISOString();
+  }
+
+  private async synchronizeStoreBrandIdentity(store: StoreRow): Promise<void> {
+    const brandId = normalizeBrandId(store.brand_id);
+    const userId = String(store.owner_user_id || "").trim();
+    if (!brandId || !userId) return;
+
+    const brandUnit = await queryOne<any>(
+      `SELECT id, name, slug, logo_url, slogan, primary_color, secondary_color, site_url, sales_page_url,
+              instagram_url, facebook_url, twitter_url, tiktok_url, domain, status, theme_json
+       FROM brand_units
+       WHERE id = ? AND user_id = ?
+       LIMIT 1`,
+      [brandId, userId]
+    );
+    if (!brandUnit) return;
+
+    const currentBrand = this.parseObjectJson(store.brand_json);
+    const currentTheme = this.parseObjectJson(store.theme_json);
+    const brandThemeData = this.parseObjectJson(brandUnit.theme_json);
+
+    const nextBrand = {
+      ...currentBrand,
+      id: String(brandUnit.id || brandId),
+      name: String(brandUnit.name || currentBrand.name || store.name || "").trim() || store.name,
+      slug: String(brandUnit.slug || currentBrand.slug || "").trim() || toSlug(String(brandUnit.name || store.name || "")),
+      logo_url: String(brandUnit.logo_url || "").trim() || currentBrand.logo_url || null,
+      slogan: String(brandUnit.slogan || "").trim() || currentBrand.slogan || null,
+      description: String(brandThemeData.description || brandUnit.slogan || "").trim() || currentBrand.description || currentBrand.slogan || null,
+      cover_image: String(brandThemeData.cover_image || brandThemeData.cover_image_url || brandThemeData.hero_image || "").trim() || currentBrand.cover_image || null,
+      address: String(brandThemeData.address || "").trim() || currentBrand.address || null,
+      primary_color: String(brandUnit.primary_color || "").trim() || currentBrand.primary_color || null,
+      secondary_color: String(brandUnit.secondary_color || "").trim() || currentBrand.secondary_color || null,
+      site_url: String(brandUnit.site_url || "").trim() || currentBrand.site_url || null,
+      sales_page_url: String(brandUnit.sales_page_url || "").trim() || currentBrand.sales_page_url || null,
+      instagram_url: String(brandUnit.instagram_url || "").trim() || currentBrand.instagram_url || null,
+      facebook_url: String(brandUnit.facebook_url || "").trim() || currentBrand.facebook_url || null,
+      twitter_url: String(brandUnit.twitter_url || "").trim() || currentBrand.twitter_url || null,
+      tiktok_url: String(brandUnit.tiktok_url || "").trim() || currentBrand.tiktok_url || null,
+      domain: String(brandUnit.domain || "").trim() || currentBrand.domain || null,
+      status: String(brandUnit.status || currentBrand.status || "active").trim() || "active",
+      synced_at: this.toIsoNow(),
+    } as Record<string, any>;
+
+    const nextTheme = {
+      ...currentTheme,
+      logo_url:
+        String(brandUnit.logo_url || "").trim() ||
+        String(currentTheme.logo_url || currentTheme.logo || "").trim() ||
+        undefined,
+      primary_color:
+        String(brandUnit.primary_color || "").trim() ||
+        String(currentTheme.primary_color || currentTheme.primary || "").trim() ||
+        undefined,
+      secondary_color:
+        String(brandUnit.secondary_color || "").trim() ||
+        String(currentTheme.secondary_color || currentTheme.secondary || "").trim() ||
+        undefined,
+    } as Record<string, any>;
+
+    const beforeBrand = JSON.stringify(this.parseObjectJson(store.brand_json));
+    const afterBrand = JSON.stringify(nextBrand);
+    const beforeTheme = JSON.stringify(this.parseObjectJson(store.theme_json));
+    const afterTheme = JSON.stringify(nextTheme);
+    if (beforeBrand === afterBrand && beforeTheme === afterTheme) return;
+
+    await update(
+      `UPDATE storefront_stores
+       SET brand_json = ?, theme_json = ?, updated_at = NOW()
+       WHERE id = ?`,
+      [afterBrand, afterTheme, store.id]
+    );
+  }
+
+  private async synchronizeStoreProductsFromCatalog(store: StoreRow): Promise<void> {
+    const brandId = normalizeBrandId(store.brand_id);
+    const userId = String(store.owner_user_id || "").trim();
+    if (!brandId || !userId) return;
+
+    const catalogProducts = await this.productsService.getActiveProducts(userId, brandId);
+    const existingRows = (await query<any[]>(
+      `SELECT id, slug, name, description, category, price, compare_at_price, images_json, metadata_json, is_active, position
+       FROM storefront_products
+       WHERE store_id = ?`,
+      [store.id]
+    )) as any[];
+
+    const bySourceId = new Map<string, any>();
+    for (const row of existingRows || []) {
+      const metadata = this.parseObjectJson(row.metadata_json);
+      const sourceProductId = String(metadata.source_product_id || "").trim();
+      if (sourceProductId) {
+        bySourceId.set(sourceProductId, { ...row, metadata });
+      }
+    }
+
+    const activeSourceIds = new Set<string>();
+
+    const resolveUniqueSlug = (rawBase: string, keepId?: string): string => {
+      const base = toSlug(rawBase) || `produto-${Date.now()}`;
+      let candidate = base;
+      let attempt = 1;
+      while (true) {
+        const owner = (existingRows || []).find((item) => toSlug(String(item.slug || "")) === candidate);
+        if (!owner || (keepId && String(owner.id) === keepId)) {
+          return candidate;
+        }
+        attempt += 1;
+        candidate = `${base}-${attempt}`;
+      }
+    };
+
+    for (let index = 0; index < catalogProducts.length; index += 1) {
+      const product = catalogProducts[index];
+      const sourceProductId = String(product.id || "").trim();
+      if (!sourceProductId) continue;
+      activeSourceIds.add(sourceProductId);
+
+      const mapped = bySourceId.get(sourceProductId);
+      const images = Array.isArray(product.images)
+        ? product.images.map((item) => String(item || "").trim()).filter(Boolean)
+        : [];
+      const imageUrl = String(images[0] || product.imageUrl || product.image || "").trim();
+      const mergedMetadata = {
+        ...(mapped?.metadata || {}),
+        source: "products_catalog",
+        source_product_id: sourceProductId,
+        source_brand_id: brandId,
+        source_synced_at: this.toIsoNow(),
+      };
+
+      const targetSlug = resolveUniqueSlug(String(product.name || sourceProductId), mapped?.id);
+      const targetName = String(product.name || "").trim() || `Produto ${sourceProductId.slice(0, 6)}`;
+      const targetDescription = String(product.description || "").trim() || null;
+      const targetCategory = String(product.category || "").trim() || null;
+      const targetPrice = toNumber((product as any).promoPrice ?? product.price, 0);
+      const targetComparePrice = Number.isFinite(Number(product.price)) ? Number(product.price) : null;
+
+      if (mapped) {
+        const currentImages = parseJson<string[]>(mapped.images_json, []);
+        const currentMetadata = this.parseObjectJson(mapped.metadata_json);
+        const hasChanged =
+          String(mapped.slug || "") !== targetSlug ||
+          String(mapped.name || "") !== targetName ||
+          String(mapped.description || "") !== String(targetDescription || "") ||
+          String(mapped.category || "") !== String(targetCategory || "") ||
+          Number(mapped.price || 0) !== targetPrice ||
+          Number(mapped.compare_at_price || 0) !== Number(targetComparePrice || 0) ||
+          JSON.stringify(currentImages) !== JSON.stringify(images) ||
+          JSON.stringify(currentMetadata) !== JSON.stringify(mergedMetadata) ||
+          Number(mapped.is_active || 0) !== 1 ||
+          Number(mapped.position || 0) !== index;
+
+        if (hasChanged) {
+          await update(
+            `UPDATE storefront_products
+             SET slug = ?, name = ?, description = ?, category = ?, price = ?, compare_at_price = ?,
+                 currency = 'BRL', images_json = ?, metadata_json = ?, is_active = 1, position = ?, updated_at = NOW()
+             WHERE id = ?`,
+            [
+              targetSlug,
+              targetName,
+              targetDescription,
+              targetCategory,
+              targetPrice,
+              targetComparePrice,
+              JSON.stringify(images),
+              JSON.stringify(mergedMetadata),
+              index,
+              mapped.id,
+            ]
+          );
+        }
+      } else {
+        await query(
+          `INSERT INTO storefront_products
+           (id, store_id, slug, name, description, category, price, compare_at_price, currency, images_json, variants_json, metadata_json, is_active, position)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'BRL', ?, '[]', ?, TRUE, ?)`,
+          [
+            randomUUID(),
+            store.id,
+            targetSlug,
+            targetName,
+            targetDescription,
+            targetCategory,
+            targetPrice,
+            targetComparePrice,
+            JSON.stringify(images),
+            JSON.stringify(mergedMetadata),
+            index,
+          ]
+        );
+      }
+    }
+
+    for (const row of existingRows || []) {
+      const metadata = this.parseObjectJson(row.metadata_json);
+      const sourceProductId = String(metadata.source_product_id || "").trim();
+      if (!sourceProductId) continue;
+      if (activeSourceIds.has(sourceProductId)) continue;
+
+      if (Number(row.is_active || 0) !== 0) {
+        await update(
+          `UPDATE storefront_products
+           SET is_active = FALSE, updated_at = NOW()
+           WHERE id = ?`,
+          [row.id]
+        );
+      }
+    }
+  }
+
+  async synchronizeBrandStructure(userId: string, brandId?: string | null, options?: { syncProducts?: boolean }) {
+    await this.ensureSchema();
+    const normalizedBrandId = normalizeBrandId(brandId);
+    if (!normalizedBrandId) return null;
+
+    const store = await this.ensureSingleStoreForBrand(userId, normalizedBrandId);
+    if (!store) return null;
+
+    const storeRow = await this.getOwnedStoreRow(userId, String(store.id), normalizedBrandId);
+    if (!storeRow) return store;
+
+    await this.synchronizeStoreBrandIdentity(storeRow);
+    if (options?.syncProducts !== false) {
+      await this.synchronizeStoreProductsFromCatalog(storeRow);
+    }
+
+    if (storeRow.status === "draft") {
+      await update(
+        `UPDATE storefront_stores SET status = 'active', updated_at = NOW() WHERE id = ? AND status = 'draft'`,
+        [storeRow.id]
+      );
+    }
+
+    const refreshed = await this.getOwnedStoreRow(userId, String(store.id), normalizedBrandId);
+    return refreshed ? this.mapStore(refreshed) : store;
   }
 
   async ensureSchema(): Promise<void> {
@@ -498,6 +763,25 @@ export class StorefrontService {
       );
 
       await query(`
+        CREATE TABLE IF NOT EXISTS storefront_customers (
+          id VARCHAR(36) PRIMARY KEY,
+          store_id VARCHAR(36) NOT NULL,
+          name VARCHAR(180) NOT NULL,
+          email VARCHAR(190) NULL,
+          phone VARCHAR(40) NULL,
+          address_json JSON NULL,
+          notes TEXT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          KEY idx_sf_customer_store (store_id),
+          KEY idx_sf_customer_phone (store_id, phone),
+          KEY idx_sf_customer_email (store_id, email)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+
+      await this.ensureColumn("storefront_orders", "customer_id", "VARCHAR(36) NULL");
+
+      await query(`
         ALTER TABLE storefront_orders
         MODIFY COLUMN status ENUM('novo','confirmando_pagamento','aprovado','em_preparacao','saiu_para_entrega','entregue','cancelado') NOT NULL DEFAULT 'novo'
       `);
@@ -564,7 +848,7 @@ export class StorefrontService {
       (await queryOne<StoreRow>(
         `SELECT s.*, d.domain AS primary_domain
          FROM storefront_stores s
-         LEFT JOIN storefront_domains d ON d.store_id = s.id AND d.is_primary = 1
+         LEFT JOIN storefront_domains d ON d.store_id = s.id AND d.is_primary = TRUE
          WHERE s.id = ? AND s.owner_user_id = ?${scope.sql}
          LIMIT 1`,
         [storeId, userId, ...scope.params]
@@ -630,7 +914,7 @@ export class StorefrontService {
     const existing = await queryOne<StoreRow>(
       `SELECT s.*, d.domain AS primary_domain
        FROM storefront_stores s
-       LEFT JOIN storefront_domains d ON d.store_id = s.id AND d.is_primary = 1
+      LEFT JOIN storefront_domains d ON d.store_id = s.id AND d.is_primary = TRUE
        WHERE s.owner_user_id = ?${scope.sql}
        ORDER BY (s.status = 'active') DESC, s.updated_at DESC
        LIMIT 1`,
@@ -647,7 +931,7 @@ export class StorefrontService {
       {
         name: seed.name,
         slug: uniqueSlug,
-        status: "draft",
+        status: "active",
         template_id: "modern_minimal",
         brand: seed.brand,
       },
@@ -662,11 +946,17 @@ export class StorefrontService {
   }
 
   async listStores(userId: string, brandId?: string | null) {
+    if (normalizeBrandId(brandId)) {
+      await this.synchronizeBrandStructure(userId, brandId, { syncProducts: true });
+    }
     const primaryStore = await this.ensureSingleStoreForBrand(userId, brandId);
     return primaryStore ? [primaryStore] : [];
   }
 
   async getStoreById(userId: string, storeId: string, brandId?: string | null) {
+    if (normalizeBrandId(brandId)) {
+      await this.synchronizeBrandStructure(userId, brandId, { syncProducts: true });
+    }
     const row = await this.getOwnedStoreRow(userId, storeId, brandId);
     return row ? this.mapStore(row) : null;
   }
@@ -690,7 +980,7 @@ export class StorefrontService {
     const existing = await queryOne<StoreRow>(
       `SELECT s.*, d.domain AS primary_domain
        FROM storefront_stores s
-       LEFT JOIN storefront_domains d ON d.store_id = s.id AND d.is_primary = 1
+      LEFT JOIN storefront_domains d ON d.store_id = s.id AND d.is_primary = TRUE
        WHERE s.owner_user_id = ?${scope.sql}
        ORDER BY (s.status = 'active') DESC, s.updated_at DESC
        LIMIT 1`,
@@ -859,7 +1149,7 @@ export class StorefrontService {
     if (external) throw new Error("Domain already linked to another store");
 
     if (makePrimary) {
-      await update(`UPDATE storefront_domains SET is_primary = 0 WHERE store_id = ?`, [storeId]);
+      await update(`UPDATE storefront_domains SET is_primary = FALSE WHERE store_id = ?`, [storeId]);
     }
 
     const current = await queryOne<{ id: string }>(
@@ -888,6 +1178,153 @@ export class StorefrontService {
     const store = await this.getOwnedStoreRow(userId, storeId, brandId);
     if (!store) throw new Error("Store not found");
     return query(`SELECT * FROM storefront_domains WHERE store_id = ? ORDER BY is_primary DESC, domain ASC`, [storeId]);
+  }
+
+  async setPrimaryDomain(userId: string, storeId: string, domainInput: string, brandId?: string | null) {
+    await this.ensureSchema();
+    const store = await this.getOwnedStoreRow(userId, storeId, brandId);
+    if (!store) throw new Error("Store not found");
+
+    const domain = sanitizeDomain(domainInput);
+    if (!domain) throw new Error("Custom domain is invalid");
+
+    const existing = await queryOne<{ id: string }>(
+      `SELECT id FROM storefront_domains WHERE store_id = ? AND domain = ? LIMIT 1`,
+      [storeId, domain]
+    );
+    if (!existing) throw new Error("Domain not found");
+
+    await update(`UPDATE storefront_domains SET is_primary = FALSE WHERE store_id = ?`, [storeId]);
+    await update(`UPDATE storefront_domains SET is_primary = TRUE, updated_at = NOW() WHERE id = ?`, [existing.id]);
+
+    return queryOne(`SELECT * FROM storefront_domains WHERE id = ? LIMIT 1`, [existing.id]);
+  }
+
+  async deleteDomain(userId: string, storeId: string, domainInput: string, brandId?: string | null): Promise<boolean> {
+    await this.ensureSchema();
+    const store = await this.getOwnedStoreRow(userId, storeId, brandId);
+    if (!store) throw new Error("Store not found");
+
+    const domain = sanitizeDomain(domainInput);
+    if (!domain) throw new Error("Custom domain is invalid");
+
+    const existing = await queryOne<{ id: string; is_primary: number }>(
+      `SELECT id, is_primary FROM storefront_domains WHERE store_id = ? AND domain = ? LIMIT 1`,
+      [storeId, domain]
+    );
+    if (!existing) throw new Error("Domain not found");
+
+    const affected = await update(`DELETE FROM storefront_domains WHERE id = ?`, [existing.id]);
+    if (affected > 0 && Number(existing.is_primary || 0) === 1) {
+      const fallback = await queryOne<{ id: string }>(
+        `SELECT id FROM storefront_domains WHERE store_id = ? ORDER BY updated_at DESC, domain ASC LIMIT 1`,
+        [storeId]
+      );
+      if (fallback) {
+        await update(`UPDATE storefront_domains SET is_primary = TRUE, updated_at = NOW() WHERE id = ?`, [fallback.id]);
+      }
+    }
+
+    return affected > 0;
+  }
+
+  async getDomainInstructions(userId: string, storeId: string, domainInput: string, publicHostInput?: string | null, brandId?: string | null) {
+    await this.ensureSchema();
+    const store = await this.getOwnedStoreRow(userId, storeId, brandId);
+    if (!store) throw new Error("Store not found");
+
+    const domain = sanitizeDomain(domainInput);
+    if (!domain) throw new Error("Custom domain is invalid");
+
+    const verificationToken = buildDomainVerificationToken(storeId, domain);
+    const verificationHost = `_leadcapture-verify.${domain}`;
+    const verificationValue = `leadcapture-verification=${verificationToken}`;
+    const publicHost = normalizePublicHost(String(publicHostInput || ""));
+    const recordType = domain.startsWith("www.") ? "CNAME" : publicHost ? "ALIAS_OR_A" : "TXT_ONLY";
+
+    return {
+      domain,
+      verification: {
+        type: "TXT",
+        host: verificationHost,
+        value: verificationValue,
+      },
+      connection: {
+        type: recordType,
+        host: domain.startsWith("www.") ? "www" : "@",
+        target: publicHost,
+        note: publicHost
+          ? domain.startsWith("www.")
+            ? `Crie um CNAME apontando para ${publicHost}`
+            : `Aponte o domínio raiz para o servidor que atende ${publicHost} ou configure ALIAS/ANAME no seu provedor.`
+          : "Configure o apontamento do domínio para o servidor público da aplicação.",
+      },
+      expected_origin: publicHost ? `https://${domain}` : null,
+      verification_token: verificationToken,
+    };
+  }
+
+  async verifyDomainOwnership(userId: string, storeId: string, domainInput: string, publicHostInput?: string | null, brandId?: string | null) {
+    await this.ensureSchema();
+    const store = await this.getOwnedStoreRow(userId, storeId, brandId);
+    if (!store) throw new Error("Store not found");
+
+    const domain = sanitizeDomain(domainInput);
+    if (!domain) throw new Error("Custom domain is invalid");
+
+    const existing = await queryOne<{ id: string }>(
+      `SELECT id FROM storefront_domains WHERE store_id = ? AND domain = ? LIMIT 1`,
+      [storeId, domain]
+    );
+    if (!existing) throw new Error("Domain not found");
+
+    const instructions = await this.getDomainInstructions(userId, storeId, domain, publicHostInput, brandId);
+    let txtVerified = false;
+    let cnameVerified = false;
+    let aResolved = false;
+    let txtRecords: string[] = [];
+    let cnameRecords: string[] = [];
+    let aRecords: string[] = [];
+
+    try {
+      const txt = await resolveTxt(instructions.verification.host);
+      txtRecords = txt.map((entry) => entry.join(""));
+      txtVerified = txtRecords.includes(instructions.verification.value);
+    } catch {}
+
+    try {
+      const cname = await resolveCname(domain);
+      cnameRecords = cname.map((item) => sanitizeDomain(item));
+      const target = normalizePublicHost(String(instructions.connection.target || ""));
+      cnameVerified = !!target && cnameRecords.includes(target);
+    } catch {}
+
+    try {
+      const a = await resolve4(domain);
+      aRecords = Array.isArray(a) ? a : [];
+      aResolved = aRecords.length > 0;
+    } catch {}
+
+    const verified = txtVerified;
+    await update(
+      `UPDATE storefront_domains SET verification_status = ?, updated_at = NOW() WHERE id = ?`,
+      [verified ? "verified" : "failed", existing.id]
+    );
+
+    return {
+      domain,
+      verified,
+      verification_status: verified ? "verified" : "failed",
+      checks: {
+        txt_verified: txtVerified,
+        cname_verified: cnameVerified,
+        a_resolved: aResolved,
+        txt_records: txtRecords,
+        cname_records: cnameRecords,
+        a_records: aRecords,
+      },
+      instructions,
+    };
   }
 
   async upsertProduct(userId: string, storeId: string, payload: Record<string, any>, brandId?: string | null) {
@@ -1008,6 +1445,7 @@ export class StorefrontService {
     await this.ensureSchema();
     const store = await this.getOwnedStoreRow(userId, storeId, brandId);
     if (!store) throw new Error("Store not found");
+    await this.synchronizeStoreProductsFromCatalog(store);
     return query(`SELECT * FROM storefront_products WHERE store_id = ? ORDER BY position ASC, created_at DESC`, [storeId]);
   }
   async upsertPage(userId: string, storeId: string, payload: Record<string, any>, brandId?: string | null) {
@@ -1116,7 +1554,7 @@ export class StorefrontService {
       (await queryOne<StoreRow>(
         `SELECT s.*, d.domain AS primary_domain
          FROM storefront_stores s
-         LEFT JOIN storefront_domains d ON d.store_id = s.id AND d.is_primary = 1
+         LEFT JOIN storefront_domains d ON d.store_id = s.id AND d.is_primary = TRUE
          WHERE s.id = ?
          LIMIT 1`,
         [storeId]
@@ -1813,7 +2251,7 @@ export class StorefrontService {
                    SELECT 1
                    FROM storefront_pages hp
                    WHERE hp.store_id = s.id
-                     AND hp.is_published = 1
+                     AND hp.is_published = TRUE
                      AND (hp.page_type = 'home' OR hp.slug = 'home')
                  )
                )
@@ -1831,7 +2269,7 @@ export class StorefrontService {
           (await queryOne<StoreRow>(
             `SELECT s.*, d.domain AS primary_domain
              FROM storefront_stores s
-             LEFT JOIN storefront_domains d ON d.store_id = s.id AND d.is_primary = 1
+             LEFT JOIN storefront_domains d ON d.store_id = s.id AND d.is_primary = TRUE
              WHERE s.slug = ?
                AND (
                  s.status = 'active'
@@ -1839,7 +2277,7 @@ export class StorefrontService {
                    SELECT 1
                    FROM storefront_pages hp
                    WHERE hp.store_id = s.id
-                     AND hp.is_published = 1
+                     AND hp.is_published = TRUE
                      AND (hp.page_type = 'home' OR hp.slug = 'home')
                  )
                )
@@ -1853,9 +2291,9 @@ export class StorefrontService {
               `SELECT s.*, d.domain AS primary_domain
                FROM storefront_pages p
                INNER JOIN storefront_stores s ON s.id = p.store_id
-               LEFT JOIN storefront_domains d ON d.store_id = s.id AND d.is_primary = 1
+               LEFT JOIN storefront_domains d ON d.store_id = s.id AND d.is_primary = TRUE
                WHERE p.slug = ?
-                 AND p.is_published = 1
+                 AND p.is_published = TRUE
                  AND (p.page_type = 'home' OR p.slug = 'home')
                  AND (
                    s.status = 'active'
@@ -1863,7 +2301,7 @@ export class StorefrontService {
                      SELECT 1
                      FROM storefront_pages hp
                      WHERE hp.store_id = s.id
-                       AND hp.is_published = 1
+                       AND hp.is_published = TRUE
                        AND (hp.page_type = 'home' OR hp.slug = 'home')
                    )
                  )
@@ -1876,10 +2314,31 @@ export class StorefrontService {
 
     if (!store) return null;
 
+    /* Throttle sync: max once per 5 min per store to avoid heavy queries on public reads */
+    const syncKey = `sync_${store.id}`;
+    const lastSync = StorefrontService._syncThrottle.get(syncKey) || 0;
+    if (Date.now() - lastSync > 300_000) {
+      await this.synchronizeStoreBrandIdentity(store);
+      await this.synchronizeStoreProductsFromCatalog(store);
+      StorefrontService._syncThrottle.set(syncKey, Date.now());
+    }
+
+    const refreshedStore = await queryOne<StoreRow>(
+      `SELECT s.*, d.domain AS primary_domain
+       FROM storefront_stores s
+       LEFT JOIN storefront_domains d ON d.store_id = s.id AND d.is_primary = TRUE
+       WHERE s.id = ?
+       LIMIT 1`,
+      [store.id]
+    );
+    if (refreshedStore) {
+      store = refreshedStore;
+    }
+
     const [template, products, pages, domains] = await Promise.all([
       queryOne<TemplateRow>(`SELECT * FROM storefront_templates WHERE template_id = ? LIMIT 1`, [store.template_id]),
-      query(`SELECT * FROM storefront_products WHERE store_id = ? AND is_active = 1 ORDER BY position ASC, created_at DESC`, [store.id]),
-      query(`SELECT * FROM storefront_pages WHERE store_id = ? AND is_published = 1 ORDER BY created_at ASC`, [store.id]),
+      query(`SELECT * FROM storefront_products WHERE store_id = ? AND is_active = TRUE ORDER BY position ASC, created_at DESC`, [store.id]),
+      query(`SELECT * FROM storefront_pages WHERE store_id = ? AND is_published = TRUE ORDER BY created_at ASC`, [store.id]),
       query(`SELECT domain FROM storefront_domains WHERE store_id = ? ORDER BY is_primary DESC`, [store.id]),
     ]);
 
@@ -1898,25 +2357,50 @@ export class StorefrontService {
     const product = toSlug(productSlug);
     if (!slug || !product) return null;
 
+    let store =
+      (await queryOne<StoreRow>(
+        `SELECT s.*, d.domain AS primary_domain
+         FROM storefront_stores s
+         LEFT JOIN storefront_domains d ON d.store_id = s.id AND d.is_primary = TRUE
+         WHERE s.slug = ?
+           AND (
+             s.status = 'active'
+             OR EXISTS (
+               SELECT 1
+               FROM storefront_pages hp
+               WHERE hp.store_id = s.id
+                 AND hp.is_published = TRUE
+                 AND (hp.page_type = 'home' OR hp.slug = 'home')
+             )
+           )
+         LIMIT 1`,
+        [slug]
+      )) || null;
+    if (!store) return null;
+
+    await this.synchronizeStoreBrandIdentity(store);
+    await this.synchronizeStoreProductsFromCatalog(store);
+
+    const refreshedStore = await queryOne<StoreRow>(
+      `SELECT s.*, d.domain AS primary_domain
+       FROM storefront_stores s
+       LEFT JOIN storefront_domains d ON d.store_id = s.id AND d.is_primary = TRUE
+       WHERE s.id = ?
+       LIMIT 1`,
+      [store.id]
+    );
+    if (refreshedStore) {
+      store = refreshedStore;
+    }
+
     return queryOne(
       `SELECT p.*
        FROM storefront_products p
-       INNER JOIN storefront_stores s ON s.id = p.store_id
-       WHERE s.slug = ?
-         AND (
-           s.status = 'active'
-           OR EXISTS (
-             SELECT 1
-             FROM storefront_pages hp
-             WHERE hp.store_id = s.id
-               AND hp.is_published = 1
-               AND (hp.page_type = 'home' OR hp.slug = 'home')
-           )
-         )
+       WHERE p.store_id = ?
          AND p.slug = ?
-         AND p.is_active = 1
+         AND p.is_active = TRUE
        LIMIT 1`,
-      [slug, product]
+      [store.id, product]
     );
   }
 
@@ -1926,27 +2410,93 @@ export class StorefrontService {
     const page = toSlug(pageSlug);
     if (!slug || !page) return null;
 
+    let store =
+      (await queryOne<StoreRow>(
+        `SELECT s.*, d.domain AS primary_domain
+         FROM storefront_stores s
+         LEFT JOIN storefront_domains d ON d.store_id = s.id AND d.is_primary = TRUE
+         WHERE s.slug = ?
+           AND (
+             s.status = 'active'
+             OR EXISTS (
+               SELECT 1
+               FROM storefront_pages hp
+               WHERE hp.store_id = s.id
+                 AND hp.is_published = TRUE
+                 AND (hp.page_type = 'home' OR hp.slug = 'home')
+             )
+           )
+         LIMIT 1`,
+        [slug]
+      )) || null;
+    if (!store) return null;
+
+    await this.synchronizeStoreBrandIdentity(store);
+    await this.synchronizeStoreProductsFromCatalog(store);
+
+    const refreshedStore = await queryOne<StoreRow>(
+      `SELECT s.*, d.domain AS primary_domain
+       FROM storefront_stores s
+       LEFT JOIN storefront_domains d ON d.store_id = s.id AND d.is_primary = TRUE
+       WHERE s.id = ?
+       LIMIT 1`,
+      [store.id]
+    );
+    if (refreshedStore) {
+      store = refreshedStore;
+    }
+
     return queryOne(
       `SELECT p.*
        FROM storefront_pages p
-       INNER JOIN storefront_stores s ON s.id = p.store_id
-       WHERE s.slug = ?
-         AND (
-           s.status = 'active'
-           OR EXISTS (
-             SELECT 1
-             FROM storefront_pages hp
-             WHERE hp.store_id = s.id
-               AND hp.is_published = 1
-               AND (hp.page_type = 'home' OR hp.slug = 'home')
-           )
-         )
+       WHERE p.store_id = ?
          AND p.slug = ?
-         AND p.is_published = 1
+         AND p.is_published = TRUE
        LIMIT 1`,
-      [slug, page]
+      [store.id, page]
     );
   }
+
+  /** Find existing customer by phone (preferred) or email, or create a new record */
+  private async findOrCreateCustomer(
+    storeId: string,
+    data: { name: string; phone: string; email?: string | null; address?: Record<string, any> }
+  ): Promise<string> {
+    const phone = String(data.phone || "").replace(/\D/g, "");
+    const email = String(data.email || "").trim().toLowerCase() || null;
+
+    // Try match by phone first (most reliable for this domain)
+    let existing: any = null;
+    if (phone) {
+      existing = await queryOne<any>(
+        `SELECT id FROM storefront_customers WHERE store_id = ? AND phone = ? LIMIT 1`,
+        [storeId, phone]
+      );
+    }
+    if (!existing && email) {
+      existing = await queryOne<any>(
+        `SELECT id FROM storefront_customers WHERE store_id = ? AND email = ? LIMIT 1`,
+        [storeId, email]
+      );
+    }
+
+    if (existing) {
+      // Update name / address on returning customer
+      await update(
+        `UPDATE storefront_customers SET name = ?, email = COALESCE(?, email), address_json = ?, updated_at = NOW() WHERE id = ?`,
+        [data.name, email, JSON.stringify(data.address || {}), existing.id]
+      );
+      return String(existing.id);
+    }
+
+    const id = randomUUID();
+    await query(
+      `INSERT INTO storefront_customers (id, store_id, name, email, phone, address_json) VALUES (?, ?, ?, ?, ?, ?)`,
+      [id, storeId, data.name, email, phone, JSON.stringify(data.address || {})]
+    );
+    return id;
+  }
+
   async createPublicOrder(
     storeSlug: string,
     payload: {
@@ -1968,7 +2518,7 @@ export class StorefrontService {
 
     const placeholders = productIds.map(() => "?").join(",");
     const products = (await query<any[]>(
-      `SELECT * FROM storefront_products WHERE store_id = ? AND is_active = 1 AND id IN (${placeholders})`,
+      `SELECT * FROM storefront_products WHERE store_id = ? AND is_active = TRUE AND id IN (${placeholders})`,
       [storeBundle.store.id, ...productIds]
     )) as any[];
     const map = new Map(products.map((p) => [String(p.id), p]));
@@ -2001,26 +2551,67 @@ export class StorefrontService {
     const orderNumber = this.generateOrderNumber();
     const customerEmail = String(payload.customer?.email || "").trim() || null;
     const paymentMethod = String(payload.payment_method || "").trim().toLowerCase() || null;
+    const inventoryUserId = String(storeBundle.store.owner_user_id || "").trim();
+    const inventoryBrandId = normalizeBrandId(storeBundle.store.brand_id || "") || null;
 
-    await query(
-      `INSERT INTO storefront_orders
-       (id, order_number, store_id, status, currency, subtotal, shipping, discount, total, payment_method, customer_name, customer_phone, customer_email, customer_address_json, items_json, notes, source)
-       VALUES (?, ?, ?, 'novo', 'BRL', ?, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?, 'site')`,
-      [
-        orderId,
-        orderNumber,
-        storeBundle.store.id,
-        subtotal,
-        total,
-        paymentMethod,
-        customerName,
-        customerPhone,
-        customerEmail,
-        JSON.stringify(payload.customer?.address || {}),
-        JSON.stringify(normalizedItems),
-        String(payload.notes || "").trim() || null,
-      ]
-    );
+    for (const item of normalizedItems) {
+      const stock = await this.inventoryService.getProductStock(inventoryUserId, inventoryBrandId, String(item.product_id));
+      const available = Number(stock?.stock_available || 0);
+      if (available < Number(item.quantity || 0)) {
+        throw new Error(
+          `Estoque insuficiente para ${item.name}. Disponível: ${available}, Solicitado: ${Number(item.quantity || 0)}`
+        );
+      }
+    }
+
+    const customerId = await this.findOrCreateCustomer(storeBundle.store.id, {
+      name: customerName,
+      phone: customerPhone,
+      email: customerEmail,
+      address: payload.customer?.address,
+    });
+
+    const reservedItems: Array<{ product_id: string; quantity: number }> = [];
+    try {
+      for (const item of normalizedItems) {
+        await this.inventoryService.reserveStock(
+          inventoryUserId,
+          inventoryBrandId,
+          String(item.product_id),
+          Number(item.quantity || 0),
+          orderId
+        );
+        reservedItems.push({ product_id: String(item.product_id), quantity: Number(item.quantity || 0) });
+      }
+
+      await query(
+        `INSERT INTO storefront_orders
+         (id, order_number, store_id, customer_id, status, currency, subtotal, shipping, discount, total, payment_method, customer_name, customer_phone, customer_email, customer_address_json, items_json, notes, source)
+         VALUES (?, ?, ?, ?, 'novo', 'BRL', ?, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?, 'site')`,
+        [
+          orderId,
+          orderNumber,
+          storeBundle.store.id,
+          customerId,
+          subtotal,
+          total,
+          paymentMethod,
+          customerName,
+          customerPhone,
+          customerEmail,
+          JSON.stringify(payload.customer?.address || {}),
+          JSON.stringify(normalizedItems),
+          String(payload.notes || "").trim() || null,
+        ]
+      );
+    } catch (error) {
+      for (const item of reservedItems) {
+        await this.inventoryService
+          .releaseStock(inventoryUserId, inventoryBrandId, item.product_id, item.quantity, orderId)
+          .catch(() => undefined);
+      }
+      throw error;
+    }
 
     await this.appendOrderTimeline({
       orderId,
@@ -2082,8 +2673,16 @@ export class StorefrontService {
 
   async exportStoreAdminBundle(userId: string, storeId: string, brandId?: string | null) {
     await this.ensureSchema();
-    const store = await this.getOwnedStoreRow(userId, storeId, brandId);
+    let store = await this.getOwnedStoreRow(userId, storeId, brandId);
     if (!store) return null;
+
+    await this.synchronizeStoreBrandIdentity(store);
+    await this.synchronizeStoreProductsFromCatalog(store);
+
+    const refreshedStore = await this.getOwnedStoreRow(userId, storeId, brandId);
+    if (refreshedStore) {
+      store = refreshedStore;
+    }
 
     const [template, domains, products, pages] = await Promise.all([
       queryOne<TemplateRow>(`SELECT * FROM storefront_templates WHERE template_id = ? LIMIT 1`, [store.template_id]),
@@ -2209,7 +2808,7 @@ export class StorefrontService {
       await query(
         `INSERT IGNORE INTO storefront_pages
          (id, store_id, slug, title, page_type, sections_json, seo_json, is_published, created_by_ai)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 1, 0)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, TRUE, FALSE)`,
         [randomUUID(), storeId, page.slug, page.title, page.page_type, JSON.stringify(page.sections), JSON.stringify({ title: page.title })]
       );
     }

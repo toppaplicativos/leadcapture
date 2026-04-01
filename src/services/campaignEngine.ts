@@ -95,6 +95,12 @@ type CampaignComposerSettings = {
   useAutoVariations?: boolean;
 };
 
+type CampaignSendResult = {
+  ok: boolean;
+  instanceId?: string;
+  error?: string;
+};
+
 export type Campaign = {
   id: string;
   user_id: string;
@@ -168,6 +174,14 @@ export type CampaignMetrics = {
   responseRate: number;
   deliveryRate: number;
   interestRate: number;
+  lastMessage?: {
+    text: string;
+    truncated: boolean;
+    status: string | null;
+    sentAt: string | null;
+    eventAt: string | null;
+    phone: string | null;
+  } | null;
 };
 
 // ─── Default speed settings ──────────────────────────────────────
@@ -184,6 +198,27 @@ const DEFAULT_SPEED: CampaignSpeedControl = {
 
 function normalizePhone(value: unknown): string {
   return String(value || "").replace(/\D/g, "");
+}
+
+function buildPhoneCandidates(value: unknown): string[] {
+  const normalized = normalizePhone(value);
+  if (!normalized) return [];
+
+  return Array.from(
+    new Set(
+      [
+        normalized,
+        normalized.length > 13 ? normalized.slice(-13) : "",
+        normalized.length > 11 ? normalized.slice(-11) : "",
+        normalized.length > 10 ? normalized.slice(-10) : "",
+        normalized.length > 8 ? normalized.slice(-8) : "",
+      ].filter((candidate) => candidate.length >= 8)
+    )
+  );
+}
+
+function buildJidLikePatterns(phoneCandidates: string[]): string[] {
+  return Array.from(new Set(phoneCandidates.filter(Boolean).map((candidate) => `${candidate}@%`)));
 }
 
 function isTransientInstanceConnectionError(error: unknown): boolean {
@@ -215,6 +250,18 @@ function parseJsonArray(value: unknown): string[] {
     if (Array.isArray(parsed)) return parsed.map(i => String(i).trim()).filter(Boolean);
   } catch { /* ignore */ }
   return [];
+}
+
+function isTruthyFlag(value: unknown): boolean {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  const normalized = String(value || "").trim().toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "t" || normalized === "yes";
+}
+
+function toNullableBoolean(value: unknown): boolean | null {
+  if (value === null || value === undefined || String(value).trim() === "") return null;
+  return isTruthyFlag(value);
 }
 
 function randomDelay(min: number, max: number): number {
@@ -390,19 +437,46 @@ export class CampaignEngineService {
   }
 
   private async indexExists(tableName: string, indexName: string): Promise<boolean> {
-    const row = await queryOne<{ total: number }>(
-      `SELECT COUNT(*) AS total
-       FROM information_schema.STATISTICS
-       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?`,
-      [tableName, indexName]
-    );
-    return Number(row?.total || 0) > 0;
+    try {
+      const row = await queryOne<{ total: number }>(
+        `SELECT COUNT(*) AS total
+         FROM pg_indexes
+         WHERE tablename = ? AND indexname = ?`,
+        [tableName, indexName]
+      );
+      return Number(row?.total || 0) > 0;
+    } catch {
+      try {
+        const row = await queryOne<{ total: number }>(
+          `SELECT COUNT(*) AS total
+           FROM information_schema.STATISTICS
+           WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?`,
+          [tableName, indexName]
+        );
+        return Number(row?.total || 0) > 0;
+      } catch {
+        try {
+          const rows = await query<any[]>(`SHOW INDEX FROM ${tableName} WHERE Key_name = ?`, [indexName]);
+          return Array.isArray(rows) && rows.length > 0;
+        } catch {
+          return false;
+        }
+      }
+    }
   }
 
   private async ensureColumn(tableName: string, columnName: string, definition: string): Promise<void> {
     const exists = await this.columnExists(tableName, columnName);
     if (!exists) {
-      await query(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
+      try {
+        await query(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
+      } catch (error: any) {
+        const message = String(error?.message || "").toLowerCase();
+        if (error?.code === "ER_DUP_FIELDNAME" || message.includes("duplicate column")) {
+          return;
+        }
+        throw error;
+      }
     }
   }
 
@@ -772,7 +846,7 @@ export class CampaignEngineService {
       leads = leads.filter(lead => {
         const details = parseJsonSafe(lead.source_details);
         const validation = details?.whatsapp_validation || {};
-        return validation?.has_whatsapp === true || lead.whatsapp_valid === 1;
+        return validation?.has_whatsapp === true || isTruthyFlag(lead.whatsapp_valid);
       });
     }
 
@@ -836,7 +910,7 @@ export class CampaignEngineService {
         id, userId, normalizedBrandId, input.instanceId, input.name,
         input.messageTemplate || null,
         input.aiPrompt || null,
-        input.useAI ? 1 : 0,
+        input.useAI ? true : false,
         JSON.stringify(filter),
         JSON.stringify(speed),
         mode,
@@ -844,7 +918,7 @@ export class CampaignEngineService {
         status,
         input.scheduledAt || null,
         JSON.stringify(mergedSettings),
-        input.useInstanceRotation ? 1 : 0,
+        input.useInstanceRotation ? true : false,
         String(input.rotationMode || "balanced"),
       ]
     );
@@ -943,7 +1017,7 @@ export class CampaignEngineService {
 
     if (input.useAI !== undefined) {
       sets.push("use_ai = ?");
-      params.push(input.useAI ? 1 : 0);
+      params.push(input.useAI ? true : false);
     }
 
     if (input.campaignMode !== undefined) {
@@ -970,7 +1044,7 @@ export class CampaignEngineService {
 
     if (input.useInstanceRotation !== undefined) {
       sets.push("use_instance_rotation = ?");
-      params.push(input.useInstanceRotation ? 1 : 0);
+      params.push(input.useInstanceRotation ? true : false);
     }
 
     if (input.rotationMode !== undefined) {
@@ -1075,6 +1149,35 @@ export class CampaignEngineService {
     );
 
     return rows.map(row => this.mapCampaign(row));
+  }
+
+  async duplicateCampaign(userId: string, campaignId: string, brandId?: string | null): Promise<Campaign | null> {
+    await this.ensureSchema();
+
+    const normalizedBrandId = String(brandId || "").trim() || null;
+    const existing = await this.getCampaign(userId, campaignId, normalizedBrandId);
+    if (!existing) return null;
+
+    const duplicatedName = `${existing.name} (Copia)`;
+
+    return this.createCampaign(
+      userId,
+      {
+        name: duplicatedName,
+        instanceId: existing.instance_id,
+        messageTemplate: existing.message_template || undefined,
+        aiPrompt: existing.ai_prompt || undefined,
+        useAI: Boolean(existing.use_ai),
+        filter: existing.filter_json || {},
+        speedControl: existing.speed_json || DEFAULT_SPEED,
+        campaignMode: (existing.campaign_mode as "aggressive" | "educational" | "relationship") || "educational",
+        useInstanceRotation: Boolean(existing.use_instance_rotation),
+        rotationMode: existing.rotation_mode || "balanced",
+        settings: existing.settings || {},
+        initialStatus: "draft",
+      },
+      normalizedBrandId
+    );
   }
 
   async deleteCampaign(userId: string, campaignId: string, brandId?: string | null): Promise<{ ok: boolean; message: string }> {
@@ -1193,6 +1296,54 @@ export class CampaignEngineService {
       (counts["ready"] || 0) +
       (counts["sending"] || 0);
 
+    const lastOutboundMessage = await queryOne<any>(
+      `SELECT content, status, sent_at, phone
+       FROM message_log
+       WHERE campaign_id = ? AND user_id = ? AND direction = 'outbound'
+       ORDER BY sent_at DESC
+       LIMIT 1`,
+      [campaignId, userId]
+    );
+
+    const lastLeadEvent = await queryOne<any>(
+      `SELECT status, phone, sent_at, delivered_at, read_at, replied_at, updated_at, created_at
+       FROM campaign_leads
+       WHERE campaign_id = ? AND user_id = ? AND ${normalizedBrandId ? "brand_id = ?" : "brand_id IS NULL"}
+       ORDER BY COALESCE(replied_at, read_at, delivered_at, sent_at, updated_at, created_at) DESC
+       LIMIT 1`,
+      normalizedBrandId ? [campaignId, userId, normalizedBrandId] : [campaignId, userId]
+    );
+
+    const rawMessage = String(lastOutboundMessage?.content || "").trim();
+    const truncated = rawMessage.length > 160;
+    const messagePreview = truncated ? `${rawMessage.slice(0, 157)}...` : rawMessage;
+
+    const lastMessage =
+      rawMessage || lastLeadEvent
+        ? {
+            text: messagePreview,
+            truncated,
+            status: String(lastLeadEvent?.status || lastOutboundMessage?.status || "").trim() || null,
+            sentAt: lastOutboundMessage?.sent_at ? String(lastOutboundMessage.sent_at) : null,
+            eventAt: (lastLeadEvent?.replied_at ||
+              lastLeadEvent?.read_at ||
+              lastLeadEvent?.delivered_at ||
+              lastLeadEvent?.sent_at ||
+              lastLeadEvent?.updated_at ||
+              lastLeadEvent?.created_at)
+              ? String(
+                  lastLeadEvent?.replied_at ||
+                    lastLeadEvent?.read_at ||
+                    lastLeadEvent?.delivered_at ||
+                    lastLeadEvent?.sent_at ||
+                    lastLeadEvent?.updated_at ||
+                    lastLeadEvent?.created_at
+                )
+              : null,
+            phone: String(lastOutboundMessage?.phone || lastLeadEvent?.phone || "").trim() || null,
+          }
+        : null;
+
     return {
       total,
       pending,
@@ -1209,6 +1360,7 @@ export class CampaignEngineService {
       responseRate: sent > 0 ? Number(((replied / sent) * 100).toFixed(1)) : 0,
       deliveryRate: sent > 0 ? Number(((delivered / sent) * 100).toFixed(1)) : 0,
       interestRate: replied > 0 ? Number(((interested / replied) * 100).toFixed(1)) : 0,
+      lastMessage,
     };
   }
 
@@ -1360,7 +1512,7 @@ export class CampaignEngineService {
 
           await update(
             `UPDATE campaign_history
-             SET instance_id = ?, use_instance_rotation = 1, updated_at = NOW()
+             SET instance_id = ?, use_instance_rotation = TRUE, updated_at = NOW()
              WHERE id = ? AND user_id = ? AND ${normalizedBrandId ? "brand_id = ?" : "brand_id IS NULL"}`,
             normalizedBrandId ? [selected, campaignId, userId, normalizedBrandId] : [selected, campaignId, userId]
           );
@@ -1420,6 +1572,30 @@ export class CampaignEngineService {
     );
 
     return { ok: true, message: "Campanha cancelada" };
+  }
+
+  async reExecuteCampaign(userId: string, campaignId: string, brandId?: string | null): Promise<{ ok: boolean; message: string }> {
+    const normalizedBrandId = String(brandId || "").trim() || null;
+    const campaign = await this.getCampaign(userId, campaignId, normalizedBrandId);
+    if (!campaign) return { ok: false, message: "Campanha nao encontrada" };
+
+    if (!["completed", "cancelled", "failed"].includes(campaign.status)) {
+      return { ok: false, message: `Campanha nao pode ser reexecutada (status: ${campaign.status})` };
+    }
+
+    // Reset campaign status to draft
+    await update(
+      `UPDATE campaign_history SET status = 'draft', started_at = NULL, completed_at = NULL, sent_count = 0, failed_count = 0, updated_at = NOW() WHERE id = ? AND user_id = ? AND ${normalizedBrandId ? "brand_id = ?" : "brand_id IS NULL"}`,
+      normalizedBrandId ? [campaignId, userId, normalizedBrandId] : [campaignId, userId]
+    );
+
+    // Reset all leads back to pending
+    await update(
+      `UPDATE campaign_leads SET status = 'pending', error_message = NULL, sent_at = NULL, whatsapp_valid = NULL, generated_message = NULL WHERE campaign_id = ? AND user_id = ? AND ${normalizedBrandId ? "brand_id = ?" : "brand_id IS NULL"}`,
+      normalizedBrandId ? [campaignId, userId, normalizedBrandId] : [campaignId, userId]
+    );
+
+    return { ok: true, message: "Campanha resetada para rascunho. Pronta para reexecucao." };
   }
 
   async sendCampaignTest(
@@ -1650,7 +1826,7 @@ export class CampaignEngineService {
       if (destinationJid) {
         jid = destinationJid;
         await update(
-          `UPDATE campaign_leads SET whatsapp_valid = 1, whatsapp_jid = ? WHERE id = ?`,
+          `UPDATE campaign_leads SET whatsapp_valid = TRUE, whatsapp_jid = ? WHERE id = ?`,
           [jid, lead.id]
         );
       } else {
@@ -1662,7 +1838,7 @@ export class CampaignEngineService {
           );
           if (!validation.exists) {
             await update(
-              `UPDATE campaign_leads SET status = 'skipped', whatsapp_valid = 0, error_message = 'Numero sem WhatsApp' WHERE id = ?`,
+              `UPDATE campaign_leads SET status = 'skipped', whatsapp_valid = FALSE, error_message = 'Numero sem WhatsApp' WHERE id = ?`,
               [lead.id]
             );
 
@@ -1673,7 +1849,7 @@ export class CampaignEngineService {
           jid = validation.jid;
 
           await update(
-            `UPDATE campaign_leads SET whatsapp_valid = 1, whatsapp_jid = ? WHERE id = ?`,
+            `UPDATE campaign_leads SET whatsapp_valid = TRUE, whatsapp_jid = ? WHERE id = ?`,
             [jid || null, lead.id]
           );
         } catch (err: any) {
@@ -1756,16 +1932,20 @@ export class CampaignEngineService {
       // Step 3: Send message
       await update(
         `UPDATE campaign_leads SET status = 'sending', message_text = ?, ai_generated = ? WHERE id = ?`,
-        [messageText, useAI ? 1 : 0, lead.id]
+        [messageText, useAI ? true : false, lead.id]
       );
 
       try {
-        const sendResult = await withTimeout(
+        const sendResult = await withTimeout<CampaignSendResult>(
           jid
-            ? (async () => ({
-                ok: await this.instanceManager.sendMessageByJid(campaign.instance_id, jid, messageText),
-                instanceId: campaign.instance_id,
-              }))()
+            ? (async () => {
+                const ok = await this.instanceManager.sendMessageByJid(campaign.instance_id, jid, messageText);
+                return {
+                  ok,
+                  instanceId: campaign.instance_id,
+                  error: ok ? undefined : "Envio falhou",
+                };
+              })()
             : campaign.use_instance_rotation && this.rotationEngine
             ? this.rotationEngine.sendTextWithFailover({
                 userId,
@@ -1777,10 +1957,14 @@ export class CampaignEngineService {
                 preferredInstanceId: campaign.instance_id,
                 maxAttempts: 3,
               })
-            : (async () => ({
-                ok: await this.instanceManager.sendMessage(campaign.instance_id, phone, messageText),
-                instanceId: campaign.instance_id,
-              }))(),
+            : (async () => {
+                const ok = await this.instanceManager.sendMessage(campaign.instance_id, phone, messageText);
+                return {
+                  ok,
+                  instanceId: campaign.instance_id,
+                  error: ok ? undefined : "Envio falhou",
+                };
+              })(),
           20000,
           "Timeout no envio da mensagem"
         );
@@ -2051,11 +2235,89 @@ export class CampaignEngineService {
       await query(
         `INSERT INTO message_log (id, user_id, client_id, campaign_id, instance_id, phone, direction, message_type, content, status, ai_generated, sent_at)
          VALUES (?, ?, ?, ?, ?, ?, 'outbound', 'text', ?, 'sent', ?, NOW())`,
-        [randomUUID(), userId, leadId, campaignId, instanceId, phone, content, aiGenerated ? 1 : 0]
+        [randomUUID(), userId, leadId, campaignId, instanceId, phone, content, aiGenerated ? true : false]
       );
     } catch (err: any) {
       logger.debug?.(`Message log insert failed: ${err.message}`);
     }
+  }
+
+  private async findLatestReplyCandidate(
+    userId: string,
+    phoneCandidates: string[],
+    normalizedPhone: string,
+    brandId?: string | null,
+    forceCrossBrand = false
+  ): Promise<any | null> {
+    if (!phoneCandidates.length) return null;
+
+    const normalizedBrandId = String(brandId || "").trim();
+    const phonePlaceholders = phoneCandidates.map(() => "?").join(", ");
+    const jidPatterns = buildJidLikePatterns(phoneCandidates);
+    const jidMatchSql = jidPatterns.length
+      ? ` OR ${jidPatterns.map(() => "cl.whatsapp_jid LIKE ?").join(" OR ")}`
+      : "";
+    const whereBrand = forceCrossBrand
+      ? ""
+      : normalizedBrandId
+        ? " AND cl.brand_id = ?"
+        : " AND cl.brand_id IS NULL";
+
+    const directParams: any[] = [userId, ...phoneCandidates, ...jidPatterns];
+    if (!forceCrossBrand && normalizedBrandId) directParams.push(normalizedBrandId);
+    directParams.push(normalizedPhone, `${normalizedPhone}@%`);
+
+    const directMatch = await queryOne<any>(
+      `SELECT cl.*, ch.id AS campaign_id, ch.ai_prompt
+       FROM campaign_leads cl
+       JOIN campaign_history ch ON ch.id = cl.campaign_id
+       WHERE cl.user_id = ?
+         AND (cl.phone IN (${phonePlaceholders})${jidMatchSql})
+         AND (
+           cl.status IN ('sent','delivered','read','replied','opted_out')
+           OR cl.sent_at IS NOT NULL
+         )
+         ${whereBrand}
+       ORDER BY
+         CASE
+           WHEN cl.phone = ? THEN 0
+           WHEN cl.whatsapp_jid LIKE ? THEN 1
+           ELSE 2
+         END,
+         COALESCE(cl.replied_at, cl.read_at, cl.delivered_at, cl.sent_at, cl.updated_at, cl.created_at) DESC
+       LIMIT 1`,
+      directParams
+    );
+
+    if (directMatch) return directMatch;
+
+    const fallbackParams: any[] = [userId, ...phoneCandidates];
+    if (!forceCrossBrand && normalizedBrandId) fallbackParams.push(normalizedBrandId);
+    fallbackParams.push(normalizedPhone);
+
+    return queryOne<any>(
+      `SELECT cl.*, ch.id AS campaign_id, ch.ai_prompt, ml.last_outbound_at
+       FROM (
+         SELECT campaign_id, user_id, client_id, phone, MAX(sent_at) AS last_outbound_at
+         FROM message_log
+         WHERE user_id = ?
+           AND direction = 'outbound'
+           AND phone IN (${phonePlaceholders})
+         GROUP BY campaign_id, user_id, client_id, phone
+       ) ml
+       JOIN campaign_leads cl
+         ON cl.campaign_id = ml.campaign_id
+        AND cl.user_id = ml.user_id
+        AND (cl.lead_id = ml.client_id OR cl.phone = ml.phone)
+       JOIN campaign_history ch ON ch.id = cl.campaign_id
+       WHERE 1 = 1
+         ${whereBrand}
+       ORDER BY
+         CASE WHEN cl.phone = ? THEN 0 ELSE 1 END,
+         COALESCE(cl.replied_at, cl.read_at, cl.delivered_at, cl.sent_at, ml.last_outbound_at, cl.updated_at, cl.created_at) DESC
+       LIMIT 1`,
+      fallbackParams
+    );
   }
 
   // ─── Response processing ───────────────────────────────────────
@@ -2067,21 +2329,30 @@ export class CampaignEngineService {
     timestamp: number,
     brandId?: string | null
   ): Promise<{ campaignId: string; classification: ReplyClassification; scoreDelta: number } | null> {
-      const normalizedBrandId = String(brandId || "").trim();
+    const normalizedBrandId = String(brandId || "").trim();
     await this.ensureSchema();
 
     const normalizedPhone = normalizePhone(phone);
     if (!normalizedPhone) return null;
 
-    // Find the most recent campaign_lead record for this phone
-    const campaignLead = await queryOne<any>(
-      `SELECT cl.*, ch.id AS campaign_id, ch.ai_prompt
-       FROM campaign_leads cl
-       JOIN campaign_history ch ON ch.id = cl.campaign_id
-       WHERE cl.phone = ? AND cl.user_id = ? AND ${normalizedBrandId ? "cl.brand_id = ?" : "cl.brand_id IS NULL"} AND cl.status IN ('sent','delivered','read')
-       ORDER BY cl.sent_at DESC LIMIT 1`,
-      normalizedBrandId ? [normalizedPhone, userId, normalizedBrandId] : [normalizedPhone, userId]
+    const phoneCandidates = buildPhoneCandidates(normalizedPhone);
+
+    let campaignLead = await this.findLatestReplyCandidate(
+      userId,
+      phoneCandidates,
+      normalizedPhone,
+      normalizedBrandId,
+      false
     );
+    if (!campaignLead && normalizedBrandId) {
+      campaignLead = await this.findLatestReplyCandidate(
+        userId,
+        phoneCandidates,
+        normalizedPhone,
+        normalizedBrandId,
+        true
+      );
+    }
 
     if (!campaignLead) return null;
 
@@ -2090,6 +2361,8 @@ export class CampaignEngineService {
     const scoreDelta = this.getScoreDelta(classification);
 
     const previousStatus = String(campaignLead.status || "").trim().toLowerCase();
+    const previousClassification = String(campaignLead.reply_classification || "").trim() as ReplyClassification | "";
+    const wasAlreadyReplied = previousStatus === "replied";
 
     // Update campaign_lead
     await update(
@@ -2106,21 +2379,68 @@ export class CampaignEngineService {
     );
 
     // Update campaign counters
-    const counterUpdates: string[] = ["replied_count = replied_count + 1"];
+    const classificationDelta = {
+      interested: 0,
+      neutral: 0,
+      negative: 0,
+      optedOut: 0,
+    };
 
-    if (previousStatus === "sent" || previousStatus === "delivered") {
-      counterUpdates.push("read_count = read_count + 1");
+    if (wasAlreadyReplied) {
+      if (previousClassification && previousClassification !== classification) {
+        if (previousClassification === "interested") classificationDelta.interested -= 1;
+        if (previousClassification === "neutral") classificationDelta.neutral -= 1;
+        if (previousClassification === "negative") classificationDelta.negative -= 1;
+        if (previousClassification === "opt_out") classificationDelta.optedOut -= 1;
+
+        if (classification === "interested") classificationDelta.interested += 1;
+        if (classification === "neutral") classificationDelta.neutral += 1;
+        if (classification === "negative") classificationDelta.negative += 1;
+        if (classification === "opt_out") classificationDelta.optedOut += 1;
+      }
+    } else {
+      if (classification === "interested") classificationDelta.interested = 1;
+      if (classification === "neutral") classificationDelta.neutral = 1;
+      if (classification === "negative") classificationDelta.negative = 1;
+      if (classification === "opt_out") classificationDelta.optedOut = 1;
     }
+
+    const repliedDelta = wasAlreadyReplied ? 0 : 1;
+    const readDelta = !wasAlreadyReplied && (previousStatus === "sent" || previousStatus === "delivered") ? 1 : 0;
+
+    const campaignBrandId = String(campaignLead.brand_id || "").trim();
 
     await update(
       `UPDATE campaign_history
-       SET ${counterUpdates.join(", ")},
-           ${classification === "interested" ? "interested_count = interested_count + 1" : "interested_count = interested_count"},
-           ${classification === "neutral" ? "neutral_count = neutral_count + 1" : "neutral_count = neutral_count"},
-           ${classification === "negative" ? "negative_count = negative_count + 1" : "negative_count = negative_count"},
-           ${classification === "opt_out" ? "opted_out_count = opted_out_count + 1" : "opted_out_count = opted_out_count"}
-       WHERE id = ?`,
-      [campaignLead.campaign_id]
+       SET replied_count = GREATEST(0, replied_count + ?),
+           read_count = GREATEST(0, read_count + ?),
+           interested_count = GREATEST(0, interested_count + ?),
+           neutral_count = GREATEST(0, neutral_count + ?),
+           negative_count = GREATEST(0, negative_count + ?),
+           opted_out_count = GREATEST(0, opted_out_count + ?)
+       WHERE id = ? AND user_id = ? AND ${campaignBrandId ? "brand_id = ?" : "brand_id IS NULL"}`,
+      campaignBrandId
+        ? [
+            repliedDelta,
+            readDelta,
+            classificationDelta.interested,
+            classificationDelta.neutral,
+            classificationDelta.negative,
+            classificationDelta.optedOut,
+            campaignLead.campaign_id,
+            userId,
+            campaignBrandId,
+          ]
+        : [
+            repliedDelta,
+            readDelta,
+            classificationDelta.interested,
+            classificationDelta.neutral,
+            classificationDelta.negative,
+            classificationDelta.optedOut,
+            campaignLead.campaign_id,
+            userId,
+          ]
     );
 
     // Update lead tags and score
@@ -2404,7 +2724,7 @@ export class CampaignEngineService {
       campaign_id: String(row.campaign_id),
       lead_id: String(row.lead_id),
       phone: String(row.phone || ""),
-      whatsapp_valid: row.whatsapp_valid === null ? null : Number(row.whatsapp_valid) === 1,
+      whatsapp_valid: toNullableBoolean(row.whatsapp_valid),
       whatsapp_jid: row.whatsapp_jid || null,
       message_text: row.message_text || null,
       ai_generated: Number(row.ai_generated || 0) === 1,
@@ -2609,7 +2929,7 @@ export class CampaignEngineService {
       leads = leads.filter(lead => {
         const details = parseJsonSafe(lead.source_details);
         const validation = details?.whatsapp_validation || {};
-        return validation?.has_whatsapp === true || lead.whatsapp_valid === 1;
+        return validation?.has_whatsapp === true || isTruthyFlag(lead.whatsapp_valid);
       });
     }
 

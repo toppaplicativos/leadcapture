@@ -60,6 +60,10 @@ export interface ClientFilters {
 export class ClientsService {
   private columnsCache: Set<string> | null = null;
 
+  private normalizePhone(value: unknown): string {
+    return String(value || "").replace(/\D/g, "");
+  }
+
   private async getClientColumns(): Promise<Set<string>> {
     if (!this.columnsCache) {
       const pool = getPool();
@@ -67,6 +71,65 @@ export class ClientsService {
       this.columnsCache = new Set(rows.map((row: any) => String(row.Field || "")));
     }
     return this.columnsCache;
+  }
+
+  private async findExistingImportedClient(
+    userId: string,
+    lead: any,
+    brandId?: string | null
+  ): Promise<Client | null> {
+    const pool = getPool();
+    const cols = await this.getClientColumns();
+    const normalizedBrandId = String(brandId || "").trim();
+    const brandClause = cols.has("brand_id")
+      ? normalizedBrandId
+        ? " AND brand_id = ?"
+        : " AND brand_id IS NULL"
+      : "";
+
+    const normalizedPhone = this.normalizePhone(lead?.nationalPhoneNumber || lead?.phone);
+    if (normalizedPhone) {
+      const phoneParams: any[] = [userId, `%${normalizedPhone}`];
+      if (cols.has("brand_id") && normalizedBrandId) phoneParams.push(normalizedBrandId);
+      const [rows] = await pool.query<RowDataPacket[]>(
+        `SELECT *
+         FROM clients
+         WHERE user_id = ?
+           AND is_active = TRUE
+           AND REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(phone, ''), ' ', ''), '-', ''), '+', ''), '(', ''), ')', '') LIKE ?${brandClause}
+         LIMIT 1`,
+        phoneParams
+      );
+      if (rows[0]) {
+        const client = rows[0] as any;
+        if (typeof client.tags === "string") client.tags = JSON.parse(client.tags);
+        if (typeof client.custom_fields === "string") client.custom_fields = JSON.parse(client.custom_fields);
+        return client as Client;
+      }
+    }
+
+    const email = String(lead?.email || "").trim().toLowerCase();
+    if (email) {
+      const emailParams: any[] = [userId, email];
+      if (cols.has("brand_id") && normalizedBrandId) emailParams.push(normalizedBrandId);
+      const [rows] = await pool.query<RowDataPacket[]>(
+        `SELECT *
+         FROM clients
+         WHERE user_id = ?
+           AND is_active = TRUE
+           AND LOWER(COALESCE(email, '')) = ?${brandClause}
+         LIMIT 1`,
+        emailParams
+      );
+      if (rows[0]) {
+        const client = rows[0] as any;
+        if (typeof client.tags === "string") client.tags = JSON.parse(client.tags);
+        if (typeof client.custom_fields === "string") client.custom_fields = JSON.parse(client.custom_fields);
+        return client as Client;
+      }
+    }
+
+    return null;
   }
 
   async create(userId: string, data: ClientCreateDTO, brandId?: string | null): Promise<Client> {
@@ -203,6 +266,9 @@ export class ClientsService {
     let imported = 0;
     for (const lead of leads) {
       try {
+        const existing = await this.findExistingImportedClient(userId, lead, brandId);
+        if (existing) continue;
+
         await this.create(userId, {
           name: lead.displayName || lead.name || "Sem nome",
           phone: lead.nationalPhoneNumber || lead.phone || null,

@@ -70,6 +70,12 @@ export class MemoryEngineService {
       );
       logger.info("[MemoryEngine] Added context_memory, memory_updated_at, memory_version columns to clients");
     }
+    /* Ensure brand_id column exists (used for multi-brand memory isolation) */
+    const [brandCol] = await pool.query<any[]>("SHOW COLUMNS FROM clients LIKE 'brand_id'");
+    if (!Array.isArray(brandCol) || brandCol.length === 0) {
+      await pool.execute("ALTER TABLE clients ADD COLUMN brand_id VARCHAR(36) NULL");
+      logger.info("[MemoryEngine] Added brand_id column to clients");
+    }
     this._columnsChecked = true;
   }
 
@@ -93,16 +99,24 @@ export class MemoryEngineService {
     }
   }
 
-  async getMemoryByPhone(userId: string, phone: string): Promise<{ clientId: string; memory: LeadContextMemory } | null> {
+  async getMemoryByPhone(
+    userId: string,
+    phone: string,
+    brandId?: string | null
+  ): Promise<{ clientId: string; memory: LeadContextMemory } | null> {
     await this.ensureColumns();
     const pool = getPool();
     const normalized = phone.replace(/\D/g, "");
+    const normalizedBrandId = String(brandId || "").trim();
     const [rows] = await pool.query<any[]>(
       `SELECT id, context_memory, memory_version FROM clients
        WHERE user_id = ? AND is_active = TRUE
+         ${normalizedBrandId ? "AND brand_id = ?" : ""}
          AND (REPLACE(REPLACE(REPLACE(phone, ' ',''), '-',''), '+','') LIKE ? OR REPLACE(REPLACE(REPLACE(phone, ' ',''), '-',''), '+','') LIKE ?)
        LIMIT 1`,
-      [userId, `%${normalized}`, `%${normalized.slice(-10)}`]
+      normalizedBrandId
+        ? [userId, normalizedBrandId, `%${normalized}`, `%${normalized.slice(-10)}`]
+        : [userId, `%${normalized}`, `%${normalized.slice(-10)}`]
     );
     if (!rows[0]) return null;
     const raw = rows[0].context_memory;
@@ -121,12 +135,13 @@ export class MemoryEngineService {
     userId: string,
     phone: string,
     newMessage: string,
-    direction: "inbound" | "outbound"
+    direction: "inbound" | "outbound",
+    brandId?: string | null
   ): Promise<void> {
     try {
       await this.ensureColumns();
 
-      const result = await this.getMemoryByPhone(userId, phone);
+      const result = await this.getMemoryByPhone(userId, phone, brandId);
       if (!result) return; // Client not found — skip silently
 
       const { clientId, memory } = result;

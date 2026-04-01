@@ -39,7 +39,8 @@ router.get("/", async (req: AuthRequest, res: Response) => {
 
     return res.json({ success: true, ...result });
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    logger.warn({ err: error }, "Notifications list fallback activated");
+    return res.json({ success: true, notifications: [], total: 0, degraded: true });
   }
 });
 
@@ -51,7 +52,8 @@ router.get("/unread-count", async (req: AuthRequest, res: Response) => {
     const unread_count = await notifications.getUnreadCount(userId);
     return res.json({ success: true, unread_count });
   } catch (error: any) {
-    return res.status(500).json({ error: error.message });
+    logger.warn({ err: error }, "Notifications unread-count fallback activated");
+    return res.json({ success: true, unread_count: 0, degraded: true });
   }
 });
 

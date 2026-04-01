@@ -1,19 +1,12 @@
-import mysql from "mysql2/promise";
 import { Product, ProductCategory, PriceTable, ProductPriceEntry } from "../types";
 import { logger } from "../utils/logger";
+import { getPool } from "../config/database";
 
-const pool = mysql.createPool({
-  host: process.env.DB_HOST || "localhost",
-  user: process.env.DB_USER || "leadcapture",
-  password: process.env.DB_PASSWORD || "@Milionarios2026",
-  database: process.env.DB_NAME || "leadcapture",
-  waitForConnections: true,
-  connectionLimit: 10,
-  charset: "utf8mb4",
-});
+const pool = getPool();
 
 export class ProductsService {
   private imageColumnReady: boolean | null = null;
+  private metadataColumnReady: boolean | null = null;
   private coverSchemaReady = false;
   private coverSchemaPromise: Promise<void> | null = null;
   private ownershipSchemaReady = false;
@@ -38,14 +31,34 @@ export class ProductsService {
   }
 
   private async indexExists(table: string, indexName: string): Promise<boolean> {
-    const [rows] = await pool.query(
-      `SELECT COUNT(*) AS total
-       FROM information_schema.STATISTICS
-       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?`,
-      [table, indexName]
-    );
-    const first = Array.isArray(rows) ? (rows[0] as any) : null;
-    return Number(first?.total || 0) > 0;
+    try {
+      const [rows] = await pool.query(
+        `SELECT COUNT(*) AS total
+         FROM pg_indexes
+         WHERE tablename = ? AND indexname = ?`,
+        [table, indexName]
+      );
+      const first = Array.isArray(rows) ? (rows[0] as any) : null;
+      return Number(first?.total || 0) > 0;
+    } catch {
+      try {
+        const [rows] = await pool.query(
+          `SELECT COUNT(*) AS total
+           FROM information_schema.STATISTICS
+           WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?`,
+          [table, indexName]
+        );
+        const first = Array.isArray(rows) ? (rows[0] as any) : null;
+        return Number(first?.total || 0) > 0;
+      } catch {
+        try {
+          const [rows] = await pool.query(`SHOW INDEX FROM ${table} WHERE Key_name = ?`, [indexName]);
+          return Array.isArray(rows) && rows.length > 0;
+        } catch {
+          return false;
+        }
+      }
+    }
   }
 
   private async ensureColumnIfMissing(table: string, column: string, definition: string): Promise<void> {
@@ -71,6 +84,75 @@ export class ProductsService {
     }
 
     this.ownershipSchemaReadyPromise = (async () => {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS categories (
+          id VARCHAR(36) PRIMARY KEY,
+          name VARCHAR(120) NOT NULL,
+          description TEXT NULL,
+          color VARCHAR(20) NULL,
+          cover_image TEXT NULL,
+          user_id VARCHAR(36) NULL,
+          brand_id VARCHAR(36) NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      // Ensure cover_image column exists on older schemas
+      try {
+        const [cols] = await pool.query("SHOW COLUMNS FROM categories LIKE 'cover_image'");
+        if ((cols as any[]).length === 0) {
+          await pool.query("ALTER TABLE categories ADD COLUMN cover_image TEXT NULL");
+          logger.info("Added cover_image column to categories");
+        }
+      } catch (_) { /* table may not exist yet */ }
+
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS products (
+          id VARCHAR(36) PRIMARY KEY,
+          name VARCHAR(180) NOT NULL,
+          description TEXT NULL,
+          category VARCHAR(36) NULL,
+          price DECIMAL(12,2) NOT NULL DEFAULT 0,
+          promo_price DECIMAL(12,2) NULL,
+          unit VARCHAR(40) NOT NULL DEFAULT 'unidade',
+          features JSONB NULL,
+          image_url TEXT NULL,
+          active BOOLEAN NOT NULL DEFAULT TRUE,
+          user_id VARCHAR(36) NULL,
+          brand_id VARCHAR(36) NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS price_tables (
+          id VARCHAR(36) PRIMARY KEY,
+          name VARCHAR(140) NOT NULL,
+          description TEXT NULL,
+          valid_from TIMESTAMP NULL,
+          valid_until TIMESTAMP NULL,
+          active BOOLEAN NOT NULL DEFAULT TRUE,
+          user_id VARCHAR(36) NULL,
+          brand_id VARCHAR(36) NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS price_table_items (
+          id BIGSERIAL PRIMARY KEY,
+          price_table_id VARCHAR(36) NOT NULL,
+          product_id VARCHAR(36) NOT NULL,
+          custom_price DECIMAL(12,2) NULL,
+          custom_promo_price DECIMAL(12,2) NULL,
+          include_in_campaign BOOLEAN NOT NULL DEFAULT TRUE,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
       await this.ensureColumnIfMissing("products", "brand_id", "VARCHAR(36) NULL");
       await this.ensureColumnIfMissing("categories", "brand_id", "VARCHAR(36) NULL");
       await this.ensureColumnIfMissing("price_tables", "brand_id", "VARCHAR(36) NULL");
@@ -116,10 +198,10 @@ export class ProductsService {
     if (columns.has("brand_id")) {
       const normalizedBrandId = this.normalizeBrandId(brandId);
       if (normalizedBrandId) {
-        where.push(`${prefix}brand_id = ?`);
+        where.push(`(${prefix}brand_id = ? OR ${prefix}brand_id IS NULL OR ${prefix}brand_id = '')`);
         params.push(normalizedBrandId);
       } else {
-        where.push(`${prefix}brand_id IS NULL`);
+        where.push(`(${prefix}brand_id IS NULL OR ${prefix}brand_id = '')`);
       }
     }
 
@@ -204,6 +286,32 @@ export class ProductsService {
     }
   }
 
+  private async ensureMetadataColumn(): Promise<boolean> {
+    if (this.metadataColumnReady !== null) return this.metadataColumnReady;
+
+    try {
+      const [rows] = await pool.query("SHOW COLUMNS FROM products LIKE 'metadata_json'");
+      if (Array.isArray(rows) && rows.length > 0) {
+        this.metadataColumnReady = true;
+        return true;
+      }
+
+      await pool.query("ALTER TABLE products ADD COLUMN metadata_json JSON NULL");
+      this.tableColumnsCache = {};
+      this.metadataColumnReady = true;
+      return true;
+    } catch (error: any) {
+      if (String(error?.message || "").toLowerCase().includes("duplicate column")) {
+        this.metadataColumnReady = true;
+        return true;
+      }
+
+      logger.warn(`Product metadata column unavailable: ${error?.message || error}`);
+      this.metadataColumnReady = false;
+      return false;
+    }
+  }
+
   private parseTagsInput(value: unknown): string[] {
     if (!value) return [];
     if (Array.isArray(value)) {
@@ -220,6 +328,58 @@ export class ProductsService {
       // noop
     }
     return [...new Set(raw.split(",").map((item) => item.trim().toLowerCase()).filter(Boolean))];
+  }
+
+  private parseJsonValue<T>(value: unknown, fallback: T): T {
+    if (value === undefined || value === null || value === "") return fallback;
+    if (typeof value === "object") return value as T;
+    try {
+      return JSON.parse(String(value)) as T;
+    } catch {
+      return fallback;
+    }
+  }
+
+  private normalizeImageList(value: unknown): string[] {
+    let list: unknown[] = [];
+
+    if (Array.isArray(value)) {
+      list = value;
+    } else if (typeof value === "string") {
+      const raw = String(value || "").trim();
+      if (!raw) return [];
+      try {
+        const parsed = JSON.parse(raw);
+        list = Array.isArray(parsed) ? parsed : raw.split(",");
+      } catch {
+        list = raw.split(",");
+      }
+    }
+
+    return [...new Set(list.map((item) => String(item || "").trim()).filter(Boolean))];
+  }
+
+  private extractGalleryImages(metadata?: Record<string, any> | null): string[] {
+    if (!metadata || typeof metadata !== "object") return [];
+    const media = metadata.media && typeof metadata.media === "object" ? metadata.media : {};
+    return this.normalizeImageList(
+      metadata.gallery_images ?? metadata.galleryImages ?? media.gallery ?? metadata.images ?? []
+    );
+  }
+
+  private buildNextMetadataWithGallery(metadata: Record<string, any>, images: string[]): Record<string, any> {
+    const media = metadata.media && typeof metadata.media === "object" ? metadata.media : {};
+    return {
+      ...metadata,
+      gallery_images: images,
+      galleryImages: images,
+      media: {
+        ...media,
+        gallery: images,
+        gallery_count: images.length,
+        updated_at: new Date().toISOString(),
+      },
+    };
   }
 
   private async ensureDynamicCoverSchema(): Promise<void> {
@@ -432,6 +592,74 @@ export class ProductsService {
     return Number((result as any)?.affectedRows || 0) > 0;
   }
 
+  async getProductGalleryImages(productId: string, userId?: string, brandId?: string | null): Promise<string[] | null> {
+    const product = await this.getProduct(productId, userId, brandId);
+    if (!product) return null;
+    return Array.isArray(product.galleryImages) ? product.galleryImages : [];
+  }
+
+  async replaceProductGalleryImages(
+    productId: string,
+    images: string[],
+    userId?: string,
+    brandId?: string | null,
+  ): Promise<Product | null> {
+    await this.ensureOwnershipSchema();
+
+    const existing = await this.getProduct(productId, userId, brandId);
+    if (!existing) return null;
+
+    const canPersistMetadata = await this.ensureMetadataColumn();
+    if (!canPersistMetadata) return existing;
+
+    const productColumns = await this.getTableColumns("products");
+    const scope = this.appendOwnershipWhere(productColumns, userId, brandId);
+    const andScope = scope.sql ? ` AND ${scope.sql.replace(/^\s*WHERE\s+/i, "")}` : "";
+    const [rows] = await pool.query(
+      `SELECT metadata_json FROM products WHERE id = ?${andScope} LIMIT 1`,
+      [productId, ...scope.params]
+    );
+    const row = Array.isArray(rows) && rows.length > 0 ? (rows[0] as any) : null;
+    const metadata = this.parseJsonValue<Record<string, any>>(row?.metadata_json, {});
+    const normalizedImages = this.normalizeImageList(images);
+    const nextMetadata = this.buildNextMetadataWithGallery(metadata, normalizedImages);
+
+    await pool.query(
+      `UPDATE products SET metadata_json = ?, updated_at = ? WHERE id = ?${andScope}`,
+      [JSON.stringify(nextMetadata), new Date(), productId, ...scope.params]
+    );
+
+    return (await this.getProduct(productId, userId, brandId))!;
+  }
+
+  async appendProductGalleryImages(
+    productId: string,
+    images: string[],
+    userId?: string,
+    brandId?: string | null,
+  ): Promise<Product | null> {
+    const existing = await this.getProduct(productId, userId, brandId);
+    if (!existing) return null;
+    const nextImages = this.normalizeImageList([...(existing.galleryImages || []), ...images]);
+    return this.replaceProductGalleryImages(productId, nextImages, userId, brandId);
+  }
+
+  async removeProductGalleryImage(
+    productId: string,
+    index: number,
+    userId?: string,
+    brandId?: string | null,
+  ): Promise<Product | null> {
+    const existing = await this.getProduct(productId, userId, brandId);
+    if (!existing) return null;
+
+    const nextImages = [...(existing.galleryImages || [])];
+    if (index < 0 || index >= nextImages.length) return existing;
+
+    nextImages.splice(index, 1);
+    return this.replaceProductGalleryImages(productId, nextImages, userId, brandId);
+  }
+
   async resolveDynamicCover(
     productId: string,
     input: { tags?: string[] },
@@ -487,7 +715,7 @@ export class ProductsService {
        ORDER BY p.created_at DESC`,
       scope.params
     );
-    return (rows as any[]).map(this.mapProduct);
+    return (rows as any[]).map((row) => this.mapProduct(row));
   }
 
   async getProduct(id: string, userId?: string, brandId?: string | null): Promise<Product | undefined> {
@@ -518,7 +746,7 @@ export class ProductsService {
        WHERE (p.category = ? OR LOWER(c.name) = LOWER(?))${andScope}`,
       [category, category, ...scope.params]
     );
-    return (rows as any[]).map(this.mapProduct);
+    return (rows as any[]).map((row) => this.mapProduct(row));
   }
 
   async getActiveProducts(userId?: string, brandId?: string | null): Promise<Product[]> {
@@ -531,7 +759,7 @@ export class ProductsService {
       `SELECT * FROM products WHERE ${where.join(" AND ")} ORDER BY created_at DESC`,
       scope.params
     );
-    return (rows as any[]).map(this.mapProduct);
+    return (rows as any[]).map((row) => this.mapProduct(row));
   }
 
   async createProduct(
@@ -629,7 +857,10 @@ export class ProductsService {
   }
 
   private mapProduct(row: any): Product {
-    const imageUrl = row.image_url || row.image || undefined;
+    const metadata = this.parseJsonValue<Record<string, any>>(row.metadata_json, {});
+    const galleryImages = this.extractGalleryImages(metadata);
+    const imageUrl = row.image_url || row.image || galleryImages[0] || undefined;
+    const images = this.normalizeImageList([imageUrl, ...galleryImages]);
     return {
       id: row.id,
       name: row.name,
@@ -641,6 +872,9 @@ export class ProductsService {
       features: typeof row.features === "string" ? JSON.parse(row.features) : (row.features || []),
       imageUrl,
       image: imageUrl,
+      images,
+      galleryImages,
+      metadata,
       active: Boolean(row.active),
       is_active: Boolean(row.active),
       createdAt: row.created_at,
@@ -654,15 +888,15 @@ export class ProductsService {
     const categoryColumns = await this.getTableColumns("categories");
     const scope = this.appendOwnershipWhere(categoryColumns, userId, brandId);
     const [rows] = await pool.query(`SELECT * FROM categories${scope.sql} ORDER BY created_at DESC`, scope.params);
-    return (rows as any[]).map((r: any) => ({ id: r.id, name: r.name, description: r.description || "", color: r.color || "#3b82f6" }));
+    return (rows as any[]).map((r: any) => ({ id: r.id, name: r.name, description: r.description || "", color: r.color || "#3b82f6", coverImage: r.cover_image || "" }));
   }
 
   async createCategory(data: Omit<ProductCategory, "id">, userId?: string, brandId?: string | null): Promise<ProductCategory> {
     await this.ensureOwnershipSchema();
     const id = `cat-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
     const categoryColumns = await this.getTableColumns("categories");
-    const insertColumns = ["id", "name", "description", "color"];
-    const insertValues: any[] = [id, data.name, data.description || "", data.color || "#3b82f6"];
+    const insertColumns = ["id", "name", "description", "color", "cover_image"];
+    const insertValues: any[] = [id, data.name, data.description || "", data.color || "#3b82f6", data.coverImage || ""];
 
     if (categoryColumns.has("user_id") && userId) {
       insertColumns.push("user_id");
@@ -681,7 +915,7 @@ export class ProductsService {
       insertValues
     );
     logger.info(`Category created: ${data.name}`);
-    return { id, name: data.name, description: data.description, color: data.color || "#3b82f6" };
+    return { id, name: data.name, description: data.description, color: data.color || "#3b82f6", coverImage: data.coverImage || "" };
   }
 
   async updateCategory(id: string, data: Partial<ProductCategory>, userId?: string, brandId?: string | null): Promise<ProductCategory | null> {
@@ -696,12 +930,13 @@ export class ProductsService {
     if (data.name !== undefined) { fields.push("name = ?"); values.push(data.name); }
     if (data.description !== undefined) { fields.push("description = ?"); values.push(data.description); }
     if (data.color !== undefined) { fields.push("color = ?"); values.push(data.color); }
+    if (data.coverImage !== undefined) { fields.push("cover_image = ?"); values.push(data.coverImage); }
     if (fields.length === 0) return (existing as any[])[0];
     values.push(id, ...scope.params);
     await pool.query(`UPDATE categories SET ${fields.join(", ")} WHERE id = ?${andScope}`, values);
     const [updated] = await pool.query(`SELECT * FROM categories WHERE id = ?${andScope}`, [id, ...scope.params]);
     const r = (updated as any[])[0];
-    return { id: r.id, name: r.name, description: r.description, color: r.color };
+    return { id: r.id, name: r.name, description: r.description, color: r.color, coverImage: r.cover_image || "" };
   }
 
   async deleteCategory(id: string, userId?: string, brandId?: string | null): Promise<boolean> {

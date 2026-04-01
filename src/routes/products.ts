@@ -48,6 +48,8 @@ type ProductTestimonial = {
   verified_purchase: boolean;
 };
 
+type ProductRefineMode = "full" | "description_only";
+
 function toMoneyBr(value: number): string {
   const amount = Number(value || 0);
   return `R$ ${amount.toFixed(2).replace(".", ",")}`;
@@ -278,37 +280,62 @@ async function generateRefinedProductDescription(input: {
   price?: number;
   promoPrice?: number | null;
   hasImage?: boolean;
-  policy: StorePolicyContext;
-  testimonials: ProductTestimonial[];
+  policy?: StorePolicyContext;
+  testimonials?: ProductTestimonial[];
+  mode?: ProductRefineMode;
 }): Promise<string | null> {
-  const socialProofPreview = input.testimonials
+  const mode: ProductRefineMode = input.mode === "description_only" ? "description_only" : "full";
+  const testimonials = Array.isArray(input.testimonials) ? input.testimonials : [];
+  const socialProofPreview = testimonials
     .slice(0, 3)
     .map((item) => `- ${item.name} (${item.city}): ${item.quote}`)
     .join("\n");
 
-  const prompt = [
-    "Você é especialista em copy de produto para e-commerce com foco em conversão.",
-    "Tarefa: gerar uma descrição refinada para página de produto.",
-    "Regras:",
-    "- Português-BR natural e persuasivo",
-    "- 3 a 5 parágrafos curtos",
-    "- Traga contexto de uso + benefícios + diferenciais",
-    "- Incluir prova social (tom humano) sem exageros",
-    "- Mencionar prazo e frete de forma transparente e natural",
-    "- Evite promessas que não possam ser comprovadas",
-    "- Sem markdown",
-    "- Máximo ~1300 caracteres",
-    `Produto: ${String(input.name || "Produto")}`,
-    `Categoria: ${String(input.category || "geral")}`,
-    `Preço: R$ ${Number(input.price || 0).toFixed(2)}`,
-    input.promoPrice ? `Preço promocional: R$ ${Number(input.promoPrice || 0).toFixed(2)}` : "",
-    `Imagem disponível: ${input.hasImage ? "sim" : "não"}`,
-    `Prazo de entrega: ${input.policy.delivery_eta_label}`,
-    `Política de frete: ${input.policy.shipping_policy_label}`,
-    socialProofPreview ? `Exemplos de depoimentos para inspirar a prova social:\n${socialProofPreview}` : "",
-    input.baseDescription ? `Descrição atual: ${String(input.baseDescription || "")}` : "",
-    "Retorne APENAS a descrição final.",
-  ]
+  const prompt = (
+    mode === "description_only"
+      ? [
+          "Você é especialista em descrição de produto para e-commerce.",
+          "Tarefa: reescrever e expandir somente a descrição do produto.",
+          "Objetivo: melhorar clareza, contexto de uso, benefícios e valor percebido sem misturar temas comerciais externos.",
+          "Regras:",
+          "- Português-BR natural, claro e convincente",
+          "- 3 a 4 parágrafos curtos",
+          "- Trabalhe apenas a descrição do produto",
+          "- Não mencionar frete, entrega, prazo, checkout, pagamento, política da loja, atendimento ou promoções",
+          "- Não inventar depoimentos, garantias, bônus ou especificações técnicas não informadas",
+          "- Não usar markdown",
+          "- Máximo ~1100 caracteres",
+          `Produto: ${String(input.name || "Produto")}`,
+          `Categoria: ${String(input.category || "geral")}`,
+          input.baseDescription
+            ? `Descrição base: ${String(input.baseDescription || "")}`
+            : "Se a descrição base for curta, complemente com linguagem segura a partir do nome e categoria, sem inventar detalhes técnicos.",
+          "Retorne APENAS a descrição final.",
+        ]
+      : [
+          "Você é especialista em copy de produto para e-commerce com foco em conversão.",
+          "Tarefa: gerar uma descrição refinada para página de produto.",
+          "Regras:",
+          "- Português-BR natural e persuasivo",
+          "- 3 a 5 parágrafos curtos",
+          "- Traga contexto de uso + benefícios + diferenciais",
+          "- Incluir prova social (tom humano) sem exageros",
+          "- Mencionar prazo e frete de forma transparente e natural",
+          "- Evite promessas que não possam ser comprovadas",
+          "- Sem markdown",
+          "- Máximo ~1300 caracteres",
+          `Produto: ${String(input.name || "Produto")}`,
+          `Categoria: ${String(input.category || "geral")}`,
+          `Preço: R$ ${Number(input.price || 0).toFixed(2)}`,
+          input.promoPrice ? `Preço promocional: R$ ${Number(input.promoPrice || 0).toFixed(2)}` : "",
+          `Imagem disponível: ${input.hasImage ? "sim" : "não"}`,
+          input.policy ? `Prazo de entrega: ${input.policy.delivery_eta_label}` : "",
+          input.policy ? `Política de frete: ${input.policy.shipping_policy_label}` : "",
+          socialProofPreview ? `Exemplos de depoimentos para inspirar a prova social:\n${socialProofPreview}` : "",
+          input.baseDescription ? `Descrição atual: ${String(input.baseDescription || "")}` : "",
+          "Retorne APENAS a descrição final.",
+        ]
+  )
     .filter(Boolean)
     .join("\n");
 
@@ -334,6 +361,11 @@ const productImageStorage = multer.diskStorage({
 });
 
 const uploadProductImage = multer({
+  storage: productImageStorage,
+  limits: { fileSize: PRODUCT_IMAGE_MAX_BYTES }
+});
+
+const uploadProductGalleryImages = multer({
   storage: productImageStorage,
   limits: { fileSize: PRODUCT_IMAGE_MAX_BYTES }
 });
@@ -366,6 +398,45 @@ function withMulterErrorHandling(middleware: (req: any, res: any, cb: (err?: any
 }
 
 router.use(authMiddleware, requireBrandContext);
+
+router.post("/refine-description-preview", async (req: BrandRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId as string | undefined;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+    const name = normalizeText(req.body?.name) || "Produto";
+    const baseDescription = normalizeText(req.body?.description);
+    if (!baseDescription) {
+      return res.status(400).json({ error: "Description is required" });
+    }
+
+    const refinedDescription = await generateRefinedProductDescription({
+      name,
+      category: normalizeText(req.body?.category) || null,
+      baseDescription,
+      price: Number(req.body?.price || 0),
+      promoPrice:
+        req.body?.promoPrice !== undefined && req.body?.promoPrice !== null && req.body?.promoPrice !== ""
+          ? Number(req.body.promoPrice)
+          : null,
+      hasImage: Boolean(req.body?.hasImage),
+      mode: "description_only",
+    });
+
+    if (!refinedDescription) {
+      return res.status(500).json({ error: "Failed to refine description" });
+    }
+
+    res.json({
+      success: true,
+      description: refinedDescription,
+      mode: "description_only",
+    });
+  } catch (error: any) {
+    logger.error(error, "Error previewing refined product description");
+    res.status(500).json({ error: error.message || "Failed to preview refined description" });
+  }
+});
 
 // GET all products
 router.get("/", async (req: BrandRequest, res: Response) => {
@@ -490,6 +561,124 @@ router.post("/:id/image", withMulterErrorHandling(uploadProductImage.single("ima
   } catch (error: any) {
     logger.error(error, "Error uploading product image");
     res.status(500).json({ error: error.message });
+  }
+});
+
+router.get("/:id/gallery-images", async (req: BrandRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId as string | undefined;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+    const product = await productsService.getProduct(String(req.params.id), userId, req.brandId);
+    if (!product) return res.status(404).json({ error: "Product not found" });
+
+    res.json({
+      success: true,
+      coverImage: product.imageUrl || null,
+      images: Array.isArray(product.galleryImages) ? product.galleryImages : [],
+      product,
+    });
+  } catch (error: any) {
+    logger.error(error, "Error loading product gallery images");
+    res.status(500).json({ error: error.message || "Failed to load product gallery" });
+  }
+});
+
+router.put("/:id/gallery-images", async (req: BrandRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId as string | undefined;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+    const images = Array.isArray(req.body?.images)
+      ? req.body.images.map((item: unknown) => String(item || "").trim()).filter(Boolean)
+      : [];
+
+    const product = await productsService.replaceProductGalleryImages(
+      String(req.params.id),
+      images,
+      userId,
+      req.brandId,
+    );
+
+    if (!product) return res.status(404).json({ error: "Product not found" });
+
+    res.json({
+      success: true,
+      coverImage: product.imageUrl || null,
+      images: Array.isArray(product.galleryImages) ? product.galleryImages : [],
+      product,
+    });
+  } catch (error: any) {
+    logger.error(error, "Error replacing product gallery images");
+    res.status(500).json({ error: error.message || "Failed to save product gallery" });
+  }
+});
+
+router.post("/:id/gallery-images/upload", withMulterErrorHandling(uploadProductGalleryImages.array("images", 12)), async (req: BrandRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId as string | undefined;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+    const files = Array.isArray(req.files) ? req.files : [];
+    if (!files.length) return res.status(400).json({ error: "Image files are required" });
+
+    for (const file of files) {
+      if (!String(file.mimetype || "").startsWith("image/")) {
+        return res.status(400).json({ error: "Only image files are allowed" });
+      }
+    }
+
+    const imageUrls = files.map((file) => `${req.protocol}://${req.get("host")}/uploads/product-images/${file.filename}`);
+    const product = await productsService.appendProductGalleryImages(
+      String(req.params.id),
+      imageUrls,
+      userId,
+      req.brandId,
+    );
+
+    if (!product) return res.status(404).json({ error: "Product not found" });
+
+    res.json({
+      success: true,
+      uploaded: imageUrls,
+      coverImage: product.imageUrl || null,
+      images: Array.isArray(product.galleryImages) ? product.galleryImages : [],
+      product,
+    });
+  } catch (error: any) {
+    logger.error(error, "Error uploading product gallery images");
+    res.status(500).json({ error: error.message || "Failed to upload gallery images" });
+  }
+});
+
+router.delete("/:id/gallery-images/:index", async (req: BrandRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId as string | undefined;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+    const index = Number(req.params.index);
+    if (!Number.isInteger(index) || index < 0) {
+      return res.status(400).json({ error: "Invalid gallery image index" });
+    }
+
+    const product = await productsService.removeProductGalleryImage(
+      String(req.params.id),
+      index,
+      userId,
+      req.brandId,
+    );
+
+    if (!product) return res.status(404).json({ error: "Product not found" });
+
+    res.json({
+      success: true,
+      coverImage: product.imageUrl || null,
+      images: Array.isArray(product.galleryImages) ? product.galleryImages : [],
+      product,
+    });
+  } catch (error: any) {
+    logger.error(error, "Error removing product gallery image");
+    res.status(500).json({ error: error.message || "Failed to remove gallery image" });
   }
 });
 
@@ -709,6 +898,7 @@ router.post("/:id/refine", async (req: BrandRequest, res: Response) => {
       hasImage: Boolean(String(row.image_url || owned.imageUrl || "").trim()),
       policy: storePolicy,
       testimonials,
+      mode: "full",
     });
 
     const baseDescription = String(row.description || owned.description || "").trim();

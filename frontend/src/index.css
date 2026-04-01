@@ -1,0 +1,211 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --color-brand-primary: #111827;
+  --color-brand-secondary: #3b82f6;
+  --color-brand-primary-light: #1118270d;
+  --color-brand-secondary-light: #3b82f614;
+  --color-surface: #ffffff;
+  --color-surface-alt: #f5f7fa;
+  --color-bg: #f8fafc;
+  --color-muted: #6b7280;
+  --color-muted-light: #94a3b8;
+  --color-border: #e2e8f0;
+  --color-border-light: #f1f5f9;
+  --color-success: #10b981;
+  --color-danger: #ef4444;
+  --color-warning: #f59e0b;
+  --radius-sm: 0.5rem;
+  --radius-md: 0.625rem;
+  --radius-lg: 0.875rem;
+  --radius-xl: 1.125rem;
+  --radius-2xl: 1.25rem;
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
+  --shadow-elevated: 0 4px 12px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.04);
+  --shadow-modal: 0 12px 40px rgba(0, 0, 0, 0.12);
+}
+
+/* Dynamic brand color CSS variables — set by JS at runtime */
+:root {
+  --brand-primary: theme(--color-brand-primary);
+  --brand-secondary: theme(--color-brand-secondary);
+  --brand-primary-light: theme(--color-brand-primary-light);
+  --brand-secondary-light: theme(--color-brand-secondary-light);
+}
+
+html {
+  -webkit-tap-highlight-color: transparent;
+  scroll-behavior: smooth;
+}
+
+body {
+  @apply bg-bg text-gray-900 antialiased;
+  font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  letter-spacing: -0.01em;
+}
+
+/* ── Typography Premium ── */
+h1, h2, h3, h4, h5, h6 {
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+/* ── Card System ── */
+.card {
+  background: white;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
+  transition: box-shadow 0.2s ease, transform 0.15s ease;
+}
+.card:hover {
+  box-shadow: var(--shadow-elevated);
+}
+.card-interactive:active {
+  transform: scale(0.985);
+}
+
+/* ── Glass Effect ── */
+.glass {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px) saturate(1.4);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+}
+
+/* ── KPI Cards ── */
+.kpi-card {
+  background: white;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  padding: 1rem;
+  transition: transform 0.15s ease, box-shadow 0.2s ease;
+}
+.kpi-card:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-elevated);
+}
+.kpi-label {
+  font-size: 0.625rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-muted);
+  margin-bottom: 0.25rem;
+}
+.kpi-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+}
+
+/* ── Badge System ── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.125rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.badge-success { @apply bg-emerald-50 text-emerald-700; }
+.badge-warning { @apply bg-amber-50 text-amber-700; }
+.badge-danger { @apply bg-red-50 text-red-700; }
+.badge-info { @apply bg-blue-50 text-blue-700; }
+
+/* ── Buttons ── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius-md);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  transition: all 0.15s ease;
+  cursor: pointer;
+  border: none;
+}
+.btn-primary {
+  @apply bg-blue-500 text-white;
+}
+.btn-primary:hover {
+  @apply bg-blue-600;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+.btn-secondary {
+  @apply bg-gray-100 text-gray-700;
+}
+.btn-secondary:hover {
+  @apply bg-gray-200;
+}
+.btn-success {
+  @apply bg-emerald-500 text-white;
+}
+.btn-success:hover {
+  @apply bg-emerald-600;
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+}
+.btn-danger {
+  @apply bg-red-500 text-white;
+}
+.btn-danger:hover {
+  @apply bg-red-600;
+}
+
+/* ── Input System ── */
+input[type="text"], input[type="search"], input[type="email"],
+input[type="tel"], input[type="number"], input[type="password"],
+textarea, select {
+  font-family: inherit;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+input:focus, textarea:focus, select:focus {
+  outline: none;
+  border-color: var(--color-brand-secondary);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+/* ── Sidebar ── */
+.sidebar-item {
+  transition: all 0.15s ease;
+}
+.sidebar-item.active {
+  background: rgba(59, 130, 246, 0.08);
+  color: #3b82f6;
+  font-weight: 600;
+}
+
+/* ── Smooth page transitions ── */
+.page-enter {
+  animation: pageIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes pageIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Skeleton shimmer ── */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.skeleton {
+  background: linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 50%, #e2e8f0 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+  border-radius: var(--radius-md);
+}
+
+/* ── Scrollbar ── */
+.scrollbar-hide::-webkit-scrollbar { display: none; }
+.scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* ── Transitions ── */
+* {
+  transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+}

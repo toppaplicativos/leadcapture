@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from "crypto";
+import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from "crypto";
 import { query, queryOne, update } from "../config/database";
 import QRCode from "qrcode";
 
@@ -409,11 +409,12 @@ export class PaymentConfigService {
         `INSERT IGNORE INTO payment_methods_config (
           id, account_id, method_type, enabled, max_installments, min_installment_value,
           interest_type, interest_percentage, fee_fixed, fee_percentage
-        ) VALUES (UUID(), ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
+          randomUUID(),
           accountId,
           method,
-          method === "pix" || method === "card" ? 1 : 0,
+          method === "pix" || method === "card",
           method === "card" ? 12 : 1,
           5,
           "none",
@@ -432,8 +433,8 @@ export class PaymentConfigService {
       `INSERT IGNORE INTO payment_settings (
         id, account_id, default_currency, auto_approve_orders,
         allow_pix, allow_card, allow_boleto, allow_wallet
-      ) VALUES (UUID(), ?, 'BRL', 1, 1, 1, 0, 0)`,
-      [accountId]
+      ) VALUES (?, ?, 'BRL', TRUE, TRUE, TRUE, FALSE, FALSE)`,
+      [randomUUID(), accountId]
     );
 
     const row = await queryOne<any>(`SELECT * FROM payment_settings WHERE account_id = ? LIMIT 1`, [accountId]);
@@ -461,23 +462,23 @@ export class PaymentConfigService {
     }
     if (payload.auto_approve_orders !== undefined) {
       fields.push("auto_approve_orders = ?");
-      values.push(payload.auto_approve_orders ? 1 : 0);
+      values.push(Boolean(payload.auto_approve_orders));
     }
     if (payload.allow_pix !== undefined) {
       fields.push("allow_pix = ?");
-      values.push(payload.allow_pix ? 1 : 0);
+      values.push(Boolean(payload.allow_pix));
     }
     if (payload.allow_card !== undefined) {
       fields.push("allow_card = ?");
-      values.push(payload.allow_card ? 1 : 0);
+      values.push(Boolean(payload.allow_card));
     }
     if (payload.allow_boleto !== undefined) {
       fields.push("allow_boleto = ?");
-      values.push(payload.allow_boleto ? 1 : 0);
+      values.push(Boolean(payload.allow_boleto));
     }
     if (payload.allow_wallet !== undefined) {
       fields.push("allow_wallet = ?");
-      values.push(payload.allow_wallet ? 1 : 0);
+      values.push(Boolean(payload.allow_wallet));
     }
 
     if (fields.length > 0) {
@@ -532,7 +533,7 @@ export class PaymentConfigService {
       }
       if (payload.active !== undefined) {
         fields.push("active = ?");
-        values.push(payload.active ? 1 : 0);
+        values.push(Boolean(payload.active));
       }
       if (payload.gateway_priority !== undefined) {
         fields.push("gateway_priority = ?");
@@ -569,7 +570,7 @@ export class PaymentConfigService {
         this.encryptSecret((payload as any).secret_key),
         payload.webhook_secret || null,
         payload.environment === "production" ? "production" : "sandbox",
-        payload.active === false ? 0 : 1,
+        payload.active === false ? false : true,
         Math.max(1, Math.floor(this.toNumber(payload.gateway_priority, 1))),
       ]
     );
@@ -586,7 +587,7 @@ export class PaymentConfigService {
     await this.ensureSchema();
     const row = await queryOne<PaymentGatewayRow>(
       `SELECT * FROM payment_gateways
-       WHERE account_id = ? AND gateway_name = ? AND active = 1
+        WHERE account_id = ? AND gateway_name = ? AND active = TRUE
        ORDER BY gateway_priority ASC, created_at ASC
        LIMIT 1`,
       [accountId, String(gatewayName || "").trim().toLowerCase()]
@@ -604,7 +605,7 @@ export class PaymentConfigService {
     await this.ensureSchema();
     const rows = await query<PaymentGatewayRow[]>(
       `SELECT * FROM payment_gateways
-       WHERE account_id = ? AND active = 1
+       WHERE account_id = ? AND active = TRUE
        ORDER BY gateway_priority ASC, created_at ASC`,
       [accountId]
     );
@@ -637,7 +638,7 @@ export class PaymentConfigService {
     await this.ensureSchema();
     await this.ensureDefaultMethodRows(accountId);
     const rows = await query<PaymentMethodConfig[]>(
-      `SELECT * FROM payment_methods_config WHERE account_id = ? ORDER BY FIELD(method_type, 'pix','card','boleto','wallet')`,
+      `SELECT * FROM payment_methods_config WHERE account_id = ? ORDER BY CASE method_type WHEN 'pix' THEN 1 WHEN 'card' THEN 2 WHEN 'boleto' THEN 3 WHEN 'wallet' THEN 4 ELSE 99 END`,
       [accountId]
     );
     return (rows || []).map((row: any) => ({
@@ -658,8 +659,8 @@ export class PaymentConfigService {
       `INSERT IGNORE INTO payment_pix_settings (
         id, account_id, provider, enabled, is_production, pix_key_type,
         receiver_name, receiver_city, txid_prefix, default_description
-      ) VALUES (UUID(), ?, 'manual', 0, 0, 'random', 'RECEBEDOR', 'SAO PAULO', 'LS', NULL)`,
-      [accountId]
+      ) VALUES (?, ?, 'manual', FALSE, FALSE, 'random', 'RECEBEDOR', 'SAO PAULO', 'LS', NULL)`,
+      [randomUUID(), accountId]
     );
 
     const row = await queryOne<any>(`SELECT * FROM payment_pix_settings WHERE account_id = ? LIMIT 1`, [accountId]);
@@ -696,11 +697,11 @@ export class PaymentConfigService {
     }
     if (payload.enabled !== undefined) {
       fields.push("enabled = ?");
-      values.push(payload.enabled ? 1 : 0);
+      values.push(Boolean(payload.enabled));
     }
     if (payload.is_production !== undefined) {
       fields.push("is_production = ?");
-      values.push(payload.is_production ? 1 : 0);
+      values.push(Boolean(payload.is_production));
     }
     if (payload.pix_key_type !== undefined) {
       const allowedTypes: PixKeyType[] = ["cpf", "cnpj", "email", "phone", "random"];
@@ -884,7 +885,7 @@ export class PaymentConfigService {
 
     if (payload.enabled !== undefined) {
       fields.push("enabled = ?");
-      values.push(payload.enabled ? 1 : 0);
+      values.push(Boolean(payload.enabled));
     }
     if (payload.max_installments !== undefined) {
       fields.push("max_installments = ?");
@@ -1000,7 +1001,7 @@ export class PaymentConfigService {
 
   async disableCoupon(accountId: string, couponId: string): Promise<boolean> {
     await this.ensureSchema();
-    const affected = await update(`UPDATE coupons SET active = 0 WHERE id = ? AND account_id = ?`, [couponId, accountId]);
+    const affected = await update(`UPDATE coupons SET active = FALSE WHERE id = ? AND account_id = ?`, [couponId, accountId]);
     return affected > 0;
   }
 
@@ -1014,7 +1015,7 @@ export class PaymentConfigService {
        FROM coupons
        WHERE account_id = ?
          AND code = ?
-         AND active = 1
+         AND active = TRUE
          AND (expiration_date IS NULL OR expiration_date > NOW())
          AND (usage_limit IS NULL OR used_count < usage_limit)
        LIMIT 1`,
@@ -1029,7 +1030,7 @@ export class PaymentConfigService {
       `UPDATE coupons
        SET used_count = used_count + 1
        WHERE id = ? AND account_id = ?
-         AND active = 1
+         AND active = TRUE
          AND (usage_limit IS NULL OR used_count < usage_limit)`,
       [couponId, accountId]
     );

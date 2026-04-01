@@ -1,0 +1,68 @@
+/* ═══════════════════════════════════════════════════════
+   COMPONENTE: SPLASH SCREEN
+   Tela de carregamento (inventário, PWAs)
+   ═══════════════════════════════════════════════════════ */
+
+.splash {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-splash);
+  background: linear-gradient(135deg, var(--brand-secondary), #1d4ed8);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.4s, visibility 0.4s;
+}
+.splash.hide {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.splash-logo {
+  width: 96px;
+  height: 96px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: sPulse 1.4s ease-in-out infinite;
+  overflow: hidden;
+}
+.splash-logo img {
+  width: 68px;
+  height: 68px;
+  object-fit: contain;
+  border-radius: 16px;
+}
+.splash-logo .fi { font-size: 44px; }
+
+.splash-name {
+  color: #fff;
+  font-size: 22px;
+  font-weight: var(--font-extrabold);
+  margin-top: var(--space-5);
+  letter-spacing: -0.3px;
+}
+.splash-sub {
+  color: rgba(255, 255, 255, 0.75);
+  font-size: var(--text-base);
+  margin-top: var(--space-1);
+}
+.splash-spin {
+  margin-top: var(--space-8);
+  width: 28px;
+  height: 28px;
+  border: 3px solid rgba(255, 255, 255, 0.25);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes sPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.06); }
+}

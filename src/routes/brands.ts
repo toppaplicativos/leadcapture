@@ -1,9 +1,30 @@
 import { Response, Router } from "express";
 import { AuthRequest } from "../middleware/auth";
 import { BrandUnitsService } from "../services/brandUnits";
+import { StorefrontService } from "../services/storefront";
 
 const router = Router();
 const brandUnitsService = new BrandUnitsService();
+const storefrontService = new StorefrontService();
+
+function resolveBrandErrorStatus(message: string): number {
+  const normalized = String(message || "").toLowerCase();
+  if (
+    normalized.includes("required") ||
+    normalized.includes("invalid") ||
+    normalized.includes("must")
+  ) {
+    return 400;
+  }
+  if (
+    normalized.includes("duplicate") ||
+    normalized.includes("already exists") ||
+    normalized.includes("unique")
+  ) {
+    return 409;
+  }
+  return 500;
+}
 
 router.get("/", async (req: AuthRequest, res: Response) => {
   try {
@@ -24,6 +45,7 @@ router.post("/", async (req: AuthRequest, res: Response) => {
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
     const brand = await brandUnitsService.create(userId, req.body || {});
+    await storefrontService.synchronizeBrandStructure(userId, String(brand.id), { syncProducts: true });
     const activeBrandId = await brandUnitsService.getActiveBrandId(userId);
     res.status(201).json({ success: true, brand, active_brand_id: activeBrandId });
   } catch (error: any) {
@@ -35,7 +57,7 @@ router.post("/", async (req: AuthRequest, res: Response) => {
   }
 });
 
-router.put("/:id", async (req: AuthRequest, res: Response) => {
+const updateBrandHandler = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user?.userId as string | undefined;
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
@@ -43,12 +65,18 @@ router.put("/:id", async (req: AuthRequest, res: Response) => {
     const brand = await brandUnitsService.update(userId, String(req.params.id), req.body || {});
     if (!brand) return res.status(404).json({ error: "Brand not found" });
 
+    await storefrontService.synchronizeBrandStructure(userId, String(brand.id), { syncProducts: true });
+
     const activeBrandId = await brandUnitsService.getActiveBrandId(userId);
     res.json({ success: true, brand, active_brand_id: activeBrandId });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    const message = String(error?.message || "Failed to update brand");
+    res.status(resolveBrandErrorStatus(message)).json({ error: message });
   }
-});
+};
+
+router.put("/:id", updateBrandHandler);
+router.patch("/:id", updateBrandHandler);
 
 router.post("/:id/activate", async (req: AuthRequest, res: Response) => {
   try {
@@ -57,6 +85,8 @@ router.post("/:id/activate", async (req: AuthRequest, res: Response) => {
 
     const ok = await brandUnitsService.setActiveBrand(userId, String(req.params.id));
     if (!ok) return res.status(404).json({ error: "Brand not found" });
+
+    await storefrontService.synchronizeBrandStructure(userId, String(req.params.id), { syncProducts: true });
 
     res.json({ success: true, active_brand_id: String(req.params.id) });
   } catch (error: any) {

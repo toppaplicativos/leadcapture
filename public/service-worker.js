@@ -1,5 +1,5 @@
 /* eslint-disable no-restricted-globals */
-const CACHE_NAME = "lead-system-v9-20260301";
+const CACHE_NAME = "lead-system-v10-20260306";
 
 function getBasePath() {
   try {
@@ -24,18 +24,11 @@ function toScopedPath(path = "") {
   return `${normalizedBase}${path}`.replace(/([^:]\/)\/+/g, "$1");
 }
 
-const urlsToCache = [
-  toScopedPath(""),
-  toScopedPath("index.html"),
-  toScopedPath("manifest.json"),
-  toScopedPath("logo.png")
-];
+const urlsToCache = [toScopedPath("index.html")];
 
 // Instalacao do Service Worker
 self.addEventListener("install", (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(urlsToCache))
-  );
+  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(urlsToCache).catch(() => Promise.resolve())));
   self.skipWaiting();
 });
 
@@ -45,7 +38,7 @@ self.addEventListener("activate", (event) => {
     caches.keys().then((cacheNames) =>
       Promise.all(
         cacheNames.map((cacheName) => {
-          if (cacheName !== CACHE_NAME) {
+          if (cacheName !== CACHE_NAME || cacheName.startsWith("lead-system-v")) {
             return caches.delete(cacheName);
           }
           return Promise.resolve();
@@ -56,7 +49,6 @@ self.addEventListener("activate", (event) => {
   self.clients.claim();
 });
 
-// Estrategia de cache: Network First para API e Cache First para estaticos
 self.addEventListener("fetch", (event) => {
   const { request } = event;
 
@@ -64,105 +56,27 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  const isApiRequest = request.url.includes("/api/") || request.url.includes("localhost:3000");
   const isNavigationRequest = request.mode === "navigate";
-  const isAssetRequest = /\.(js|css|map|json)$/i.test(new URL(request.url).pathname);
-
-  if (isNavigationRequest) {
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          if (!response || response.status !== 200 || response.type === "error") {
-            return response;
-          }
-
-          const navClone = response.clone();
-          const indexClone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(request, navClone);
-            cache.put(toScopedPath("index.html"), indexClone);
-          });
-
-          return response;
-        })
-        .catch(() =>
-          caches.match(request).then((response) => {
-            if (response) {
-              return response;
-            }
-
-            return caches.match(toScopedPath("index.html")) || new Response("Offline - recurso nao disponivel");
-          })
-        )
-    );
-    return;
-  }
-
-  if (isApiRequest) {
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          if (!response || response.status !== 200 || response.type === "error") {
-            return response;
-          }
-
-          const responseToCache = response.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(request, responseToCache);
-          });
-
-          return response;
-        })
-        .catch(() =>
-          caches.match(request).then((response) => response || new Response("Offline - recurso nao disponivel"))
-        )
-    );
-    return;
-  }
-
-  if (isAssetRequest) {
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          if (!response || response.status !== 200 || response.type === "error") {
-            return response;
-          }
-
-          const responseToCache = response.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(request, responseToCache);
-          });
-
-          return response;
-        })
-        .catch(() =>
-          caches.match(request).then((response) => response || new Response("Offline - recurso nao disponivel"))
-        )
-    );
-    return;
-  }
 
   event.respondWith(
-    caches.match(request).then((response) => {
-      if (response) {
+    fetch(request)
+      .then((response) => {
+        if (isNavigationRequest && response && response.status === 200) {
+          const responseClone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(toScopedPath("index.html"), responseClone));
+        }
         return response;
-      }
-
-      return fetch(request)
-        .then((networkResponse) => {
-          if (!networkResponse || networkResponse.status !== 200 || networkResponse.type === "error") {
-            return networkResponse;
-          }
-
-          const responseToCache = networkResponse.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(request, responseToCache);
-          });
-
-          return networkResponse;
-        })
-        .catch(() => new Response("Offline - recurso nao disponivel"));
-    })
+      })
+      .catch(() => {
+        if (isNavigationRequest) {
+          return caches.match(toScopedPath("index.html")).then(
+            (cached) => cached || new Response("Offline - recurso nao disponivel", { status: 503 })
+          );
+        }
+        return caches.match(request).then(
+          (cached) => cached || new Response("Offline - recurso nao disponivel", { status: 503 })
+        );
+      })
   );
 });
 

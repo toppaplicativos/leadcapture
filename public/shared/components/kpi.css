@@ -1,0 +1,40 @@
+/* ═══════════════════════════════════════════════════════
+   COMPONENTE: KPI CARDS
+   Cards de indicadores numéricos
+   ═══════════════════════════════════════════════════════ */
+
+.kpi-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.kpi {
+  background: var(--color-card);
+  border-radius: var(--radius-xl);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+}
+
+.kpi .label {
+  font-size: 11px;
+  color: var(--color-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 2px;
+}
+
+.kpi .value {
+  font-size: 22px;
+  font-weight: var(--font-extrabold);
+  line-height: var(--line-tight);
+}
+
+.kpi.danger .value { color: var(--color-danger); }
+.kpi.warning .value { color: var(--color-warning); }
+.kpi.success .value { color: var(--color-success); }
+
+@media (min-width: 768px) {
+  .kpi-row { grid-template-columns: repeat(4, 1fr); }
+}

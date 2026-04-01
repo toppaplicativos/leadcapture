@@ -1,21 +1,57 @@
 import { Router, Response } from "express";
 import { AuthRequest } from "../middleware/auth";
+import { BrandUnitsService } from "../services/brandUnits";
 import { memoryEngine, LeadContextMemory } from "../services/memoryEngine";
 import { getPool } from "../config/database";
 
 const router = Router();
+const brandUnitsService = new BrandUnitsService();
+
+function getAuthenticatedUserId(req: AuthRequest): string | null {
+  const userId = String(req.user?.userId || req.userId || req.user?.id || "").trim();
+  return userId || null;
+}
+
+function getRequestedBrandId(req: AuthRequest): string | null {
+  const fromHeader = String(req.headers?.["x-brand-id"] || "").trim();
+  if (fromHeader) return fromHeader;
+  const fromQuery = String(req.query?.brand_id || "").trim();
+  if (fromQuery) return fromQuery;
+  const body = (req.body || {}) as Record<string, any>;
+  const fromBody = String(body.brand_id || body.brandId || "").trim();
+  return fromBody || null;
+}
+
+async function resolveBrandId(req: AuthRequest, userId: string): Promise<string | null> {
+  return brandUnitsService.resolveActiveBrandId(userId, getRequestedBrandId(req));
+}
+
+async function verifyClientOwnership(pool: ReturnType<typeof getPool>, clientId: string, userId: string, brandId: string | null) {
+  const [rows] = await pool.query<any[]>(
+    `SELECT id
+     FROM clients
+     WHERE id = ?
+       AND user_id = ?
+       AND is_active = TRUE
+       ${brandId ? "AND brand_id = ?" : ""}
+     LIMIT 1`,
+    brandId ? [clientId, userId, brandId] : [clientId, userId]
+  );
+  return rows[0] || null;
+}
 
 // ─── GET /api/leads/memory/by-phone/:phone ────────────────────────────────────
 // Get contextual memory for a lead by phone number
 router.get("/memory/by-phone/:phone", async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.user?.id;
+    const userId = getAuthenticatedUserId(req);
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const brandId = await resolveBrandId(req, userId);
 
     const phone = String(req.params.phone || "");
     if (!phone) return res.status(400).json({ error: "Phone is required" });
 
-    const result = await memoryEngine.getMemoryByPhone(userId, phone);
+    const result = await memoryEngine.getMemoryByPhone(userId, phone, brandId);
     if (!result) return res.status(404).json({ error: "Lead not found for this phone" });
 
     return res.json({ clientId: result.clientId, memory: result.memory });
@@ -28,18 +64,16 @@ router.get("/memory/by-phone/:phone", async (req: AuthRequest, res: Response) =>
 // Get contextual memory for a specific client
 router.get("/memory/:clientId", async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.user?.id;
+    const userId = getAuthenticatedUserId(req);
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const brandId = await resolveBrandId(req, userId);
 
     const clientId = String(req.params.clientId || "");
 
     // Verify ownership
     const pool = getPool();
-    const [rows] = await pool.query<any[]>(
-      "SELECT id FROM clients WHERE id = ? AND user_id = ? AND is_active = TRUE LIMIT 1",
-      [clientId, userId]
-    );
-    if (!rows[0]) return res.status(404).json({ error: "Client not found" });
+    const row = await verifyClientOwnership(pool, clientId, userId, brandId);
+    if (!row) return res.status(404).json({ error: "Client not found" });
 
     const memory = await memoryEngine.getMemory(clientId);
     return res.json({ clientId, memory });
@@ -52,8 +86,9 @@ router.get("/memory/:clientId", async (req: AuthRequest, res: Response) => {
 // Manually update / patch memory fields
 router.put("/memory/:clientId", async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.user?.id;
+    const userId = getAuthenticatedUserId(req);
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const brandId = await resolveBrandId(req, userId);
 
     const clientId = String(req.params.clientId || "");
     const patch: Partial<LeadContextMemory> = req.body;
@@ -64,11 +99,8 @@ router.put("/memory/:clientId", async (req: AuthRequest, res: Response) => {
 
     // Verify ownership
     const pool = getPool();
-    const [rows] = await pool.query<any[]>(
-      "SELECT id FROM clients WHERE id = ? AND user_id = ? AND is_active = TRUE LIMIT 1",
-      [clientId, userId]
-    );
-    if (!rows[0]) return res.status(404).json({ error: "Client not found" });
+    const row = await verifyClientOwnership(pool, clientId, userId, brandId);
+    if (!row) return res.status(404).json({ error: "Client not found" });
 
     await memoryEngine.saveMemory(clientId, patch);
     const updated = await memoryEngine.getMemory(clientId);
@@ -82,17 +114,15 @@ router.put("/memory/:clientId", async (req: AuthRequest, res: Response) => {
 // Reset (clear) memory for a lead
 router.delete("/memory/:clientId", async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.user?.id;
+    const userId = getAuthenticatedUserId(req);
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const brandId = await resolveBrandId(req, userId);
 
     const clientId = String(req.params.clientId || "");
 
     const pool = getPool();
-    const [rows] = await pool.query<any[]>(
-      "SELECT id FROM clients WHERE id = ? AND user_id = ? AND is_active = TRUE LIMIT 1",
-      [clientId, userId]
-    );
-    if (!rows[0]) return res.status(404).json({ error: "Client not found" });
+    const row = await verifyClientOwnership(pool, clientId, userId, brandId);
+    if (!row) return res.status(404).json({ error: "Client not found" });
 
     await memoryEngine.resetMemory(clientId);
     return res.json({ ok: true, message: "Memory reset successfully" });
@@ -105,8 +135,9 @@ router.delete("/memory/:clientId", async (req: AuthRequest, res: Response) => {
 // Trigger AI re-analysis with a provided message snippet
 router.post("/memory/:clientId/refresh", async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.user?.id;
+    const userId = getAuthenticatedUserId(req);
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const brandId = await resolveBrandId(req, userId);
 
     const clientId = String(req.params.clientId || "");
     const { message, direction = "inbound" } = req.body as {
@@ -118,12 +149,18 @@ router.post("/memory/:clientId/refresh", async (req: AuthRequest, res: Response)
 
     const pool = getPool();
     const [rows] = await pool.query<any[]>(
-      "SELECT phone FROM clients WHERE id = ? AND user_id = ? AND is_active = TRUE LIMIT 1",
-      [clientId, userId]
+      `SELECT phone
+       FROM clients
+       WHERE id = ?
+         AND user_id = ?
+         AND is_active = TRUE
+         ${brandId ? "AND brand_id = ?" : ""}
+       LIMIT 1`,
+      brandId ? [clientId, userId, brandId] : [clientId, userId]
     );
     if (!rows[0]) return res.status(404).json({ error: "Client not found" });
 
-    await memoryEngine.updateMemoryFromMessage(userId, rows[0].phone, message, direction);
+    await memoryEngine.updateMemoryFromMessage(userId, rows[0].phone, message, direction, brandId);
     const updated = await memoryEngine.getMemory(clientId);
     return res.json({ clientId, memory: updated });
   } catch (err: any) {
@@ -135,17 +172,15 @@ router.post("/memory/:clientId/refresh", async (req: AuthRequest, res: Response)
 // Get memory formatted as a prompt context string (for AI injection preview)
 router.get("/memory/:clientId/context", async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.user?.id;
+    const userId = getAuthenticatedUserId(req);
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const brandId = await resolveBrandId(req, userId);
 
     const clientId = String(req.params.clientId || "");
 
     const pool = getPool();
-    const [rows] = await pool.query<any[]>(
-      "SELECT id FROM clients WHERE id = ? AND user_id = ? AND is_active = TRUE LIMIT 1",
-      [clientId, userId]
-    );
-    if (!rows[0]) return res.status(404).json({ error: "Client not found" });
+    const row = await verifyClientOwnership(pool, clientId, userId, brandId);
+    if (!row) return res.status(404).json({ error: "Client not found" });
 
     const memory = await memoryEngine.getMemory(clientId);
     if (!memory) return res.status(404).json({ error: "No memory found" });

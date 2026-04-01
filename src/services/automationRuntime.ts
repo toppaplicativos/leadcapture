@@ -153,6 +153,14 @@ function parseObject(value: unknown): Record<string, any> {
   }
 }
 
+function toNullableBoolean(value: unknown): boolean | null {
+  if (value === null || value === undefined || String(value).trim() === "") return null;
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  const normalized = String(value).trim().toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "t" || normalized === "yes";
+}
+
 function toStatusKey(value: string): string {
   return normalizeText(value).replace(/\s+/g, " ");
 }
@@ -287,9 +295,9 @@ export class AutomationRuntimeService {
       CREATE TABLE IF NOT EXISTS crm_automation_runtime_settings (
         user_id VARCHAR(36) PRIMARY KEY,
         enabled TINYINT(1) NOT NULL DEFAULT 1,
-        allowed_start_hour TINYINT UNSIGNED NOT NULL DEFAULT 0,
-        allowed_end_hour TINYINT UNSIGNED NOT NULL DEFAULT 0,
-        max_attempts TINYINT UNSIGNED NOT NULL DEFAULT 3,
+        allowed_start_hour SMALLINT NOT NULL DEFAULT 0,
+        allowed_end_hour SMALLINT NOT NULL DEFAULT 0,
+        max_attempts SMALLINT NOT NULL DEFAULT 3,
         max_messages_per_hour INT NOT NULL DEFAULT 40,
         cooldown_minutes INT NOT NULL DEFAULT 2,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -502,7 +510,7 @@ export class AutomationRuntimeService {
       phone: normalizePhone(row.phone),
       status: String(row.status || "new"),
       tags: parseJsonArray(row.tags),
-      hasWhatsapp: row.has_whatsapp === null || row.has_whatsapp === undefined ? null : Number(row.has_whatsapp) === 1,
+      hasWhatsapp: toNullableBoolean(row.has_whatsapp),
       whatsappValidationStatus: row.whatsapp_validation_status ? String(row.whatsapp_validation_status) : null,
       sourceDetails: parseObject(row.source_details)
     };
@@ -553,7 +561,7 @@ export class AutomationRuntimeService {
       phone: normalizePhone(row.phone),
       status: String(row.status || "new"),
       tags: parseJsonArray(row.tags),
-      hasWhatsapp: row.has_whatsapp === null || row.has_whatsapp === undefined ? null : Number(row.has_whatsapp) === 1,
+      hasWhatsapp: toNullableBoolean(row.has_whatsapp),
       whatsappValidationStatus: row.whatsapp_validation_status ? String(row.whatsapp_validation_status) : null,
       sourceDetails: parseObject(row.source_details)
     };

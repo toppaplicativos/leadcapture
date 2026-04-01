@@ -1,0 +1,119 @@
+/* ═══════════════════════════════════════════════════════
+   COMPONENTE: BUTTONS
+   Sistema unificado de botões
+   ═══════════════════════════════════════════════════════ */
+
+button, .btn {
+  border: 0;
+  border-radius: var(--radius-lg);
+  padding: var(--space-3) var(--space-5);
+  font-size: var(--text-md);
+  font-weight: var(--font-semibold);
+  font-family: var(--font-family);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  transition: all var(--duration-fast);
+  -webkit-tap-highlight-color: transparent;
+  min-height: 44px;
+  text-align: center;
+  text-decoration: none;
+  line-height: 1;
+}
+
+/* ── Primary (brand secondary color) ── */
+.btn-primary {
+  background: var(--brand-secondary);
+  color: #fff;
+}
+.btn-primary:hover { opacity: 0.9; }
+.btn-primary:active { transform: scale(0.98); }
+.btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+
+/* ── Secondary ── */
+.btn-secondary {
+  background: #f3f4f6;
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+}
+.btn-secondary:hover { background: var(--color-border); }
+
+/* ── Status variants ── */
+.btn-success { background: var(--color-success); color: #fff; }
+.btn-danger { background: var(--color-danger); color: #fff; }
+
+/* ── Sizes ── */
+.btn-sm {
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-base);
+  border-radius: var(--radius-md);
+  min-height: 38px;
+}
+
+.btn-lg {
+  padding: var(--space-4) var(--space-6);
+  font-size: var(--text-lg);
+  border-radius: var(--radius-xl);
+  min-height: 52px;
+}
+
+/* ── Block ── */
+.btn-block { width: 100%; }
+
+/* ── Checkout Submit ── */
+.ck-submit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-4);
+  margin-top: 6px;
+  background: var(--brand-secondary);
+  color: #fff;
+  border: 0;
+  border-radius: var(--radius-xl);
+  font-size: var(--text-lg);
+  font-weight: var(--font-bold);
+  cursor: pointer;
+  transition: opacity var(--duration-normal), transform 0.1s;
+}
+.ck-submit:hover { opacity: 0.9; }
+.ck-submit:active { transform: scale(0.98); }
+.ck-submit:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.ck-submit-total {
+  background: rgba(255, 255, 255, 0.2);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-base);
+  font-weight: var(--font-bold);
+}
+
+/* ── FAB (Floating Action Button) ── */
+.fab {
+  position: fixed;
+  bottom: calc(var(--bottom-nav-h) + var(--safe-bottom) + 16px);
+  right: var(--space-4);
+  z-index: 90;
+  width: 56px;
+  height: 56px;
+  border-radius: var(--radius-2xl);
+  background: var(--brand-secondary);
+  color: #fff;
+  border: none;
+  font-size: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+  transition: transform var(--duration-fast);
+}
+.fab:active { transform: scale(0.92); }
+
+@media (min-width: 1024px) {
+  .fab { bottom: 24px; }
+}

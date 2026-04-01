@@ -1,0 +1,67 @@
+/* ═══════════════════════════════════════════════════════
+   COMPONENTE: CHECKOUT-SPECIFIC
+   Estilos exclusivos de checkout (empty state, layout)
+   ═══════════════════════════════════════════════════════ */
+
+/* ── Empty State ── */
+.checkout-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 60px var(--space-5);
+  gap: var(--space-3);
+}
+.checkout-empty-icon {
+  width: 72px;
+  height: 72px;
+  color: #cbd5e1;
+}
+.checkout-empty h3 {
+  font-size: var(--text-2xl);
+  font-weight: var(--font-bold);
+  color: #334155;
+  margin: 0;
+}
+.checkout-empty p {
+  font-size: var(--text-base);
+  color: var(--color-muted-light);
+  max-width: 300px;
+}
+.checkout-empty .btn-primary {
+  margin-top: var(--space-2);
+  display: inline-flex;
+  text-decoration: none;
+}
+
+/* ── Layout ── */
+.ck-layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-4);
+}
+
+@media (min-width: 768px) {
+  .ck-layout {
+    grid-template-columns: 1.2fr 1fr;
+    align-items: start;
+  }
+}
+
+/* ── Alert message ── */
+.alert-msg {
+  color: var(--color-muted);
+  font-size: var(--text-base);
+  text-align: center;
+  min-height: 0;
+  transition: all var(--duration-normal);
+}
+.alert-msg:empty { display: none; }
+.alert-msg.alert-error {
+  color: var(--color-danger);
+  background: #fef2f2;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  font-weight: var(--font-semibold);
+}

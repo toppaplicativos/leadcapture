@@ -1,5 +1,6 @@
 import express from "express";
 import { createServer } from "http";
+import { readFileSync } from "fs";
 import cors from "cors";
 import path from "path";
 import { config } from "./config";
@@ -35,6 +36,9 @@ import ordersRoutes from "./routes/orders";
 import commerceRoutes, { commercePublicRoutes } from "./routes/commerce";
 import paymentsRoutes, { paymentPublicRoutes } from "./routes/payments";
 import storefrontRoutes, { storefrontPublicRoutes } from "./routes/storefront";
+import stockAppRoutes from "./routes/stockApp";
+import inventoryRoutes from "./routes/inventory";
+import publicOnboardingRoutes from "./routes/publicOnboarding";
 import { InboxService } from "./services/inbox";
 import { AutomationRuntimeService } from "./services/automationRuntime";
 import { InstanceRotationService } from "./services/instanceRotation";
@@ -62,6 +66,111 @@ app.use(
     },
   })
 );
+// ==================== CUSTOM DOMAIN MIDDLEWARE ====================
+const PRIMARY_DOMAINS = new Set(["app.leadcapture.online", "www.app.leadcapture.online"]);
+const _domainSlugCache = new Map<string, { slug: string; expires: number }>();
+const DOMAIN_SLUG_CACHE_TTL = 120_000;
+
+function extractHostname(req: express.Request): string {
+  return String(req.headers["x-forwarded-host"] || req.headers.host || "")
+    .toLowerCase().split(":")[0].trim();
+}
+
+function isCustomDomainHost(host: string): boolean {
+  if (!host || host === "localhost" || host === "127.0.0.1" || host.startsWith("192.168.") || host.startsWith("10.")) return false;
+  if (PRIMARY_DOMAINS.has(host)) return false;
+  return host.includes(".");
+}
+
+async function resolveSlugByDomain(host: string): Promise<string | null> {
+  if (!host) return null;
+  const cached = _domainSlugCache.get(host);
+  if (cached && cached.expires > Date.now()) return cached.slug;
+  try {
+    const candidates = [host];
+    if (host.startsWith("www.")) candidates.push(host.slice(4));
+    else candidates.push(`www.${host}`);
+    const placeholders = candidates.map(() => "?").join(",");
+    const result = await queryOne<{ slug: string }>(
+      `SELECT s.slug FROM storefront_domains d INNER JOIN storefront_stores s ON s.id = d.store_id WHERE d.domain IN (${placeholders}) ORDER BY d.is_primary DESC LIMIT 1`,
+      candidates
+    );
+    if (result?.slug) {
+      _domainSlugCache.set(host, { slug: result.slug, expires: Date.now() + DOMAIN_SLUG_CACHE_TTL });
+      return result.slug;
+    }
+  } catch (err: any) {
+    logger.error(`resolveSlugByDomain error: ${err.message || err}`);
+  }
+  return null;
+}
+
+const _htmlFileCache = new Map<string, string>();
+function readCatalogHtml(filename: string): string {
+  if (_htmlFileCache.has(filename)) return _htmlFileCache.get(filename)!;
+  const content = readFileSync(path.join(__dirname, "../public", filename), "utf-8");
+  _htmlFileCache.set(filename, content);
+  setTimeout(() => _htmlFileCache.delete(filename), 300_000);
+  return content;
+}
+
+function serveCatalogWithSlug(res: express.Response, filename: string, slug: string) {
+  try {
+    // If React build exists, serve it with slug injection
+    if (hasReactBuild) {
+      const reactHtml = require("fs").readFileSync(reactIndexPath, "utf-8");
+      const injection = `<script>window.__STORE_SLUG__=${JSON.stringify(slug)};window.__CUSTOM_DOMAIN__=true;</script>`;
+      return res.type("html").send(reactHtml.replace("</head>", `${injection}\n</head>`));
+    }
+    const html = readCatalogHtml(filename);
+    const injection = `<script>window.__STORE_SLUG__=${JSON.stringify(slug)};window.__CUSTOM_DOMAIN__=true;</script>`;
+    res.type("html").send(html.replace("</head>", `${injection}\n</head>`));
+  } catch (err: any) {
+    logger.error(`serveCatalogWithSlug error: ${err.message || err}`);
+    res.status(500).send("Internal Server Error");
+  }
+}
+
+const CUSTOM_DOMAIN_PAGES: Record<string, string> = {
+  "/": "catalogo-publico.html",
+  "/checkout": "catalogo-checkout.html",
+  "/pedido": "catalogo-pedido.html",
+  "/historico": "catalogo-historico.html",
+};
+
+app.use(async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const host = extractHostname(req);
+  if (!isCustomDomainHost(host)) return next();
+  if (req.path.startsWith("/api/") || req.path.startsWith("/uploads/")) return next();
+  const ext = path.extname(req.path);
+  if (ext && ext !== ".html") return next();
+  if (req.path.startsWith("/catalogo/") || req.path.startsWith("/loja/")) return next();
+  const slug = await resolveSlugByDomain(host);
+  if (!slug) return next();
+  const normalized = req.path.toLowerCase().replace(/\/+$/, "") || "/";
+  if (CUSTOM_DOMAIN_PAGES[normalized]) {
+    return serveCatalogWithSlug(res, CUSTOM_DOMAIN_PAGES[normalized], slug);
+  }
+  if (/^\/produto\/[^/]+$/.test(normalized)) {
+    return serveCatalogWithSlug(res, "catalogo-produto.html", slug);
+  }
+  next();
+});
+
+// Redirects that must run BEFORE static/SPA catch-all
+app.get("/site-workspace", (_req, res) => res.redirect(301, "/estoque"));
+app.get("/site-workspace/*", (_req, res) => res.redirect(301, "/estoque"));
+
+// ── Serve React frontend build (catalog SPA) ──
+const reactDistPath = path.join(__dirname, "../frontend/dist");
+const reactIndexPath = path.join(reactDistPath, "index.html");
+const hasReactBuild = require("fs").existsSync(reactIndexPath);
+
+if (hasReactBuild) {
+  // Serve React static assets (JS, CSS, etc.)
+  app.use("/assets", express.static(path.join(reactDistPath, "assets"), { maxAge: "30d", immutable: true }));
+}
+
 app.use(express.static(path.join(__dirname, "../public")));
 app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
 
@@ -70,6 +179,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/commerce/public", commercePublicRoutes);
 app.use("/api/payments/public", paymentPublicRoutes);
 app.use("/api/storefront/public", storefrontPublicRoutes);
+app.use("/api/public", publicOnboardingRoutes);
 
 // Health check (public)
 app.get("/api/health", (req, res) => {
@@ -81,12 +191,89 @@ app.get("/api/health", (req, res) => {
   });
 });
 
-app.get("/catalogo/:slug", (req, res) => {
-  res.sendFile(path.join(__dirname, "../public/catalogo-simples.html"));
+// ── Helper: serve React SPA or legacy HTML ──
+function serveCatalogSPA(res: express.Response, legacyFile: string) {
+  if (hasReactBuild) {
+    return res.sendFile(reactIndexPath);
+  }
+  return res.sendFile(path.join(__dirname, "../public", legacyFile));
+}
+
+app.get("/catalogo/:slug", (_req, res) => {
+  serveCatalogSPA(res, "catalogo-publico.html");
+});
+
+app.get("/loja/:slug", (_req, res) => {
+  serveCatalogSPA(res, "catalogo-publico.html");
+});
+
+app.get("/loja/:slug/checkout", (_req, res) => {
+  serveCatalogSPA(res, "catalogo-checkout.html");
+});
+
+app.get("/loja/:slug/pedido", (_req, res) => {
+  serveCatalogSPA(res, "catalogo-pedido.html");
+});
+
+app.get("/loja/:slug/historico", (_req, res) => {
+  serveCatalogSPA(res, "catalogo-historico.html");
+});
+
+app.get("/loja/:slug/produto/:productSlug", (_req, res) => {
+  serveCatalogSPA(res, "catalogo-produto.html");
+});
+
+app.get("/catalogo/:slug/produto/:productSlug", (_req, res) => {
+  serveCatalogSPA(res, "catalogo-produto.html");
+});
+
+app.get("/catalogo/:slug/checkout", (_req, res) => {
+  serveCatalogSPA(res, "catalogo-checkout.html");
+});
+
+app.get("/catalogo/:slug/pedido", (_req, res) => {
+  serveCatalogSPA(res, "catalogo-pedido.html");
+});
+
+app.get("/catalogo/:slug/historico", (_req, res) => {
+  serveCatalogSPA(res, "catalogo-historico.html");
 });
 
 app.get("/catalogo", (_req, res) => {
-  res.sendFile(path.join(__dirname, "../public/catalogo-simples.html"));
+  serveCatalogSPA(res, "catalogo-publico.html");
+});
+
+app.get("/app-estoque", (_req, res) => {
+  serveCatalogSPA(res, "app-estoque.html");
+});
+
+app.get("/app-estoque/painel", (_req, res) => {
+  serveCatalogSPA(res, "app-estoque-painel.html");
+});
+
+app.get("/app-estoque/:brand/painel", (req, res) => {
+  const brand = req.params.brand;
+  res.redirect(`/app-estoque/painel?brand=${encodeURIComponent(brand)}`);
+});
+
+app.get("/app-estoque/:brand", (req, res) => {
+  if (hasReactBuild) {
+    return res.sendFile(reactIndexPath);
+  }
+  const brand = req.params.brand;
+  res.redirect(`/app-estoque?brand=${encodeURIComponent(brand)}`);
+});
+
+app.get("/estoque", (_req, res) => {
+  serveCatalogSPA(res, "inventario.html");
+});
+
+app.get("/inventario", (_req, res) => {
+  serveCatalogSPA(res, "inventario.html");
+});
+
+app.get("/brand-onboarding", (_req, res) => {
+  serveCatalogSPA(res, "brand-onboarding.html");
 });
 
 // ==================== PROTECTED ROUTES ====================
@@ -108,6 +295,8 @@ app.use("/api/orders", authMiddleware, ordersRoutes);
 app.use("/api/commerce", authMiddleware, commerceRoutes);
 app.use("/api/payments", authMiddleware, paymentsRoutes);
 app.use("/api/storefront", authMiddleware, storefrontRoutes);
+app.use("/api/stock-app", authMiddleware, stockAppRoutes);
+app.use("/api/inventory", authMiddleware, inventoryRoutes);
 app.use("/api/leads", authMiddleware, leadsRoutes);
 app.use("/api/lead-categories", leadCategoriesRoutes);
 app.use("/api/flows", flowBuilderRoutes);
@@ -165,7 +354,7 @@ instanceManager.onGlobalMessage(async (instanceId, msg) => {
         // Memory Engine — async update (never blocks message flow)
         if (parsed.body) {
           memoryEngine
-            .updateMemoryFromMessage(ownerUserId, phone, String(parsed.body), "inbound")
+            .updateMemoryFromMessage(ownerUserId, phone, String(parsed.body), "inbound", ownerBrandId)
             .catch((err: any) => {
               logger.warn(`[MemoryEngine] Inbound update skipped: ${err.message}`);
             });
@@ -184,12 +373,14 @@ instanceManager.onGlobalMessage(async (instanceId, msg) => {
 const googlePlaces = new GooglePlacesService();
 const gemini = new GeminiService();
 const rateLimiter = new RateLimiter(3, 200);
+const leadSearchRateLimiter = new RateLimiter(8, 500);
 const productsService = new ProductsService();
 const customersService = new CustomersService();
 const brandUnitsService = new BrandUnitsService();
 const knowledgeBaseService = new KnowledgeBaseService();
 const automationsService = new AutomationsService();
 const notificationService = getNotificationService();
+const usingPostgresMode = Boolean(config.postgres.connectionString || config.postgres.host);
 
 socketManager.initialize(httpServer);
 
@@ -447,7 +638,7 @@ async function findLeadByGooglePlaceId(
     const bySourceDetails = await queryOne<any>(
       `SELECT *
        FROM customers
-       WHERE JSON_UNQUOTE(JSON_EXTRACT(source_details, '$.google_place_id')) = ?${ownerWhere}${brandWhere}
+       WHERE source_details::jsonb->>'google_place_id' = ?${ownerWhere}${brandWhere}
        LIMIT 1`,
       [placeId, ...ownerParams, ...brandParams]
     );
@@ -493,9 +684,9 @@ async function findCapturedPlaceIds(
 
   if (names.has("source_details")) {
     const rows = await query<any[]>(
-      `SELECT JSON_UNQUOTE(JSON_EXTRACT(source_details, '$.google_place_id')) AS place_id
+      `SELECT source_details::jsonb->>'google_place_id' AS place_id
        FROM customers
-       WHERE JSON_UNQUOTE(JSON_EXTRACT(source_details, '$.google_place_id')) IN (${placeholders})${ownerWhere}${brandWhere}`,
+       WHERE source_details::jsonb->>'google_place_id' IN (${placeholders})${ownerWhere}${brandWhere}`,
       [...placeIds, ...ownerParams, ...brandParams]
     );
     return rows.map((row) => String(row?.place_id || "")).filter(Boolean);
@@ -547,6 +738,14 @@ function getRequestedBrandId(req: any): string | undefined {
   const fromBody = String(req.body?.brand_id || req.body?.brandId || "").trim();
   if (fromBody) return fromBody;
   return undefined;
+}
+
+function sanitizeLeadSearchText(value: unknown, maxLength: number): string {
+  return String(value || "")
+    .replace(/[\u0000-\u001F\u007F]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLength);
 }
 
 // ==================== INSTANCE ROUTES (protected) ====================
@@ -750,19 +949,28 @@ app.post("/api/leads/search", authMiddleware, async (req: any, res) => {
     const brandId = await brandUnitsService.resolveActiveBrandId(userId, getRequestedBrandId(req));
 
     const { query: rawQuery, location: rawLocation, radius, maxResults, executeAutomation } = req.body;
-    const searchQuery = String(rawQuery || "").trim();
-    const searchLocation = String(rawLocation || "").trim();
+    const searchQuery = sanitizeLeadSearchText(rawQuery, 120);
+    const searchLocation = sanitizeLeadSearchText(rawLocation, 160);
     const requested = Math.max(1, Math.min(100, Math.floor(Number(maxResults) || 20)));
     const automationState = await resolvePrimaryOutboundAutomationState(userId, executeAutomation);
     const shouldExecuteAutomation = automationState.enabled;
-    const searchRadius =
-      typeof radius === "number" && Number.isFinite(radius)
-        ? Math.max(100, Math.floor(radius))
-        : undefined;
+    const numericRadius = Number(radius);
+    const searchRadius = Number.isFinite(numericRadius)
+      ? Math.max(100, Math.min(50000, Math.floor(numericRadius)))
+      : undefined;
 
     if (!searchQuery || !searchLocation) {
       return res.status(400).json({ error: "Query and location are required" });
     }
+    if (searchQuery.length < 2 || searchLocation.length < 2) {
+      return res.status(400).json({ error: "Query and location must have at least 2 characters" });
+    }
+
+    const rateKey = `${userId}:${brandId || "default"}:lead-search`;
+    if (!leadSearchRateLimiter.canSend(rateKey)) {
+      return res.status(429).json({ error: "Lead search rate limit exceeded. Try again in a minute." });
+    }
+    leadSearchRateLimiter.recordSend(rateKey);
 
     logger.info(
       `Searching leads: "${searchQuery}" in "${searchLocation}" (target: ${requested}; automation=${shouldExecuteAutomation ? "on" : "off"})`
@@ -1043,21 +1251,33 @@ app.post("/api/leads/radar-search", authMiddleware, async (req: any, res) => {
     const brandId = await brandUnitsService.resolveActiveBrandId(userId, getRequestedBrandId(req));
 
     const { query: rawQuery, latitude, longitude, radius, maxResults } = req.body;
-    const searchQuery = String(rawQuery || "").trim();
+    const searchQuery = sanitizeLeadSearchText(rawQuery, 120);
     const lat = Number(latitude);
     const lng = Number(longitude);
     const requested = Math.max(1, Math.min(60, Math.floor(Number(maxResults) || 20)));
-    const searchRadius =
-      typeof radius === "number" && Number.isFinite(radius)
-        ? Math.max(100, Math.floor(radius))
-        : 3000;
+    const numericRadius = Number(radius);
+    const searchRadius = Number.isFinite(numericRadius)
+      ? Math.max(100, Math.min(50000, Math.floor(numericRadius)))
+      : 3000;
 
     if (!searchQuery) {
       return res.status(400).json({ error: "Query is required" });
     }
+    if (searchQuery.length < 2) {
+      return res.status(400).json({ error: "Query must have at least 2 characters" });
+    }
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
       return res.status(400).json({ error: "Valid latitude and longitude are required" });
     }
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      return res.status(400).json({ error: "Latitude/longitude out of range" });
+    }
+
+    const rateKey = `${userId}:${brandId || "default"}:radar-search`;
+    if (!leadSearchRateLimiter.canSend(rateKey)) {
+      return res.status(429).json({ error: "Radar search rate limit exceeded. Try again in a minute." });
+    }
+    leadSearchRateLimiter.recordSend(rateKey);
 
     logger.info(`Radar search: "${searchQuery}" at [${lat.toFixed(4)}, ${lng.toFixed(4)}] r=${searchRadius}m (max: ${requested})`);
 
@@ -1480,7 +1700,10 @@ app.post("/api/leads/bulk-action", authMiddleware, async (req: any, res) => {
       if (hasSourceDetailsColumn) {
         const [result] = await pool.execute<any>(
           `UPDATE customers
-           SET source_details = JSON_SET(COALESCE(source_details, JSON_OBJECT()), '$.category', ?, '$.segment', ?),
+           SET source_details = jsonb_set(
+             jsonb_set(COALESCE(source_details::jsonb, '{}'::jsonb), '{category}', to_jsonb(?::text)),
+             '{segment}', to_jsonb(?::text)
+           )::text,
                updated_at = NOW()
            WHERE ${ownerCol} = ?${brandClause} AND id IN (${placeholders})`,
           [categoryValue, categoryValue, ...baseParams]
@@ -1772,6 +1995,35 @@ app.post("/api/campaigns/test-send", authMiddleware, async (req: any, res) => {
   }
 });
 
+app.get("/api/campaigns", authMiddleware, async (req: any, res) => {
+  try {
+    const userId = req.user?.userId as string | undefined;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+    const brandId = String(req.headers["x-brand-id"] || "").trim() || null;
+    const campaigns = await campaignEngine.listCampaigns(userId, brandId);
+    res.json({ success: true, campaigns });
+  } catch (error: any) {
+    logger.error(`Legacy list campaigns error: ${error.message}`);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete("/api/campaigns/:id", authMiddleware, async (req: any, res) => {
+  try {
+    const userId = req.user?.userId as string | undefined;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+    const brandId = String(req.headers["x-brand-id"] || "").trim() || null;
+    const result = await campaignEngine.deleteCampaign(userId, String(req.params.id), brandId);
+    const status = result.ok ? 200 : 404;
+    res.status(status).json({ success: result.ok, message: result.message });
+  } catch (error: any) {
+    logger.error(`Legacy delete campaign error: ${error.message}`);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.post("/api/campaigns/:id/stop", authMiddleware, async (req: any, res) => {
   try {
     campaignsActive.set(req.params.id, false);
@@ -1783,21 +2035,29 @@ app.post("/api/campaigns/:id/stop", authMiddleware, async (req: any, res) => {
 
 // ==================== STATIC / SPA ====================
 
-app.get("*", (req, res) => {
-  if (!req.path.startsWith("/api")) {
-    res.sendFile(path.join(__dirname, "../public/index.html"));
+app.get("*", async (req, res) => {
+  if (req.path.startsWith("/api")) {
+    return res.status(404).json({ error: "API route not found" });
   }
+  const host = extractHostname(req);
+  if (isCustomDomainHost(host)) {
+    const slug = await resolveSlugByDomain(host);
+    if (slug) return serveCatalogWithSlug(res, "catalogo-publico.html", slug);
+  }
+  res.sendFile(path.join(__dirname, "../public/index.html"));
 });
 
 // ==================== START SERVER ====================
 
 httpServer.listen(config.port, "0.0.0.0", () => {
-  brandUnitsService.ensureSchema().catch((err: any) => {
-    logger.error(`Brand schema bootstrap failed: ${formatError(err)}`);
-  });
-  notificationService.ensureSchema().catch((err: any) => {
-    logger.error(`Notification schema bootstrap failed: ${formatError(err)}`);
-  });
+  if (!usingPostgresMode) {
+    brandUnitsService.ensureSchema().catch((err: any) => {
+      logger.error(`Brand schema bootstrap failed: ${formatError(err)}`);
+    });
+    notificationService.ensureSchema().catch((err: any) => {
+      logger.error(`Notification schema bootstrap failed: ${formatError(err)}`);
+    });
+  }
   logger.info(`Lead Captation System running on port ${config.port}`);
   // Auto-restore WhatsApp sessions
   instanceManager
@@ -1808,31 +2068,35 @@ httpServer.listen(config.port, "0.0.0.0", () => {
     .catch((err) => {
       logger.error(`Session restore failed: ${formatError(err)}`);
     });
-  automationRuntime
-    .start()
-    .then(() => {
-      logger.info("Automation runtime ready");
-    })
-    .catch((err) => {
-      logger.error(`Automation runtime start failed: ${formatError(err)}`);
-    });
+  if (!usingPostgresMode) {
+    automationRuntime
+      .start()
+      .then(() => {
+        logger.info("Automation runtime ready");
+      })
+      .catch((err) => {
+        logger.error(`Automation runtime start failed: ${formatError(err)}`);
+      });
+  }
   logger.info(`Dashboard: http://0.0.0.0:${config.port}`);
   logger.info(`API: http://0.0.0.0:${config.port}/api`);
 
-  // Campaign Engine — check for scheduled campaigns every 60s
-  setInterval(() => {
-    Promise.all([
-      campaignEngine.processScheduledCampaigns(),
-      campaignEngine.resumeRunningCampaigns(),
-    ]).catch((err: any) => {
-      logger.error(`Campaign scheduler tick failed: ${formatError(err)}`);
-    });
-  }, 60_000);
+  if (!usingPostgresMode) {
+    // Campaign Engine — check for scheduled campaigns every 60s
+    setInterval(() => {
+      Promise.all([
+        campaignEngine.processScheduledCampaigns(),
+        campaignEngine.resumeRunningCampaigns(),
+      ]).catch((err: any) => {
+        logger.error(`Campaign scheduler tick failed: ${formatError(err)}`);
+      });
+    }, 60_000);
 
-  // Kick once on boot so running campaigns recover right away after restart
-  campaignEngine.resumeRunningCampaigns().catch((err: any) => {
-    logger.error(`Campaign auto-resume bootstrap failed: ${formatError(err)}`);
-  });
+    // Kick once on boot so running campaigns recover right away after restart
+    campaignEngine.resumeRunningCampaigns().catch((err: any) => {
+      logger.error(`Campaign auto-resume bootstrap failed: ${formatError(err)}`);
+    });
+  }
 });
 
 process.on("SIGTERM", () => {

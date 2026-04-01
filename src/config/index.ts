@@ -18,6 +18,25 @@ export const config = {
     connectionLimit: 10,
   },
 
+  // PostgreSQL / Supabase
+  postgres: {
+    connectionString:
+      process.env.DATABASE_URL ||
+      process.env.SUPABASE_DB_URL ||
+      process.env.SUPABASE_DATABASE_URL ||
+      "",
+    host:
+      process.env.POSTGRES_HOST ||
+      process.env.SUPABASE_DB_HOST ||
+      (process.env.SUPABASE_PROJECT_REF ? `db.${process.env.SUPABASE_PROJECT_REF}.supabase.co` : ""),
+    port: parseInt(process.env.POSTGRES_PORT || "5432"),
+    user: process.env.POSTGRES_USER || process.env.SUPABASE_DB_USER || "",
+    password: process.env.POSTGRES_PASSWORD || process.env.SUPABASE_DB_PASSWORD || "",
+    database: process.env.POSTGRES_DATABASE || "postgres",
+    ssl: (process.env.POSTGRES_SSL || "true").toLowerCase() !== "false",
+    max: parseInt(process.env.POSTGRES_POOL_MAX || "10"),
+  },
+
   // JWT
   jwtSecret: process.env.JWT_SECRET || "lead-system-secret-key-2026",
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || "7d",

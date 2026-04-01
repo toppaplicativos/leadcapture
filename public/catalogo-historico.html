@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Histórico de pedidos</title>
+    <script src="/shared/loader.js" data-components="topbar,cards,forms,buttons"></script>
+    <link rel="stylesheet" href="/catalogo-publico.css" />
+  </head>
+  <body data-page="history">
+    <header class="hero">
+      <div class="hero-inner">
+        <h1>Histórico de pedidos</h1>
+        <nav class="nav">
+          <a data-link="">Catálogo</a>
+          <a data-link="checkout">Checkout</a>
+          <a data-link="pedido">Pedido</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="container">
+      <p id="alert" class="muted"></p>
+      <section class="card">
+        <h2 class="section-title">Cadastro / acesso</h2>
+        <form id="historyForm">
+          <input id="histEmail" type="email" placeholder="E-mail" required />
+          <input id="histResponsible" placeholder="Nome do responsável" />
+          <input id="histEstablishment" placeholder="Nome do estabelecimento" />
+          <button type="submit">Ver histórico</button>
+        </form>
+      </section>
+      <section id="historyResult" style="margin-top:12px;"></section>
+    </main>
+
+    <script src="/catalogo-publico.js"></script>
+  </body>
+</html>

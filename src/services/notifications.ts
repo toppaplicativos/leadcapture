@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 import { getPool, queryOne } from "../config/database";
+import { config } from "../config";
 import { logger } from "../utils/logger";
 import { socketManager } from "../core/socketManager";
 
@@ -51,6 +52,74 @@ export class NotificationService {
   async ensureSchema(): Promise<void> {
     if (this.schemaReady) return;
     const pool = getPool();
+
+    if (config.postgres.connectionString || config.postgres.host) {
+      await pool.execute(`
+        CREATE TABLE IF NOT EXISTS notifications (
+          id VARCHAR(64) PRIMARY KEY,
+          user_id VARCHAR(36) NOT NULL,
+          type VARCHAR(20) NOT NULL,
+          event VARCHAR(120) NOT NULL,
+          title VARCHAR(190) NOT NULL,
+          message TEXT NOT NULL,
+          priority VARCHAR(20) NOT NULL DEFAULT 'medium',
+          channels_json JSONB NULL,
+          metadata_json JSONB NULL,
+          store_id VARCHAR(64) NULL,
+          is_read BOOLEAN NOT NULL DEFAULT FALSE,
+          read_at TIMESTAMP NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      await pool.execute(`
+        CREATE INDEX IF NOT EXISTS idx_notifications_user_created ON notifications (user_id, created_at)
+      `);
+      await pool.execute(`
+        CREATE INDEX IF NOT EXISTS idx_notifications_user_read ON notifications (user_id, is_read)
+      `);
+      await pool.execute(`
+        CREATE INDEX IF NOT EXISTS idx_notifications_priority ON notifications (priority)
+      `);
+      await pool.execute(`
+        CREATE INDEX IF NOT EXISTS idx_notifications_event ON notifications (event)
+      `);
+      await pool.execute(`
+        CREATE INDEX IF NOT EXISTS idx_notifications_store ON notifications (store_id)
+      `);
+
+      await pool.execute(`
+        CREATE TABLE IF NOT EXISTS notification_deliveries (
+          id BIGSERIAL PRIMARY KEY,
+          notification_id VARCHAR(64) NOT NULL,
+          channel VARCHAR(20) NOT NULL,
+          status VARCHAR(20) NOT NULL DEFAULT 'queued',
+          recipient VARCHAR(255) NULL,
+          provider_message_id VARCHAR(255) NULL,
+          error_message TEXT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await pool.execute(`
+        CREATE INDEX IF NOT EXISTS idx_notification_deliveries_notification ON notification_deliveries (notification_id)
+      `);
+      await pool.execute(`
+        CREATE INDEX IF NOT EXISTS idx_notification_deliveries_status ON notification_deliveries (status)
+      `);
+
+      await pool.execute(`
+        CREATE TABLE IF NOT EXISTS notification_preferences (
+          user_id VARCHAR(36) PRIMARY KEY,
+          preferences_json JSONB NOT NULL,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      this.schemaReady = true;
+      return;
+    }
 
     await pool.execute(`
       CREATE TABLE IF NOT EXISTS notifications (
@@ -262,7 +331,7 @@ export class NotificationService {
       `INSERT INTO notifications (
         id, user_id, type, event, title, message, priority,
         channels_json, metadata_json, store_id, is_read
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, FALSE)`,
       [
         payload.notification_id,
         payload.user_id,

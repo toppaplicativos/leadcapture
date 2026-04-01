@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Checkout</title>
+    <script src="/shared/loader.js" data-components="topbar,bottom-nav,cards,forms,buttons,modal,toast,grid,checkout"></script>
+    <link rel="stylesheet" href="/catalogo-publico.css" />
+  </head>
+  <body data-page="checkout">
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="topbar-left">
+          <a class="topbar-back" data-link="" aria-label="Voltar">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+          </a>
+          <h1>Meu Carrinho</h1>
+        </div>
+        <div class="topbar-right">
+          <a data-link="checkout" class="topbar-cart" id="cartBadge" aria-label="Carrinho">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>
+            <span class="topbar-cart-count" id="cartCount">0</span>
+          </a>
+        </div>
+      </div>
+    </header>
+
+    <main class="main-content" id="checkoutContent">
+      <p id="alert" class="alert-msg"></p>
+
+      <!-- Empty Cart State -->
+      <div id="emptyCart" class="checkout-empty hidden">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="checkout-empty-icon"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>
+        <h3>Seu carrinho está vazio</h3>
+        <p>Adicione produtos do catálogo para fazer seu pedido.</p>
+        <a data-link="" class="btn-primary" style="text-decoration:none">&larr; Voltar ao catálogo</a>
+      </div>
+
+      <!-- Cart + Checkout -->
+      <div id="cartContent" class="hidden">
+        <div class="ck-layout">
+          <!-- Items + Summary -->
+          <div class="ck-col-items">
+            <div class="ck-card">
+              <div class="ck-card-header">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>
+                <h2>Itens do pedido</h2>
+                <span class="ck-badge" id="itemCount">0</span>
+              </div>
+              <div id="checkoutItems" class="ck-items"></div>
+            </div>
+
+            <div class="ck-card ck-summary">
+              <div class="ck-summary-row">
+                <span>Subtotal</span>
+                <span id="checkoutSubtotal">R$ 0,00</span>
+              </div>
+              <div class="ck-summary-row ck-total">
+                <span>Total</span>
+                <span id="checkoutTotal">R$ 0,00</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Customer Form -->
+          <div class="ck-col-form">
+            <div class="ck-card">
+              <div class="ck-card-header">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                <h2>Dados para entrega</h2>
+              </div>
+              <form id="checkoutForm" class="ck-form">
+                <div class="form-group">
+                  <label for="responsibleName">Nome *</label>
+                  <input type="text" id="responsibleName" name="responsible_name" placeholder="Seu nome completo" required />
+                </div>
+                <div class="form-row-2">
+                  <div class="form-group">
+                    <label for="customerEmail">E-mail *</label>
+                    <input type="email" id="customerEmail" name="email" placeholder="seu@email.com" required />
+                  </div>
+                  <div class="form-group">
+                    <label for="customerPhone">Telefone *</label>
+                    <input type="tel" id="customerPhone" name="phone" placeholder="(00) 00000-0000" required />
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label for="establishmentName">Estabelecimento</label>
+                  <input type="text" id="establishmentName" name="establishment_name" placeholder="Nome do estabelecimento (opcional)" />
+                </div>
+                <div class="form-group">
+                  <label for="customerAddress">Endereço de entrega</label>
+                  <input type="text" id="customerAddress" name="address" placeholder="Rua, número, bairro" />
+                </div>
+                <div class="form-group">
+                  <label for="paymentMethod">Pagamento *</label>
+                  <select id="paymentMethod" name="payment_method" required>
+                    <option value="">Selecione a forma de pagamento</option>
+                    <option value="pix">PIX</option>
+                    <option value="cartao">Cartão</option>
+                    <option value="dinheiro">Dinheiro</option>
+                    <option value="boleto">Boleto</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="orderNotes">Observações</label>
+                  <textarea id="orderNotes" name="notes" rows="3" placeholder="Informações adicionais do pedido..."></textarea>
+                </div>
+                <button type="submit" class="ck-submit" id="submitBtn">
+                  <span>Finalizar pedido</span>
+                  <span class="ck-submit-total" id="submitTotal">R$ 0,00</span>
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <div class="toast" id="toast"></div>
+    <script src="/catalogo-publico.js"></script>
+  </body>
+</html>

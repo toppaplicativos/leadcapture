@@ -308,6 +308,21 @@ export function createCampaignRoutes(
     }
   });
 
+  // Delete campaign
+  router.delete(":id", async (req: BrandRequest, res) => {
+    try {
+      const userId = (req as AuthRequest).user?.userId;
+      if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+      const result = await engine.deleteCampaign(userId, String(req.params.id), req.brandId);
+      const status = result.ok ? 200 : 404;
+      res.status(status).json({ success: result.ok, message: result.message });
+    } catch (error: any) {
+      logger.error(`Delete campaign error: ${error.message}`);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Test send (composition + delivery check)
   router.post("/test-send", uploadCampaignTestMedia.single("image"), async (req: BrandRequest, res) => {
     const uploadedImagePath = req.file?.path;
@@ -421,6 +436,38 @@ export function createCampaignRoutes(
       const result = await engine.cancelCampaign(userId, String(req.params.id), req.brandId);
       res.json({ success: result.ok, message: result.message });
     } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Re-execute (reset completed/cancelled campaign to draft)
+  router.post("/:id/re-execute", async (req: BrandRequest, res) => {
+    try {
+      const userId = (req as AuthRequest).user?.userId;
+      if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+      const result = await engine.reExecuteCampaign(userId, String(req.params.id), req.brandId);
+      res.json({ success: result.ok, message: result.message });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  router.post("/:id/duplicate", async (req: BrandRequest, res) => {
+    try {
+      const userId = (req as AuthRequest).user?.userId;
+      if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+      const campaign = await engine.duplicateCampaign(userId, String(req.params.id), req.brandId);
+      if (!campaign) return res.status(404).json({ error: "Campanha nao encontrada" });
+
+      res.json({
+        success: true,
+        campaign,
+        message: `Campanha duplicada com ${campaign.target_count} leads`,
+      });
+    } catch (error: any) {
+      logger.error(`Duplicate campaign error: ${error.message}`);
       res.status(500).json({ error: error.message });
     }
   });

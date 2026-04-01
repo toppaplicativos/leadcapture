@@ -1,0 +1,59 @@
+/* ═══════════════════════════════════════════════════════
+   LAYOUT — App shell e estrutura geral de página
+   ═══════════════════════════════════════════════════════ */
+
+/* ── Main content area ── */
+.main-content {
+  max-width: var(--max-width);
+  margin: 0 auto;
+  padding: var(--space-4) var(--space-4) 100px;
+}
+
+/* ── Tab panels ── */
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+
+/* ── App shell (inventário style) ── */
+.app {
+  display: none;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+.app.ready { display: flex; }
+
+.app-content {
+  flex: 1;
+  padding: var(--space-4) var(--space-4) calc(var(--bottom-nav-h) + var(--safe-bottom) + 16px);
+  max-width: var(--max-width-narrow);
+  margin: 0 auto;
+  width: 100%;
+}
+
+.app-main-wrap {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ── Section toggle (views) ── */
+.view { display: none; }
+.view.active { display: block; }
+
+/* ── Container ── */
+.container {
+  max-width: var(--max-width-narrow);
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-4) var(--space-12);
+}
+
+/* ── Responsive adjustments ── */
+@media (min-width: 768px) {
+  .app-content {
+    padding: var(--space-6) var(--space-6) calc(var(--bottom-nav-h) + var(--safe-bottom) + 24px);
+  }
+}
+
+@media (min-width: 1024px) {
+  .app { flex-direction: row; }
+  .app-content { padding-bottom: var(--space-6); }
+}

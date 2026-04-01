@@ -1,0 +1,1479 @@
+/* ═══════════════════════════════════════════════════════════════
+   PREMIUM UI — Professional-grade design system overrides
+   Transforms the entire app into a polished, modern SaaS UI.
+   Uses existing CSS variables. Does NOT break functionality.
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── 0. Foundation: Font rendering + Subtle upgrades ──────── */
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  letter-spacing: -0.006em;
+}
+
+/* Smoother transitions everywhere */
+*,
+*::before,
+*::after {
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ── 1. SIDEBAR — Premium glass-morphism nav ─────────────── */
+.sidebar {
+  background: linear-gradient(195deg,
+    color-mix(in srgb, var(--surface) 97%, var(--primary) 3%),
+    var(--surface)) !important;
+  border-right: 1px solid color-mix(in srgb, var(--border) 70%, transparent 30%) !important;
+  box-shadow: 4px 0 24px color-mix(in srgb, var(--text) 3%, transparent) !important;
+}
+
+.nav-link {
+  border-radius: 12px !important;
+  padding: 0.62rem 0.7rem !important;
+  transition: all 0.18s ease !important;
+  position: relative;
+}
+
+.nav-link:hover {
+  background: color-mix(in srgb, var(--primary) 5%, var(--surface-muted) 95%) !important;
+  border-color: color-mix(in srgb, var(--primary) 12%, var(--border) 88%) !important;
+  transform: translateX(2px);
+}
+
+.nav-link.active {
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--primary) 10%, var(--surface) 90%),
+    color-mix(in srgb, var(--primary) 6%, var(--surface) 94%)) !important;
+  border-color: color-mix(in srgb, var(--primary) 28%, var(--border) 72%) !important;
+  box-shadow: 0 2px 12px color-mix(in srgb, var(--primary) 8%, transparent) !important;
+}
+
+.nav-link.active::before {
+  content: '';
+  position: absolute;
+  left: -1px;
+  top: 20%;
+  bottom: 20%;
+  width: 3px;
+  border-radius: 0 4px 4px 0;
+  background: var(--primary);
+}
+
+.nav-icon {
+  border-radius: 10px !important;
+  width: 36px !important;
+  height: 36px !important;
+  transition: all 0.18s ease !important;
+}
+
+.nav-link.active .nav-icon {
+  background: color-mix(in srgb, var(--primary) 12%, var(--surface) 88%) !important;
+  border-color: color-mix(in srgb, var(--primary) 25%, var(--border) 75%) !important;
+  color: var(--primary) !important;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--primary) 12%, transparent) !important;
+}
+
+.nav-link strong {
+  font-size: 0.88rem !important;
+  font-weight: 650 !important;
+  letter-spacing: -0.005em !important;
+}
+
+.nav-link small {
+  font-size: 0.72rem !important;
+  opacity: 0.75;
+}
+
+.brand {
+  padding: 0.6rem 0.5rem !important;
+  margin-bottom: 0.5rem !important;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent 40%);
+}
+
+.brand-logo {
+  border-radius: 14px !important;
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--text) 8%, transparent) !important;
+}
+
+/* ── 2. TOPBAR — Refined header bar ──────────────────────── */
+.topbar {
+  padding: 0.75rem 1.4rem !important;
+  background: color-mix(in srgb, var(--surface) 92%, transparent) !important;
+  backdrop-filter: blur(16px) saturate(1.4) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(1.4) !important;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent 35%) !important;
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--text) 3%, transparent) !important;
+}
+
+.topbar-context strong {
+  font-size: 1rem !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.01em !important;
+}
+
+.topbar-brand-selector select {
+  border-radius: 10px !important;
+  font-weight: 650 !important;
+  padding: 0.42rem 0.65rem !important;
+  transition: all 0.15s ease !important;
+}
+
+.topbar-brand-selector select:focus {
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 12%, transparent) !important;
+}
+
+.theme-toggle-button {
+  border-radius: 10px !important;
+  padding: 0.42rem 0.6rem !important;
+  transition: all 0.15s ease !important;
+}
+
+.theme-toggle-button:hover {
+  border-color: color-mix(in srgb, var(--primary) 25%, var(--border) 75%) !important;
+  transform: translateY(-1px);
+}
+
+.notification-bell-button {
+  border-radius: 10px !important;
+  transition: all 0.15s ease !important;
+}
+
+.notification-bell-button:hover {
+  border-color: color-mix(in srgb, var(--primary) 30%, var(--border) 70%) !important;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--primary) 8%, transparent) !important;
+  transform: translateY(-1px);
+}
+
+/* ── 3. CARDS — Polished card system ─────────────────────── */
+.card {
+  border-radius: 16px !important;
+  border: 1px solid color-mix(in srgb, var(--border) 75%, transparent 25%) !important;
+  box-shadow:
+    0 1px 2px color-mix(in srgb, var(--text) 4%, transparent),
+    0 8px 24px color-mix(in srgb, var(--text) 4%, transparent) !important;
+  transition: box-shadow 0.2s ease, border-color 0.2s ease !important;
+}
+
+.module-card {
+  padding: 1.25rem !important;
+  border-radius: 16px !important;
+}
+
+.module-card h2 {
+  font-size: 1.08rem !important;
+  font-weight: 750 !important;
+  letter-spacing: -0.01em !important;
+  color: var(--text) !important;
+}
+
+.module-card p {
+  line-height: 1.6 !important;
+  color: var(--text-soft) !important;
+}
+
+/* ── 4. BUTTONS — Modern button system ───────────────────── */
+.btn-primary {
+  background: linear-gradient(135deg, var(--primary), var(--primary-strong, #0068d1)) !important;
+  border: none !important;
+  border-radius: 10px !important;
+  font-weight: 650 !important;
+  letter-spacing: 0.005em !important;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--primary) 25%, transparent) !important;
+  transition: all 0.18s ease !important;
+}
+
+.btn-primary:hover {
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--primary) 35%, transparent) !important;
+  transform: translateY(-1px);
+  filter: brightness(1.05) !important;
+}
+
+.btn-primary:active {
+  transform: translateY(0);
+  box-shadow: 0 1px 4px color-mix(in srgb, var(--primary) 20%, transparent) !important;
+}
+
+.btn-secondary {
+  border-radius: 10px !important;
+  font-weight: 600 !important;
+  transition: all 0.15s ease !important;
+  border: 1px solid var(--border) !important;
+  background: var(--surface) !important;
+}
+
+.btn-secondary:hover {
+  border-color: color-mix(in srgb, var(--primary) 30%, var(--border) 70%) !important;
+  background: color-mix(in srgb, var(--primary) 4%, var(--surface) 96%) !important;
+  color: var(--primary) !important;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--primary) 6%, transparent) !important;
+}
+
+.btn-tab {
+  border-radius: 10px !important;
+  font-weight: 650 !important;
+  transition: all 0.18s ease !important;
+  letter-spacing: 0 !important;
+}
+
+.btn-tab.active {
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--primary) 22%, transparent) !important;
+}
+
+/* ── 5. FORMS — Refined input fields ─────────────────────── */
+input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="file"]):not(.fb-name-input):not(.ms-search input),
+select:not(.fb-status-sel):not(.topbar-brand-center-select),
+textarea {
+  border-radius: 10px !important;
+  border: 1px solid var(--border) !important;
+  background: var(--surface) !important;
+  padding: 0.56rem 0.72rem !important;
+  transition: all 0.18s ease !important;
+  font-size: 0.88rem !important;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 10%, transparent) !important;
+  outline: none !important;
+}
+
+label {
+  font-size: 0.84rem !important;
+  font-weight: 600 !important;
+  color: var(--text-soft) !important;
+  letter-spacing: 0.005em !important;
+}
+
+/* ── 6. TABLES — Professional data tables ────────────────── */
+table {
+  border-collapse: separate !important;
+  border-spacing: 0 !important;
+}
+
+th {
+  font-size: 0.76rem !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.05em !important;
+  color: var(--text-soft) !important;
+  background: color-mix(in srgb, var(--surface-muted) 70%, transparent) !important;
+  padding: 0.65rem 0.55rem !important;
+  border-bottom: 2px solid var(--border) !important;
+  white-space: nowrap;
+}
+
+td {
+  font-size: 0.86rem !important;
+  padding: 0.62rem 0.55rem !important;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent 40%) !important;
+  transition: background 0.12s ease !important;
+}
+
+tbody tr:hover td {
+  background: color-mix(in srgb, var(--primary) 3%, var(--surface) 97%) !important;
+}
+
+/* ── 7. MODALS — Premium modal experience ────────────────── */
+.modal-overlay {
+  background: color-mix(in srgb, var(--text) 40%, transparent) !important;
+  backdrop-filter: blur(8px) saturate(1.2) !important;
+  -webkit-backdrop-filter: blur(8px) saturate(1.2) !important;
+}
+
+.modal-window {
+  border-radius: 20px !important;
+  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent 40%) !important;
+  box-shadow:
+    0 24px 48px color-mix(in srgb, var(--text) 15%, transparent),
+    0 8px 16px color-mix(in srgb, var(--text) 8%, transparent) !important;
+  background: var(--surface) !important;
+}
+
+.modal-header {
+  padding: 1.1rem 1.3rem !important;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 65%, transparent 35%) !important;
+}
+
+.modal-header h2 {
+  font-size: 1.12rem !important;
+  font-weight: 750 !important;
+  letter-spacing: -0.01em !important;
+}
+
+.modal-close {
+  width: 36px !important;
+  height: 36px !important;
+  border-radius: 10px !important;
+  transition: all 0.15s ease !important;
+}
+
+.modal-close:hover {
+  background: color-mix(in srgb, var(--text) 6%, var(--surface) 94%) !important;
+  border-color: color-mix(in srgb, var(--text) 15%, var(--border) 85%) !important;
+  transform: scale(1.05);
+}
+
+/* ── 8. KPI CARDS — Data visualization cards ─────────────── */
+.kpi-card {
+  border-radius: 14px !important;
+  padding: 1.05rem 1.1rem !important;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.2s ease !important;
+}
+
+.kpi-card:hover {
+  border-color: color-mix(in srgb, var(--primary) 22%, var(--border) 78%) !important;
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--primary) 6%, transparent) !important;
+  transform: translateY(-1px);
+}
+
+.kpi-card small {
+  font-size: 0.72rem !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.04em !important;
+  color: var(--text-soft) !important;
+}
+
+.kpi-card strong {
+  font-size: 1.65rem !important;
+  font-weight: 800 !important;
+  letter-spacing: -0.02em !important;
+  background: linear-gradient(135deg, var(--text), color-mix(in srgb, var(--text) 75%, var(--primary) 25%));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.kpi-card span {
+  font-weight: 650 !important;
+}
+
+/* ── 9. CAMPAIGN ENGINE — Polished campaign UI ───────────── */
+
+/* Campaign page header - premium gradient strip */
+.campaign-page-header {
+  background:
+    radial-gradient(ellipse at top right,
+      color-mix(in srgb, var(--primary) 4%, transparent),
+      transparent 60%),
+    var(--surface) !important;
+  box-shadow:
+    0 1px 2px color-mix(in srgb, var(--text) 4%, transparent),
+    0 8px 24px color-mix(in srgb, var(--text) 4%, transparent) !important;
+}
+
+.campaign-page-header::before {
+  height: 3px !important;
+  background: linear-gradient(90deg,
+    var(--primary) 0%,
+    color-mix(in srgb, var(--primary) 65%, #8b5cf6 35%) 40%,
+    color-mix(in srgb, var(--primary) 45%, #06b6d4 55%) 70%,
+    color-mix(in srgb, var(--primary) 80%, #10b981 20%) 100%) !important;
+}
+
+.campaign-page-title {
+  padding: 1.3rem 1.5rem 0.85rem !important;
+}
+
+.campaign-page-title h1 {
+  font-size: 1.35rem !important;
+  font-weight: 800 !important;
+  letter-spacing: -0.015em !important;
+}
+
+.campaign-page-title p {
+  font-size: 0.86rem !important;
+  line-height: 1.55 !important;
+  max-width: 620px !important;
+  color: var(--text-soft) !important;
+}
+
+.campaign-page-tabs {
+  padding: 0 1.5rem 1.15rem !important;
+  gap: 0.45rem !important;
+}
+
+.campaign-page-tabs .btn-tab {
+  padding: 0.5rem 0.95rem !important;
+  font-size: 0.82rem !important;
+  font-weight: 650 !important;
+  border-radius: 10px !important;
+  gap: 0.4rem !important;
+}
+
+.campaign-page-tabs .btn-tab svg {
+  opacity: 0.85;
+}
+
+.campaign-page-tabs .btn-tab.active svg {
+  opacity: 1;
+}
+
+/* Campaign stats strip - polished pills */
+.camp-quick-stats {
+  padding: 0 1.5rem 0.85rem !important;
+}
+
+.camp-stat-pill {
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  transition: all 0.15s ease;
+}
+
+.camp-stat-pill:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px color-mix(in srgb, currentColor 10%, transparent);
+}
+
+/* Campaign table - premium treatment */
+.campaign-table-wrapper {
+  border-radius: 14px !important;
+  overflow: hidden !important;
+  border: 1px solid color-mix(in srgb, var(--border) 75%, transparent 25%) !important;
+  box-shadow: 0 2px 12px color-mix(in srgb, var(--text) 3%, transparent) !important;
+}
+
+.campaign-table th {
+  background: color-mix(in srgb, var(--surface-muted) 85%, var(--primary) 2%) !important;
+  font-size: 0.74rem !important;
+  font-weight: 750 !important;
+  padding: 0.7rem 0.6rem !important;
+}
+
+.campaign-table td {
+  font-size: 0.85rem !important;
+}
+
+/* Campaign status badges */
+.campaign-status-badge {
+  font-size: 0.74rem !important;
+  font-weight: 700 !important;
+  padding: 0.22rem 0.6rem !important;
+  border-radius: 999px !important;
+  letter-spacing: 0.01em !important;
+}
+
+/* Campaign create form - professional feel */
+.campaign-create-form {
+  gap: 1rem !important;
+}
+
+.campaign-create-form .module-card {
+  border-radius: 16px !important;
+  padding: 1.2rem !important;
+  background:
+    radial-gradient(ellipse at top left,
+      color-mix(in srgb, var(--primary) 2%, transparent),
+      transparent 50%),
+    var(--surface) !important;
+}
+
+.campaign-create-form .module-card h2 {
+  font-size: 1rem !important;
+  font-weight: 750 !important;
+  margin-bottom: 0.85rem !important;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.campaign-image-preview {
+  border-radius: 14px !important;
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--text) 6%, transparent) !important;
+}
+
+/* Campaign destination panel */
+.campaign-destination-panel {
+  border-radius: 14px !important;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, var(--primary) 8%) !important;
+  background:
+    linear-gradient(170deg,
+      color-mix(in srgb, var(--surface-muted) 95%, var(--primary) 2%),
+      var(--surface-muted)) !important;
+}
+
+.campaign-destination-chip {
+  border-radius: 12px !important;
+  transition: all 0.15s ease !important;
+}
+
+.campaign-destination-chip:hover {
+  border-color: color-mix(in srgb, var(--primary) 30%, var(--border) 70%) !important;
+}
+
+/* Campaign detail - metrics cards */
+.metric-highlight-card {
+  border-radius: 16px !important;
+  padding: 0.85rem 0.9rem !important;
+  transition: all 0.2s ease !important;
+  position: relative;
+  overflow: hidden;
+}
+
+.metric-highlight-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  border-radius: 16px 16px 0 0;
+  background: currentColor;
+  opacity: 0.15;
+}
+
+.metric-highlight-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--text) 6%, transparent) !important;
+}
+
+.metric-highlight-value {
+  font-weight: 800 !important;
+  letter-spacing: -0.02em !important;
+}
+
+.metric-highlight-icon {
+  border-radius: 10px !important;
+  width: 30px !important;
+  height: 30px !important;
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--text) 5%, transparent) !important;
+}
+
+.metric-card {
+  border-radius: 14px !important;
+  transition: all 0.15s ease !important;
+}
+
+.metric-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--text) 5%, transparent) !important;
+}
+
+/* Campaign action buttons */
+.campaign-action-bar {
+  gap: 0.6rem !important;
+}
+
+.campaign-action-bar .btn-secondary,
+.campaign-action-bar .btn-primary {
+  border-radius: 10px !important;
+  font-weight: 650 !important;
+}
+
+.campaign-runtime-actions {
+  gap: 0.5rem !important;
+}
+
+/* Sentiment breakdown cards */
+.sentiment-bar {
+  border-radius: 12px !important;
+  padding: 0.55rem 0.6rem !important;
+  transition: all 0.15s ease !important;
+}
+
+.sentiment-bar:hover {
+  transform: translateY(-1px) !important;
+}
+
+.sentiment-count {
+  font-size: 1.1rem !important;
+  font-weight: 800 !important;
+}
+
+/* ── 10. MESSENGER — Polished messaging UI ───────────────── */
+.messenger-shell {
+  gap: 0 !important;
+}
+
+.messenger-pane-card {
+  border-radius: 16px !important;
+  overflow: hidden !important;
+}
+
+/* Sidebar - conversation list */
+.messenger-sidebar {
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--surface) 98%, var(--primary) 2%),
+      var(--surface)) !important;
+  padding: 0.85rem !important;
+  gap: 0.65rem !important;
+}
+
+.messenger-sidebar-head h2 {
+  font-size: 1.1rem !important;
+  font-weight: 800 !important;
+  letter-spacing: -0.01em !important;
+}
+
+.messenger-search input {
+  border-radius: 12px !important;
+  padding: 0.6rem 0.85rem !important;
+  font-size: 0.88rem !important;
+  background: var(--surface) !important;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent 20%) !important;
+  transition: all 0.18s ease !important;
+}
+
+.messenger-search input:focus {
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 10%, transparent) !important;
+}
+
+.messenger-filters {
+  border-radius: 12px !important;
+  padding: 0.18rem !important;
+  gap: 0.35rem !important;
+  background: var(--surface-muted) !important;
+}
+
+.messenger-filters button {
+  border-radius: 10px !important;
+  padding: 0.45rem 0.5rem !important;
+  font-size: 0.78rem !important;
+  font-weight: 650 !important;
+  transition: all 0.15s ease !important;
+}
+
+.messenger-filters button.active {
+  background: var(--surface) !important;
+  box-shadow: 0 1px 4px color-mix(in srgb, var(--text) 6%, transparent) !important;
+}
+
+/* Thread list - refined */
+.messenger-thread {
+  border-radius: 12px !important;
+  padding: 0.5rem 0.55rem !important;
+  transition: all 0.15s ease !important;
+}
+
+.messenger-thread:hover {
+  background: color-mix(in srgb, var(--primary) 4%, var(--surface) 96%) !important;
+  border-color: color-mix(in srgb, var(--primary) 12%, var(--border) 88%) !important;
+}
+
+.messenger-thread.active {
+  background: color-mix(in srgb, var(--primary) 8%, var(--surface) 92%) !important;
+  border-color: color-mix(in srgb, var(--primary) 22%, var(--border) 78%) !important;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--primary) 8%, transparent) !important;
+}
+
+.thread-avatar {
+  border-radius: 12px !important;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent 30%) !important;
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--text) 5%, transparent) !important;
+}
+
+.thread-row strong {
+  font-size: 0.86rem !important;
+  font-weight: 650 !important;
+}
+
+.thread-row small {
+  font-size: 0.74rem !important;
+}
+
+.thread-row em {
+  border-radius: 99px !important;
+  font-size: 0.7rem !important;
+  font-weight: 750 !important;
+  min-width: 20px !important;
+  height: 20px !important;
+  background: linear-gradient(135deg, var(--primary), var(--primary-strong, #0068d1)) !important;
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--primary) 30%, transparent) !important;
+}
+
+/* Chat area - main conversation */
+.messenger-main {
+  background:
+    radial-gradient(ellipse at bottom right,
+      color-mix(in srgb, var(--primary) 2%, transparent),
+      transparent 50%),
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--surface) 98%, var(--primary) 1%),
+      var(--surface)) !important;
+}
+
+.messenger-chat-head {
+  padding: 0.85rem 1.1rem !important;
+  background: color-mix(in srgb, var(--surface) 95%, transparent) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--text) 3%, transparent) !important;
+}
+
+.messenger-chat-head h2 {
+  font-size: 1.02rem !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.005em !important;
+}
+
+.messenger-chat-head p {
+  font-size: 0.82rem !important;
+  color: var(--text-soft) !important;
+}
+
+.messenger-head-avatar {
+  border-radius: 12px !important;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--text) 6%, transparent) !important;
+}
+
+/* Message bubbles - refined */
+.message-bubble {
+  border-radius: 16px !important;
+  padding: 0.65rem 0.85rem !important;
+  line-height: 1.55 !important;
+  font-size: 0.9rem !important;
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--text) 4%, transparent) !important;
+}
+
+.message-bubble.from-me {
+  background: linear-gradient(135deg,
+    color-mix(in srgb, var(--primary) 12%, var(--surface) 88%),
+    color-mix(in srgb, var(--primary) 8%, var(--surface) 92%)) !important;
+  border: 1px solid color-mix(in srgb, var(--primary) 15%, var(--border) 85%) !important;
+  border-bottom-right-radius: 4px !important;
+}
+
+.message-bubble.from-contact {
+  background: var(--surface) !important;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent 30%) !important;
+  border-bottom-left-radius: 4px !important;
+}
+
+.message-avatar {
+  border-radius: 10px !important;
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--text) 5%, transparent) !important;
+}
+
+/* Compose area - refined */
+.messenger-compose {
+  padding: 0.85rem 1rem !important;
+  background: color-mix(in srgb, var(--surface) 96%, transparent) !important;
+  backdrop-filter: blur(10px) !important;
+  -webkit-backdrop-filter: blur(10px) !important;
+  border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent 40%) !important;
+}
+
+.compose-icon-btn {
+  border-radius: 10px !important;
+  width: 38px !important;
+  height: 38px !important;
+  transition: all 0.15s ease !important;
+}
+
+.compose-icon-btn:hover {
+  transform: translateY(-1px) !important;
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--primary) 10%, transparent) !important;
+}
+
+/* AI status indicators */
+.ai-mini-status {
+  font-size: 0.72rem !important;
+  font-weight: 700 !important;
+  border-radius: 999px !important;
+  padding: 0.2rem 0.58rem !important;
+  transition: all 0.15s ease !important;
+}
+
+.auto-reply-toggle {
+  border-radius: 999px !important;
+  font-size: 0.76rem !important;
+  padding: 0.22rem 0.6rem !important;
+  transition: all 0.18s ease !important;
+}
+
+.auto-reply-toggle.active {
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--primary) 15%, transparent) !important;
+}
+
+.temperature-chip {
+  font-size: 0.74rem !important;
+  font-weight: 700 !important;
+  transition: all 0.12s ease !important;
+}
+
+/* AI observability panel */
+.messenger-ai-observability {
+  border-radius: 14px !important;
+  border: 1px solid color-mix(in srgb, var(--border) 75%, var(--primary) 8%) !important;
+  background:
+    linear-gradient(165deg,
+      var(--surface),
+      color-mix(in srgb, var(--surface) 97%, var(--primary) 3%)) !important;
+}
+
+.ai-score-chip {
+  font-weight: 750 !important;
+  border-radius: 999px !important;
+}
+
+/* ── 11. BUSCA DE LEADS — Professional search UI ─────────── */
+.busca-header {
+  padding: 1rem 1.2rem !important;
+  border-radius: 16px !important;
+}
+
+.busca-tabs .btn-tab {
+  font-weight: 650 !important;
+  border-radius: 10px !important;
+  transition: all 0.15s ease !important;
+}
+
+.busca-automation-toggle {
+  border-radius: 12px !important;
+  transition: all 0.15s ease !important;
+}
+
+.busca-automation-toggle:hover {
+  border-color: color-mix(in srgb, var(--primary) 22%, var(--border) 78%) !important;
+}
+
+.toggle-pill {
+  font-weight: 750 !important;
+  font-size: 0.72rem !important;
+  letter-spacing: 0.02em !important;
+}
+
+/* Intelligence panel */
+.busca-intel-panel {
+  border-radius: 16px !important;
+  padding: 0.85rem 0.95rem !important;
+  background:
+    linear-gradient(170deg,
+      color-mix(in srgb, var(--surface) 96%, var(--primary) 3%),
+      var(--surface)) !important;
+}
+
+.busca-intel-grid section {
+  border-radius: 12px !important;
+  padding: 0.7rem !important;
+  transition: all 0.15s ease !important;
+}
+
+.busca-intel-grid section:hover {
+  border-color: color-mix(in srgb, var(--primary) 22%, var(--border) 78%) !important;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--primary) 5%, transparent) !important;
+}
+
+.busca-intel-chip {
+  font-weight: 700 !important;
+  border-radius: 999px !important;
+  transition: all 0.12s ease !important;
+}
+
+.busca-intel-target-btn {
+  border-radius: 999px !important;
+  font-weight: 700 !important;
+  transition: all 0.15s ease !important;
+}
+
+.busca-intel-target-btn:hover {
+  transform: translateY(-1px) !important;
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--primary) 10%, transparent) !important;
+}
+
+/* Lead table - polished */
+.lead-captured-table-wrap {
+  border-radius: 14px !important;
+  overflow: hidden !important;
+}
+
+.lead-captured-table {
+  border-collapse: separate !important;
+  border-spacing: 0 !important;
+}
+
+/* Map card */
+.lead-search-map-card {
+  border-radius: 16px !important;
+  overflow: hidden !important;
+}
+
+.lead-search-map-head {
+  padding: 0.9rem 1.1rem !important;
+}
+
+/* Radar HUD */
+.radar-hud {
+  border-radius: 14px !important;
+  backdrop-filter: blur(8px) saturate(1.3) !important;
+  -webkit-backdrop-filter: blur(8px) saturate(1.3) !important;
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--text) 8%, transparent) !important;
+}
+
+.radar-stat {
+  border-radius: 10px !important;
+  transition: all 0.12s ease !important;
+}
+
+/* ── 12. STATUS CHIPS — Consistent pill system ───────────── */
+.status-chip {
+  font-weight: 700 !important;
+  font-size: 0.74rem !important;
+  letter-spacing: 0.01em !important;
+  border-radius: 999px !important;
+}
+
+.status-chip-connected {
+  box-shadow: 0 2px 6px color-mix(in srgb, #0a9e67 12%, transparent) !important;
+}
+
+/* ── 13. ALERTS — Polished alert boxes ───────────────────── */
+.alert {
+  border-radius: 14px !important;
+  padding: 0.75rem 0.95rem !important;
+  font-size: 0.88rem !important;
+  line-height: 1.5 !important;
+}
+
+.alert.success {
+  background: color-mix(in srgb, #0a9e67 6%, var(--surface) 94%) !important;
+  border-color: color-mix(in srgb, #0a9e67 20%, var(--border) 80%) !important;
+  color: #065f46 !important;
+}
+
+.alert.error {
+  background: color-mix(in srgb, #dc2626 6%, var(--surface) 94%) !important;
+  border-color: color-mix(in srgb, #dc2626 20%, var(--border) 80%) !important;
+  color: #991b1b !important;
+}
+
+/* ── 14. NOTIFICATIONS — Premium toast notifications ─────── */
+.notification {
+  border-radius: 14px !important;
+  box-shadow: 0 12px 28px color-mix(in srgb, var(--text) 12%, transparent) !important;
+  backdrop-filter: blur(6px) !important;
+  -webkit-backdrop-filter: blur(6px) !important;
+}
+
+.notification-dropdown {
+  border-radius: 16px !important;
+  box-shadow:
+    0 20px 40px color-mix(in srgb, var(--text) 12%, transparent),
+    0 4px 12px color-mix(in srgb, var(--text) 6%, transparent) !important;
+}
+
+.notification-dropdown-item {
+  transition: background 0.12s ease !important;
+}
+
+.notification-dropdown-item:hover {
+  background: color-mix(in srgb, var(--primary) 4%, var(--surface) 96%) !important;
+}
+
+/* ── 15. PROFILE — Refined profile cards ─────────────────── */
+.profile-avatar {
+  border-radius: 18px !important;
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--text) 10%, transparent) !important;
+}
+
+.profile-meta-chips span {
+  font-weight: 650 !important;
+  transition: all 0.12s ease !important;
+}
+
+.profile-meta-chips span:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--text) 6%, transparent);
+}
+
+/* ── 16. AUTOMATION — Professional workflow cards ────────── */
+.automacao-hub-card {
+  border-radius: 16px !important;
+  padding: 1.1rem !important;
+  transition: all 0.2s ease !important;
+}
+
+.automacao-hub-card:hover {
+  transform: translateY(-3px) !important;
+  box-shadow: 0 12px 28px color-mix(in srgb, var(--text) 8%, transparent) !important;
+}
+
+.automacao-state-badge {
+  font-weight: 750 !important;
+  font-size: 0.72rem !important;
+  letter-spacing: 0.02em !important;
+}
+
+.automacao-tag-chip {
+  font-weight: 650 !important;
+  transition: all 0.12s ease !important;
+}
+
+.automacao-builder-item {
+  border-radius: 14px !important;
+}
+
+/* ── 17. SPLASH & AUTH — Premium first impression ────────── */
+.splash-card {
+  border-radius: 22px !important;
+  box-shadow: 0 24px 48px color-mix(in srgb, var(--text) 10%, transparent) !important;
+}
+
+.auth-card {
+  border-radius: 20px !important;
+  box-shadow: 0 20px 40px color-mix(in srgb, var(--text) 8%, transparent) !important;
+}
+
+.auth-logo {
+  border-radius: 20px !important;
+}
+
+.auth-card h1 {
+  font-weight: 800 !important;
+  letter-spacing: -0.015em !important;
+}
+
+/* ── 18. CREATIVE — Refined creative workspace ───────────── */
+.creative-image-block {
+  border-radius: 16px !important;
+}
+
+.creative-upload-dropzone {
+  border-radius: 16px !important;
+  min-height: 200px !important;
+  transition: all 0.2s ease !important;
+}
+
+.creative-upload-dropzone:hover {
+  border-color: var(--primary) !important;
+  background:
+    radial-gradient(ellipse at center,
+      color-mix(in srgb, var(--primary) 4%, transparent),
+      transparent 60%),
+    var(--surface) !important;
+}
+
+.creative-upload-icon {
+  width: 48px !important;
+  height: 48px !important;
+  border-radius: 14px !important;
+}
+
+/* ── 19. PRODUCT CARDS — Refined product display ─────────── */
+.product-card-shop {
+  border-radius: 16px !important;
+  transition: all 0.22s ease !important;
+}
+
+.product-card-shop:hover {
+  transform: translateY(-3px) !important;
+  box-shadow:
+    0 12px 28px color-mix(in srgb, var(--text) 8%, transparent),
+    0 2px 6px color-mix(in srgb, var(--text) 4%, transparent) !important;
+}
+
+.product-card-image {
+  transition: transform 0.3s ease !important;
+}
+
+.product-card-shop:hover .product-card-image {
+  transform: scale(1.02);
+}
+
+.product-status-pill {
+  backdrop-filter: blur(6px) !important;
+  -webkit-backdrop-filter: blur(6px) !important;
+}
+
+.product-card-body {
+  padding: 0.9rem !important;
+}
+
+.product-card-head h3 {
+  font-weight: 650 !important;
+  letter-spacing: -0.005em !important;
+}
+
+.product-card-price strong {
+  font-weight: 800 !important;
+}
+
+.product-card-actions {
+  gap: 0.45rem !important;
+}
+
+.product-card-actions button {
+  border-radius: 8px !important;
+  font-weight: 600 !important;
+  transition: all 0.15s ease !important;
+}
+
+/* ── 20. CHIPS & PILLS — Consistent chip system ──────────── */
+.chip {
+  font-weight: 600 !important;
+  transition: all 0.15s ease !important;
+}
+
+.chip:hover {
+  transform: translateY(-1px) !important;
+}
+
+.chip-active {
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--primary) 25%, transparent) !important;
+}
+
+/* ── 21. PAGE INTRO — Polished page headers ──────────────── */
+.page-intro h1 {
+  font-size: 1.4rem !important;
+  font-weight: 800 !important;
+  letter-spacing: -0.015em !important;
+}
+
+.page-intro p {
+  font-size: 0.9rem !important;
+  line-height: 1.6 !important;
+  max-width: 600px;
+}
+
+header.card.page-card {
+  border-radius: 16px !important;
+  position: relative;
+  overflow: hidden;
+}
+
+/* ── 22. SCROLLBAR — Premium scrollbar ───────────────────── */
+* {
+  scrollbar-width: thin !important;
+}
+
+*::-webkit-scrollbar {
+  width: 5px !important;
+  height: 5px !important;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent !important;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text-soft) 40%, transparent) !important;
+  border-radius: 999px !important;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--text-soft) 60%, transparent) !important;
+}
+
+/* Keep messenger custom scrollbar */
+.messenger-chat-body::-webkit-scrollbar-thumb,
+.messenger-thread-list::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--text-soft) 40%, transparent),
+    color-mix(in srgb, var(--primary) 30%, transparent)) !important;
+}
+
+/* ── 23. ANIMATIONS — Subtle micro-interactions ──────────── */
+@keyframes fadeSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes shimmerMove {
+  0% { background-position: 220% center; }
+  100% { background-position: -220% center; }
+}
+
+@keyframes pulseDot {
+  0%, 100% { box-shadow: 0 0 0 0 currentColor; }
+  50% { box-shadow: 0 0 0 6px transparent; }
+}
+
+@keyframes voiceWave {
+  0%, 100% { height: 8px; }
+  50% { height: 20px; }
+}
+
+@keyframes composeMenuPop {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes slideFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Module page entrance */
+.module-page > * {
+  animation: fadeSlideUp 0.25s ease both;
+}
+
+.module-page > *:nth-child(2) { animation-delay: 0.04s; }
+.module-page > *:nth-child(3) { animation-delay: 0.08s; }
+.module-page > *:nth-child(4) { animation-delay: 0.12s; }
+.module-page > *:nth-child(5) { animation-delay: 0.16s; }
+
+/* ── 24. RESPONSIVE REFINEMENTS ──────────────────────────── */
+@media (max-width: 768px) {
+  .module-card {
+    padding: 1rem !important;
+    border-radius: 14px !important;
+  }
+
+  .card {
+    border-radius: 14px !important;
+  }
+
+  .modal-window {
+    border-radius: 16px !important;
+  }
+
+  .kpi-card strong {
+    font-size: 1.4rem !important;
+  }
+
+  .page-intro h1 {
+    font-size: 1.2rem !important;
+  }
+
+  .messenger-thread {
+    padding: 0.45rem 0.5rem !important;
+  }
+
+  .message-bubble {
+    border-radius: 14px !important;
+    padding: 0.55rem 0.72rem !important;
+    font-size: 0.88rem !important;
+  }
+
+  .compose-actions-menu {
+    border-radius: 16px !important;
+    box-shadow: 0 -16px 40px color-mix(in srgb, var(--text) 18%, transparent) !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .campaign-page-title h1 {
+    font-size: 1.15rem !important;
+  }
+
+  .messenger-sidebar-head h2 {
+    font-size: 1rem !important;
+  }
+}
+
+/* ── 25. COMPOSE ACTIONS — Better mobile sheet ───────────── */
+@media (max-width: 768px) {
+  .compose-actions-menu.mobile-sheet {
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+    border-radius: 18px 18px 0 0 !important;
+    padding: 0.5rem !important;
+    max-height: 55vh !important;
+    overflow-y: auto !important;
+    box-shadow: 0 -12px 36px color-mix(in srgb, var(--text) 15%, transparent) !important;
+  }
+
+  .compose-actions-backdrop {
+    display: block !important;
+    position: fixed !important;
+    inset: 0 !important;
+    background: color-mix(in srgb, var(--text) 30%, transparent) !important;
+    z-index: 3 !important;
+  }
+}
+
+/* ── 26. LANDING / QR MODAL — Polished onboarding ────────── */
+.qr-connect-modal {
+  border-radius: 22px !important;
+}
+
+.qr-modal-body {
+  padding: 1.1rem 1.3rem 1.3rem !important;
+}
+
+.qr-modal-image-wrap {
+  border-radius: 16px !important;
+}
+
+.qr-image {
+  border-radius: 14px !important;
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--text) 8%, transparent) !important;
+}
+
+/* ── 27. FLOW BUILDER — Refined nodes ────────────────────── */
+.fb-node {
+  border-radius: 14px !important;
+}
+
+.fb-node-hdr {
+  border-radius: 12px 12px 0 0 !important;
+}
+
+.fb-props {
+  box-shadow: -2px 0 12px color-mix(in srgb, var(--text) 4%, transparent) !important;
+}
+
+/* ── 28. RUNTIME NOTICE — Better toast position ──────────── */
+#campaign-runtime-notice {
+  border-radius: 14px !important;
+  font-weight: 650 !important;
+  font-size: 0.88rem !important;
+  line-height: 1.45 !important;
+  box-shadow: 0 16px 40px color-mix(in srgb, var(--text) 15%, transparent) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+}
+
+/* ── 29. DARK MODE REFINEMENTS ───────────────────────────── */
+:root[data-theme=dark] .card,
+:root[data-theme=dark] .module-card {
+  box-shadow:
+    0 1px 2px color-mix(in srgb, #000 15%, transparent),
+    0 8px 24px color-mix(in srgb, #000 20%, transparent) !important;
+}
+
+:root[data-theme=dark] .modal-window {
+  box-shadow:
+    0 24px 48px color-mix(in srgb, #000 30%, transparent),
+    0 8px 16px color-mix(in srgb, #000 20%, transparent) !important;
+}
+
+:root[data-theme=dark] .messenger-main {
+  background: var(--surface) !important;
+}
+
+:root[data-theme=dark] .btn-primary {
+  box-shadow: 0 2px 12px color-mix(in srgb, var(--primary) 30%, transparent) !important;
+}
+
+:root[data-theme=dark] .kpi-card strong {
+  background: linear-gradient(135deg, var(--text), color-mix(in srgb, var(--text) 80%, var(--primary) 20%));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+:root[data-theme=dark] .campaign-page-header {
+  background: var(--surface) !important;
+}
+
+:root[data-theme=dark] .nav-link.active::before {
+  background: var(--primary);
+}
+
+:root[data-theme=dark] .messenger-sidebar {
+  background: var(--surface) !important;
+}
+
+/* ── 30. EMPTY STATES — Friendly empties ─────────────────── */
+.not-found {
+  border-radius: 20px !important;
+}
+
+.not-found h1 {
+  font-weight: 800 !important;
+  letter-spacing: -0.015em !important;
+}
+
+/* ── 31. INLINE TOGGLE — Premium toggle styling ──────────── */
+.inline-toggle {
+  border-radius: 12px !important;
+  transition: all 0.15s ease !important;
+}
+
+.inline-toggle:hover {
+  border-color: color-mix(in srgb, var(--primary) 22%, var(--border) 78%) !important;
+}
+
+/* ── 32. VOICE RECORDER — Polished recording UI ──────────── */
+.voice-recorder-panel {
+  border-radius: 16px !important;
+}
+
+.voice-recorder-time {
+  border-radius: 999px !important;
+  font-weight: 750 !important;
+}
+
+/* ── 33. POLL COMPOSER — Clean poll UI ───────────────────── */
+.messenger-poll-composer {
+  border-radius: 14px !important;
+}
+
+/* ── 34. LOADING STATES — Refined skeletons ──────────────── */
+.message-skeleton {
+  border-radius: 16px !important;
+  border: none !important;
+  background: linear-gradient(100deg,
+    var(--surface-muted),
+    color-mix(in srgb, var(--surface-muted) 70%, var(--surface) 30%) 45%,
+    var(--surface-muted)) !important;
+  background-size: 220% 100% !important;
+}
+
+.splash-loader span {
+  width: 8px !important;
+  height: 8px !important;
+  border-radius: 999px !important;
+}
+
+/* ── 35. PAYMENTS — Consistent payment section ───────────── */
+.payments-config-page .payment-section {
+  border-radius: 16px !important;
+}
+
+.payments-config-page .settings-check {
+  border-radius: 12px !important;
+  transition: all 0.15s ease !important;
+}
+
+.payments-config-page .settings-check:hover {
+  border-color: color-mix(in srgb, var(--primary) 25%, var(--border) 75%) !important;
+}
+
+/* ── 36. CONFIGURACOES TABS — Better tab styling ─────────── */
+.configuracoes-tabs .btn-secondary {
+  border-radius: 10px !important;
+  font-weight: 650 !important;
+  transition: all 0.15s ease !important;
+}
+
+.configuracoes-tabs .btn-secondary.active {
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--primary) 15%, transparent) !important;
+}
+
+/* ── 37. GLOBAL FOCUS RING ───────────────────────────────── */
+:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--primary) 50%, transparent) !important;
+  outline-offset: 2px !important;
+}
+
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--primary) 50%, transparent) !important;
+  outline-offset: 2px !important;
+}

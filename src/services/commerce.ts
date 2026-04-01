@@ -363,6 +363,24 @@ export class CommerceService {
     );
   }
 
+  private async getCatalogProductById(
+    userId: string,
+    brandId: string | null,
+    productId: string
+  ): Promise<Record<string, any> | null> {
+    const brand = this.buildBrandWhereClause(this.normalizeBrandId(brandId));
+
+    return (
+      (await queryOne<Record<string, any>>(
+        `SELECT *
+         FROM products
+         WHERE id = ? AND user_id = ? AND ${brand.sql}
+         LIMIT 1`,
+        [productId, userId, ...brand.params]
+      )) || null
+    );
+  }
+
   async createProduct(
     userId: string,
     brandId: string | null,
@@ -630,20 +648,38 @@ export class CommerceService {
       let snapshotCategory: string | null = rawItem.categoria ? String(rawItem.categoria).trim() : null;
 
       if (rawItem.product_id) {
-        const product = await this.getProductById(userId, normalizedBrandId, String(rawItem.product_id));
-        if (!product || !product.ativo) {
-          throw new Error(`produto inválido no carrinho: ${rawItem.product_id}`);
-        }
+        const requestedProductId = String(rawItem.product_id);
+        const commerceProduct = await this.getProductById(userId, normalizedBrandId, requestedProductId);
 
-        productId = product.id;
-        nome = product.nome;
-        const promo = product.preco_promocional !== null && product.preco_promocional !== undefined
-          ? Number(product.preco_promocional)
-          : null;
-        valorUnitario = promo !== null && Number.isFinite(promo) && promo > 0 ? promo : Number(product.preco || 0);
-        if (!snapshotImage) snapshotImage = product.imagem ? String(product.imagem).trim() : null;
-        if (!snapshotDescription) snapshotDescription = product.descricao ? String(product.descricao).trim() : null;
-        if (!snapshotCategory) snapshotCategory = product.tipo ? String(product.tipo).trim() : null;
+        if (commerceProduct && commerceProduct.ativo) {
+          productId = commerceProduct.id;
+          nome = commerceProduct.nome;
+          const promo = commerceProduct.preco_promocional !== null && commerceProduct.preco_promocional !== undefined
+            ? Number(commerceProduct.preco_promocional)
+            : null;
+          valorUnitario = promo !== null && Number.isFinite(promo) && promo > 0 ? promo : Number(commerceProduct.preco || 0);
+          if (!snapshotImage) snapshotImage = commerceProduct.imagem ? String(commerceProduct.imagem).trim() : null;
+          if (!snapshotDescription) snapshotDescription = commerceProduct.descricao ? String(commerceProduct.descricao).trim() : null;
+          if (!snapshotCategory) snapshotCategory = commerceProduct.tipo ? String(commerceProduct.tipo).trim() : null;
+        } else {
+          const catalogProduct = await this.getCatalogProductById(userId, normalizedBrandId, requestedProductId);
+          const isCatalogProductActive =
+            catalogProduct && ![false, 0, "0", "false"].includes((catalogProduct as any).active as any);
+          if (!catalogProduct || !isCatalogProductActive) {
+            throw new Error(`produto inválido no carrinho: ${rawItem.product_id}`);
+          }
+
+          productId = String(catalogProduct.id || requestedProductId);
+          nome = String(catalogProduct.name || nome || "").trim() || nome;
+          const promo =
+            catalogProduct.promo_price !== null && catalogProduct.promo_price !== undefined
+              ? Number(catalogProduct.promo_price)
+              : null;
+          valorUnitario = promo !== null && Number.isFinite(promo) && promo > 0 ? promo : Number(catalogProduct.price || 0);
+          if (!snapshotImage) snapshotImage = catalogProduct.image_url ? String(catalogProduct.image_url).trim() : null;
+          if (!snapshotDescription) snapshotDescription = catalogProduct.description ? String(catalogProduct.description).trim() : null;
+          if (!snapshotCategory) snapshotCategory = catalogProduct.category ? String(catalogProduct.category).trim() : null;
+        }
       }
 
       if (!nome) {

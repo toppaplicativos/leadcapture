@@ -1,0 +1,39 @@
+/* ═══════════════════════════════════════════════════════
+   COMPONENTE: BADGES
+   Tags de status visuais
+   ═══════════════════════════════════════════════════════ */
+
+.badge {
+  display: inline-flex;
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  font-weight: var(--font-bold);
+  white-space: nowrap;
+}
+
+/* ── Status genéricos ── */
+.badge.open, .badge-normal { background: var(--color-success-light); color: var(--color-success); }
+.badge.closed, .badge-zerado { background: var(--color-danger-light); color: var(--color-danger); }
+.badge-baixo { background: var(--color-warning-light); color: var(--color-warning); }
+
+/* ── Tipos de movimentação ── */
+.badge-entrada { background: var(--color-success-light); color: var(--color-success); }
+.badge-saida { background: var(--color-danger-light); color: var(--color-danger); }
+.badge-ajuste { background: #e0e7ff; color: #4338ca; }
+.badge-reserva { background: var(--color-warning-light); color: var(--color-warning); }
+.badge-liberacao { background: var(--color-info-light); color: var(--brand-secondary); }
+.badge-expedicao { background: #f3e8ff; color: #7c3aed; }
+
+/* ── Hero status ── */
+.hero-status {
+  flex-shrink: 0;
+  border-radius: var(--radius-full);
+  padding: var(--space-1) var(--space-3);
+  font-size: 11px;
+  font-weight: var(--font-bold);
+  letter-spacing: 0.3px;
+  box-shadow: var(--shadow-sm);
+}
+.hero-status.open { background: var(--color-success-light); color: #166534; }
+.hero-status.closed { background: var(--color-danger-light); color: #991b1b; }

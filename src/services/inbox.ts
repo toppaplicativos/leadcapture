@@ -4,10 +4,7 @@ import { v4 as uuidv4 } from "uuid";
 import fs from "fs";
 import path from "path";
 import { extractIncomingMessageData } from "../utils/whatsappMessage";
-import { AIService } from "./ai";
-import { AIAgentProfileService } from "./aiAgentProfile";
-import { KnowledgeBaseService } from "./knowledgeBase";
-import { ProductsService } from "./products";
+import { WhatsAppAgentService } from "./whatsappAgent";
 
 type MediaDownloadResult = {
   buffer: Buffer;
@@ -21,72 +18,12 @@ export class InboxService {
   private messageSender?: (instanceId: string, jid: string, message: string) => Promise<boolean>;
   private senderNameColumnExists: boolean | null = null;
   private aiColumnsChecked = false;
-  private readonly aiService = new AIService();
-  private readonly aiAgentProfileService = new AIAgentProfileService();
-  private readonly knowledgeBaseService = new KnowledgeBaseService();
-  private readonly productsService = new ProductsService();
-  private productsUserScopeReady: boolean | null = null;
+  private readonly whatsappAgentService = new WhatsAppAgentService();
 
   private normalizeAIMode(value: unknown): "manual" | "autonomous" | "supervised" {
     const normalized = String(value || "manual").trim().toLowerCase();
     if (normalized === "manual" || normalized === "autonomous" || normalized === "supervised") return normalized;
     return "manual";
-  }
-
-  private async ensureProductsUserScope(): Promise<boolean> {
-    if (this.productsUserScopeReady !== null) return this.productsUserScopeReady;
-
-    const pool = getPool();
-    const [rows] = await pool.query("SHOW COLUMNS FROM products LIKE 'user_id'");
-    this.productsUserScopeReady = Array.isArray(rows) && rows.length > 0;
-    return this.productsUserScopeReady;
-  }
-
-  private buildProductsContextBlock(products: any[]): string {
-    const lines = products
-      .slice(0, 12)
-      .map((product, index) => {
-        const name = String(product?.name || "").trim();
-        const category = String(product?.category || "").trim();
-        const price = Number(product?.price || 0);
-        const promoPrice = Number(product?.promoPrice || 0);
-        const unit = String(product?.unit || "").trim();
-        const features = Array.isArray(product?.features)
-          ? product.features.map((item: unknown) => String(item || "").trim()).filter(Boolean).slice(0, 3)
-          : [];
-
-        const priceLabel = promoPrice > 0
-          ? `R$ ${promoPrice.toFixed(2)} (promo, de R$ ${price.toFixed(2)})`
-          : `R$ ${price.toFixed(2)}`;
-        const base = [name, category ? `categoria ${category}` : "", price > 0 ? priceLabel : "", unit ? `unidade ${unit}` : ""]
-          .filter(Boolean)
-          .join(" | ");
-        const extra = features.length ? ` | destaques: ${features.join(", ")}` : "";
-        return `${index + 1}. ${base}${extra}`;
-      });
-
-    if (!lines.length) return "";
-    return [
-      "CATALOGO_DA_BRAND (fonte oficial para respostas):",
-      ...lines,
-      "REGRA: use apenas itens deste catalogo quando citar produto/preco/categoria. Se nao existir no catalogo, diga que vai confirmar e faca pergunta objetiva.",
-    ].join("\n");
-  }
-
-  private async getProductsContext(userId?: string, brandId?: string | null): Promise<string> {
-    if (!userId) return "";
-
-    const normalizedBrandId = String(brandId || "").trim() || null;
-    try {
-      const hasUserScope = await this.ensureProductsUserScope();
-      const products = hasUserScope
-        ? await this.productsService.getActiveProducts(userId, normalizedBrandId)
-        : await this.productsService.getActiveProducts(undefined, normalizedBrandId);
-      return this.buildProductsContextBlock(products);
-    } catch (error: any) {
-      logger.warn(`Failed to load product context for inbox AI: ${error?.message || error}`);
-      return "";
-    }
   }
 
   private parseBool(value: unknown, fallback = false): boolean {
@@ -149,20 +86,85 @@ export class InboxService {
   private async ensureAIColumns(pool: any): Promise<void> {
     if (this.aiColumnsChecked) return;
 
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS whatsapp_conversations (
+        id VARCHAR(36) PRIMARY KEY,
+        instance_id VARCHAR(36) NOT NULL,
+        remote_jid VARCHAR(191) NOT NULL,
+        contact_name VARCHAR(255) NULL,
+        contact_phone VARCHAR(40) NULL,
+        status VARCHAR(32) NULL DEFAULT 'open',
+        last_message_text TEXT NULL,
+        last_message_at TIMESTAMP NULL,
+        last_message_from_me BOOLEAN NOT NULL DEFAULT FALSE,
+        unread_count INT NOT NULL DEFAULT 0,
+        is_group BOOLEAN NOT NULL DEFAULT FALSE,
+        notes TEXT NULL,
+        tags TEXT NULL,
+        pipeline_stage VARCHAR(32) NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE (instance_id, remote_jid)
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS whatsapp_messages (
+        id VARCHAR(36) PRIMARY KEY,
+        conversation_id VARCHAR(36) NOT NULL,
+        instance_id VARCHAR(36) NOT NULL,
+        remote_jid VARCHAR(191) NOT NULL,
+        remote_message_id VARCHAR(120) NULL,
+        from_me BOOLEAN NOT NULL DEFAULT FALSE,
+        message_type VARCHAR(24) NOT NULL DEFAULT 'text',
+        message_text TEXT NULL,
+        media_url TEXT NULL,
+        metadata_json JSON NULL,
+        status VARCHAR(24) NULL DEFAULT 'received',
+        message_timestamp TIMESTAMP NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    const hasColumn = async (table: string, column: string): Promise<boolean> => {
+      try {
+        const [rows] = await pool.query(
+          `SELECT 1
+           FROM information_schema.columns
+           WHERE table_schema = ANY(current_schemas(false))
+             AND table_name = ?
+             AND column_name = ?
+           LIMIT 1`,
+          [table, column]
+        );
+        return Array.isArray(rows) && rows.length > 0;
+      } catch {
+        const [rows] = await pool.query(`SHOW COLUMNS FROM ${table} LIKE ?`, [column]);
+        return Array.isArray(rows) && rows.length > 0;
+      }
+    };
+
     const ensureColumn = async (column: string, ddl: string) => {
-      const [rows] = await pool.query(`SHOW COLUMNS FROM whatsapp_conversations LIKE ?`, [column]);
-      if (!Array.isArray(rows) || rows.length === 0) {
+      const exists = await hasColumn("whatsapp_conversations", column);
+      if (!exists) {
         await pool.execute(`ALTER TABLE whatsapp_conversations ADD COLUMN ${ddl}`);
       }
     };
 
     await ensureColumn("ai_mode", "ai_mode VARCHAR(16) NOT NULL DEFAULT 'manual'");
-    await ensureColumn("ai_lock_human", "ai_lock_human TINYINT(1) NOT NULL DEFAULT 1");
+    await ensureColumn("ai_lock_human", "ai_lock_human BOOLEAN NOT NULL DEFAULT TRUE");
     await ensureColumn("ai_last_decision_json", "ai_last_decision_json JSON NULL");
     await ensureColumn("ai_updated_at", "ai_updated_at TIMESTAMP NULL");
     await ensureColumn("ai_updated_by", "ai_updated_by VARCHAR(36) NULL");
     await ensureColumn("ai_last_incoming_message_id", "ai_last_incoming_message_id VARCHAR(120) NULL");
     await ensureColumn("ai_last_reply_message_id", "ai_last_reply_message_id VARCHAR(120) NULL");
+    await ensureColumn("contact_push_name", "contact_push_name VARCHAR(255) NULL");
+
+    /* Ensure sender_jid on whatsapp_messages (added after initial DDL) */
+    const hasSenderJid = await hasColumn("whatsapp_messages", "sender_jid");
+    if (!hasSenderJid) {
+      await pool.execute("ALTER TABLE whatsapp_messages ADD COLUMN sender_jid VARCHAR(191) NULL AFTER remote_jid");
+    }
 
     await pool.execute(
       "UPDATE whatsapp_conversations SET ai_mode = 'manual' WHERE ai_mode IS NULL OR ai_mode = ''"
@@ -185,23 +187,24 @@ export class InboxService {
         mode VARCHAR(16) NOT NULL,
         summary TEXT,
         payload_json JSON,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        KEY idx_ai_cd_conv (conversation_id),
-        KEY idx_ai_cd_user (user_id),
-        KEY idx_ai_cd_brand (brand_id),
-        KEY idx_ai_cd_created (created_at)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
     `);
+
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_ai_cd_conv ON ai_conversation_decisions (conversation_id)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_ai_cd_user ON ai_conversation_decisions (user_id)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_ai_cd_brand ON ai_conversation_decisions (brand_id)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_ai_cd_created ON ai_conversation_decisions (created_at)`);
 
     await pool.query(`
       CREATE TABLE IF NOT EXISTS ai_global_settings (
         brand_id VARCHAR(36) PRIMARY KEY,
-        auto_reply_enabled TINYINT(1) NOT NULL DEFAULT 0,
+        auto_reply_enabled BOOLEAN NOT NULL DEFAULT FALSE,
         updated_by VARCHAR(36) NULL,
         reason VARCHAR(255) NULL,
-        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      )
     `);
 
     this.aiColumnsChecked = true;
@@ -224,7 +227,7 @@ export class InboxService {
     if (!row) {
       await pool.execute(
         `INSERT INTO ai_global_settings (brand_id, auto_reply_enabled, reason, updated_by)
-         VALUES (?, 0, 'default_disabled', NULL)`,
+         VALUES (?, FALSE, 'default_disabled', NULL)`,
         [normalizedBrandId]
       );
       return false;
@@ -402,44 +405,14 @@ export class InboxService {
 
     let finalText = "";
     if (userId) {
-      const profile = await this.aiAgentProfileService.getByUserId(userId, brandId || undefined);
-      const [kbContext, behaviorBlock, productsContext] = await Promise.all([
-        this.knowledgeBaseService.searchForContext(input.incomingBody, userId, brandId || profile.company_id),
-        Promise.resolve(this.aiAgentProfileService.buildBehaviorBlock(profile)),
-        this.getProductsContext(userId, brandId),
-      ]);
-
-      const mergedContext = [
-        context,
-        behaviorBlock,
-        productsContext,
-        kbContext ? `Base de conhecimento relevante:\n${kbContext}` : "",
-      ]
-        .filter(Boolean)
-        .join("\n\n");
-
-      finalText = await this.aiService.generateCustomMessage(input.incomingBody, {
-        tone: profile.tone,
-        context: mergedContext,
-        maxLength: profile.max_length,
-        language: profile.language,
-        includeEmojis: profile.include_emojis,
-        agentName: profile.agent_name,
-        objective: profile.objective,
-        trainingNotes: profile.training_notes,
-        preferredTerms: profile.preferred_terms,
-        forbiddenTerms: profile.forbidden_terms,
-        communicationRules: [
-          String(profile.communication_rules || "").trim(),
-          "Nao inventar produtos, precos, promocoes ou disponibilidade. Usar somente o catalogo da brand no contexto.",
-          "Se o lead pedir item nao presente no catalogo, informar que vai confirmar internamente e fazer pergunta de qualificacao.",
-        ].filter(Boolean).join("\n"),
+      const reply = await this.whatsappAgentService.generateReply({
+        userId,
+        brandId,
+        incomingMessage: input.incomingBody,
+        conversationHistory: context ? context.split("\n") : [],
+        maxHistoryLines: 12,
       });
-    } else {
-      finalText = await this.aiService.generateCustomMessage(input.incomingBody, {
-        tone: "professional",
-        context,
-      });
+      finalText = reply.text;
     }
 
     finalText = String(finalText || "").trim();
@@ -452,7 +425,7 @@ export class InboxService {
     const now = Math.floor(Date.now() / 1000);
     await input.pool.execute(
       `INSERT INTO whatsapp_messages (id, conversation_id, instance_id, remote_jid, from_me, message_type, body, status, message_timestamp, created_at)
-       VALUES (?, ?, ?, ?, 1, 'text', ?, 'sent', ?, NOW())`,
+       VALUES (?, ?, ?, ?, TRUE, 'text', ?, 'sent', ?, NOW())`,
       [msgId, input.conversationId, input.instanceId, input.remoteJid, finalText, now]
     );
 
@@ -769,7 +742,7 @@ export class InboxService {
         await pool.execute(
           `INSERT INTO whatsapp_conversations 
            (id, instance_id, remote_jid, contact_name, contact_phone, contact_push_name, is_group, status, last_message_text, last_message_at, last_message_from_me, unread_count, pipeline_stage, ai_mode, ai_lock_human, ai_updated_at, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?, NOW(), ?, ?, 'new', 'autonomous', 1, NOW(), NOW(), NOW())`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?, NOW(), ?, ?, 'new', 'autonomous', TRUE, NOW(), NOW(), NOW())`,
           [
             conversationId,
             instanceId,
@@ -777,9 +750,9 @@ export class InboxService {
             initialContactName,
             contactPhone,
             !fromMe ? pushName : null,
-            isGroup ? 1 : 0,
+            isGroup ? true : false,
             previewText,
-            fromMe ? 1 : 0,
+            fromMe ? true : false,
             fromMe ? 0 : 1
           ]
         );

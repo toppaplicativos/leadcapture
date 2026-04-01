@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pedido</title>
+    <script src="/shared/loader.js" data-components="topbar,cards,forms,buttons"></script>
+    <link rel="stylesheet" href="/catalogo-publico.css" />
+  </head>
+  <body data-page="order">
+    <header class="hero">
+      <div class="hero-inner">
+        <h1>Acompanhar pedido</h1>
+        <nav class="nav">
+          <a data-link="">Catálogo</a>
+          <a data-link="checkout">Checkout</a>
+          <a data-link="historico">Histórico</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="container">
+      <p id="alert" class="muted"></p>
+      <section class="card">
+        <form id="orderTrackForm">
+          <input id="orderNumber" placeholder="Número do pedido" required />
+          <input id="orderPhone" placeholder="Telefone do pedido" required />
+          <button type="submit">Consultar</button>
+        </form>
+      </section>
+      <section id="orderResult" style="margin-top:12px;"></section>
+    </main>
+
+    <script src="/catalogo-publico.js"></script>
+  </body>
+</html>

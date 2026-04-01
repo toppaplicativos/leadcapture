@@ -1,0 +1,191 @@
+/* ═══════════════════════════════════════════════════════
+   COMPONENTE: TOPBAR
+   Barra superior reutilizável (catálogo, checkout, etc.)
+   ═══════════════════════════════════════════════════════ */
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  background: var(--color-card);
+  border-bottom: 1px solid var(--color-border);
+  box-shadow: var(--shadow-xs);
+}
+
+.topbar-inner {
+  max-width: var(--max-width);
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-4);
+}
+
+.topbar-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.topbar-logo {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid var(--color-border);
+  background: var(--color-card);
+  flex-shrink: 0;
+  box-shadow: var(--shadow-xs);
+}
+
+.topbar-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--brand-secondary);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-xl);
+  font-weight: var(--font-bold);
+  text-transform: uppercase;
+  box-shadow: var(--shadow-xs);
+}
+
+.topbar-left h1 {
+  font-size: var(--text-lg);
+  font-weight: var(--font-bold);
+  color: var(--brand-primary);
+  line-height: var(--line-tight);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+}
+
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* ── Cart Badge ── */
+.topbar-cart {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: var(--radius-lg);
+  background: var(--color-border-light);
+  color: var(--brand-primary);
+  text-decoration: none;
+  transition: background var(--duration-normal);
+}
+.topbar-cart:hover { background: var(--color-border); }
+.topbar-cart svg { width: 20px; height: 20px; }
+
+.topbar-cart-count {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  background: var(--brand-secondary);
+  color: #fff;
+  font-size: var(--text-xs);
+  font-weight: var(--font-bold);
+  min-width: 18px;
+  height: 18px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  border: 2px solid var(--color-card);
+}
+
+/* ── Back Button ── */
+.topbar-back {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-md);
+  background: var(--color-border-light);
+  color: var(--brand-primary);
+  text-decoration: none;
+  transition: background var(--duration-normal);
+  flex-shrink: 0;
+}
+.topbar-back:hover { background: var(--color-border); }
+.topbar-back svg { width: 20px; height: 20px; }
+
+/* ── App Header (estilo colored — inventário, estoque) ── */
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  background: var(--brand-secondary);
+  color: #fff;
+  padding: calc(var(--safe-top) + 12px) var(--space-4) 14px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.header-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex: 1;
+  min-width: 0;
+}
+
+.header-brand img {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  object-fit: contain;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.header-info { min-width: 0; }
+
+.header-info h1 {
+  font-size: 17px;
+  font-weight: var(--font-bold);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.header-info .hsub {
+  font-size: 11px;
+  opacity: 0.75;
+}
+
+.header-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.header-actions button {
+  background: rgba(255, 255, 255, 0.18);
+  border: none;
+  border-radius: var(--radius-md);
+  color: #fff;
+  width: 38px;
+  height: 38px;
+  font-size: 17px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background var(--duration-fast);
+}
+.header-actions button:active { background: rgba(255, 255, 255, 0.3); }

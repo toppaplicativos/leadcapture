@@ -8,16 +8,12 @@ import { BrandRequest, requireBrandContext } from "../middleware/brandContext";
 import { logger } from "../utils/logger";
 import { RowDataPacket } from "mysql2";
 import { ProductsService } from "../services/products";
-import { AIService } from "../services/ai";
-import { AIAgentProfileService } from "../services/aiAgentProfile";
-import { KnowledgeBaseService } from "../services/knowledgeBase";
+import { WhatsAppAgentService } from "../services/whatsappAgent";
 
 const router = Router();
 router.use(authMiddleware, requireBrandContext);
 const productsService = new ProductsService();
-const aiService = new AIService();
-const aiAgentProfileService = new AIAgentProfileService();
-const knowledgeBaseService = new KnowledgeBaseService();
+const whatsappAgentService = new WhatsAppAgentService();
 let aiSchemaReady = false;
 let aiSchemaPromise: Promise<void> | null = null;
 
@@ -105,8 +101,21 @@ function normalizePipelineStageInput(value: unknown): string | null {
 }
 
 async function hasColumn(pool: any, table: string, column: string): Promise<boolean> {
-  const [rows] = await pool.query(`SHOW COLUMNS FROM ${table} LIKE ?`, [column]);
-  return Array.isArray(rows) && rows.length > 0;
+  try {
+    const [rows] = await pool.query(
+      `SELECT 1
+       FROM information_schema.columns
+       WHERE table_schema = ANY(current_schemas(false))
+         AND table_name = ?
+         AND column_name = ?
+       LIMIT 1`,
+      [table, column]
+    );
+    return Array.isArray(rows) && rows.length > 0;
+  } catch {
+    const [rows] = await pool.query(`SHOW COLUMNS FROM ${table} LIKE ?`, [column]);
+    return Array.isArray(rows) && rows.length > 0;
+  }
 }
 
 async function resolveInstanceBrandScope(pool: any, brandId?: string | null): Promise<{ clause: string; params: any[] }> {
@@ -174,6 +183,46 @@ async function ensureAIConversationSchema(pool: any): Promise<void> {
   }
 
   aiSchemaPromise = (async () => {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS whatsapp_conversations (
+        id VARCHAR(36) PRIMARY KEY,
+        instance_id VARCHAR(36) NOT NULL,
+        remote_jid VARCHAR(191) NOT NULL,
+        contact_name VARCHAR(255) NULL,
+        contact_phone VARCHAR(40) NULL,
+        status VARCHAR(32) NULL DEFAULT 'open',
+        last_message_text TEXT NULL,
+        last_message_at TIMESTAMP NULL,
+        last_message_from_me BOOLEAN NOT NULL DEFAULT FALSE,
+        unread_count INT NOT NULL DEFAULT 0,
+        is_group BOOLEAN NOT NULL DEFAULT FALSE,
+        notes TEXT NULL,
+        tags TEXT NULL,
+        pipeline_stage VARCHAR(32) NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE (instance_id, remote_jid)
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS whatsapp_messages (
+        id VARCHAR(36) PRIMARY KEY,
+        conversation_id VARCHAR(36) NOT NULL,
+        instance_id VARCHAR(36) NOT NULL,
+        remote_jid VARCHAR(191) NOT NULL,
+        remote_message_id VARCHAR(120) NULL,
+        from_me BOOLEAN NOT NULL DEFAULT FALSE,
+        message_type VARCHAR(24) NOT NULL DEFAULT 'text',
+        message_text TEXT NULL,
+        media_url TEXT NULL,
+        metadata_json JSON NULL,
+        status VARCHAR(24) NULL DEFAULT 'received',
+        message_timestamp TIMESTAMP NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
     const ensureColumn = async (column: string, ddl: string) => {
       const exists = await hasColumn(pool, "whatsapp_conversations", column);
       if (!exists) {
@@ -182,7 +231,7 @@ async function ensureAIConversationSchema(pool: any): Promise<void> {
     };
 
     await ensureColumn("ai_mode", "ai_mode VARCHAR(16) NOT NULL DEFAULT 'manual'");
-    await ensureColumn("ai_lock_human", "ai_lock_human TINYINT(1) NOT NULL DEFAULT 1");
+    await ensureColumn("ai_lock_human", "ai_lock_human BOOLEAN NOT NULL DEFAULT TRUE");
     await ensureColumn("ai_last_decision_json", "ai_last_decision_json JSON NULL");
     await ensureColumn("ai_updated_at", "ai_updated_at TIMESTAMP NULL");
     await ensureColumn("ai_updated_by", "ai_updated_by VARCHAR(36) NULL");
@@ -210,23 +259,24 @@ async function ensureAIConversationSchema(pool: any): Promise<void> {
         mode VARCHAR(16) NOT NULL,
         summary TEXT,
         payload_json JSON,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        KEY idx_ai_cd_conv (conversation_id),
-        KEY idx_ai_cd_user (user_id),
-        KEY idx_ai_cd_brand (brand_id),
-        KEY idx_ai_cd_created (created_at)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
     `);
+
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_ai_cd_conv ON ai_conversation_decisions (conversation_id)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_ai_cd_user ON ai_conversation_decisions (user_id)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_ai_cd_brand ON ai_conversation_decisions (brand_id)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_ai_cd_created ON ai_conversation_decisions (created_at)`);
 
     await pool.query(`
       CREATE TABLE IF NOT EXISTS ai_global_settings (
         brand_id VARCHAR(36) PRIMARY KEY,
-        auto_reply_enabled TINYINT(1) NOT NULL DEFAULT 0,
+        auto_reply_enabled BOOLEAN NOT NULL DEFAULT FALSE,
         updated_by VARCHAR(36) NULL,
         reason VARCHAR(255) NULL,
-        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      )
     `);
 
     aiSchemaReady = true;
@@ -236,6 +286,16 @@ async function ensureAIConversationSchema(pool: any): Promise<void> {
 
   await aiSchemaPromise;
 }
+
+router.use(async (_req: BrandRequest, res: Response, next) => {
+  try {
+    await ensureAIConversationSchema(getPool());
+    next();
+  } catch (error: any) {
+    logger.error(error, "Failed to initialize inbox schema");
+    res.status(500).json({ error: "Failed to initialize inbox schema" });
+  }
+});
 
 async function logAIDecision(
   pool: any,
@@ -318,7 +378,7 @@ async function getGlobalAIState(pool: any, brandId?: string | null) {
   if (!row) {
     await pool.execute(
       `INSERT INTO ai_global_settings (brand_id, auto_reply_enabled, reason, updated_by)
-       VALUES (?, 0, 'default_disabled', NULL)`,
+       VALUES (?, FALSE, 'default_disabled', NULL)`,
       [normalizedBrandId]
     );
 
@@ -607,13 +667,13 @@ router.post("/conversations/:id/send", async (req: BrandRequest, res: Response) 
     const now = Math.floor(Date.now() / 1000);
     await pool.execute(
       `INSERT INTO whatsapp_messages (id, conversation_id, instance_id, remote_jid, from_me, message_type, body, status, message_timestamp, created_at)
-       VALUES (?, ?, ?, ?, 1, 'text', ?, 'sent', ?, NOW())`,
+       VALUES (?, ?, ?, ?, TRUE, 'text', ?, 'sent', ?, NOW())`,
       [msgId, conv.id, conv.instance_id, conv.remote_jid, message, now]
     );
 
     // Update conversation
     await pool.execute(
-      `UPDATE whatsapp_conversations SET last_message_text = ?, last_message_at = NOW(), last_message_from_me = 1, updated_at = NOW() WHERE id = ?`,
+      `UPDATE whatsapp_conversations SET last_message_text = ?, last_message_at = NOW(), last_message_from_me = TRUE, updated_at = NOW() WHERE id = ?`,
       [message, conv.id]
     );
 
@@ -726,12 +786,12 @@ router.post("/conversations/:id/send-product", async (req: BrandRequest, res: Re
           `INSERT INTO whatsapp_messages (
              id, conversation_id, instance_id, remote_jid, from_me, message_type, body, caption, media_url, status, message_timestamp, created_at
            )
-           VALUES (?, ?, ?, ?, 1, 'image', ?, ?, ?, 'sent', ?, NOW())`,
+           VALUES (?, ?, ?, ?, TRUE, 'image', ?, ?, ?, 'sent', ?, NOW())`,
           [msgId, conv.id, conv.instance_id, conv.remote_jid, encodedBody, caption, publicUrl, now]
         );
 
         await pool.execute(
-          `UPDATE whatsapp_conversations SET last_message_text = ?, last_message_at = NOW(), last_message_from_me = 1, updated_at = NOW() WHERE id = ?`,
+          `UPDATE whatsapp_conversations SET last_message_text = ?, last_message_at = NOW(), last_message_from_me = TRUE, updated_at = NOW() WHERE id = ?`,
           [`📦 Produto enviado: ${product.name}`, conv.id]
         );
 
@@ -757,12 +817,12 @@ router.post("/conversations/:id/send-product", async (req: BrandRequest, res: Re
 
     await pool.execute(
       `INSERT INTO whatsapp_messages (id, conversation_id, instance_id, remote_jid, from_me, message_type, body, status, message_timestamp, created_at)
-       VALUES (?, ?, ?, ?, 1, 'text', ?, 'sent', ?, NOW())`,
+       VALUES (?, ?, ?, ?, TRUE, 'text', ?, 'sent', ?, NOW())`,
       [msgId, conv.id, conv.instance_id, conv.remote_jid, fallbackText, now]
     );
 
     await pool.execute(
-      `UPDATE whatsapp_conversations SET last_message_text = ?, last_message_at = NOW(), last_message_from_me = 1, updated_at = NOW() WHERE id = ?`,
+      `UPDATE whatsapp_conversations SET last_message_text = ?, last_message_at = NOW(), last_message_from_me = TRUE, updated_at = NOW() WHERE id = ?`,
       [fallbackText.slice(0, 500), conv.id]
     );
 
@@ -833,7 +893,7 @@ router.post(
         `INSERT INTO whatsapp_messages (
            id, conversation_id, instance_id, remote_jid, from_me, message_type, body, caption, media_url, media_mimetype, media_filename, media_size, status, message_timestamp, created_at
          )
-         VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, 'sent', ?, NOW())`,
+         VALUES (?, ?, ?, ?, TRUE, ?, ?, ?, ?, ?, ?, ?, 'sent', ?, NOW())`,
         [
           msgId,
           conv.id,
@@ -864,7 +924,7 @@ router.post(
 
       await pool.execute(
         `UPDATE whatsapp_conversations
-         SET last_message_text = ?, last_message_at = NOW(), last_message_from_me = 1, updated_at = NOW()
+         SET last_message_text = ?, last_message_at = NOW(), last_message_from_me = TRUE, updated_at = NOW()
          WHERE id = ?`,
         [previewText, conv.id]
       );
@@ -943,13 +1003,13 @@ router.post("/conversations/:id/send-poll", async (req: BrandRequest, res: Respo
 
     await pool.execute(
       `INSERT INTO whatsapp_messages (id, conversation_id, instance_id, remote_jid, from_me, message_type, body, status, message_timestamp, created_at)
-       VALUES (?, ?, ?, ?, 1, 'text', ?, 'sent', ?, NOW())`,
+       VALUES (?, ?, ?, ?, TRUE, 'text', ?, 'sent', ?, NOW())`,
       [msgId, conv.id, conv.instance_id, conv.remote_jid, encodedBody, now]
     );
 
     await pool.execute(
       `UPDATE whatsapp_conversations
-       SET last_message_text = ?, last_message_at = NOW(), last_message_from_me = 1, updated_at = NOW()
+       SET last_message_text = ?, last_message_at = NOW(), last_message_from_me = TRUE, updated_at = NOW()
        WHERE id = ?`,
       [`📊 Enquete: ${normalizedQuestion}`, conv.id]
     );
@@ -1069,12 +1129,12 @@ router.patch("/ai-global-state", async (req: BrandRequest, res: Response) => {
     await pool.execute(
       `INSERT INTO ai_global_settings (brand_id, auto_reply_enabled, reason, updated_by)
        VALUES (?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         auto_reply_enabled = VALUES(auto_reply_enabled),
-         reason = VALUES(reason),
-         updated_by = VALUES(updated_by),
+       ON CONFLICT (brand_id) DO UPDATE SET
+         auto_reply_enabled = EXCLUDED.auto_reply_enabled,
+         reason = EXCLUDED.reason,
+         updated_by = EXCLUDED.updated_by,
          updated_at = CURRENT_TIMESTAMP`,
-      [normalizedBrandId, enabled ? 1 : 0, reason, userId]
+      [normalizedBrandId, enabled ? true : false, reason, userId]
     );
 
     const globalState = await getGlobalAIState(pool, normalizedBrandId);
@@ -1101,7 +1161,7 @@ router.get("/conversations/:id/ai-state", async (req: BrandRequest, res: Respons
       ai: {
         mode: normalizeAIMode(conv.ai_mode),
         lock_human: parseBooleanInput(conv.ai_lock_human, true),
-        last_decision: conv.ai_last_decision_json ? JSON.parse(String(conv.ai_last_decision_json)) : null,
+        last_decision: safeParseJson(conv.ai_last_decision_json),
         updated_at: conv.ai_updated_at || null,
         updated_by: conv.ai_updated_by || null,
         last_incoming_message_id: conv.ai_last_incoming_message_id || null,
@@ -1232,7 +1292,7 @@ router.get("/conversations/:id/ai-decisions", async (req: BrandRequest, res: Res
       decision_type: String(row.decision_type || ""),
       mode: normalizeAIMode(row.mode),
       summary: row.summary ? String(row.summary) : "",
-      payload: row.payload_json ? JSON.parse(String(row.payload_json)) : null,
+      payload: safeParseJson(row.payload_json),
       created_at: row.created_at,
     }));
 
@@ -1279,8 +1339,8 @@ router.get("/conversations/:id/ai-insights", async (req: BrandRequest, res: Resp
 
     const [messageRows] = await pool.query<RowDataPacket[]>(
       `SELECT
-          SUM(CASE WHEN from_me = 0 THEN 1 ELSE 0 END) AS inbound_count,
-          SUM(CASE WHEN from_me = 1 THEN 1 ELSE 0 END) AS outbound_count
+          SUM(CASE WHEN from_me IS NOT TRUE THEN 1 ELSE 0 END) AS inbound_count,
+          SUM(CASE WHEN from_me IS TRUE THEN 1 ELSE 0 END) AS outbound_count
        FROM whatsapp_messages
        WHERE conversation_id = ?`,
       [String(req.params.id)]
@@ -1393,37 +1453,17 @@ router.post("/conversations/:id/ai-respond", async (req: BrandRequest, res: Resp
 
     const context = recent
       .slice(-12)
-      .map((item) => `${parseFromMeFlag(item.from_me) ? "Atendente" : "Lead"}: ${String(item.body || "")}`)
-      .join("\n");
+      .map((item) => `${parseFromMeFlag(item.from_me) ? "Atendente" : "Lead"}: ${String(item.body || "")}`);
 
-    const activeCompanyId = String(req.brandId || "").trim() || undefined;
-    const profile = await aiAgentProfileService.getByUserId(userId, activeCompanyId);
-    const [kbContext, behaviorBlock] = await Promise.all([
-      knowledgeBaseService.searchForContext(String(latestIncoming.body || ""), userId, activeCompanyId || profile.company_id),
-      Promise.resolve(aiAgentProfileService.buildBehaviorBlock(profile)),
-    ]);
-
-    const mergedContext = [
-      context,
-      behaviorBlock,
-      kbContext ? `Base de conhecimento relevante:\n${kbContext}` : "",
-    ].filter(Boolean).join("\n\n");
-
-    const aiText = await aiService.generateCustomMessage(String(latestIncoming.body || ""), {
-      tone: profile.tone,
-      context: mergedContext,
-      maxLength: profile.max_length,
-      language: profile.language,
-      includeEmojis: profile.include_emojis,
-      agentName: profile.agent_name,
-      objective: profile.objective,
-      communicationRules: profile.communication_rules,
-      trainingNotes: profile.training_notes,
-      preferredTerms: profile.preferred_terms,
-      forbiddenTerms: profile.forbidden_terms,
+    const reply = await whatsappAgentService.generateReply({
+      userId,
+      brandId: req.brandId,
+      incomingMessage: String(latestIncoming.body || ""),
+      conversationHistory: context,
+      maxHistoryLines: 12,
     });
 
-    const finalText = String(aiText || "").trim();
+    const finalText = String(reply.text || "").trim();
     if (!finalText) {
       return res.status(500).json({ error: "Failed to generate autonomous reply" });
     }
@@ -1438,7 +1478,7 @@ router.post("/conversations/:id/ai-respond", async (req: BrandRequest, res: Resp
     const now = Math.floor(Date.now() / 1000);
     await pool.execute(
       `INSERT INTO whatsapp_messages (id, conversation_id, instance_id, remote_jid, from_me, message_type, body, status, message_timestamp, created_at)
-       VALUES (?, ?, ?, ?, 1, 'text', ?, 'sent', ?, NOW())`,
+       VALUES (?, ?, ?, ?, TRUE, 'text', ?, 'sent', ?, NOW())`,
       [msgId, conv.id, conv.instance_id, conv.remote_jid, finalText, now]
     );
 
@@ -1455,7 +1495,7 @@ router.post("/conversations/:id/ai-respond", async (req: BrandRequest, res: Resp
       `UPDATE whatsapp_conversations
        SET last_message_text = ?,
            last_message_at = NOW(),
-           last_message_from_me = 1,
+           last_message_from_me = TRUE,
            ai_last_incoming_message_id = ?,
            ai_last_reply_message_id = ?,
            ai_last_decision_json = ?,

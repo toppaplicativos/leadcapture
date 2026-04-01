@@ -1,0 +1,805 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover,maximum-scale=5,user-scalable=yes"/>
+<meta name="theme-color" content="#2563eb"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="Estoque"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<link rel="icon" type="image/png" href="/logo.png"/>
+<link rel="apple-touch-icon" href="/logo.png"/>
+<title>Estoque</title>
+<script src="/shared/loader.js" data-components="topbar,bottom-nav,cards,forms,buttons,modal,toast,badges,kpi,grid,splash,sidebar,data-display"></script>
+<style>
+/* ── Overrides específicos do inventário ── */
+:root {
+  --brand-secondary: #2563eb;
+  --primary: #2563eb;
+  --primary-dark: #1d4ed8;
+  --bottom-nav-h: 64px;
+}
+.bottom-nav { padding: 6px 0 calc(var(--safe-bottom) + 6px); height: auto; }
+.toast { bottom: auto; top: calc(var(--safe-top) + 16px); transform: translateX(-50%) translateY(-120%); background: #1f2937; }
+.toast.show { transform: translateX(-50%) translateY(0); }
+.modal { padding: 0 20px calc(var(--safe-bottom) + 24px); }
+.form-group { margin-bottom: 16px; }
+.form-group input, .form-group select, .form-group textarea { padding: 14px 16px; font-size: 16px; }
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media(min-width: 768px) {
+  .modal { border-radius: 20px; align-self: center; }
+  .modal-overlay { align-items: center; }
+}
+@media(min-width: 1024px) {
+  .bottom-nav { display: none; }
+  .app-content { padding-bottom: 24px; }
+}
+</style>
+</head>
+<body>
+
+<!-- SPLASH -->
+<div class="splash" id="splash">
+  <div class="splash-logo" id="splashLogo"><span class="fi">📦</span></div>
+  <div class="splash-name" id="splashName">Estoque</div>
+  <div class="splash-sub" id="splashSub">Gestão de Inventário</div>
+  <div class="splash-spin"></div>
+</div>
+
+<!-- APP -->
+<div class="app" id="app">
+
+  <!-- Desktop Sidebar -->
+  <aside class="desktop-sidebar" id="dSidebar">
+    <div class="ds-brand"><img id="dsLogo" src="/logo.png" alt=""/><span id="dsBrandName">Estoque</span></div>
+    <nav id="dNav">
+      <a href="#" data-view="overview" class="active"><span class="icon">📊</span>Visão Geral</a>
+      <a href="#" data-view="products"><span class="icon">📦</span>Produtos</a>
+      <a href="#" data-view="movements"><span class="icon">🔄</span>Movimentações</a>
+      <a href="#" data-view="expedition"><span class="icon">🚚</span>Expedição</a>
+      <a href="#" data-view="alerts"><span class="icon">🚨</span>Alertas<span class="dbadge" id="dAlertBadge" style="display:none"></span></a>
+      <a href="#" data-view="reports"><span class="icon">📈</span>Relatórios</a>
+    </nav>
+    <div class="ds-footer">Estoque v2.0</div>
+  </aside>
+
+  <div class="app-main-wrap">
+    <!-- Header -->
+    <header class="app-header" id="appHeader">
+      <div class="header-brand">
+        <img id="headerLogo" src="/logo.png" alt=""/>
+        <div class="header-info">
+          <h1 id="headerTitle">Estoque</h1>
+          <div class="hsub" id="headerSub">Gestão de Inventário</div>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button onclick="IMS.syncProducts()" title="Sincronizar">🔄</button>
+        <button onclick="IMS.showAddStock()" title="Entrada rápida">📥</button>
+      </div>
+    </header>
+
+    <!-- Content -->
+    <main class="app-content">
+
+      <!-- OVERVIEW -->
+      <section class="view active" id="view-overview">
+        <div class="kpi-row" id="overviewKpis"></div>
+        <div class="panel"><div class="panel-header"><h3>🔥 Mais Vendidos (30d)</h3></div><div id="topSelling"></div></div>
+        <div class="panel"><div class="panel-header"><h3>💤 Produtos Parados</h3></div><div id="staleProducts"></div></div>
+      </section>
+
+      <!-- PRODUCTS -->
+      <section class="view" id="view-products">
+        <div class="search-box"><span class="si">🔍</span><input type="text" id="prodSearch" placeholder="Buscar produto..." oninput="IMS.debounceProducts()"/></div>
+        <div class="filter-row" id="prodFilters">
+          <span class="filter-chip active" data-filter="">Todos</span>
+          <span class="filter-chip" data-filter="normal">🟢 Normal</span>
+          <span class="filter-chip" data-filter="baixo">🟡 Baixo</span>
+          <span class="filter-chip" data-filter="zerado">🔴 Zerado</span>
+        </div>
+        <div class="panel"><div id="productsContainer"></div><div class="pagination" id="productsPag"></div></div>
+      </section>
+
+      <!-- MOVEMENTS -->
+      <section class="view" id="view-movements">
+        <div class="filter-row" id="movFilters">
+          <span class="filter-chip active" data-filter="">Todos</span>
+          <span class="filter-chip" data-filter="entrada">📥 Entrada</span>
+          <span class="filter-chip" data-filter="saida">📤 Saída</span>
+          <span class="filter-chip" data-filter="ajuste">✏️ Ajuste</span>
+          <span class="filter-chip" data-filter="reserva">🔒 Reserva</span>
+          <span class="filter-chip" data-filter="expedicao">🚚 Expedição</span>
+        </div>
+        <div class="panel"><div id="movContainer"></div><div class="pagination" id="movPag"></div></div>
+      </section>
+
+      <!-- EXPEDITION -->
+      <section class="view" id="view-expedition">
+        <div class="panel">
+          <div class="panel-header"><h3>Expedição</h3><button class="btn btn-primary btn-sm" onclick="IMS.showExpeditionModal()">+ Nova</button></div>
+          <div id="expContainer"></div><div class="pagination" id="expPag"></div>
+        </div>
+      </section>
+
+      <!-- ALERTS -->
+      <section class="view" id="view-alerts">
+        <div class="panel"><div class="panel-header"><h3>🚨 Alertas de Estoque</h3></div><div id="alertsList"></div></div>
+      </section>
+
+      <!-- REPORTS -->
+      <section class="view" id="view-reports">
+        <div class="panel" style="margin-bottom:14px">
+          <div style="display:flex;gap:8px;padding:12px 16px;flex-wrap:wrap">
+            <input type="date" id="rptFrom" onchange="IMS.loadReports()" style="flex:1;min-width:130px;border:1.5px solid var(--border);border-radius:12px;padding:12px 14px;font-size:15px"/>
+            <input type="date" id="rptTo" onchange="IMS.loadReports()" style="flex:1;min-width:130px;border:1.5px solid var(--border);border-radius:12px;padding:12px 14px;font-size:15px"/>
+          </div>
+        </div>
+        <div class="kpi-row" id="reportKpis"></div>
+        <div class="panel"><div class="panel-header"><h3>🏆 Mais Vendidos</h3></div><div id="rptTop"></div></div>
+        <div class="panel"><div class="panel-header"><h3>🐢 Menos Vendidos</h3></div><div id="rptLeast"></div></div>
+        <div class="panel"><div class="panel-header"><h3>📈 Movimentação Diária</h3></div><div class="bar-chart" id="dailyChart"></div></div>
+        <div class="panel"><div class="panel-header"><h3>📐 Curva ABC</h3></div><div id="abcContainer"></div></div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- Bottom Nav -->
+  <nav class="bottom-nav" id="bNav">
+    <a href="#" data-view="overview" class="active"><span class="ni">📊</span>Início</a>
+    <a href="#" data-view="products"><span class="ni">📦</span>Produtos</a>
+    <a href="#" data-view="movements"><span class="ni">🔄</span>Movimentos</a>
+    <a href="#" data-view="alerts"><span class="ni">🚨</span>Alertas<span class="nb" id="alertBadge" style="display:none"></span></a>
+    <a href="#" data-view="reports"><span class="ni">📈</span>Relatórios</a>
+  </nav>
+
+  <!-- FAB -->
+  <button class="fab" id="fabBtn" onclick="IMS.showAddStock()">+</button>
+</div>
+
+<!-- ═══ MODALS ═══ -->
+
+<!-- ADD STOCK -->
+<div class="modal-overlay" id="modalAddStock"><div class="modal"><div class="modal-top"><div class="modal-handle"></div></div>
+  <h3>📥 Entrada de Estoque</h3>
+  <div class="form-group"><label>Produto</label>
+    <div style="position:relative">
+      <input type="text" id="addProductSearch" placeholder="Buscar produto..." oninput="IMS.filterAddProducts()"/>
+      <input type="hidden" id="addProductId"/>
+    </div>
+    <div id="addProductDropdown" style="max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:12px;margin-top:6px;display:none;background:#fff"></div>
+  </div>
+  <div id="addProductSelected" style="display:none;padding:12px;background:#f8fafc;border-radius:12px;margin-bottom:16px">
+    <div style="display:flex;align-items:center;gap:10px">
+      <div id="addSelThumb" style="width:40px;height:40px;border-radius:8px;background:#eee;overflow:hidden;flex-shrink:0"></div>
+      <div style="flex:1;min-width:0">
+        <div id="addSelName" style="font-weight:700;font-size:14px"></div>
+        <div id="addSelMeta" style="font-size:12px;color:var(--muted)"></div>
+      </div>
+      <button type="button" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--muted)" onclick="IMS.clearAddProduct()">✕</button>
+    </div>
+  </div>
+  <div class="form-row-3">
+    <div class="form-group"><label>Quantidade</label><input type="number" id="addQty" min="0.01" step="any" value="1" inputmode="decimal"/></div>
+    <div class="form-group"><label>Unidade</label><input type="text" id="addUnit" value="unidade" disabled style="opacity:.7;text-transform:uppercase;font-weight:700"/></div>
+    <div class="form-group"><label>Motivo</label><select id="addSource"><option value="reposicao">Reposição</option><option value="devolucao">Devolução</option><option value="inventario">Inventário</option><option value="correcao">Correção</option></select></div>
+  </div>
+  <div class="form-group"><label>Observação</label><input type="text" id="addReason" placeholder="Opcional"/></div>
+  <div class="modal-actions"><button class="btn btn-secondary" onclick="IMS.closeModal('modalAddStock')">Cancelar</button><button class="btn btn-success" onclick="IMS.submitAddStock()">✅ Confirmar Entrada</button></div>
+</div></div>
+
+<!-- REMOVE STOCK -->
+<div class="modal-overlay" id="modalRemoveStock"><div class="modal"><div class="modal-top"><div class="modal-handle"></div></div>
+  <h3>📤 Saída de Estoque</h3>
+  <div style="padding:12px;background:#fef2f2;border-radius:12px;margin-bottom:16px">
+    <div style="font-weight:700;font-size:14px" id="removeProductName"></div>
+    <div style="font-size:12px;color:var(--muted)" id="removeProductMeta"></div>
+    <input type="hidden" id="removeProductId"/>
+  </div>
+  <div class="form-row-3">
+    <div class="form-group"><label>Quantidade</label><input type="number" id="removeQty" min="0.01" step="any" value="1" inputmode="decimal"/></div>
+    <div class="form-group"><label>Unidade</label><input type="text" id="removeUnit" disabled style="opacity:.7;text-transform:uppercase;font-weight:700"/></div>
+    <div class="form-group"><label>Motivo</label><select id="removeSource"><option value="manual">Manual</option><option value="perda">Perda</option><option value="avaria">Avaria</option><option value="correcao">Correção</option></select></div>
+  </div>
+  <div class="form-group"><label>Observação</label><input type="text" id="removeReason" placeholder="Descreva o motivo"/></div>
+  <div class="modal-actions"><button class="btn btn-secondary" onclick="IMS.closeModal('modalRemoveStock')">Cancelar</button><button class="btn btn-danger" onclick="IMS.submitRemoveStock()">📤 Confirmar Saída</button></div>
+</div></div>
+
+<!-- ADJUST STOCK -->
+<div class="modal-overlay" id="modalAdjustStock"><div class="modal"><div class="modal-top"><div class="modal-handle"></div></div>
+  <h3>✏️ Ajuste de Estoque</h3>
+  <div style="padding:12px;background:#f0f0ff;border-radius:12px;margin-bottom:16px">
+    <div style="font-weight:700;font-size:14px" id="adjustProductName"></div>
+    <div style="font-size:12px;color:var(--muted)" id="adjustProductMeta"></div>
+    <input type="hidden" id="adjustProductId"/>
+  </div>
+  <div class="form-row-3">
+    <div class="form-group"><label>Estoque Atual</label><input type="number" id="adjustCurrent" disabled style="opacity:.6;font-weight:800"/></div>
+    <div class="form-group"><label>Novo Estoque</label><input type="number" id="adjustNewQty" min="0" step="any" inputmode="decimal"/></div>
+    <div class="form-group"><label>Motivo</label><select id="adjustReason"><option value="Inventário">Inventário</option><option value="Perda">Perda</option><option value="Avaria">Avaria</option><option value="Correção">Correção</option><option value="Devolução">Devolução</option></select></div>
+  </div>
+  <div class="modal-actions"><button class="btn btn-secondary" onclick="IMS.closeModal('modalAdjustStock')">Cancelar</button><button class="btn btn-primary" onclick="IMS.submitAdjustStock()">✏️ Ajustar</button></div>
+</div></div>
+
+<!-- SETTINGS -->
+<div class="modal-overlay" id="modalSettings"><div class="modal"><div class="modal-top"><div class="modal-handle"></div></div>
+  <h3>⚙️ Configurações</h3>
+  <input type="hidden" id="settingsProductId"/>
+  <div style="padding:12px;background:#f8fafc;border-radius:12px;margin-bottom:16px">
+    <div style="font-weight:700;font-size:14px" id="settingsProductName"></div>
+  </div>
+  <div class="form-row">
+    <div class="form-group"><label>Estoque Mínimo</label><input type="number" id="settingsMin" min="0" inputmode="numeric"/></div>
+    <div class="form-group"><label>Preço Custo (R$)</label><input type="number" id="settingsCost" min="0" step="0.01" inputmode="decimal"/></div>
+  </div>
+  <div class="modal-actions"><button class="btn btn-secondary" onclick="IMS.closeModal('modalSettings')">Cancelar</button><button class="btn btn-primary" onclick="IMS.submitSettings()">💾 Salvar</button></div>
+</div></div>
+
+<!-- HISTORY -->
+<div class="modal-overlay" id="modalHistory"><div class="modal"><div class="modal-top"><div class="modal-handle"></div></div>
+  <h3>📜 Histórico</h3>
+  <p id="historyProductName" style="font-size:13px;color:var(--muted);margin-bottom:14px"></p>
+  <div id="historyTimeline"></div>
+  <div class="modal-actions"><button class="btn btn-secondary btn-block" onclick="IMS.closeModal('modalHistory')">Fechar</button></div>
+</div></div>
+
+<!-- EXPEDITION -->
+<div class="modal-overlay" id="modalExpedition"><div class="modal"><div class="modal-top"><div class="modal-handle"></div></div>
+  <h3>🚚 Registrar Expedição</h3>
+  <div class="form-group"><label>ID do Pedido</label><input type="text" id="expedOrderId" placeholder="Ex: abc123-def456"/></div>
+  <div class="modal-actions"><button class="btn btn-secondary" onclick="IMS.closeModal('modalExpedition')">Cancelar</button><button class="btn btn-primary" onclick="IMS.submitExpedition()">Registrar</button></div>
+</div></div>
+
+<!-- PRODUCT ACTIONS -->
+<div class="modal-overlay" id="modalProductActions"><div class="modal"><div class="modal-top"><div class="modal-handle"></div></div>
+  <div id="paHeader" style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+    <div id="paThumb" style="width:56px;height:56px;border-radius:12px;background:#f3f4f6;overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:28px">📦</div>
+    <div style="flex:1;min-width:0">
+      <h3 id="paName" style="margin-bottom:0">Produto</h3>
+      <div id="paDetail" style="font-size:13px;color:var(--muted);margin-top:4px"></div>
+    </div>
+  </div>
+  <div id="paStockInfo" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:16px"></div>
+  <div style="display:flex;flex-direction:column;gap:10px" id="paActions"></div>
+  <div class="modal-actions" style="margin-top:16px"><button class="btn btn-secondary btn-block" onclick="IMS.closeModal('modalProductActions')">Fechar</button></div>
+</div></div>
+
+<!-- PRODUCT EDIT -->
+<div class="modal-overlay" id="modalEditProduct"><div class="modal"><div class="modal-top"><div class="modal-handle"></div></div>
+  <h3 id="editProductTitle">📝 Editar Produto</h3>
+  <input type="hidden" id="editProductId"/>
+  <div class="form-group">
+    <label>Imagem do Produto</label>
+    <div class="pm-image-upload" id="editImageUpload" onclick="document.getElementById('editImageFile').click()">
+      <div class="placeholder" id="editImagePlaceholder"><span>📷</span>Toque para adicionar</div>
+      <img id="editImagePreview" style="display:none"/>
+    </div>
+    <input type="file" id="editImageFile" accept="image/*" style="display:none" onchange="IMS.previewEditImage(this)"/>
+  </div>
+  <div class="form-group"><label>Nome</label><input type="text" id="editName" placeholder="Nome do produto"/></div>
+  <div class="form-group"><label>Descrição</label><textarea id="editDesc" placeholder="Descrição do produto"></textarea></div>
+  <div class="form-row-3">
+    <div class="form-group"><label>Unidade</label><select id="editUnit">
+      <option value="unidade">Unidade (un)</option>
+      <option value="kg">Kilograma (kg)</option>
+      <option value="g">Grama (g)</option>
+      <option value="litro">Litro (L)</option>
+      <option value="ml">Mililitro (ml)</option>
+      <option value="metro">Metro (m)</option>
+      <option value="cm">Centímetro (cm)</option>
+      <option value="caixa">Caixa</option>
+      <option value="pacote">Pacote</option>
+      <option value="par">Par</option>
+      <option value="digital">Digital (ilimitado)</option>
+    </select></div>
+    <div class="form-group"><label>Preço (R$)</label><input type="number" id="editPrice" min="0" step="0.01" inputmode="decimal"/></div>
+    <div class="form-group"><label>Preço Promo</label><input type="number" id="editPromo" min="0" step="0.01" inputmode="decimal" placeholder="Opcional"/></div>
+  </div>
+  <div class="form-row">
+    <div class="form-group"><label>Categoria</label><select id="editCategory"><option value="">Sem categoria</option></select></div>
+    <div class="form-group"><label>Status</label><select id="editActive"><option value="1">Ativo</option><option value="0">Inativo</option></select></div>
+  </div>
+  <div class="form-group"><label>Destaques / Features</label><input type="text" id="editFeatures" placeholder="Separar por vírgula"/></div>
+  <div class="modal-actions"><button class="btn btn-secondary" onclick="IMS.closeModal('modalEditProduct')">Cancelar</button><button class="btn btn-primary" onclick="IMS.submitEditProduct()">💾 Salvar Produto</button></div>
+</div></div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+  var TK='lead-system-token',BK='lead-system:active-brand-id',API_INV='/api/inventory',API_PROD='/api/products';
+
+  function getToken(){return localStorage.getItem(TK)||''}
+  function getBrandId(){
+    var p=new URLSearchParams(location.search),u=p.get('brand');
+    if(u){localStorage.setItem(BK,u);return u}
+    return localStorage.getItem(BK)||'';
+  }
+  function hdrs(){
+    var h={'Content-Type':'application/json','Authorization':'Bearer '+getToken()};
+    var b=getBrandId();if(b)h['x-brand-id']=b;return h;
+  }
+  function hdrsMultipart(){
+    var h={'Authorization':'Bearer '+getToken()};
+    var b=getBrandId();if(b)h['x-brand-id']=b;return h;
+  }
+  async function apiInv(path,opts){
+    opts=opts||{};
+    var r=await fetch(API_INV+path,Object.assign({headers:hdrs()},opts));
+    if(r.status===401){location.href='/';return null}
+    var d=await r.json();if(!r.ok)throw new Error(d.error||'Erro');return d;
+  }
+  async function apiProd(path,opts){
+    opts=opts||{};
+    var r=await fetch(API_PROD+path,Object.assign({headers:hdrs()},opts));
+    if(r.status===401){location.href='/';return null}
+    var d=await r.json();if(!r.ok)throw new Error(d.error||'Erro');return d;
+  }
+  function apiInvPost(p,b){return apiInv(p,{method:'POST',body:JSON.stringify(b)})}
+  function apiInvPut(p,b){return apiInv(p,{method:'PUT',body:JSON.stringify(b)})}
+
+  /* ── Unit helpers ── */
+  var UNIT_MAP={unidade:'un',kg:'kg',g:'g',litro:'L',ml:'ml',metro:'m',cm:'cm',caixa:'cx',pacote:'pct',par:'par',digital:'∞'};
+  var UNIT_LABELS={unidade:'Unidade',kg:'Kilograma',g:'Grama',litro:'Litro',ml:'Mililitro',metro:'Metro',cm:'Centímetro',caixa:'Caixa',pacote:'Pacote',par:'Par',digital:'Digital'};
+  function unitShort(u){return UNIT_MAP[String(u||'unidade').toLowerCase()]||u||'un'}
+  function unitLabel(u){return UNIT_LABELS[String(u||'unidade').toLowerCase()]||u||'Unidade'}
+  function isDigital(u){return String(u||'').toLowerCase()==='digital'}
+  function typeLabel(t){return{fisico:'Físico',digital:'Digital',servico:'Serviço'}[t]||t||'Físico'}
+
+  /* ── Brand Identity ── */
+  var brandData=null;
+  async function loadBrand(){
+    try{
+      var t=getToken();if(!t)return;
+      var bid=getBrandId(),h={'Authorization':'Bearer '+t};
+      if(bid)h['x-brand-id']=bid;
+      var r=await fetch('/api/brands',{headers:h});
+      if(!r.ok)return;
+      var p=await r.json(),brands=Array.isArray(p.brands)?p.brands:[],
+          aid=bid||p.active_brand_id||'';
+      brandData=brands.find(function(b){return String(b.id)===aid})||brands[0]||null;
+      if(brandData)applyBrand(brandData);
+    }catch(e){}
+  }
+  function sanColor(v,fb){var s=String(v||'').trim();return/^#[0-9a-fA-F]{3,8}$/.test(s)?s:fb}
+  function applyBrand(b){
+    var pc=sanColor(b.primary_color,'#2563eb'),sc=sanColor(b.secondary_color,'#1d4ed8'),
+        root=document.documentElement;
+    root.style.setProperty('--primary',pc);
+    root.style.setProperty('--primary-dark',sc);
+    var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content',pc);
+    var logo=String(b.logo_url||'').trim();
+    if(logo){
+      ['headerLogo','dsLogo'].forEach(function(id){var e=document.getElementById(id);if(e)e.src=logo});
+      document.querySelectorAll('link[rel="icon"],link[rel="apple-touch-icon"]').forEach(function(l){l.href=logo});
+      var sl=document.getElementById('splashLogo');
+      if(sl)sl.innerHTML='<img src="'+esc(logo)+'" alt="logo"/>';
+    }
+    var nm=String(b.name||'').trim();
+    if(nm){
+      document.title=nm+' \u2022 Estoque';
+      var els={headerTitle:nm,splashName:nm,dsBrandName:nm,headerSub:'Gest\u00e3o de Estoque',splashSub:'Gest\u00e3o de Estoque'};
+      Object.keys(els).forEach(function(id){var e=document.getElementById(id);if(e)e.textContent=els[id]});
+    }
+  }
+
+  /* ── Splash ── */
+  async function initApp(){
+    if(!getToken()){location.href='/';return}
+    await loadBrand();
+    await loadCategories();
+    await new Promise(function(r){setTimeout(r,500)});
+    document.getElementById('splash').classList.add('hide');
+    document.getElementById('app').classList.add('ready');
+    loadOverview();
+  }
+
+  /* ── Toast ── */
+  function toast(msg){var e=document.getElementById('toast');e.textContent=msg;e.classList.add('show');setTimeout(function(){e.classList.remove('show')},2800)}
+
+  /* ── State ── */
+  var currentView='overview',productsList=[],allProductsCache=[],productsPage=1,productsTotal=0,prodFilter='',
+      movPage=1,movTotal=0,movFilter='',expPage=1,expTotal=0,searchTimer=null,categories=[];
+
+  /* ── Load categories ── */
+  async function loadCategories(){
+    try{
+      var r=await fetch('/api/categories',{headers:hdrs()});
+      if(!r.ok)return;var d=await r.json();
+      categories=Array.isArray(d)?d:d.categories||d.items||[];
+      var sel=document.getElementById('editCategory');
+      sel.innerHTML='<option value="">Sem categoria</option>'+categories.map(function(c){return'<option value="'+esc(c.id)+'">'+esc(c.name)+'</option>'}).join('');
+    }catch(e){}
+  }
+
+  /* ── Navigation ── */
+  function switchView(v){
+    currentView=v;
+    document.querySelectorAll('.view').forEach(function(el){el.classList.remove('active')});
+    var ve=document.getElementById('view-'+v);if(ve)ve.classList.add('active');
+    document.querySelectorAll('#bNav a').forEach(function(a){a.classList.toggle('active',a.dataset.view===v)});
+    document.querySelectorAll('#dNav a').forEach(function(a){a.classList.toggle('active',a.dataset.view===v)});
+    document.getElementById('fabBtn').style.display=(v==='overview'||v==='products')?'':'none';
+    loadViewData(v);
+  }
+  function loadViewData(v){
+    if(v==='overview')loadOverview();
+    else if(v==='products')loadProducts();
+    else if(v==='movements')loadMovements();
+    else if(v==='expedition')loadExpeditions();
+    else if(v==='alerts')loadAlerts();
+    else if(v==='reports'){loadReports();loadAnalytics()}
+  }
+  document.getElementById('bNav').addEventListener('click',function(e){var a=e.target.closest('a[data-view]');if(!a)return;e.preventDefault();switchView(a.dataset.view)});
+  document.getElementById('dNav').addEventListener('click',function(e){var a=e.target.closest('a[data-view]');if(!a)return;e.preventDefault();switchView(a.dataset.view)});
+  document.getElementById('prodFilters').addEventListener('click',function(e){var c=e.target.closest('.filter-chip');if(!c)return;prodFilter=c.dataset.filter;this.querySelectorAll('.filter-chip').forEach(function(x){x.classList.toggle('active',x===c)});productsPage=1;loadProducts()});
+  document.getElementById('movFilters').addEventListener('click',function(e){var c=e.target.closest('.filter-chip');if(!c)return;movFilter=c.dataset.filter;this.querySelectorAll('.filter-chip').forEach(function(x){x.classList.toggle('active',x===c)});movPage=1;loadMovements()});
+
+  /* ── Formatters ── */
+  function money(v){return'R$ '+Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})}
+  function num(v){return Number(v||0).toLocaleString('pt-BR')}
+  function fmtQty(v,u){if(isDigital(u))return'\u221E';return num(v)}
+  function dt(v){if(!v)return'-';var d=new Date(v);return d.toLocaleDateString('pt-BR')+' '+d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}
+  function sBadge(s){var m={normal:'\uD83D\uDFE2 Normal',baixo:'\uD83D\uDFE1 Baixo',zerado:'\uD83D\uDD34 Zerado'};return'<span class="badge badge-'+s+'">'+(m[s]||s)+'</span>'}
+  function tBadge(t){var m={entrada:'\uD83D\uDCE5 Entrada',saida:'\uD83D\uDCE4 Sa\u00edda',ajuste:'\u270F\uFE0F Ajuste',reserva:'\uD83D\uDD12 Reserva',liberacao:'\uD83D\uDD13 Libera\u00e7\u00e3o',expedicao:'\uD83D\uDE9A Expedi\u00e7\u00e3o'};return'<span class="badge badge-'+t+'">'+(m[t]||t)+'</span>'}
+
+  /* ── 1. OVERVIEW ── */
+  async function loadOverview(){
+    try{
+      var d=await apiInv('/overview');if(!d)return;
+      document.getElementById('overviewKpis').innerHTML=
+        '<div class="kpi"><div class="label">Produtos</div><div class="value">'+num(d.total_products)+'</div></div>'+
+        '<div class="kpi danger"><div class="label">Sem Estoque</div><div class="value">'+num(d.out_of_stock)+'</div></div>'+
+        '<div class="kpi warning"><div class="label">Cr\u00edtico</div><div class="value">'+num(d.low_stock)+'</div></div>'+
+        '<div class="kpi"><div class="label">Valor Total</div><div class="value" style="font-size:16px">'+money(d.total_value)+'</div></div>'+
+        '<div class="kpi success"><div class="label">Entradas Hoje</div><div class="value">'+num(d.entries_today)+'</div></div>'+
+        '<div class="kpi danger"><div class="label">Sa\u00eddas Hoje</div><div class="value">'+num(d.exits_today)+'</div></div>'+
+        '<div class="kpi"><div class="label">Unidades</div><div class="value">'+num(d.total_units)+'</div></div>'+
+        '<div class="kpi warning"><div class="label">Reservados</div><div class="value">'+num(d.total_reserved)+'</div></div>';
+      var at=Number(d.out_of_stock||0)+Number(d.low_stock||0);
+      ['alertBadge','dAlertBadge'].forEach(function(id){var e=document.getElementById(id);if(at>0){e.textContent=at;e.style.display=''}else e.style.display='none'});
+      var ts=d.top_selling||[];
+      document.getElementById('topSelling').innerHTML=ts.length?'<ul class="top-list">'+ts.map(function(p,i){return'<li><span class="rank">'+(i+1)+'.</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(p.product_name)+'</span><strong>'+num(p.total_sold)+'</strong></li>'}).join('')+'</ul>':'<div class="empty"><div class="icon">\uD83D\uDCCA</div><p>Sem dados ainda</p></div>';
+      var sp=d.stale_products||[];
+      document.getElementById('staleProducts').innerHTML=sp.length?'<ul class="top-list">'+sp.map(function(p){return'<li><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(p.product_name)+'</span>'+sBadge('zerado')+'</li>'}).join('')+'</ul>':'<div class="empty"><div class="icon">\u2705</div><p>Tudo movimentando!</p></div>';
+    }catch(e){document.getElementById('overviewKpis').innerHTML='<div class="empty"><div class="icon">\u26A0\uFE0F</div><p>'+esc(e.message)+'</p></div>'}
+  }
+
+  /* ── 2. PRODUCTS ── */
+  async function loadProducts(){
+    var search=document.getElementById('prodSearch').value.trim(),c=document.getElementById('productsContainer');
+    c.innerHTML='<div class="loading-center"><span class="spinner"></span> Carregando...</div>';
+    try{
+      var qs='?page='+productsPage+'&limit=50';
+      if(search)qs+='&search='+encodeURIComponent(search);
+      if(prodFilter)qs+='&status='+prodFilter;
+      var d=await apiInv('/products'+qs);if(!d)return;
+      productsTotal=d.total||0;productsList=d.items||[];
+      if(!productsList.length){c.innerHTML='<div class="empty"><div class="icon">\uD83D\uDCE6</div><p>Nenhum produto encontrado</p></div>';document.getElementById('productsPag').innerHTML='';return}
+      c.innerHTML=productsList.map(function(p){
+        var u=p.product_unit||'unidade',us=unitShort(u),tp=p.product_type||'fisico',
+            dig=isDigital(u),thumb=p.product_image;
+        return'<div class="product-card" onclick="IMS.showProductActions(\''+esc(p.product_id)+'\')">'
+          +(thumb?'<img class="p-thumb" src="'+esc(thumb)+'" alt="" loading="lazy"/>':'<div class="p-thumb-empty">\uD83D\uDCE6</div>')
+          +'<div class="p-info"><div class="p-name">'+esc(p.product_name)+'</div>'
+          +'<div class="p-meta"><span class="p-unit-tag">'+esc(us)+'</span>'
+          +'<span class="p-type-tag p-type-'+tp+'">'+esc(typeLabel(tp))+'</span>'
+          +(p.product_price?'<span>'+money(p.product_price)+'</span>':'')
+          +'</div></div>'
+          +'<div class="p-stock"><div class="p-qty">'+(dig?'\u221E':num(p.stock_available))+'</div>'
+          +'<div class="p-qty-unit">'+(dig?'digital':esc(us))+'</div>'
+          +sBadge(dig?'normal':p.status)+'</div></div>'
+      }).join('');
+      renderPag('productsPag',productsPage,productsTotal,50,function(p){productsPage=p;loadProducts()});
+    }catch(e){c.innerHTML='<div class="empty">\u26A0\uFE0F '+esc(e.message)+'</div>'}
+  }
+
+  /* ── 3. MOVEMENTS ── */
+  async function loadMovements(){
+    var c=document.getElementById('movContainer');
+    c.innerHTML='<div class="loading-center"><span class="spinner"></span> Carregando...</div>';
+    try{
+      var qs='?page='+movPage+'&limit=50';if(movFilter)qs+='&type='+movFilter;
+      var d=await apiInv('/movements'+qs);if(!d)return;
+      movTotal=d.total||0;var items=d.items||[];
+      if(!items.length){c.innerHTML='<div class="empty"><div class="icon">\uD83D\uDD04</div><p>Nenhuma movimenta\u00e7\u00e3o</p></div>';document.getElementById('movPag').innerHTML='';return}
+      c.innerHTML=items.map(function(m){var pos=m.type==='entrada'||m.type==='liberacao';return'<div class="mov-card"><div class="mov-top"><span class="mov-product">'+esc(m.product_name)+'</span><span class="mov-qty '+(pos?'pos':'neg')+'">'+(pos?'+':'-')+num(m.quantity)+'</span></div><div class="mov-bottom"><span>'+tBadge(m.type)+'</span><span>'+dt(m.created_at)+'</span></div></div>'}).join('');
+      renderPag('movPag',movPage,movTotal,50,function(p){movPage=p;loadMovements()});
+    }catch(e){c.innerHTML='<div class="empty">\u26A0\uFE0F '+esc(e.message)+'</div>'}
+  }
+
+  /* ── 4. EXPEDITIONS ── */
+  async function loadExpeditions(){
+    var c=document.getElementById('expContainer');
+    c.innerHTML='<div class="loading-center"><span class="spinner"></span> Carregando...</div>';
+    try{
+      var d=await apiInv('/expedition?page='+expPage+'&limit=50');if(!d)return;
+      expTotal=d.total||0;var items=d.items||[];
+      if(!items.length){c.innerHTML='<div class="empty"><div class="icon">\uD83D\uDE9A</div><p>Nenhuma expedi\u00e7\u00e3o</p></div>';return}
+      c.innerHTML=items.map(function(e){return'<div class="exp-card"><div class="exp-order">'+esc(e.order_id||'-')+'</div><div class="exp-meta">'+dt(e.expedition_date)+' \u2022 '+num(e.items_count)+' itens \u2022 '+num(e.total_units)+' un</div></div>'}).join('');
+      renderPag('expPag',expPage,expTotal,50,function(p){expPage=p;loadExpeditions()});
+    }catch(e){c.innerHTML='<div class="empty">\u26A0\uFE0F '+esc(e.message)+'</div>'}
+  }
+
+  /* ── 5. ALERTS ── */
+  async function loadAlerts(){
+    var el=document.getElementById('alertsList');
+    el.innerHTML='<div class="loading-center"><span class="spinner"></span> Carregando...</div>';
+    try{
+      var d=await apiInv('/alerts');if(!d)return;var alerts=d.alerts||[];
+      if(!alerts.length){el.innerHTML='<div class="empty"><div class="icon">\u2705</div><p>Nenhum alerta! Tudo sob controle.</p></div>';return}
+      el.innerHTML=alerts.map(function(a){return'<div class="alert-card"><div class="adot '+a.alert_type+'"></div><div class="a-info"><div class="a-name">'+esc(a.product_name)+'</div><div class="a-detail">'+(a.alert_type==='zerado'?'Sem estoque!':'Baixo: '+num(a.stock_available)+' (m\u00edn: '+num(a.stock_min)+')')+'</div></div><div><button class="btn btn-success btn-sm" onclick="event.stopPropagation();IMS.showAddStockFor(\''+esc(a.product_id)+'\')">+ Repor</button></div></div>'}).join('');
+    }catch(e){el.innerHTML='<div class="empty">\u26A0\uFE0F '+esc(e.message)+'</div>'}
+  }
+
+  /* ── 6. REPORTS ── */
+  async function loadReports(){
+    var df=document.getElementById('rptFrom').value,dt2=document.getElementById('rptTo').value;
+    try{
+      var qs='?';if(df)qs+='date_from='+df+'&';if(dt2)qs+='date_to='+dt2;
+      var d=await apiInv('/reports'+qs);if(!d)return;
+      var ms=d.movement_summary||{},sv=d.stock_value||{};
+      document.getElementById('reportKpis').innerHTML=
+        '<div class="kpi success"><div class="label">Entradas</div><div class="value">'+num(ms.total_entries)+'</div></div>'+
+        '<div class="kpi danger"><div class="label">Sa\u00eddas</div><div class="value">'+num(ms.total_exits)+'</div></div>'+
+        '<div class="kpi"><div class="label">Valor</div><div class="value" style="font-size:16px">'+money(sv.total_value)+'</div></div>'+
+        '<div class="kpi"><div class="label">Unidades</div><div class="value">'+num(sv.total_units)+'</div></div>';
+      var ts=d.top_selling||[];
+      document.getElementById('rptTop').innerHTML=ts.length?'<ul class="top-list">'+ts.map(function(p,i){return'<li><span class="rank">'+(i+1)+'.</span><span style="flex:1">'+esc(p.product_name)+'</span><strong>'+num(p.total)+'</strong></li>'}).join('')+'</ul>':'<div class="empty"><p>Sem dados</p></div>';
+      var lm=d.least_moving||[];
+      document.getElementById('rptLeast').innerHTML=lm.length?'<ul class="top-list">'+lm.map(function(p,i){return'<li><span class="rank">'+(i+1)+'.</span><span style="flex:1">'+esc(p.product_name)+'</span><strong>'+num(p.total)+'</strong></li>'}).join('')+'</ul>':'<div class="empty"><p>Sem dados</p></div>';
+    }catch(e){document.getElementById('reportKpis').innerHTML='<div class="empty">\u26A0\uFE0F '+esc(e.message)+'</div>'}
+  }
+  async function loadAnalytics(){
+    try{
+      var d=await apiInv('/analytics');if(!d)return;
+      var ds=(d.daily_summary||[]).slice(0,14).reverse(),
+          mx=Math.max(1,...ds.map(function(x){return Math.max(Number(x.entries||0),Number(x.exits||0))})),
+          ch=document.getElementById('dailyChart');
+      if(ds.length){ch.innerHTML=ds.map(function(x){var eH=Math.round(Number(x.entries||0)/mx*80),xH=Math.round(Number(x.exits||0)/mx*80),lb=String(x.day||'').slice(5);return'<div class="bar-col"><div class="bar-value">'+Number(x.entries||0)+'</div><div class="bar" style="height:'+eH+'px"></div><div class="bar exit" style="height:'+xH+'px"></div><div class="bar-label">'+lb+'</div></div>'}).join('')}
+      else ch.innerHTML='<div class="empty" style="padding:20px"><p>Sem dados</p></div>';
+      var abc=d.abc_curve||[],tv=abc.reduce(function(s,p){return s+Number(p.stock_value||0)},0),cum=0;
+      document.getElementById('abcContainer').innerHTML=abc.length?abc.map(function(p){cum+=Number(p.stock_value||0);var pct=tv>0?(cum/tv)*100:0,cls=pct<=80?'A':pct<=95?'B':'C';return'<div style="display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid #f3f4f6;font-size:13px"><span class="badge badge-'+(cls==='A'?'entrada':cls==='B'?'reserva':'saida')+'" style="width:24px;text-align:center">'+cls+'</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(p.product_name)+'</span><strong>'+money(p.stock_value)+'</strong></div>'}).join(''):'<div class="empty"><p>Sem dados</p></div>';
+    }catch(e){document.getElementById('dailyChart').innerHTML='<div class="empty">\u26A0\uFE0F '+esc(e.message)+'</div>'}
+  }
+
+  /* ── Product Actions (mobile detail) ── */
+  function showProductActions(pid){
+    var p=productsList.find(function(x){return x.product_id===pid});if(!p)return;
+    var u=p.product_unit||'unidade',us=unitShort(u),tp=p.product_type||'fisico',dig=isDigital(u);
+    // Thumbnail
+    var thumbEl=document.getElementById('paThumb');
+    if(p.product_image)thumbEl.innerHTML='<img src="'+esc(p.product_image)+'" style="width:100%;height:100%;object-fit:cover"/>';
+    else thumbEl.innerHTML='\uD83D\uDCE6';
+    document.getElementById('paName').textContent=p.product_name;
+    document.getElementById('paDetail').innerHTML=
+      '<span class="p-unit-tag">'+esc(us)+'</span> '
+      +'<span class="p-type-tag p-type-'+tp+'">'+esc(typeLabel(tp))+'</span>'
+      +(p.product_price?' \u2022 '+money(p.product_price):'');
+    // Stock info
+    document.getElementById('paStockInfo').innerHTML=
+      '<div class="kpi" style="padding:10px"><div class="label">Dispon\u00edvel</div><div class="value" style="font-size:18px">'+(dig?'\u221E':num(p.stock_available))+'</div><div style="font-size:10px;color:var(--muted);text-transform:uppercase">'+esc(us)+'</div></div>'
+      +'<div class="kpi" style="padding:10px"><div class="label">Reservado</div><div class="value" style="font-size:18px">'+num(p.stock_reserved)+'</div></div>'
+      +'<div class="kpi" style="padding:10px"><div class="label">M\u00ednimo</div><div class="value" style="font-size:18px">'+num(p.stock_min)+'</div></div>';
+    // Actions
+    document.getElementById('paActions').innerHTML=
+      '<button class="btn btn-success btn-block" onclick="IMS.closeModal(\'modalProductActions\');IMS.showAddStockFor(\''+esc(p.product_id)+'\')">📥 Entrada de Estoque</button>'
+      +(dig?'':'<button class="btn btn-danger btn-block" onclick="IMS.closeModal(\'modalProductActions\');IMS.showRemoveStock(\''+esc(p.product_id)+'\',\''+esc(p.product_name)+'\',\''+esc(u)+'\','+p.stock_available+')">📤 Sa\u00edda de Estoque</button>')
+      +'<button class="btn btn-secondary btn-block" onclick="IMS.closeModal(\'modalProductActions\');IMS.showAdjustStock(\''+esc(p.product_id)+'\',\''+esc(p.product_name)+'\','+p.stock_current+',\''+esc(u)+'\')">✏️ Ajustar Estoque</button>'
+      +'<button class="btn btn-secondary btn-block" onclick="IMS.closeModal(\'modalProductActions\');IMS.showEditProduct(\''+esc(p.product_id)+'\')">📝 Editar Produto</button>'
+      +'<button class="btn btn-secondary btn-block" onclick="IMS.closeModal(\'modalProductActions\');IMS.showHistory(\''+esc(p.product_id)+'\',\''+esc(p.product_name)+'\')">📜 Hist\u00f3rico</button>'
+      +'<button class="btn btn-secondary btn-block" onclick="IMS.closeModal(\'modalProductActions\');IMS.showSettings(\''+esc(p.product_id)+'\',\''+esc(p.product_name)+'\','+p.stock_min+','+p.cost_price+')">⚙️ Config. Estoque</button>';
+    openModal('modalProductActions');
+  }
+
+  /* ── Add Stock (with product search) ── */
+  async function loadAllProducts(){
+    if(allProductsCache.length)return;
+    try{var d=await apiInv('/products?limit=500');if(d)allProductsCache=d.items||[]}catch(e){}
+  }
+  function filterAddProducts(){
+    var q=document.getElementById('addProductSearch').value.trim().toLowerCase(),dd=document.getElementById('addProductDropdown');
+    if(!q||q.length<1){dd.style.display='none';return}
+    var matches=allProductsCache.filter(function(p){return(p.product_name||'').toLowerCase().includes(q)||(p.product_sku||'').toLowerCase().includes(q)}).slice(0,10);
+    if(!matches.length){dd.style.display='none';return}
+    dd.style.display='';
+    dd.innerHTML=matches.map(function(p){
+      var u=p.product_unit||'unidade',us=unitShort(u),thumb=p.product_image;
+      return'<div style="display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid #f3f4f6;cursor:pointer" onclick="IMS.selectAddProduct(\''+esc(p.product_id)+'\')">'
+        +(thumb?'<img src="'+esc(thumb)+'" style="width:36px;height:36px;border-radius:8px;object-fit:cover;flex-shrink:0"/>':'<div style="width:36px;height:36px;border-radius:8px;background:#f3f4f6;display:flex;align-items:center;justify-content:center;flex-shrink:0">\uD83D\uDCE6</div>')
+        +'<div style="flex:1;min-width:0"><div style="font-weight:600;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(p.product_name)+'</div><div style="font-size:11px;color:var(--muted)">Estoque: '+fmtQty(p.stock_available,u)+' '+esc(us)+' \u2022 '+money(p.product_price)+'</div></div></div>'
+    }).join('');
+  }
+  function selectAddProduct(pid){
+    var p=allProductsCache.find(function(x){return x.product_id===pid});if(!p)return;
+    var u=p.product_unit||'unidade';
+    document.getElementById('addProductId').value=pid;
+    document.getElementById('addProductSearch').style.display='none';
+    document.getElementById('addProductDropdown').style.display='none';
+    document.getElementById('addUnit').value=unitLabel(u);
+    // Show selected
+    var sel=document.getElementById('addProductSelected');sel.style.display='';
+    document.getElementById('addSelName').textContent=p.product_name;
+    document.getElementById('addSelMeta').textContent='Estoque: '+fmtQty(p.stock_available,u)+' '+unitShort(u)+' \u2022 '+money(p.product_price);
+    var thumbEl=document.getElementById('addSelThumb');
+    thumbEl.innerHTML=p.product_image?'<img src="'+esc(p.product_image)+'" style="width:100%;height:100%;object-fit:cover"/>':'\uD83D\uDCE6';
+  }
+  function clearAddProduct(){
+    document.getElementById('addProductId').value='';
+    document.getElementById('addProductSearch').value='';
+    document.getElementById('addProductSearch').style.display='';
+    document.getElementById('addProductSelected').style.display='none';
+    document.getElementById('addUnit').value='Unidade';
+    document.getElementById('addProductDropdown').style.display='none';
+  }
+
+  async function showAddStock(){await loadAllProducts();clearAddProduct();document.getElementById('addQty').value=1;document.getElementById('addReason').value='';openModal('modalAddStock')}
+  async function showAddStockFor(pid){
+    await loadAllProducts();
+    selectAddProduct(pid);
+    document.getElementById('addQty').value=1;document.getElementById('addReason').value='';openModal('modalAddStock');
+  }
+  async function submitAddStock(){
+    var pid=document.getElementById('addProductId').value;if(!pid)return toast('Selecione um produto');
+    var qty=Number(document.getElementById('addQty').value);if(qty<=0)return toast('Quantidade inv\u00e1lida');
+    try{await apiInvPost('/products/'+pid+'/add',{quantity:qty,source:document.getElementById('addSource').value,reason:document.getElementById('addReason').value||undefined});closeModal('modalAddStock');toast('\u2705 Entrada registrada!');allProductsCache=[];loadViewData(currentView)}catch(e){toast('\u274C '+e.message)}
+  }
+
+  /* ── Remove Stock ── */
+  function showRemoveStock(pid,name,unit,avail){
+    document.getElementById('removeProductId').value=pid;
+    document.getElementById('removeProductName').textContent=name;
+    document.getElementById('removeProductMeta').textContent='Dispon\u00edvel: '+num(avail)+' '+unitShort(unit);
+    document.getElementById('removeUnit').value=unitLabel(unit);
+    document.getElementById('removeQty').value=1;document.getElementById('removeReason').value='';openModal('modalRemoveStock');
+  }
+  async function submitRemoveStock(){
+    var pid=document.getElementById('removeProductId').value,qty=Number(document.getElementById('removeQty').value);if(qty<=0)return toast('Quantidade inv\u00e1lida');
+    try{await apiInvPost('/products/'+pid+'/remove',{quantity:qty,source:document.getElementById('removeSource').value,reason:document.getElementById('removeReason').value||undefined});closeModal('modalRemoveStock');toast('\u2705 Sa\u00edda registrada!');allProductsCache=[];loadViewData(currentView)}catch(e){toast('\u274C '+e.message)}
+  }
+
+  /* ── Adjust Stock ── */
+  function showAdjustStock(pid,name,cur,unit){
+    document.getElementById('adjustProductId').value=pid;
+    document.getElementById('adjustProductName').textContent=name;
+    document.getElementById('adjustProductMeta').textContent='Unidade: '+unitShort(unit);
+    document.getElementById('adjustCurrent').value=cur;document.getElementById('adjustNewQty').value=cur;openModal('modalAdjustStock');
+  }
+  async function submitAdjustStock(){
+    var pid=document.getElementById('adjustProductId').value,nq=Number(document.getElementById('adjustNewQty').value),reason=document.getElementById('adjustReason').value;
+    try{await apiInvPost('/products/'+pid+'/adjust',{new_quantity:nq,reason:reason});closeModal('modalAdjustStock');toast('\u2705 Estoque ajustado!');allProductsCache=[];loadViewData(currentView)}catch(e){toast('\u274C '+e.message)}
+  }
+
+  /* ── Settings ── */
+  function showSettings(pid,name,smin,cost){document.getElementById('settingsProductId').value=pid;document.getElementById('settingsProductName').textContent=name;document.getElementById('settingsMin').value=smin;document.getElementById('settingsCost').value=cost;openModal('modalSettings')}
+  async function submitSettings(){
+    var pid=document.getElementById('settingsProductId').value;
+    try{await apiInvPut('/products/'+pid+'/settings',{stock_min:Number(document.getElementById('settingsMin').value),cost_price:Number(document.getElementById('settingsCost').value)});closeModal('modalSettings');toast('\u2705 Salvo!');allProductsCache=[];loadViewData(currentView)}catch(e){toast('\u274C '+e.message)}
+  }
+
+  /* ── History ── */
+  async function showHistory(pid,name){
+    document.getElementById('historyProductName').textContent=name;
+    var el=document.getElementById('historyTimeline');
+    el.innerHTML='<div class="loading-center"><span class="spinner"></span></div>';openModal('modalHistory');
+    try{var d=await apiInv('/products/'+pid+'/history?limit=50');if(!d)return;var items=d.history||[];
+    if(!items.length){el.innerHTML='<div class="empty"><p>Sem movimenta\u00e7\u00f5es</p></div>';return}
+    el.innerHTML='<ul class="timeline">'+items.map(function(m){var sign=(m.type==='entrada'||m.type==='liberacao')?'+':'-';return'<li class="'+m.type+'"><strong>'+sign+num(m.quantity)+'</strong> '+tBadge(m.type)+(m.reason?' \u2014 '+esc(m.reason):'')+'<br><span class="time">'+dt(m.created_at)+' \u2022 '+esc(m.source)+'</span></li>'}).join('')+'</ul>'}catch(e){el.innerHTML='<div class="empty">\u26A0\uFE0F '+esc(e.message)+'</div>'}
+  }
+
+  /* ── Expedition ── */
+  function showExpeditionModal(){document.getElementById('expedOrderId').value='';openModal('modalExpedition')}
+  async function submitExpedition(){
+    var oid=document.getElementById('expedOrderId').value.trim();if(!oid)return toast('ID obrigat\u00f3rio');
+    try{await apiInvPost('/expedition',{order_id:oid});closeModal('modalExpedition');toast('\u2705 Expedi\u00e7\u00e3o registrada!');loadExpeditions()}catch(e){toast('\u274C '+e.message)}
+  }
+
+  /* ── Product CRUD (full management) ── */
+  async function showEditProduct(pid){
+    document.getElementById('editProductId').value=pid||'';
+    document.getElementById('editProductTitle').textContent=pid?'\uD83D\uDCDD Editar Produto':'\u2795 Novo Produto';
+    // Reset
+    document.getElementById('editName').value='';document.getElementById('editDesc').value='';
+    document.getElementById('editUnit').value='unidade';document.getElementById('editPrice').value='';
+    document.getElementById('editPromo').value='';document.getElementById('editCategory').value='';
+    document.getElementById('editActive').value='1';document.getElementById('editFeatures').value='';
+    document.getElementById('editImagePreview').style.display='none';
+    document.getElementById('editImagePlaceholder').style.display='';
+    document.getElementById('editImageFile').value='';
+    if(pid){
+      try{
+        var d=await apiProd('/'+pid);if(!d)return;
+        var pr=d.product||d;
+        document.getElementById('editName').value=pr.name||'';
+        document.getElementById('editDesc').value=pr.description||'';
+        document.getElementById('editUnit').value=pr.unit||'unidade';
+        document.getElementById('editPrice').value=pr.price||'';
+        document.getElementById('editPromo').value=pr.promoPrice||pr.promo_price||'';
+        document.getElementById('editCategory').value=pr.category||'';
+        document.getElementById('editActive').value=pr.active===false||pr.is_active===false?'0':'1';
+        document.getElementById('editFeatures').value=(pr.features||[]).join(', ');
+        var img=pr.image_url||pr.imageUrl||pr.image||'';
+        if(img){document.getElementById('editImagePreview').src=img;document.getElementById('editImagePreview').style.display='';document.getElementById('editImagePlaceholder').style.display='none'}
+      }catch(e){toast('\u274C '+e.message);return}
+    }
+    openModal('modalEditProduct');
+  }
+  function previewEditImage(inp){
+    if(!inp.files||!inp.files[0])return;
+    var reader=new FileReader();
+    reader.onload=function(e){
+      document.getElementById('editImagePreview').src=e.target.result;
+      document.getElementById('editImagePreview').style.display='';
+      document.getElementById('editImagePlaceholder').style.display='none';
+    };
+    reader.readAsDataURL(inp.files[0]);
+  }
+  async function submitEditProduct(){
+    var pid=document.getElementById('editProductId').value,name=document.getElementById('editName').value.trim();
+    if(!name)return toast('Nome \u00e9 obrigat\u00f3rio');
+    var body={
+      name:name,
+      description:document.getElementById('editDesc').value.trim(),
+      unit:document.getElementById('editUnit').value,
+      price:Number(document.getElementById('editPrice').value)||0,
+      promoPrice:Number(document.getElementById('editPromo').value)||null,
+      category:document.getElementById('editCategory').value||null,
+      active:document.getElementById('editActive').value==='1',
+      features:document.getElementById('editFeatures').value.split(',').map(function(s){return s.trim()}).filter(Boolean)
+    };
+    try{
+      var result;
+      if(pid){result=await apiProd('/'+pid,{method:'PUT',body:JSON.stringify(body)})}
+      else{result=await apiProd('',{method:'POST',body:JSON.stringify(body)});pid=(result.product||result).id}
+      // Upload image if selected
+      var fileInput=document.getElementById('editImageFile');
+      if(fileInput.files&&fileInput.files[0]&&pid){
+        var fd=new FormData();fd.append('image',fileInput.files[0]);
+        await fetch(API_PROD+'/'+pid+'/image',{method:'POST',headers:hdrsMultipart(),body:fd});
+      }
+      closeModal('modalEditProduct');toast('\u2705 Produto salvo!');
+      // Sync to inventory if new
+      if(!document.getElementById('editProductId').value){try{await apiInvPost('/sync',{})}catch(e){}}
+      allProductsCache=[];loadViewData(currentView);
+    }catch(e){toast('\u274C '+e.message)}
+  }
+
+  /* ── Sync ── */
+  async function syncProducts(){try{var d=await apiInvPost('/sync',{});toast('\u2705 Sincronizado! '+(d.synced||0)+' novos.');allProductsCache=[];loadViewData(currentView)}catch(e){toast('\u274C '+e.message)}}
+
+  /* ── Modal / Pagination / Utils ── */
+  function openModal(id){document.getElementById(id).classList.add('open')}
+  function closeModal(id){document.getElementById(id).classList.remove('open')}
+  document.querySelectorAll('.modal-overlay').forEach(function(ov){ov.addEventListener('click',function(e){if(e.target===ov)ov.classList.remove('open')})});
+
+  function renderPag(cid,page,total,limit,onPage){
+    var el=document.getElementById(cid),tp=Math.ceil(total/limit);
+    if(tp<=1){el.innerHTML='';return}
+    el.innerHTML='<button '+(page<=1?'disabled':'')+' onclick="this._fn()">\u2190</button><span>'+page+' / '+tp+'</span><button '+(page>=tp?'disabled':'')+' onclick="this._fn()">\u2192</button>';
+    el.querySelector('button:first-child')._fn=function(){onPage(page-1)};
+    el.querySelector('button:last-child')._fn=function(){onPage(page+1)};
+  }
+  function debounceProducts(){clearTimeout(searchTimer);searchTimer=setTimeout(function(){productsPage=1;loadProducts()},350)}
+  function esc(s){var d=document.createElement('div');d.textContent=String(s||'');return d.innerHTML}
+
+  /* ── Public API ── */
+  window.IMS={
+    showAddStock:showAddStock,showAddStockFor:showAddStockFor,submitAddStock:submitAddStock,
+    filterAddProducts:filterAddProducts,selectAddProduct:selectAddProduct,clearAddProduct:clearAddProduct,
+    showRemoveStock:showRemoveStock,submitRemoveStock:submitRemoveStock,
+    showAdjustStock:showAdjustStock,submitAdjustStock:submitAdjustStock,
+    showSettings:showSettings,submitSettings:submitSettings,
+    showHistory:showHistory,showExpeditionModal:showExpeditionModal,submitExpedition:submitExpedition,
+    showProductActions:showProductActions,syncProducts:syncProducts,
+    showEditProduct:showEditProduct,submitEditProduct:submitEditProduct,previewEditImage:previewEditImage,
+    debounceProducts:debounceProducts,loadProducts:loadProducts,loadMovements:loadMovements,
+    loadReports:loadReports,closeModal:closeModal,openModal:openModal
+  };
+
+  initApp();
+})();
+</script>
+</body>
+</html>

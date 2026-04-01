@@ -4,6 +4,10 @@ import { BrandUnitsService } from "../services/brandUnits";
 import { CommerceService, CommerceOrderStatus } from "../services/commerce";
 import { FlowExecutorService } from "../services/flowExecutor";
 import { query, queryOne, update } from "../config/database";
+import { OrderManagementService } from "../services/orderManagement";
+import { InventoryService } from "../services/inventory";
+
+const inventoryService = new InventoryService();
 
 type BusinessOrderStatus =
   | "novo"
@@ -19,6 +23,7 @@ type OrderOrigin = "site" | "manual" | "whatsapp" | "api";
 const router = Router();
 const commerceService = new CommerceService();
 const brandUnitsService = new BrandUnitsService();
+const omsService = new OrderManagementService();
 
 let schemaReady = false;
 let schemaPromise: Promise<void> | null = null;
@@ -214,6 +219,43 @@ async function appendTimeline(input: {
       input.payload ? JSON.stringify(input.payload) : null,
     ]
   );
+}
+
+function deriveLifecycleState(status: BusinessOrderStatus): {
+  paymentStatus: "pending" | "paid" | "failed" | "refunded";
+  deliveryStatus: string;
+} {
+  return {
+    paymentStatus:
+      status === "cancelado" ? "failed" : ["pago", "em_preparacao", "em_entrega", "entregue"].includes(status) ? "paid" : "pending",
+    deliveryStatus:
+      status === "em_entrega"
+        ? "saiu_para_entrega"
+        : status === "entregue"
+        ? "entregue"
+        : status === "em_preparacao"
+        ? "em_preparacao"
+        : status === "cancelado"
+        ? "cancelado"
+        : "nao_iniciado",
+  };
+}
+
+async function getCurrentBusinessStatus(orderId: string): Promise<BusinessOrderStatus | null> {
+  await ensureOrdersSchema();
+  const meta = await queryOne<{ business_status?: string }>(
+    "SELECT business_status FROM order_management_meta WHERE order_id = ? LIMIT 1",
+    [orderId]
+  );
+  const status = String(meta?.business_status || "").trim();
+  return status ? normalizeBusinessStatus(status) : null;
+}
+
+function ensureAllowedTransition(currentStatus: BusinessOrderStatus | null, nextStatus: BusinessOrderStatus): void {
+  if (!currentStatus || currentStatus === nextStatus) return;
+  if (!omsService.canTransition(currentStatus as any, nextStatus as any)) {
+    throw new Error(`Invalid status transition: ${currentStatus} -> ${nextStatus}`);
+  }
 }
 
 async function fireOrderEvents(
@@ -671,6 +713,19 @@ router.post("/", async (req: AuthRequest, res: Response) => {
       total: created.order.valor_total,
     });
 
+    // OMS: auto-trigger template notifications on order creation
+    const vars = omsService.buildOrderVariables(
+      { ...created.order, items: Array.isArray(body.itens) ? body.itens : [] }
+    );
+    omsService.processOrderEvent({ userId, brandId, orderId: created.order.id, event: "order.created", variables: vars }).catch(() => {});
+
+    // IMS: reserve stock for order items
+    const orderItems = (Array.isArray(body.itens) ? body.itens : []).map((it: any) => ({
+      product_id: String(it.product_id || ""),
+      quantity: Number(it.quantidade || it.quantity || 1),
+    })).filter((it: any) => it.product_id);
+    inventoryService.handleOrderCreated(userId, brandId, created.order.id, orderItems).catch(() => {});
+
     res.status(201).json({
       success: true,
       ...created,
@@ -703,11 +758,15 @@ router.patch("/bulk-status", async (req: AuthRequest, res: Response) => {
     let updatedCount = 0;
 
     for (const orderId of orderIds.slice(0, 500)) {
+      const currentStatus = await getCurrentBusinessStatus(orderId);
+      ensureAllowedTransition(currentStatus, status);
+
       const updated = await commerceService.updateOrderStatus(userId, brandId, orderId, {
         status_pedido: businessToCommerceStatus(status),
       });
       if (!updated) continue;
       updatedCount += 1;
+      const lifecycle = deriveLifecycleState(status);
 
       await ensureOrderMeta({
         orderId,
@@ -715,15 +774,8 @@ router.patch("/bulk-status", async (req: AuthRequest, res: Response) => {
         brandId,
         origin: commerceOriginToOrderOrigin(updated.order.origem),
         businessStatus: status,
-        paymentStatus: status === "pago" || status === "em_preparacao" || status === "em_entrega" || status === "entregue" ? "paid" : "pending",
-        deliveryStatus:
-          status === "em_entrega"
-            ? "saiu_para_entrega"
-            : status === "entregue"
-            ? "entregue"
-            : status === "em_preparacao"
-            ? "em_preparacao"
-            : "nao_iniciado",
+        paymentStatus: lifecycle.paymentStatus,
+        deliveryStatus: lifecycle.deliveryStatus,
       });
 
       await appendTimeline({
@@ -735,6 +787,28 @@ router.patch("/bulk-status", async (req: AuthRequest, res: Response) => {
         actorType: "admin",
         updatedBy: userId,
       });
+
+      const statusEventMap: Record<string, string> = {
+        pago: "order.paid",
+        em_preparacao: "order.preparing",
+        em_entrega: "order.shipped",
+        entregue: "order.delivered",
+        cancelado: "order.cancelled",
+      };
+      const omsEvent = statusEventMap[status];
+      if (omsEvent) {
+        const vars = omsService.buildOrderVariables({ ...updated.order, items: updated.items });
+        await omsService.processOrderEvent({ userId, brandId, orderId, event: omsEvent as any, variables: vars }).catch(() => {});
+      }
+
+      const statusItems = (updated.items || [])
+        .map((it: any) => ({ product_id: String(it.product_id || ""), quantity: Number(it.quantidade || it.quantity || 1) }))
+        .filter((it: any) => it.product_id);
+      if (status === "pago") {
+        await inventoryService.handleOrderPaid(userId, brandId, orderId, statusItems).catch(() => {});
+      } else if (status === "cancelado") {
+        await inventoryService.handleOrderCancelled(userId, brandId, orderId, statusItems).catch(() => {});
+      }
     }
 
     await fireOrderEvents(userId, "order.status_changed", {
@@ -745,7 +819,8 @@ router.patch("/bulk-status", async (req: AuthRequest, res: Response) => {
 
     res.json({ success: true, updated: updatedCount, status });
   } catch (error: any) {
-    res.status(500).json({ error: error.message || "Failed to bulk update orders" });
+    const statusCode = String(error.message || "").startsWith("Invalid status transition") ? 400 : 500;
+    res.status(statusCode).json({ error: error.message || "Failed to bulk update orders" });
   }
 });
 
@@ -758,6 +833,8 @@ router.patch("/:id/status", async (req: AuthRequest, res: Response) => {
     if (!orderId) return res.status(400).json({ error: "order_id obrigatório" });
 
     const status = normalizeBusinessStatus(req.body?.status || req.body?.business_status);
+    const currentStatus = await getCurrentBusinessStatus(orderId);
+    ensureAllowedTransition(currentStatus, status);
 
     const updated = await commerceService.updateOrderStatus(userId, brandId, orderId, {
       status_pedido: businessToCommerceStatus(status),
@@ -765,6 +842,7 @@ router.patch("/:id/status", async (req: AuthRequest, res: Response) => {
       data_pagamento: req.body?.data_pagamento,
     });
     if (!updated) return res.status(404).json({ error: "Pedido não encontrado" });
+    const lifecycle = deriveLifecycleState(status);
 
     await ensureOrderMeta({
       orderId,
@@ -772,15 +850,8 @@ router.patch("/:id/status", async (req: AuthRequest, res: Response) => {
       brandId,
       origin: commerceOriginToOrderOrigin(updated.order.origem),
       businessStatus: status,
-      paymentStatus: status === "pago" || status === "em_preparacao" || status === "em_entrega" || status === "entregue" ? "paid" : "pending",
-      deliveryStatus:
-        status === "em_entrega"
-          ? "saiu_para_entrega"
-          : status === "entregue"
-          ? "entregue"
-          : status === "em_preparacao"
-          ? "em_preparacao"
-          : "nao_iniciado",
+      paymentStatus: lifecycle.paymentStatus,
+      deliveryStatus: lifecycle.deliveryStatus,
     });
 
     await appendTimeline({
@@ -799,12 +870,41 @@ router.patch("/:id/status", async (req: AuthRequest, res: Response) => {
     await fireOrderEvents(userId, "order.status_changed", {
       order_id: orderId,
       status,
-      payment_status: status === "pago" || status === "em_preparacao" || status === "em_entrega" || status === "entregue" ? "paid" : "pending",
+      payment_status: lifecycle.paymentStatus,
     });
+
+    // OMS: auto-trigger template notifications on status change
+    const statusEventMap: Record<string, string> = {
+      pago: "order.paid",
+      em_preparacao: "order.preparing",
+      em_entrega: "order.shipped",
+      entregue: "order.delivered",
+      cancelado: "order.cancelled",
+    };
+    const omsEvent = statusEventMap[status];
+    if (omsEvent) {
+      const vars = omsService.buildOrderVariables(
+        { ...updated.order, items: updated.items },
+        { cancel_reason: req.body?.reason }
+      );
+      omsService.processOrderEvent({ userId, brandId, orderId, event: omsEvent as any, variables: vars }).catch(() => {});
+    }
+
+    // IMS: handle stock deduction on payment or release on cancellation
+    const statusItems = (updated.items || []).map((it: any) => ({
+      product_id: String(it.product_id || ""),
+      quantity: Number(it.quantidade || it.quantity || 1),
+    })).filter((it: any) => it.product_id);
+    if (status === "pago") {
+      inventoryService.handleOrderPaid(userId, brandId, orderId, statusItems).catch(() => {});
+    } else if (status === "cancelado") {
+      inventoryService.handleOrderCancelled(userId, brandId, orderId, statusItems).catch(() => {});
+    }
 
     res.json({ success: true, order: updated.order, items: updated.items, business_status: status });
   } catch (error: any) {
-    res.status(500).json({ error: error.message || "Failed to update managed order status" });
+    const statusCode = String(error.message || "").startsWith("Invalid status transition") ? 400 : 500;
+    res.status(statusCode).json({ error: error.message || "Failed to update managed order status" });
   }
 });
 
@@ -885,6 +985,20 @@ router.post("/:id/cancel", async (req: AuthRequest, res: Response) => {
       order_id: orderId,
       reason: String(req.body?.reason || "cancelled_by_operator"),
     });
+
+    // OMS: auto-trigger cancellation notifications
+    const cancelVars = omsService.buildOrderVariables(
+      { ...updated.order, items: updated.items },
+      { cancel_reason: String(req.body?.reason || "cancelled_by_operator") }
+    );
+    omsService.processOrderEvent({ userId, brandId, orderId, event: "order.cancelled", variables: cancelVars }).catch(() => {});
+
+    // IMS: release reserved stock
+    const cancelItems = (updated.items || []).map((it: any) => ({
+      product_id: String(it.product_id || ""),
+      quantity: Number(it.quantidade || it.quantity || 1),
+    })).filter((it: any) => it.product_id);
+    inventoryService.handleOrderCancelled(userId, brandId, orderId, cancelItems).catch(() => {});
 
     res.json({ success: true, order: updated.order, items: updated.items });
   } catch (error: any) {
@@ -1113,6 +1227,291 @@ router.get("/:id/emissions", async (req: AuthRequest, res: Response) => {
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message || "Failed to generate emissions" });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// OMS – Status Flow
+// ═══════════════════════════════════════════════════════════════════════════
+
+router.get("/oms/status-flow", async (_req: AuthRequest, res: Response) => {
+  try {
+    res.json({ success: true, flow: omsService.getStatusFlow() });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get("/oms/status-flow/:status/transitions", async (req: AuthRequest, res: Response) => {
+  try {
+    const status = String(req.params.status || "").trim();
+    const allowed = omsService.getAllowedTransitions(status as any);
+    res.json({ success: true, current: status, allowed });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// OMS – Notification Templates
+// ═══════════════════════════════════════════════════════════════════════════
+
+router.get("/oms/templates", async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId as string | undefined;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const brandId = await resolveBrandId(req);
+    const templates = await omsService.listTemplates(userId, brandId);
+    res.json({ success: true, templates });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get("/oms/templates/:id", async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId as string | undefined;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const template = await omsService.getTemplate(userId, String(req.params.id));
+    if (!template) return res.status(404).json({ error: "Template não encontrado" });
+    res.json({ success: true, template });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post("/oms/templates", async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId as string | undefined;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const brandId = await resolveBrandId(req);
+    const body = req.body || {};
+
+    if (!body.event || !body.target || !body.body_template) {
+      return res.status(400).json({ error: "event, target e body_template são obrigatórios" });
+    }
+
+    const template = await omsService.upsertTemplate({
+      userId,
+      brandId,
+      event: body.event,
+      target: body.target,
+      channel: body.channel || "whatsapp",
+      subject: body.subject,
+      bodyTemplate: body.body_template,
+      isActive: body.is_active !== false,
+    });
+
+    res.status(201).json({ success: true, template });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.delete("/oms/templates/:id", async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId as string | undefined;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const deleted = await omsService.deleteTemplate(userId, String(req.params.id));
+    if (!deleted) return res.status(404).json({ error: "Template não encontrado" });
+    res.json({ success: true, deleted: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post("/oms/templates/seed", async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId as string | undefined;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const brandId = await resolveBrandId(req);
+    const count = await omsService.seedDefaultTemplates(userId, brandId);
+    res.json({ success: true, seeded: count });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post("/oms/templates/preview", async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId as string | undefined;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const body = req.body || {};
+    if (!body.body_template) return res.status(400).json({ error: "body_template obrigatório" });
+    const rendered = await omsService.previewTemplate(body.body_template, body.variables);
+    res.json({ success: true, rendered });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// OMS – Process Order Event (trigger notifications)
+// ═══════════════════════════════════════════════════════════════════════════
+
+router.post("/oms/:id/notify", async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId as string | undefined;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const brandId = await resolveBrandId(req);
+    const orderId = String(req.params.id || "").trim();
+    if (!orderId) return res.status(400).json({ error: "order_id obrigatório" });
+
+    const body = req.body || {};
+    if (!body.event) return res.status(400).json({ error: "event obrigatório" });
+
+    const orderBundle = await commerceService.getOrderById(userId, brandId, orderId);
+    if (!orderBundle) return res.status(404).json({ error: "Pedido não encontrado" });
+
+    const variables = omsService.buildOrderVariables(
+      { ...orderBundle.order, items: orderBundle.items },
+      body.extra_variables
+    );
+
+    const results = await omsService.processOrderEvent({
+      userId,
+      brandId,
+      orderId,
+      event: body.event,
+      variables,
+    });
+
+    res.json({ success: true, notifications: results });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// OMS – Responsible Assignment
+// ═══════════════════════════════════════════════════════════════════════════
+
+router.get("/oms/:id/responsibles", async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId as string | undefined;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const orderId = String(req.params.id || "").trim();
+    if (!orderId) return res.status(400).json({ error: "order_id obrigatório" });
+    const responsibles = await omsService.getOrderResponsibles(orderId);
+    res.json({ success: true, responsibles });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.post("/oms/:id/responsibles", async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId as string | undefined;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const brandId = await resolveBrandId(req);
+    const orderId = String(req.params.id || "").trim();
+    if (!orderId) return res.status(400).json({ error: "order_id obrigatório" });
+
+    const body = req.body || {};
+    if (!body.responsible_name || !body.role) {
+      return res.status(400).json({ error: "responsible_name e role são obrigatórios" });
+    }
+
+    const responsible = await omsService.assignResponsible({
+      orderId,
+      userId,
+      brandId,
+      responsibleUserId: body.responsible_user_id || userId,
+      responsibleName: body.responsible_name,
+      role: body.role,
+    });
+
+    await appendTimeline({
+      orderId,
+      userId,
+      brandId,
+      status: "responsavel_atribuido",
+      eventKey: "order.responsible_assigned",
+      actorType: "admin",
+      updatedBy: userId,
+      payload: {
+        responsible_name: body.responsible_name,
+        role: body.role,
+      },
+    });
+
+    res.status(201).json({ success: true, responsible });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.delete("/oms/:id/responsibles/:role", async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId as string | undefined;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const orderId = String(req.params.id || "").trim();
+    const role = String(req.params.role || "").trim();
+    if (!orderId || !role) return res.status(400).json({ error: "order_id e role obrigatórios" });
+
+    const removed = await omsService.unassignResponsible(orderId, userId, role as any);
+    if (!removed) return res.status(404).json({ error: "Responsável não encontrado" });
+    res.json({ success: true, removed: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// OMS – Problem Detection
+// ═══════════════════════════════════════════════════════════════════════════
+
+router.get("/oms/problems", async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId as string | undefined;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const brandId = await resolveBrandId(req);
+    const problems = await omsService.detectProblems(userId, brandId);
+    res.json({ success: true, ...problems });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// OMS – Advanced Analytics
+// ═══════════════════════════════════════════════════════════════════════════
+
+router.get("/oms/analytics", async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId as string | undefined;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const brandId = await resolveBrandId(req);
+    const period = {
+      start: req.query.start ? String(req.query.start) : undefined,
+      end: req.query.end ? String(req.query.end) : undefined,
+    };
+    const analytics = await omsService.getAdvancedAnalytics(userId, brandId, period);
+    res.json({ success: true, ...analytics });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// OMS – Automation Log
+// ═══════════════════════════════════════════════════════════════════════════
+
+router.get("/oms/automation-log", async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId as string | undefined;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const brandId = await resolveBrandId(req);
+    const result = await omsService.getAutomationLog(userId, brandId, {
+      orderId: req.query.order_id ? String(req.query.order_id) : undefined,
+      event: req.query.event ? String(req.query.event) : undefined,
+      target: req.query.target ? String(req.query.target) : undefined,
+      limit: req.query.limit ? Number(req.query.limit) : undefined,
+      offset: req.query.offset ? Number(req.query.offset) : undefined,
+    });
+    res.json({ success: true, ...result });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
   }
 });
 

@@ -18,6 +18,7 @@ import { InventoryPage } from '@/pages/InventoryPage'
 import { ProductDetailPage } from '@/pages/ProductDetailPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { AdminDashboard } from '@/pages/AdminDashboard'
+import { LeadSearchPage } from '@/pages/LeadSearchPage'
 
 function CatalogShell() {
   const [activeTab, setActiveTab] = useState('catalogo')
@@ -65,6 +66,7 @@ export default function App() {
         {/* ── Admin Panel ── */}
         <Route path="/login" element={<LoginPage />} />
         <Route path="/admin" element={<AdminDashboard />} />
+        <Route path="/busca" element={<LeadSearchPage />} />
 
         {/* ── Inventário (full management) ── */}
         <Route path="/estoque" element={<InventoryPage />} />

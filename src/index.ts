@@ -267,6 +267,7 @@ app.get("/app-estoque/:brand", (req, res) => {
 // Admin panel routes
 app.get("/login", (_req, res) => { serveCatalogSPA(res, "index.html"); });
 app.get("/admin", (_req, res) => { serveCatalogSPA(res, "index.html"); });
+app.get("/busca", (_req, res) => { serveCatalogSPA(res, "index.html"); });
 
 app.get("/estoque", (_req, res) => {
   serveCatalogSPA(res, "inventario.html");

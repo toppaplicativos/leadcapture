@@ -160,6 +160,10 @@ export function AdminDashboard() {
 
           {/* Bottom actions */}
           <div className="p-3 border-t border-border space-y-2 shrink-0">
+            <button onClick={() => navigate('/busca')}
+              className="w-full flex items-center justify-center gap-1.5 text-xs font-semibold py-2.5 rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition">
+              <Search size={13} /> Buscar Leads
+            </button>
             <button onClick={() => navigate('/estoque')}
               className="w-full flex items-center justify-center gap-1.5 text-xs font-semibold py-2.5 rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 transition">
               <Package size={13} /> Estoque Completo

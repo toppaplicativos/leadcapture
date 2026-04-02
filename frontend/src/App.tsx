@@ -17,7 +17,8 @@ import { StockLoginPage } from '@/pages/StockLoginPage'
 import { InventoryPage, DesignView } from '@/pages/InventoryPage'
 import { ProductDetailPage } from '@/pages/ProductDetailPage'
 import { LoginPage } from '@/pages/LoginPage'
-import { AdminShell, DashboardView, CampaignsView, OrdersView, AutomationsView, ProductsView, MessagesView, AgentView, NotificationsView, DomainView, FreteView, EstoqueAccessView, PaymentConfigView } from '@/pages/AdminDashboard'
+import { AdminShell, DashboardView, CampaignsView, OrdersView, AutomationsView, ProductsView, AgentView, NotificationsView, DomainView, FreteView, EstoqueAccessView, PaymentConfigView } from '@/pages/AdminDashboard'
+import { MessagesPage } from '@/pages/MessagesPage'
 import { LeadSearchPage } from '@/pages/LeadSearchPage'
 import { LeadsPage } from '@/pages/LeadsPage'
 import { MessageSquare, Package, Zap, Bot, Palette, Truck, Globe, Settings } from 'lucide-react'
@@ -92,7 +93,7 @@ export default function App() {
         <Route path="/leads" element={<AdminPage><LeadsPage /></AdminPage>} />
         <Route path="/clientes" element={<AdminPage><LeadsPage /></AdminPage>} />
         <Route path="/busca" element={<AdminPage><LeadSearchPage /></AdminPage>} />
-        <Route path="/mensagens" element={<AdminPage><MessagesView showToast={() => {}} /></AdminPage>} />
+        <Route path="/mensagens" element={<AdminPage><MessagesPage /></AdminPage>} />
         <Route path="/notificacoes" element={<AdminPage><NotificationsView showToast={() => {}} /></AdminPage>} />
         <Route path="/campanhas" element={<AdminPage><CampaignsInline /></AdminPage>} />
         <Route path="/campanha" element={<AdminPage><CampaignsInline /></AdminPage>} />

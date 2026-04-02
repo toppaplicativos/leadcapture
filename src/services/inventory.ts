@@ -446,7 +446,7 @@ export class InventoryService {
     if (quantity <= 0) throw new Error("Quantidade deve ser positiva");
     await this.ensureSchema();
     const inv = await this.getOrCreateInventory(productId, userId, brandId);
-    const before = inv.stock_current;
+    const before = Number(inv.stock_current) || 0;
     const after = before + quantity;
 
     await query(
@@ -488,13 +488,13 @@ export class InventoryService {
     await this.ensureSchema();
     const inv = await this.getOrCreateInventory(productId, userId, brandId);
 
-    if (inv.stock_available < quantity) {
+    if (Number(inv.stock_available) < quantity) {
       throw new Error(
-        `Estoque insuficiente. Disponível: ${inv.stock_available}, Solicitado: ${quantity}`
+        `Estoque insuficiente. Disponível: ${Number(inv.stock_available)}, Solicitado: ${quantity}`
       );
     }
 
-    const before = inv.stock_current;
+    const before = Number(inv.stock_current) || 0;
     const after = before - quantity;
 
     await query(
@@ -533,9 +533,9 @@ export class InventoryService {
     if (newQuantity < 0) throw new Error("Quantidade não pode ser negativa");
     await this.ensureSchema();
     const inv = await this.getOrCreateInventory(productId, userId, brandId);
-    const before = inv.stock_current;
+    const before = Number(inv.stock_current) || 0;
     const diff = newQuantity - before;
-    const newAvailable = inv.stock_available + diff;
+    const newAvailable = Number(inv.stock_available) + diff;
 
     await query(
       `UPDATE inventory SET stock_current = ?, stock_available = ?, updated_at = CURRENT_TIMESTAMP
@@ -572,13 +572,13 @@ export class InventoryService {
     await this.ensureSchema();
     const inv = await this.getOrCreateInventory(productId, userId, brandId);
 
-    if (inv.stock_available < quantity) {
+    if (Number(inv.stock_available) < quantity) {
       throw new Error(
-        `Estoque insuficiente para reserva. Disponível: ${inv.stock_available}, Solicitado: ${quantity}`
+        `Estoque insuficiente para reserva. Disponível: ${Number(inv.stock_available)}, Solicitado: ${quantity}`
       );
     }
 
-    const before = inv.stock_current;
+    const before = Number(inv.stock_current) || 0;
 
     await query(
       `UPDATE inventory SET stock_reserved = stock_reserved + ?, stock_available = stock_available - ?, updated_at = CURRENT_TIMESTAMP
@@ -645,8 +645,8 @@ export class InventoryService {
       brandId,
       type: "liberacao",
       quantity: releaseQty,
-      stockBefore: inv.stock_current,
-      stockAfter: inv.stock_current,
+      stockBefore: Number(inv.stock_current) || 0,
+      stockAfter: Number(inv.stock_current) || 0,
       source: "pedido",
       referenceId: orderId,
       reason: `Liberação de reserva do pedido ${orderId}`,
@@ -668,7 +668,7 @@ export class InventoryService {
     await this.ensureSchema();
     const inv = await this.getOrCreateInventory(productId, userId, brandId);
     const deductReserved = Math.min(quantity, inv.stock_reserved);
-    const before = inv.stock_current;
+    const before = Number(inv.stock_current) || 0;
     const after = before - quantity;
 
     await query(

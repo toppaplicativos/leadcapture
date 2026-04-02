@@ -84,7 +84,7 @@ function getAuthHeaders(): Record<string, string> {
 /* ══════════════════════════════════════════════
    MAIN COMPONENT
    ══════════════════════════════════════════════ */
-type ViewKey = 'overview' | 'products' | 'movements' | 'expedition' | 'alerts' | 'sales' | 'reports'
+type ViewKey = 'overview' | 'stock' | 'products' | 'movements' | 'expedition' | 'alerts' | 'sales' | 'reports'
 
 export function InventoryPage() {
   const navigate = useNavigate()
@@ -135,6 +135,7 @@ export function InventoryPage() {
 
   const navItems: { key: ViewKey; icon: typeof LayoutDashboard; label: string; badge?: number }[] = [
     { key: 'overview', icon: LayoutDashboard, label: 'Visão Geral' },
+    { key: 'stock' as ViewKey, icon: Scale, label: 'Estoque' },
     { key: 'products', icon: Package, label: 'Produtos' },
     { key: 'movements', icon: ArrowLeftRight, label: 'Movimentações' },
     { key: 'expedition', icon: Truck, label: 'Expedição' },
@@ -218,6 +219,7 @@ export function InventoryPage() {
         <main className="flex-1 lg:ml-[220px] overflow-y-auto">
           <div className="max-w-5xl mx-auto px-5 pt-5 pb-20 lg:pb-8">
             {view === 'overview' && <OverviewView showToast={showToast} onAlertCount={setAlertCount} refreshKey={refreshKey} />}
+            {view === 'stock' && <StockManagementView showToast={showToast} refreshKey={refreshKey} onRefresh={() => setRefreshKey(k => k + 1)} />}
             {view === 'products' && <ProductsView showToast={showToast} categories={categories} refreshKey={refreshKey} onRefresh={() => setRefreshKey(k => k + 1)} />}
             {view === 'movements' && <MovementsView showToast={showToast} />}
             {view === 'expedition' && <ExpeditionView showToast={showToast} />}
@@ -343,6 +345,215 @@ function OverviewView({ showToast, onAlertCount, refreshKey }: { showToast: (t: 
             ))}
           </div>
         </section>
+      )}
+    </div>
+  )
+}
+
+/* ══════════════════════════════════════════════
+   STOCK MANAGEMENT VIEW — Gestao de estoque bruto
+   ══════════════════════════════════════════════ */
+function StockManagementView({ showToast, refreshKey, onRefresh }: {
+  showToast: (t: string, tp?: 'success' | 'error') => void; refreshKey: number; onRefresh: () => void
+}) {
+  const [items, setItems] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState('')
+  const [actionModal, setActionModal] = useState<{ type: 'add' | 'remove' | 'adjust'; product: any } | null>(null)
+  const [qty, setQty] = useState('')
+  const [reason, setReason] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  function load() {
+    setLoading(true)
+    inventoryApi.products(1, 200).then(d => { setItems(d.items || []); setLoading(false) }).catch(() => setLoading(false))
+  }
+  useEffect(() => { load() }, [refreshKey])
+
+  const filtered = search
+    ? items.filter(p => ((p.product_name || p.name || '') as string).toLowerCase().includes(search.toLowerCase()))
+    : items
+
+  const totalUnits = items.reduce((s, p) => s + (Number(p.stock_current) || 0), 0)
+  const totalAvailable = items.reduce((s, p) => s + (Number(p.stock_available) || 0), 0)
+  const totalReserved = items.reduce((s, p) => s + (Number(p.stock_reserved) || 0), 0)
+  const lowStock = items.filter(p => (p.status || '').toLowerCase() === 'baixo').length
+  const zeroStock = items.filter(p => (p.status || '').toLowerCase() === 'zerado').length
+
+  async function executeAction() {
+    if (!actionModal || !qty || Number(qty) <= 0) return showToast('Quantidade invalida', 'error')
+    const pid = actionModal.product.product_id || actionModal.product.id
+    setSaving(true)
+    try {
+      if (actionModal.type === 'add') {
+        await inventoryApi.addStock(pid, { quantity: Number(qty), source: 'reposicao', reason: reason || 'Entrada manual' })
+        showToast(`+${qty} adicionado ao estoque`)
+      } else if (actionModal.type === 'remove') {
+        await inventoryApi.removeStock(pid, { quantity: Number(qty), source: 'ajuste', reason: reason || 'Saida manual' })
+        showToast(`-${qty} removido do estoque`)
+      } else if (actionModal.type === 'adjust') {
+        await inventoryApi.adjustStock(pid, { new_quantity: Number(qty), reason: reason || 'Ajuste manual' })
+        showToast(`Estoque ajustado para ${qty}`)
+      }
+      setActionModal(null); setQty(''); setReason(''); load(); onRefresh()
+    } catch (e: any) { showToast(e.message, 'error') }
+    setSaving(false)
+  }
+
+  if (loading) return <Skeleton rows={6} />
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">Estoque</h2>
+        <p className="text-[13px] text-gray-400 mt-0.5">Gestao de quantidades e movimentacoes</p>
+      </div>
+
+      {/* KPIs */}
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-2.5">
+        <div className="bg-gradient-to-br from-indigo-500 to-blue-600 rounded-2xl p-4 text-white shadow-lg">
+          <Scale size={16} className="text-white/50 mb-1" />
+          <p className="text-2xl font-extrabold">{num(totalUnits)}</p>
+          <p className="text-[9px] font-bold text-white/50 uppercase tracking-wider">Total Bruto</p>
+        </div>
+        <div className="bg-gradient-to-br from-emerald-500 to-teal-600 rounded-2xl p-4 text-white shadow-lg">
+          <Package size={16} className="text-white/50 mb-1" />
+          <p className="text-2xl font-extrabold">{num(totalAvailable)}</p>
+          <p className="text-[9px] font-bold text-white/50 uppercase tracking-wider">Disponivel</p>
+        </div>
+        <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
+          <p className="text-2xl font-extrabold text-amber-600">{num(totalReserved)}</p>
+          <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">Reservado</p>
+        </div>
+        <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
+          <p className="text-2xl font-extrabold text-orange-500">{lowStock}</p>
+          <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">Estoque Baixo</p>
+        </div>
+        <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
+          <p className="text-2xl font-extrabold text-red-500">{zeroStock}</p>
+          <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">Zerado</p>
+        </div>
+      </div>
+
+      {/* Search */}
+      <div className="relative">
+        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+        <input type="text" value={search} onChange={e => setSearch(e.target.value)}
+          placeholder="Buscar produto no estoque..."
+          className="w-full pl-9 pr-3 py-2.5 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-emerald-200 placeholder:text-gray-300" />
+      </div>
+
+      {/* Stock table */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] overflow-hidden">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-gray-50/80 border-b border-gray-100">
+              <th className="text-left px-4 py-2.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Produto</th>
+              <th className="text-right px-3 py-2.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Atual</th>
+              <th className="text-right px-3 py-2.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider hidden sm:table-cell">Disponivel</th>
+              <th className="text-right px-3 py-2.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider hidden md:table-cell">Reservado</th>
+              <th className="text-center px-3 py-2.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Status</th>
+              <th className="text-right px-4 py-2.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Acoes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((p: any) => {
+              const pid = p.product_id || p.id
+              const name = p.product_name || p.name || 'Produto'
+              const img = p.product_image || p.image_url || ''
+              const sb = stockBadge(p.status)
+              const current = Number(p.stock_current) || 0
+              const available = Number(p.stock_available) || 0
+              const reserved = Number(p.stock_reserved) || 0
+              return (
+                <tr key={pid} className="border-b border-gray-100 last:border-0 hover:bg-gray-50/50 transition">
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2.5">
+                      {img ? <img src={img} alt="" className="w-9 h-9 rounded-lg object-cover shrink-0" />
+                        : <div className="w-9 h-9 rounded-lg bg-gray-100 grid place-items-center shrink-0"><Package size={14} className="text-gray-300" /></div>}
+                      <div className="min-w-0">
+                        <p className="font-semibold text-gray-900 truncate max-w-[180px] text-xs">{name}</p>
+                        <p className="text-[10px] text-gray-400">{unitShort(p.product_unit || p.unit)} · min: {p.stock_min || 0}</p>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-3 py-3 text-right font-extrabold text-gray-900">{num(current)}</td>
+                  <td className="px-3 py-3 text-right font-semibold text-emerald-600 hidden sm:table-cell">{num(available)}</td>
+                  <td className="px-3 py-3 text-right text-amber-600 hidden md:table-cell">{reserved > 0 ? num(reserved) : '—'}</td>
+                  <td className="px-3 py-3 text-center">
+                    <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${sb.cls}`}>{sb.label}</span>
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <div className="flex items-center justify-end gap-1">
+                      <button onClick={() => { setActionModal({ type: 'add', product: p }); setQty(''); setReason('') }}
+                        className="p-1.5 rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-100 transition" title="Entrada">
+                        <ArrowDown size={13} />
+                      </button>
+                      <button onClick={() => { setActionModal({ type: 'remove', product: p }); setQty(''); setReason('') }}
+                        className="p-1.5 rounded-lg bg-red-50 text-red-500 hover:bg-red-100 transition" title="Saida">
+                        <ArrowUp size={13} />
+                      </button>
+                      <button onClick={() => { setActionModal({ type: 'adjust', product: p }); setQty(String(current)); setReason('') }}
+                        className="p-1.5 rounded-lg bg-blue-50 text-blue-500 hover:bg-blue-100 transition" title="Ajuste">
+                        <Scale size={13} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Action Modal */}
+      {actionModal && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => setActionModal(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-gray-100">
+              <h3 className="font-bold text-base text-gray-900">
+                {actionModal.type === 'add' ? '📥 Entrada de Estoque' : actionModal.type === 'remove' ? '📤 Saida de Estoque' : '⚖️ Ajustar Estoque'}
+              </h3>
+              <p className="text-[11px] text-gray-400 mt-0.5">{actionModal.product.product_name || actionModal.product.name}</p>
+              <p className="text-xs text-gray-500 mt-1">Estoque atual: <span className="font-bold">{num(Number(actionModal.product.stock_current) || 0)}</span></p>
+            </div>
+            <div className="px-5 py-4 space-y-3">
+              <div>
+                <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5 block">
+                  {actionModal.type === 'adjust' ? 'Nova quantidade' : 'Quantidade'}
+                </label>
+                <input type="number" step="any" min="0" value={qty} onChange={e => setQty(e.target.value)} autoFocus
+                  placeholder={actionModal.type === 'adjust' ? 'Nova qty total' : 'Ex: 100'}
+                  className="w-full px-3 py-3 border border-gray-200 rounded-xl text-lg font-bold text-center focus:outline-none focus:ring-2 focus:ring-emerald-200" />
+              </div>
+              <div>
+                <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5 block">Motivo (opcional)</label>
+                <input type="text" value={reason} onChange={e => setReason(e.target.value)}
+                  placeholder="Ex: Reposicao do fornecedor, Inventario..."
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-200" />
+              </div>
+              {actionModal.type !== 'adjust' && qty && Number(qty) > 0 && (
+                <div className="bg-gray-50 rounded-xl p-3 text-center">
+                  <p className="text-xs text-gray-500">Resultado:</p>
+                  <p className="text-lg font-extrabold text-gray-900">
+                    {num(Number(actionModal.product.stock_current) || 0)} {actionModal.type === 'add' ? '+' : '−'} {qty} = <span className={actionModal.type === 'add' ? 'text-emerald-600' : 'text-red-500'}>
+                      {num(actionModal.type === 'add' ? (Number(actionModal.product.stock_current) || 0) + Number(qty) : (Number(actionModal.product.stock_current) || 0) - Number(qty))}
+                    </span>
+                  </p>
+                </div>
+              )}
+            </div>
+            <div className="px-5 py-4 border-t border-gray-100 flex gap-2">
+              <button onClick={() => setActionModal(null)} className="flex-1 py-2.5 rounded-xl bg-gray-100 text-gray-600 text-xs font-semibold hover:bg-gray-200 transition">Cancelar</button>
+              <button onClick={executeAction} disabled={saving || !qty || Number(qty) <= 0}
+                className={`flex-1 py-2.5 rounded-xl text-white text-xs font-bold disabled:opacity-50 transition shadow-sm ${
+                  actionModal.type === 'add' ? 'bg-emerald-500 hover:bg-emerald-600' : actionModal.type === 'remove' ? 'bg-red-500 hover:bg-red-600' : 'bg-blue-500 hover:bg-blue-600'
+                }`}>
+                {saving ? 'Processando...' : actionModal.type === 'add' ? 'Adicionar' : actionModal.type === 'remove' ? 'Remover' : 'Ajustar'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

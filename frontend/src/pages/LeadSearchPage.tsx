@@ -28,21 +28,32 @@ interface Lead {
 /* ══════════════════════════════════════════════
    LEAD SEARCH PAGE
    ══════════════════════════════════════════════ */
-export function LeadSearchPage() {
-  // Form
-  const [query, setQuery] = useState('')
-  const [location, setLocation] = useState('')
-  const [maxResults, setMaxResults] = useState(20)
-  const [automate, setAutomate] = useState(false)
-  const [showAdvanced, setShowAdvanced] = useState(false)
-  const [radius, setRadius] = useState('')
+// Persist search state in localStorage
+const SEARCH_PERSIST_KEY = 'leadcapture:search-state'
+function loadPersistedSearch() {
+  try { return JSON.parse(localStorage.getItem(SEARCH_PERSIST_KEY) || '{}') } catch { return {} }
+}
+function persistSearch(data: Record<string, any>) {
+  try { localStorage.setItem(SEARCH_PERSIST_KEY, JSON.stringify(data)) } catch {}
+}
 
-  // Results
-  const [leads, setLeads] = useState<Lead[]>([])
+export function LeadSearchPage() {
+  const persisted = loadPersistedSearch()
+
+  // Form (restored from localStorage)
+  const [query, setQuery] = useState(persisted.query || '')
+  const [location, setLocation] = useState(persisted.location || '')
+  const [maxResults, setMaxResults] = useState(persisted.maxResults || 20)
+  const [automate, setAutomate] = useState(persisted.automate || false)
+  const [showAdvanced, setShowAdvanced] = useState(false)
+  const [radius, setRadius] = useState(persisted.radius || '')
+
+  // Results (restored)
+  const [leads, setLeads] = useState<Lead[]>(persisted.leads || [])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [stats, setStats] = useState<{ total: number; created: number; skipped: number; automationQueued: number } | null>(null)
-  const [searched, setSearched] = useState(false)
+  const [stats, setStats] = useState<{ total: number; created: number; skipped: number; automationQueued: number } | null>(persisted.stats || null)
+  const [searched, setSearched] = useState(!!(persisted.leads?.length))
 
   // Filter + Map
   const [statusFilter, setStatusFilter] = useState<'all' | 'new' | 'captured'>('all')
@@ -70,16 +81,20 @@ export function LeadSearchPage() {
       })
       const d = await r.json()
       if (!r.ok) throw new Error(d.error || `Erro ${r.status}`)
-      setLeads(d.leads || [])
-      setCapturedPoints(d.capturedPoints || [])
-      setStats({
+      const resultLeads = d.leads || []
+      const resultStats = {
         total: d.total || 0,
         created: d.persisted?.created || 0,
         skipped: d.persisted?.skipped || 0,
         automationQueued: d.automation?.queued_jobs || 0,
-      })
+      }
+      setLeads(resultLeads)
+      setCapturedPoints(d.capturedPoints || [])
+      setStats(resultStats)
+      // Persist search state
+      persistSearch({ query: query.trim(), location: location.trim(), maxResults, automate, radius, leads: resultLeads, stats: resultStats })
       // Auto-switch to map if results have locations
-      const hasLocations = (d.leads || []).some((l: any) => l.location?.latitude)
+      const hasLocations = resultLeads.some((l: any) => l.location?.latitude)
       if (hasLocations) setViewMode('map')
     } catch (err: any) {
       setError(err.message || 'Erro na busca')

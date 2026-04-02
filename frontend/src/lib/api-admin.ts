@@ -216,7 +216,7 @@ export const adminApi = {
   deleteCampaign: (id: string) => authFetch<any>(`/api/campaigns/${id}`, getAdminHeaders(), { method: 'DELETE' }),
   startCampaign: (id: string) => authFetch<any>(`/api/campaigns/${id}/start`, getAdminHeaders(), { method: 'POST' }),
   pauseCampaign: (id: string) => authFetch<any>(`/api/campaigns/${id}/pause`, getAdminHeaders(), { method: 'POST' }),
-  cancelCampaign: (id: string) => authFetch<any>(`/api/campaigns/${id}/cancel`, getAdminHeaders(), { method: 'POST' }),
+  cancelCampaign: (id: string) => authFetch<any>(`/api/campaigns/${id}/stop`, getAdminHeaders(), { method: 'POST' }),
 
   // Automations
   automations: () => authFetch<any>('/api/automations', getAdminHeaders()),

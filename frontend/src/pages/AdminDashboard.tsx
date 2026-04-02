@@ -488,15 +488,9 @@ export function CampaignsView({ showToast }: { showToast: (t: string, tp?: 'ok' 
   const [campaigns, setCampaigns] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<'all' | 'active' | 'draft' | 'done'>('all')
-  const [showCreate, setShowCreate] = useState(false)
-  const [editId, setEditId] = useState<string | null>(null)
+  const [modalOpen, setModalOpen] = useState(false)
+  const [editCampaign, setEditCampaign] = useState<any>(null)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
-
-  // Form state
-  const [formName, setFormName] = useState('')
-  const [formMode, setFormMode] = useState('relationship')
-  const [formUseAi, setFormUseAi] = useState(true)
-  const [formAiPrompt, setFormAiPrompt] = useState('')
 
   function loadCampaigns() {
     setLoading(true)
@@ -507,27 +501,9 @@ export function CampaignsView({ showToast }: { showToast: (t: string, tp?: 'ok' 
   }
   useEffect(() => { loadCampaigns() }, [])
 
-  function openCreate() {
-    setFormName(''); setFormMode('relationship'); setFormUseAi(true); setFormAiPrompt('')
-    setEditId(null); setShowCreate(true)
-  }
-  function openEdit(c: any) {
-    setFormName(c.name || ''); setFormMode(c.campaign_mode || 'relationship')
-    setFormUseAi(c.use_ai !== false); setFormAiPrompt(c.ai_prompt || '')
-    setEditId(c.id); setShowCreate(true)
-  }
-  async function saveForm() {
-    if (!formName.trim()) return showToast('Nome obrigatorio', 'err')
-    setActionLoading('save')
-    try {
-      const body = { name: formName, campaign_mode: formMode, use_ai: formUseAi, ai_prompt: formAiPrompt || null }
-      if (editId) await adminApi.updateCampaign(editId, body)
-      else await adminApi.createCampaign(body)
-      showToast(editId ? 'Campanha atualizada!' : 'Campanha criada!')
-      setShowCreate(false); loadCampaigns()
-    } catch (e: any) { showToast(e.message, 'err') }
-    setActionLoading(null)
-  }
+  function openCreate() { setEditCampaign(null); setModalOpen(true) }
+  function openEdit(c: any) { setEditCampaign(c); setModalOpen(true) }
+
   async function doAction(id: string, action: 'start' | 'pause' | 'cancel' | 'delete') {
     setActionLoading(id)
     try {
@@ -584,52 +560,6 @@ export function CampaignsView({ showToast }: { showToast: (t: string, tp?: 'ok' 
         ))}
       </div>
 
-      {/* Create/Edit modal */}
-      {showCreate && (
-        <div className="bg-white rounded-2xl border border-gray-200 shadow-lg p-5 space-y-4">
-          <h3 className="font-bold text-sm text-gray-900">{editId ? 'Editar Campanha' : 'Nova Campanha'}</h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1 block">Nome</label>
-              <input type="text" value={formName} onChange={e => setFormName(e.target.value)} placeholder="Nome da campanha"
-                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-200" />
-            </div>
-            <div>
-              <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1 block">Modo</label>
-              <select value={formMode} onChange={e => setFormMode(e.target.value)}
-                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-200">
-                <option value="relationship">Relacionamento</option>
-                <option value="broadcast">Broadcast</option>
-                <option value="drip">Drip / Sequencia</option>
-              </select>
-            </div>
-          </div>
-          <div>
-            <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1 block">Prompt IA (opcional)</label>
-            <textarea value={formAiPrompt} onChange={e => setFormAiPrompt(e.target.value)} rows={2}
-              placeholder="Instrucoes para o agente IA personalizar as mensagens..."
-              className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-200 resize-none" />
-          </div>
-          <div className="flex items-center justify-between">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <button type="button" onClick={() => setFormUseAi(!formUseAi)}
-                className={`relative w-10 h-5 rounded-full transition ${formUseAi ? 'bg-violet-500' : 'bg-gray-300'}`}>
-                <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${formUseAi ? 'translate-x-5' : ''}`} />
-              </button>
-              <span className="text-xs font-medium text-gray-600">Usar IA nas mensagens</span>
-            </label>
-            <div className="flex gap-2">
-              <button onClick={() => setShowCreate(false)}
-                className="px-4 py-2 rounded-xl bg-gray-100 text-gray-600 text-xs font-semibold hover:bg-gray-200 transition">Cancelar</button>
-              <button onClick={saveForm} disabled={actionLoading === 'save'}
-                className="px-4 py-2 rounded-xl bg-violet-600 text-white text-xs font-bold hover:bg-violet-700 disabled:opacity-50 transition">
-                {actionLoading === 'save' ? 'Salvando...' : editId ? 'Salvar' : 'Criar'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* List */}
       {loading ? <Skeleton rows={4} /> : filtered.length === 0 ? (
         <EmptyState icon={Megaphone} text="Nenhuma campanha encontrada" />
@@ -646,8 +576,14 @@ export function CampaignsView({ showToast }: { showToast: (t: string, tp?: 'ok' 
                   </div>
                   <p className="text-xs text-gray-400">{c.campaign_mode || 'relationship'} · {dt(c.created_at)}</p>
                 </div>
+                {/* Metrics mini */}
+                {(c.sent_count > 0 || c.target_count > 0) && (
+                  <div className="text-right shrink-0">
+                    <p className="text-xs font-bold text-gray-900">{c.sent_count || 0}/{c.target_count || 0}</p>
+                    <p className="text-[9px] text-gray-400">enviados</p>
+                  </div>
+                )}
               </div>
-
               {/* Actions */}
               <div className="flex items-center gap-1.5 mt-3 pt-3 border-t border-gray-100">
                 {(c.status === 'draft' || c.status === 'paused') && (
@@ -663,12 +599,12 @@ export function CampaignsView({ showToast }: { showToast: (t: string, tp?: 'ok' 
                   </button>
                 )}
                 <button onClick={() => openEdit(c)}
-                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-gray-50 text-gray-600 text-[11px] font-semibold hover:bg-gray-100 transition">
-                  Editar
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-violet-50 text-violet-700 text-[11px] font-bold hover:bg-violet-100 transition">
+                  Configurar
                 </button>
                 {c.status !== 'cancelled' && c.status !== 'completed' && (
                   <button onClick={() => doAction(c.id, 'cancel')} disabled={actionLoading === c.id}
-                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-red-500 text-[11px] font-semibold hover:bg-red-50 transition">
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-red-500 text-[11px] font-semibold hover:bg-red-50 transition ml-auto">
                     <Ban size={11} /> Cancelar
                   </button>
                 )}
@@ -677,6 +613,306 @@ export function CampaignsView({ showToast }: { showToast: (t: string, tp?: 'ok' 
           ))}
         </div>
       )}
+
+      {/* ── Campaign Editor Modal ── */}
+      {modalOpen && (
+        <CampaignEditorModal
+          campaign={editCampaign}
+          onClose={() => { setModalOpen(false); setEditCampaign(null) }}
+          onSaved={() => { setModalOpen(false); setEditCampaign(null); loadCampaigns() }}
+          showToast={showToast}
+        />
+      )}
+    </div>
+  )
+}
+
+/* ── Campaign Editor Modal (5 tabs) ── */
+function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
+  campaign: any; onClose: () => void; onSaved: () => void; showToast: (t: string, tp?: 'ok' | 'err') => void
+}) {
+  const isEdit = !!campaign?.id
+  const [activeTab, setActiveTab] = useState('geral')
+  const [saving, setSaving] = useState(false)
+
+  // Tab: Geral
+  const [name, setName] = useState(campaign?.name || '')
+  const [mode, setMode] = useState(campaign?.campaign_mode || 'relationship')
+  const [status, setStatus] = useState(campaign?.status || 'draft')
+
+  // Tab: Mensagem
+  const [useAi, setUseAi] = useState(campaign?.use_ai !== false)
+  const [aiPrompt, setAiPrompt] = useState(campaign?.ai_prompt || '')
+  const [messageTemplate, setMessageTemplate] = useState(campaign?.message_template || '')
+
+  // Tab: Segmentacao
+  const filter = campaign?.filter_json || {}
+  const [filterStatuses, setFilterStatuses] = useState<string[]>(filter.statuses || ['new'])
+  const [filterHasWhatsapp, setFilterHasWhatsapp] = useState(filter.hasWhatsapp !== false)
+  const [filterTagsInclude, setFilterTagsInclude] = useState((filter.tagsInclude || []).join(', '))
+  const [filterTagsExclude, setFilterTagsExclude] = useState((filter.tagsExclude || []).join(', '))
+  const [filterCities, setFilterCities] = useState((filter.cities || []).join(', '))
+  const [filterScoreMin, setFilterScoreMin] = useState(filter.scoreMin != null ? String(filter.scoreMin) : '')
+  const [filterScoreMax, setFilterScoreMax] = useState(filter.scoreMax != null ? String(filter.scoreMax) : '')
+
+  // Tab: Velocidade
+  const speed = campaign?.speed_json || {}
+  const [maxPerMinute, setMaxPerMinute] = useState(String(speed.maxPerMinute || 3))
+  const [minInterval, setMinInterval] = useState(String(speed.minIntervalSeconds || 10))
+  const [maxInterval, setMaxInterval] = useState(String(speed.maxIntervalSeconds || 30))
+  const [dailyLimit, setDailyLimit] = useState(String(speed.dailyLimit || 200))
+  const [autoPause, setAutoPause] = useState(String(speed.autoPauseOnBlockRate || 15))
+
+  // Tab: Agenda
+  const settings = campaign?.settings || {}
+  const actionWindow = settings.actionWindow || {}
+  const [windowEnabled, setWindowEnabled] = useState(actionWindow.enabled || false)
+  const [windowStart, setWindowStart] = useState(actionWindow.start || '08:00')
+  const [windowEnd, setWindowEnd] = useState(actionWindow.end || '20:00')
+
+  async function save() {
+    if (!name.trim()) return showToast('Nome obrigatorio', 'err')
+    setSaving(true)
+    try {
+      const body: any = {
+        name: name.trim(),
+        campaignMode: mode,
+        useAI: useAi,
+        aiPrompt: aiPrompt || null,
+        messageTemplate: messageTemplate || null,
+        filter: {
+          statuses: filterStatuses,
+          hasWhatsapp: filterHasWhatsapp,
+          ...(filterTagsInclude.trim() ? { tagsInclude: filterTagsInclude.split(',').map((t: string) => t.trim()).filter(Boolean) } : {}),
+          ...(filterTagsExclude.trim() ? { tagsExclude: filterTagsExclude.split(',').map((t: string) => t.trim()).filter(Boolean) } : {}),
+          ...(filterCities.trim() ? { cities: filterCities.split(',').map((t: string) => t.trim()).filter(Boolean) } : {}),
+          ...(filterScoreMin ? { scoreMin: parseInt(filterScoreMin) } : {}),
+          ...(filterScoreMax ? { scoreMax: parseInt(filterScoreMax) } : {}),
+        },
+        speedControl: {
+          maxPerMinute: parseInt(maxPerMinute) || 3,
+          minIntervalSeconds: parseInt(minInterval) || 10,
+          maxIntervalSeconds: parseInt(maxInterval) || 30,
+          dailyLimit: parseInt(dailyLimit) || 200,
+          autoPauseOnBlockRate: parseInt(autoPause) || 15,
+        },
+        settings: {
+          ...settings,
+          campaignMode: mode,
+          actionWindow: { enabled: windowEnabled, start: windowStart, end: windowEnd },
+        },
+      }
+      if (isEdit) await adminApi.updateCampaign(campaign.id, body)
+      else await adminApi.createCampaign(body)
+      showToast(isEdit ? 'Campanha atualizada!' : 'Campanha criada!')
+      onSaved()
+    } catch (e: any) { showToast(e.message, 'err') }
+    setSaving(false)
+  }
+
+  const tabs = [
+    { key: 'geral', label: 'Geral' },
+    { key: 'mensagem', label: 'Mensagem' },
+    { key: 'segmentacao', label: 'Segmentacao' },
+    { key: 'velocidade', label: 'Velocidade' },
+    { key: 'agenda', label: 'Agenda' },
+  ]
+
+  const inputCls = 'w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-200'
+  const labelCls = 'text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5 block'
+
+  const Toggle = ({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) => (
+    <button type="button" onClick={() => onChange(!value)}
+      className={`relative w-10 h-5 rounded-full transition shrink-0 ${value ? 'bg-violet-500' : 'bg-gray-300'}`}>
+      <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${value ? 'translate-x-5' : ''}`} />
+    </button>
+  )
+
+  const LEAD_STATUSES = ['new', 'contacted', 'replied', 'negotiating', 'converted', 'lost', 'inactive']
+
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
+        {/* Header */}
+        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between shrink-0">
+          <div>
+            <h3 className="font-bold text-base text-gray-900">{isEdit ? 'Configurar Campanha' : 'Nova Campanha'}</h3>
+            {isEdit && <p className="text-[11px] text-gray-400 mt-0.5">{campaign.name}</p>}
+          </div>
+          <button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100 transition"><X size={18} className="text-gray-400" /></button>
+        </div>
+
+        {/* Tabs */}
+        <div className="px-5 pt-3 border-b border-gray-100 flex gap-1 shrink-0 overflow-x-auto">
+          {tabs.map(t => (
+            <button key={t.key} onClick={() => setActiveTab(t.key)}
+              className={`px-3.5 py-2 rounded-t-lg text-xs font-semibold transition whitespace-nowrap ${
+                activeTab === t.key ? 'bg-violet-50 text-violet-700 border-b-2 border-violet-500' : 'text-gray-400 hover:text-gray-600'
+              }`}>{t.label}</button>
+          ))}
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+
+          {/* Tab: Geral */}
+          {activeTab === 'geral' && (<>
+            <div>
+              <label className={labelCls}>Nome da campanha *</label>
+              <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Ex: Boas Vindas, Follow-up Leads Frios..." className={inputCls} />
+            </div>
+            <div>
+              <label className={labelCls}>Modo da campanha</label>
+              <div className="grid grid-cols-3 gap-2">
+                {[['relationship', 'Relacionamento', 'Conversa 1-a-1 personalizada'], ['broadcast', 'Broadcast', 'Mensagem em massa para lista'], ['drip', 'Sequencia', 'Mensagens programadas em etapas']].map(([k, l, d]) => (
+                  <button key={k} type="button" onClick={() => setMode(k)}
+                    className={`p-3 rounded-xl border text-left transition ${mode === k ? 'border-violet-400 bg-violet-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                    <p className={`text-xs font-bold ${mode === k ? 'text-violet-700' : 'text-gray-700'}`}>{l}</p>
+                    <p className="text-[10px] text-gray-400 mt-0.5">{d}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </>)}
+
+          {/* Tab: Mensagem */}
+          {activeTab === 'mensagem' && (<>
+            <div className="flex items-center justify-between py-1">
+              <div>
+                <p className="text-sm font-semibold text-gray-800">Usar Inteligencia Artificial</p>
+                <p className="text-[11px] text-gray-400">A IA personaliza cada mensagem para o lead</p>
+              </div>
+              <Toggle value={useAi} onChange={setUseAi} />
+            </div>
+            {useAi && (
+              <div>
+                <label className={labelCls}>Instrucoes para a IA</label>
+                <textarea value={aiPrompt} onChange={e => setAiPrompt(e.target.value)} rows={4}
+                  placeholder="Ex: Fale sobre nossos produtos de alho, mencione o nome do cliente, pergunte sobre o interesse..."
+                  className={inputCls + ' resize-none'} />
+              </div>
+            )}
+            <div>
+              <label className={labelCls}>{useAi ? 'Template base (opcional)' : 'Template da mensagem *'}</label>
+              <textarea value={messageTemplate} onChange={e => setMessageTemplate(e.target.value)} rows={4}
+                placeholder="Ola {{nome}}, tudo bem? Sou da {{empresa}}..."
+                className={inputCls + ' resize-none font-mono text-xs'} />
+              <p className="text-[10px] text-gray-400 mt-1">Variaveis: {'{{nome}}'}, {'{{cidade}}'}, {'{{segmento}}'}, {'{{empresa}}'}</p>
+            </div>
+          </>)}
+
+          {/* Tab: Segmentacao */}
+          {activeTab === 'segmentacao' && (<>
+            <div>
+              <label className={labelCls}>Status dos leads</label>
+              <div className="flex flex-wrap gap-1.5">
+                {LEAD_STATUSES.map(s => (
+                  <button key={s} type="button"
+                    onClick={() => setFilterStatuses(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s])}
+                    className={`px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition ${
+                      filterStatuses.includes(s) ? 'bg-violet-100 text-violet-700 ring-1 ring-violet-300' : 'bg-gray-100 text-gray-500'
+                    }`}>{s}</button>
+                ))}
+              </div>
+            </div>
+            <div className="flex items-center justify-between py-1">
+              <div>
+                <p className="text-sm font-semibold text-gray-800">Somente com WhatsApp</p>
+                <p className="text-[11px] text-gray-400">Filtrar apenas leads com WhatsApp validado</p>
+              </div>
+              <Toggle value={filterHasWhatsapp} onChange={setFilterHasWhatsapp} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className={labelCls}>Tags incluir (separar por virgula)</label>
+                <input type="text" value={filterTagsInclude} onChange={e => setFilterTagsInclude(e.target.value)} placeholder="tag1, tag2" className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Tags excluir</label>
+                <input type="text" value={filterTagsExclude} onChange={e => setFilterTagsExclude(e.target.value)} placeholder="tag_excluir" className={inputCls} />
+              </div>
+            </div>
+            <div>
+              <label className={labelCls}>Cidades (separar por virgula)</label>
+              <input type="text" value={filterCities} onChange={e => setFilterCities(e.target.value)} placeholder="Sao Paulo, Belo Horizonte" className={inputCls} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className={labelCls}>Score minimo</label>
+                <input type="number" min={0} max={100} value={filterScoreMin} onChange={e => setFilterScoreMin(e.target.value)} placeholder="0" className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Score maximo</label>
+                <input type="number" min={0} max={100} value={filterScoreMax} onChange={e => setFilterScoreMax(e.target.value)} placeholder="100" className={inputCls} />
+              </div>
+            </div>
+          </>)}
+
+          {/* Tab: Velocidade */}
+          {activeTab === 'velocidade' && (<>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className={labelCls}>Msgs por minuto</label>
+                <input type="number" min={1} max={30} value={maxPerMinute} onChange={e => setMaxPerMinute(e.target.value)} className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Limite diario</label>
+                <input type="number" min={1} max={1000} value={dailyLimit} onChange={e => setDailyLimit(e.target.value)} className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Intervalo min (seg)</label>
+                <input type="number" min={1} max={600} value={minInterval} onChange={e => setMinInterval(e.target.value)} className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Intervalo max (seg)</label>
+                <input type="number" min={1} max={600} value={maxInterval} onChange={e => setMaxInterval(e.target.value)} className={inputCls} />
+              </div>
+            </div>
+            <div>
+              <label className={labelCls}>Auto-pausar se taxa de bloqueio exceder (%)</label>
+              <input type="number" min={1} max={100} value={autoPause} onChange={e => setAutoPause(e.target.value)} className={inputCls} />
+              <p className="text-[10px] text-gray-400 mt-1">A campanha pausa automaticamente se a taxa de bloqueio atingir esse valor</p>
+            </div>
+          </>)}
+
+          {/* Tab: Agenda */}
+          {activeTab === 'agenda' && (<>
+            <div className="flex items-center justify-between py-1">
+              <div>
+                <p className="text-sm font-semibold text-gray-800">Janela de envio</p>
+                <p className="text-[11px] text-gray-400">Restringir envios a um horario especifico</p>
+              </div>
+              <Toggle value={windowEnabled} onChange={setWindowEnabled} />
+            </div>
+            {windowEnabled && (
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={labelCls}>Inicio</label>
+                  <input type="time" value={windowStart} onChange={e => setWindowStart(e.target.value)} className={inputCls} />
+                </div>
+                <div>
+                  <label className={labelCls}>Fim</label>
+                  <input type="time" value={windowEnd} onChange={e => setWindowEnd(e.target.value)} className={inputCls} />
+                </div>
+              </div>
+            )}
+            <div className="bg-gray-50 rounded-xl p-3">
+              <p className="text-xs text-gray-500">Mensagens fora da janela serao enfileiradas e enviadas no proximo horario permitido.</p>
+            </div>
+          </>)}
+        </div>
+
+        {/* Footer */}
+        <div className="px-5 py-4 border-t border-gray-100 flex items-center justify-between shrink-0">
+          <button onClick={onClose} className="px-4 py-2.5 rounded-xl bg-gray-100 text-gray-600 text-xs font-semibold hover:bg-gray-200 transition">
+            Cancelar
+          </button>
+          <button onClick={save} disabled={saving}
+            className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-violet-500 to-purple-600 text-white text-xs font-bold hover:from-violet-600 hover:to-purple-700 disabled:opacity-50 transition-all shadow-md">
+            {saving ? 'Salvando...' : isEdit ? 'Salvar Alteracoes' : 'Criar Campanha'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

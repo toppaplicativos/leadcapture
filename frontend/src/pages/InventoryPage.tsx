@@ -310,7 +310,7 @@ function OverviewView({ showToast, onAlertCount, refreshKey }: { showToast: (t: 
         <KpiCard label="Valor Total" value={Number(data?.total_value) > 0 ? money(data.total_value) : '—'} icon={BarChart3} bg="bg-emerald-50" color={Number(data?.total_value) > 0 ? "text-emerald-500" : "text-muted"} />
         <KpiCard label="Entradas Hoje" value={num(data?.entries_today)} icon={ArrowDown} bg="bg-emerald-50" color="text-emerald-500" />
         <KpiCard label="Saídas Hoje" value={num(data?.exits_today)} icon={ArrowUp} bg="bg-orange-50" color="text-orange-500" />
-        <KpiCard label="Total Unidades" value={num(data?.total_units)} icon={Scale} bg="bg-indigo-50" color="text-indigo-500" />
+        <KpiCard label="Embalagens" value={num(data?.total_units)} icon={Scale} bg="bg-indigo-50" color="text-indigo-500" />
         <KpiCard label="Reservado" value={num(data?.total_reserved)} icon={Package} bg="bg-purple-50" color="text-purple-500" />
       </div>
 
@@ -374,11 +374,35 @@ function StockManagementView({ showToast, refreshKey, onRefresh }: {
     ? items.filter(p => ((p.product_name || p.name || '') as string).toLowerCase().includes(search.toLowerCase()))
     : items
 
+  // Convert product unit to kg multiplier
+  function unitToKg(unit: string): number {
+    const u = (unit || '').toLowerCase().trim()
+    const m = u.match(/^(\d+(?:[.,]\d+)?)\s*(kg|g)$/i)
+    if (m) {
+      const val = parseFloat(m[1])
+      return m[2].toLowerCase() === 'g' ? val / 1000 : val
+    }
+    if (u === 'kg') return 1
+    if (u === 'g') return 0.001
+    if (u === 'unidade' || u === 'un') return 1 // fallback
+    return 1
+  }
+
+  function productKg(p: any): number {
+    return (Number(p.stock_current) || 0) * unitToKg(p.product_unit || p.unit || 'kg')
+  }
+
+  const totalKg = items.reduce((s, p) => s + productKg(p), 0)
+  const totalAvailableKg = items.reduce((s, p) => s + (Number(p.stock_available) || 0) * unitToKg(p.product_unit || p.unit || 'kg'), 0)
   const totalUnits = items.reduce((s, p) => s + (Number(p.stock_current) || 0), 0)
-  const totalAvailable = items.reduce((s, p) => s + (Number(p.stock_available) || 0), 0)
   const totalReserved = items.reduce((s, p) => s + (Number(p.stock_reserved) || 0), 0)
   const lowStock = items.filter(p => (p.status || '').toLowerCase() === 'baixo').length
   const zeroStock = items.filter(p => (p.status || '').toLowerCase() === 'zerado').length
+
+  function fmtKg(v: number): string {
+    if (v >= 1000) return `${(v / 1000).toFixed(2)} ton`
+    return `${v.toFixed(1)} kg`
+  }
 
   async function executeAction() {
     if (!actionModal || !qty || Number(qty) <= 0) return showToast('Quantidade invalida', 'error')
@@ -413,17 +437,17 @@ function StockManagementView({ showToast, refreshKey, onRefresh }: {
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-2.5">
         <div className="bg-gradient-to-br from-indigo-500 to-blue-600 rounded-2xl p-4 text-white shadow-lg">
           <Scale size={16} className="text-white/50 mb-1" />
-          <p className="text-2xl font-extrabold">{num(totalUnits)}</p>
-          <p className="text-[9px] font-bold text-white/50 uppercase tracking-wider">Total Bruto</p>
+          <p className="text-2xl font-extrabold">{fmtKg(totalKg)}</p>
+          <p className="text-[9px] font-bold text-white/50 uppercase tracking-wider">Total em Peso</p>
         </div>
         <div className="bg-gradient-to-br from-emerald-500 to-teal-600 rounded-2xl p-4 text-white shadow-lg">
           <Package size={16} className="text-white/50 mb-1" />
-          <p className="text-2xl font-extrabold">{num(totalAvailable)}</p>
+          <p className="text-2xl font-extrabold">{fmtKg(totalAvailableKg)}</p>
           <p className="text-[9px] font-bold text-white/50 uppercase tracking-wider">Disponivel</p>
         </div>
         <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
-          <p className="text-2xl font-extrabold text-amber-600">{num(totalReserved)}</p>
-          <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">Reservado</p>
+          <p className="text-2xl font-extrabold text-gray-900">{num(totalUnits)}</p>
+          <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">Embalagens</p>
         </div>
         <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
           <p className="text-2xl font-extrabold text-orange-500">{lowStock}</p>
@@ -449,9 +473,9 @@ function StockManagementView({ showToast, refreshKey, onRefresh }: {
           <thead>
             <tr className="bg-gray-50/80 border-b border-gray-100">
               <th className="text-left px-4 py-2.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Produto</th>
-              <th className="text-right px-3 py-2.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Atual</th>
-              <th className="text-right px-3 py-2.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider hidden sm:table-cell">Disponivel</th>
-              <th className="text-right px-3 py-2.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider hidden md:table-cell">Reservado</th>
+              <th className="text-right px-3 py-2.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Qtd</th>
+              <th className="text-right px-3 py-2.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider hidden sm:table-cell">Peso (kg)</th>
+              <th className="text-right px-3 py-2.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider hidden md:table-cell">Unidade</th>
               <th className="text-center px-3 py-2.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Status</th>
               <th className="text-right px-4 py-2.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Acoes</th>
             </tr>
@@ -478,8 +502,8 @@ function StockManagementView({ showToast, refreshKey, onRefresh }: {
                     </div>
                   </td>
                   <td className="px-3 py-3 text-right font-extrabold text-gray-900">{num(current)}</td>
-                  <td className="px-3 py-3 text-right font-semibold text-emerald-600 hidden sm:table-cell">{num(available)}</td>
-                  <td className="px-3 py-3 text-right text-amber-600 hidden md:table-cell">{reserved > 0 ? num(reserved) : '—'}</td>
+                  <td className="px-3 py-3 text-right font-semibold text-emerald-600 hidden sm:table-cell">{(current * unitToKg(p.product_unit || p.unit || 'kg')).toFixed(1)}</td>
+                  <td className="px-3 py-3 text-right text-xs text-gray-500 hidden md:table-cell font-mono">{p.product_unit || p.unit || 'kg'}</td>
                   <td className="px-3 py-3 text-center">
                     <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${sb.cls}`}>{sb.label}</span>
                   </td>
@@ -515,7 +539,9 @@ function StockManagementView({ showToast, refreshKey, onRefresh }: {
                 {actionModal.type === 'add' ? '📥 Entrada de Estoque' : actionModal.type === 'remove' ? '📤 Saida de Estoque' : '⚖️ Ajustar Estoque'}
               </h3>
               <p className="text-[11px] text-gray-400 mt-0.5">{actionModal.product.product_name || actionModal.product.name}</p>
-              <p className="text-xs text-gray-500 mt-1">Estoque atual: <span className="font-bold">{num(Number(actionModal.product.stock_current) || 0)}</span></p>
+              <p className="text-xs text-gray-500 mt-1">Estoque atual: <span className="font-bold">{num(Number(actionModal.product.stock_current) || 0)} {actionModal.product.product_unit || actionModal.product.unit || 'un'}</span>
+                <span className="text-gray-400 ml-1">({((Number(actionModal.product.stock_current) || 0) * unitToKg(actionModal.product.product_unit || actionModal.product.unit || 'kg')).toFixed(1)} kg)</span>
+              </p>
             </div>
             <div className="px-5 py-4 space-y-3">
               <div>

@@ -1028,24 +1028,32 @@ function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
             </details>
 
             {/* ─── 5. PIPELINE DE EXECUCAO ─── */}
-            <div className="bg-gray-950 rounded-xl p-4 text-white">
-              <p className="text-[10px] font-bold text-white/30 uppercase tracking-[0.1em] mb-3">Pipeline de execucao</p>
-              <div className="flex items-center gap-0 overflow-x-auto scrollbar-hide">
+            <div className="rounded-xl border border-gray-200 overflow-hidden">
+              <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em]">Pipeline de execucao</p>
+                <span className="text-[8px] font-bold text-violet-500 bg-violet-50 px-1.5 py-0.5 rounded">BETA</span>
+              </div>
+              <div className="px-3 py-3 flex items-start gap-0 overflow-x-auto scrollbar-hide">
                 {[
-                  { step: '1', label: 'Filtrar Leads', desc: `${filterStatuses.join(', ')}`, icon: '🎯' },
-                  { step: '2', label: imageUrl || videoUrl ? 'Preparar Midia' : 'Compor Msg', desc: useAi ? 'IA + Template' : 'Template fixo', icon: useAi ? '🤖' : '✏️' },
-                  { step: '3', label: 'Validar WhatsApp', desc: filterHasWhatsapp ? 'Somente validos' : 'Todos', icon: '✅' },
-                  { step: '4', label: 'Enviar', desc: `${maxPerMinute}/min, max ${dailyLimit}/dia`, icon: '🚀' },
-                  { step: '5', label: 'Classificar', desc: 'IA analisa respostas', icon: '📊' },
-                  { step: '6', label: nextStatus ? `Mover → ${nextStatus}` : 'Finalizar', desc: addTags ? `+tags: ${addTags}` : 'Sem acoes', icon: '🏁' },
+                  { label: 'Filtrar', desc: filterStatuses.join(', ') || 'todos', color: 'bg-blue-500' },
+                  { label: imageUrl ? 'Midia + Msg' : 'Compor Msg', desc: useAi ? 'IA personalizada' : 'Template fixo', color: 'bg-violet-500' },
+                  { label: 'Validar', desc: filterHasWhatsapp ? 'WhatsApp only' : 'Todos', color: 'bg-emerald-500' },
+                  { label: 'Enviar', desc: `${maxPerMinute}/min · ${dailyLimit}/dia`, color: 'bg-orange-500' },
+                  { label: 'Classificar', desc: 'IA analisa replies', color: 'bg-indigo-500' },
+                  { label: nextStatus ? `→ ${nextStatus}` : 'Fim', desc: addTags ? `+${addTags}` : '', color: 'bg-gray-500' },
                 ].map((s, i, arr) => (
-                  <div key={s.step} className="flex items-center shrink-0">
-                    <div className="text-center px-2 min-w-[80px]">
-                      <span className="text-lg">{s.icon}</span>
-                      <p className="text-[10px] font-bold text-white/80 mt-0.5">{s.label}</p>
-                      <p className="text-[8px] text-white/30 leading-tight">{s.desc}</p>
+                  <div key={i} className="flex items-center shrink-0">
+                    <div className="text-center min-w-[72px]">
+                      <div className={`w-7 h-7 rounded-lg ${s.color} mx-auto grid place-items-center text-white text-[10px] font-bold shadow-sm`}>{i + 1}</div>
+                      <p className="text-[10px] font-bold text-gray-700 mt-1.5">{s.label}</p>
+                      <p className="text-[8px] text-gray-400 leading-tight max-w-[70px] mx-auto">{s.desc}</p>
                     </div>
-                    {i < arr.length - 1 && <div className="w-6 h-px bg-white/10 shrink-0" />}
+                    {i < arr.length - 1 && (
+                      <div className="flex items-center px-0.5 pt-0 mt-[-8px]">
+                        <div className="w-4 h-px bg-gray-200" />
+                        <ChevronRight size={10} className="text-gray-300 -mx-0.5" />
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -1723,77 +1731,126 @@ export function MessagesView({ showToast }: { showToast: (t: string, tp?: 'ok' |
 export function AgentView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') => void }) {
   const [data, setData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+  const [activeSkill, setActiveSkill] = useState<string | null>(null)
 
   useEffect(() => {
     setLoading(true)
     fetch('/api/ai/workspace-overview', { headers: getHeaders() })
-      .then(r => r.json()).then(d => {
-        setData(d.overview || d)
-        setLoading(false)
-      }).catch(() => setLoading(false))
+      .then(r => r.json()).then(d => { setData(d.overview || d); setLoading(false) })
+      .catch(() => setLoading(false))
   }, [])
 
-  if (loading) return <Skeleton rows={6} />
+  if (loading) return <Skeleton rows={8} />
 
   const profile = data?.profile || {}
   const training = data?.training || {}
   const whatsapp = data?.whatsapp || {}
   const score = data?.readiness_score || 0
 
+  // Skills system — specialized AI departments
+  const departments = [
+    {
+      name: 'Vendas',
+      color: 'from-emerald-500 to-teal-600',
+      icon: '💰',
+      skills: [
+        { id: 'sales-closer', name: 'Closer de Vendas', desc: 'Identifica sinais de compra e conduz ao fechamento', status: 'active' },
+        { id: 'sales-qualifier', name: 'Qualificador', desc: 'Classifica leads por potencial e perfil ideal', status: 'active' },
+        { id: 'sales-objections', name: 'Quebra de Objecoes', desc: 'Responde duvidas e remove barreiras de compra', status: 'beta' },
+        { id: 'sales-upsell', name: 'Upsell & Cross-sell', desc: 'Sugere produtos complementares pos-venda', status: 'planned' },
+      ]
+    },
+    {
+      name: 'Marketing',
+      color: 'from-violet-500 to-purple-600',
+      icon: '📣',
+      skills: [
+        { id: 'mkt-copywriter', name: 'Copywriter', desc: 'Cria textos persuasivos para campanhas e mensagens', status: 'active' },
+        { id: 'mkt-segmentation', name: 'Segmentacao', desc: 'Analisa base e sugere segmentos de alto valor', status: 'beta' },
+        { id: 'mkt-nurturing', name: 'Nutrição de Leads', desc: 'Sequencias educativas para aquecer leads frios', status: 'active' },
+        { id: 'mkt-content', name: 'Planejador de Conteudo', desc: 'Calendario editorial e estrategia de posts', status: 'planned' },
+      ]
+    },
+    {
+      name: 'Atendimento',
+      color: 'from-blue-500 to-indigo-600',
+      icon: '🎧',
+      skills: [
+        { id: 'cs-firstcontact', name: 'Primeiro Contato', desc: 'Abordagem humanizada e profissional via WhatsApp', status: 'active' },
+        { id: 'cs-faq', name: 'FAQ Inteligente', desc: 'Responde perguntas frequentes com base de conhecimento', status: 'active' },
+        { id: 'cs-escalation', name: 'Escalacao', desc: 'Identifica quando transferir para humano', status: 'active' },
+        { id: 'cs-satisfaction', name: 'Pesquisa Satisfacao', desc: 'Coleta feedback apos interacao ou venda', status: 'beta' },
+      ]
+    },
+    {
+      name: 'Logistica',
+      color: 'from-amber-500 to-orange-600',
+      icon: '🚚',
+      skills: [
+        { id: 'log-tracking', name: 'Rastreamento', desc: 'Informa status do pedido e previsao de entrega', status: 'active' },
+        { id: 'log-scheduling', name: 'Agendamento', desc: 'Agenda entrega com confirmacao do cliente', status: 'beta' },
+        { id: 'log-returns', name: 'Trocas e Devolucoes', desc: 'Processa solicitacoes de troca e devolucao', status: 'planned' },
+      ]
+    },
+    {
+      name: 'Inteligencia',
+      color: 'from-pink-500 to-rose-600',
+      icon: '🧠',
+      skills: [
+        { id: 'intel-sentiment', name: 'Analise de Sentimento', desc: 'Classifica respostas como positiva/neutra/negativa', status: 'active' },
+        { id: 'intel-intent', name: 'Deteccao de Intencao', desc: 'Identifica o que o lead realmente quer', status: 'active' },
+        { id: 'intel-scoring', name: 'Lead Scoring', desc: 'Pontua leads automaticamente por engajamento', status: 'beta' },
+        { id: 'intel-predict', name: 'Predicao de Conversao', desc: 'Estima probabilidade de fechamento', status: 'planned' },
+      ]
+    },
+  ]
+
+  const statusLabel = (s: string) => {
+    if (s === 'active') return { text: 'Ativa', cls: 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200' }
+    if (s === 'beta') return { text: 'Beta', cls: 'bg-violet-50 text-violet-700 ring-1 ring-violet-200' }
+    return { text: 'Em breve', cls: 'bg-gray-100 text-gray-500' }
+  }
+
   return (
     <div className="space-y-5">
       <div>
         <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">Agente IA</h2>
-        <p className="text-[13px] text-gray-400 mt-0.5">{profile.agent_name || 'Assistente Virtual'}</p>
+        <p className="text-[13px] text-gray-400 mt-0.5">Sistema de skills especializadas · GPT-4o Mini</p>
       </div>
 
-      {/* Score */}
-      <div className="bg-gradient-to-br from-violet-500 to-indigo-600 rounded-2xl p-5 text-white shadow-lg">
-        <div className="flex items-center justify-between mb-3">
-          <div>
-            <p className="text-white/60 text-xs font-bold uppercase tracking-wider">Prontidao do Agente</p>
-            <p className="text-4xl font-extrabold mt-1">{score}%</p>
+      {/* Score + Profile header */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="sm:col-span-2 bg-gradient-to-br from-violet-500 to-indigo-600 rounded-2xl p-5 text-white shadow-lg">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <p className="text-white/50 text-[10px] font-bold uppercase tracking-wider">Prontidao</p>
+              <p className="text-4xl font-extrabold mt-1">{score}<span className="text-lg text-white/50">%</span></p>
+            </div>
+            <div className="text-right">
+              <p className="text-sm font-bold">{profile.agent_name || 'Agente'}</p>
+              <p className="text-[10px] text-white/50">{profile.tone === 'friendly' ? 'Tom amigavel' : profile.tone} · {profile.language}</p>
+            </div>
           </div>
-          <div className="w-16 h-16 rounded-2xl bg-white/10 grid place-items-center">
-            <Bot size={32} className="text-white/80" />
+          <div className="w-full h-1.5 bg-white/20 rounded-full overflow-hidden">
+            <div className="h-full bg-white/80 rounded-full transition-all" style={{ width: `${score}%` }} />
           </div>
         </div>
-        <div className="w-full h-2 bg-white/20 rounded-full overflow-hidden">
-          <div className="h-full bg-white/80 rounded-full transition-all" style={{ width: `${score}%` }} />
-        </div>
-      </div>
 
-      {/* Profile info */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-4">
-          <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em] mb-3">Perfil</h3>
-          <div className="space-y-2">
-            {[
-              ['Nome', profile.agent_name],
-              ['Tom', profile.tone === 'friendly' ? 'Amigavel' : profile.tone],
-              ['Idioma', profile.language],
-              ['Emojis', profile.include_emojis ? 'Sim' : 'Nao'],
-            ].map(([l, v]) => v && (
-              <div key={l as string} className="flex justify-between text-xs">
-                <span className="text-gray-400">{l}</span>
-                <span className="font-semibold text-gray-700">{v as string}</span>
-              </div>
-            ))}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-4 flex flex-col justify-between">
+          <div className="flex items-center gap-2 mb-2">
+            <div className={`w-2.5 h-2.5 rounded-full ${whatsapp.autonomous ? 'bg-emerald-500 animate-pulse' : 'bg-gray-300'}`} />
+            <span className="text-xs font-bold text-gray-700">WhatsApp</span>
           </div>
-        </div>
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-4">
-          <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em] mb-3">Base de Treinamento</h3>
-          <div className="space-y-2">
-            {[
-              ['Total entradas', training.total_entries],
-              ['Categorias', training.categories_count],
-              ['Ultima atualizacao', training.last_updated ? dt(training.last_updated) : null],
-            ].map(([l, v]) => v != null && (
-              <div key={l as string} className="flex justify-between text-xs">
-                <span className="text-gray-400">{l}</span>
-                <span className="font-semibold text-gray-700">{String(v)}</span>
-              </div>
-            ))}
+          <p className="text-[10px] text-gray-400">{whatsapp.autonomous ? 'Autoatendimento ativo' : 'Desativado'}</p>
+          <div className="mt-2 grid grid-cols-2 gap-1.5">
+            <div className="bg-gray-50 rounded-lg p-1.5 text-center">
+              <p className="text-sm font-extrabold text-gray-900">{training.total_entries || 0}</p>
+              <p className="text-[8px] text-gray-400">Treinamentos</p>
+            </div>
+            <div className="bg-gray-50 rounded-lg p-1.5 text-center">
+              <p className="text-sm font-extrabold text-gray-900">{training.categories_count || 0}</p>
+              <p className="text-[8px] text-gray-400">Categorias</p>
+            </div>
           </div>
         </div>
       </div>
@@ -1801,23 +1858,53 @@ export function AgentView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'e
       {/* Objective */}
       {profile.objective && (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-4">
-          <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em] mb-2">Objetivo do Agente</h3>
-          <p className="text-xs text-gray-600 leading-relaxed">{profile.objective}</p>
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em] mb-1.5">Diretriz Principal</p>
+          <p className="text-xs text-gray-600 leading-relaxed line-clamp-3">{profile.objective}</p>
         </div>
       )}
 
-      {/* WhatsApp status */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className={`w-10 h-10 rounded-xl grid place-items-center ${whatsapp.autonomous ? 'bg-emerald-50' : 'bg-gray-100'}`}>
-            <MessageSquare size={18} className={whatsapp.autonomous ? 'text-emerald-500' : 'text-gray-400'} />
-          </div>
-          <div>
-            <p className="text-sm font-semibold text-gray-900">WhatsApp Autonomo</p>
-            <p className="text-[11px] text-gray-400">{whatsapp.autonomous ? 'Autoatendimento ativo' : 'Autoatendimento desativado'}</p>
-          </div>
+      {/* ── Skills by Department ── */}
+      <div>
+        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em] mb-3">Skills Especializadas</p>
+        <div className="space-y-3">
+          {departments.map(dept => (
+            <div key={dept.name} className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] overflow-hidden">
+              <div className="px-4 py-3 flex items-center gap-3 border-b border-gray-100">
+                <div className={`w-8 h-8 rounded-lg bg-gradient-to-br ${dept.color} grid place-items-center text-sm shadow-sm`}>{dept.icon}</div>
+                <div className="flex-1">
+                  <p className="text-sm font-bold text-gray-900">{dept.name}</p>
+                  <p className="text-[10px] text-gray-400">{dept.skills.filter(s => s.status === 'active').length}/{dept.skills.length} ativas</p>
+                </div>
+              </div>
+              <div className="divide-y divide-gray-100">
+                {dept.skills.map(skill => {
+                  const sl = statusLabel(skill.status)
+                  const isOpen = activeSkill === skill.id
+                  return (
+                    <button key={skill.id} onClick={() => setActiveSkill(isOpen ? null : skill.id)}
+                      className="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-gray-50/50 transition">
+                      <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${skill.status === 'active' ? 'bg-emerald-500' : skill.status === 'beta' ? 'bg-violet-500' : 'bg-gray-300'}`} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-semibold text-gray-800">{skill.name}</p>
+                        <p className="text-[10px] text-gray-400 mt-0.5">{skill.desc}</p>
+                      </div>
+                      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${sl.cls}`}>{sl.text}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
         </div>
-        <div className={`w-3 h-3 rounded-full ${whatsapp.autonomous ? 'bg-emerald-500' : 'bg-gray-300'}`} />
+      </div>
+
+      {/* Model info */}
+      <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
+        <div className="flex items-center gap-2">
+          <Bot size={14} className="text-gray-400" />
+          <span className="text-[11px] font-semibold text-gray-500">Motor: GPT-4o Mini</span>
+        </div>
+        <span className="text-[9px] text-gray-400">Alto raciocinio · Baixo custo · Alta velocidade</span>
       </div>
     </div>
   )

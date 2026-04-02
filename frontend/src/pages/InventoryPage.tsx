@@ -366,43 +366,49 @@ function StockManagementView({ showToast, refreshKey, onRefresh }: {
 
   function load() {
     setLoading(true)
-    inventoryApi.products(1, 200).then(d => { setItems(d.items || []); setLoading(false) }).catch(() => setLoading(false))
+    // Merge inventory stock data with product catalog (correct units)
+    Promise.all([
+      inventoryApi.products(1, 200),
+      fetch('/api/products', { headers: getAuthHeaders() }).then(r => r.json()).catch(() => ({ products: [] })),
+    ]).then(([inv, cat]) => {
+      const catMap = new Map<string, any>()
+      ;(cat.products || []).forEach((p: any) => catMap.set(p.id, p))
+      const merged = (inv.items || []).map((item: any) => {
+        const catProduct = catMap.get(item.product_id) || {}
+        // Use catalog unit (normalized) over inventory unit (may be stale "unidade")
+        const realUnit = catProduct.unit || item.product_unit || 'kg'
+        return { ...item, real_unit: realUnit, catalog: catProduct }
+      })
+      setItems(merged)
+      setLoading(false)
+    }).catch(() => setLoading(false))
   }
   useEffect(() => { load() }, [refreshKey])
 
-  const filtered = search
-    ? items.filter(p => ((p.product_name || p.name || '') as string).toLowerCase().includes(search.toLowerCase()))
-    : items
-
-  // Convert product unit to kg multiplier
+  // Convert unit to kg multiplier
   function unitToKg(unit: string): number {
-    const u = (unit || '').toLowerCase().trim()
+    const u = (unit || 'kg').toLowerCase().trim()
     const m = u.match(/^(\d+(?:[.,]\d+)?)\s*(kg|g)$/i)
-    if (m) {
-      const val = parseFloat(m[1])
-      return m[2].toLowerCase() === 'g' ? val / 1000 : val
-    }
+    if (m) { const v = parseFloat(m[1]); return m[2].toLowerCase() === 'g' ? v / 1000 : v }
     if (u === 'kg') return 1
     if (u === 'g') return 0.001
-    if (u === 'unidade' || u === 'un') return 1 // fallback
     return 1
   }
-
-  function productKg(p: any): number {
-    return (Number(p.stock_current) || 0) * unitToKg(p.product_unit || p.unit || 'kg')
-  }
-
-  const totalKg = items.reduce((s, p) => s + productKg(p), 0)
-  const totalAvailableKg = items.reduce((s, p) => s + (Number(p.stock_available) || 0) * unitToKg(p.product_unit || p.unit || 'kg'), 0)
-  const totalUnits = items.reduce((s, p) => s + (Number(p.stock_current) || 0), 0)
-  const totalReserved = items.reduce((s, p) => s + (Number(p.stock_reserved) || 0), 0)
-  const lowStock = items.filter(p => (p.status || '').toLowerCase() === 'baixo').length
-  const zeroStock = items.filter(p => (p.status || '').toLowerCase() === 'zerado').length
-
   function fmtKg(v: number): string {
     if (v >= 1000) return `${(v / 1000).toFixed(2)} ton`
     return `${v.toFixed(1)} kg`
   }
+
+  const filtered = search
+    ? items.filter(p => ((p.product_name || '') as string).toLowerCase().includes(search.toLowerCase()))
+    : items
+
+  // Metrics from real data
+  const totalKg = items.reduce((s, p) => s + (Number(p.stock_current) || 0) * unitToKg(p.real_unit), 0)
+  const availableKg = items.reduce((s, p) => s + (Number(p.stock_available) || 0) * unitToKg(p.real_unit), 0)
+  const totalProducts = items.length
+  const lowStock = items.filter(p => (p.status || '').toLowerCase() === 'baixo').length
+  const zeroStock = items.filter(p => (p.status || '').toLowerCase() === 'zerado' || Number(p.stock_current) === 0).length
 
   async function executeAction() {
     if (!actionModal || !qty || Number(qty) <= 0) return showToast('Quantidade invalida', 'error')
@@ -411,13 +417,13 @@ function StockManagementView({ showToast, refreshKey, onRefresh }: {
     try {
       if (actionModal.type === 'add') {
         await inventoryApi.addStock(pid, { quantity: Number(qty), source: 'reposicao', reason: reason || 'Entrada manual' })
-        showToast(`+${qty} adicionado ao estoque`)
+        showToast(`+${qty} adicionado`)
       } else if (actionModal.type === 'remove') {
         await inventoryApi.removeStock(pid, { quantity: Number(qty), source: 'ajuste', reason: reason || 'Saida manual' })
-        showToast(`-${qty} removido do estoque`)
-      } else if (actionModal.type === 'adjust') {
+        showToast(`-${qty} removido`)
+      } else {
         await inventoryApi.adjustStock(pid, { new_quantity: Number(qty), reason: reason || 'Ajuste manual' })
-        showToast(`Estoque ajustado para ${qty}`)
+        showToast(`Ajustado para ${qty}`)
       }
       setActionModal(null); setQty(''); setReason(''); load(); onRefresh()
     } catch (e: any) { showToast(e.message, 'error') }
@@ -430,32 +436,28 @@ function StockManagementView({ showToast, refreshKey, onRefresh }: {
     <div className="space-y-5">
       <div>
         <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">Estoque</h2>
-        <p className="text-[13px] text-gray-400 mt-0.5">Gestao de quantidades e movimentacoes</p>
+        <p className="text-[13px] text-gray-400 mt-0.5">{totalProducts} produtos · {fmtKg(totalKg)} total</p>
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-2.5">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
         <div className="bg-gradient-to-br from-indigo-500 to-blue-600 rounded-2xl p-4 text-white shadow-lg">
-          <Scale size={16} className="text-white/50 mb-1" />
-          <p className="text-2xl font-extrabold">{fmtKg(totalKg)}</p>
-          <p className="text-[9px] font-bold text-white/50 uppercase tracking-wider">Total em Peso</p>
+          <Scale size={16} className="text-white/50 mb-1.5" />
+          <p className="text-[26px] font-extrabold leading-none">{fmtKg(totalKg)}</p>
+          <p className="text-[9px] font-bold text-white/50 uppercase tracking-wider mt-1">Total em Peso</p>
         </div>
         <div className="bg-gradient-to-br from-emerald-500 to-teal-600 rounded-2xl p-4 text-white shadow-lg">
-          <Package size={16} className="text-white/50 mb-1" />
-          <p className="text-2xl font-extrabold">{fmtKg(totalAvailableKg)}</p>
-          <p className="text-[9px] font-bold text-white/50 uppercase tracking-wider">Disponivel</p>
+          <Package size={16} className="text-white/50 mb-1.5" />
+          <p className="text-[26px] font-extrabold leading-none">{fmtKg(availableKg)}</p>
+          <p className="text-[9px] font-bold text-white/50 uppercase tracking-wider mt-1">Disponivel</p>
         </div>
         <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
-          <p className="text-2xl font-extrabold text-gray-900">{num(totalUnits)}</p>
-          <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">Embalagens</p>
+          <p className="text-[26px] font-extrabold text-orange-500 leading-none">{lowStock}</p>
+          <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider mt-1">Estoque Baixo</p>
         </div>
         <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
-          <p className="text-2xl font-extrabold text-orange-500">{lowStock}</p>
-          <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">Estoque Baixo</p>
-        </div>
-        <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
-          <p className="text-2xl font-extrabold text-red-500">{zeroStock}</p>
-          <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">Zerado</p>
+          <p className="text-[26px] font-extrabold text-red-500 leading-none">{zeroStock}</p>
+          <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider mt-1">Sem Estoque</p>
         </div>
       </div>
 
@@ -463,131 +465,132 @@ function StockManagementView({ showToast, refreshKey, onRefresh }: {
       <div className="relative">
         <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
         <input type="text" value={search} onChange={e => setSearch(e.target.value)}
-          placeholder="Buscar produto no estoque..."
+          placeholder="Buscar produto..."
           className="w-full pl-9 pr-3 py-2.5 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-emerald-200 placeholder:text-gray-300" />
       </div>
 
-      {/* Stock table */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="bg-gray-50/80 border-b border-gray-100">
-              <th className="text-left px-4 py-2.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Produto</th>
-              <th className="text-right px-3 py-2.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Qtd</th>
-              <th className="text-right px-3 py-2.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider hidden sm:table-cell">Peso (kg)</th>
-              <th className="text-right px-3 py-2.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider hidden md:table-cell">Unidade</th>
-              <th className="text-center px-3 py-2.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Status</th>
-              <th className="text-right px-4 py-2.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Acoes</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((p: any) => {
-              const pid = p.product_id || p.id
-              const name = p.product_name || p.name || 'Produto'
-              const img = p.product_image || p.image_url || ''
-              const sb = stockBadge(p.status)
-              const current = Number(p.stock_current) || 0
-              const available = Number(p.stock_available) || 0
-              const reserved = Number(p.stock_reserved) || 0
-              return (
-                <tr key={pid} className="border-b border-gray-100 last:border-0 hover:bg-gray-50/50 transition">
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2.5">
-                      {img ? <img src={img} alt="" className="w-9 h-9 rounded-lg object-cover shrink-0" />
-                        : <div className="w-9 h-9 rounded-lg bg-gray-100 grid place-items-center shrink-0"><Package size={14} className="text-gray-300" /></div>}
-                      <div className="min-w-0">
-                        <p className="font-semibold text-gray-900 truncate max-w-[180px] text-xs">{name}</p>
-                        <p className="text-[10px] text-gray-400">{unitShort(p.product_unit || p.unit)} · min: {p.stock_min || 0}</p>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-3 py-3 text-right font-extrabold text-gray-900">{num(current)}</td>
-                  <td className="px-3 py-3 text-right font-semibold text-emerald-600 hidden sm:table-cell">{(current * unitToKg(p.product_unit || p.unit || 'kg')).toFixed(1)}</td>
-                  <td className="px-3 py-3 text-right text-xs text-gray-500 hidden md:table-cell font-mono">{p.product_unit || p.unit || 'kg'}</td>
-                  <td className="px-3 py-3 text-center">
-                    <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${sb.cls}`}>{sb.label}</span>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      <button onClick={() => { setActionModal({ type: 'add', product: p }); setQty(''); setReason('') }}
-                        className="p-1.5 rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-100 transition" title="Entrada">
-                        <ArrowDown size={13} />
-                      </button>
-                      <button onClick={() => { setActionModal({ type: 'remove', product: p }); setQty(''); setReason('') }}
-                        className="p-1.5 rounded-lg bg-red-50 text-red-500 hover:bg-red-100 transition" title="Saida">
-                        <ArrowUp size={13} />
-                      </button>
-                      <button onClick={() => { setActionModal({ type: 'adjust', product: p }); setQty(String(current)); setReason('') }}
-                        className="p-1.5 rounded-lg bg-blue-50 text-blue-500 hover:bg-blue-100 transition" title="Ajuste">
-                        <Scale size={13} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
+      {/* Stock list */}
+      <div className="space-y-2">
+        {filtered.map((p: any) => {
+          const current = Number(p.stock_current) || 0
+          const available = Number(p.stock_available) || 0
+          const reserved = Number(p.stock_reserved) || 0
+          const unit = p.real_unit || 'kg'
+          const kgPerUnit = unitToKg(unit)
+          const totalKgProduct = current * kgPerUnit
+          const sb = stockBadge(p.status)
+          const img = p.product_image || p.image_url || ''
+
+          return (
+            <div key={p.id} className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-4 hover:shadow-md transition-all">
+              <div className="flex items-center gap-3">
+                {img ? <img src={img} alt="" className="w-11 h-11 rounded-xl object-cover shrink-0" />
+                  : <div className="w-11 h-11 rounded-xl bg-gray-100 grid place-items-center shrink-0"><Package size={16} className="text-gray-300" /></div>}
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-bold text-gray-900 truncate">{p.product_name || 'Produto'}</p>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span className="text-[10px] font-mono text-gray-400">{unit}</span>
+                    <span className="text-[10px] text-gray-300">·</span>
+                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${sb.cls}`}>{sb.label}</span>
+                    {reserved > 0 && <span className="text-[9px] text-amber-600 font-semibold">Reserv: {num(reserved)}</span>}
+                  </div>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="text-lg font-extrabold text-gray-900">{num(current)}</p>
+                  <p className="text-[10px] text-gray-400 font-semibold">{totalKgProduct >= 1 ? `${totalKgProduct.toFixed(1)} kg` : `${(totalKgProduct * 1000).toFixed(0)} g`}</p>
+                </div>
+              </div>
+              {/* Actions */}
+              <div className="flex items-center gap-1.5 mt-3 pt-3 border-t border-gray-100">
+                <button onClick={() => { setActionModal({ type: 'add', product: p }); setQty(''); setReason('') }}
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 text-[11px] font-bold hover:bg-emerald-100 transition">
+                  <ArrowDown size={12} /> Entrada
+                </button>
+                <button onClick={() => { setActionModal({ type: 'remove', product: p }); setQty(''); setReason('') }}
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-red-50 text-red-600 text-[11px] font-bold hover:bg-red-100 transition">
+                  <ArrowUp size={12} /> Saida
+                </button>
+                <button onClick={() => { setActionModal({ type: 'adjust', product: p }); setQty(String(current)); setReason('') }}
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-600 text-[11px] font-bold hover:bg-blue-100 transition">
+                  <Scale size={12} /> Ajustar
+                </button>
+                <div className="flex-1" />
+                <span className="text-[10px] text-gray-400">min: {p.stock_min || 0}</span>
+              </div>
+            </div>
+          )
+        })}
       </div>
 
-      {/* Action Modal */}
-      {actionModal && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => setActionModal(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
-            <div className="px-5 py-4 border-b border-gray-100">
-              <h3 className="font-bold text-base text-gray-900">
-                {actionModal.type === 'add' ? '📥 Entrada de Estoque' : actionModal.type === 'remove' ? '📤 Saida de Estoque' : '⚖️ Ajustar Estoque'}
-              </h3>
-              <p className="text-[11px] text-gray-400 mt-0.5">{actionModal.product.product_name || actionModal.product.name}</p>
-              <p className="text-xs text-gray-500 mt-1">Estoque atual: <span className="font-bold">{num(Number(actionModal.product.stock_current) || 0)} {actionModal.product.product_unit || actionModal.product.unit || 'un'}</span>
-                <span className="text-gray-400 ml-1">({((Number(actionModal.product.stock_current) || 0) * unitToKg(actionModal.product.product_unit || actionModal.product.unit || 'kg')).toFixed(1)} kg)</span>
-              </p>
-            </div>
-            <div className="px-5 py-4 space-y-3">
-              <div>
-                <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5 block">
-                  {actionModal.type === 'adjust' ? 'Nova quantidade' : 'Quantidade'}
-                </label>
-                <input type="number" step="any" min="0" value={qty} onChange={e => setQty(e.target.value)} autoFocus
-                  placeholder={actionModal.type === 'adjust' ? 'Nova qty total' : 'Ex: 100'}
-                  className="w-full px-3 py-3 border border-gray-200 rounded-xl text-lg font-bold text-center focus:outline-none focus:ring-2 focus:ring-emerald-200" />
-              </div>
-              <div>
-                <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5 block">Motivo (opcional)</label>
-                <input type="text" value={reason} onChange={e => setReason(e.target.value)}
-                  placeholder="Ex: Reposicao do fornecedor, Inventario..."
-                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-200" />
-              </div>
-              {actionModal.type !== 'adjust' && qty && Number(qty) > 0 && (
-                <div className="bg-gray-50 rounded-xl p-3 text-center">
-                  <p className="text-xs text-gray-500">Resultado:</p>
-                  <p className="text-lg font-extrabold text-gray-900">
-                    {num(Number(actionModal.product.stock_current) || 0)} {actionModal.type === 'add' ? '+' : '−'} {qty} = <span className={actionModal.type === 'add' ? 'text-emerald-600' : 'text-red-500'}>
-                      {num(actionModal.type === 'add' ? (Number(actionModal.product.stock_current) || 0) + Number(qty) : (Number(actionModal.product.stock_current) || 0) - Number(qty))}
-                    </span>
-                  </p>
-                </div>
-              )}
-            </div>
-            <div className="px-5 py-4 border-t border-gray-100 flex gap-2">
-              <button onClick={() => setActionModal(null)} className="flex-1 py-2.5 rounded-xl bg-gray-100 text-gray-600 text-xs font-semibold hover:bg-gray-200 transition">Cancelar</button>
-              <button onClick={executeAction} disabled={saving || !qty || Number(qty) <= 0}
-                className={`flex-1 py-2.5 rounded-xl text-white text-xs font-bold disabled:opacity-50 transition shadow-sm ${
-                  actionModal.type === 'add' ? 'bg-emerald-500 hover:bg-emerald-600' : actionModal.type === 'remove' ? 'bg-red-500 hover:bg-red-600' : 'bg-blue-500 hover:bg-blue-600'
-                }`}>
-                {saving ? 'Processando...' : actionModal.type === 'add' ? 'Adicionar' : actionModal.type === 'remove' ? 'Remover' : 'Ajustar'}
-              </button>
-            </div>
-          </div>
+      {filtered.length === 0 && (
+        <div className="flex flex-col items-center py-14 text-center">
+          <Package size={28} className="text-gray-300 mb-2" />
+          <p className="text-sm text-gray-500">Nenhum produto encontrado</p>
         </div>
       )}
+
+      {/* Action Modal */}
+      {actionModal && (() => {
+        const current = Number(actionModal.product.stock_current) || 0
+        const unit = actionModal.product.real_unit || 'kg'
+        const kgPer = unitToKg(unit)
+        const preview = actionModal.type === 'add' ? current + Number(qty || 0)
+          : actionModal.type === 'remove' ? current - Number(qty || 0)
+          : Number(qty || 0)
+        return (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => setActionModal(null)}>
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
+              <div className={`px-5 py-4 rounded-t-2xl ${actionModal.type === 'add' ? 'bg-emerald-500' : actionModal.type === 'remove' ? 'bg-red-500' : 'bg-blue-500'} text-white`}>
+                <h3 className="font-bold text-base">
+                  {actionModal.type === 'add' ? 'Entrada de Estoque' : actionModal.type === 'remove' ? 'Saida de Estoque' : 'Ajustar Estoque'}
+                </h3>
+                <p className="text-white/70 text-xs mt-0.5">{actionModal.product.product_name}</p>
+                <p className="text-white/50 text-[10px] mt-0.5">Atual: {num(current)} {unit} ({(current * kgPer).toFixed(1)} kg)</p>
+              </div>
+              <div className="px-5 py-4 space-y-3">
+                <div>
+                  <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5 block">
+                    {actionModal.type === 'adjust' ? 'Nova quantidade' : `Quantidade (${unit})`}
+                  </label>
+                  <input type="number" step="any" min="0" value={qty} onChange={e => setQty(e.target.value)} autoFocus
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl text-xl font-bold text-center focus:outline-none focus:ring-2 focus:ring-emerald-200" />
+                </div>
+                <div>
+                  <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5 block">Motivo</label>
+                  <input type="text" value={reason} onChange={e => setReason(e.target.value)}
+                    placeholder="Ex: Reposicao fornecedor..."
+                    className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-200" />
+                </div>
+                {qty && Number(qty) > 0 && (
+                  <div className="bg-gray-50 rounded-xl p-3 text-center">
+                    <p className="text-[10px] text-gray-500 mb-1">Resultado</p>
+                    <p className="text-lg font-extrabold text-gray-900">
+                      {actionModal.type !== 'adjust' && <>{num(current)} {actionModal.type === 'add' ? '+' : '−'} {qty} = </>}
+                      <span className={actionModal.type === 'add' ? 'text-emerald-600' : actionModal.type === 'remove' ? 'text-red-500' : 'text-blue-600'}>
+                        {num(preview)} {unit}
+                      </span>
+                    </p>
+                    <p className="text-[10px] text-gray-400">{(preview * kgPer).toFixed(1)} kg</p>
+                  </div>
+                )}
+              </div>
+              <div className="px-5 py-4 border-t border-gray-100 flex gap-2">
+                <button onClick={() => setActionModal(null)} className="flex-1 py-2.5 rounded-xl bg-gray-100 text-gray-600 text-xs font-semibold hover:bg-gray-200 transition">Cancelar</button>
+                <button onClick={executeAction} disabled={saving || !qty || Number(qty) <= 0}
+                  className={`flex-1 py-2.5 rounded-xl text-white text-xs font-bold disabled:opacity-50 transition shadow-sm ${
+                    actionModal.type === 'add' ? 'bg-emerald-500 hover:bg-emerald-600' : actionModal.type === 'remove' ? 'bg-red-500 hover:bg-red-600' : 'bg-blue-500 hover:bg-blue-600'
+                  }`}>
+                  {saving ? 'Processando...' : actionModal.type === 'add' ? 'Adicionar' : actionModal.type === 'remove' ? 'Remover' : 'Ajustar'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }
 
-/* ══════════════════════════════════════════════
-   PRODUCTS VIEW
-   ══════════════════════════════════════════════ */
 function ProductsView({ showToast, categories, refreshKey, onRefresh }: {
   showToast: (t: string, tp?: 'success' | 'error') => void; categories: Category[]; refreshKey: number; onRefresh: () => void
 }) {

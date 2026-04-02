@@ -2095,15 +2095,29 @@ export function DesignView({ showToast }: { showToast: (t: string, tp?: 'success
           <h3 className="text-sm font-bold">Identidade Visual</h3>
         </div>
 
-        <Field label="Logo da Loja">
+        <Field label="Logo da Loja (1:1 — recomendado 500×500px)">
           <div className="flex items-center gap-3">
-            <div className="w-14 h-14 rounded-xl border border-border bg-gray-50 flex items-center justify-center overflow-hidden shrink-0">
+            <div className="w-16 h-16 rounded-xl border-2 border-dashed border-gray-300 bg-gray-50 flex items-center justify-center overflow-hidden shrink-0 relative group">
               {logoUrl
                 ? <img src={logoUrl} alt="Logo" className="w-full h-full object-cover" onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
-                : <Package size={20} className="text-muted-light" />}
+                : <Upload size={20} className="text-gray-300" />}
+              <label className="absolute inset-0 cursor-pointer opacity-0 group-hover:opacity-100 bg-black/40 flex items-center justify-center transition-opacity rounded-xl">
+                <Upload size={16} className="text-white" />
+                <input type="file" accept="image/*" className="hidden" onChange={async (e) => {
+                  const file = e.target.files?.[0]; if (!file) return
+                  const fd = new FormData(); fd.append('file', file)
+                  try {
+                    const r = await fetch('/api/media/upload', { method: 'POST', headers: { 'Authorization': getHeaders()['Authorization'] }, body: fd })
+                    const d = await r.json(); if (d.file?.url) setLogoUrl(d.file.url)
+                  } catch {}
+                }} />
+              </label>
             </div>
-            <input type="url" value={logoUrl} onChange={e => setLogoUrl(e.target.value)}
-              placeholder="https://... URL da imagem" className={inputCls} />
+            <div className="flex-1">
+              <input type="url" value={logoUrl} onChange={e => setLogoUrl(e.target.value)}
+                placeholder="URL ou clique no quadrado para upload" className={inputCls + ' text-xs'} />
+              <p className="text-[10px] text-gray-400 mt-1">Formato quadrado 1:1. Clique no icone para fazer upload.</p>
+            </div>
           </div>
         </Field>
 
@@ -2139,16 +2153,29 @@ export function DesignView({ showToast }: { showToast: (t: string, tp?: 'success
           </Field>
         </div>
 
-        <Field label="Imagem de Capa / Banner">
-          <input type="url" value={coverImage} onChange={e => setCoverImage(e.target.value)}
-            placeholder="https://... URL da imagem de capa" className={inputCls} />
-        </Field>
-        {coverImage && (
-          <div className="relative h-28 rounded-xl overflow-hidden border border-border bg-gray-100">
-            <img src={coverImage} alt="Capa" className="w-full h-full object-cover"
-              onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
+        <Field label="Imagem de Capa / Banner (820×312px — proporcao Facebook)">
+          <div className="relative rounded-xl overflow-hidden border-2 border-dashed border-gray-300 bg-gray-50 group" style={{ aspectRatio: '820/312' }}>
+            {coverImage
+              ? <img src={coverImage} alt="Capa" className="w-full h-full object-cover" onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
+              : <div className="w-full h-full flex flex-col items-center justify-center text-gray-300">
+                  <Upload size={28} />
+                  <p className="text-xs mt-1.5">820 × 312 px</p>
+                </div>}
+            <label className="absolute inset-0 cursor-pointer opacity-0 group-hover:opacity-100 bg-black/40 flex items-center justify-center transition-opacity">
+              <div className="bg-white/90 rounded-lg px-3 py-1.5 text-xs font-semibold text-gray-700">Trocar imagem</div>
+              <input type="file" accept="image/*" className="hidden" onChange={async (e) => {
+                const file = e.target.files?.[0]; if (!file) return
+                const fd = new FormData(); fd.append('file', file)
+                try {
+                  const r = await fetch('/api/media/upload', { method: 'POST', headers: { 'Authorization': getHeaders()['Authorization'] }, body: fd })
+                  const d = await r.json(); if (d.file?.url) setCoverImage(d.file.url)
+                } catch {}
+              }} />
+            </label>
           </div>
-        )}
+          <input type="url" value={coverImage} onChange={e => setCoverImage(e.target.value)}
+            placeholder="Ou cole uma URL diretamente" className={inputCls + ' text-xs mt-2'} />
+        </Field>
       </section>
 
       {/* Frete & Entrega: configurar em /frete (secao dedicada) */}

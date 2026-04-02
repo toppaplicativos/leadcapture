@@ -1392,6 +1392,186 @@ export function DomainView({ showToast }: { showToast: (t: string, tp?: 'ok' | '
 /* ══════════════════════════════════════════════
    FRETE VIEW (reuses storefront logistics settings)
    ══════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════
+   ESTOQUE ACCESS VIEW (Users & Permissions)
+   ══════════════════════════════════════════════ */
+export function EstoqueAccessView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') => void }) {
+  const [credentials, setCredentials] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [showForm, setShowForm] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [formName, setFormName] = useState('')
+  const [formEmail, setFormEmail] = useState('')
+  const [formPassword, setFormPassword] = useState('')
+  const [formPhone, setFormPhone] = useState('')
+  const [brandSlug, setBrandSlug] = useState('')
+  const [toggling, setToggling] = useState<string | null>(null)
+
+  function loadCredentials() {
+    setLoading(true)
+    const brandId = localStorage.getItem('lead-system:active-brand-id') || ''
+    fetch(`/api/auth/stock-access?brand_id=${brandId}`, { headers: getHeaders() })
+      .then(r => r.json()).then(d => {
+        setCredentials(d.credentials || [])
+        if (d.credentials?.[0]?.brand_slug) setBrandSlug(d.credentials[0].brand_slug)
+        setLoading(false)
+      }).catch(() => setLoading(false))
+  }
+  useEffect(() => {
+    loadCredentials()
+    // Also get brand slug
+    fetch('/api/brands', { headers: getHeaders() })
+      .then(r => r.json()).then(d => {
+        const brands = d.brands || []
+        const active = d.active_brand_id
+        const b = brands.find((x: any) => String(x.id) === String(active)) || brands[0]
+        if (b?.slug) setBrandSlug(b.slug)
+      }).catch(() => {})
+  }, [])
+
+  async function createAccess() {
+    if (!formEmail.trim() || !formPassword || formPassword.length < 6) {
+      return showToast('Email e senha (min 6 chars) obrigatorios', 'err')
+    }
+    setSaving(true)
+    try {
+      const brandId = localStorage.getItem('lead-system:active-brand-id') || ''
+      const r = await fetch('/api/auth/stock-access', {
+        method: 'POST', headers: getHeaders(),
+        body: JSON.stringify({ email: formEmail.trim(), password: formPassword, name: formName.trim() || 'Gerente de Estoque', phone: formPhone.trim() || null, brand_id: brandId }),
+      })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.error || 'Erro ao criar acesso')
+      showToast('Acesso ao estoque criado!')
+      setShowForm(false); setFormName(''); setFormEmail(''); setFormPassword(''); setFormPhone('')
+      loadCredentials()
+    } catch (e: any) { showToast(e.message, 'err') }
+    setSaving(false)
+  }
+
+  async function deactivate(id: string) {
+    setToggling(id)
+    try {
+      await fetch(`/api/auth/stock-access/${id}/deactivate`, { method: 'PATCH', headers: getHeaders() })
+      showToast('Acesso desativado')
+      loadCredentials()
+    } catch (e: any) { showToast(e.message, 'err') }
+    setToggling(null)
+  }
+
+  if (loading) return <Skeleton rows={4} />
+
+  const appUrl = brandSlug ? `/app-estoque?brand=${brandSlug}` : '/app-estoque'
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">Estoque</h2>
+          <p className="text-[13px] text-gray-400 mt-0.5">Gerencie usuarios e acessos ao app de estoque</p>
+        </div>
+        <button onClick={() => setShowForm(!showForm)}
+          className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 text-white text-xs font-bold hover:from-emerald-600 hover:to-teal-700 transition-all shadow-md">
+          <Plus size={14} /> Novo Acesso
+        </button>
+      </div>
+
+      {/* App link card */}
+      <div className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-2xl p-5 text-white shadow-lg">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-white/50 text-[10px] font-bold uppercase tracking-wider">App de Estoque</p>
+            <p className="text-sm font-bold mt-1">Acesso dos gerentes ao painel de controle de estoque</p>
+            <p className="text-xs text-white/40 mt-1.5 font-mono">{window.location.origin}{appUrl}</p>
+          </div>
+          <a href={appUrl} target="_blank" rel="noreferrer"
+            className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-bold transition shrink-0">
+            Abrir App →
+          </a>
+        </div>
+      </div>
+
+      {/* Create form */}
+      {showForm && (
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-lg p-5 space-y-4">
+          <h3 className="font-bold text-sm text-gray-900">Criar Acesso ao Estoque</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1 block">Nome do gerente</label>
+              <input type="text" value={formName} onChange={e => setFormName(e.target.value)}
+                placeholder="Ex: Joao Silva"
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-200" />
+            </div>
+            <div>
+              <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1 block">Telefone (opcional)</label>
+              <input type="text" value={formPhone} onChange={e => setFormPhone(e.target.value)}
+                placeholder="31999998888"
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-200" />
+            </div>
+            <div>
+              <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1 block">Email de login *</label>
+              <input type="email" value={formEmail} onChange={e => setFormEmail(e.target.value)}
+                placeholder="gerente@empresa.com" required
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-200" />
+            </div>
+            <div>
+              <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1 block">Senha *</label>
+              <input type="password" value={formPassword} onChange={e => setFormPassword(e.target.value)}
+                placeholder="Min 6 caracteres" required
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-200" />
+            </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <button onClick={() => setShowForm(false)}
+              className="px-4 py-2 rounded-xl bg-gray-100 text-gray-600 text-xs font-semibold hover:bg-gray-200 transition">Cancelar</button>
+            <button onClick={createAccess} disabled={saving}
+              className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 disabled:opacity-50 transition">
+              {saving ? 'Criando...' : 'Criar Acesso'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Credentials list */}
+      {credentials.length === 0 ? (
+        <EmptyState icon={Users} text="Nenhum acesso de estoque configurado" />
+      ) : (
+        <div className="space-y-2.5">
+          {credentials.map((c: any) => (
+            <div key={c.id} className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className={`w-10 h-10 rounded-xl grid place-items-center shrink-0 ${c.is_active ? 'bg-emerald-50' : 'bg-gray-100'}`}>
+                    <Users size={18} className={c.is_active ? 'text-emerald-500' : 'text-gray-400'} />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="font-bold text-sm text-gray-900">{c.manager_name || 'Gerente'}</p>
+                      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${c.is_active ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200' : 'bg-red-50 text-red-600'}`}>
+                        {c.is_active ? 'ATIVO' : 'INATIVO'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-400 font-mono">{c.email}</p>
+                    {c.manager_phone && <p className="text-[10px] text-gray-400">{c.manager_phone}</p>}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {c.is_active && (
+                    <button onClick={() => deactivate(c.id)} disabled={toggling === c.id}
+                      className="px-3 py-1.5 rounded-lg text-red-500 text-[11px] font-semibold hover:bg-red-50 transition">
+                      Desativar
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function FreteView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') => void }) {
   const [storeId, setStoreId] = useState('')
   const [loading, setLoading] = useState(true)

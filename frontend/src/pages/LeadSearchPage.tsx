@@ -67,6 +67,8 @@ export function LeadSearchPage() {
   const [autoCapture, setAutoCapture] = useState(false)
   const [radarLoading, setRadarLoading] = useState(false)
   const [radarCount, setRadarCount] = useState(0)
+  const [capturedLive, setCapturedLive] = useState(0)
+  const [prospecting, setProspecting] = useState(false)
 
   // Map refs
   const mapRef = useRef<HTMLDivElement>(null)
@@ -99,33 +101,68 @@ export function LeadSearchPage() {
   const radarSearch = useCallback(async (lat: number, lng: number) => {
     if (!query.trim()) return
     setRadarLoading(true)
+    setProspecting(true)
     try {
-      const body = { query: query.trim(), latitude: lat, longitude: lng, radius: Number(radius || 3) * 1000, maxResults: Math.min(maxResults, 40) }
+      const searchRadius = Number(radius || 3) * 1000
+      const body = { query: query.trim(), latitude: lat, longitude: lng, radius: searchRadius, maxResults: Math.min(maxResults, 40) }
       const r = await fetch('/api/leads/radar-search', { method: 'POST', headers: getHeaders(), body: JSON.stringify(body) })
       const d = await r.json()
       if (!r.ok) throw new Error(d.error)
       const radarLeads: Lead[] = d.leads || []
+
       // Merge with existing (deduplicate by id)
+      let newFoundCount = 0
       setLeads(prev => {
         const ids = new Set(prev.map(l => l.id))
         const newOnes = radarLeads.filter(l => !ids.has(l.id))
+        newFoundCount = newOnes.length
         setRadarCount(c => c + newOnes.length)
         return [...prev, ...newOnes]
       })
-      // Auto-capture: persist new leads via search endpoint
-      if (autoCapture && radarLeads.some(l => l.captureStatus === 'new' || !l.captureStatus)) {
-        fetch('/api/leads/search', {
-          method: 'POST', headers: getHeaders(),
-          body: JSON.stringify({ query: query.trim(), location: `${lat.toFixed(6)},${lng.toFixed(6)}`, maxResults: 20, executeAutomation: automate }),
-        }).then(r => r.json()).then(d => {
-          if (d.persisted?.created > 0) setStats(prev => prev ? { ...prev, created: prev.created + d.persisted.created, total: prev.total + d.persisted.created } : prev)
-        }).catch(() => {})
+
+      // Update stats in real-time
+      setStats(prev => prev ? {
+        ...prev,
+        total: prev.total + newFoundCount,
+      } : { total: radarLeads.length, created: 0, skipped: 0, automationQueued: 0 })
+
+      // Auto-capture: persist each new lead individually via capture-manual
+      if (autoCapture && radarLeads.length > 0) {
+        let capturedThisRound = 0
+        for (const lead of radarLeads) {
+          if (lead.captureStatus === 'captured') continue
+          try {
+            const captureBody = {
+              lead: {
+                placeId: lead.id, name: lead.name, phone: lead.phone,
+                address: lead.address, rating: lead.rating, reviews: lead.reviews,
+                category: lead.category, website: lead.website,
+                googleMapsUri: lead.googleMapsUri, businessStatus: lead.businessStatus,
+                location: lead.location,
+              },
+              query: query.trim(),
+              location: `${lat.toFixed(4)},${lng.toFixed(4)}`,
+              executeAutomation: automate,
+            }
+            const cr = await fetch('/api/leads/capture-manual', { method: 'POST', headers: getHeaders(), body: JSON.stringify(captureBody) })
+            const cd = await cr.json()
+            if (cd.success && cd.persisted?.created > 0) {
+              capturedThisRound++
+              setCapturedLive(c => c + 1)
+            }
+          } catch {}
+        }
+        if (capturedThisRound > 0) {
+          setStats(prev => prev ? { ...prev, created: prev.created + capturedThisRound } : prev)
+        }
       }
+
       // Save map position
       const map = mapInstance.current
       if (map) saveMapPos(lat, lng, map.getZoom())
     } catch {}
     setRadarLoading(false)
+    setTimeout(() => setProspecting(false), 500)
   }, [query, radius, maxResults, autoCapture, automate])
 
   const filtered = leads.filter(l => {
@@ -150,7 +187,11 @@ export function LeadSearchPage() {
             {stats ? `${stats.total} encontrados · ${stats.created} novos` : 'Google Maps + captacao automatica'}
           </p>
         </div>
-        {radarCount > 0 && <span className="text-xs bg-emerald-50 text-emerald-700 font-bold px-2.5 py-1 rounded-lg">+{radarCount} radar</span>}
+        <div className="flex items-center gap-2">
+          {prospecting && <span className="flex items-center gap-1.5 text-xs bg-violet-50 text-violet-700 font-bold px-2.5 py-1 rounded-lg animate-pulse"><Loader2 size={11} className="animate-spin" /> Prospectando...</span>}
+          {radarCount > 0 && <span className="text-xs bg-blue-50 text-blue-700 font-bold px-2.5 py-1 rounded-lg">+{radarCount} encontrados</span>}
+          {capturedLive > 0 && <span className="text-xs bg-emerald-50 text-emerald-700 font-bold px-2.5 py-1 rounded-lg">+{capturedLive} captados</span>}
+        </div>
       </div>
 
       {/* Search Form */}
@@ -367,21 +408,34 @@ function PanfleteiroMap({ leads, capturedPoints, mapRef, mapInstance, panfleteir
 
     if (!savedPos && bounds.length > 1) map.fitBounds(bounds, { padding: [40, 40] })
 
-    // Crosshair for panfleteiro
+    // Panfleteiro: crosshair + radius circle + moveend search
+    let radiusCircle: L.Circle | null = null
     if (panfleteiro) {
+      // Crosshair
       const crosshair = L.DomUtil.create('div', '', map.getContainer())
-      crosshair.innerHTML = '<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);pointer-events:none;z-index:999"><div style="width:24px;height:24px;border:3px solid #7c3aed;border-radius:50%;opacity:0.7"></div><div style="position:absolute;top:50%;left:50%;width:4px;height:4px;background:#7c3aed;border-radius:50%;transform:translate(-50%,-50%)"></div></div>'
-    }
+      crosshair.innerHTML = '<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);pointer-events:none;z-index:999"><div style="width:28px;height:28px;border:3px solid #7c3aed;border-radius:50%;opacity:0.6;box-shadow:0 0 12px rgba(124,58,237,0.3)"></div><div style="position:absolute;top:50%;left:50%;width:4px;height:4px;background:#7c3aed;border-radius:50%;transform:translate(-50%,-50%)"></div></div>'
 
-    // Panfleteiro: search on map move
-    if (panfleteiro) {
+      // Radius heatmap circle (updates on move)
+      const searchRadiusM = (Number(localStorage.getItem('leadcapture:search-state') ? JSON.parse(localStorage.getItem('leadcapture:search-state')!).radius : 3) || 3) * 1000
+      radiusCircle = L.circle(map.getCenter(), {
+        radius: searchRadiusM,
+        color: '#7c3aed',
+        fillColor: '#7c3aed',
+        fillOpacity: 0.06,
+        weight: 1.5,
+        dashArray: '6,4',
+        interactive: false,
+      }).addTo(map)
+
+      // Move: update circle + trigger search
       map.on('moveend', () => {
+        const c = map.getCenter()
+        if (radiusCircle) radiusCircle.setLatLng(c)
         clearTimeout(moveTimer.current)
         moveTimer.current = setTimeout(() => {
-          const c = map.getCenter()
           saveMapPos(c.lat, c.lng, map.getZoom())
           radarSearch(c.lat, c.lng)
-        }, 1200) // Wait 1.2s after move stabilizes
+        }, 1200)
       })
     }
 

@@ -14,7 +14,7 @@ import { HistoryPage } from '@/pages/HistoryPage'
 import { OnboardingPage } from '@/pages/OnboardingPage'
 import { StockLoginPage } from '@/pages/StockLoginPage'
 import { StockPanelPage } from '@/pages/StockPanelPage'
-import { InventoryPage } from '@/pages/InventoryPage'
+import { InventoryPage, DesignView } from '@/pages/InventoryPage'
 import { ProductDetailPage } from '@/pages/ProductDetailPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { AdminShell, DashboardView, CampaignsView, OrdersView, AutomationsView, ProductsView } from '@/pages/AdminDashboard'
@@ -104,7 +104,7 @@ export default function App() {
         <Route path="/pedidos" element={<AdminPage><OrdersInline /></AdminPage>} />
         <Route path="/estoque" element={<InventoryPage />} />
         <Route path="/inventario" element={<InventoryPage />} />
-        <Route path="/design" element={<AdminPage><ComingSoon title="Design do Catalogo" icon={Package} /></AdminPage>} />
+        <Route path="/design" element={<AdminPage><DesignView showToast={() => {}} /></AdminPage>} />
         <Route path="/frete" element={<AdminPage><ComingSoon title="Frete & Entrega" icon={Package} /></AdminPage>} />
         <Route path="/dominio" element={<AdminPage><ComingSoon title="Dominio" icon={Package} /></AdminPage>} />
         <Route path="/configuracoes" element={<AdminPage><ComingSoon title="Configuracoes" icon={Package} /></AdminPage>} />

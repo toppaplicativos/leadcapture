@@ -132,40 +132,43 @@ export function AdminShell({ children }: { children?: ReactNode }) {
   const lojaNav = NAV_ITEMS.filter(n => n.group === 'loja')
 
   return (
-    <div className="h-screen bg-bg flex flex-col">
+    <div className="h-screen bg-[#f8f9fb] flex flex-col">
       {/* ── Mobile Topbar ── */}
-      <header className="sticky top-0 z-50 bg-gradient-to-r from-gray-900 to-gray-800 text-white flex items-center justify-between px-4 h-14 lg:hidden shadow-lg shrink-0">
+      <header className="sticky top-0 z-50 bg-gray-950 text-white flex items-center justify-between px-4 h-14 lg:hidden shadow-xl shrink-0">
         <div className="flex items-center gap-2.5">
-          <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-1">
-            {sidebarOpen ? <X size={20} /> : <Menu size={20} />}
+          <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-1.5 rounded-lg hover:bg-white/10 transition">
+            {sidebarOpen ? <X size={18} /> : <Menu size={18} />}
           </button>
-          {brand.logo_url && <img src={brand.logo_url} alt="" className="w-8 h-8 rounded-xl object-cover ring-2 ring-white/20" />}
-          <h1 className="text-sm font-bold truncate max-w-[160px]">{brand.name || 'Admin'}</h1>
+          {brand.logo_url && <img src={brand.logo_url} alt="" className="w-7 h-7 rounded-lg object-cover ring-2 ring-white/10" />}
+          <h1 className="text-[13px] font-bold truncate max-w-[160px]">{brand.name || 'Admin'}</h1>
         </div>
-        <button onClick={logout} className="bg-white/10 rounded-xl p-2 hover:bg-white/20 transition"><LogOut size={14} /></button>
+        <button onClick={logout} className="bg-white/10 rounded-lg p-2 hover:bg-white/20 transition"><LogOut size={14} /></button>
       </header>
 
       <div className="flex flex-1 overflow-hidden">
-        {/* ── Fixed Sidebar ── */}
-        <aside className={`fixed inset-y-0 left-0 z-40 w-56 bg-white border-r border-border flex flex-col transition-transform lg:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-          {/* Brand header + switcher */}
-          <div className="hidden lg:block border-b border-border shrink-0">
+        {/* ── Premium Sidebar ── */}
+        <aside className={`fixed inset-y-0 left-0 z-40 w-[220px] bg-gray-950 flex flex-col transition-transform lg:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+          {/* Brand header */}
+          <div className="hidden lg:block shrink-0 border-b border-white/[0.06]">
             <button onClick={() => brands.length > 1 && setShowBrandPicker(!showBrandPicker)}
-              className="w-full h-14 flex items-center gap-2.5 px-4 hover:bg-gray-50 transition">
+              className="w-full h-[60px] flex items-center gap-3 px-4 hover:bg-white/[0.04] transition">
               {brand.logo_url
-                ? <img src={brand.logo_url} alt="" className="w-8 h-8 rounded-lg object-cover shrink-0" />
-                : <div className="w-8 h-8 rounded-lg bg-blue-100 grid place-items-center shrink-0"><Package size={14} className="text-blue-500" /></div>}
-              <span className="font-bold text-sm truncate flex-1 text-left">{brand.name || 'Admin'}</span>
-              {brands.length > 1 && <ChevronRight size={14} className={`text-muted transition ${showBrandPicker ? 'rotate-90' : ''}`} />}
+                ? <img src={brand.logo_url} alt="" className="w-9 h-9 rounded-xl object-cover ring-2 ring-white/10 shrink-0" />
+                : <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 grid place-items-center shrink-0"><Package size={16} className="text-white" /></div>}
+              <div className="flex-1 min-w-0 text-left">
+                <span className="block text-[13px] font-bold text-white truncate">{brand.name || 'Admin'}</span>
+                <span className="block text-[10px] text-white/30 font-medium">Painel de controle</span>
+              </div>
+              {brands.length > 1 && <ChevronRight size={12} className={`text-white/20 transition ${showBrandPicker ? 'rotate-90' : ''}`} />}
             </button>
             {showBrandPicker && brands.length > 1 && (
-              <div className="px-2 pb-2 space-y-0.5">
+              <div className="px-2 pb-2.5 space-y-0.5">
                 {brands.map((b: any) => (
                   <button key={b.id} onClick={() => switchBrand(b.id)}
-                    className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs transition ${
-                      String(b.id) === String(activeBrandId) ? 'bg-blue-50 text-blue-600 font-semibold' : 'text-gray-500 hover:bg-gray-50'
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs transition ${
+                      String(b.id) === String(activeBrandId) ? 'bg-white/10 text-white font-semibold' : 'text-white/40 hover:bg-white/[0.06] hover:text-white/70'
                     }`}>
-                    {b.logo_url ? <img src={b.logo_url} alt="" className="w-6 h-6 rounded object-cover shrink-0" /> : <div className="w-6 h-6 rounded bg-gray-100 shrink-0" />}
+                    {b.logo_url ? <img src={b.logo_url} alt="" className="w-5 h-5 rounded object-cover shrink-0" /> : <div className="w-5 h-5 rounded bg-white/10 shrink-0" />}
                     <span className="truncate">{b.name}</span>
                   </button>
                 ))}
@@ -174,68 +177,81 @@ export function AdminShell({ children }: { children?: ReactNode }) {
           </div>
 
           {/* Nav */}
-          <nav className="flex-1 py-2 overflow-y-auto">
-            {mainNav.map(n => (
-              <button key={n.key} onClick={() => go(n.path)}
-                className={`w-full flex items-center gap-2.5 px-4 py-2 text-[13px] transition mx-1 rounded-lg ${
-                  section === n.key ? 'bg-blue-50 text-blue-600 font-semibold' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-700'
-                }`} style={{ width: 'calc(100% - 8px)' }}>
-                <n.icon size={16} />
-                {n.label}
-              </button>
-            ))}
+          <nav className="flex-1 py-3 px-2.5 overflow-y-auto space-y-0.5">
+            {mainNav.map(n => {
+              const active = section === n.key
+              return (
+                <button key={n.key} onClick={() => go(n.path)}
+                  className={`w-full flex items-center gap-2.5 px-3 py-[9px] text-[13px] rounded-lg transition-all ${
+                    active
+                      ? 'bg-white/[0.12] text-white font-semibold shadow-sm'
+                      : 'text-white/40 hover:bg-white/[0.06] hover:text-white/70'
+                  }`}>
+                  <n.icon size={16} className={active ? 'text-blue-400' : ''} />
+                  {n.label}
+                </button>
+              )
+            })}
 
-            <div className="mx-4 my-2 border-t border-border" />
-            <p className="px-4 mb-1 text-[9px] font-bold text-gray-300 uppercase tracking-widest">Loja</p>
-            {lojaNav.map(n => (
-              <button key={n.key} onClick={() => go(n.path)}
-                className={`w-full flex items-center gap-2.5 px-4 py-2 text-[13px] transition mx-1 rounded-lg ${
-                  section === n.key ? 'bg-blue-50 text-blue-600 font-semibold' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-700'
-                }`} style={{ width: 'calc(100% - 8px)' }}>
-                <n.icon size={16} />
-                {n.label}
-              </button>
-            ))}
+            <div className="!my-3 mx-1 border-t border-white/[0.06]" />
+            <p className="px-3 mb-1.5 text-[9px] font-bold text-white/15 uppercase tracking-[0.15em]">Catalogo</p>
+            {lojaNav.map(n => {
+              const active = section === n.key
+              return (
+                <button key={n.key} onClick={() => go(n.path)}
+                  className={`w-full flex items-center gap-2.5 px-3 py-[9px] text-[13px] rounded-lg transition-all ${
+                    active
+                      ? 'bg-white/[0.12] text-white font-semibold shadow-sm'
+                      : 'text-white/40 hover:bg-white/[0.06] hover:text-white/70'
+                  }`}>
+                  <n.icon size={16} className={active ? 'text-blue-400' : ''} />
+                  {n.label}
+                </button>
+              )
+            })}
           </nav>
 
           {/* Bottom */}
-          <div className="p-3 border-t border-border shrink-0">
+          <div className="p-3 border-t border-white/[0.06] shrink-0">
             <button onClick={logout}
-              className="w-full flex items-center justify-center gap-1.5 text-xs font-medium py-2 rounded-lg bg-gray-100 text-gray-500 hover:bg-gray-200 transition">
-              <LogOut size={13} /> Sair
+              className="w-full flex items-center justify-center gap-1.5 text-[11px] font-medium py-2 rounded-lg text-white/30 hover:bg-white/[0.06] hover:text-white/60 transition">
+              <LogOut size={12} /> Sair da conta
             </button>
           </div>
         </aside>
 
         {/* Overlay */}
-        {sidebarOpen && <div className="fixed inset-0 bg-black/30 z-30 lg:hidden" onClick={() => setSidebarOpen(false)} />}
+        {sidebarOpen && <div className="fixed inset-0 bg-black/50 z-30 lg:hidden backdrop-blur-sm" onClick={() => setSidebarOpen(false)} />}
 
         {/* ── Main Content ── */}
-        <main className="flex-1 lg:ml-56 overflow-y-auto">
-          <div className="max-w-5xl mx-auto px-4 pt-4 pb-20 lg:pb-6">
+        <main className="flex-1 lg:ml-[220px] overflow-y-auto">
+          <div className="max-w-5xl mx-auto px-5 pt-5 pb-20 lg:pb-8">
             {children}
           </div>
         </main>
       </div>
 
       {/* ── Mobile Bottom Nav ── */}
-      <nav className="fixed bottom-0 left-0 right-0 z-50 bg-white/95 backdrop-blur border-t border-border flex h-16 lg:hidden safe-area-inset-bottom shrink-0">
-        {mobileItems.map(n => (
-          <button key={n.key} onClick={() => go(n.path)}
-            className={`flex-1 flex flex-col items-center justify-center gap-0.5 text-[10px] font-medium transition ${
-              section === n.key ? 'text-blue-600' : 'text-gray-400'
-            }`}>
-            <n.icon size={20} />
-            {n.label}
-          </button>
-        ))}
+      <nav className="fixed bottom-0 left-0 right-0 z-50 bg-gray-950/95 backdrop-blur-lg border-t border-white/[0.06] flex h-16 lg:hidden safe-area-inset-bottom shrink-0">
+        {mobileItems.map(n => {
+          const active = section === n.key
+          return (
+            <button key={n.key} onClick={() => go(n.path)}
+              className={`flex-1 flex flex-col items-center justify-center gap-0.5 text-[10px] font-medium transition ${
+                active ? 'text-blue-400' : 'text-white/30'
+              }`}>
+              <n.icon size={18} />
+              {n.label}
+            </button>
+          )
+        })}
       </nav>
 
       {/* Toast */}
       {toast && (
         <div className="fixed bottom-20 lg:bottom-6 left-1/2 -translate-x-1/2 z-[300]">
-          <div className={`px-5 py-2.5 rounded-xl text-white text-sm font-semibold shadow-lg ${
-            toast.type === 'err' ? 'bg-red-500' : 'bg-emerald-500'
+          <div className={`px-5 py-3 rounded-2xl text-white text-sm font-semibold shadow-2xl backdrop-blur-lg ${
+            toast.type === 'err' ? 'bg-red-500/90' : 'bg-emerald-500/90'
           }`}>{toast.text}</div>
         </div>
       )}
@@ -255,18 +271,18 @@ function Skeleton({ rows = 4 }: { rows?: number }) {
   ))}</div>
 }
 
-function KpiCard({ label, value, icon: Icon, color, bg }: {
-  label: string; value: string; icon?: any; color?: string; bg?: string
+function KpiCard({ label, value, icon: Icon, color, bg, accent }: {
+  label: string; value: string; icon?: any; color?: string; bg?: string; accent?: string
 }) {
   return (
-    <div className="bg-white border border-border rounded-2xl p-4 hover:shadow-md transition-shadow">
+    <div className="bg-white rounded-2xl p-4 shadow-[0_1px_3px_rgba(0,0,0,0.06)] hover:shadow-[0_4px_12px_rgba(0,0,0,0.08)] transition-all border border-gray-100">
       <div className="flex items-center justify-between mb-3">
-        <span className="text-[10px] font-bold text-muted uppercase tracking-widest">{label}</span>
-        {Icon && <div className={`w-8 h-8 rounded-xl grid place-items-center ${bg || 'bg-gray-50'}`}>
-          <Icon size={15} className={color || 'text-muted'} />
+        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em]">{label}</span>
+        {Icon && <div className={`w-9 h-9 rounded-xl grid place-items-center ${bg || 'bg-gray-50'}`}>
+          <Icon size={16} className={color || 'text-gray-400'} />
         </div>}
       </div>
-      <p className={`text-2xl font-extrabold tracking-tight ${color || 'text-gray-900'}`}>{value}</p>
+      <p className={`text-[26px] font-extrabold tracking-tight leading-none ${accent || color || 'text-gray-900'}`}>{value}</p>
     </div>
   )
 }
@@ -286,6 +302,7 @@ function EmptyState({ icon: Icon, text }: { icon: any; text: string }) {
    DASHBOARD VIEW
    ══════════════════════════════════════════════ */
 export function DashboardView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') => void }) {
+  const navigate = useNavigate()
   const [data, setData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
 
@@ -313,35 +330,55 @@ export function DashboardView({ showToast }: { showToast: (t: string, tp?: 'ok' 
   if (loading) return <Skeleton rows={6} />
 
   return (
-    <div className="space-y-5">
-      <h2 className="text-lg font-bold text-gray-900">Painel Geral</h2>
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">Painel</h2>
+        <p className="text-[13px] text-gray-400 mt-0.5">Visao geral do seu negocio</p>
+      </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
-        <KpiCard label="Leads" value={num(data?.totalLeads)} icon={Users} bg="bg-blue-50" color="text-blue-600" />
-        <KpiCard label="Campanhas" value={num(data?.totalCampaigns)} icon={Megaphone} bg="bg-purple-50" color="text-purple-600" />
-        <KpiCard label="Pedidos" value={num(data?.totalOrders)} icon={ShoppingCart} bg="bg-emerald-50" color="text-emerald-600" />
-        <KpiCard label="Produtos" value={num(data?.products)} icon={Package} bg="bg-amber-50" color="text-amber-600" />
-        <KpiCard label="Estoque Total" value={num(data?.totalStock)} icon={BarChart3} bg="bg-indigo-50" color="text-indigo-600" />
-        <KpiCard label="Sem Estoque" value={num(data?.outOfStock)} icon={Zap} bg="bg-red-50" color="text-red-500" />
-        <KpiCard label="Camp. Ativas" value={num(data?.activeCampaigns)} icon={Send} bg="bg-emerald-50" color="text-emerald-500" />
+      {/* KPIs */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <KpiCard label="Total Leads" value={num(data?.totalLeads)} icon={Users} bg="bg-blue-50" color="text-blue-500" accent="text-blue-600" />
+        <KpiCard label="Campanhas" value={num(data?.totalCampaigns)} icon={Megaphone} bg="bg-violet-50" color="text-violet-500" accent="text-violet-600" />
+        <KpiCard label="Pedidos" value={num(data?.totalOrders)} icon={ShoppingCart} bg="bg-emerald-50" color="text-emerald-500" accent="text-emerald-600" />
+        <KpiCard label="Produtos" value={num(data?.products)} icon={Package} bg="bg-amber-50" color="text-amber-500" accent="text-amber-600" />
+      </div>
+
+      {/* Secondary KPIs */}
+      <div className="grid grid-cols-3 gap-3">
+        <div className="bg-gradient-to-br from-indigo-500 to-blue-600 rounded-2xl p-4 text-white shadow-lg">
+          <BarChart3 size={18} className="text-white/50 mb-2" />
+          <p className="text-2xl font-extrabold">{num(data?.totalStock)}</p>
+          <p className="text-[10px] font-bold text-white/60 uppercase tracking-wider">Unidades em Estoque</p>
+        </div>
+        <div className="bg-gradient-to-br from-emerald-500 to-teal-600 rounded-2xl p-4 text-white shadow-lg">
+          <Send size={18} className="text-white/50 mb-2" />
+          <p className="text-2xl font-extrabold">{num(data?.activeCampaigns)}</p>
+          <p className="text-[10px] font-bold text-white/60 uppercase tracking-wider">Campanhas Ativas</p>
+        </div>
+        <div className={`rounded-2xl p-4 shadow-lg ${Number(data?.outOfStock) > 0 ? 'bg-gradient-to-br from-red-500 to-rose-600 text-white' : 'bg-gradient-to-br from-gray-100 to-gray-200 text-gray-700'}`}>
+          <Zap size={18} className={Number(data?.outOfStock) > 0 ? 'text-white/50' : 'text-gray-400'} />
+          <p className="text-2xl font-extrabold mt-2">{num(data?.outOfStock)}</p>
+          <p className={`text-[10px] font-bold uppercase tracking-wider ${Number(data?.outOfStock) > 0 ? 'text-white/60' : 'text-gray-400'}`}>Sem Estoque</p>
+        </div>
       </div>
 
       {/* Quick actions */}
-      <section className="bg-white border border-border rounded-2xl p-4">
-        <h3 className="text-sm font-bold mb-3">Acesso Rapido</h3>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+      <section>
+        <h3 className="text-xs font-bold text-gray-400 uppercase tracking-[0.1em] mb-3">Acesso rapido</h3>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
           {[
-            { icon: Users, label: 'Ver Leads', color: 'text-blue-500', bg: 'bg-blue-50' },
-            { icon: Megaphone, label: 'Campanhas', color: 'text-purple-500', bg: 'bg-purple-50' },
-            { icon: ShoppingCart, label: 'Pedidos', color: 'text-emerald-500', bg: 'bg-emerald-50' },
-            { icon: Package, label: 'Estoque', color: 'text-amber-500', bg: 'bg-amber-50' },
+            { icon: Search, label: 'Buscar Leads', path: '/busca', gradient: 'from-blue-500 to-indigo-500' },
+            { icon: Megaphone, label: 'Campanhas', path: '/campanhas', gradient: 'from-violet-500 to-purple-500' },
+            { icon: ShoppingCart, label: 'Pedidos', path: '/pedidos', gradient: 'from-emerald-500 to-teal-500' },
+            { icon: Package, label: 'Estoque', path: '/estoque', gradient: 'from-amber-500 to-orange-500' },
           ].map(a => (
-            <button key={a.label}
-              className="flex items-center gap-2.5 p-3 rounded-xl hover:bg-gray-50 transition text-sm font-medium text-gray-700 border border-border">
-              <div className={`w-8 h-8 rounded-lg grid place-items-center ${a.bg}`}>
-                <a.icon size={15} className={a.color} />
+            <button key={a.label} onClick={() => navigate(a.path)}
+              className="group flex items-center gap-3 p-3.5 rounded-xl bg-white border border-gray-100 hover:border-gray-200 hover:shadow-md transition-all">
+              <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${a.gradient} grid place-items-center shadow-sm group-hover:scale-105 transition-transform`}>
+                <a.icon size={17} className="text-white" />
               </div>
-              {a.label}
+              <span className="text-[13px] font-semibold text-gray-700">{a.label}</span>
             </button>
           ))}
         </div>

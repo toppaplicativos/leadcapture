@@ -1922,7 +1922,7 @@ function PDVModal({ onClose, showToast, onOrderCreated }: {
 /* ══════════════════════════════════════════════
    DESIGN VIEW — Configurações do Catálogo
    ══════════════════════════════════════════════ */
-function DesignView({ showToast }: { showToast: (t: string, tp?: 'success' | 'error') => void }) {
+export function DesignView({ showToast }: { showToast: (t: string, tp?: 'success' | 'error') => void }) {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [storeId, setStoreId] = useState('')

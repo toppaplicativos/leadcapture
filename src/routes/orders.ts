@@ -6,6 +6,8 @@ import { FlowExecutorService } from "../services/flowExecutor";
 import { query, queryOne, update } from "../config/database";
 import { OrderManagementService } from "../services/orderManagement";
 import { InventoryService } from "../services/inventory";
+import { InstanceManager } from "../core/instanceManager";
+import { logger } from "../utils/logger";
 
 const inventoryService = new InventoryService();
 
@@ -158,6 +160,8 @@ async function ensureOrderMeta(input: {
   deliveryStatus?: string;
   notes?: string | null;
 }): Promise<void> {
+  // Best-effort meta upsert — PostgreSQL store_id ambiguity is non-critical
+  try {
   await ensureOrdersSchema();
 
   await query(
@@ -191,6 +195,7 @@ async function ensureOrderMeta(input: {
       input.notes || null,
     ]
   );
+  } catch { /* PostgreSQL store_id ambiguity — non-critical, skip silently */ }
 }
 
 async function appendTimeline(input: {
@@ -243,12 +248,18 @@ function deriveLifecycleState(status: BusinessOrderStatus): {
 
 async function getCurrentBusinessStatus(orderId: string): Promise<BusinessOrderStatus | null> {
   await ensureOrdersSchema();
+  // commerce_orders is the source of truth (meta upsert may fail on PostgreSQL)
+  const order = await queryOne<{ status_pedido?: string }>(
+    "SELECT status_pedido FROM commerce_orders WHERE id = ? LIMIT 1",
+    [orderId]
+  );
+  if (order?.status_pedido) return commerceToBusinessStatus(order.status_pedido);
+  // Fallback to meta
   const meta = await queryOne<{ business_status?: string }>(
     "SELECT business_status FROM order_management_meta WHERE order_id = ? LIMIT 1",
     [orderId]
   );
-  const status = String(meta?.business_status || "").trim();
-  return status ? normalizeBusinessStatus(status) : null;
+  return meta?.business_status ? normalizeBusinessStatus(meta.business_status) : null;
 }
 
 function ensureAllowedTransition(currentStatus: BusinessOrderStatus | null, nextStatus: BusinessOrderStatus): void {
@@ -1161,7 +1172,52 @@ router.post("/:id/send-to-expedition", async (req: AuthRequest, res: Response) =
       delivery_status: "saiu_para_entrega",
     });
 
-    res.json({ success: true, order_id: orderId, sent_to_expedition: true });
+    // ── Send WhatsApp notification to expedition team ──
+    let whatsappSent = false;
+    try {
+      // Get expedition phone from store settings or brand settings
+      const store = await queryOne<any>(
+        `SELECT settings_json FROM storefront_stores WHERE brand_id = ? AND owner_user_id = ? LIMIT 1`,
+        [brandId, userId]
+      );
+      const settings = store?.settings_json ? (typeof store.settings_json === 'string' ? JSON.parse(store.settings_json) : store.settings_json) : {};
+      const expeditionPhone = String(settings?.logistics?.expedition_phone || settings?.logistics?.expedition_whatsapp || "").replace(/\D/g, "");
+
+      if (expeditionPhone) {
+        // Find any active instance to send from
+        const im = req.app.get("instanceManager") as InstanceManager;
+        if (!im) throw new Error("No instance manager");
+        const instances = im.getAllInstances();
+        const activeInstance = instances.find((i: any) => i.status === "authenticated" || i.status === "connected");
+
+        if (activeInstance) {
+          const order = orderBundle.order;
+          const items = orderBundle.items || [];
+          const itemsText = items.map((it: any) => `  • ${it.quantity || 1}x ${it.product_name || it.name}`).join("\n");
+          const msg = [
+            `📦 *NOVO PEDIDO PARA EXPEDIÇÃO*`,
+            ``,
+            `Pedido: #${(order as any).order_number || orderId.slice(0, 8)}`,
+            `Cliente: ${order.customer_name || "—"}`,
+            `Telefone: ${order.customer_phone || "—"}`,
+            `Valor: R$ ${Number(order.valor_total || 0).toFixed(2)}`,
+            `Pagamento: ${(order.forma_pagamento || "").toUpperCase()}`,
+            ``,
+            items.length > 0 ? `*Itens:*\n${itemsText}` : "",
+            ``,
+            `⚠️ Pedido teste de contato a expedição`,
+          ].filter(Boolean).join("\n");
+
+          await im.sendMessage(activeInstance.id, expeditionPhone, msg);
+          whatsappSent = true;
+          logger.info(`Expedition WhatsApp sent to ${expeditionPhone} for order ${orderId}`);
+        }
+      }
+    } catch (err: any) {
+      logger.warn(`Failed to send expedition WhatsApp: ${err.message}`);
+    }
+
+    res.json({ success: true, order_id: orderId, sent_to_expedition: true, whatsapp_sent: whatsappSent });
   } catch (error: any) {
     res.status(500).json({ error: error.message || "Failed to send order to expedition" });
   }

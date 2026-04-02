@@ -2670,6 +2670,7 @@ export function FreteView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'e
   const [freeAbove, setFreeAbove] = useState('')
   const [eta, setEta] = useState('')
   const [deliveryText, setDeliveryText] = useState('')
+  const [expeditionPhone, setExpeditionPhone] = useState('')
 
   useEffect(() => {
     setLoading(true)
@@ -2686,6 +2687,7 @@ export function FreteView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'e
         setFreeAbove(lg.free_shipping_above != null ? String(lg.free_shipping_above) : '')
         setEta(lg.default_eta_minutes != null ? String(lg.default_eta_minutes) : '')
         setDeliveryText(lg.delivery_time_text || '')
+        setExpeditionPhone(lg.expedition_phone || '')
         setLoading(false)
       }).catch(() => setLoading(false))
   }, [])
@@ -2702,6 +2704,7 @@ export function FreteView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'e
           ...(freeAbove ? { free_shipping_above: parseFloat(freeAbove) } : {}),
           ...(eta ? { default_eta_minutes: parseInt(eta) } : {}),
           ...(deliveryText ? { delivery_time_text: deliveryText } : {}),
+          ...(expeditionPhone ? { expedition_phone: expeditionPhone.replace(/\D/g, '') } : {}),
         }}}),
       })
       showToast('Configuracoes de frete salvas!')
@@ -2749,6 +2752,24 @@ export function FreteView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'e
           <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5 block">Texto de entrega</label>
           <input type="text" value={deliveryText} onChange={e => setDeliveryText(e.target.value)} placeholder="Ex: Entrega em ate 3 dias uteis" className={inputCls} />
         </div>
+      </div>
+
+      {/* Expedition WhatsApp */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-5 space-y-3">
+        <div className="flex items-center gap-2 mb-1">
+          <div className="w-7 h-7 bg-emerald-50 rounded-lg grid place-items-center"><MessageSquare size={14} className="text-emerald-500" /></div>
+          <div>
+            <p className="text-sm font-bold text-gray-900">WhatsApp da Expedicao</p>
+            <p className="text-[10px] text-gray-400">Recebe notificacoes automaticas de novos pedidos</p>
+          </div>
+        </div>
+        <div className="relative">
+          <Phone size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input type="tel" value={expeditionPhone} onChange={e => setExpeditionPhone(e.target.value)}
+            placeholder="Ex: 5531991619663"
+            className={inputCls + ' pl-9'} />
+        </div>
+        <p className="text-[9px] text-gray-400">Formato: DDI + DDD + numero (ex: 5531991619663). Deixe vazio para desativar.</p>
       </div>
     </div>
   )

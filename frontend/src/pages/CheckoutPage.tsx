@@ -30,6 +30,7 @@ export function CheckoutPage() {
   const [paymentMethod, setPaymentMethod] = useState('')
   const [notes, setNotes] = useState('')
   const [whatsappNotify, setWhatsappNotify] = useState(true)
+  const [storeProfile, setStoreProfile] = useState<any>({})
 
   useEffect(() => {
     fetchCatalog()
@@ -37,6 +38,7 @@ export function CheckoutPage() {
         const map = new Map<string, Product>()
         ;(data.all_products || []).forEach((p) => map.set(String(p.id), p))
         setProducts(map)
+        setStoreProfile((data.store as any).profile || {})
         const brand = data.store.brand
         const theme = data.store.theme
         const primary = brand?.primary_color || theme?.primary_color || '#111827'
@@ -174,9 +176,50 @@ export function CheckoutPage() {
                 )
               })}
               <div className="flex justify-between items-center pt-3 border-t border-gray-200">
-                <span className="text-sm text-gray-500">Total</span>
+                <span className="text-sm text-gray-500">Subtotal</span>
                 <span className="text-xl font-extrabold text-gray-900">{money(total)}</span>
               </div>
+
+              {/* Shipping info */}
+              {(() => {
+                const freeAbove = Number(storeProfile.free_shipping_above) || 0
+                const deliveryFee = Number(storeProfile.delivery_fee) || 0
+                const isFreeShipping = freeAbove > 0 && total >= freeAbove
+                const missingForFree = freeAbove > 0 ? freeAbove - total : 0
+                return (
+                  <div className="space-y-2 pt-2">
+                    {isFreeShipping ? (
+                      <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-100 rounded-xl px-3 py-2.5">
+                        <span className="text-lg">🎉</span>
+                        <div>
+                          <p className="text-xs font-bold text-emerald-700">Frete gratis!</p>
+                          <p className="text-[10px] text-emerald-600">Voce atingiu R$ {freeAbove.toFixed(0)} — entrega sem custo</p>
+                        </div>
+                      </div>
+                    ) : freeAbove > 0 && missingForFree > 0 ? (
+                      <div className="flex items-center gap-2 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2.5">
+                        <span className="text-lg">🚚</span>
+                        <div>
+                          <p className="text-xs font-bold text-amber-700">Falta R$ {missingForFree.toFixed(2)} para frete gratis!</p>
+                          <p className="text-[10px] text-amber-600">Pedidos acima de R$ {freeAbove.toFixed(0)} tem entrega gratuita</p>
+                          {deliveryFee > 0 && <p className="text-[10px] text-amber-500">Taxa atual: R$ {deliveryFee.toFixed(2)}</p>}
+                        </div>
+                      </div>
+                    ) : deliveryFee > 0 ? (
+                      <div className="flex items-center justify-between bg-gray-50 rounded-xl px-3 py-2.5">
+                        <span className="text-xs text-gray-500">Taxa de entrega</span>
+                        <span className="text-xs font-bold text-gray-700">R$ {deliveryFee.toFixed(2)}</span>
+                      </div>
+                    ) : null}
+                    {storeProfile.delivery_time_text && (
+                      <p className="text-[10px] text-gray-400 flex items-center gap-1">⏱ {storeProfile.delivery_time_text}</p>
+                    )}
+                    {storeProfile.frete_texto && (
+                      <p className="text-[10px] text-gray-400 leading-relaxed">{storeProfile.frete_texto}</p>
+                    )}
+                  </div>
+                )
+              })()}
             </section>
           )}
 

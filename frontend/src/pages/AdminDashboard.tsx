@@ -3052,7 +3052,9 @@ export function FreteView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'e
   const [freeAbove, setFreeAbove] = useState('')
   const [eta, setEta] = useState('')
   const [deliveryText, setDeliveryText] = useState('')
+  const [freteTexto, setFreteTexto] = useState('')
   const [expeditionPhone, setExpeditionPhone] = useState('')
+  const [shippingMode, setShippingMode] = useState('delivery')
 
   useEffect(() => {
     setLoading(true)
@@ -3069,7 +3071,9 @@ export function FreteView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'e
         setFreeAbove(lg.free_shipping_above != null ? String(lg.free_shipping_above) : '')
         setEta(lg.default_eta_minutes != null ? String(lg.default_eta_minutes) : '')
         setDeliveryText(lg.delivery_time_text || '')
+        setFreteTexto(lg.frete_texto || '')
         setExpeditionPhone(lg.expedition_phone || '')
+        setShippingMode(lg.shipping_mode || 'delivery')
         setLoading(false)
       }).catch(() => setLoading(false))
   }, [])
@@ -3081,58 +3085,127 @@ export function FreteView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'e
       await fetch(`/api/storefront/stores/${storeId}`, {
         method: 'PATCH', headers: getHeaders(),
         body: JSON.stringify({ settings: { logistics: {
-          ...(fee ? { delivery_fee: parseFloat(fee) } : {}),
-          ...(radius ? { delivery_radius_km: parseFloat(radius) } : {}),
-          ...(freeAbove ? { free_shipping_above: parseFloat(freeAbove) } : {}),
-          ...(eta ? { default_eta_minutes: parseInt(eta) } : {}),
-          ...(deliveryText ? { delivery_time_text: deliveryText } : {}),
-          ...(expeditionPhone ? { expedition_phone: expeditionPhone.replace(/\D/g, '') } : {}),
+          delivery_fee: fee ? parseFloat(fee) : null,
+          delivery_radius_km: radius ? parseFloat(radius) : null,
+          free_shipping_above: freeAbove ? parseFloat(freeAbove) : null,
+          default_eta_minutes: eta ? parseInt(eta) : null,
+          delivery_time_text: deliveryText || null,
+          frete_texto: freteTexto || null,
+          expedition_phone: expeditionPhone ? expeditionPhone.replace(/\D/g, '') : null,
+          shipping_mode: shippingMode,
         }}}),
       })
-      showToast('Configuracoes de frete salvas!')
+      showToast('Configuracoes salvas!')
     } catch (e: any) { showToast(e.message, 'err') }
     setSaving(false)
   }
 
-  if (loading) return <Skeleton rows={5} />
+  if (loading) return <Skeleton rows={6} />
 
   const inputCls = 'w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-200'
+  const labelCls = 'text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5 block'
+
+  // Preview
+  const hasFreeShipping = freeAbove && Number(freeAbove) > 0
+  const hasFee = fee && Number(fee) > 0
 
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">Frete & Entrega</h2>
-          <p className="text-[13px] text-gray-400 mt-0.5">Configure as opcoes de entrega do catalogo</p>
+          <p className="text-[13px] text-gray-400 mt-0.5">Configure entregas e politicas de frete</p>
         </div>
         <button onClick={save} disabled={saving}
-          className="px-4 py-2.5 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 disabled:opacity-50 transition shadow-sm">
+          className="px-5 py-2.5 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 disabled:opacity-50 transition shadow-sm">
           {saving ? 'Salvando...' : 'Salvar'}
         </button>
       </div>
 
+      {/* Preview banner — how it looks in the catalog */}
+      {(hasFreeShipping || hasFee) && (
+        <div className="bg-gradient-to-r from-emerald-500 to-teal-600 rounded-2xl p-4 text-white shadow-lg">
+          <p className="text-[10px] font-bold text-white/50 uppercase tracking-wider mb-1">Preview no catalogo</p>
+          <div className="flex items-center gap-3 flex-wrap">
+            {hasFreeShipping && (
+              <div className="flex items-center gap-1.5 bg-white/20 rounded-lg px-3 py-1.5">
+                <span className="text-sm">🚚</span>
+                <span className="text-sm font-bold">Frete gratis acima de R$ {Number(freeAbove).toFixed(0)}</span>
+              </div>
+            )}
+            {hasFee && (
+              <div className="flex items-center gap-1.5 bg-white/10 rounded-lg px-3 py-1.5">
+                <span className="text-xs font-semibold">Taxa: R$ {Number(fee).toFixed(2)}</span>
+              </div>
+            )}
+            {eta && (
+              <div className="flex items-center gap-1.5 bg-white/10 rounded-lg px-3 py-1.5">
+                <span className="text-xs font-semibold">⏱ {eta} min</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Shipping mode */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-5 space-y-3">
+        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em]">Modo de entrega</p>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {[
+            { key: 'delivery', label: 'Entrega', desc: 'Entregamos no endereco', icon: '🚚' },
+            { key: 'pickup', label: 'Retirada', desc: 'Cliente retira na loja', icon: '🏪' },
+            { key: 'both', label: 'Ambos', desc: 'Entrega + Retirada', icon: '📦' },
+            { key: 'none', label: 'Sem frete', desc: 'Somente digital', icon: '💻' },
+          ].map(m => (
+            <button key={m.key} type="button" onClick={() => setShippingMode(m.key)}
+              className={`p-3 rounded-xl border text-left transition ${shippingMode === m.key ? 'border-blue-400 bg-blue-50 ring-1 ring-blue-200' : 'border-gray-200 hover:border-gray-300'}`}>
+              <span className="text-lg">{m.icon}</span>
+              <p className={`text-xs font-bold mt-1 ${shippingMode === m.key ? 'text-blue-700' : 'text-gray-700'}`}>{m.label}</p>
+              <p className="text-[9px] text-gray-400">{m.desc}</p>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Pricing */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-5 space-y-4">
-        <div className="grid grid-cols-2 gap-4">
+        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em]">Valores e politica</p>
+        <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5 block">Taxa de Entrega (R$)</label>
+            <label className={labelCls}>Taxa de entrega (R$)</label>
             <input type="number" step="0.01" value={fee} onChange={e => setFee(e.target.value)} placeholder="0,00" className={inputCls} />
           </div>
           <div>
-            <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5 block">Raio (km)</label>
+            <label className={labelCls}>Frete gratis acima de (R$)</label>
+            <div className="relative">
+              <input type="number" step="0.01" value={freeAbove} onChange={e => setFreeAbove(e.target.value)} placeholder="Desativado" className={inputCls} />
+              {hasFreeShipping && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-emerald-500 text-[9px] font-bold">ATIVO</span>}
+            </div>
+          </div>
+          <div>
+            <label className={labelCls}>Raio de entrega (km)</label>
             <input type="number" value={radius} onChange={e => setRadius(e.target.value)} placeholder="Ex: 30" className={inputCls} />
           </div>
           <div>
-            <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5 block">Frete Gratis acima de (R$)</label>
-            <input type="number" step="0.01" value={freeAbove} onChange={e => setFreeAbove(e.target.value)} placeholder="Ex: 200" className={inputCls} />
-          </div>
-          <div>
-            <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5 block">Tempo estimado (min)</label>
-            <input type="number" value={eta} onChange={e => setEta(e.target.value)} placeholder="Ex: 40" className={inputCls} />
+            <label className={labelCls}>Tempo estimado (min)</label>
+            <input type="number" value={eta} onChange={e => setEta(e.target.value)} placeholder="Ex: 120" className={inputCls} />
           </div>
         </div>
+      </div>
+
+      {/* Texts */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-5 space-y-4">
+        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em]">Textos e politica</p>
         <div>
-          <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5 block">Texto de entrega</label>
-          <input type="text" value={deliveryText} onChange={e => setDeliveryText(e.target.value)} placeholder="Ex: Entrega em ate 3 dias uteis" className={inputCls} />
+          <label className={labelCls}>Texto de prazo (exibido no catalogo)</label>
+          <input type="text" value={deliveryText} onChange={e => setDeliveryText(e.target.value)} placeholder="Ex: Entrega em ate 2 horas para BH e regiao" className={inputCls} />
+        </div>
+        <div>
+          <label className={labelCls}>Politica de frete (texto completo)</label>
+          <textarea value={freteTexto} onChange={e => setFreteTexto(e.target.value)} rows={3}
+            placeholder="Ex: Frete gratis para pedidos acima de R$ 200. Taxa de R$ 10 para entregas em BH e Contagem. Prazo de 2 horas apos confirmacao do pagamento."
+            className={inputCls + ' resize-none'} />
+          <p className="text-[9px] text-gray-400 mt-1">Este texto sera exibido na pagina do catalogo e no checkout.</p>
         </div>
       </div>
 
@@ -3148,10 +3221,8 @@ export function FreteView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'e
         <div className="relative">
           <Phone size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input type="tel" value={expeditionPhone} onChange={e => setExpeditionPhone(e.target.value)}
-            placeholder="Ex: 5531991619663"
-            className={inputCls + ' pl-9'} />
+            placeholder="Ex: 5531991619663" className={inputCls + ' pl-9'} />
         </div>
-        <p className="text-[9px] text-gray-400">Formato: DDI + DDD + numero (ex: 5531991619663). Deixe vazio para desativar.</p>
       </div>
     </div>
   )

@@ -158,6 +158,34 @@ export function CatalogHome({ onStoreLoaded }: CatalogHomeProps) {
         </div>
       )}
 
+      {/* Shipping banner */}
+      {!loading && (() => {
+        const prof = (store as any)?.profile || {}
+        const freeAbove = Number(prof.free_shipping_above) || 0
+        const deliveryFee = Number(prof.delivery_fee) || 0
+        const deliveryTime = prof.delivery_time_text || ''
+        if (!freeAbove && !deliveryFee && !deliveryTime) return null
+        return (
+          <div className="mx-4 mt-3 flex items-center gap-2 overflow-x-auto scrollbar-hide">
+            {freeAbove > 0 && (
+              <span className="flex items-center gap-1.5 bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-full text-[11px] font-bold whitespace-nowrap shrink-0">
+                🚚 Frete gratis acima de R$ {freeAbove.toFixed(0)}
+              </span>
+            )}
+            {deliveryFee > 0 && (
+              <span className="bg-gray-100 text-gray-600 px-3 py-1.5 rounded-full text-[11px] font-semibold whitespace-nowrap shrink-0">
+                Entrega R$ {deliveryFee.toFixed(2)}
+              </span>
+            )}
+            {deliveryTime && (
+              <span className="bg-blue-50 text-blue-600 px-3 py-1.5 rounded-full text-[11px] font-semibold whitespace-nowrap shrink-0">
+                ⏱ {deliveryTime}
+              </span>
+            )}
+          </div>
+        )
+      })()}
+
       {/* Products section */}
       <div className="px-4 pt-5 pb-24">
         {/* Search bar */}

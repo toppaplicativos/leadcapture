@@ -84,7 +84,7 @@ function getAuthHeaders(): Record<string, string> {
 /* ══════════════════════════════════════════════
    MAIN COMPONENT
    ══════════════════════════════════════════════ */
-type ViewKey = 'overview' | 'products' | 'movements' | 'expedition' | 'alerts' | 'sales' | 'reports' | 'design'
+type ViewKey = 'overview' | 'products' | 'movements' | 'expedition' | 'alerts' | 'sales' | 'reports'
 
 export function InventoryPage() {
   const navigate = useNavigate()
@@ -141,93 +141,110 @@ export function InventoryPage() {
     { key: 'alerts', icon: AlertTriangle, label: 'Alertas', badge: alertCount },
     { key: 'sales' as ViewKey, icon: ShoppingCart, label: 'Vendas' },
     { key: 'reports', icon: BarChart3, label: 'Relatórios' },
-    { key: 'design' as ViewKey, icon: Palette, label: 'Design' },
   ]
-  const bottomItems = navItems.filter(n => !['expedition', 'reports', 'design'].includes(n.key))
+  const bottomItems = navItems.filter(n => !['expedition', 'reports'].includes(n.key))
 
   return (
-    <div className="min-h-screen bg-bg">
-      {/* ── Top bar (mobile) ── */}
-      <header className="sticky top-0 z-50 bg-gradient-to-r from-gray-900 to-gray-800 text-white flex items-center justify-between px-4 h-14 lg:hidden shadow-lg">
+    <div className="h-screen bg-[#f8f9fb] flex flex-col">
+      {/* ── Mobile Topbar ── */}
+      <header className="sticky top-0 z-50 bg-gray-950 text-white flex items-center justify-between px-4 h-14 lg:hidden shadow-xl shrink-0">
         <div className="flex items-center gap-2.5">
-          <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-1"><Menu size={20} /></button>
-          {brand.logo_url && <img src={brand.logo_url} alt="" className="w-8 h-8 rounded-xl object-cover ring-2 ring-white/20 shadow" />}
-          <h1 className="text-sm font-bold truncate max-w-[140px]">{brand.name || 'Inventário'}</h1>
+          <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-1.5 rounded-lg hover:bg-white/10 transition">
+            {sidebarOpen ? <X size={18} /> : <Menu size={18} />}
+          </button>
+          {brand.logo_url && <img src={brand.logo_url} alt="" className="w-7 h-7 rounded-lg object-cover ring-2 ring-white/10" />}
+          <h1 className="text-[13px] font-bold truncate max-w-[120px]">{brand.name || 'Estoque'}</h1>
         </div>
-        <div className="flex gap-2">
-          <button onClick={() => setShowPDV(true)} className="bg-emerald-500 rounded-xl px-3 py-1.5 hover:bg-emerald-400 active:scale-95 transition-all flex items-center gap-1.5 text-xs font-bold shadow-sm"><ShoppingCart size={14} /> PDV</button>
-          <button onClick={handleSync} className="bg-white/10 rounded-xl p-2 hover:bg-white/20 active:scale-95 transition-all"><RefreshCw size={14} /></button>
-          <button onClick={logout} className="bg-white/10 rounded-xl p-2 hover:bg-white/20 active:scale-95 transition-all"><LogOut size={14} /></button>
+        <div className="flex items-center gap-1.5">
+          <button onClick={() => setShowPDV(true)} className="bg-emerald-500 rounded-lg px-2.5 py-1.5 text-[10px] font-bold flex items-center gap-1"><ShoppingCart size={12} /> PDV</button>
+          <button onClick={handleSync} className="bg-white/10 rounded-lg p-2 hover:bg-white/20 transition"><RefreshCw size={13} /></button>
         </div>
       </header>
 
-      <div className="flex">
-        {/* ── Desktop Sidebar ── */}
-        <aside className={`fixed inset-y-0 left-0 z-40 w-60 bg-white border-r border-border flex flex-col transition-transform lg:translate-x-0 lg:static lg:z-auto ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-          <div className="h-14 flex items-center gap-2.5 px-4 border-b border-border">
-            {brand.logo_url && <img src={brand.logo_url} alt="" className="w-8 h-8 rounded-lg object-cover" />}
-            <span className="font-bold text-sm truncate">{brand.name || 'Inventário'}</span>
+      <div className="flex flex-1 overflow-hidden">
+        {/* ── Premium Dark Sidebar ── */}
+        <aside className={`fixed inset-y-0 left-0 z-40 w-[220px] bg-gray-950 flex flex-col transition-transform lg:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+          {/* Brand header */}
+          <div className="hidden lg:flex items-center gap-3 h-[60px] px-4 border-b border-white/[0.06] shrink-0">
+            {brand.logo_url
+              ? <img src={brand.logo_url} alt="" className="w-9 h-9 rounded-xl object-cover ring-2 ring-white/10 shrink-0" />
+              : <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 grid place-items-center shrink-0"><Package size={16} className="text-white" /></div>}
+            <div className="min-w-0">
+              <span className="block text-[13px] font-bold text-white truncate">{brand.name || 'Estoque'}</span>
+              <span className="block text-[10px] text-white/30 font-medium">Gestao de estoque</span>
+            </div>
           </div>
-          <nav className="flex-1 py-2 overflow-y-auto">
-            {navItems.map(n => (
-              <button key={n.key} onClick={() => switchView(n.key)}
-                className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm transition rounded-lg mx-1 w-[calc(100%-8px)] ${
-                  view === n.key ? 'bg-blue-50 text-blue-600 font-semibold' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-700'
-                }`}>
-                <n.icon size={18} />
-                <span className="flex-1 text-left">{n.label}</span>
-                {n.badge ? (
-                  <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center">{n.badge}</span>
-                ) : null}
-              </button>
-            ))}
+
+          {/* Nav */}
+          <nav className="flex-1 py-3 px-2.5 overflow-y-auto space-y-0.5">
+            {navItems.map(n => {
+              const active = view === n.key
+              return (
+                <button key={n.key} onClick={() => switchView(n.key)}
+                  className={`w-full flex items-center gap-2.5 px-3 py-[9px] text-[13px] rounded-lg transition-all ${
+                    active ? 'bg-white/[0.12] text-white font-semibold shadow-sm' : 'text-white/40 hover:bg-white/[0.06] hover:text-white/70'
+                  }`}>
+                  <n.icon size={16} className={active ? 'text-emerald-400' : ''} />
+                  <span className="flex-1 text-left">{n.label}</span>
+                  {n.badge ? <span className="bg-red-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">{n.badge}</span> : null}
+                </button>
+              )
+            })}
           </nav>
-          <div className="p-3 border-t border-border space-y-2">
-            <button onClick={() => setShowPDV(true)} className="w-full flex items-center justify-center gap-1.5 text-xs font-semibold py-2.5 rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 transition">
+
+          {/* Bottom actions */}
+          <div className="p-3 border-t border-white/[0.06] space-y-2 shrink-0">
+            <button onClick={() => setShowPDV(true)}
+              className="w-full flex items-center justify-center gap-1.5 text-[11px] font-bold py-2.5 rounded-lg bg-gradient-to-r from-emerald-500 to-teal-600 text-white hover:from-emerald-600 hover:to-teal-700 transition shadow-sm">
               <ShoppingCart size={13} /> Novo Pedido (PDV)
             </button>
             <div className="flex gap-2">
-              <button onClick={handleSync} className="flex-1 flex items-center justify-center gap-1.5 text-xs font-semibold py-2 rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition">
-                <RefreshCw size={12} /> Sincronizar
+              <button onClick={handleSync}
+                className="flex-1 flex items-center justify-center gap-1.5 text-[11px] font-semibold py-2 rounded-lg bg-white/[0.08] text-white/60 hover:bg-white/[0.12] hover:text-white/80 transition">
+                <RefreshCw size={12} /> Sync
               </button>
-              <button onClick={logout} className="px-3 py-2 rounded-lg bg-gray-100 text-gray-500 hover:bg-gray-200 transition">
-                <LogOut size={14} />
+              <button onClick={() => navigate('/admin')}
+                className="px-3 py-2 rounded-lg bg-white/[0.08] text-white/40 hover:bg-white/[0.12] hover:text-white/70 transition" title="Voltar ao painel">
+                <ArrowLeftRight size={13} />
               </button>
             </div>
           </div>
         </aside>
-        {/* overlay */}
-        {sidebarOpen && <div className="fixed inset-0 bg-black/30 z-30 lg:hidden" onClick={() => setSidebarOpen(false)} />}
+
+        {/* Overlay */}
+        {sidebarOpen && <div className="fixed inset-0 bg-black/50 z-30 lg:hidden backdrop-blur-sm" onClick={() => setSidebarOpen(false)} />}
 
         {/* ── Main content ── */}
-        <main className="flex-1 max-w-4xl mx-auto px-4 pt-4 pb-20 lg:pb-6 page-enter min-w-0">
-          {view === 'overview' && <OverviewView showToast={showToast} onAlertCount={setAlertCount} refreshKey={refreshKey} />}
-          {view === 'products' && <ProductsView showToast={showToast} categories={categories} refreshKey={refreshKey} onRefresh={() => setRefreshKey(k => k + 1)} />}
-          {view === 'movements' && <MovementsView showToast={showToast} />}
-          {view === 'expedition' && <ExpeditionView showToast={showToast} />}
-          {view === 'alerts' && <AlertsView showToast={showToast} onAlertCount={setAlertCount} onRefresh={() => setRefreshKey(k => k + 1)} />}
-          {view === 'sales' && <SalesView showToast={showToast} onPDV={() => setShowPDV(true)} />}
-          {view === 'reports' && <ReportsView showToast={showToast} />}
-          {view === 'design' && <DesignView showToast={showToast} />}
+        <main className="flex-1 lg:ml-[220px] overflow-y-auto">
+          <div className="max-w-5xl mx-auto px-5 pt-5 pb-20 lg:pb-8">
+            {view === 'overview' && <OverviewView showToast={showToast} onAlertCount={setAlertCount} refreshKey={refreshKey} />}
+            {view === 'products' && <ProductsView showToast={showToast} categories={categories} refreshKey={refreshKey} onRefresh={() => setRefreshKey(k => k + 1)} />}
+            {view === 'movements' && <MovementsView showToast={showToast} />}
+            {view === 'expedition' && <ExpeditionView showToast={showToast} />}
+            {view === 'alerts' && <AlertsView showToast={showToast} onAlertCount={setAlertCount} onRefresh={() => setRefreshKey(k => k + 1)} />}
+            {view === 'sales' && <SalesView showToast={showToast} onPDV={() => setShowPDV(true)} />}
+            {view === 'reports' && <ReportsView showToast={showToast} />}
+          </div>
         </main>
       </div>
 
-      {/* ── Bottom Nav (mobile) ── */}
-      <nav className="fixed bottom-0 left-0 right-0 z-50 bg-white/95 backdrop-blur border-t border-border flex h-16 lg:hidden safe-area-inset-bottom">
-        {bottomItems.map(n => (
-          <button key={n.key} onClick={() => switchView(n.key)}
-            className={`flex-1 flex flex-col items-center justify-center gap-0.5 text-[10px] font-medium transition ${
-              view === n.key ? 'text-blue-600' : 'text-gray-400'
-            }`}>
-            <span className="relative">
-              <n.icon size={20} />
-              {n.badge ? (
-                <span className="absolute -top-1 -right-2 bg-red-500 text-white text-[9px] font-bold rounded-full min-w-[14px] h-3.5 flex items-center justify-center px-0.5">{n.badge}</span>
-              ) : null}
-            </span>
-            {n.label.split(' ')[0]}
-          </button>
-        ))}
+      {/* ── Mobile Bottom Nav ── */}
+      <nav className="fixed bottom-0 left-0 right-0 z-50 bg-gray-950/95 backdrop-blur-lg border-t border-white/[0.06] flex h-16 lg:hidden safe-area-inset-bottom shrink-0">
+        {bottomItems.map(n => {
+          const active = view === n.key
+          return (
+            <button key={n.key} onClick={() => switchView(n.key)}
+              className={`flex-1 flex flex-col items-center justify-center gap-0.5 text-[10px] font-medium transition ${
+                active ? 'text-emerald-400' : 'text-white/30'
+              }`}>
+              <span className="relative">
+                <n.icon size={18} />
+                {n.badge ? <span className="absolute -top-1 -right-2 bg-red-500 text-white text-[8px] font-bold rounded-full w-3.5 h-3.5 flex items-center justify-center">{n.badge}</span> : null}
+              </span>
+              {n.label.split(' ')[0]}
+            </button>
+          )
+        })}
       </nav>
 
       {/* PDV Modal */}
@@ -278,7 +295,10 @@ function OverviewView({ showToast, onAlertCount, refreshKey }: { showToast: (t: 
 
   return (
     <div className="space-y-5">
-      <h2 className="text-lg font-bold text-gray-900">Visão Geral</h2>
+      <div>
+        <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">Visao Geral</h2>
+        <p className="text-[13px] text-gray-400 mt-0.5">Resumo do estoque</p>
+      </div>
 
       {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
@@ -1336,16 +1356,16 @@ function KpiCard({ label, value, color, icon: Icon, bg }: {
   label: string; value: string; color?: string; icon?: any; bg?: string
 }) {
   return (
-    <div className="bg-white border border-border rounded-2xl p-4 hover:shadow-md transition-shadow">
+    <div className="bg-white rounded-2xl p-4 shadow-[0_1px_3px_rgba(0,0,0,0.06)] hover:shadow-[0_4px_12px_rgba(0,0,0,0.08)] transition-all border border-gray-100">
       <div className="flex items-center justify-between mb-3">
-        <span className="text-[10px] font-bold text-muted uppercase tracking-widest">{label}</span>
+        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em]">{label}</span>
         {Icon && (
-          <div className={`w-8 h-8 rounded-xl grid place-items-center ${bg || 'bg-gray-50'}`}>
-            <Icon size={15} className={color || 'text-muted'} />
+          <div className={`w-9 h-9 rounded-xl grid place-items-center ${bg || 'bg-gray-50'}`}>
+            <Icon size={16} className={color || 'text-gray-400'} />
           </div>
         )}
       </div>
-      <p className={`text-2xl font-extrabold tracking-tight ${color || 'text-gray-900'}`}>{value}</p>
+      <p className={`text-[26px] font-extrabold tracking-tight leading-none ${color || 'text-gray-900'}`}>{value}</p>
     </div>
   )
 }

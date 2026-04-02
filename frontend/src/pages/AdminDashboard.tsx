@@ -627,26 +627,45 @@ export function CampaignsView({ showToast }: { showToast: (t: string, tp?: 'ok' 
   )
 }
 
-/* ── Campaign Editor Modal (5 tabs) ── */
+/* ── Campaign Editor Modal (7 tabs — COMPLETE config) ── */
 function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
   campaign: any; onClose: () => void; onSaved: () => void; showToast: (t: string, tp?: 'ok' | 'err') => void
 }) {
   const isEdit = !!campaign?.id
   const [activeTab, setActiveTab] = useState('geral')
   const [saving, setSaving] = useState(false)
+  const [instances, setInstances] = useState<any[]>([])
 
-  // Tab: Geral
+  const s = campaign?.settings || {}
+  const core = s.campaignCore || {}
+  const dest = s.destination || {}
+  const sched = s.scheduler || {}
+  const aw = s.actionWindow || {}
+  const fa = s.finalActions || {}
+  const trig = s.triggers || {}
+  const comp = s.composer || {}
+  const ab = s.antiBlock || {}
+  const filter = campaign?.filter_json || {}
+  const speed = campaign?.speed_json || {}
+
+  // Tab 1: Geral
   const [name, setName] = useState(campaign?.name || '')
   const [mode, setMode] = useState(campaign?.campaign_mode || 'relationship')
-  const [status, setStatus] = useState(campaign?.status || 'draft')
+  const [slug, setSlug] = useState(core.slug || '')
+  const [instanceId, setInstanceId] = useState(campaign?.instance_id || '')
+  const [instanceMode, setInstanceMode] = useState(core.instanceMode || 'specific')
+  const [poolIds, setPoolIds] = useState((core.poolInstanceIds || []).join(', '))
+  const [rotationMode, setRotationMode] = useState(core.rotationMode || campaign?.rotation_mode || 'balanced')
 
-  // Tab: Mensagem
+  // Tab 2: Mensagem & IA
   const [useAi, setUseAi] = useState(campaign?.use_ai !== false)
   const [aiPrompt, setAiPrompt] = useState(campaign?.ai_prompt || '')
   const [messageTemplate, setMessageTemplate] = useState(campaign?.message_template || '')
+  const [intentText, setIntentText] = useState(comp.intentText || '')
+  const [personalizedPerLead, setPersonalizedPerLead] = useState(comp.personalizedPerLead !== false)
+  const [useAutoVariations, setUseAutoVariations] = useState(comp.useAutoVariations !== false)
 
-  // Tab: Segmentacao
-  const filter = campaign?.filter_json || {}
+  // Tab 3: Segmentacao
   const [filterStatuses, setFilterStatuses] = useState<string[]>(filter.statuses || ['new'])
   const [filterHasWhatsapp, setFilterHasWhatsapp] = useState(filter.hasWhatsapp !== false)
   const [filterTagsInclude, setFilterTagsInclude] = useState((filter.tagsInclude || []).join(', '))
@@ -655,20 +674,39 @@ function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
   const [filterScoreMin, setFilterScoreMin] = useState(filter.scoreMin != null ? String(filter.scoreMin) : '')
   const [filterScoreMax, setFilterScoreMax] = useState(filter.scoreMax != null ? String(filter.scoreMax) : '')
 
-  // Tab: Velocidade
-  const speed = campaign?.speed_json || {}
+  // Tab 4: Velocidade & Anti-block
   const [maxPerMinute, setMaxPerMinute] = useState(String(speed.maxPerMinute || 3))
   const [minInterval, setMinInterval] = useState(String(speed.minIntervalSeconds || 10))
   const [maxInterval, setMaxInterval] = useState(String(speed.maxIntervalSeconds || 30))
   const [dailyLimit, setDailyLimit] = useState(String(speed.dailyLimit || 200))
-  const [autoPause, setAutoPause] = useState(String(speed.autoPauseOnBlockRate || 15))
+  const [autoPauseRate, setAutoPauseRate] = useState(String(speed.autoPauseOnBlockRate || 15))
+  const [autoPauseBlocks, setAutoPauseBlocks] = useState(String(ab.autoPauseByBlocks || 5))
+  const [autoPauseErrorRate, setAutoPauseErrorRate] = useState(String(ab.autoPauseByErrorRate || 20))
+  const [autoPauseOffline, setAutoPauseOffline] = useState(ab.autoPauseOnOffline !== false)
+  const [avoidNight, setAvoidNight] = useState(ab.avoidNight !== false)
+  const [avoidSunday, setAvoidSunday] = useState(ab.avoidSunday !== false)
 
-  // Tab: Agenda
-  const settings = campaign?.settings || {}
-  const actionWindow = settings.actionWindow || {}
-  const [windowEnabled, setWindowEnabled] = useState(actionWindow.enabled || false)
-  const [windowStart, setWindowStart] = useState(actionWindow.start || '08:00')
-  const [windowEnd, setWindowEnd] = useState(actionWindow.end || '20:00')
+  // Tab 5: Agenda
+  const [scheduleMode, setScheduleMode] = useState(sched.scheduleMode || 'immediate')
+  const [timeZone, setTimeZone] = useState(sched.timeZone || 'America/Sao_Paulo')
+  const [smartWindowStart, setSmartWindowStart] = useState(sched.smartWindowStart || aw.start || '08:00')
+  const [smartWindowEnd, setSmartWindowEnd] = useState(sched.smartWindowEnd || aw.end || '18:00')
+  const [windowEnabled, setWindowEnabled] = useState(aw.enabled || false)
+
+  // Tab 6: Acoes Finais & Triggers
+  const [nextStatus, setNextStatus] = useState(fa.nextStatus || '')
+  const [addTags, setAddTags] = useState((fa.addTags || []).join(', '))
+  const [trigOnNewLead, setTrigOnNewLead] = useState(trig.onNewLead || false)
+  const [trigOnStatusChange, setTrigOnStatusChange] = useState(trig.onStatusChange || false)
+  const [trigOnTagMatch, setTrigOnTagMatch] = useState(trig.onTagMatch || false)
+  const [trigOnOrderCreated, setTrigOnOrderCreated] = useState(trig.onOrderCreated || false)
+
+  // Load instances
+  useEffect(() => {
+    fetch('/api/instances', { headers: getHeaders() }).then(r => r.json()).then(d => setInstances(d.instances || [])).catch(() => {})
+  }, [])
+
+  const splitTags = (v: string) => v.split(',').map((t: string) => t.trim()).filter(Boolean)
 
   async function save() {
     if (!name.trim()) return showToast('Nome obrigatorio', 'err')
@@ -677,15 +715,18 @@ function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
       const body: any = {
         name: name.trim(),
         campaignMode: mode,
+        instanceId: instanceId || undefined,
         useAI: useAi,
         aiPrompt: aiPrompt || null,
         messageTemplate: messageTemplate || null,
+        useInstanceRotation: instanceMode === 'smart-rotation',
+        rotationMode,
         filter: {
           statuses: filterStatuses,
           hasWhatsapp: filterHasWhatsapp,
-          ...(filterTagsInclude.trim() ? { tagsInclude: filterTagsInclude.split(',').map((t: string) => t.trim()).filter(Boolean) } : {}),
-          ...(filterTagsExclude.trim() ? { tagsExclude: filterTagsExclude.split(',').map((t: string) => t.trim()).filter(Boolean) } : {}),
-          ...(filterCities.trim() ? { cities: filterCities.split(',').map((t: string) => t.trim()).filter(Boolean) } : {}),
+          ...(filterTagsInclude.trim() ? { tagsInclude: splitTags(filterTagsInclude) } : {}),
+          ...(filterTagsExclude.trim() ? { tagsExclude: splitTags(filterTagsExclude) } : {}),
+          ...(filterCities.trim() ? { cities: splitTags(filterCities) } : {}),
           ...(filterScoreMin ? { scoreMin: parseInt(filterScoreMin) } : {}),
           ...(filterScoreMax ? { scoreMax: parseInt(filterScoreMax) } : {}),
         },
@@ -694,12 +735,18 @@ function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
           minIntervalSeconds: parseInt(minInterval) || 10,
           maxIntervalSeconds: parseInt(maxInterval) || 30,
           dailyLimit: parseInt(dailyLimit) || 200,
-          autoPauseOnBlockRate: parseInt(autoPause) || 15,
+          autoPauseOnBlockRate: parseInt(autoPauseRate) || 15,
         },
         settings: {
-          ...settings,
+          ...s,
           campaignMode: mode,
-          actionWindow: { enabled: windowEnabled, start: windowStart, end: windowEnd },
+          campaignCore: { slug: slug || undefined, instanceMode, poolInstanceIds: poolIds ? splitTags(poolIds) : [], rotationMode },
+          scheduler: { scheduleMode, timeZone, smartWindowStart, smartWindowEnd },
+          actionWindow: { enabled: windowEnabled, start: smartWindowStart, end: smartWindowEnd },
+          finalActions: { nextStatus: nextStatus || undefined, addTags: addTags.trim() ? splitTags(addTags) : [] },
+          triggers: { onNewLead: trigOnNewLead, onStatusChange: trigOnStatusChange, onTagMatch: trigOnTagMatch, onOrderCreated: trigOnOrderCreated },
+          composer: { intentText, personalizedPerLead, useAutoVariations },
+          antiBlock: { autoPauseByBlocks: parseInt(autoPauseBlocks) || 5, autoPauseByErrorRate: parseInt(autoPauseErrorRate) || 20, autoPauseOnOffline: autoPauseOffline, avoidNight, avoidSunday },
         },
       }
       if (isEdit) await adminApi.updateCampaign(campaign.id, body)
@@ -712,10 +759,12 @@ function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
 
   const tabs = [
     { key: 'geral', label: 'Geral' },
-    { key: 'mensagem', label: 'Mensagem' },
+    { key: 'mensagem', label: 'Mensagem & IA' },
     { key: 'segmentacao', label: 'Segmentacao' },
     { key: 'velocidade', label: 'Velocidade' },
     { key: 'agenda', label: 'Agenda' },
+    { key: 'acoes', label: 'Acoes' },
+    { key: 'metricas', label: 'Metricas' },
   ]
 
   const inputCls = 'w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-200'
@@ -757,14 +806,20 @@ function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
 
           {/* Tab: Geral */}
           {activeTab === 'geral' && (<>
-            <div>
-              <label className={labelCls}>Nome da campanha *</label>
-              <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Ex: Boas Vindas, Follow-up Leads Frios..." className={inputCls} />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className={labelCls}>Nome da campanha *</label>
+                <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Ex: Boas Vindas" className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Slug / Codigo</label>
+                <input type="text" value={slug} onChange={e => setSlug(e.target.value)} placeholder="Ex: boas_vindas" className={inputCls + ' font-mono text-xs'} />
+              </div>
             </div>
             <div>
-              <label className={labelCls}>Modo da campanha</label>
+              <label className={labelCls}>Modo</label>
               <div className="grid grid-cols-3 gap-2">
-                {[['relationship', 'Relacionamento', 'Conversa 1-a-1 personalizada'], ['broadcast', 'Broadcast', 'Mensagem em massa para lista'], ['drip', 'Sequencia', 'Mensagens programadas em etapas']].map(([k, l, d]) => (
+                {[['relationship', 'Relacionamento', 'Conversa 1-a-1'], ['broadcast', 'Broadcast', 'Mensagem em massa'], ['drip', 'Sequencia', 'Etapas programadas']].map(([k, l, d]) => (
                   <button key={k} type="button" onClick={() => setMode(k)}
                     className={`p-3 rounded-xl border text-left transition ${mode === k ? 'border-violet-400 bg-violet-50' : 'border-gray-200 hover:border-gray-300'}`}>
                     <p className={`text-xs font-bold ${mode === k ? 'text-violet-700' : 'text-gray-700'}`}>{l}</p>
@@ -773,28 +828,80 @@ function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
                 ))}
               </div>
             </div>
+            <div>
+              <label className={labelCls}>Instancia WhatsApp</label>
+              <select value={instanceId} onChange={e => setInstanceId(e.target.value)} className={inputCls}>
+                <option value="">Selecione...</option>
+                {instances.map((inst: any) => (
+                  <option key={inst.id} value={inst.id}>{inst.name} ({inst.phone}) — {inst.status}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className={labelCls}>Modo de instancia</label>
+              <div className="grid grid-cols-2 gap-2">
+                {[['specific', 'Instancia unica', 'Envia por uma unica instancia'], ['smart-rotation', 'Rodizio inteligente', 'Alterna entre multiplas instancias']].map(([k, l, d]) => (
+                  <button key={k} type="button" onClick={() => setInstanceMode(k)}
+                    className={`p-3 rounded-xl border text-left transition ${instanceMode === k ? 'border-violet-400 bg-violet-50' : 'border-gray-200'}`}>
+                    <p className={`text-xs font-bold ${instanceMode === k ? 'text-violet-700' : 'text-gray-700'}`}>{l}</p>
+                    <p className="text-[10px] text-gray-400 mt-0.5">{d}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+            {instanceMode === 'smart-rotation' && (<>
+              <div>
+                <label className={labelCls}>IDs do pool (separar por virgula)</label>
+                <input type="text" value={poolIds} onChange={e => setPoolIds(e.target.value)} placeholder="id1, id2, id3" className={inputCls + ' font-mono text-xs'} />
+              </div>
+              <div>
+                <label className={labelCls}>Modo de rodizio</label>
+                <select value={rotationMode} onChange={e => setRotationMode(e.target.value)} className={inputCls}>
+                  <option value="balanced">Balanceado (padrao)</option>
+                  <option value="conservative">Conservador (menos msgs)</option>
+                  <option value="aggressive">Agressivo (mais msgs)</option>
+                </select>
+              </div>
+            </>)}
           </>)}
 
-          {/* Tab: Mensagem */}
+          {/* Tab: Mensagem & IA */}
           {activeTab === 'mensagem' && (<>
-            <div className="flex items-center justify-between py-1">
+            <div className="flex items-center justify-between py-1 border-b border-gray-100 pb-3">
               <div>
                 <p className="text-sm font-semibold text-gray-800">Usar Inteligencia Artificial</p>
                 <p className="text-[11px] text-gray-400">A IA personaliza cada mensagem para o lead</p>
               </div>
               <Toggle value={useAi} onChange={setUseAi} />
             </div>
-            {useAi && (
+            {useAi && (<>
               <div>
-                <label className={labelCls}>Instrucoes para a IA</label>
-                <textarea value={aiPrompt} onChange={e => setAiPrompt(e.target.value)} rows={4}
-                  placeholder="Ex: Fale sobre nossos produtos de alho, mencione o nome do cliente, pergunte sobre o interesse..."
+                <label className={labelCls}>Instrucoes para a IA (Prompt)</label>
+                <textarea value={aiPrompt} onChange={e => setAiPrompt(e.target.value)} rows={3}
+                  placeholder="Ex: Fale sobre nossos produtos, mencione o nome do cliente..."
                   className={inputCls + ' resize-none'} />
               </div>
-            )}
+              <div>
+                <label className={labelCls}>Texto de intencao (Composer)</label>
+                <textarea value={intentText} onChange={e => setIntentText(e.target.value)} rows={4}
+                  placeholder="Descreva detalhadamente o objetivo da abordagem, tom, proposta de valor, CTA..."
+                  className={inputCls + ' resize-none'} />
+                <p className="text-[10px] text-gray-400 mt-1">Este texto guia o compositor de mensagens para gerar conteudo contextualizado.</p>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="flex items-center justify-between bg-gray-50 rounded-xl p-3">
+                  <span className="text-xs font-medium text-gray-600">Personalizar por lead</span>
+                  <Toggle value={personalizedPerLead} onChange={setPersonalizedPerLead} />
+                </div>
+                <div className="flex items-center justify-between bg-gray-50 rounded-xl p-3">
+                  <span className="text-xs font-medium text-gray-600">Variacoes automaticas</span>
+                  <Toggle value={useAutoVariations} onChange={setUseAutoVariations} />
+                </div>
+              </div>
+            </>)}
             <div>
               <label className={labelCls}>{useAi ? 'Template base (opcional)' : 'Template da mensagem *'}</label>
-              <textarea value={messageTemplate} onChange={e => setMessageTemplate(e.target.value)} rows={4}
+              <textarea value={messageTemplate} onChange={e => setMessageTemplate(e.target.value)} rows={3}
                 placeholder="Ola {{nome}}, tudo bem? Sou da {{empresa}}..."
                 className={inputCls + ' resize-none font-mono text-xs'} />
               <p className="text-[10px] text-gray-400 mt-1">Variaveis: {'{{nome}}'}, {'{{cidade}}'}, {'{{segmento}}'}, {'{{empresa}}'}</p>
@@ -848,8 +955,9 @@ function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
             </div>
           </>)}
 
-          {/* Tab: Velocidade */}
+          {/* Tab: Velocidade & Anti-block */}
           {activeTab === 'velocidade' && (<>
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Controle de velocidade</p>
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className={labelCls}>Msgs por minuto</label>
@@ -868,37 +976,142 @@ function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
                 <input type="number" min={1} max={600} value={maxInterval} onChange={e => setMaxInterval(e.target.value)} className={inputCls} />
               </div>
             </div>
-            <div>
-              <label className={labelCls}>Auto-pausar se taxa de bloqueio exceder (%)</label>
-              <input type="number" min={1} max={100} value={autoPause} onChange={e => setAutoPause(e.target.value)} className={inputCls} />
-              <p className="text-[10px] text-gray-400 mt-1">A campanha pausa automaticamente se a taxa de bloqueio atingir esse valor</p>
+            <div className="border-t border-gray-100 pt-3 mt-1">
+              <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Anti-bloqueio</p>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className={labelCls}>Pausar apos X bloqueios</label>
+                <input type="number" min={1} max={50} value={autoPauseBlocks} onChange={e => setAutoPauseBlocks(e.target.value)} className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Pausar se taxa de bloqueio (%)</label>
+                <input type="number" min={1} max={100} value={autoPauseRate} onChange={e => setAutoPauseRate(e.target.value)} className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Pausar se taxa de erro (%)</label>
+                <input type="number" min={1} max={100} value={autoPauseErrorRate} onChange={e => setAutoPauseErrorRate(e.target.value)} className={inputCls} />
+              </div>
+            </div>
+            <div className="space-y-2">
+              {[
+                { label: 'Pausar se instancia ficar offline', value: autoPauseOffline, onChange: setAutoPauseOffline },
+                { label: 'Evitar envios a noite', value: avoidNight, onChange: setAvoidNight },
+                { label: 'Evitar envios no domingo', value: avoidSunday, onChange: setAvoidSunday },
+              ].map(opt => (
+                <div key={opt.label} className="flex items-center justify-between bg-gray-50 rounded-xl p-3">
+                  <span className="text-xs font-medium text-gray-600">{opt.label}</span>
+                  <Toggle value={opt.value} onChange={opt.onChange} />
+                </div>
+              ))}
             </div>
           </>)}
 
           {/* Tab: Agenda */}
           {activeTab === 'agenda' && (<>
+            <div>
+              <label className={labelCls}>Modo de agendamento</label>
+              <div className="grid grid-cols-2 gap-2">
+                {[['immediate', 'Imediato', 'Inicia ao clicar Iniciar'], ['scheduled', 'Agendado', 'Inicia em data/hora definida']].map(([k, l, d]) => (
+                  <button key={k} type="button" onClick={() => setScheduleMode(k)}
+                    className={`p-3 rounded-xl border text-left transition ${scheduleMode === k ? 'border-violet-400 bg-violet-50' : 'border-gray-200'}`}>
+                    <p className={`text-xs font-bold ${scheduleMode === k ? 'text-violet-700' : 'text-gray-700'}`}>{l}</p>
+                    <p className="text-[10px] text-gray-400 mt-0.5">{d}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
             <div className="flex items-center justify-between py-1">
               <div>
                 <p className="text-sm font-semibold text-gray-800">Janela de envio</p>
-                <p className="text-[11px] text-gray-400">Restringir envios a um horario especifico</p>
+                <p className="text-[11px] text-gray-400">Restringir envios a um horario</p>
               </div>
               <Toggle value={windowEnabled} onChange={setWindowEnabled} />
             </div>
-            {windowEnabled && (
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className={labelCls}>Inicio</label>
-                  <input type="time" value={windowStart} onChange={e => setWindowStart(e.target.value)} className={inputCls} />
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className={labelCls}>Horario inicio</label>
+                <input type="time" value={smartWindowStart} onChange={e => setSmartWindowStart(e.target.value)} className={inputCls} />
+              </div>
+              <div>
+                <label className={labelCls}>Horario fim</label>
+                <input type="time" value={smartWindowEnd} onChange={e => setSmartWindowEnd(e.target.value)} className={inputCls} />
+              </div>
+            </div>
+            <div>
+              <label className={labelCls}>Fuso horario</label>
+              <select value={timeZone} onChange={e => setTimeZone(e.target.value)} className={inputCls}>
+                <option value="America/Sao_Paulo">America/Sao_Paulo (BRT)</option>
+                <option value="America/Manaus">America/Manaus (AMT)</option>
+                <option value="America/Fortaleza">America/Fortaleza (BRT)</option>
+              </select>
+            </div>
+          </>)}
+
+          {/* Tab: Acoes Finais & Triggers */}
+          {activeTab === 'acoes' && (<>
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Apos a campanha</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className={labelCls}>Mover lead para status</label>
+                <select value={nextStatus} onChange={e => setNextStatus(e.target.value)} className={inputCls}>
+                  <option value="">Nao alterar</option>
+                  <option value="contacted">Contatado</option>
+                  <option value="replied">Respondeu</option>
+                  <option value="negotiating">Negociando</option>
+                  <option value="converted">Convertido</option>
+                  <option value="lost">Perdido</option>
+                </select>
+              </div>
+              <div>
+                <label className={labelCls}>Adicionar tags (virgula)</label>
+                <input type="text" value={addTags} onChange={e => setAddTags(e.target.value)} placeholder="contatado, follow_1" className={inputCls} />
+              </div>
+            </div>
+            <div className="border-t border-gray-100 pt-3 mt-1">
+              <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Gatilhos automaticos</p>
+            </div>
+            <div className="space-y-2">
+              {[
+                { label: 'Disparar ao capturar novo lead', value: trigOnNewLead, onChange: setTrigOnNewLead },
+                { label: 'Disparar ao mudar status do lead', value: trigOnStatusChange, onChange: setTrigOnStatusChange },
+                { label: 'Disparar quando tag combinar', value: trigOnTagMatch, onChange: setTrigOnTagMatch },
+                { label: 'Disparar ao criar pedido', value: trigOnOrderCreated, onChange: setTrigOnOrderCreated },
+              ].map(opt => (
+                <div key={opt.label} className="flex items-center justify-between bg-gray-50 rounded-xl p-3">
+                  <span className="text-xs font-medium text-gray-600">{opt.label}</span>
+                  <Toggle value={opt.value} onChange={opt.onChange} />
                 </div>
-                <div>
-                  <label className={labelCls}>Fim</label>
-                  <input type="time" value={windowEnd} onChange={e => setWindowEnd(e.target.value)} className={inputCls} />
-                </div>
+              ))}
+            </div>
+          </>)}
+
+          {/* Tab: Metricas (read-only) */}
+          {activeTab === 'metricas' && (<>
+            {!isEdit ? (
+              <div className="text-center py-8">
+                <p className="text-sm text-gray-400">Metricas disponiveis apos salvar a campanha</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                {[
+                  { label: 'Alvo', value: campaign.target_count, color: 'text-gray-900' },
+                  { label: 'Enviados', value: campaign.sent_count, color: 'text-blue-600' },
+                  { label: 'Entregues', value: campaign.delivered_count, color: 'text-emerald-600' },
+                  { label: 'Lidos', value: campaign.read_count, color: 'text-indigo-600' },
+                  { label: 'Responderam', value: campaign.replied_count, color: 'text-violet-600' },
+                  { label: 'Falhas', value: campaign.failed_count, color: 'text-red-500' },
+                  { label: 'Interessados', value: campaign.interested_count, color: 'text-emerald-600' },
+                  { label: 'Neutros', value: campaign.neutral_count, color: 'text-gray-500' },
+                  { label: 'Negativos', value: campaign.negative_count, color: 'text-red-500' },
+                ].map(m => (
+                  <div key={m.label} className="bg-gray-50 rounded-xl p-3 text-center">
+                    <p className={`text-xl font-extrabold ${m.color}`}>{m.value || 0}</p>
+                    <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">{m.label}</p>
+                  </div>
+                ))}
               </div>
             )}
-            <div className="bg-gray-50 rounded-xl p-3">
-              <p className="text-xs text-gray-500">Mensagens fora da janela serao enfileiradas e enviadas no proximo horario permitido.</p>
-            </div>
           </>)}
         </div>
 

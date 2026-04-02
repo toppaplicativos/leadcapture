@@ -2151,41 +2151,9 @@ export function DesignView({ showToast }: { showToast: (t: string, tp?: 'success
         )}
       </section>
 
-      {/* ── 2. Frete e Entrega ── */}
-      <section className="bg-white border border-border rounded-2xl p-5 space-y-4">
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 bg-blue-50 rounded-lg grid place-items-center shrink-0">
-            <Truck size={15} className="text-blue-500" />
-          </div>
-          <h3 className="text-sm font-bold">Frete e Entrega</h3>
-        </div>
+      {/* Frete & Entrega: configurar em /frete (secao dedicada) */}
 
-        <div className="grid grid-cols-2 gap-4">
-          <Field label="Taxa de Entrega (R$)">
-            <input type="number" step="0.01" min="0" value={deliveryFee} onChange={e => setDeliveryFee(e.target.value)}
-              placeholder="0,00" className={inputCls} />
-          </Field>
-          <Field label="Raio de Entrega (km)">
-            <input type="number" step="1" min="0" value={deliveryRadius} onChange={e => setDeliveryRadius(e.target.value)}
-              placeholder="Ex: 30" className={inputCls} />
-          </Field>
-          <Field label="Frete Grátis acima de (R$)">
-            <input type="number" step="0.01" min="0" value={freeShippingAbove} onChange={e => setFreeShippingAbove(e.target.value)}
-              placeholder="Ex: 200,00" className={inputCls} />
-          </Field>
-          <Field label="Tempo estimado (minutos)">
-            <input type="number" step="1" min="0" value={etaMinutes} onChange={e => setEtaMinutes(e.target.value)}
-              placeholder="Ex: 40" className={inputCls} />
-          </Field>
-        </div>
-
-        <Field label="Texto de entrega (exibido no catálogo)">
-          <input type="text" value={deliveryTimeText} onChange={e => setDeliveryTimeText(e.target.value)}
-            placeholder="Ex: Entrega em até 3 dias úteis" className={inputCls} />
-        </Field>
-      </section>
-
-      {/* ── 3. Checkout ── */}
+      {/* ── 2. Checkout ── */}
       <section className="bg-white border border-border rounded-2xl p-5 space-y-3">
         <div className="flex items-center gap-2">
           <div className="w-7 h-7 bg-emerald-50 rounded-lg grid place-items-center shrink-0">

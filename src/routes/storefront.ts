@@ -8,6 +8,8 @@ import { OrderManagementService } from "../services/orderManagement";
 import { StorefrontService } from "../services/storefront";
 import { PaymentConfigService } from "../services/paymentConfig";
 import { ProspectionMatchService } from "../services/prospectionMatch";
+import { CustomersService } from "../services/customers";
+import { getNotificationService } from "../services/notifications";
 import { query, queryOne } from "../config/database";
 import { logger } from "../utils/logger";
 import { exec } from "child_process";
@@ -24,6 +26,8 @@ const inventoryService = new InventoryService();
 const omsService = new OrderManagementService();
 const prospectionMatch = new ProspectionMatchService();
 const paymentConfig = new PaymentConfigService();
+const customersService = new CustomersService();
+const notificationService = getNotificationService();
 router.use(attachBrandContext);
 
 type ManagedBusinessStatus =
@@ -2347,6 +2351,43 @@ publicRouter.post("/stores/:slug/orders", async (req, res) => {
       event: "order.created",
       variables: vars,
     }).catch(() => undefined);
+
+    // ── Register customer in CRM (upsert by phone/email) ──
+    try {
+      const existingByPhone = customerPhone ? await customersService.findByPhone(customerPhone, inventoryUserId, inventoryBrandId) : null;
+      if (!existingByPhone) {
+        await customersService.create({
+          name: customerName,
+          phone: customerPhone,
+          email: req.body?.customer?.email || null,
+          source: "website",
+          status: "new",
+          address: req.body?.customer?.address?.text || null,
+          trade_name: req.body?.customer?.address?.establishment_name || null,
+          notes: `Primeiro pedido via checkout - ${slug}`,
+        }, inventoryUserId, inventoryBrandId);
+        logger.info(`New customer registered from checkout: ${customerName} (${customerPhone})`);
+      }
+    } catch (err: any) {
+      logger.warn(`Customer registration from checkout failed: ${err.message}`);
+    }
+
+    // ── Send in-app notification ──
+    try {
+      const orderTotal = normalizedItems.reduce((s: number, i: any) => s + (Number(i.valor_unitario) || 0) * (Number(i.quantidade) || 0), 0);
+      await notificationService.createNotification({
+        user_id: inventoryUserId,
+        type: "system",
+        event: "order_created",
+        title: `Novo pedido de ${customerName}`,
+        message: `Pedido #${buildPublicOrderNumber(created.order.id)} no valor de R$ ${orderTotal.toFixed(2)}. ${normalizedItems.length} item(ns).`,
+        priority: "high",
+        channels: ["in_app"],
+        metadata: { order_id: created.order.id, customer_phone: customerPhone, store_slug: slug },
+      });
+    } catch (err: any) {
+      logger.warn(`Order notification failed: ${err.message}`);
+    }
 
     res.status(201).json({ success: true, ...created });
   } catch (error: any) {

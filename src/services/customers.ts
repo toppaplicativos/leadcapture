@@ -554,6 +554,18 @@ export class CustomersService {
     return null;
   }
 
+  async findByPhone(phone: string, ownerUserId?: string, brandId?: string | null): Promise<any | null> {
+    if (!phone) return null;
+    const columns = await this.getColumns();
+    const ownerColumn = this.requireOwnerColumn(columns);
+    const brandColumn = this.resolveBrandColumn(columns);
+    const where = [`phone = ?`, `${ownerColumn} = ?`];
+    const params: any[] = [phone.replace(/\D/g, ""), ownerUserId];
+    if (brandColumn && brandId) { where.push(`${brandColumn} = ?`); params.push(brandId); }
+    const row = await queryOne<any>(`SELECT * FROM customers WHERE ${where.join(" AND ")} LIMIT 1`, params);
+    return row || null;
+  }
+
   async create(dto: CustomerCreateDTO, ownerUserId?: string, brandId?: string | null): Promise<Customer> {
     const columns = await this.getColumns();
     const ownerColumn = this.requireOwnerColumn(columns);

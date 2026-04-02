@@ -1,10 +1,10 @@
-import { useState, useEffect, useCallback, type ReactNode } from 'react'
+import { useState, useEffect, useCallback, useMemo, type ReactNode } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, Users, MessageSquare, Megaphone, ShoppingCart,
   Package, Palette, Search, RefreshCw, LogOut, Menu, X, Loader2,
   Plus, Phone, Mail, Clock, ArrowRight, BarChart3, Zap, Eye,
-  ChevronLeft, ChevronRight, Send, Pause, Ban, Bot, Bell,
+  ChevronLeft, ChevronRight, Send, Pause, Ban, Bot, Bell, Trash2,
   Wand2, Truck, Globe, Settings,
 } from 'lucide-react'
 import { adminApi, inventoryApi } from '@/lib/api-admin'
@@ -1602,69 +1602,180 @@ export function AutomationsView({ showToast }: { showToast: (t: string, tp?: 'ok
    ══════════════════════════════════════════════ */
 export function ProductsView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') => void }) {
   const [products, setProducts] = useState<any[]>([])
+  const [categories, setCategories] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [catFilter, setCatFilter] = useState('')
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
+  const [editProduct, setEditProduct] = useState<any>(null)
+  const [showCreate, setShowCreate] = useState(false)
 
-  useEffect(() => {
+  function load() {
     setLoading(true)
-    fetch('/api/products', { headers: getHeaders() })
-      .then(r => r.json()).then(d => {
-        setProducts(d.products || d.items || [])
-        setLoading(false)
-      }).catch(() => setLoading(false))
-  }, [])
+    Promise.all([
+      fetch('/api/products', { headers: getHeaders() }).then(r => r.json()).catch(() => ({ products: [] })),
+      fetch('/api/categories', { headers: getHeaders() }).then(r => r.json()).catch(() => ({ categories: [] })),
+    ]).then(([p, c]) => {
+      setProducts(p.products || [])
+      setCategories(c.categories || [])
+      setLoading(false)
+    })
+  }
+  useEffect(() => { load() }, [])
 
-  const filtered = search
-    ? products.filter(p => (p.name || '').toLowerCase().includes(search.toLowerCase()))
-    : products
+  const filtered = useMemo(() => {
+    let list = products
+    if (catFilter) list = list.filter(p => p.category === catFilter)
+    if (search) { const q = search.toLowerCase(); list = list.filter(p => (p.name || '').toLowerCase().includes(q)) }
+    return list
+  }, [products, catFilter, search])
+
+  const metrics = useMemo(() => {
+    const total = products.length
+    const active = products.filter(p => p.active !== false && p.is_active !== false).length
+    const withImage = products.filter(p => p.imageUrl || p.image).length
+    const avgPrice = total > 0 ? products.reduce((s, p) => s + (Number(p.price) || 0), 0) / total : 0
+    const catCounts: Record<string, number> = {}
+    products.forEach(p => { if (p.category) catCounts[p.category] = (catCounts[p.category] || 0) + 1 })
+    return { total, active, withImage, avgPrice, catCounts }
+  }, [products])
+
+  async function deleteProduct(id: string) {
+    if (!confirm('Remover este produto?')) return
+    await fetch(`/api/products/${id}`, { method: 'DELETE', headers: getHeaders() }).catch(() => {})
+    load()
+    showToast('Produto removido')
+  }
 
   if (loading) return <Skeleton rows={6} />
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-bold text-gray-900">Produtos</h2>
-        <span className="text-xs text-muted bg-gray-100 px-2.5 py-1 rounded-lg font-semibold">{products.length} produtos</span>
+        <div>
+          <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">Produtos</h2>
+          <p className="text-[13px] text-gray-400 mt-0.5">{metrics.total} produtos · {metrics.active} ativos</p>
+        </div>
+        <button onClick={() => { setEditProduct(null); setShowCreate(true) }}
+          className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-gradient-to-r from-blue-500 to-indigo-600 text-white text-xs font-bold hover:from-blue-600 hover:to-indigo-700 transition-all shadow-md">
+          <Plus size={14} /> Novo Produto
+        </button>
       </div>
 
-      <div className="relative">
-        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-        <input type="text" value={search} onChange={e => setSearch(e.target.value)}
-          placeholder="Buscar produto..."
-          className="w-full pl-9 pr-3 py-2.5 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 placeholder:text-gray-300" />
+      {/* KPIs */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+        <KpiCard label="Total" value={String(metrics.total)} icon={Package} bg="bg-blue-50" color="text-blue-500" accent="text-blue-600" />
+        <KpiCard label="Ativos" value={String(metrics.active)} icon={Eye} bg="bg-emerald-50" color="text-emerald-500" accent="text-emerald-600" />
+        <KpiCard label="Com Imagem" value={String(metrics.withImage)} icon={Eye} bg="bg-violet-50" color="text-violet-500" accent="text-violet-600" />
+        <KpiCard label="Preco Medio" value={money(metrics.avgPrice)} icon={BarChart3} bg="bg-amber-50" color="text-amber-500" accent="text-amber-600" />
       </div>
 
-      {filtered.length === 0 ? (
-        <EmptyState icon={Package} text="Nenhum produto encontrado" />
-      ) : (
-        <div className="bg-white border border-border rounded-2xl overflow-hidden">
+      {/* Category filter chips */}
+      {categories.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          <button onClick={() => setCatFilter('')}
+            className={`px-3 py-1.5 rounded-lg text-[11px] font-semibold transition ${!catFilter ? 'bg-blue-100 text-blue-700 ring-1 ring-blue-300' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'}`}>
+            Todos ({metrics.total})
+          </button>
+          {categories.map((c: any) => (
+            <button key={c.id} onClick={() => setCatFilter(catFilter === c.name ? '' : c.name)}
+              className={`px-3 py-1.5 rounded-lg text-[11px] font-semibold transition ${catFilter === c.name ? 'ring-1 ring-blue-300 text-blue-700 bg-blue-50' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'}`}>
+              {c.color && <span className="inline-block w-2 h-2 rounded-full mr-1.5" style={{ backgroundColor: c.color }} />}
+              {c.name} {metrics.catCounts[c.name] ? <span className="text-[9px] opacity-60">({metrics.catCounts[c.name]})</span> : null}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Search + View toggle */}
+      <div className="flex items-center gap-3">
+        <div className="flex-1 relative">
+          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input type="text" value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="Buscar produto..."
+            className="w-full pl-9 pr-3 py-2.5 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-200 placeholder:text-gray-300" />
+        </div>
+        <div className="flex gap-0.5 bg-gray-100 p-0.5 rounded-lg">
+          <button onClick={() => setViewMode('grid')} className={`p-1.5 rounded-md transition ${viewMode === 'grid' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-400'}`}>
+            <Package size={14} />
+          </button>
+          <button onClick={() => setViewMode('list')} className={`p-1.5 rounded-md transition ${viewMode === 'list' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-400'}`}>
+            <BarChart3 size={14} />
+          </button>
+        </div>
+      </div>
+
+      {/* Grid view */}
+      {viewMode === 'grid' && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+          {filtered.map((p: any) => (
+            <div key={p.id} className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] overflow-hidden group hover:shadow-md transition-all cursor-pointer"
+              onClick={() => { setEditProduct(p); setShowCreate(true) }}>
+              <div className="aspect-square bg-gray-100 relative overflow-hidden">
+                {(p.imageUrl || p.image) ? (
+                  <img src={p.imageUrl || p.image} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center"><Package size={32} className="text-gray-300" /></div>
+                )}
+                {p.active === false && (
+                  <div className="absolute top-2 left-2 bg-red-500 text-white text-[8px] font-bold px-1.5 py-0.5 rounded">INATIVO</div>
+                )}
+              </div>
+              <div className="p-3">
+                <p className="text-xs font-bold text-gray-900 truncate">{p.name}</p>
+                <p className="text-[10px] text-gray-400 mt-0.5">{p.category || '—'} · {p.unit || 'un'}</p>
+                <div className="flex items-center justify-between mt-2">
+                  <p className="text-sm font-extrabold text-gray-900">{money(p.price)}</p>
+                  {Number(p.promoPrice) > 0 && <p className="text-[10px] font-bold text-emerald-600">{money(p.promoPrice)}</p>}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* List view */}
+      {viewMode === 'list' && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] overflow-hidden">
           <table className="w-full text-sm">
             <thead>
-              <tr className="bg-gray-50/80 border-b border-border">
+              <tr className="bg-gray-50/80 border-b border-gray-100">
                 <th className="text-left px-4 py-2.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Produto</th>
                 <th className="text-left px-4 py-2.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider hidden sm:table-cell">Categoria</th>
                 <th className="text-right px-4 py-2.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Preco</th>
-                <th className="text-right px-4 py-2.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider hidden md:table-cell">Promo</th>
+                <th className="text-center px-4 py-2.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider hidden md:table-cell">Status</th>
+                <th className="w-10"></th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map((p: any, i: number) => (
-                <tr key={p.id || i} className="border-b border-border last:border-0 hover:bg-gray-50/50">
+              {filtered.map((p: any) => (
+                <tr key={p.id} className="border-b border-gray-100 last:border-0 hover:bg-blue-50/30 transition cursor-pointer"
+                  onClick={() => { setEditProduct(p); setShowCreate(true) }}>
                   <td className="px-4 py-2.5">
                     <div className="flex items-center gap-2.5">
-                      {(p.imageUrl || p.image_url) && (
-                        <img src={p.imageUrl || p.image_url} alt="" className="w-9 h-9 rounded-lg object-cover shrink-0" />
-                      )}
+                      {(p.imageUrl || p.image)
+                        ? <img src={p.imageUrl || p.image} alt="" className="w-9 h-9 rounded-lg object-cover shrink-0" />
+                        : <div className="w-9 h-9 rounded-lg bg-gray-100 grid place-items-center shrink-0"><Package size={14} className="text-gray-300" /></div>}
                       <div className="min-w-0">
-                        <p className="font-medium text-gray-900 truncate max-w-[220px]">{p.name}</p>
-                        {p.unit && <p className="text-[10px] text-muted">{p.unit}</p>}
+                        <p className="font-semibold text-gray-900 truncate max-w-[200px]">{p.name}</p>
+                        <p className="text-[10px] text-gray-400">{p.unit || 'un'}</p>
                       </div>
                     </div>
                   </td>
-                  <td className="px-4 py-2.5 text-xs text-muted hidden sm:table-cell">{p.category || '—'}</td>
-                  <td className="px-4 py-2.5 text-right font-semibold text-gray-900">{money(p.price)}</td>
-                  <td className="px-4 py-2.5 text-right text-xs hidden md:table-cell">
-                    {p.promoPrice || p.promo_price ? <span className="text-emerald-600 font-semibold">{money(p.promoPrice || p.promo_price)}</span> : <span className="text-gray-300">—</span>}
+                  <td className="px-4 py-2.5 text-xs text-gray-500 hidden sm:table-cell">{p.category || '—'}</td>
+                  <td className="px-4 py-2.5 text-right">
+                    <p className="font-bold text-gray-900">{money(p.price)}</p>
+                    {Number(p.promoPrice) > 0 && <p className="text-[10px] text-emerald-600 font-semibold">{money(p.promoPrice)}</p>}
+                  </td>
+                  <td className="px-4 py-2.5 text-center hidden md:table-cell">
+                    <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${p.active !== false ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}>
+                      {p.active !== false ? 'Ativo' : 'Inativo'}
+                    </span>
+                  </td>
+                  <td className="px-2 py-2.5">
+                    <button onClick={e => { e.stopPropagation(); deleteProduct(p.id) }} className="p-1.5 rounded-lg hover:bg-red-50 transition">
+                      <Trash2 size={13} className="text-gray-400 hover:text-red-500" />
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -1672,6 +1783,162 @@ export function ProductsView({ showToast }: { showToast: (t: string, tp?: 'ok' |
           </table>
         </div>
       )}
+
+      {filtered.length === 0 && <EmptyState icon={Package} text="Nenhum produto encontrado" />}
+
+      {/* ── Product Editor Modal ── */}
+      {showCreate && (
+        <ProductEditorModal
+          product={editProduct}
+          categories={categories}
+          onClose={() => { setShowCreate(false); setEditProduct(null) }}
+          onSaved={() => { setShowCreate(false); setEditProduct(null); load() }}
+          showToast={showToast}
+        />
+      )}
+    </div>
+  )
+}
+
+/* ── Product Editor Modal ── */
+function ProductEditorModal({ product, categories, onClose, onSaved, showToast }: {
+  product: any; categories: any[]; onClose: () => void; onSaved: () => void; showToast: (t: string, tp?: 'ok' | 'err') => void
+}) {
+  const isEdit = !!product?.id
+  const [saving, setSaving] = useState(false)
+  const [name, setName] = useState(product?.name || '')
+  const [description, setDescription] = useState(product?.description || '')
+  const [category, setCategory] = useState(product?.category || '')
+  const [price, setPrice] = useState(product?.price != null ? String(product.price) : '')
+  const [promoPrice, setPromoPrice] = useState(product?.promoPrice != null ? String(product.promoPrice) : '')
+  const [unit, setUnit] = useState(product?.unit || 'unidade')
+  const [features, setFeatures] = useState((product?.features || []).join(', '))
+  const [active, setActive] = useState(product?.active !== false)
+  const [imageUrl, setImageUrl] = useState(product?.imageUrl || product?.image || '')
+  const [uploading, setUploading] = useState(false)
+
+  async function uploadImage(file: File) {
+    setUploading(true)
+    try {
+      const fd = new FormData(); fd.append('file', file)
+      const r = await fetch('/api/media/upload', { method: 'POST', headers: { 'Authorization': getHeaders()['Authorization'] }, body: fd })
+      const d = await r.json()
+      if (d.file?.url) setImageUrl(d.file.url)
+    } catch {}
+    setUploading(false)
+  }
+
+  async function save() {
+    if (!name.trim()) return showToast('Nome obrigatorio', 'err')
+    if (!category.trim()) return showToast('Categoria obrigatoria', 'err')
+    if (!price || isNaN(parseFloat(price))) return showToast('Preco invalido', 'err')
+    setSaving(true)
+    try {
+      const body = {
+        name: name.trim(), description: description.trim(), category: category.trim(),
+        price: parseFloat(price), promoPrice: promoPrice ? parseFloat(promoPrice) : null,
+        unit, features: features.split(',').map((f: string) => f.trim()).filter(Boolean),
+        active, imageUrl: imageUrl || null,
+      }
+      const url = isEdit ? `/api/products/${product.id}` : '/api/products'
+      const method = isEdit ? 'PUT' : 'POST'
+      const r = await fetch(url, { method, headers: getHeaders(), body: JSON.stringify(body) })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.error || 'Erro')
+      showToast(isEdit ? 'Produto atualizado!' : 'Produto criado!')
+      onSaved()
+    } catch (e: any) { showToast(e.message, 'err') }
+    setSaving(false)
+  }
+
+  const inputCls = 'w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-200'
+  const labelCls = 'text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5 block'
+
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between shrink-0">
+          <h3 className="font-bold text-base text-gray-900">{isEdit ? 'Editar Produto' : 'Novo Produto'}</h3>
+          <button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100 transition"><X size={18} className="text-gray-400" /></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+          {/* Image */}
+          <div className={`rounded-xl border-2 border-dashed overflow-hidden transition ${imageUrl ? 'border-blue-300' : 'border-gray-200'}`}>
+            {imageUrl ? (
+              <div className="relative group" style={{ aspectRatio: '16/10' }}>
+                <img src={imageUrl} alt="" className="w-full h-full object-cover" />
+                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                  <label className="px-3 py-1.5 bg-white/90 rounded-lg text-[11px] font-bold text-gray-700 cursor-pointer">
+                    Trocar <input type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) uploadImage(f) }} />
+                  </label>
+                  <button onClick={() => setImageUrl('')} className="px-3 py-1.5 bg-red-500/90 rounded-lg text-[11px] font-bold text-white">Remover</button>
+                </div>
+              </div>
+            ) : (
+              <label className="flex flex-col items-center justify-center py-8 cursor-pointer hover:bg-blue-50/30 transition">
+                {uploading ? <Loader2 size={24} className="text-blue-400 animate-spin" /> : <Package size={28} className="text-gray-300" />}
+                <p className="text-xs text-gray-400 mt-1">{uploading ? 'Enviando...' : 'Clique para adicionar imagem'}</p>
+                <input type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) uploadImage(f) }} />
+              </label>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="sm:col-span-2">
+              <label className={labelCls}>Nome *</label>
+              <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Nome do produto" className={inputCls} />
+            </div>
+            <div>
+              <label className={labelCls}>Categoria *</label>
+              <select value={category} onChange={e => setCategory(e.target.value)} className={inputCls}>
+                <option value="">Selecione...</option>
+                {categories.map((c: any) => <option key={c.id} value={c.name}>{c.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className={labelCls}>Unidade</label>
+              <input type="text" value={unit} onChange={e => setUnit(e.target.value)} placeholder="kg, un, L..." className={inputCls} />
+            </div>
+            <div>
+              <label className={labelCls}>Preco (R$) *</label>
+              <input type="number" step="0.01" value={price} onChange={e => setPrice(e.target.value)} placeholder="0.00" className={inputCls} />
+            </div>
+            <div>
+              <label className={labelCls}>Preco Promocional</label>
+              <input type="number" step="0.01" value={promoPrice} onChange={e => setPromoPrice(e.target.value)} placeholder="Opcional" className={inputCls} />
+            </div>
+          </div>
+
+          <div>
+            <label className={labelCls}>Descricao</label>
+            <textarea value={description} onChange={e => setDescription(e.target.value)} rows={3}
+              placeholder="Descreva o produto..." className={inputCls + ' resize-none'} />
+          </div>
+
+          <div>
+            <label className={labelCls}>Caracteristicas (virgula)</label>
+            <input type="text" value={features} onChange={e => setFeatures(e.target.value)}
+              placeholder="Fresco, Selecionado, Tipo A" className={inputCls} />
+          </div>
+
+          <div className="flex items-center justify-between bg-gray-50 rounded-xl p-3">
+            <span className="text-xs font-medium text-gray-600">Produto ativo</span>
+            <button type="button" onClick={() => setActive(!active)}
+              className={`relative w-10 h-5 rounded-full transition ${active ? 'bg-emerald-500' : 'bg-gray-300'}`}>
+              <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${active ? 'translate-x-5' : ''}`} />
+            </button>
+          </div>
+        </div>
+
+        <div className="px-5 py-4 border-t border-gray-100 flex items-center justify-between shrink-0">
+          <button onClick={onClose} className="px-4 py-2.5 rounded-xl bg-gray-100 text-gray-600 text-xs font-semibold hover:bg-gray-200 transition">Cancelar</button>
+          <button onClick={save} disabled={saving}
+            className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-blue-500 to-indigo-600 text-white text-xs font-bold hover:from-blue-600 hover:to-indigo-700 disabled:opacity-50 transition-all shadow-md">
+            {saving ? 'Salvando...' : isEdit ? 'Salvar' : 'Criar Produto'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

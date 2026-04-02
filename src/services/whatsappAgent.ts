@@ -133,9 +133,46 @@ export class WhatsAppAgentService {
     const recentHistory = historyLines.slice(-Math.max(1, Math.min(Number(input.maxHistoryLines || 12), 20)));
 
     const profile = await this.aiAgentProfileService.getByUserId(userId, brandId || undefined);
-    // Check for escalation triggers before generating
-    const escalationKeywords = ['atendente', 'humano', 'pessoa real', 'falar com alguem', 'gerente', 'supervisor', 'reclamacao', 'reclamar', 'problema grave', 'cancelar tudo'];
+    // ── SKILL: Context Curator — detect bots, qualify conversations ──
     const lowerMsg = incomingMessage.toLowerCase();
+
+    // 1. Detect if response comes from another automation/bot
+    const botSignals = [
+      'digite', 'tecle', 'pressione', 'opcao', 'opção',
+      'menu principal', 'voltar ao menu', 'atendimento eletronico',
+      'para falar com', 'escolha uma das opcoes', 'escolha uma das opções',
+      'não entendi, pode repetir', 'nao entendi, pode repetir',
+      'obrigado por entrar em contato', 'seu protocolo',
+      'aguarde um momento', 'transferindo para',
+      'horario de atendimento', 'horário de atendimento',
+      'fora do horario', 'fora do horário',
+      'esta mensagem e automatica', 'esta mensagem é automática',
+      'mensagem automatica', 'mensagem automática',
+      'selecione.*\\d', // "selecione 1, 2, 3"
+    ];
+    const isBotResponse = botSignals.some(signal => {
+      if (signal.includes('*')) return new RegExp(signal, 'i').test(lowerMsg);
+      return lowerMsg.includes(signal);
+    });
+    // Also check: very structured messages with numbers as options
+    const hasMenuPattern = /^\d[\.\)\-]\s|^[a-z]\)\s/m.test(incomingMessage);
+    const isLikelyBot = isBotResponse || hasMenuPattern;
+
+    if (isLikelyBot) {
+      logger.info(`Bot detection: message from ${input.conversationHistory?.length || 0}-msg convo flagged as automation`);
+      // Don't respond to bots — pause and flag for human review
+      return {
+        text: '', // Empty = don't send
+        profile,
+        knowledgeApplied: false,
+        catalogApplied: false,
+        shouldEscalate: true,
+        escalationReason: 'bot_detected',
+      };
+    }
+
+    // 2. Check for human escalation requests
+    const escalationKeywords = ['atendente', 'humano', 'pessoa real', 'falar com alguem', 'gerente', 'supervisor', 'reclamacao', 'reclamar', 'problema grave', 'cancelar tudo'];
     const shouldEscalate = escalationKeywords.some(kw => lowerMsg.includes(kw));
     if (shouldEscalate) {
       return {
@@ -147,6 +184,11 @@ export class WhatsAppAgentService {
         escalationReason: 'customer_requested_human',
       };
     }
+
+    // 3. Qualify conversation context
+    const isGreeting = /^(oi|ola|olá|bom dia|boa tarde|boa noite|hey|eai|e ai)\b/i.test(incomingMessage.trim());
+    const isShort = incomingMessage.trim().length < 5;
+    const conversationLength = historyLines.length;
 
     // Fetch context with error resilience
     const results = await Promise.allSettled([

@@ -2290,7 +2290,8 @@ export function AgentView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'e
     ]},
     { name: 'Atendimento', icon: '🎧', color: 'from-blue-500 to-indigo-600', skills: [
       { name: 'Primeiro Contato', status: 'active' }, { name: 'FAQ Inteligente', status: 'active' },
-      { name: 'Escalacao Humano', status: 'active' }, { name: 'Pesquisa Satisfacao', status: 'beta' },
+      { name: 'Escalacao Humano', status: 'active' }, { name: 'Detector de Bot', status: 'active' },
+      { name: 'Curador de Contexto', status: 'active' }, { name: 'Pesquisa Satisfacao', status: 'beta' },
     ]},
     { name: 'Logistica', icon: '🚚', color: 'from-amber-500 to-orange-600', skills: [
       { name: 'Rastreamento', status: 'active' }, { name: 'Agendamento', status: 'beta' },

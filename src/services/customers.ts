@@ -324,32 +324,55 @@ export class CustomersService {
     return joined || null;
   }
 
-  private extractCityState(address?: string): { city: string | null; state: string | null } {
-    if (!address) return { city: null, state: null };
+  private extractCityState(address?: string): { city: string | null; state: string | null; neighborhood: string | null } {
+    if (!address) return { city: null, state: null, neighborhood: null };
 
-    const chunks = address
-      .split(" - ")
-      .map((part) => part.trim())
-      .filter(Boolean);
+    // Brazilian Google Places format: "Rua X, 123 - Bairro, Cidade - UF, CEP, Pais"
+    // Split by " - " to get segments
+    const segments = address.split(" - ").map((s) => s.trim()).filter(Boolean);
 
-    const cityStateSource = chunks.length >= 2 ? chunks[chunks.length - 2] : chunks[0] || "";
-    const csParts = cityStateSource
-      .split(",")
-      .map((part) => part.trim())
-      .filter(Boolean);
-
-    const city = csParts.length >= 1 ? csParts[0] : null;
+    let city: string | null = null;
     let state: string | null = null;
+    let neighborhood: string | null = null;
 
-    for (const part of csParts) {
-      const stMatch = part.match(/\b([A-Z]{2})\b/);
-      if (stMatch) {
-        state = stMatch[1];
+    // Find segment with UF (2 uppercase letters like MG, SP, RJ)
+    for (const seg of segments) {
+      const ufMatch = seg.match(/\b([A-Z]{2})\b/);
+      if (ufMatch) {
+        state = ufMatch[1];
+        // Everything before UF in the same segment minus CEP
+        const beforeUF = seg.split(/,?\s*[A-Z]{2}\b/)[0].trim();
+        // Remove CEP pattern
+        const cleanCity = beforeUF.replace(/\d{5}-?\d{3}/, "").replace(/,\s*$/, "").trim();
+        // If we have the previous segment, it has "Bairro, Cidade"
+        const prevIdx = segments.indexOf(seg) - 1;
+        if (prevIdx >= 0) {
+          const prevParts = segments[prevIdx].split(",").map((p: string) => p.trim()).filter(Boolean);
+          if (prevParts.length >= 2) {
+            // "Bairro, Cidade" → neighborhood = first, city = last
+            neighborhood = prevParts[0];
+            city = prevParts[prevParts.length - 1];
+          } else if (prevParts.length === 1) {
+            city = prevParts[0];
+          }
+        }
+        if (!city && cleanCity) city = cleanCity;
         break;
       }
     }
 
-    return { city, state };
+    // Fallback: try "Bairro, Cidade" pattern from second-to-last segment
+    if (!city && segments.length >= 2) {
+      const parts = segments[segments.length - 2].split(",").map((p: string) => p.trim()).filter(Boolean);
+      if (parts.length >= 2) {
+        neighborhood = parts[0];
+        city = parts[1];
+      } else {
+        city = parts[0] || null;
+      }
+    }
+
+    return { city, state, neighborhood };
   }
 
   private parseSourceDetails(raw: unknown): Record<string, any> {
@@ -680,7 +703,7 @@ export class CustomersService {
         const subcategory = types[1] || null;
         const phone = this.normalizePhone(place.internationalPhoneNumber || place.nationalPhoneNumber || "");
         const address = this.extractAddress(place);
-        const { city, state } = this.extractCityState(address || undefined);
+        const { city, state, neighborhood } = this.extractCityState(address || undefined);
 
         const sourceDetails = {
           google_place_id: place.id || null,

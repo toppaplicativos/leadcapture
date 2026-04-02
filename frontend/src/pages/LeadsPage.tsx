@@ -42,6 +42,15 @@ interface Client {
 /* ══════════════════════════════════════════════
    LEADS PAGE — Dashboard + Table + Modal
    ══════════════════════════════════════════════ */
+// Extract real city from address (city field often has neighborhood from Google Places)
+function extractRealCity(c: { address?: string; city?: string }): string {
+  const addr = c.address || ''
+  // Brazilian format: "... - Bairro, Cidade - UF, CEP, Pais"
+  const m = addr.match(/,\s*([^,\-]+)\s*-\s*[A-Z]{2}\b/)
+  if (m) return m[1].trim()
+  return c.city || ''
+}
+
 export function LeadsPage() {
   const [allClients, setAllClients] = useState<Client[]>([])
   const [loading, setLoading] = useState(true)
@@ -86,7 +95,10 @@ export function LeadsPage() {
     const categoryCounts: Record<string, number> = {}
     allClients.forEach(c => { if (c.category) categoryCounts[c.category] = (categoryCounts[c.category] || 0) + 1 })
     const cityCounts: Record<string, number> = {}
-    allClients.forEach(c => { if (c.city) cityCounts[c.city] = (cityCounts[c.city] || 0) + 1 })
+    allClients.forEach(c => {
+      const realCity = extractRealCity(c)
+      if (realCity) cityCounts[realCity] = (cityCounts[realCity] || 0) + 1
+    })
     const topCategories = Object.entries(categoryCounts).sort((a, b) => b[1] - a[1]).slice(0, 6)
     const topCities = Object.entries(cityCounts).sort((a, b) => b[1] - a[1]).slice(0, 5)
     const thisWeek = allClients.filter(c => {
@@ -102,7 +114,7 @@ export function LeadsPage() {
     if (activeFilter) {
       if (activeFilter.startsWith('status:')) list = list.filter(c => (c.status || 'new') === activeFilter.slice(7))
       else if (activeFilter.startsWith('category:')) list = list.filter(c => c.category === activeFilter.slice(9))
-      else if (activeFilter.startsWith('city:')) list = list.filter(c => c.city === activeFilter.slice(5))
+      else if (activeFilter.startsWith('city:')) list = list.filter(c => extractRealCity(c) === activeFilter.slice(5))
       else if (activeFilter === 'has_phone') list = list.filter(c => c.phone)
       else if (activeFilter === 'has_email') list = list.filter(c => c.email)
       else if (activeFilter === 'has_rating') list = list.filter(c => Number(c.google_rating) > 0)
@@ -249,7 +261,7 @@ export function LeadsPage() {
                     className="border-b border-gray-100 last:border-0 cursor-pointer hover:bg-blue-50/30 transition group">
                     <td className="px-4 py-3">
                       <p className="font-semibold text-gray-900 truncate max-w-[200px] group-hover:text-blue-600 transition">{c.name || '—'}</p>
-                      <p className="text-[10px] text-gray-400 mt-0.5">{c.city || ''}{c.state ? `, ${c.state}` : ''}</p>
+                      <p className="text-[10px] text-gray-400 mt-0.5">{extractRealCity(c)}{c.city && extractRealCity(c) !== c.city ? ` · ${c.city}` : ''}</p>
                     </td>
                     <td className="px-4 py-3 hidden sm:table-cell">
                       <div className="flex items-center gap-3">

@@ -792,7 +792,7 @@ function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
         </div>
 
         {/* Tabs */}
-        <div className="px-5 pt-3 border-b border-gray-100 flex gap-1 shrink-0 overflow-x-auto">
+        <div className="px-5 pt-3 border-b border-gray-100 flex gap-1 shrink-0 overflow-x-auto scrollbar-hide">
           {tabs.map(t => (
             <button key={t.key} onClick={() => setActiveTab(t.key)}
               className={`px-3.5 py-2 rounded-t-lg text-xs font-semibold transition whitespace-nowrap ${

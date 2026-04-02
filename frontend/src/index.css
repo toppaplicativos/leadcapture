@@ -201,9 +201,20 @@ input:focus, textarea:focus, select:focus {
   border-radius: var(--radius-md);
 }
 
-/* ── Scrollbar ── */
+/* ── Scrollbar — thin & transparent ── */
 .scrollbar-hide::-webkit-scrollbar { display: none; }
 .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* Global subtle scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0,0,0,0.08) transparent;
+}
+*::-webkit-scrollbar { width: 6px; height: 6px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.08); border-radius: 99px; }
+*::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.15); }
+*::-webkit-scrollbar-corner { background: transparent; }
 
 /* ── Transitions ── */
 * {

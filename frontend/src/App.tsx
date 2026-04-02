@@ -17,7 +17,7 @@ import { StockLoginPage } from '@/pages/StockLoginPage'
 import { InventoryPage, DesignView } from '@/pages/InventoryPage'
 import { ProductDetailPage } from '@/pages/ProductDetailPage'
 import { LoginPage } from '@/pages/LoginPage'
-import { AdminShell, DashboardView, CampaignsView, OrdersView, AutomationsView, ProductsView, MessagesView, AgentView, NotificationsView, DomainView, FreteView, EstoqueAccessView } from '@/pages/AdminDashboard'
+import { AdminShell, DashboardView, CampaignsView, OrdersView, AutomationsView, ProductsView, MessagesView, AgentView, NotificationsView, DomainView, FreteView, EstoqueAccessView, PaymentConfigView } from '@/pages/AdminDashboard'
 import { LeadSearchPage } from '@/pages/LeadSearchPage'
 import { LeadsPage } from '@/pages/LeadsPage'
 import { MessageSquare, Package, Zap, Bot, Palette, Truck, Globe, Settings } from 'lucide-react'
@@ -106,6 +106,7 @@ export default function App() {
         <Route path="/estoque/app" element={<InventoryPage />} />
         <Route path="/inventario" element={<InventoryPage />} />
         <Route path="/design" element={<AdminPage><DesignView showToast={() => {}} /></AdminPage>} />
+        <Route path="/pagamentos" element={<AdminPage><PaymentConfigView showToast={() => {}} /></AdminPage>} />
         <Route path="/frete" element={<AdminPage><FreteView showToast={() => {}} /></AdminPage>} />
         <Route path="/dominio" element={<AdminPage><DomainView showToast={() => {}} /></AdminPage>} />
         <Route path="/configuracoes" element={<AdminPage><ComingSoon title="Configuracoes" icon={Settings} /></AdminPage>} />

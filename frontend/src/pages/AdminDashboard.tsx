@@ -48,6 +48,7 @@ const ROUTE_MAP: Record<string, string> = {
   '/pedidos': 'pedidos',
   '/estoque': 'estoque',
   '/design': 'design',
+  '/pagamentos': 'pagamentos',
   '/frete': 'frete',
   '/dominio': 'dominio',
   '/agente': 'agente',
@@ -71,6 +72,7 @@ const NAV_ITEMS: { key: string; path: string; icon: any; label: string; group: s
   { key: 'pedidos', path: '/pedidos', icon: ShoppingCart, label: 'Pedidos', group: 'loja' },
   { key: 'estoque', path: '/estoque', icon: BarChart3, label: 'Estoque', group: 'loja' },
   { key: 'design', path: '/design', icon: Palette, label: 'Design', group: 'loja' },
+  { key: 'pagamentos', path: '/pagamentos', icon: ShoppingCart, label: 'Pagamentos', group: 'loja' },
   { key: 'frete', path: '/frete', icon: Truck, label: 'Frete', group: 'loja' },
   { key: 'dominio', path: '/dominio', icon: Globe, label: 'Dominio', group: 'loja' },
 ]
@@ -2683,6 +2685,152 @@ export function EstoqueAccessView({ showToast }: { showToast: (t: string, tp?: '
               </div>
             </div>
           ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ══════════════════════════════════════════════
+   PAYMENT CONFIG VIEW
+   ══════════════════════════════════════════════ */
+export function PaymentConfigView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') => void }) {
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [allowPix, setAllowPix] = useState(true)
+  const [allowCard, setAllowCard] = useState(true)
+  const [allowBoleto, setAllowBoleto] = useState(false)
+  const [allowCash, setAllowCash] = useState(false)
+  const [pixKeyType, setPixKeyType] = useState('cpf')
+  const [pixKeyValue, setPixKeyValue] = useState('')
+  const [receiverName, setReceiverName] = useState('')
+  const [receiverCity, setReceiverCity] = useState('')
+
+  useEffect(() => {
+    setLoading(true)
+    Promise.all([
+      fetch('/api/payments/settings', { headers: getHeaders() }).then(r => r.json()).catch(() => ({})),
+      fetch('/api/payments/pix/settings', { headers: getHeaders() }).then(r => r.json()).catch(() => ({})),
+    ]).then(([settings, pix]) => {
+      const s = settings.settings || {}
+      setAllowPix(s.allow_pix !== false)
+      setAllowCard(s.allow_card !== false)
+      setAllowBoleto(s.allow_boleto === true)
+      setAllowCash(s.allow_wallet === true)
+      const p = pix.pix || {}
+      setPixKeyType(p.pix_key_type || 'cpf')
+      setPixKeyValue(p.pix_key_value || '')
+      setReceiverName(p.receiver_name || '')
+      setReceiverCity(p.receiver_city || '')
+      setLoading(false)
+    })
+  }, [])
+
+  async function save() {
+    setSaving(true)
+    try {
+      await fetch('/api/payments/settings', {
+        method: 'PUT', headers: getHeaders(),
+        body: JSON.stringify({ allow_pix: allowPix, allow_card: allowCard, allow_boleto: allowBoleto, allow_wallet: allowCash }),
+      })
+      if (allowPix && pixKeyValue) {
+        await fetch('/api/payments/pix/settings', {
+          method: 'PUT', headers: getHeaders(),
+          body: JSON.stringify({ enabled: true, provider: 'manual', pix_key_type: pixKeyType, pix_key_value: pixKeyValue, receiver_name: receiverName, receiver_city: receiverCity }),
+        })
+      }
+      showToast('Configuracoes de pagamento salvas!')
+    } catch (e: any) { showToast(e.message, 'err') }
+    setSaving(false)
+  }
+
+  const Toggle = ({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) => (
+    <button type="button" onClick={() => onChange(!value)}
+      className={`relative w-11 h-6 rounded-full transition shrink-0 ${value ? 'bg-emerald-500' : 'bg-gray-300'}`}>
+      <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${value ? 'translate-x-5' : ''}`} />
+    </button>
+  )
+
+  if (loading) return <Skeleton rows={6} />
+
+  const inputCls = 'w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-200'
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">Pagamentos</h2>
+          <p className="text-[13px] text-gray-400 mt-0.5">Metodos de pagamento e chave PIX</p>
+        </div>
+        <button onClick={save} disabled={saving}
+          className="px-4 py-2.5 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 disabled:opacity-50 transition shadow-sm">
+          {saving ? 'Salvando...' : 'Salvar'}
+        </button>
+      </div>
+
+      {/* Payment Methods */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-5 space-y-3">
+        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em]">Metodos aceitos</p>
+        {[
+          { label: 'PIX', sub: 'Transferencia instantanea', value: allowPix, onChange: setAllowPix, icon: '💎' },
+          { label: 'Cartao de Credito/Debito', sub: 'Maquininha na entrega', value: allowCard, onChange: setAllowCard, icon: '💳' },
+          { label: 'Boleto Bancario', sub: 'Vencimento em 3 dias', value: allowBoleto, onChange: setAllowBoleto, icon: '📄' },
+          { label: 'Dinheiro', sub: 'Pagamento na entrega', value: allowCash, onChange: setAllowCash, icon: '💵' },
+        ].map(m => (
+          <div key={m.label} className="flex items-center justify-between py-3 border-b border-gray-100 last:border-0">
+            <div className="flex items-center gap-3">
+              <span className="text-lg">{m.icon}</span>
+              <div>
+                <p className="text-sm font-semibold text-gray-800">{m.label}</p>
+                <p className="text-[10px] text-gray-400">{m.sub}</p>
+              </div>
+            </div>
+            <Toggle value={m.value} onChange={m.onChange} />
+          </div>
+        ))}
+      </div>
+
+      {/* PIX Settings */}
+      {allowPix && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-5 space-y-4">
+          <div className="flex items-center gap-2">
+            <span className="text-lg">💎</span>
+            <div>
+              <p className="text-sm font-bold text-gray-900">Configuracao PIX</p>
+              <p className="text-[10px] text-gray-400">Chave PIX para recebimento direto no checkout</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5 block">Tipo da chave</label>
+              <select value={pixKeyType} onChange={e => setPixKeyType(e.target.value)} className={inputCls}>
+                <option value="cpf">CPF</option>
+                <option value="cnpj">CNPJ</option>
+                <option value="email">E-mail</option>
+                <option value="phone">Telefone</option>
+                <option value="random">Aleatoria</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5 block">Chave PIX *</label>
+              <input type="text" value={pixKeyValue} onChange={e => setPixKeyValue(e.target.value)}
+                placeholder={pixKeyType === 'cpf' ? '000.000.000-00' : pixKeyType === 'cnpj' ? '00.000.000/0000-00' : pixKeyType === 'email' ? 'email@exemplo.com' : pixKeyType === 'phone' ? '+5531999999999' : 'chave-aleatoria'}
+                className={inputCls} />
+            </div>
+            <div>
+              <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5 block">Nome do recebedor</label>
+              <input type="text" value={receiverName} onChange={e => setReceiverName(e.target.value)}
+                placeholder="Nome que aparece no PIX" className={inputCls} />
+            </div>
+            <div>
+              <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5 block">Cidade</label>
+              <input type="text" value={receiverCity} onChange={e => setReceiverCity(e.target.value)}
+                placeholder="Ex: Belo Horizonte" className={inputCls} />
+            </div>
+          </div>
+          <div className="bg-emerald-50 rounded-xl p-3">
+            <p className="text-xs text-emerald-700 font-medium">O QR Code PIX sera gerado automaticamente no checkout com confirmacao manual pelo admin.</p>
+          </div>
         </div>
       )}
     </div>

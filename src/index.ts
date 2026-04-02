@@ -264,11 +264,16 @@ app.get("/app-estoque/:brand", (req, res) => {
   res.redirect(`/app-estoque?brand=${encodeURIComponent(brand)}`);
 });
 
-// Admin panel routes
-app.get("/login", (_req, res) => { serveCatalogSPA(res, "index.html"); });
-app.get("/admin", (_req, res) => { serveCatalogSPA(res, "index.html"); });
-app.get("/busca", (_req, res) => { serveCatalogSPA(res, "index.html"); });
-app.get("/leads", (_req, res) => { serveCatalogSPA(res, "index.html"); });
+// Admin panel routes (all serve React SPA)
+const adminPages = [
+  "/login", "/admin", "/dashboard", "/busca", "/leads", "/clientes",
+  "/mensagens", "/notificacoes", "/campanhas", "/campanha", "/automacoes",
+  "/criativos", "/creative", "/agente", "/produtos", "/pedidos",
+  "/design", "/frete", "/dominio", "/configuracoes",
+];
+for (const page of adminPages) {
+  app.get(page, (_req, res) => { serveCatalogSPA(res, "index.html"); });
+}
 
 app.get("/estoque", (_req, res) => {
   serveCatalogSPA(res, "inventario.html");

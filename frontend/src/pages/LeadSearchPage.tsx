@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef, FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
 import {
-  Search, MapPin, Loader2, Star, Phone, Globe, ExternalLink,
-  CheckCircle2, Sparkles, Zap, ChevronDown, ChevronUp, ArrowLeft,
+  Search, MapPin, Loader2, Star, Phone, Globe,
+  Sparkles, ChevronDown, ChevronUp,
   Building2, Navigation, Users, Filter, Map as MapIcon, List,
 } from 'lucide-react'
 import L from 'leaflet'
@@ -30,10 +29,6 @@ interface Lead {
    LEAD SEARCH PAGE
    ══════════════════════════════════════════════ */
 export function LeadSearchPage() {
-  const navigate = useNavigate()
-  const token = localStorage.getItem('lead-system-token')
-  useEffect(() => { if (!token) navigate('/login', { replace: true }) }, [token])
-
   // Form
   const [query, setQuery] = useState('')
   const [location, setLocation] = useState('')
@@ -57,18 +52,6 @@ export function LeadSearchPage() {
   const mapRef = useRef<HTMLDivElement>(null)
   const mapInstance = useRef<L.Map | null>(null)
 
-  // Brand
-  const [brandName, setBrandName] = useState('')
-  useEffect(() => {
-    fetch('/api/brands', { headers: getHeaders() })
-      .then(r => r.json()).then(d => {
-        const list = d.brands || []
-        const active = d.active_brand_id
-        const b = list.find((x: any) => String(x.id) === String(active)) || list[0] || {}
-        setBrandName(b.name || '')
-        if (b.name) document.title = b.name + ' — Busca de Leads'
-      }).catch(() => {})
-  }, [])
 
   async function handleSearch(e: FormEvent) {
     e.preventDefault()
@@ -119,28 +102,16 @@ export function LeadSearchPage() {
   const capturedCount = leads.filter(l => l.captureStatus === 'captured').length
 
   return (
-    <div className="min-h-screen bg-bg">
-      {/* ── Topbar ── */}
-      <header className="sticky top-0 z-50 bg-gradient-to-r from-gray-900 to-gray-800 text-white shadow-lg">
-        <div className="max-w-5xl mx-auto px-4 h-14 flex items-center gap-3">
-          <button onClick={() => navigate('/admin')} className="p-1.5 rounded-lg hover:bg-white/10 transition">
-            <ArrowLeft size={18} />
-          </button>
-          <Search size={18} className="text-blue-400" />
-          <div className="flex-1 min-w-0">
-            <h1 className="text-sm font-bold leading-tight">Busca de Leads</h1>
-            {brandName && <p className="text-[10px] text-white/50">{brandName}</p>}
+    <div className="space-y-5">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <h2 className="text-lg font-bold text-gray-900">Busca de Leads</h2>
+        {stats && (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted bg-gray-100 px-2.5 py-1 rounded-lg font-semibold">{stats.total} encontrados</span>
+            <span className="text-xs text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-lg font-bold">{stats.created} novos</span>
           </div>
-          {stats && (
-            <div className="hidden sm:flex items-center gap-3">
-              <span className="bg-white/10 px-2.5 py-1 rounded-lg text-[11px] font-semibold">{stats.total} encontrados</span>
-              <span className="bg-emerald-500/20 text-emerald-300 px-2.5 py-1 rounded-lg text-[11px] font-bold">{stats.created} novos</span>
-            </div>
-          )}
-        </div>
-      </header>
-
-      <div className="max-w-5xl mx-auto px-4 py-6 space-y-5">
+        )}
+      </div>
 
         {/* ── Search Form ── */}
         <form onSubmit={handleSearch} className="bg-white border border-border rounded-2xl shadow-sm overflow-hidden">
@@ -321,7 +292,6 @@ export function LeadSearchPage() {
             </p>
           </div>
         )}
-      </div>
     </div>
   )
 }

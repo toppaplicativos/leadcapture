@@ -1,9 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
 import {
-  Search, Users, Phone, Mail, MapPin, Tag, Star, ArrowLeft,
-  ChevronLeft, ChevronRight, ChevronDown, Loader2, Plus, Trash2,
-  ExternalLink, MessageSquare, Clock, Filter, X, Globe,
+  Search, Users, Phone, Mail, MapPin, Tag, Star,
+  ChevronLeft, ChevronRight, ChevronDown, Loader2, Trash2,
+  MessageSquare, Clock, X, Globe,
 } from 'lucide-react'
 
 /* ── Helpers ── */
@@ -50,10 +49,6 @@ interface Client {
    LEADS PAGE
    ══════════════════════════════════════════════ */
 export function LeadsPage() {
-  const navigate = useNavigate()
-  const token = localStorage.getItem('lead-system-token')
-  useEffect(() => { if (!token) navigate('/login', { replace: true }) }, [token])
-
   const [clients, setClients] = useState<Client[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -62,21 +57,9 @@ export function LeadsPage() {
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
   const [expanded, setExpanded] = useState<string | null>(null)
-  const [brandName, setBrandName] = useState('')
   const [updatingStatus, setUpdatingStatus] = useState<string | null>(null)
 
   const limit = 30
-
-  useEffect(() => {
-    fetch('/api/brands', { headers: getHeaders() })
-      .then(r => r.json()).then(d => {
-        const list = d.brands || []
-        const active = d.active_brand_id
-        const b = list.find((x: any) => String(x.id) === String(active)) || list[0] || {}
-        setBrandName(b.name || '')
-        if (b.name) document.title = b.name + ' — Leads'
-      }).catch(() => {})
-  }, [])
 
   const fetchClients = useCallback(() => {
     setLoading(true)
@@ -119,23 +102,11 @@ export function LeadsPage() {
   const totalPages = Math.ceil(total / limit)
 
   return (
-    <div className="min-h-screen bg-bg">
-      {/* ── Topbar ── */}
-      <header className="sticky top-0 z-50 bg-gradient-to-r from-gray-900 to-gray-800 text-white shadow-lg">
-        <div className="max-w-5xl mx-auto px-4 h-14 flex items-center gap-3">
-          <button onClick={() => navigate('/admin')} className="p-1.5 rounded-lg hover:bg-white/10 transition">
-            <ArrowLeft size={18} />
-          </button>
-          <Users size={18} className="text-blue-400" />
-          <div className="flex-1 min-w-0">
-            <h1 className="text-sm font-bold leading-tight">Leads / Clientes</h1>
-            {brandName && <p className="text-[10px] text-white/50">{brandName}</p>}
-          </div>
-          <span className="bg-white/10 px-2.5 py-1 rounded-lg text-[11px] font-semibold">{total} registros</span>
-        </div>
-      </header>
-
-      <div className="max-w-5xl mx-auto px-4 py-5 space-y-4">
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-bold text-gray-900">Leads / Clientes</h2>
+        <span className="text-xs text-muted bg-gray-100 px-2.5 py-1 rounded-lg font-semibold">{total} registros</span>
+      </div>
 
         {/* ── Search + Filters ── */}
         <div className="bg-white border border-border rounded-2xl shadow-sm overflow-hidden">
@@ -357,7 +328,6 @@ export function LeadsPage() {
             </button>
           </div>
         )}
-      </div>
     </div>
   )
 }

@@ -17,9 +17,10 @@ import { StockPanelPage } from '@/pages/StockPanelPage'
 import { InventoryPage } from '@/pages/InventoryPage'
 import { ProductDetailPage } from '@/pages/ProductDetailPage'
 import { LoginPage } from '@/pages/LoginPage'
-import { AdminDashboard } from '@/pages/AdminDashboard'
+import { AdminShell, DashboardView, CampaignsView, OrdersView } from '@/pages/AdminDashboard'
 import { LeadSearchPage } from '@/pages/LeadSearchPage'
 import { LeadsPage } from '@/pages/LeadsPage'
+import { MessageSquare, Package, Zap, Bot, Palette, Truck, Globe, Settings } from 'lucide-react'
 
 function CatalogShell() {
   const [activeTab, setActiveTab] = useState('catalogo')
@@ -60,19 +61,53 @@ function CatalogShell() {
   )
 }
 
+/* ── Placeholder for sections not yet built ── */
+function ComingSoon({ title, icon: Icon }: { title: string; icon: any }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-20 text-center">
+      <div className="w-14 h-14 bg-gray-100 rounded-2xl grid place-items-center mb-3">
+        <Icon size={24} className="text-gray-300" />
+      </div>
+      <h2 className="text-base font-bold text-gray-900 mb-1">{title}</h2>
+      <p className="text-xs text-gray-400">Em desenvolvimento</p>
+    </div>
+  )
+}
+
+/* ── Wrapper: AdminShell + child content ── */
+function AdminPage({ children }: { children: React.ReactNode }) {
+  return <AdminShell>{children}</AdminShell>
+}
+
 export default function App() {
   return (
     <>
       <Routes>
-        {/* ── Admin Panel ── */}
+        {/* ── Login ── */}
         <Route path="/login" element={<LoginPage />} />
-        <Route path="/admin" element={<AdminDashboard />} />
-        <Route path="/busca" element={<LeadSearchPage />} />
-        <Route path="/leads" element={<LeadsPage />} />
 
-        {/* ── Inventário (full management) ── */}
+        {/* ── Admin pages (all wrapped in AdminShell sidebar) ── */}
+        <Route path="/admin" element={<AdminPage><DashboardInline /></AdminPage>} />
+        <Route path="/dashboard" element={<AdminPage><DashboardInline /></AdminPage>} />
+        <Route path="/leads" element={<AdminPage><LeadsPage /></AdminPage>} />
+        <Route path="/clientes" element={<AdminPage><LeadsPage /></AdminPage>} />
+        <Route path="/busca" element={<AdminPage><LeadSearchPage /></AdminPage>} />
+        <Route path="/mensagens" element={<AdminPage><ComingSoon title="Mensagens" icon={MessageSquare} /></AdminPage>} />
+        <Route path="/notificacoes" element={<AdminPage><ComingSoon title="Notificacoes" icon={MessageSquare} /></AdminPage>} />
+        <Route path="/campanhas" element={<AdminPage><CampaignsInline /></AdminPage>} />
+        <Route path="/campanha" element={<AdminPage><CampaignsInline /></AdminPage>} />
+        <Route path="/automacoes" element={<AdminPage><ComingSoon title="Automacoes" icon={MessageSquare} /></AdminPage>} />
+        <Route path="/criativos" element={<AdminPage><ComingSoon title="Estudio Criativo" icon={MessageSquare} /></AdminPage>} />
+        <Route path="/creative" element={<AdminPage><ComingSoon title="Estudio Criativo" icon={MessageSquare} /></AdminPage>} />
+        <Route path="/agente" element={<AdminPage><ComingSoon title="Agente IA" icon={MessageSquare} /></AdminPage>} />
+        <Route path="/produtos" element={<AdminPage><ComingSoon title="Produtos" icon={Package} /></AdminPage>} />
+        <Route path="/pedidos" element={<AdminPage><OrdersInline /></AdminPage>} />
         <Route path="/estoque" element={<InventoryPage />} />
         <Route path="/inventario" element={<InventoryPage />} />
+        <Route path="/design" element={<AdminPage><ComingSoon title="Design do Catalogo" icon={Package} /></AdminPage>} />
+        <Route path="/frete" element={<AdminPage><ComingSoon title="Frete & Entrega" icon={Package} /></AdminPage>} />
+        <Route path="/dominio" element={<AdminPage><ComingSoon title="Dominio" icon={Package} /></AdminPage>} />
+        <Route path="/configuracoes" element={<AdminPage><ComingSoon title="Configuracoes" icon={Package} /></AdminPage>} />
 
         {/* ── App Estoque (stock managers) ── */}
         <Route path="/app-estoque" element={<StockLoginPage />} />
@@ -108,3 +143,9 @@ export default function App() {
     </>
   )
 }
+
+/* ── Inline wrappers ── */
+const noop = () => {}
+function DashboardInline() { return <DashboardView showToast={noop} /> }
+function CampaignsInline() { return <CampaignsView showToast={noop} /> }
+function OrdersInline() { return <OrdersView showToast={noop} /> }

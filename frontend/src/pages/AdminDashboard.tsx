@@ -1,10 +1,11 @@
-import { useState, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useState, useEffect, useCallback, type ReactNode } from 'react'
+import { useNavigate, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, Users, MessageSquare, Megaphone, ShoppingCart,
   Package, Palette, Search, RefreshCw, LogOut, Menu, X, Loader2,
   Plus, Phone, Mail, Clock, ArrowRight, BarChart3, Zap, Eye,
-  ChevronLeft, ChevronRight, Send, Pause, Ban,
+  ChevronLeft, ChevronRight, Send, Pause, Ban, Bot, Bell,
+  Wand2, Truck, Globe, Settings,
 } from 'lucide-react'
 import { adminApi, inventoryApi } from '@/lib/api-admin'
 
@@ -33,16 +34,57 @@ function useToast() {
   return { msg, show }
 }
 
-/* ── Types ── */
-type Section = 'dashboard' | 'leads' | 'campaigns' | 'orders' | 'inventory' | 'design'
+/* ── Route → Section mapping ── */
+const ROUTE_MAP: Record<string, string> = {
+  '/admin': 'dashboard', '/dashboard': 'dashboard',
+  '/leads': 'leads', '/clientes': 'leads',
+  '/busca': 'busca',
+  '/mensagens': 'mensagens',
+  '/notificacoes': 'notificacoes',
+  '/campanhas': 'campanhas', '/campanha': 'campanhas',
+  '/automacoes': 'automacoes',
+  '/criativos': 'criativos', '/creative': 'criativos',
+  '/produtos': 'produtos',
+  '/pedidos': 'pedidos',
+  '/estoque': 'estoque',
+  '/design': 'design',
+  '/frete': 'frete',
+  '/dominio': 'dominio',
+  '/agente': 'agente',
+  '/configuracoes': 'configuracoes',
+}
+
+function resolveSection(pathname: string): string {
+  return ROUTE_MAP[pathname] || 'dashboard'
+}
+
+/* ── Nav config ── */
+const NAV_ITEMS: { key: string; path: string; icon: any; label: string; group: string }[] = [
+  { key: 'dashboard', path: '/admin', icon: LayoutDashboard, label: 'Painel', group: 'main' },
+  { key: 'leads', path: '/leads', icon: Users, label: 'Leads', group: 'main' },
+  { key: 'busca', path: '/busca', icon: Search, label: 'Busca', group: 'main' },
+  { key: 'mensagens', path: '/mensagens', icon: MessageSquare, label: 'Mensagens', group: 'main' },
+  { key: 'campanhas', path: '/campanhas', icon: Megaphone, label: 'Campanhas', group: 'main' },
+  { key: 'automacoes', path: '/automacoes', icon: Zap, label: 'Automacoes', group: 'main' },
+  { key: 'agente', path: '/agente', icon: Bot, label: 'Agente IA', group: 'main' },
+  { key: 'produtos', path: '/produtos', icon: Package, label: 'Produtos', group: 'loja' },
+  { key: 'pedidos', path: '/pedidos', icon: ShoppingCart, label: 'Pedidos', group: 'loja' },
+  { key: 'estoque', path: '/estoque', icon: BarChart3, label: 'Estoque', group: 'loja' },
+  { key: 'design', path: '/design', icon: Palette, label: 'Design', group: 'loja' },
+  { key: 'frete', path: '/frete', icon: Truck, label: 'Frete', group: 'loja' },
+  { key: 'dominio', path: '/dominio', icon: Globe, label: 'Dominio', group: 'loja' },
+]
+
+const MOBILE_NAV = ['dashboard', 'leads', 'busca', 'mensagens', 'campanhas']
 
 /* ══════════════════════════════════════════════
-   ADMIN DASHBOARD — Main Component
+   ADMIN SHELL — Wraps all admin pages
    ══════════════════════════════════════════════ */
-export function AdminDashboard() {
+export function AdminShell({ children }: { children?: ReactNode }) {
   const navigate = useNavigate()
+  const location = useLocation()
   const { msg: toast, show: showToast } = useToast()
-  const [section, setSection] = useState<Section>('dashboard')
+  const section = resolveSection(location.pathname)
   const [brand, setBrand] = useState<{ name?: string; logo_url?: string }>({})
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
@@ -83,18 +125,11 @@ export function AdminDashboard() {
     navigate('/login', { replace: true })
   }
 
-  function switchSection(s: Section) { setSection(s); setSidebarOpen(false) }
+  function go(path: string) { navigate(path); setSidebarOpen(false) }
 
-  const nav: { key: Section; icon: typeof LayoutDashboard; label: string }[] = [
-    { key: 'dashboard', icon: LayoutDashboard, label: 'Painel' },
-    { key: 'leads', icon: Users, label: 'Leads' },
-    { key: 'campaigns', icon: Megaphone, label: 'Campanhas' },
-    { key: 'orders', icon: ShoppingCart, label: 'Pedidos' },
-    { key: 'inventory', icon: Package, label: 'Estoque' },
-    { key: 'design', icon: Palette, label: 'Design' },
-  ]
-
-  const mobileNav = nav.filter(n => !['design'].includes(n.key))
+  const mobileItems = NAV_ITEMS.filter(n => MOBILE_NAV.includes(n.key))
+  const mainNav = NAV_ITEMS.filter(n => n.group === 'main')
+  const lojaNav = NAV_ITEMS.filter(n => n.group === 'loja')
 
   return (
     <div className="h-screen bg-bg flex flex-col">
@@ -112,9 +147,8 @@ export function AdminDashboard() {
 
       <div className="flex flex-1 overflow-hidden">
         {/* ── Fixed Sidebar ── */}
-        <aside className={`fixed inset-y-0 left-0 z-40 w-60 bg-white border-r border-border flex flex-col transition-transform lg:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}
-          style={{ top: 'var(--mobile-top, 0px)' }}>
-          {/* Brand header + switcher — desktop only */}
+        <aside className={`fixed inset-y-0 left-0 z-40 w-56 bg-white border-r border-border flex flex-col transition-transform lg:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+          {/* Brand header + switcher */}
           <div className="hidden lg:block border-b border-border shrink-0">
             <button onClick={() => brands.length > 1 && setShowBrandPicker(!showBrandPicker)}
               className="w-full h-14 flex items-center gap-2.5 px-4 hover:bg-gray-50 transition">
@@ -129,13 +163,9 @@ export function AdminDashboard() {
                 {brands.map((b: any) => (
                   <button key={b.id} onClick={() => switchBrand(b.id)}
                     className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs transition ${
-                      String(b.id) === String(activeBrandId)
-                        ? 'bg-blue-50 text-blue-600 font-semibold'
-                        : 'text-gray-500 hover:bg-gray-50'
+                      String(b.id) === String(activeBrandId) ? 'bg-blue-50 text-blue-600 font-semibold' : 'text-gray-500 hover:bg-gray-50'
                     }`}>
-                    {b.logo_url
-                      ? <img src={b.logo_url} alt="" className="w-6 h-6 rounded object-cover shrink-0" />
-                      : <div className="w-6 h-6 rounded bg-gray-100 shrink-0" />}
+                    {b.logo_url ? <img src={b.logo_url} alt="" className="w-6 h-6 rounded object-cover shrink-0" /> : <div className="w-6 h-6 rounded bg-gray-100 shrink-0" />}
                     <span className="truncate">{b.name}</span>
                   </button>
                 ))}
@@ -145,29 +175,31 @@ export function AdminDashboard() {
 
           {/* Nav */}
           <nav className="flex-1 py-2 overflow-y-auto">
-            {nav.map(n => (
-              <button key={n.key} onClick={() => switchSection(n.key)}
-                className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm transition mx-1 rounded-lg ${
-                  section === n.key
-                    ? 'bg-blue-50 text-blue-600 font-semibold'
-                    : 'text-gray-500 hover:bg-gray-50 hover:text-gray-700'
+            {mainNav.map(n => (
+              <button key={n.key} onClick={() => go(n.path)}
+                className={`w-full flex items-center gap-2.5 px-4 py-2 text-[13px] transition mx-1 rounded-lg ${
+                  section === n.key ? 'bg-blue-50 text-blue-600 font-semibold' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-700'
                 }`} style={{ width: 'calc(100% - 8px)' }}>
-                <n.icon size={18} />
-                <span className="text-left">{n.label}</span>
+                <n.icon size={16} />
+                {n.label}
+              </button>
+            ))}
+
+            <div className="mx-4 my-2 border-t border-border" />
+            <p className="px-4 mb-1 text-[9px] font-bold text-gray-300 uppercase tracking-widest">Loja</p>
+            {lojaNav.map(n => (
+              <button key={n.key} onClick={() => go(n.path)}
+                className={`w-full flex items-center gap-2.5 px-4 py-2 text-[13px] transition mx-1 rounded-lg ${
+                  section === n.key ? 'bg-blue-50 text-blue-600 font-semibold' : 'text-gray-500 hover:bg-gray-50 hover:text-gray-700'
+                }`} style={{ width: 'calc(100% - 8px)' }}>
+                <n.icon size={16} />
+                {n.label}
               </button>
             ))}
           </nav>
 
-          {/* Bottom actions */}
-          <div className="p-3 border-t border-border space-y-2 shrink-0">
-            <button onClick={() => navigate('/busca')}
-              className="w-full flex items-center justify-center gap-1.5 text-xs font-semibold py-2.5 rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition">
-              <Search size={13} /> Buscar Leads
-            </button>
-            <button onClick={() => navigate('/estoque')}
-              className="w-full flex items-center justify-center gap-1.5 text-xs font-semibold py-2.5 rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 transition">
-              <Package size={13} /> Estoque Completo
-            </button>
+          {/* Bottom */}
+          <div className="p-3 border-t border-border shrink-0">
             <button onClick={logout}
               className="w-full flex items-center justify-center gap-1.5 text-xs font-medium py-2 rounded-lg bg-gray-100 text-gray-500 hover:bg-gray-200 transition">
               <LogOut size={13} /> Sair
@@ -179,22 +211,17 @@ export function AdminDashboard() {
         {sidebarOpen && <div className="fixed inset-0 bg-black/30 z-30 lg:hidden" onClick={() => setSidebarOpen(false)} />}
 
         {/* ── Main Content ── */}
-        <main className="flex-1 lg:ml-60 overflow-y-auto">
+        <main className="flex-1 lg:ml-56 overflow-y-auto">
           <div className="max-w-5xl mx-auto px-4 pt-4 pb-20 lg:pb-6">
-            {section === 'dashboard' && <DashboardView showToast={showToast} />}
-            {section === 'leads' && <LeadsView showToast={showToast} />}
-            {section === 'campaigns' && <CampaignsView showToast={showToast} />}
-            {section === 'orders' && <OrdersView showToast={showToast} />}
-            {section === 'inventory' && <InventoryOverview showToast={showToast} />}
-            {section === 'design' && <DesignRedirect />}
+            {children}
           </div>
         </main>
       </div>
 
       {/* ── Mobile Bottom Nav ── */}
       <nav className="fixed bottom-0 left-0 right-0 z-50 bg-white/95 backdrop-blur border-t border-border flex h-16 lg:hidden safe-area-inset-bottom shrink-0">
-        {mobileNav.map(n => (
-          <button key={n.key} onClick={() => switchSection(n.key)}
+        {mobileItems.map(n => (
+          <button key={n.key} onClick={() => go(n.path)}
             className={`flex-1 flex flex-col items-center justify-center gap-0.5 text-[10px] font-medium transition ${
               section === n.key ? 'text-blue-600' : 'text-gray-400'
             }`}>
@@ -214,6 +241,11 @@ export function AdminDashboard() {
       )}
     </div>
   )
+}
+
+/* ── Legacy export for backward compat ── */
+export function AdminDashboard() {
+  return <AdminShell><DashboardView showToast={() => {}} /></AdminShell>
 }
 
 /* ── Shared UI ── */
@@ -253,7 +285,7 @@ function EmptyState({ icon: Icon, text }: { icon: any; text: string }) {
 /* ══════════════════════════════════════════════
    DASHBOARD VIEW
    ══════════════════════════════════════════════ */
-function DashboardView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') => void }) {
+export function DashboardView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') => void }) {
   const [data, setData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
 
@@ -415,7 +447,7 @@ function LeadsView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') =>
 /* ══════════════════════════════════════════════
    CAMPAIGNS VIEW
    ══════════════════════════════════════════════ */
-function CampaignsView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') => void }) {
+export function CampaignsView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') => void }) {
   const [campaigns, setCampaigns] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<'all' | 'active' | 'draft' | 'done'>('all')
@@ -497,7 +529,7 @@ function CampaignsView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err'
 /* ══════════════════════════════════════════════
    ORDERS VIEW
    ══════════════════════════════════════════════ */
-function OrdersView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') => void }) {
+export function OrdersView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') => void }) {
   const [orders, setOrders] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [page, setPage] = useState(1)

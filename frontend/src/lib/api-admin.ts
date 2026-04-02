@@ -211,6 +211,17 @@ export const adminApi = {
   // Campaigns
   campaigns: () => authFetch<any>('/api/campaigns', getAdminHeaders()),
   campaignDetail: (id: string) => authFetch<any>(`/api/campaigns/${id}`, getAdminHeaders()),
+  createCampaign: (body: Record<string, any>) => authFetch<any>('/api/campaigns', getAdminHeaders(), { method: 'POST', body: JSON.stringify(body) }),
+  updateCampaign: (id: string, body: Record<string, any>) => authFetch<any>(`/api/campaigns/${id}`, getAdminHeaders(), { method: 'PUT', body: JSON.stringify(body) }),
+  deleteCampaign: (id: string) => authFetch<any>(`/api/campaigns/${id}`, getAdminHeaders(), { method: 'DELETE' }),
+  startCampaign: (id: string) => authFetch<any>(`/api/campaigns/${id}/start`, getAdminHeaders(), { method: 'POST' }),
+  pauseCampaign: (id: string) => authFetch<any>(`/api/campaigns/${id}/pause`, getAdminHeaders(), { method: 'POST' }),
+  cancelCampaign: (id: string) => authFetch<any>(`/api/campaigns/${id}/cancel`, getAdminHeaders(), { method: 'POST' }),
+
+  // Automations
+  automations: () => authFetch<any>('/api/automations', getAdminHeaders()),
+  updateAutomationRule: (ruleId: string, body: Record<string, any>) =>
+    authFetch<any>(`/api/automations/rules/${ruleId}`, getAdminHeaders(), { method: 'PUT', body: JSON.stringify(body) }),
 
   // Orders
   orders: (page = 1, limit = 50) =>

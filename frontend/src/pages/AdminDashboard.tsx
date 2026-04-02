@@ -488,73 +488,191 @@ export function CampaignsView({ showToast }: { showToast: (t: string, tp?: 'ok' 
   const [campaigns, setCampaigns] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<'all' | 'active' | 'draft' | 'done'>('all')
+  const [showCreate, setShowCreate] = useState(false)
+  const [editId, setEditId] = useState<string | null>(null)
+  const [actionLoading, setActionLoading] = useState<string | null>(null)
 
-  useEffect(() => {
+  // Form state
+  const [formName, setFormName] = useState('')
+  const [formMode, setFormMode] = useState('relationship')
+  const [formUseAi, setFormUseAi] = useState(true)
+  const [formAiPrompt, setFormAiPrompt] = useState('')
+
+  function loadCampaigns() {
     setLoading(true)
     adminApi.campaigns().then(d => {
       setCampaigns(d.campaigns || d.items || (Array.isArray(d) ? d : []))
       setLoading(false)
     }).catch(e => { showToast(e.message, 'err'); setLoading(false) })
-  }, [])
+  }
+  useEffect(() => { loadCampaigns() }, [])
+
+  function openCreate() {
+    setFormName(''); setFormMode('relationship'); setFormUseAi(true); setFormAiPrompt('')
+    setEditId(null); setShowCreate(true)
+  }
+  function openEdit(c: any) {
+    setFormName(c.name || ''); setFormMode(c.campaign_mode || 'relationship')
+    setFormUseAi(c.use_ai !== false); setFormAiPrompt(c.ai_prompt || '')
+    setEditId(c.id); setShowCreate(true)
+  }
+  async function saveForm() {
+    if (!formName.trim()) return showToast('Nome obrigatorio', 'err')
+    setActionLoading('save')
+    try {
+      const body = { name: formName, campaign_mode: formMode, use_ai: formUseAi, ai_prompt: formAiPrompt || null }
+      if (editId) await adminApi.updateCampaign(editId, body)
+      else await adminApi.createCampaign(body)
+      showToast(editId ? 'Campanha atualizada!' : 'Campanha criada!')
+      setShowCreate(false); loadCampaigns()
+    } catch (e: any) { showToast(e.message, 'err') }
+    setActionLoading(null)
+  }
+  async function doAction(id: string, action: 'start' | 'pause' | 'cancel' | 'delete') {
+    setActionLoading(id)
+    try {
+      if (action === 'start') await adminApi.startCampaign(id)
+      else if (action === 'pause') await adminApi.pauseCampaign(id)
+      else if (action === 'cancel') await adminApi.cancelCampaign(id)
+      else if (action === 'delete') await adminApi.deleteCampaign(id)
+      showToast(action === 'delete' ? 'Campanha removida' : `Campanha ${action === 'start' ? 'iniciada' : action === 'pause' ? 'pausada' : 'cancelada'}!`)
+      loadCampaigns()
+    } catch (e: any) { showToast(e.message, 'err') }
+    setActionLoading(null)
+  }
 
   const filtered = tab === 'all' ? campaigns
-    : tab === 'active' ? campaigns.filter(c => c.status === 'active' || c.status === 'running' || c.status === 'sending')
-    : tab === 'draft' ? campaigns.filter(c => c.status === 'draft' || c.status === 'paused')
-    : campaigns.filter(c => c.status === 'completed' || c.status === 'cancelled' || c.status === 'finished')
+    : tab === 'active' ? campaigns.filter(c => ['active', 'running', 'sending'].includes(c.status))
+    : tab === 'draft' ? campaigns.filter(c => ['draft', 'paused'].includes(c.status))
+    : campaigns.filter(c => ['completed', 'cancelled', 'finished'].includes(c.status))
 
   const statusBadge = (s?: string) => {
     const m: Record<string, { label: string; cls: string }> = {
-      active: { label: 'Ativa', cls: 'bg-emerald-100 text-emerald-700' },
-      running: { label: 'Enviando', cls: 'bg-blue-100 text-blue-700' },
-      sending: { label: 'Enviando', cls: 'bg-blue-100 text-blue-700' },
+      active: { label: 'Ativa', cls: 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200' },
+      running: { label: 'Enviando', cls: 'bg-blue-50 text-blue-700 ring-1 ring-blue-200' },
+      sending: { label: 'Enviando', cls: 'bg-blue-50 text-blue-700 ring-1 ring-blue-200' },
       draft: { label: 'Rascunho', cls: 'bg-gray-100 text-gray-600' },
-      paused: { label: 'Pausada', cls: 'bg-amber-100 text-amber-700' },
-      completed: { label: 'Concluida', cls: 'bg-emerald-100 text-emerald-700' },
-      finished: { label: 'Finalizada', cls: 'bg-gray-100 text-gray-600' },
-      cancelled: { label: 'Cancelada', cls: 'bg-red-100 text-red-700' },
+      paused: { label: 'Pausada', cls: 'bg-amber-50 text-amber-700 ring-1 ring-amber-200' },
+      completed: { label: 'Concluida', cls: 'bg-emerald-50 text-emerald-700' },
+      finished: { label: 'Finalizada', cls: 'bg-gray-100 text-gray-500' },
+      cancelled: { label: 'Cancelada', cls: 'bg-red-50 text-red-600' },
     }
     const cfg = m[(s || '').toLowerCase()] || { label: s || '?', cls: 'bg-gray-100 text-gray-600' }
     return <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${cfg.cls}`}>{cfg.label}</span>
   }
 
   return (
-    <div className="space-y-4">
-      <h2 className="text-lg font-bold text-gray-900">Campanhas</h2>
+    <div className="space-y-5">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">Campanhas</h2>
+          <p className="text-[13px] text-gray-400 mt-0.5">{campaigns.length} campanhas</p>
+        </div>
+        <button onClick={openCreate}
+          className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-gradient-to-r from-violet-500 to-purple-600 text-white text-xs font-bold hover:from-violet-600 hover:to-purple-700 transition-all shadow-md">
+          <Plus size={14} /> Nova Campanha
+        </button>
+      </div>
 
-      {/* Tab pills */}
-      <div className="flex gap-1.5 bg-gray-100 p-1 rounded-xl w-fit">
-        {([['all', 'Todas'], ['active', 'Ativas'], ['draft', 'Rascunhos'], ['done', 'Concluidas']] as const).map(([k, l]) => (
+      {/* Tabs */}
+      <div className="flex gap-1 bg-gray-100 p-0.5 rounded-xl w-fit">
+        {([['all', 'Todas'], ['active', 'Ativas'], ['draft', 'Rascunhos'], ['done', 'Finalizadas']] as const).map(([k, l]) => (
           <button key={k} onClick={() => setTab(k)}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition ${
-              tab === k ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+            className={`px-3.5 py-1.5 rounded-lg text-[11px] font-semibold transition ${
+              tab === k ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'
             }`}>{l}</button>
         ))}
       </div>
 
+      {/* Create/Edit modal */}
+      {showCreate && (
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-lg p-5 space-y-4">
+          <h3 className="font-bold text-sm text-gray-900">{editId ? 'Editar Campanha' : 'Nova Campanha'}</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1 block">Nome</label>
+              <input type="text" value={formName} onChange={e => setFormName(e.target.value)} placeholder="Nome da campanha"
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-200" />
+            </div>
+            <div>
+              <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1 block">Modo</label>
+              <select value={formMode} onChange={e => setFormMode(e.target.value)}
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-200">
+                <option value="relationship">Relacionamento</option>
+                <option value="broadcast">Broadcast</option>
+                <option value="drip">Drip / Sequencia</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1 block">Prompt IA (opcional)</label>
+            <textarea value={formAiPrompt} onChange={e => setFormAiPrompt(e.target.value)} rows={2}
+              placeholder="Instrucoes para o agente IA personalizar as mensagens..."
+              className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-200 resize-none" />
+          </div>
+          <div className="flex items-center justify-between">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <button type="button" onClick={() => setFormUseAi(!formUseAi)}
+                className={`relative w-10 h-5 rounded-full transition ${formUseAi ? 'bg-violet-500' : 'bg-gray-300'}`}>
+                <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${formUseAi ? 'translate-x-5' : ''}`} />
+              </button>
+              <span className="text-xs font-medium text-gray-600">Usar IA nas mensagens</span>
+            </label>
+            <div className="flex gap-2">
+              <button onClick={() => setShowCreate(false)}
+                className="px-4 py-2 rounded-xl bg-gray-100 text-gray-600 text-xs font-semibold hover:bg-gray-200 transition">Cancelar</button>
+              <button onClick={saveForm} disabled={actionLoading === 'save'}
+                className="px-4 py-2 rounded-xl bg-violet-600 text-white text-xs font-bold hover:bg-violet-700 disabled:opacity-50 transition">
+                {actionLoading === 'save' ? 'Salvando...' : editId ? 'Salvar' : 'Criar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* List */}
       {loading ? <Skeleton rows={4} /> : filtered.length === 0 ? (
         <EmptyState icon={Megaphone} text="Nenhuma campanha encontrada" />
       ) : (
-        <div className="space-y-2">
-          {filtered.map((c: any, i: number) => (
-            <div key={c.id || i} className="bg-white border border-border rounded-xl p-4 hover:shadow-sm transition">
+        <div className="space-y-2.5">
+          {filtered.map((c: any) => (
+            <div key={c.id} className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] hover:shadow-md transition-all p-4">
               <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 mb-1">
-                    <h4 className="font-semibold text-sm text-gray-900 truncate">{c.name || c.title || 'Sem titulo'}</h4>
+                    <h4 className="font-bold text-sm text-gray-900 truncate">{c.name || 'Sem titulo'}</h4>
                     {statusBadge(c.status)}
+                    {c.use_ai && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-violet-50 text-violet-600">IA</span>}
                   </div>
-                  <p className="text-xs text-muted truncate">{c.message || c.description || ''}</p>
+                  <p className="text-xs text-gray-400">{c.campaign_mode || 'relationship'} · {dt(c.created_at)}</p>
                 </div>
-                <span className="text-xs text-muted whitespace-nowrap shrink-0">{dt(c.created_at)}</span>
               </div>
-              {/* Metrics row */}
-              {(c.total_sent || c.total_leads) && (
-                <div className="flex gap-4 mt-2 pt-2 border-t border-border">
-                  {c.total_leads != null && <span className="text-xs text-muted"><Users size={11} className="inline mr-1" />{c.total_leads} leads</span>}
-                  {c.total_sent != null && <span className="text-xs text-muted"><Send size={11} className="inline mr-1" />{c.total_sent} enviados</span>}
-                  {c.total_delivered != null && <span className="text-xs text-muted"><Eye size={11} className="inline mr-1" />{c.total_delivered} entregues</span>}
-                </div>
-              )}
+
+              {/* Actions */}
+              <div className="flex items-center gap-1.5 mt-3 pt-3 border-t border-gray-100">
+                {(c.status === 'draft' || c.status === 'paused') && (
+                  <button onClick={() => doAction(c.id, 'start')} disabled={actionLoading === c.id}
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 text-[11px] font-bold hover:bg-emerald-100 transition">
+                    <Send size={11} /> Iniciar
+                  </button>
+                )}
+                {(c.status === 'active' || c.status === 'running' || c.status === 'sending') && (
+                  <button onClick={() => doAction(c.id, 'pause')} disabled={actionLoading === c.id}
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-50 text-amber-700 text-[11px] font-bold hover:bg-amber-100 transition">
+                    <Pause size={11} /> Pausar
+                  </button>
+                )}
+                <button onClick={() => openEdit(c)}
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-gray-50 text-gray-600 text-[11px] font-semibold hover:bg-gray-100 transition">
+                  Editar
+                </button>
+                {c.status !== 'cancelled' && c.status !== 'completed' && (
+                  <button onClick={() => doAction(c.id, 'cancel')} disabled={actionLoading === c.id}
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-red-500 text-[11px] font-semibold hover:bg-red-50 transition">
+                    <Ban size={11} /> Cancelar
+                  </button>
+                )}
+              </div>
             </div>
           ))}
         </div>
@@ -756,8 +874,10 @@ export function AutomationsView({ showToast }: { showToast: (t: string, tp?: 'ok
   const [rules, setRules] = useState<any[]>([])
   const [funnelStatuses, setFunnelStatuses] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
+  const [toggling, setToggling] = useState<string | null>(null)
+  const [expanded, setExpanded] = useState<string | null>(null)
 
-  useEffect(() => {
+  function loadData() {
     setLoading(true)
     fetch('/api/automations', { headers: getHeaders() })
       .then(r => r.json()).then(d => {
@@ -765,23 +885,37 @@ export function AutomationsView({ showToast }: { showToast: (t: string, tp?: 'ok
         setFunnelStatuses(d.funnel_statuses || [])
         setLoading(false)
       }).catch(() => setLoading(false))
-  }, [])
+  }
+  useEffect(() => { loadData() }, [])
+
+  async function toggleRule(ruleId: string, currentActive: boolean) {
+    setToggling(ruleId)
+    try {
+      await adminApi.updateAutomationRule(ruleId, { is_active: !currentActive })
+      setRules(prev => prev.map(r => r.id === ruleId ? { ...r, is_active: !currentActive } : r))
+      showToast(!currentActive ? 'Automacao ativada!' : 'Automacao desativada')
+    } catch (e: any) { showToast(e.message, 'err') }
+    setToggling(null)
+  }
 
   if (loading) return <Skeleton rows={4} />
 
   return (
-    <div className="space-y-4">
-      <h2 className="text-lg font-bold text-gray-900">Automacoes</h2>
+    <div className="space-y-5">
+      <div>
+        <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">Automacoes</h2>
+        <p className="text-[13px] text-gray-400 mt-0.5">{rules.length} regras configuradas</p>
+      </div>
 
       {/* Funnel */}
       {funnelStatuses.length > 0 && (
-        <div className="bg-white border border-border rounded-2xl p-4">
-          <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Funil de Conversao</h3>
-          <div className="flex flex-wrap gap-1.5">
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-4">
+          <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em] mb-3">Funil de Conversao</h3>
+          <div className="flex flex-wrap gap-1">
             {funnelStatuses.map((s, i) => (
-              <div key={i} className="flex items-center gap-1.5">
-                <span className="px-2.5 py-1 bg-blue-50 text-blue-700 text-[11px] font-semibold rounded-lg">{s}</span>
-                {i < funnelStatuses.length - 1 && <span className="text-gray-300 text-xs">→</span>}
+              <div key={i} className="flex items-center gap-1">
+                <span className="px-2.5 py-1.5 bg-gradient-to-r from-blue-50 to-indigo-50 text-indigo-700 text-[11px] font-semibold rounded-lg border border-indigo-100">{s}</span>
+                {i < funnelStatuses.length - 1 && <span className="text-gray-300 text-sm">›</span>}
               </div>
             ))}
           </div>
@@ -792,24 +926,68 @@ export function AutomationsView({ showToast }: { showToast: (t: string, tp?: 'ok
       {rules.length === 0 ? (
         <EmptyState icon={Zap} text="Nenhuma automacao configurada" />
       ) : (
-        <div className="space-y-2">
-          {rules.map((r: any, i: number) => (
-            <div key={r.id || i} className="bg-white border border-border rounded-xl p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <Zap size={14} className={r.is_active ? 'text-emerald-500' : 'text-gray-400'} />
-                    <h4 className="font-semibold text-sm text-gray-900">{r.name || r.code}</h4>
-                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${r.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
-                      {r.is_active ? 'ATIVA' : 'INATIVA'}
-                    </span>
+        <div className="space-y-2.5">
+          {rules.map((r: any) => {
+            const isExpanded = expanded === r.id
+            return (
+              <div key={r.id} className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] overflow-hidden">
+                <div className="p-4 flex items-start justify-between gap-3 cursor-pointer" onClick={() => setExpanded(isExpanded ? null : r.id)}>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <div className={`w-2 h-2 rounded-full ${r.is_active ? 'bg-emerald-500' : 'bg-gray-300'}`} />
+                      <h4 className="font-bold text-sm text-gray-900">{r.name || r.code}</h4>
+                    </div>
+                    <p className="text-xs text-gray-400 line-clamp-1">{r.trigger || ''}</p>
                   </div>
-                  <p className="text-xs text-muted">{r.trigger || r.description || ''}</p>
-                  {r.code && <p className="text-[10px] font-mono text-gray-400 mt-1">{r.code}</p>}
+                  <button onClick={e => { e.stopPropagation(); toggleRule(r.id, r.is_active) }}
+                    disabled={toggling === r.id}
+                    className={`relative w-11 h-6 rounded-full transition shrink-0 ${r.is_active ? 'bg-emerald-500' : 'bg-gray-300'}`}>
+                    <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${r.is_active ? 'translate-x-5' : ''}`} />
+                  </button>
                 </div>
+
+                {isExpanded && (
+                  <div className="px-4 pb-4 pt-0 space-y-3 border-t border-gray-100">
+                    {r.trigger && (
+                      <div>
+                        <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Gatilho</p>
+                        <p className="text-xs text-gray-600">{r.trigger}</p>
+                      </div>
+                    )}
+                    {r.status_from && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-bold text-gray-400 uppercase">Fluxo:</span>
+                        <span className="text-xs font-semibold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">{r.status_from}</span>
+                        <span className="text-gray-300">→</span>
+                        <span className="text-xs font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded">{r.status_to}</span>
+                      </div>
+                    )}
+                    {r.timing_steps && r.timing_steps.length > 0 && (
+                      <div>
+                        <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Etapas</p>
+                        <div className="space-y-1">
+                          {r.timing_steps.map((s: string, i: number) => (
+                            <div key={i} className="flex items-center gap-2 text-xs text-gray-600">
+                              <span className="w-5 h-5 rounded-full bg-gray-100 grid place-items-center text-[9px] font-bold text-gray-500 shrink-0">{i + 1}</span>
+                              {s}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {r.tags && r.tags.length > 0 && (
+                      <div className="flex flex-wrap gap-1 pt-1">
+                        {r.tags.slice(0, 10).map((t: string, i: number) => (
+                          <span key={i} className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">{t}</span>
+                        ))}
+                        {r.tags.length > 10 && <span className="text-[9px] text-gray-400">+{r.tags.length - 10} mais</span>}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>

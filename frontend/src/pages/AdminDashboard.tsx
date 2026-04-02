@@ -2615,8 +2615,11 @@ export function DomainView({ showToast }: { showToast: (t: string, tp?: 'ok' | '
   const [loading, setLoading] = useState(true)
   const [newDomain, setNewDomain] = useState('')
   const [adding, setAdding] = useState(false)
+  const [instructions, setInstructions] = useState<any>(null)
+  const [verifying, setVerifying] = useState<string | null>(null)
+  const [verifyResult, setVerifyResult] = useState<any>(null)
 
-  useEffect(() => {
+  function load() {
     setLoading(true)
     fetch('/api/storefront/stores', { headers: getHeaders() })
       .then(r => r.json()).then(async d => {
@@ -2629,97 +2632,285 @@ export function DomainView({ showToast }: { showToast: (t: string, tp?: 'ok' | '
         setDomains(dd.domains || [])
         setLoading(false)
       }).catch(() => setLoading(false))
-  }, [])
+  }
+  useEffect(() => { load() }, [])
 
   async function addDomain() {
     if (!newDomain.trim() || !store?.id) return
     setAdding(true)
     try {
       const r = await fetch(`/api/storefront/stores/${store.id}/domains`, {
-        method: 'POST', headers: getHeaders(),
-        body: JSON.stringify({ domain: newDomain.trim() }),
+        method: 'POST', headers: getHeaders(), body: JSON.stringify({ domain: newDomain.trim().toLowerCase() }),
       })
       const d = await r.json()
       if (!r.ok) throw new Error(d.error || 'Erro')
       showToast('Dominio adicionado!')
       setNewDomain('')
-      // Reload
-      const dr = await fetch(`/api/storefront/stores/${store.id}/domains`, { headers: getHeaders() })
-      const dd = await dr.json()
-      setDomains(dd.domains || [])
+      load()
+      // Auto-fetch instructions
+      loadInstructions(newDomain.trim().toLowerCase())
     } catch (e: any) { showToast(e.message, 'err') }
     setAdding(false)
   }
 
-  if (loading) return <Skeleton rows={4} />
+  async function loadInstructions(domain: string) {
+    if (!store?.id) return
+    try {
+      const r = await fetch(`/api/storefront/stores/${store.id}/domains/${domain}/instructions`, { headers: getHeaders() })
+      const d = await r.json()
+      setInstructions(d.instructions || null)
+    } catch { setInstructions(null) }
+  }
+
+  async function verifyDomain(domain: string) {
+    if (!store?.id) return
+    setVerifying(domain)
+    setVerifyResult(null)
+    try {
+      const r = await fetch(`/api/storefront/stores/${store.id}/domains/${domain}/verify`, { method: 'POST', headers: getHeaders() })
+      const d = await r.json()
+      setVerifyResult(d)
+      if (d.verified) { showToast('Dominio verificado!'); load() }
+      else showToast('Verificacao falhou — confira o DNS', 'err')
+    } catch (e: any) { showToast(e.message, 'err') }
+    setVerifying(null)
+  }
+
+  async function setPrimary(domain: string) {
+    if (!store?.id) return
+    try {
+      await fetch(`/api/storefront/stores/${store.id}/domains/${domain}/primary`, { method: 'PATCH', headers: getHeaders() })
+      showToast('Dominio definido como principal!')
+      load()
+    } catch (e: any) { showToast(e.message, 'err') }
+  }
+
+  async function removeDomain(domain: string) {
+    if (!confirm(`Remover dominio ${domain}?`)) return
+    try {
+      await fetch(`/api/storefront/stores/${store.id}/domains/${domain}`, { method: 'DELETE', headers: getHeaders() })
+      showToast('Dominio removido')
+      load()
+      if (instructions?.domain === domain) setInstructions(null)
+    } catch (e: any) { showToast(e.message, 'err') }
+  }
+
+  if (loading) return <Skeleton rows={5} />
+
+  const hasDomains = domains.length > 0
 
   return (
     <div className="space-y-5">
       <div>
-        <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">Dominio</h2>
-        <p className="text-[13px] text-gray-400 mt-0.5">Configure seu dominio personalizado</p>
+        <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">Dominio Personalizado</h2>
+        <p className="text-[13px] text-gray-400 mt-0.5">Conecte seu dominio ao catalogo</p>
       </div>
 
-      {/* Current slug */}
+      {/* Current catalog URL */}
       {store?.slug && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-4">
-          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em] mb-2">URL do Catalogo</p>
-          <a href={`/catalogo/${store.slug}`} target="_blank" rel="noreferrer"
-            className="text-sm font-semibold text-blue-600 hover:underline">
-            /catalogo/{store.slug}
-          </a>
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-4 flex items-center justify-between">
+          <div>
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em]">URL gratuita do catalogo</p>
+            <a href={`/catalogo/${store.slug}`} target="_blank" rel="noreferrer" className="text-sm font-semibold text-blue-600 hover:underline mt-1 block">
+              {window.location.origin}/catalogo/{store.slug}
+            </a>
+          </div>
+          <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full">Sempre ativo</span>
+        </div>
+      )}
+
+      {/* No domains — onboarding */}
+      {!hasDomains && (
+        <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl border border-blue-100 p-6 text-center">
+          <div className="w-16 h-16 bg-white rounded-2xl grid place-items-center mx-auto mb-4 shadow-sm">
+            <Globe size={28} className="text-blue-500" />
+          </div>
+          <h3 className="text-base font-bold text-gray-900 mb-2">Conecte seu dominio</h3>
+          <p className="text-xs text-gray-500 max-w-md mx-auto leading-relaxed mb-4">
+            Tenha seu catalogo em um endereco profissional como <strong>www.suaempresa.com.br</strong>.
+            E simples: registre um dominio, adicione aqui e siga as instrucoes de DNS.
+          </p>
+
+          <div className="bg-white rounded-xl p-4 max-w-md mx-auto text-left space-y-3">
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Como funciona</p>
+            <div className="space-y-2.5">
+              {[
+                { step: '1', title: 'Registre um dominio', desc: 'Em registradores como Registro.br, GoDaddy, Hostinger, Namecheap' },
+                { step: '2', title: 'Adicione aqui', desc: 'Digite o dominio no campo abaixo e clique Adicionar' },
+                { step: '3', title: 'Configure o DNS', desc: 'Siga as instrucoes de DNS que aparecerao automaticamente' },
+                { step: '4', title: 'Verifique', desc: 'Clique em Verificar para confirmar que o DNS esta correto' },
+              ].map(s => (
+                <div key={s.step} className="flex items-start gap-3">
+                  <span className="w-6 h-6 rounded-lg bg-blue-500 text-white text-[10px] font-bold grid place-items-center shrink-0">{s.step}</span>
+                  <div>
+                    <p className="text-xs font-bold text-gray-800">{s.title}</p>
+                    <p className="text-[10px] text-gray-400">{s.desc}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       )}
 
       {/* Add domain */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-4 space-y-3">
-        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em]">Adicionar Dominio</p>
+        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em]">{hasDomains ? 'Adicionar outro dominio' : 'Adicionar dominio'}</p>
         <div className="flex gap-2">
           <div className="relative flex-1">
             <Globe size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input type="text" value={newDomain} onChange={e => setNewDomain(e.target.value)}
               placeholder="meusite.com.br"
-              className="w-full pl-9 pr-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-200" />
+              onKeyDown={e => e.key === 'Enter' && addDomain()}
+              className="w-full pl-9 pr-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 placeholder:text-gray-300" />
           </div>
           <button onClick={addDomain} disabled={adding || !newDomain.trim()}
-            className="px-4 py-2.5 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 disabled:opacity-50 transition">
+            className="px-5 py-2.5 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 disabled:opacity-50 transition shadow-sm">
             {adding ? 'Adicionando...' : 'Adicionar'}
           </button>
         </div>
       </div>
 
-      {/* Domains list */}
-      {domains.length > 0 && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100">
-            <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">{domains.length} Dominios</h3>
-          </div>
-          {domains.map((d: any, i: number) => (
-            <div key={d.domain || i} className="px-4 py-3 flex items-center justify-between border-b border-gray-100 last:border-0">
-              <div className="flex items-center gap-2.5">
-                <Globe size={14} className="text-gray-400" />
-                <span className="text-sm font-semibold text-gray-900">{d.domain}</span>
-                {d.is_primary && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600">PRINCIPAL</span>}
+      {/* Domain list */}
+      {hasDomains && (
+        <div className="space-y-2.5">
+          {domains.map((d: any) => {
+            const verified = d.verification_status === 'verified'
+            const isPrimary = d.is_primary
+            return (
+              <div key={d.domain} className={`bg-white rounded-2xl border shadow-[0_1px_3px_rgba(0,0,0,0.06)] overflow-hidden ${verified ? 'border-emerald-200' : 'border-amber-200'}`}>
+                <div className="px-4 py-3 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className={`w-10 h-10 rounded-xl grid place-items-center shrink-0 ${verified ? 'bg-emerald-50' : 'bg-amber-50'}`}>
+                      <Globe size={18} className={verified ? 'text-emerald-500' : 'text-amber-500'} />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-bold text-gray-900">{d.domain}</p>
+                        {isPrimary && <span className="text-[8px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded-full ring-1 ring-blue-200">PRINCIPAL</span>}
+                      </div>
+                      <span className={`text-[10px] font-bold ${verified ? 'text-emerald-600' : 'text-amber-600'}`}>
+                        {verified ? '✓ Verificado' : '⏳ Pendente verificacao'}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {!verified && (
+                      <button onClick={() => { loadInstructions(d.domain); verifyDomain(d.domain) }}
+                        disabled={verifying === d.domain}
+                        className="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 text-[11px] font-bold hover:bg-blue-100 transition">
+                        {verifying === d.domain ? 'Verificando...' : 'Verificar'}
+                      </button>
+                    )}
+                    <button onClick={() => loadInstructions(d.domain)}
+                      className="px-3 py-1.5 rounded-lg bg-gray-50 text-gray-600 text-[11px] font-semibold hover:bg-gray-100 transition">
+                      DNS
+                    </button>
+                    {!isPrimary && verified && (
+                      <button onClick={() => setPrimary(d.domain)}
+                        className="px-3 py-1.5 rounded-lg bg-violet-50 text-violet-700 text-[11px] font-semibold hover:bg-violet-100 transition">
+                        Primario
+                      </button>
+                    )}
+                    <button onClick={() => removeDomain(d.domain)}
+                      className="px-2 py-1.5 rounded-lg text-red-400 hover:bg-red-50 hover:text-red-600 transition">
+                      <X size={14} />
+                    </button>
+                  </div>
+                </div>
               </div>
-              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                d.verification_status === 'verified' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
-              }`}>
-                {d.verification_status === 'verified' ? 'Verificado' : 'Pendente'}
-              </span>
+            )
+          })}
+        </div>
+      )}
+
+      {/* DNS Instructions */}
+      {instructions && (
+        <div className="bg-gray-950 rounded-2xl p-5 text-white space-y-4">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-bold">Instrucoes de DNS para {instructions.domain}</p>
+            <button onClick={() => setInstructions(null)} className="p-1 rounded-lg hover:bg-white/10 transition"><X size={14} /></button>
+          </div>
+
+          {/* Step 1: Verification TXT */}
+          {instructions.verification && (
+            <div className="bg-white/10 rounded-xl p-3.5 space-y-2">
+              <p className="text-[10px] font-bold text-white/50 uppercase tracking-wider">1. Registro TXT de verificacao</p>
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-white/50">Tipo</span>
+                  <span className="text-xs font-mono font-bold text-emerald-300">{instructions.verification.type}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-white/50">Host</span>
+                  <button onClick={() => { navigator.clipboard.writeText(instructions.verification.host); showToast('Copiado!') }}
+                    className="text-xs font-mono font-bold text-blue-300 hover:text-blue-200 transition cursor-pointer">{instructions.verification.host} 📋</button>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-white/50">Valor</span>
+                  <button onClick={() => { navigator.clipboard.writeText(instructions.verification.value); showToast('Copiado!') }}
+                    className="text-xs font-mono font-bold text-blue-300 hover:text-blue-200 transition cursor-pointer break-all text-right max-w-[250px]">{instructions.verification.value} 📋</button>
+                </div>
+              </div>
             </div>
-          ))}
+          )}
+
+          {/* Step 2: Connection */}
+          {instructions.connection && (
+            <div className="bg-white/10 rounded-xl p-3.5 space-y-2">
+              <p className="text-[10px] font-bold text-white/50 uppercase tracking-wider">2. Apontamento do dominio</p>
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-white/50">Tipo</span>
+                  <span className="text-xs font-mono font-bold text-emerald-300">{instructions.connection.type}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-white/50">Host</span>
+                  <span className="text-xs font-mono font-bold text-blue-300">{instructions.connection.host}</span>
+                </div>
+                {instructions.connection.target && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-white/50">Destino</span>
+                    <button onClick={() => { navigator.clipboard.writeText(instructions.connection.target); showToast('Copiado!') }}
+                      className="text-xs font-mono font-bold text-blue-300 hover:text-blue-200 cursor-pointer">{instructions.connection.target} 📋</button>
+                  </div>
+                )}
+              </div>
+              {instructions.connection.note && (
+                <p className="text-[10px] text-white/40 leading-relaxed mt-1">{instructions.connection.note}</p>
+              )}
+            </div>
+          )}
+
+          <p className="text-[9px] text-white/30 leading-relaxed">
+            Apos configurar o DNS, aguarde ate 24 horas para propagacao. Clique em "Verificar" para checar o status.
+          </p>
+        </div>
+      )}
+
+      {/* Verify result */}
+      {verifyResult && !verifyResult.verified && (
+        <div className="bg-red-50 border border-red-100 rounded-2xl p-4 space-y-2">
+          <p className="text-xs font-bold text-red-700">Verificacao falhou</p>
+          <p className="text-[10px] text-red-600">O DNS ainda nao aponta corretamente. Verifique as configuracoes no seu registrador e tente novamente em alguns minutos.</p>
+          {verifyResult.checks && (
+            <div className="grid grid-cols-3 gap-2 mt-2">
+              <div className={`rounded-lg p-2 text-center ${verifyResult.checks.txt_verified ? 'bg-emerald-50' : 'bg-red-100'}`}>
+                <p className="text-[9px] font-bold">{verifyResult.checks.txt_verified ? '✓' : '✗'} TXT</p>
+              </div>
+              <div className={`rounded-lg p-2 text-center ${verifyResult.checks.cname_verified ? 'bg-emerald-50' : 'bg-red-100'}`}>
+                <p className="text-[9px] font-bold">{verifyResult.checks.cname_verified ? '✓' : '✗'} CNAME</p>
+              </div>
+              <div className={`rounded-lg p-2 text-center ${verifyResult.checks.a_resolved ? 'bg-emerald-50' : 'bg-red-100'}`}>
+                <p className="text-[9px] font-bold">{verifyResult.checks.a_resolved ? '✓' : '✗'} A Record</p>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
   )
 }
-
-/* ══════════════════════════════════════════════
-   FRETE VIEW (reuses storefront logistics settings)
-   ══════════════════════════════════════════════ */
-/* ══════════════════════════════════════════════
-   ESTOQUE ACCESS VIEW (Users & Permissions)
-   ══════════════════════════════════════════════ */
 export function EstoqueAccessView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') => void }) {
   const [credentials, setCredentials] = useState<any[]>([])
   const [loading, setLoading] = useState(true)

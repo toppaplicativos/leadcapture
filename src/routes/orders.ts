@@ -453,7 +453,7 @@ router.get("/", async (req: AuthRequest, res: Response) => {
         o.status_pedido,
         o.origem,
         o.payment_link,
-        COALESCE(m.store_id, o.brand_id) AS store_id,
+        COALESCE(m.store_id, o.brand_id) AS resolved_store_id,
         COALESCE(m.origin, CASE o.origem WHEN 'whatsapp' THEN 'whatsapp' WHEN 'checkout_web' THEN 'site' ELSE 'site' END) AS origin,
         COALESCE(m.channel, CASE o.origem WHEN 'whatsapp' THEN 'WhatsApp' WHEN 'checkout_web' THEN 'Site' ELSE 'Site' END) AS channel,
         COALESCE(m.business_status, CASE o.status_pedido WHEN 'pago' THEN 'pago' WHEN 'aguardando_pagamento' THEN 'aguardando_pagamento' WHEN 'cancelado' THEN 'cancelado' WHEN 'estornado' THEN 'cancelado' ELSE 'novo' END) AS business_status,
@@ -467,17 +467,20 @@ router.get("/", async (req: AuthRequest, res: Response) => {
       params
     );
 
+    // Backfill meta silently — don't break listing if meta upsert fails
     for (const row of rows) {
-      await ensureOrderMeta({
-        orderId: String(row.id),
-        userId,
-        brandId,
-        storeId: row.store_id ? String(row.store_id) : null,
-        origin: String(row.origin || "site") as OrderOrigin,
-        businessStatus: normalizeBusinessStatus(row.business_status),
-        paymentStatus: normalizePaymentStatus(row.payment_status),
-        deliveryStatus: String(row.delivery_status || "nao_iniciado"),
-      });
+      try {
+        await ensureOrderMeta({
+          orderId: String(row.id),
+          userId,
+          brandId,
+          storeId: row.resolved_store_id ? String(row.resolved_store_id) : null,
+          origin: String(row.origin || "site") as OrderOrigin,
+          businessStatus: normalizeBusinessStatus(row.business_status),
+          paymentStatus: normalizePaymentStatus(row.payment_status),
+          deliveryStatus: String(row.delivery_status || "nao_iniciado"),
+        });
+      } catch { /* meta backfill is best-effort */ }
     }
 
     res.json({ success: true, orders: rows });

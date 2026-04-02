@@ -17,7 +17,7 @@ import { StockPanelPage } from '@/pages/StockPanelPage'
 import { InventoryPage } from '@/pages/InventoryPage'
 import { ProductDetailPage } from '@/pages/ProductDetailPage'
 import { LoginPage } from '@/pages/LoginPage'
-import { AdminShell, DashboardView, CampaignsView, OrdersView } from '@/pages/AdminDashboard'
+import { AdminShell, DashboardView, CampaignsView, OrdersView, AutomationsView, ProductsView } from '@/pages/AdminDashboard'
 import { LeadSearchPage } from '@/pages/LeadSearchPage'
 import { LeadsPage } from '@/pages/LeadsPage'
 import { MessageSquare, Package, Zap, Bot, Palette, Truck, Globe, Settings } from 'lucide-react'
@@ -96,11 +96,11 @@ export default function App() {
         <Route path="/notificacoes" element={<AdminPage><ComingSoon title="Notificacoes" icon={MessageSquare} /></AdminPage>} />
         <Route path="/campanhas" element={<AdminPage><CampaignsInline /></AdminPage>} />
         <Route path="/campanha" element={<AdminPage><CampaignsInline /></AdminPage>} />
-        <Route path="/automacoes" element={<AdminPage><ComingSoon title="Automacoes" icon={MessageSquare} /></AdminPage>} />
+        <Route path="/automacoes" element={<AdminPage><AutomationsView showToast={() => {}} /></AdminPage>} />
         <Route path="/criativos" element={<AdminPage><ComingSoon title="Estudio Criativo" icon={MessageSquare} /></AdminPage>} />
         <Route path="/creative" element={<AdminPage><ComingSoon title="Estudio Criativo" icon={MessageSquare} /></AdminPage>} />
         <Route path="/agente" element={<AdminPage><ComingSoon title="Agente IA" icon={MessageSquare} /></AdminPage>} />
-        <Route path="/produtos" element={<AdminPage><ComingSoon title="Produtos" icon={Package} /></AdminPage>} />
+        <Route path="/produtos" element={<AdminPage><ProductsView showToast={() => {}} /></AdminPage>} />
         <Route path="/pedidos" element={<AdminPage><OrdersInline /></AdminPage>} />
         <Route path="/estoque" element={<InventoryPage />} />
         <Route path="/inventario" element={<InventoryPage />} />

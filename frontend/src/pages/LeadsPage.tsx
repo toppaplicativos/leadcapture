@@ -67,12 +67,31 @@ export function LeadsPage() {
     if (search) q.set('search', search)
     if (statusFilter) q.set('status', statusFilter)
     if (sourceFilter) q.set('source', sourceFilter)
-    fetch(`/api/clients?${q}`, { headers: getHeaders() })
-      .then(r => r.json()).then(d => {
-        setClients(d.clients || d.items || (Array.isArray(d) ? d : []))
-        setTotal(d.total || 0)
-        setLoading(false)
-      }).catch(() => setLoading(false))
+    // Try /api/customers first (Google Places leads), fallback to /api/clients
+    Promise.all([
+      fetch(`/api/customers?${q}`, { headers: getHeaders() }).then(r => r.json()).catch(() => ({ customers: [] })),
+      fetch(`/api/clients?${q}`, { headers: getHeaders() }).then(r => r.json()).catch(() => ({ clients: [] })),
+    ]).then(([cust, cli]) => {
+      const customers = (cust.customers || []).map((c: any) => ({
+        ...c, source: c.source || 'google_places',
+        phone: c.phone || c.phone_secondary || '',
+        google_rating: c.google_rating, google_reviews_count: c.google_reviews_count,
+        website: c.website, google_maps_uri: c.google_maps_uri, category: c.category,
+      }))
+      const clients = (cli.clients || []).map((c: any) => ({ ...c, source: c.source || 'manual' }))
+      const all = [...customers, ...clients]
+      // Deduplicate by phone
+      const seen = new Set<string>()
+      const deduped = all.filter(c => {
+        const key = (c.phone || c.id || '').replace(/\D/g, '')
+        if (seen.has(key) && key) return false
+        if (key) seen.add(key)
+        return true
+      })
+      setClients(deduped)
+      setTotal(Number(cust.total || 0) + Number(cli.total || 0))
+      setLoading(false)
+    }).catch(() => setLoading(false))
   }, [page, search, statusFilter, sourceFilter])
 
   useEffect(() => { fetchClients() }, [fetchClients])

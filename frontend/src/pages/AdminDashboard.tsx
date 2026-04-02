@@ -713,6 +713,152 @@ function InventoryOverview({ showToast }: { showToast: (t: string, tp?: 'ok' | '
 }
 
 /* ══════════════════════════════════════════════
+   AUTOMATIONS VIEW
+   ══════════════════════════════════════════════ */
+export function AutomationsView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') => void }) {
+  const [rules, setRules] = useState<any[]>([])
+  const [funnelStatuses, setFunnelStatuses] = useState<string[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    setLoading(true)
+    fetch('/api/automations', { headers: getHeaders() })
+      .then(r => r.json()).then(d => {
+        setRules(d.rules || [])
+        setFunnelStatuses(d.funnel_statuses || [])
+        setLoading(false)
+      }).catch(() => setLoading(false))
+  }, [])
+
+  if (loading) return <Skeleton rows={4} />
+
+  return (
+    <div className="space-y-4">
+      <h2 className="text-lg font-bold text-gray-900">Automacoes</h2>
+
+      {/* Funnel */}
+      {funnelStatuses.length > 0 && (
+        <div className="bg-white border border-border rounded-2xl p-4">
+          <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Funil de Conversao</h3>
+          <div className="flex flex-wrap gap-1.5">
+            {funnelStatuses.map((s, i) => (
+              <div key={i} className="flex items-center gap-1.5">
+                <span className="px-2.5 py-1 bg-blue-50 text-blue-700 text-[11px] font-semibold rounded-lg">{s}</span>
+                {i < funnelStatuses.length - 1 && <span className="text-gray-300 text-xs">→</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Rules */}
+      {rules.length === 0 ? (
+        <EmptyState icon={Zap} text="Nenhuma automacao configurada" />
+      ) : (
+        <div className="space-y-2">
+          {rules.map((r: any, i: number) => (
+            <div key={r.id || i} className="bg-white border border-border rounded-xl p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Zap size={14} className={r.is_active ? 'text-emerald-500' : 'text-gray-400'} />
+                    <h4 className="font-semibold text-sm text-gray-900">{r.name || r.code}</h4>
+                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${r.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
+                      {r.is_active ? 'ATIVA' : 'INATIVA'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted">{r.trigger || r.description || ''}</p>
+                  {r.code && <p className="text-[10px] font-mono text-gray-400 mt-1">{r.code}</p>}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ══════════════════════════════════════════════
+   PRODUCTS VIEW
+   ══════════════════════════════════════════════ */
+export function ProductsView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') => void }) {
+  const [products, setProducts] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState('')
+
+  useEffect(() => {
+    setLoading(true)
+    fetch('/api/products', { headers: getHeaders() })
+      .then(r => r.json()).then(d => {
+        setProducts(d.products || d.items || [])
+        setLoading(false)
+      }).catch(() => setLoading(false))
+  }, [])
+
+  const filtered = search
+    ? products.filter(p => (p.name || '').toLowerCase().includes(search.toLowerCase()))
+    : products
+
+  if (loading) return <Skeleton rows={6} />
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-bold text-gray-900">Produtos</h2>
+        <span className="text-xs text-muted bg-gray-100 px-2.5 py-1 rounded-lg font-semibold">{products.length} produtos</span>
+      </div>
+
+      <div className="relative">
+        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+        <input type="text" value={search} onChange={e => setSearch(e.target.value)}
+          placeholder="Buscar produto..."
+          className="w-full pl-9 pr-3 py-2.5 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 placeholder:text-gray-300" />
+      </div>
+
+      {filtered.length === 0 ? (
+        <EmptyState icon={Package} text="Nenhum produto encontrado" />
+      ) : (
+        <div className="bg-white border border-border rounded-2xl overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-gray-50/80 border-b border-border">
+                <th className="text-left px-4 py-2.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Produto</th>
+                <th className="text-left px-4 py-2.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider hidden sm:table-cell">Categoria</th>
+                <th className="text-right px-4 py-2.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Preco</th>
+                <th className="text-right px-4 py-2.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider hidden md:table-cell">Promo</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((p: any, i: number) => (
+                <tr key={p.id || i} className="border-b border-border last:border-0 hover:bg-gray-50/50">
+                  <td className="px-4 py-2.5">
+                    <div className="flex items-center gap-2.5">
+                      {(p.imageUrl || p.image_url) && (
+                        <img src={p.imageUrl || p.image_url} alt="" className="w-9 h-9 rounded-lg object-cover shrink-0" />
+                      )}
+                      <div className="min-w-0">
+                        <p className="font-medium text-gray-900 truncate max-w-[220px]">{p.name}</p>
+                        {p.unit && <p className="text-[10px] text-muted">{p.unit}</p>}
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-4 py-2.5 text-xs text-muted hidden sm:table-cell">{p.category || '—'}</td>
+                  <td className="px-4 py-2.5 text-right font-semibold text-gray-900">{money(p.price)}</td>
+                  <td className="px-4 py-2.5 text-right text-xs hidden md:table-cell">
+                    {p.promoPrice || p.promo_price ? <span className="text-emerald-600 font-semibold">{money(p.promoPrice || p.promo_price)}</span> : <span className="text-gray-300">—</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ══════════════════════════════════════════════
    DESIGN REDIRECT
    ══════════════════════════════════════════════ */
 function DesignRedirect() {

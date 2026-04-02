@@ -1472,40 +1472,42 @@ function EditProductModal({ product, categories, onClose, onDone, showToast }: {
 }) {
   const isNew = !product
   const pid = product?.product_id || product?.id || ''
-  const [detail, setDetail] = useState<any>(null)
-  const [loading, setLoading] = useState(!!pid)
+  const [loading, setLoading] = useState(false)
 
-  const [name, setName] = useState('')
-  const [description, setDescription] = useState('')
-  const [unit, setUnit] = useState('unidade')
-  const [price, setPrice] = useState('')
-  const [promoPrice, setPromoPrice] = useState('')
-  const [category, setCategory] = useState('')
-  const [active, setActive] = useState(true)
-  const [features, setFeatures] = useState('')
+  // Pre-fill from inventory product data + fetch catalog for extra fields
+  const [name, setName] = useState(product?.product_name || product?.name || '')
+  const [description, setDescription] = useState(product?.description || '')
+  const [unit, setUnit] = useState('kg')
+  const [price, setPrice] = useState(product?.product_price || product?.price ? String(product.product_price || product.price) : '')
+  const [promoPrice, setPromoPrice] = useState(product?.promoPrice || product?.promo_price ? String(product.promoPrice || product.promo_price) : '')
+  const [category, setCategory] = useState(product?.category || '')
+  const [active, setActive] = useState(product?.active !== false && product?.is_active !== false)
+  const [features, setFeatures] = useState(Array.isArray(product?.features) ? product.features.join(', ') : (product?.features || ''))
   const [imageFile, setImageFile] = useState<File | null>(null)
-  const [imagePreview, setImagePreview] = useState('')
+  const [imagePreview, setImagePreview] = useState(product?.product_image || product?.image_url || product?.imageUrl || product?.image || '')
   const [saving, setSaving] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
+  // Fetch full product details from catalog list (GET /:id doesn't exist)
   useEffect(() => {
     if (!pid) return
-    fetch(`/api/products/${pid}`, {
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('lead-system-token')}`, 'Content-Type': 'application/json' },
-    }).then(r => r.json()).then(d => {
-      const p = d.product || d
-      setName(p.name || '')
-      setDescription(p.description || '')
-      setUnit(p.unit || 'unidade')
-      setPrice(String(p.price || ''))
-      setPromoPrice(String(p.promoPrice || p.promo_price || ''))
-      setCategory(String(p.category || ''))
-      setActive(p.active !== undefined ? p.active : p.is_active !== false)
-      setFeatures(Array.isArray(p.features) ? p.features.join(', ') : (p.features || ''))
-      setImagePreview(p.image_url || p.imageUrl || p.image || '')
-      setDetail(p)
-      setLoading(false)
-    }).catch(() => setLoading(false))
+    setLoading(true)
+    fetch('/api/products', { headers: getAuthHeaders() })
+      .then(r => r.json()).then(d => {
+        const p = (d.products || []).find((x: any) => x.id === pid)
+        if (p) {
+          setName(p.name || name)
+          setDescription(p.description || '')
+          setUnit(p.unit || 'kg')
+          setPrice(String(p.price || price))
+          setPromoPrice(String(p.promoPrice || p.promo_price || ''))
+          setCategory(p.category || '')
+          setActive(p.active !== false && p.is_active !== false)
+          setFeatures(Array.isArray(p.features) ? p.features.join(', ') : '')
+          setImagePreview(p.imageUrl || p.image || imagePreview)
+        }
+        setLoading(false)
+      }).catch(() => setLoading(false))
   }, [pid])
 
   function pickImage() { fileRef.current?.click() }
@@ -1563,8 +1565,10 @@ function EditProductModal({ product, categories, onClose, onDone, showToast }: {
   if (loading) return <Sheet onClose={onClose}><div className="flex justify-center py-10"><Loader2 className="animate-spin" size={24} /></div></Sheet>
 
   const unitOptions: [string, string][] = [
-    ['unidade', 'Unidade'], ['kg', 'Kilograma'], ['g', 'Grama'], ['litro', 'Litro'], ['ml', 'Mililitro'],
-    ['metro', 'Metro'], ['cm', 'Centímetro'], ['caixa', 'Caixa'], ['pacote', 'Pacote'], ['par', 'Par'], ['digital', 'Digital'],
+    ['kg', 'Quilograma (kg)'], ['g', 'Grama (g)'], ['500g', '500 gramas'],
+    ['250g', '250 gramas'], ['10kg', '10 quilogramas'], ['un', 'Unidade'],
+    ['L', 'Litro (L)'], ['ml', 'Mililitro (ml)'], ['cx', 'Caixa'],
+    ['pct', 'Pacote'], ['par', 'Par'],
   ]
 
   return (

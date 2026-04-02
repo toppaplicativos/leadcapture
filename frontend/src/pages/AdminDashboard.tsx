@@ -665,6 +665,33 @@ function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
   const [personalizedPerLead, setPersonalizedPerLead] = useState(comp.personalizedPerLead !== false)
   const [useAutoVariations, setUseAutoVariations] = useState(comp.useAutoVariations !== false)
 
+  // Tab 2b: Media (imagem/video)
+  const media = s.media || {}
+  const [imageUrl, setImageUrl] = useState(media.imageFileName || '')
+  const [imageCaption, setImageCaption] = useState(media.imageCaption || '')
+  const [imageUseTextAsCaption, setImageUseTextAsCaption] = useState(media.imageUseTextAsCaption !== false)
+  const [videoUrl, setVideoUrl] = useState(media.videoFileName || '')
+  const [uploadingImage, setUploadingImage] = useState(false)
+  const [uploadingVideo, setUploadingVideo] = useState(false)
+
+  async function uploadMedia(file: File, type: 'image' | 'video') {
+    const setter = type === 'image' ? setImageUrl : setVideoUrl
+    const loadingSetter = type === 'image' ? setUploadingImage : setUploadingVideo
+    loadingSetter(true)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const r = await fetch('/api/media/upload', {
+        method: 'POST',
+        headers: { 'Authorization': getHeaders()['Authorization'] },
+        body: fd,
+      })
+      const d = await r.json()
+      if (d.file?.url) setter(d.file.url)
+    } catch {}
+    loadingSetter(false)
+  }
+
   // Tab 3: Segmentacao
   const [filterStatuses, setFilterStatuses] = useState<string[]>(filter.statuses || ['new'])
   const [filterHasWhatsapp, setFilterHasWhatsapp] = useState(filter.hasWhatsapp !== false)
@@ -747,6 +774,7 @@ function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
           triggers: { onNewLead: trigOnNewLead, onStatusChange: trigOnStatusChange, onTagMatch: trigOnTagMatch, onOrderCreated: trigOnOrderCreated },
           composer: { intentText, personalizedPerLead, useAutoVariations },
           antiBlock: { autoPauseByBlocks: parseInt(autoPauseBlocks) || 5, autoPauseByErrorRate: parseInt(autoPauseErrorRate) || 20, autoPauseOnOffline: autoPauseOffline, avoidNight, avoidSunday },
+          media: { imageFileName: imageUrl || null, imageCaption: imageCaption || null, imageUseTextAsCaption, videoFileName: videoUrl || null, audioFileName: null },
         },
       }
       if (isEdit) await adminApi.updateCampaign(campaign.id, body)
@@ -905,6 +933,76 @@ function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
                 placeholder="Ola {{nome}}, tudo bem? Sou da {{empresa}}..."
                 className={inputCls + ' resize-none font-mono text-xs'} />
               <p className="text-[10px] text-gray-400 mt-1">Variaveis: {'{{nome}}'}, {'{{cidade}}'}, {'{{segmento}}'}, {'{{empresa}}'}</p>
+            </div>
+
+            {/* Media: Imagem e Video */}
+            <div className="border-t border-gray-100 pt-4 mt-2">
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-3">Midia anexa</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Imagem */}
+                <div className="border border-gray-200 rounded-xl p-3 space-y-2">
+                  <p className="text-xs font-semibold text-gray-700">Imagem</p>
+                  {imageUrl ? (
+                    <div className="relative rounded-lg overflow-hidden bg-gray-100 group" style={{ aspectRatio: '16/9' }}>
+                      <img src={imageUrl} alt="Preview" className="w-full h-full object-cover" onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                        <label className="px-2.5 py-1.5 bg-white/90 rounded-lg text-[11px] font-semibold text-gray-700 cursor-pointer hover:bg-white transition">
+                          Trocar
+                          <input type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) uploadMedia(f, 'image') }} />
+                        </label>
+                        <button onClick={() => setImageUrl('')} className="px-2.5 py-1.5 bg-red-500/90 rounded-lg text-[11px] font-semibold text-white hover:bg-red-600 transition">
+                          Remover
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <label className="flex flex-col items-center justify-center py-6 border-2 border-dashed border-gray-200 rounded-lg cursor-pointer hover:border-violet-300 hover:bg-violet-50/30 transition">
+                      {uploadingImage
+                        ? <Loader2 size={20} className="text-violet-400 animate-spin" />
+                        : <><Eye size={20} className="text-gray-300 mb-1" /><p className="text-[10px] text-gray-400">Clique para enviar</p></>}
+                      <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) uploadMedia(f, 'image') }} />
+                    </label>
+                  )}
+                  <div className="flex items-center justify-between">
+                    <label className="flex items-center gap-1.5 cursor-pointer">
+                      <Toggle value={imageUseTextAsCaption} onChange={setImageUseTextAsCaption} />
+                      <span className="text-[10px] font-medium text-gray-500">Texto como legenda</span>
+                    </label>
+                  </div>
+                  {!imageUseTextAsCaption && (
+                    <input type="text" value={imageCaption} onChange={e => setImageCaption(e.target.value)}
+                      placeholder="Legenda da imagem..."
+                      className={inputCls + ' !text-xs !py-2'} />
+                  )}
+                </div>
+
+                {/* Video */}
+                <div className="border border-gray-200 rounded-xl p-3 space-y-2">
+                  <p className="text-xs font-semibold text-gray-700">Video</p>
+                  {videoUrl ? (
+                    <div className="relative rounded-lg overflow-hidden bg-gray-900 group" style={{ aspectRatio: '16/9' }}>
+                      <video src={videoUrl} className="w-full h-full object-cover" />
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                        <label className="px-2.5 py-1.5 bg-white/90 rounded-lg text-[11px] font-semibold text-gray-700 cursor-pointer hover:bg-white transition">
+                          Trocar
+                          <input type="file" accept="video/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) uploadMedia(f, 'video') }} />
+                        </label>
+                        <button onClick={() => setVideoUrl('')} className="px-2.5 py-1.5 bg-red-500/90 rounded-lg text-[11px] font-semibold text-white hover:bg-red-600 transition">
+                          Remover
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <label className="flex flex-col items-center justify-center py-6 border-2 border-dashed border-gray-200 rounded-lg cursor-pointer hover:border-violet-300 hover:bg-violet-50/30 transition">
+                      {uploadingVideo
+                        ? <Loader2 size={20} className="text-violet-400 animate-spin" />
+                        : <><Send size={20} className="text-gray-300 mb-1" /><p className="text-[10px] text-gray-400">Clique para enviar</p></>}
+                      <input type="file" accept="video/mp4,video/webm" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) uploadMedia(f, 'video') }} />
+                    </label>
+                  )}
+                  {videoUrl && <p className="text-[10px] text-gray-400 truncate">{videoUrl.split('/').pop()}</p>}
+                </div>
+              </div>
             </div>
           </>)}
 

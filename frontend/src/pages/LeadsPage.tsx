@@ -77,7 +77,9 @@ export function LeadsPage() {
         return true
       })
       setClients(deduped)
-      setTotal(Number(cust.total || 0) + Number(cli.total || 0))
+      const custTotal = Number(cust.total || cust.customers?.length || 0)
+      const cliTotal = Number(cli.total || cli.clients?.length || 0)
+      setTotal(custTotal + cliTotal)
       setLoading(false)
     }).catch(() => setLoading(false))
   }, [page, search, statusFilter, sourceFilter])

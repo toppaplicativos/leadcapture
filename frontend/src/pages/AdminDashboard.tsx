@@ -148,10 +148,10 @@ export function AdminShell({ children }: { children?: ReactNode }) {
       <div className="flex flex-1 overflow-hidden">
         {/* ── Premium Sidebar ── */}
         <aside className={`fixed inset-y-0 left-0 z-40 w-[220px] bg-gray-950 flex flex-col transition-transform lg:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-          {/* Brand header */}
-          <div className="hidden lg:block shrink-0 border-b border-white/[0.06]">
+          {/* Brand header + account switcher */}
+          <div className="hidden lg:block shrink-0">
             <button onClick={() => brands.length > 1 && setShowBrandPicker(!showBrandPicker)}
-              className="w-full h-[60px] flex items-center gap-3 px-4 hover:bg-white/[0.04] transition">
+              className="w-full h-[60px] flex items-center gap-3 px-4 hover:bg-white/[0.04] transition border-b border-white/[0.06]">
               {brand.logo_url
                 ? <img src={brand.logo_url} alt="" className="w-9 h-9 rounded-xl object-cover ring-2 ring-white/10 shrink-0" />
                 : <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 grid place-items-center shrink-0"><Package size={16} className="text-white" /></div>}
@@ -159,19 +159,35 @@ export function AdminShell({ children }: { children?: ReactNode }) {
                 <span className="block text-[13px] font-bold text-white truncate">{brand.name || 'Admin'}</span>
                 <span className="block text-[10px] text-white/30 font-medium">Painel de controle</span>
               </div>
-              {brands.length > 1 && <ChevronRight size={12} className={`text-white/20 transition ${showBrandPicker ? 'rotate-90' : ''}`} />}
+              {brands.length > 1 && (
+                <div className="flex items-center gap-1 shrink-0">
+                  <span className="w-5 h-5 rounded-md bg-blue-500/30 text-blue-300 text-[9px] font-bold grid place-items-center">{brands.length}</span>
+                  <ChevronRight size={12} className={`text-white/30 transition-transform ${showBrandPicker ? 'rotate-90' : ''}`} />
+                </div>
+              )}
             </button>
+
+            {/* Account/Brand Picker */}
             {showBrandPicker && brands.length > 1 && (
-              <div className="px-2 pb-2.5 space-y-0.5">
-                {brands.map((b: any) => (
-                  <button key={b.id} onClick={() => switchBrand(b.id)}
-                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs transition ${
-                      String(b.id) === String(activeBrandId) ? 'bg-white/10 text-white font-semibold' : 'text-white/40 hover:bg-white/[0.06] hover:text-white/70'
-                    }`}>
-                    {b.logo_url ? <img src={b.logo_url} alt="" className="w-5 h-5 rounded object-cover shrink-0" /> : <div className="w-5 h-5 rounded bg-white/10 shrink-0" />}
-                    <span className="truncate">{b.name}</span>
-                  </button>
-                ))}
+              <div className="border-b border-white/[0.06] bg-white/[0.02]">
+                <p className="px-4 pt-2.5 pb-1.5 text-[9px] font-bold text-white/20 uppercase tracking-[0.15em]">Trocar conta</p>
+                <div className="px-2 pb-2.5 space-y-1">
+                  {brands.map((b: any) => {
+                    const isActive = String(b.id) === String(activeBrandId)
+                    return (
+                      <button key={b.id} onClick={() => switchBrand(b.id)}
+                        className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-xs transition-all ${
+                          isActive ? 'bg-blue-500/20 text-blue-300 font-semibold ring-1 ring-blue-500/30' : 'text-white/40 hover:bg-white/[0.06] hover:text-white/70'
+                        }`}>
+                        {b.logo_url
+                          ? <img src={b.logo_url} alt="" className="w-7 h-7 rounded-lg object-cover shrink-0 ring-1 ring-white/10" />
+                          : <div className="w-7 h-7 rounded-lg bg-white/10 grid place-items-center shrink-0 text-[10px] font-bold text-white/30">{(b.name || '?')[0]}</div>}
+                        <span className="truncate flex-1 text-left">{b.name}</span>
+                        {isActive && <div className="w-2.5 h-2.5 rounded-full bg-blue-400 shrink-0 animate-pulse" />}
+                      </button>
+                    )
+                  })}
+                </div>
               </div>
             )}
           </div>
@@ -226,7 +242,7 @@ export function AdminShell({ children }: { children?: ReactNode }) {
         {/* ── Main Content ── */}
         <main className="flex-1 lg:ml-[220px] overflow-y-auto">
           <div className="max-w-5xl mx-auto px-5 pt-5 pb-20 lg:pb-8">
-            {children}
+            <div key={activeBrandId}>{children}</div>
           </div>
         </main>
       </div>

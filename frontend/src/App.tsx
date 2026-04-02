@@ -17,7 +17,7 @@ import { StockPanelPage } from '@/pages/StockPanelPage'
 import { InventoryPage, DesignView } from '@/pages/InventoryPage'
 import { ProductDetailPage } from '@/pages/ProductDetailPage'
 import { LoginPage } from '@/pages/LoginPage'
-import { AdminShell, DashboardView, CampaignsView, OrdersView, AutomationsView, ProductsView } from '@/pages/AdminDashboard'
+import { AdminShell, DashboardView, CampaignsView, OrdersView, AutomationsView, ProductsView, MessagesView, AgentView, NotificationsView, DomainView, FreteView } from '@/pages/AdminDashboard'
 import { LeadSearchPage } from '@/pages/LeadSearchPage'
 import { LeadsPage } from '@/pages/LeadsPage'
 import { MessageSquare, Package, Zap, Bot, Palette, Truck, Globe, Settings } from 'lucide-react'
@@ -92,22 +92,22 @@ export default function App() {
         <Route path="/leads" element={<AdminPage><LeadsPage /></AdminPage>} />
         <Route path="/clientes" element={<AdminPage><LeadsPage /></AdminPage>} />
         <Route path="/busca" element={<AdminPage><LeadSearchPage /></AdminPage>} />
-        <Route path="/mensagens" element={<AdminPage><ComingSoon title="Mensagens" icon={MessageSquare} /></AdminPage>} />
-        <Route path="/notificacoes" element={<AdminPage><ComingSoon title="Notificacoes" icon={MessageSquare} /></AdminPage>} />
+        <Route path="/mensagens" element={<AdminPage><MessagesView showToast={() => {}} /></AdminPage>} />
+        <Route path="/notificacoes" element={<AdminPage><NotificationsView showToast={() => {}} /></AdminPage>} />
         <Route path="/campanhas" element={<AdminPage><CampaignsInline /></AdminPage>} />
         <Route path="/campanha" element={<AdminPage><CampaignsInline /></AdminPage>} />
         <Route path="/automacoes" element={<AdminPage><AutomationsView showToast={() => {}} /></AdminPage>} />
-        <Route path="/criativos" element={<AdminPage><ComingSoon title="Estudio Criativo" icon={MessageSquare} /></AdminPage>} />
-        <Route path="/creative" element={<AdminPage><ComingSoon title="Estudio Criativo" icon={MessageSquare} /></AdminPage>} />
-        <Route path="/agente" element={<AdminPage><ComingSoon title="Agente IA" icon={MessageSquare} /></AdminPage>} />
+        <Route path="/criativos" element={<AdminPage><ComingSoon title="Estudio Criativo" icon={Palette} /></AdminPage>} />
+        <Route path="/creative" element={<AdminPage><ComingSoon title="Estudio Criativo" icon={Palette} /></AdminPage>} />
+        <Route path="/agente" element={<AdminPage><AgentView showToast={() => {}} /></AdminPage>} />
         <Route path="/produtos" element={<AdminPage><ProductsView showToast={() => {}} /></AdminPage>} />
         <Route path="/pedidos" element={<AdminPage><OrdersInline /></AdminPage>} />
         <Route path="/estoque" element={<InventoryPage />} />
         <Route path="/inventario" element={<InventoryPage />} />
         <Route path="/design" element={<AdminPage><DesignView showToast={() => {}} /></AdminPage>} />
-        <Route path="/frete" element={<AdminPage><ComingSoon title="Frete & Entrega" icon={Package} /></AdminPage>} />
-        <Route path="/dominio" element={<AdminPage><ComingSoon title="Dominio" icon={Package} /></AdminPage>} />
-        <Route path="/configuracoes" element={<AdminPage><ComingSoon title="Configuracoes" icon={Package} /></AdminPage>} />
+        <Route path="/frete" element={<AdminPage><FreteView showToast={() => {}} /></AdminPage>} />
+        <Route path="/dominio" element={<AdminPage><DomainView showToast={() => {}} /></AdminPage>} />
+        <Route path="/configuracoes" element={<AdminPage><ComingSoon title="Configuracoes" icon={Settings} /></AdminPage>} />
 
         {/* ── App Estoque (stock managers) ── */}
         <Route path="/app-estoque" element={<StockLoginPage />} />

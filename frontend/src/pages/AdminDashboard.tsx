@@ -1076,8 +1076,411 @@ export function ProductsView({ showToast }: { showToast: (t: string, tp?: 'ok' |
 /* ══════════════════════════════════════════════
    DESIGN REDIRECT
    ══════════════════════════════════════════════ */
-function DesignRedirect() {
-  const navigate = useNavigate()
-  useEffect(() => { navigate('/estoque', { replace: true }) }, [])
-  return null
+/* ══════════════════════════════════════════════
+   MESSAGES VIEW (Sessions)
+   ══════════════════════════════════════════════ */
+export function MessagesView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') => void }) {
+  const [sessions, setSessions] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    setLoading(true)
+    fetch('/api/sessions?limit=50', { headers: getHeaders() })
+      .then(r => r.json()).then(d => {
+        setSessions(d.sessions || [])
+        setLoading(false)
+      }).catch(() => setLoading(false))
+  }, [])
+
+  if (loading) return <Skeleton rows={5} />
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">Mensagens</h2>
+        <p className="text-[13px] text-gray-400 mt-0.5">{sessions.length} conversas</p>
+      </div>
+      {sessions.length === 0 ? (
+        <EmptyState icon={MessageSquare} text="Nenhuma conversa ativa no momento" />
+      ) : (
+        <div className="space-y-2">
+          {sessions.map((s: any, i: number) => (
+            <div key={s.id || i} className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-4 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 grid place-items-center text-white font-bold text-sm shrink-0">
+                {(s.contact_name || s.phone || '?')[0]?.toUpperCase()}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-sm text-gray-900 truncate">{s.contact_name || s.phone || 'Contato'}</p>
+                <p className="text-xs text-gray-400 truncate">{s.last_message || 'Sem mensagens'}</p>
+              </div>
+              <span className="text-[10px] text-gray-400 shrink-0">{dtFull(s.updated_at || s.created_at)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ══════════════════════════════════════════════
+   AGENT VIEW (AI Workspace)
+   ══════════════════════════════════════════════ */
+export function AgentView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') => void }) {
+  const [data, setData] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    setLoading(true)
+    fetch('/api/ai/workspace-overview', { headers: getHeaders() })
+      .then(r => r.json()).then(d => {
+        setData(d.overview || d)
+        setLoading(false)
+      }).catch(() => setLoading(false))
+  }, [])
+
+  if (loading) return <Skeleton rows={6} />
+
+  const profile = data?.profile || {}
+  const training = data?.training || {}
+  const whatsapp = data?.whatsapp || {}
+  const score = data?.readiness_score || 0
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">Agente IA</h2>
+        <p className="text-[13px] text-gray-400 mt-0.5">{profile.agent_name || 'Assistente Virtual'}</p>
+      </div>
+
+      {/* Score */}
+      <div className="bg-gradient-to-br from-violet-500 to-indigo-600 rounded-2xl p-5 text-white shadow-lg">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <p className="text-white/60 text-xs font-bold uppercase tracking-wider">Prontidao do Agente</p>
+            <p className="text-4xl font-extrabold mt-1">{score}%</p>
+          </div>
+          <div className="w-16 h-16 rounded-2xl bg-white/10 grid place-items-center">
+            <Bot size={32} className="text-white/80" />
+          </div>
+        </div>
+        <div className="w-full h-2 bg-white/20 rounded-full overflow-hidden">
+          <div className="h-full bg-white/80 rounded-full transition-all" style={{ width: `${score}%` }} />
+        </div>
+      </div>
+
+      {/* Profile info */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-4">
+          <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em] mb-3">Perfil</h3>
+          <div className="space-y-2">
+            {[
+              ['Nome', profile.agent_name],
+              ['Tom', profile.tone === 'friendly' ? 'Amigavel' : profile.tone],
+              ['Idioma', profile.language],
+              ['Emojis', profile.include_emojis ? 'Sim' : 'Nao'],
+            ].map(([l, v]) => v && (
+              <div key={l as string} className="flex justify-between text-xs">
+                <span className="text-gray-400">{l}</span>
+                <span className="font-semibold text-gray-700">{v as string}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-4">
+          <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em] mb-3">Base de Treinamento</h3>
+          <div className="space-y-2">
+            {[
+              ['Total entradas', training.total_entries],
+              ['Categorias', training.categories_count],
+              ['Ultima atualizacao', training.last_updated ? dt(training.last_updated) : null],
+            ].map(([l, v]) => v != null && (
+              <div key={l as string} className="flex justify-between text-xs">
+                <span className="text-gray-400">{l}</span>
+                <span className="font-semibold text-gray-700">{String(v)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Objective */}
+      {profile.objective && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-4">
+          <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em] mb-2">Objetivo do Agente</h3>
+          <p className="text-xs text-gray-600 leading-relaxed">{profile.objective}</p>
+        </div>
+      )}
+
+      {/* WhatsApp status */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-4 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className={`w-10 h-10 rounded-xl grid place-items-center ${whatsapp.autonomous ? 'bg-emerald-50' : 'bg-gray-100'}`}>
+            <MessageSquare size={18} className={whatsapp.autonomous ? 'text-emerald-500' : 'text-gray-400'} />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-gray-900">WhatsApp Autonomo</p>
+            <p className="text-[11px] text-gray-400">{whatsapp.autonomous ? 'Autoatendimento ativo' : 'Autoatendimento desativado'}</p>
+          </div>
+        </div>
+        <div className={`w-3 h-3 rounded-full ${whatsapp.autonomous ? 'bg-emerald-500' : 'bg-gray-300'}`} />
+      </div>
+    </div>
+  )
+}
+
+/* ══════════════════════════════════════════════
+   NOTIFICATIONS VIEW
+   ══════════════════════════════════════════════ */
+export function NotificationsView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') => void }) {
+  const [notifications, setNotifications] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    setLoading(true)
+    fetch('/api/notifications', { headers: getHeaders() })
+      .then(r => r.json()).then(d => {
+        setNotifications(d.notifications || [])
+        setLoading(false)
+      }).catch(() => setLoading(false))
+  }, [])
+
+  if (loading) return <Skeleton rows={4} />
+
+  const priorityIcon = (p: string) => {
+    if (p === 'high' || p === 'urgent') return 'bg-red-50 text-red-500'
+    if (p === 'medium') return 'bg-amber-50 text-amber-500'
+    return 'bg-blue-50 text-blue-500'
+  }
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">Notificacoes</h2>
+        <p className="text-[13px] text-gray-400 mt-0.5">{notifications.length} notificacoes</p>
+      </div>
+      {notifications.length === 0 ? (
+        <EmptyState icon={Bell} text="Nenhuma notificacao" />
+      ) : (
+        <div className="space-y-2">
+          {notifications.map((n: any, i: number) => (
+            <div key={n.notification_id || i} className={`bg-white rounded-2xl border shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-4 flex items-start gap-3 ${n.read ? 'border-gray-100' : 'border-blue-200 bg-blue-50/30'}`}>
+              <div className={`w-9 h-9 rounded-xl grid place-items-center shrink-0 ${priorityIcon(n.priority)}`}>
+                <Bell size={16} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-sm text-gray-900">{n.title}</p>
+                <p className="text-xs text-gray-500 mt-0.5">{n.message}</p>
+                <p className="text-[10px] text-gray-400 mt-1">{dtFull(n.created_at)}</p>
+              </div>
+              {!n.read && <div className="w-2 h-2 rounded-full bg-blue-500 shrink-0 mt-2" />}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ══════════════════════════════════════════════
+   DOMAIN VIEW (Custom Domains)
+   ══════════════════════════════════════════════ */
+export function DomainView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') => void }) {
+  const [store, setStore] = useState<any>(null)
+  const [domains, setDomains] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [newDomain, setNewDomain] = useState('')
+  const [adding, setAdding] = useState(false)
+
+  useEffect(() => {
+    setLoading(true)
+    fetch('/api/storefront/stores', { headers: getHeaders() })
+      .then(r => r.json()).then(async d => {
+        const stores = d.stores || []
+        if (!stores.length) { setLoading(false); return }
+        const s = stores[0]
+        setStore(s)
+        const dr = await fetch(`/api/storefront/stores/${s.id}/domains`, { headers: getHeaders() })
+        const dd = await dr.json()
+        setDomains(dd.domains || [])
+        setLoading(false)
+      }).catch(() => setLoading(false))
+  }, [])
+
+  async function addDomain() {
+    if (!newDomain.trim() || !store?.id) return
+    setAdding(true)
+    try {
+      const r = await fetch(`/api/storefront/stores/${store.id}/domains`, {
+        method: 'POST', headers: getHeaders(),
+        body: JSON.stringify({ domain: newDomain.trim() }),
+      })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.error || 'Erro')
+      showToast('Dominio adicionado!')
+      setNewDomain('')
+      // Reload
+      const dr = await fetch(`/api/storefront/stores/${store.id}/domains`, { headers: getHeaders() })
+      const dd = await dr.json()
+      setDomains(dd.domains || [])
+    } catch (e: any) { showToast(e.message, 'err') }
+    setAdding(false)
+  }
+
+  if (loading) return <Skeleton rows={4} />
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">Dominio</h2>
+        <p className="text-[13px] text-gray-400 mt-0.5">Configure seu dominio personalizado</p>
+      </div>
+
+      {/* Current slug */}
+      {store?.slug && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-4">
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em] mb-2">URL do Catalogo</p>
+          <a href={`/catalogo/${store.slug}`} target="_blank" rel="noreferrer"
+            className="text-sm font-semibold text-blue-600 hover:underline">
+            /catalogo/{store.slug}
+          </a>
+        </div>
+      )}
+
+      {/* Add domain */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-4 space-y-3">
+        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em]">Adicionar Dominio</p>
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <Globe size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input type="text" value={newDomain} onChange={e => setNewDomain(e.target.value)}
+              placeholder="meusite.com.br"
+              className="w-full pl-9 pr-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-200" />
+          </div>
+          <button onClick={addDomain} disabled={adding || !newDomain.trim()}
+            className="px-4 py-2.5 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 disabled:opacity-50 transition">
+            {adding ? 'Adicionando...' : 'Adicionar'}
+          </button>
+        </div>
+      </div>
+
+      {/* Domains list */}
+      {domains.length > 0 && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100">
+            <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">{domains.length} Dominios</h3>
+          </div>
+          {domains.map((d: any, i: number) => (
+            <div key={d.domain || i} className="px-4 py-3 flex items-center justify-between border-b border-gray-100 last:border-0">
+              <div className="flex items-center gap-2.5">
+                <Globe size={14} className="text-gray-400" />
+                <span className="text-sm font-semibold text-gray-900">{d.domain}</span>
+                {d.is_primary && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600">PRINCIPAL</span>}
+              </div>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                d.verification_status === 'verified' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
+              }`}>
+                {d.verification_status === 'verified' ? 'Verificado' : 'Pendente'}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ══════════════════════════════════════════════
+   FRETE VIEW (reuses storefront logistics settings)
+   ══════════════════════════════════════════════ */
+export function FreteView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') => void }) {
+  const [storeId, setStoreId] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [fee, setFee] = useState('')
+  const [radius, setRadius] = useState('')
+  const [freeAbove, setFreeAbove] = useState('')
+  const [eta, setEta] = useState('')
+  const [deliveryText, setDeliveryText] = useState('')
+
+  useEffect(() => {
+    setLoading(true)
+    fetch('/api/storefront/stores', { headers: getHeaders() })
+      .then(r => r.json()).then(async d => {
+        const stores = d.stores || []
+        if (!stores.length) { setLoading(false); return }
+        setStoreId(stores[0].id)
+        const r2 = await fetch(`/api/storefront/stores/${stores[0].id}`, { headers: getHeaders() })
+        const d2 = await r2.json()
+        const lg = d2.store?.settings?.logistics || {}
+        setFee(lg.delivery_fee != null ? String(lg.delivery_fee) : '')
+        setRadius(lg.delivery_radius_km != null ? String(lg.delivery_radius_km) : '')
+        setFreeAbove(lg.free_shipping_above != null ? String(lg.free_shipping_above) : '')
+        setEta(lg.default_eta_minutes != null ? String(lg.default_eta_minutes) : '')
+        setDeliveryText(lg.delivery_time_text || '')
+        setLoading(false)
+      }).catch(() => setLoading(false))
+  }, [])
+
+  async function save() {
+    if (!storeId) return
+    setSaving(true)
+    try {
+      await fetch(`/api/storefront/stores/${storeId}`, {
+        method: 'PATCH', headers: getHeaders(),
+        body: JSON.stringify({ settings: { logistics: {
+          ...(fee ? { delivery_fee: parseFloat(fee) } : {}),
+          ...(radius ? { delivery_radius_km: parseFloat(radius) } : {}),
+          ...(freeAbove ? { free_shipping_above: parseFloat(freeAbove) } : {}),
+          ...(eta ? { default_eta_minutes: parseInt(eta) } : {}),
+          ...(deliveryText ? { delivery_time_text: deliveryText } : {}),
+        }}}),
+      })
+      showToast('Configuracoes de frete salvas!')
+    } catch (e: any) { showToast(e.message, 'err') }
+    setSaving(false)
+  }
+
+  if (loading) return <Skeleton rows={5} />
+
+  const inputCls = 'w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-200'
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">Frete & Entrega</h2>
+          <p className="text-[13px] text-gray-400 mt-0.5">Configure as opcoes de entrega do catalogo</p>
+        </div>
+        <button onClick={save} disabled={saving}
+          className="px-4 py-2.5 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 disabled:opacity-50 transition shadow-sm">
+          {saving ? 'Salvando...' : 'Salvar'}
+        </button>
+      </div>
+
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-5 space-y-4">
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5 block">Taxa de Entrega (R$)</label>
+            <input type="number" step="0.01" value={fee} onChange={e => setFee(e.target.value)} placeholder="0,00" className={inputCls} />
+          </div>
+          <div>
+            <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5 block">Raio (km)</label>
+            <input type="number" value={radius} onChange={e => setRadius(e.target.value)} placeholder="Ex: 30" className={inputCls} />
+          </div>
+          <div>
+            <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5 block">Frete Gratis acima de (R$)</label>
+            <input type="number" step="0.01" value={freeAbove} onChange={e => setFreeAbove(e.target.value)} placeholder="Ex: 200" className={inputCls} />
+          </div>
+          <div>
+            <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5 block">Tempo estimado (min)</label>
+            <input type="number" value={eta} onChange={e => setEta(e.target.value)} placeholder="Ex: 40" className={inputCls} />
+          </div>
+        </div>
+        <div>
+          <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5 block">Texto de entrega</label>
+          <input type="text" value={deliveryText} onChange={e => setDeliveryText(e.target.value)} placeholder="Ex: Entrega em ate 3 dias uteis" className={inputCls} />
+        </div>
+      </div>
+    </div>
+  )
 }

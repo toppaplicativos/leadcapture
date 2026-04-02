@@ -980,56 +980,68 @@ function ReportsView({ showToast }: { showToast: (t: string, tp?: 'success' | 'e
   const [analytics, setAnalytics] = useState<any>(null)
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => { loadAll() }, [])
-
   function loadAll() {
     setLoading(true)
     Promise.all([
       inventoryApi.reports(dateFrom, dateTo).catch(() => ({})),
       inventoryApi.analytics().catch(() => ({})),
-    ]).then(([rpt, anl]) => {
-      setReport(rpt)
+      inventoryApi.overview().catch(() => ({})),
+    ]).then(([rpt, anl, ov]) => {
+      setReport({ ...rpt, overview: ov })
       setAnalytics(anl)
       setLoading(false)
     })
   }
+  useEffect(() => { loadAll() }, [])
 
   const ms = report?.movement_summary || {}
-  const sv = report?.stock_value || {}
+  const ov = report?.overview || {}
   const topSelling: any[] = Array.isArray(report?.top_selling) ? report.top_selling : []
   const leastMoving: any[] = Array.isArray(report?.least_moving) ? report.least_moving : []
   const daily: any[] = Array.isArray(analytics?.daily_summary) ? analytics.daily_summary : []
   const abc: any[] = Array.isArray(analytics?.abc_curve) ? analytics.abc_curve : []
 
   // ABC classification
-  const totalAbcValue = abc.reduce((s, a) => s + Number(a.stock_value || a.total_value || 0), 0) || 1
+  const totalAbcValue = abc.reduce((s, a) => s + Number(a.stock_value || 0), 0) || 1
   let cumPct = 0
   const abcClassified = abc.map(a => {
-    const val = Number(a.stock_value || a.total_value || 0)
+    const val = Number(a.stock_value || 0)
     cumPct += (val / totalAbcValue) * 100
     return { ...a, classification: cumPct <= 80 ? 'A' : cumPct <= 95 ? 'B' : 'C' }
   })
 
   // Daily chart
-  const maxDaily = Math.max(...daily.map(d => Math.max(Number(d.entries || 0), Number(d.exits || 0))), 1)
+  const chartDays = daily.slice(-14)
+  const maxDaily = Math.max(...chartDays.map(d => Math.max(Number(d.entries || d.total_entries || 0), Number(d.exits || d.total_exits || 0))), 1)
+
+  // Format date label from ISO or date string
+  const fmtDay = (d: string) => {
+    try {
+      const date = new Date(d)
+      return `${String(date.getDate()).padStart(2,'0')}/${String(date.getMonth()+1).padStart(2,'0')}`
+    } catch { return d?.slice(5, 10) || '' }
+  }
 
   return (
     <div className="space-y-5">
-      <h2 className="text-lg font-bold text-gray-900">Relatórios</h2>
+      <div>
+        <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">Relatorios</h2>
+        <p className="text-[13px] text-gray-400 mt-0.5">Analise de movimentacoes e estoque</p>
+      </div>
 
       {/* Date filters */}
-      <div className="flex gap-2 items-end flex-wrap">
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-4 flex gap-3 items-end flex-wrap">
         <div>
-          <label className="text-xs font-semibold text-gray-500 block mb-1">De</label>
+          <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block mb-1">De</label>
           <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
-            className="px-3 py-2 border border-border rounded-xl text-sm" />
+            className="px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-200" />
         </div>
         <div>
-          <label className="text-xs font-semibold text-gray-500 block mb-1">Até</label>
+          <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block mb-1">Ate</label>
           <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
-            className="px-3 py-2 border border-border rounded-xl text-sm" />
+            className="px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-200" />
         </div>
-        <button onClick={loadAll} className="px-4 py-2 bg-blue-500 text-white text-sm font-semibold rounded-xl hover:bg-blue-600 transition">
+        <button onClick={loadAll} className="px-5 py-2.5 bg-blue-600 text-white text-xs font-bold rounded-xl hover:bg-blue-700 transition shadow-sm">
           Filtrar
         </button>
       </div>
@@ -1037,97 +1049,113 @@ function ReportsView({ showToast }: { showToast: (t: string, tp?: 'success' | 'e
       {loading ? <Skeleton rows={6} /> : (
         <>
           {/* KPIs */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
-            <KpiCard label="Total Entradas" value={num(ms.total_entries)} color="text-emerald-500" />
-            <KpiCard label="Total Saídas" value={num(ms.total_exits)} color="text-red-500" />
-            <KpiCard label="Valor Estoque" value={money(sv.total_value)} color="text-blue-500" />
-            <KpiCard label="Unidades" value={num(sv.total_units)} />
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+            <div className="bg-gradient-to-br from-emerald-500 to-teal-600 rounded-2xl p-4 text-white shadow-lg">
+              <p className="text-[9px] font-bold text-white/50 uppercase tracking-wider">Total Entradas</p>
+              <p className="text-[26px] font-extrabold leading-none mt-1">{num(ms.total_entries)}</p>
+            </div>
+            <div className="bg-gradient-to-br from-red-500 to-rose-600 rounded-2xl p-4 text-white shadow-lg">
+              <p className="text-[9px] font-bold text-white/50 uppercase tracking-wider">Total Saidas</p>
+              <p className="text-[26px] font-extrabold leading-none mt-1">{num(ms.total_exits)}</p>
+            </div>
+            <KpiCard label="Produtos" value={num(ov.total_products)} icon={Package} bg="bg-blue-50" color="text-blue-500" />
+            <KpiCard label="Movimentacoes" value={num(ms.total_movements)} icon={ArrowLeftRight} bg="bg-violet-50" color="text-violet-500" />
           </div>
 
-          {/* Top / Least */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {topSelling.length > 0 && (
-              <section>
-                <h3 className="text-sm font-bold mb-2">Mais Vendidos</h3>
-                <div className="bg-white border border-border rounded-xl divide-y divide-gray-100">
-                  {topSelling.slice(0, 5).map((p: any, i: number) => (
-                    <div key={i} className="px-3 py-2 flex items-center gap-2 text-sm">
-                      <span className="font-bold text-muted w-5">{i + 1}</span>
-                      <span className="flex-1 truncate">{p.product_name || '–'}</span>
-                      <span className="font-semibold">{num(p.total_sold || p.quantity)}</span>
-                    </div>
-                  ))}
+          {/* Top Selling / Least Moving */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] overflow-hidden">
+              <div className="px-4 py-3 border-b border-gray-100">
+                <p className="text-xs font-bold text-gray-700">Mais Vendidos</p>
+              </div>
+              {topSelling.length === 0 ? (
+                <p className="px-4 py-6 text-center text-xs text-gray-400">Sem dados no periodo</p>
+              ) : topSelling.slice(0, 5).map((p: any, i: number) => (
+                <div key={i} className="px-4 py-2.5 flex items-center gap-2.5 border-b border-gray-100 last:border-0">
+                  <span className="w-6 h-6 rounded-lg bg-emerald-50 grid place-items-center text-[10px] font-extrabold text-emerald-700 shrink-0">{i + 1}</span>
+                  <span className="text-xs font-semibold text-gray-800 flex-1 truncate">{p.product_name || '–'}</span>
+                  <span className="text-xs font-extrabold text-gray-900">{num(p.total || p.total_sold || p.quantity || 0)}</span>
                 </div>
-              </section>
-            )}
-            {leastMoving.length > 0 && (
-              <section>
-                <h3 className="text-sm font-bold mb-2">Menos Movimentados</h3>
-                <div className="bg-white border border-border rounded-xl divide-y divide-gray-100">
-                  {leastMoving.slice(0, 5).map((p: any, i: number) => (
-                    <div key={i} className="px-3 py-2 flex items-center gap-2 text-sm">
-                      <span className="flex-1 truncate">{p.product_name || '–'}</span>
-                      <span className="font-semibold text-muted">{num(p.total_sold || p.quantity || 0)}</span>
-                    </div>
-                  ))}
+              ))}
+            </div>
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] overflow-hidden">
+              <div className="px-4 py-3 border-b border-gray-100">
+                <p className="text-xs font-bold text-gray-700">Menos Movimentados</p>
+              </div>
+              {leastMoving.length === 0 ? (
+                <p className="px-4 py-6 text-center text-xs text-gray-400">Sem dados no periodo</p>
+              ) : leastMoving.slice(0, 5).map((p: any, i: number) => (
+                <div key={i} className="px-4 py-2.5 flex items-center gap-2.5 border-b border-gray-100 last:border-0">
+                  <span className="text-xs font-semibold text-gray-600 flex-1 truncate">{p.product_name || '–'}</span>
+                  <span className="text-xs font-semibold text-gray-500">{num(p.total || p.total_sold || p.quantity || 0)}</span>
                 </div>
-              </section>
-            )}
+              ))}
+            </div>
           </div>
 
           {/* Daily chart */}
-          {daily.length > 0 && (
-            <section>
-              <h3 className="text-sm font-bold mb-3">Movimentação Diária (últimos 14 dias)</h3>
-              <div className="bg-white border border-border rounded-xl p-4 overflow-x-auto">
-                <div className="flex items-end gap-1" style={{ minWidth: daily.length * 40 }}>
-                  {daily.slice(-14).map((d: any, i: number) => {
-                    const eH = (Number(d.entries || 0) / maxDaily) * 80
-                    const xH = (Number(d.exits || 0) / maxDaily) * 80
-                    const label = (d.day || '').slice(5) // MM-DD
+          {chartDays.length > 0 && (
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-4">
+              <p className="text-xs font-bold text-gray-700 mb-3">Movimentacao Diaria</p>
+              <div className="overflow-x-auto">
+                <div className="flex items-end gap-1.5" style={{ minWidth: Math.max(chartDays.length * 45, 300) }}>
+                  {chartDays.map((d: any, i: number) => {
+                    const entries = Number(d.entries || d.total_entries || 0)
+                    const exits = Number(d.exits || d.total_exits || 0)
+                    const eH = Math.max(2, (entries / maxDaily) * 100)
+                    const xH = Math.max(2, (exits / maxDaily) * 100)
+                    const dayLabel = fmtDay(d.day || d.date || d.period || '')
                     return (
-                      <div key={i} className="flex flex-col items-center flex-1 min-w-[30px]">
-                        <div className="flex gap-0.5 items-end h-20">
-                          <div className="w-3 bg-emerald-400 rounded-t" style={{ height: eH }} title={`Entradas: ${d.entries}`} />
-                          <div className="w-3 bg-red-400 rounded-t" style={{ height: xH }} title={`Saídas: ${d.exits}`} />
+                      <div key={i} className="flex flex-col items-center flex-1 min-w-[35px]">
+                        <div className="flex gap-0.5 items-end" style={{ height: 110 }}>
+                          <div className="w-3.5 bg-emerald-400 rounded-t transition-all" style={{ height: eH }} title={`Entradas: ${entries}`} />
+                          <div className="w-3.5 bg-red-400 rounded-t transition-all" style={{ height: xH }} title={`Saidas: ${exits}`} />
                         </div>
-                        <span className="text-[9px] text-muted mt-1">{label}</span>
+                        <span className="text-[8px] text-gray-400 mt-1 font-mono">{dayLabel}</span>
                       </div>
                     )
                   })}
                 </div>
-                <div className="flex gap-4 mt-3 text-xs text-muted">
-                  <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 bg-emerald-400 rounded-sm" /> Entradas</span>
-                  <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 bg-red-400 rounded-sm" /> Saídas</span>
-                </div>
               </div>
-            </section>
+              <div className="flex gap-4 mt-3 text-[10px] text-gray-400">
+                <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 bg-emerald-400 rounded-sm" /> Entradas</span>
+                <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 bg-red-400 rounded-sm" /> Saidas</span>
+              </div>
+            </div>
           )}
 
           {/* ABC Curve */}
           {abcClassified.length > 0 && (
-            <section>
-              <h3 className="text-sm font-bold mb-3">Curva ABC</h3>
-              <div className="bg-white border border-border rounded-xl divide-y divide-gray-100">
-                {abcClassified.slice(0, 20).map((a: any, i: number) => {
-                  const cls = a.classification === 'A' ? 'bg-emerald-100 text-emerald-700' : a.classification === 'B' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600'
-                  return (
-                    <div key={i} className="px-3 py-2 flex items-center gap-2 text-sm">
-                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${cls}`}>{a.classification}</span>
-                      <span className="flex-1 truncate">{a.product_name || '–'}</span>
-                      <span className="font-semibold text-xs">{money(a.stock_value || a.total_value)}</span>
-                    </div>
-                  )
-                })}
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] overflow-hidden">
+              <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+                <p className="text-xs font-bold text-gray-700">Curva ABC</p>
+                <div className="flex gap-2 text-[9px]">
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-emerald-500" /> A (80%)</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-amber-500" /> B (95%)</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-gray-400" /> C</span>
+                </div>
               </div>
-            </section>
+              {abcClassified.slice(0, 15).map((a: any, i: number) => {
+                const cls = a.classification === 'A' ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'
+                  : a.classification === 'B' ? 'bg-amber-50 text-amber-700 ring-1 ring-amber-200'
+                  : 'bg-gray-100 text-gray-500'
+                const stockKg = Number(a.stock_current || 0)
+                return (
+                  <div key={i} className="px-4 py-2.5 flex items-center gap-2.5 border-b border-gray-100 last:border-0">
+                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${cls}`}>{a.classification}</span>
+                    <span className="text-xs font-semibold text-gray-800 flex-1 truncate">{a.product_name || '–'}</span>
+                    <span className="text-[10px] text-gray-400 font-mono">{num(stockKg)} un</span>
+                    <span className="text-xs font-bold text-gray-900">{money(a.stock_value)}</span>
+                  </div>
+                )
+              })}
+            </div>
           )}
         </>
       )}
     </div>
   )
 }
-
 /* ══════════════════════════════════════════════
    MODALS
    ══════════════════════════════════════════════ */

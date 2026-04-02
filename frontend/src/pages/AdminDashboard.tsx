@@ -909,118 +909,150 @@ function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
             </>)}
           </>)}
 
-          {/* Tab: Mensagem & IA */}
+          {/* Tab: Mensagem & IA — Full composer */}
           {activeTab === 'mensagem' && (<>
-            <div className="flex items-center justify-between py-1 border-b border-gray-100 pb-3">
-              <div>
-                <p className="text-sm font-semibold text-gray-800">Usar Inteligencia Artificial</p>
-                <p className="text-[11px] text-gray-400">A IA personaliza cada mensagem para o lead</p>
-              </div>
-              <Toggle value={useAi} onChange={setUseAi} />
-            </div>
-            {useAi && (<>
-              <div>
-                <label className={labelCls}>Instrucoes para a IA (Prompt)</label>
-                <textarea value={aiPrompt} onChange={e => setAiPrompt(e.target.value)} rows={3}
-                  placeholder="Ex: Fale sobre nossos produtos, mencione o nome do cliente..."
-                  className={inputCls + ' resize-none'} />
-              </div>
-              <div>
-                <label className={labelCls}>Texto de intencao (Composer)</label>
-                <textarea value={intentText} onChange={e => setIntentText(e.target.value)} rows={4}
-                  placeholder="Descreva detalhadamente o objetivo da abordagem, tom, proposta de valor, CTA..."
-                  className={inputCls + ' resize-none'} />
-                <p className="text-[10px] text-gray-400 mt-1">Este texto guia o compositor de mensagens para gerar conteudo contextualizado.</p>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="flex items-center justify-between bg-gray-50 rounded-xl p-3">
-                  <span className="text-xs font-medium text-gray-600">Personalizar por lead</span>
-                  <Toggle value={personalizedPerLead} onChange={setPersonalizedPerLead} />
-                </div>
-                <div className="flex items-center justify-between bg-gray-50 rounded-xl p-3">
-                  <span className="text-xs font-medium text-gray-600">Variacoes automaticas</span>
-                  <Toggle value={useAutoVariations} onChange={setUseAutoVariations} />
-                </div>
-              </div>
-            </>)}
-            <div>
-              <label className={labelCls}>{useAi ? 'Template base (opcional)' : 'Template da mensagem *'}</label>
-              <textarea value={messageTemplate} onChange={e => setMessageTemplate(e.target.value)} rows={3}
-                placeholder="Ola {{nome}}, tudo bem? Sou da {{empresa}}..."
-                className={inputCls + ' resize-none font-mono text-xs'} />
-              <p className="text-[10px] text-gray-400 mt-1">Variaveis: {'{{nome}}'}, {'{{cidade}}'}, {'{{segmento}}'}, {'{{empresa}}'}</p>
-            </div>
 
-            {/* Media: Imagem e Video */}
-            <div className="border-t border-gray-100 pt-4 mt-2">
-              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-3">Midia anexa</p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* ─── 1. MIDIA (topo) ─── */}
+            <div className="bg-gray-50 rounded-xl p-3">
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em] mb-2">Midia (opcional)</p>
+              <div className="grid grid-cols-2 gap-2">
                 {/* Imagem */}
-                <div className="border border-gray-200 rounded-xl p-3 space-y-2">
-                  <p className="text-xs font-semibold text-gray-700">Imagem</p>
+                <div className={`rounded-xl border-2 border-dashed overflow-hidden transition-all ${imageUrl ? 'border-violet-300 bg-violet-50/30' : 'border-gray-200 bg-white'}`}>
                   {imageUrl ? (
-                    <div className="relative rounded-lg overflow-hidden bg-gray-100 group" style={{ aspectRatio: '16/9' }}>
-                      <img src={imageUrl} alt="Preview" className="w-full h-full object-cover" onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
-                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                        <label className="px-2.5 py-1.5 bg-white/90 rounded-lg text-[11px] font-semibold text-gray-700 cursor-pointer hover:bg-white transition">
-                          Trocar
-                          <input type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) uploadMedia(f, 'image') }} />
+                    <div className="relative group" style={{ aspectRatio: '16/10' }}>
+                      <img src={imageUrl} alt="" className="w-full h-full object-cover" onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5">
+                        <label className="px-2 py-1 bg-white/90 rounded-lg text-[10px] font-bold text-gray-700 cursor-pointer">
+                          Trocar <input type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) uploadMedia(f, 'image') }} />
                         </label>
-                        <button onClick={() => setImageUrl('')} className="px-2.5 py-1.5 bg-red-500/90 rounded-lg text-[11px] font-semibold text-white hover:bg-red-600 transition">
-                          Remover
-                        </button>
+                        <button onClick={() => setImageUrl('')} className="px-2 py-1 bg-red-500/90 rounded-lg text-[10px] font-bold text-white">Remover</button>
                       </div>
                     </div>
                   ) : (
-                    <label className="flex flex-col items-center justify-center py-6 border-2 border-dashed border-gray-200 rounded-lg cursor-pointer hover:border-violet-300 hover:bg-violet-50/30 transition">
-                      {uploadingImage
-                        ? <Loader2 size={20} className="text-violet-400 animate-spin" />
-                        : <><Eye size={20} className="text-gray-300 mb-1" /><p className="text-[10px] text-gray-400">Clique para enviar</p></>}
-                      <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) uploadMedia(f, 'image') }} />
+                    <label className="flex flex-col items-center justify-center py-5 cursor-pointer hover:bg-violet-50/50 transition">
+                      {uploadingImage ? <Loader2 size={18} className="text-violet-400 animate-spin" /> : <Eye size={18} className="text-gray-300" />}
+                      <p className="text-[10px] text-gray-400 mt-1 font-medium">{uploadingImage ? 'Enviando...' : 'Imagem'}</p>
+                      <input type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) uploadMedia(f, 'image') }} />
                     </label>
-                  )}
-                  <div className="flex items-center justify-between">
-                    <label className="flex items-center gap-1.5 cursor-pointer">
-                      <Toggle value={imageUseTextAsCaption} onChange={setImageUseTextAsCaption} />
-                      <span className="text-[10px] font-medium text-gray-500">Texto como legenda</span>
-                    </label>
-                  </div>
-                  {!imageUseTextAsCaption && (
-                    <input type="text" value={imageCaption} onChange={e => setImageCaption(e.target.value)}
-                      placeholder="Legenda da imagem..."
-                      className={inputCls + ' !text-xs !py-2'} />
                   )}
                 </div>
-
                 {/* Video */}
-                <div className="border border-gray-200 rounded-xl p-3 space-y-2">
-                  <p className="text-xs font-semibold text-gray-700">Video</p>
+                <div className={`rounded-xl border-2 border-dashed overflow-hidden transition-all ${videoUrl ? 'border-violet-300 bg-violet-50/30' : 'border-gray-200 bg-white'}`}>
                   {videoUrl ? (
-                    <div className="relative rounded-lg overflow-hidden bg-gray-900 group" style={{ aspectRatio: '16/9' }}>
+                    <div className="relative group" style={{ aspectRatio: '16/10' }}>
                       <video src={videoUrl} className="w-full h-full object-cover" />
-                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                        <label className="px-2.5 py-1.5 bg-white/90 rounded-lg text-[11px] font-semibold text-gray-700 cursor-pointer hover:bg-white transition">
-                          Trocar
-                          <input type="file" accept="video/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) uploadMedia(f, 'video') }} />
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5">
+                        <label className="px-2 py-1 bg-white/90 rounded-lg text-[10px] font-bold text-gray-700 cursor-pointer">
+                          Trocar <input type="file" accept="video/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) uploadMedia(f, 'video') }} />
                         </label>
-                        <button onClick={() => setVideoUrl('')} className="px-2.5 py-1.5 bg-red-500/90 rounded-lg text-[11px] font-semibold text-white hover:bg-red-600 transition">
-                          Remover
-                        </button>
+                        <button onClick={() => setVideoUrl('')} className="px-2 py-1 bg-red-500/90 rounded-lg text-[10px] font-bold text-white">Remover</button>
                       </div>
                     </div>
                   ) : (
-                    <label className="flex flex-col items-center justify-center py-6 border-2 border-dashed border-gray-200 rounded-lg cursor-pointer hover:border-violet-300 hover:bg-violet-50/30 transition">
-                      {uploadingVideo
-                        ? <Loader2 size={20} className="text-violet-400 animate-spin" />
-                        : <><Send size={20} className="text-gray-300 mb-1" /><p className="text-[10px] text-gray-400">Clique para enviar</p></>}
+                    <label className="flex flex-col items-center justify-center py-5 cursor-pointer hover:bg-violet-50/50 transition">
+                      {uploadingVideo ? <Loader2 size={18} className="text-violet-400 animate-spin" /> : <Send size={18} className="text-gray-300" />}
+                      <p className="text-[10px] text-gray-400 mt-1 font-medium">{uploadingVideo ? 'Enviando...' : 'Video'}</p>
                       <input type="file" accept="video/mp4,video/webm" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) uploadMedia(f, 'video') }} />
                     </label>
                   )}
-                  {videoUrl && <p className="text-[10px] text-gray-400 truncate">{videoUrl.split('/').pop()}</p>}
                 </div>
               </div>
+              {imageUrl && (
+                <div className="flex items-center gap-2 mt-2">
+                  <Toggle value={imageUseTextAsCaption} onChange={setImageUseTextAsCaption} />
+                  <span className="text-[10px] text-gray-500 font-medium">Usar texto da mensagem como legenda da imagem</span>
+                </div>
+              )}
+              {imageUrl && !imageUseTextAsCaption && (
+                <input type="text" value={imageCaption} onChange={e => setImageCaption(e.target.value)}
+                  placeholder="Legenda personalizada..." className={inputCls + ' !text-xs !py-2 mt-2'} />
+              )}
             </div>
+
+            {/* ─── 2. CONTEUDO DA MENSAGEM ─── */}
+            <div>
+              <label className={labelCls}>Mensagem / Template</label>
+              <textarea value={messageTemplate} onChange={e => setMessageTemplate(e.target.value)} rows={4}
+                placeholder="Ola {{nome}}, tudo bem? Sou da {{empresa}}. Gostaria de conversar sobre..."
+                className={inputCls + ' resize-none font-mono text-xs leading-relaxed'} />
+              <p className="text-[10px] text-gray-400 mt-1">Variaveis: <code className="bg-gray-100 px-1 rounded">{'{{nome}}'}</code> <code className="bg-gray-100 px-1 rounded">{'{{cidade}}'}</code> <code className="bg-gray-100 px-1 rounded">{'{{segmento}}'}</code> <code className="bg-gray-100 px-1 rounded">{'{{empresa}}'}</code></p>
+            </div>
+
+            {/* ─── 3. INTELIGENCIA ARTIFICIAL ─── */}
+            <div className="bg-gradient-to-br from-violet-50 to-indigo-50 rounded-xl p-4 space-y-3 ring-1 ring-violet-100">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-violet-500 grid place-items-center"><Zap size={14} className="text-white" /></div>
+                  <div>
+                    <p className="text-sm font-bold text-gray-900">Inteligencia Artificial</p>
+                    <p className="text-[10px] text-gray-500">A IA personaliza cada mensagem para o lead</p>
+                  </div>
+                </div>
+                <Toggle value={useAi} onChange={setUseAi} />
+              </div>
+
+              {useAi && (<>
+                <div>
+                  <label className="text-[10px] font-bold text-violet-500 uppercase tracking-wider mb-1 block">Instrucoes para a IA (prompt)</label>
+                  <textarea value={aiPrompt} onChange={e => setAiPrompt(e.target.value)} rows={3}
+                    placeholder="Ex: Fale sobre nossos produtos, mencione o nome do cliente, pergunte sobre interesse..."
+                    className="w-full px-3 py-2.5 border border-violet-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-violet-200 resize-none" />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-violet-500 uppercase tracking-wider mb-1 block">Texto de intencao (objetivo detalhado)</label>
+                  <textarea value={intentText} onChange={e => setIntentText(e.target.value)} rows={3}
+                    placeholder="Descreva o objetivo da abordagem, tom desejado, proposta de valor, CTA esperado..."
+                    className="w-full px-3 py-2.5 border border-violet-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-violet-200 resize-none" />
+                  <p className="text-[9px] text-violet-400 mt-1">Este texto guia o compositor para gerar conteudo contextualizado por lead.</p>
+                </div>
+              </>)}
+            </div>
+
+            {/* ─── 4. CONFIG AVANCADA (colapsavel) ─── */}
+            <details className="group">
+              <summary className="flex items-center gap-1.5 text-[11px] font-semibold text-gray-400 cursor-pointer hover:text-gray-600 transition select-none">
+                <ChevronRight size={12} className="transition-transform group-open:rotate-90" /> Configuracoes avancadas
+              </summary>
+              <div className="mt-3 space-y-3 pl-1">
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="flex items-center justify-between bg-gray-50 rounded-xl p-3">
+                    <span className="text-[11px] font-medium text-gray-600">Personalizar por lead</span>
+                    <Toggle value={personalizedPerLead} onChange={setPersonalizedPerLead} />
+                  </div>
+                  <div className="flex items-center justify-between bg-gray-50 rounded-xl p-3">
+                    <span className="text-[11px] font-medium text-gray-600">Variacoes automaticas</span>
+                    <Toggle value={useAutoVariations} onChange={setUseAutoVariations} />
+                  </div>
+                </div>
+              </div>
+            </details>
+
+            {/* ─── 5. PIPELINE DE EXECUCAO ─── */}
+            <div className="bg-gray-950 rounded-xl p-4 text-white">
+              <p className="text-[10px] font-bold text-white/30 uppercase tracking-[0.1em] mb-3">Pipeline de execucao</p>
+              <div className="flex items-center gap-0 overflow-x-auto scrollbar-hide">
+                {[
+                  { step: '1', label: 'Filtrar Leads', desc: `${filterStatuses.join(', ')}`, icon: '🎯' },
+                  { step: '2', label: imageUrl || videoUrl ? 'Preparar Midia' : 'Compor Msg', desc: useAi ? 'IA + Template' : 'Template fixo', icon: useAi ? '🤖' : '✏️' },
+                  { step: '3', label: 'Validar WhatsApp', desc: filterHasWhatsapp ? 'Somente validos' : 'Todos', icon: '✅' },
+                  { step: '4', label: 'Enviar', desc: `${maxPerMinute}/min, max ${dailyLimit}/dia`, icon: '🚀' },
+                  { step: '5', label: 'Classificar', desc: 'IA analisa respostas', icon: '📊' },
+                  { step: '6', label: nextStatus ? `Mover → ${nextStatus}` : 'Finalizar', desc: addTags ? `+tags: ${addTags}` : 'Sem acoes', icon: '🏁' },
+                ].map((s, i, arr) => (
+                  <div key={s.step} className="flex items-center shrink-0">
+                    <div className="text-center px-2 min-w-[80px]">
+                      <span className="text-lg">{s.icon}</span>
+                      <p className="text-[10px] font-bold text-white/80 mt-0.5">{s.label}</p>
+                      <p className="text-[8px] text-white/30 leading-tight">{s.desc}</p>
+                    </div>
+                    {i < arr.length - 1 && <div className="w-6 h-px bg-white/10 shrink-0" />}
+                  </div>
+                ))}
+              </div>
+            </div>
+
           </>)}
+
 
           {/* Tab: Segmentacao */}
           {activeTab === 'segmentacao' && (<>

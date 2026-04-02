@@ -593,15 +593,29 @@ export function CampaignsView({ showToast }: { showToast: (t: string, tp?: 'ok' 
                   <p className="text-xs text-gray-400">{c.campaign_mode || 'relationship'} · {dt(c.created_at)}</p>
                 </div>
                 {/* Metrics mini */}
-                {(c.sent_count > 0 || c.target_count > 0) && (
+                {c.target_count > 0 && (
                   <div className="text-right shrink-0">
-                    <p className="text-xs font-bold text-gray-900">{c.sent_count || 0}/{c.target_count || 0}</p>
+                    <p className="text-xs font-bold text-gray-900">{c.sent_count || 0}<span className="text-gray-400 font-normal">/{c.target_count}</span></p>
                     <p className="text-[9px] text-gray-400">enviados</p>
                   </div>
                 )}
               </div>
+
+              {/* Progress bar */}
+              {c.target_count > 0 && (
+                <div className="mt-2.5">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[9px] text-gray-400">{Math.round(((c.sent_count || 0) / c.target_count) * 100)}% concluido</span>
+                    {c.replied_count > 0 && <span className="text-[9px] text-emerald-600 font-semibold">{c.replied_count} respostas</span>}
+                  </div>
+                  <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                    <div className="h-full bg-gradient-to-r from-violet-500 to-purple-500 rounded-full transition-all" style={{ width: `${Math.min(100, ((c.sent_count || 0) / Math.max(c.target_count, 1)) * 100)}%` }} />
+                  </div>
+                </div>
+              )}
+
               {/* Actions */}
-              <div className="flex items-center gap-1.5 mt-3 pt-3 border-t border-gray-100">
+              <div className="flex items-center gap-1.5 mt-3 pt-3 border-t border-gray-100 flex-wrap">
                 {(c.status === 'draft' || c.status === 'paused') && (
                   <button onClick={() => doAction(c.id, 'start')} disabled={actionLoading === c.id}
                     className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 text-[11px] font-bold hover:bg-emerald-100 transition">
@@ -618,6 +632,20 @@ export function CampaignsView({ showToast }: { showToast: (t: string, tp?: 'ok' 
                   className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-violet-50 text-violet-700 text-[11px] font-bold hover:bg-violet-100 transition">
                   Configurar
                 </button>
+                {/* Duplicate */}
+                <button onClick={async () => { setActionLoading(c.id); try { await adminApi.duplicateCampaign(c.id); showToast('Campanha duplicada!'); loadCampaigns() } catch (e: any) { showToast(e.message, 'err') } setActionLoading(null) }}
+                  disabled={actionLoading === c.id}
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-gray-50 text-gray-600 text-[11px] font-semibold hover:bg-gray-100 transition">
+                  Duplicar
+                </button>
+                {/* Re-execute (completed/cancelled) */}
+                {(c.status === 'completed' || c.status === 'cancelled') && (
+                  <button onClick={async () => { setActionLoading(c.id); try { await adminApi.reexecuteCampaign(c.id); showToast('Campanha reaberta!'); loadCampaigns() } catch (e: any) { showToast(e.message, 'err') } setActionLoading(null) }}
+                    disabled={actionLoading === c.id}
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-700 text-[11px] font-bold hover:bg-blue-100 transition">
+                    <RefreshCw size={11} /> Reaproveitar
+                  </button>
+                )}
                 {c.status !== 'cancelled' && c.status !== 'completed' && (
                   <button onClick={() => doAction(c.id, 'cancel')} disabled={actionLoading === c.id}
                     className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-red-500 text-[11px] font-semibold hover:bg-red-50 transition ml-auto">

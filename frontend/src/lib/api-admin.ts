@@ -217,6 +217,9 @@ export const adminApi = {
   startCampaign: (id: string) => authFetch<any>(`/api/campaigns/${id}/start`, getAdminHeaders(), { method: 'POST' }),
   pauseCampaign: (id: string) => authFetch<any>(`/api/campaigns/${id}/pause`, getAdminHeaders(), { method: 'POST' }),
   cancelCampaign: (id: string) => authFetch<any>(`/api/campaigns/${id}/stop`, getAdminHeaders(), { method: 'POST' }),
+  duplicateCampaign: (id: string) => authFetch<any>(`/api/campaigns/${id}/duplicate`, getAdminHeaders(), { method: 'POST' }),
+  reexecuteCampaign: (id: string) => authFetch<any>(`/api/campaigns/${id}/re-execute`, getAdminHeaders(), { method: 'POST' }),
+  campaignMetrics: (id: string) => authFetch<any>(`/api/campaigns/${id}/metrics`, getAdminHeaders()),
 
   // Automations
   automations: () => authFetch<any>('/api/automations', getAdminHeaders()),

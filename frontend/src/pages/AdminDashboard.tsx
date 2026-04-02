@@ -2550,7 +2550,7 @@ export function EstoqueAccessView({ showToast }: { showToast: (t: string, tp?: '
 
   if (loading) return <Skeleton rows={4} />
 
-  const appUrl = brandSlug ? `/app-estoque?brand=${brandSlug}` : '/app-estoque'
+  const appUrl = '/estoque/app'
 
   return (
     <div className="space-y-5">

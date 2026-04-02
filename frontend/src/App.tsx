@@ -13,7 +13,7 @@ import { OrderPage } from '@/pages/OrderPage'
 import { HistoryPage } from '@/pages/HistoryPage'
 import { OnboardingPage } from '@/pages/OnboardingPage'
 import { StockLoginPage } from '@/pages/StockLoginPage'
-import { StockPanelPage } from '@/pages/StockPanelPage'
+// StockPanelPage removed — redundant, InventoryPage is the complete app
 import { InventoryPage, DesignView } from '@/pages/InventoryPage'
 import { ProductDetailPage } from '@/pages/ProductDetailPage'
 import { LoginPage } from '@/pages/LoginPage'
@@ -113,7 +113,7 @@ export default function App() {
         {/* ── App Estoque (stock managers) ── */}
         <Route path="/app-estoque" element={<StockLoginPage />} />
         <Route path="/app-estoque/:brand" element={<StockLoginPage />} />
-        <Route path="/app-estoque/painel" element={<StockPanelPage />} />
+        <Route path="/app-estoque/painel" element={<InventoryPage />} />
 
         {/* ── Brand Onboarding ── */}
         <Route path="/brand-onboarding" element={<OnboardingPage />} />

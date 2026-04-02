@@ -564,72 +564,95 @@ function MovementsView({ showToast }: { showToast: (t: string, tp?: 'success' | 
 function ExpeditionView({ showToast }: { showToast: (t: string, tp?: 'success' | 'error') => void }) {
   const [orders, setOrders] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [moving, setMoving] = useState<string | null>(null)
 
-  useEffect(() => {
+  function load() {
     setLoading(true)
-    fetch('/api/orders?limit=50', { headers: getAuthHeaders() })
-      .then(r => r.json())
-      .then(d => {
-        setOrders(d.orders || [])
-        setLoading(false)
-      })
+    fetch('/api/orders?limit=100', { headers: getAuthHeaders() })
+      .then(r => r.json()).then(d => { setOrders(d.orders || []); setLoading(false) })
       .catch(() => setLoading(false))
-  }, [])
+  }
+  useEffect(() => { load() }, [])
+
+  async function moveOrder(orderId: string, nextStatus: string) {
+    setMoving(orderId)
+    try {
+      const r = await fetch(`/api/orders/${orderId}/status`, {
+        method: 'PATCH', headers: getAuthHeaders(),
+        body: JSON.stringify({ status: nextStatus }),
+      })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.error || 'Erro')
+      showToast(`Movido para ${nextStatus.replace(/_/g, ' ')}`)
+      load()
+    } catch (e: any) { showToast(e.message, 'error') }
+    setMoving(null)
+  }
 
   if (loading) return <Skeleton rows={4} />
 
   const columns = [
-    { key: 'aguardando', label: 'Aguardando', color: 'text-amber-600', bg: 'bg-amber-50', statuses: ['pago', 'aprovado'] },
-    { key: 'separando', label: 'Separando', color: 'text-orange-600', bg: 'bg-orange-50', statuses: ['em_preparacao'] },
-    { key: 'pronto', label: 'Pronto Envio', color: 'text-blue-600', bg: 'bg-blue-50', statuses: ['pronto'] },
-    { key: 'rota', label: 'Em Rota', color: 'text-purple-600', bg: 'bg-purple-50', statuses: ['em_entrega', 'saiu_para_entrega'] },
-    { key: 'entregue', label: 'Entregue', color: 'text-emerald-600', bg: 'bg-emerald-50', statuses: ['entregue'] },
+    { key: 'aguardando', label: 'Pago', color: 'text-amber-700', bg: 'bg-amber-50', border: 'border-amber-200', statuses: ['pago'], nextStatus: 'em_preparacao', nextLabel: 'Separar →' },
+    { key: 'separando', label: 'Separando', color: 'text-orange-700', bg: 'bg-orange-50', border: 'border-orange-200', statuses: ['em_preparacao'], nextStatus: 'em_entrega', nextLabel: 'Enviar →' },
+    { key: 'rota', label: 'Em Rota', color: 'text-blue-700', bg: 'bg-blue-50', border: 'border-blue-200', statuses: ['em_entrega'], nextStatus: 'entregue', nextLabel: 'Entregar →' },
+    { key: 'entregue', label: 'Entregue', color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-200', statuses: ['entregue'], nextStatus: '', nextLabel: '' },
   ]
 
   const grouped: Record<string, any[]> = {}
   columns.forEach(c => { grouped[c.key] = [] })
-
   orders.forEach(o => {
-    const st = o.business_status || o.status_pedido || ''
-    if (['cancelado', 'aguardando_pagamento', 'novo', 'criado', 'estornado', 'abandonado'].includes(st)) return
+    const st = (o.business_status || o.status_pedido || '').toLowerCase()
+    if (['cancelado', 'aguardando_pagamento', 'novo', 'criado'].includes(st)) return
     const col = columns.find(c => c.statuses.includes(st))
     if (col) grouped[col.key].push(o)
   })
-
   const totalInKanban = Object.values(grouped).reduce((s, arr) => s + arr.length, 0)
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-bold text-gray-900">Expedição</h2>
-        <span className="text-sm text-muted">{totalInKanban} pedido(s) em fluxo</span>
+    <div className="space-y-5">
+      <div>
+        <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">Expedicao</h2>
+        <p className="text-[13px] text-gray-400 mt-0.5">{totalInKanban} pedido(s) em fluxo</p>
       </div>
 
       {totalInKanban === 0 ? (
-        <div className="text-center py-16 text-muted">
-          <Truck className="w-10 h-10 mx-auto mb-3 opacity-30" />
-          <p className="font-medium">Nenhum pedido em expedição</p>
-          <p className="text-sm mt-1">Pedidos pagos aparecerão aqui automaticamente</p>
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <div className="w-16 h-16 bg-gray-100 rounded-2xl grid place-items-center mb-3">
+            <Truck size={28} className="text-gray-300" />
+          </div>
+          <p className="text-sm font-medium text-gray-600">Nenhum pedido em expedicao</p>
+          <p className="text-xs text-gray-400 mt-1">Pedidos pagos aparecerão aqui automaticamente</p>
         </div>
       ) : (
-        <div className="flex gap-3 overflow-x-auto pb-4 -mx-4 px-4 scrollbar-hide">
+        <div className="flex gap-3 overflow-x-auto pb-4 scrollbar-hide">
           {columns.map(col => {
             const items = grouped[col.key] || []
             return (
               <div key={col.key} className="shrink-0 w-64 min-w-[256px]">
-                <div className={`flex items-center justify-between px-3 py-2 rounded-t-xl ${col.bg}`}>
-                  <span className={`text-xs font-bold uppercase tracking-wide ${col.color}`}>{col.label}</span>
-                  <span className={`text-[10px] font-bold ${col.color} bg-white/80 rounded-full px-1.5 py-0.5`}>{items.length}</span>
+                <div className={`flex items-center justify-between px-3 py-2.5 rounded-t-xl ${col.bg} border ${col.border} border-b-0`}>
+                  <span className={`text-[10px] font-bold uppercase tracking-[0.1em] ${col.color}`}>{col.label}</span>
+                  <span className={`text-[10px] font-bold ${col.color} bg-white/80 rounded-full px-2 py-0.5`}>{items.length}</span>
                 </div>
-                <div className="bg-gray-50/50 rounded-b-xl border border-border border-t-0 min-h-[200px] p-2 space-y-2">
+                <div className={`rounded-b-xl border ${col.border} border-t-0 min-h-[200px] p-2 space-y-2 bg-white/50`}>
                   {items.length === 0 ? (
-                    <p className="text-center text-xs text-muted py-8">Vazio</p>
-                  ) : items.map((o, i) => (
-                    <div key={i} className="bg-white border border-border rounded-xl p-3 shadow-sm hover:shadow transition">
-                      <p className="text-sm font-semibold truncate">{o.customer_name || 'Cliente'}</p>
-                      <div className="flex items-center justify-between mt-1">
-                        <span className="text-xs text-muted">{dt(o.created_at)}</span>
-                        <span className="text-sm font-bold">{money(o.valor_total || o.total)}</span>
+                    <p className="text-center text-[11px] text-gray-400 py-8">Vazio</p>
+                  ) : items.map((o: any) => (
+                    <div key={o.id} className="bg-white rounded-xl p-3 shadow-[0_1px_3px_rgba(0,0,0,0.06)] border border-gray-100 hover:shadow-md transition-all">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-xs font-bold text-gray-900 truncate">{o.customer_name || 'Cliente'}</p>
+                          <p className="text-[10px] text-gray-400 font-mono">#{(o.order_number || o.id || '').slice(0, 8)}</p>
+                        </div>
+                        <span className="text-sm font-extrabold text-gray-900 shrink-0">{money(o.valor_total)}</span>
+                      </div>
+                      <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-100">
+                        <span className="text-[9px] text-gray-400">{dt(o.created_at)}</span>
+                        {col.nextStatus && (
+                          <button onClick={() => moveOrder(o.id, col.nextStatus)} disabled={moving === o.id}
+                            className={`text-[10px] font-bold px-2 py-1 rounded-lg transition ${col.bg} ${col.color} hover:opacity-80 disabled:opacity-40`}>
+                            {moving === o.id ? '...' : col.nextLabel}
+                          </button>
+                        )}
                       </div>
                     </div>
                   ))}

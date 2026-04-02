@@ -2168,14 +2168,93 @@ export function MessagesView({ showToast }: { showToast: (t: string, tp?: 'ok' |
 export function AgentView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') => void }) {
   const [data, setData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
-  const [activeSkill, setActiveSkill] = useState<string | null>(null)
+  const [tab, setTab] = useState<'overview' | 'config' | 'squad' | 'training' | 'skills'>('overview')
+  const [saving, setSaving] = useState(false)
 
-  useEffect(() => {
+  // Config state
+  const [agentName, setAgentName] = useState('')
+  const [tone, setTone] = useState('friendly')
+  const [objective, setObjective] = useState('')
+  const [businessContext, setBusinessContext] = useState('')
+  const [includeEmojis, setIncludeEmojis] = useState(true)
+  const [maxLength, setMaxLength] = useState('500')
+  const [globalAiEnabled, setGlobalAiEnabled] = useState(false)
+  const [globalAiReason, setGlobalAiReason] = useState('')
+
+  // Training
+  const [trainingText, setTrainingText] = useState('')
+  const [trainingCategory, setTrainingCategory] = useState('faq')
+  const [kbEntries, setKbEntries] = useState<any[]>([])
+
+  function load() {
     setLoading(true)
-    fetch('/api/ai/workspace-overview', { headers: getHeaders() })
-      .then(r => r.json()).then(d => { setData(d.overview || d); setLoading(false) })
-      .catch(() => setLoading(false))
-  }, [])
+    Promise.all([
+      fetch('/api/ai/workspace-overview', { headers: getHeaders() }).then(r => r.json()).catch(() => ({})),
+      fetch('/api/ai/agent-profile', { headers: getHeaders() }).then(r => r.json()).catch(() => ({})),
+      fetch('/api/inbox/ai-global-state', { headers: getHeaders() }).then(r => r.json()).catch(() => ({})),
+      fetch('/api/knowledge-base?limit=50', { headers: getHeaders() }).then(r => r.json()).catch(() => ({ entries: [] })),
+    ]).then(([ws, profile, aiState, kb]) => {
+      setData(ws.overview || ws)
+      const p = profile.profile || {}
+      setAgentName(p.agent_name || '')
+      setTone(p.tone || 'friendly')
+      setObjective(p.objective || '')
+      setBusinessContext(p.business_context || '')
+      setIncludeEmojis(p.include_emojis !== false)
+      setMaxLength(String(p.max_length || 500))
+      const g = aiState.global_ai || {}
+      setGlobalAiEnabled(g.enabled !== false && !g.reason?.includes('Pausa'))
+      setGlobalAiReason(g.reason || '')
+      setKbEntries(kb.entries || [])
+      setLoading(false)
+    })
+  }
+  useEffect(() => { load() }, [])
+
+  async function saveProfile() {
+    setSaving(true)
+    try {
+      await fetch('/api/ai/agent-profile', {
+        method: 'PUT', headers: getHeaders(),
+        body: JSON.stringify({ agent_name: agentName, tone, objective, business_context: businessContext, include_emojis: includeEmojis, max_length: Number(maxLength) }),
+      })
+      showToast('Perfil salvo!')
+    } catch (e: any) { showToast(e.message, 'err') }
+    setSaving(false)
+  }
+
+  async function toggleGlobalAi() {
+    const newState = !globalAiEnabled
+    try {
+      await fetch('/api/inbox/ai-global-state', {
+        method: 'PATCH', headers: getHeaders(),
+        body: JSON.stringify({ enabled: newState, reason: newState ? 'Ativado pelo admin' : 'Pausado pelo admin' }),
+      })
+      setGlobalAiEnabled(newState)
+      showToast(newState ? 'IA ativada globalmente!' : 'IA pausada globalmente')
+    } catch (e: any) { showToast(e.message, 'err') }
+  }
+
+  async function addTraining() {
+    if (!trainingText.trim()) return showToast('Texto obrigatorio', 'err')
+    try {
+      await fetch('/api/knowledge-base', {
+        method: 'POST', headers: getHeaders(),
+        body: JSON.stringify({ question: trainingText.trim(), answer: trainingText.trim(), category: trainingCategory }),
+      })
+      setTrainingText('')
+      showToast('Conhecimento adicionado!')
+      load()
+    } catch (e: any) { showToast(e.message, 'err') }
+  }
+
+  async function deleteKb(id: string) {
+    try {
+      await fetch(`/api/knowledge-base/${id}`, { method: 'DELETE', headers: getHeaders() })
+      setKbEntries(prev => prev.filter(e => e.id !== id))
+      showToast('Removido')
+    } catch {}
+  }
 
   if (loading) return <Skeleton rows={8} />
 
@@ -2184,125 +2263,266 @@ export function AgentView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'e
   const whatsapp = data?.whatsapp || {}
   const score = data?.readiness_score || 0
 
-  // Skills system — specialized AI departments
-  const departments = [
-    {
-      name: 'Vendas',
-      color: 'from-emerald-500 to-teal-600',
-      icon: '💰',
-      skills: [
-        { id: 'sales-closer', name: 'Closer de Vendas', desc: 'Identifica sinais de compra e conduz ao fechamento', status: 'active' },
-        { id: 'sales-qualifier', name: 'Qualificador', desc: 'Classifica leads por potencial e perfil ideal', status: 'active' },
-        { id: 'sales-objections', name: 'Quebra de Objecoes', desc: 'Responde duvidas e remove barreiras de compra', status: 'beta' },
-        { id: 'sales-upsell', name: 'Upsell & Cross-sell', desc: 'Sugere produtos complementares pos-venda', status: 'planned' },
-      ]
-    },
-    {
-      name: 'Marketing',
-      color: 'from-violet-500 to-purple-600',
-      icon: '📣',
-      skills: [
-        { id: 'mkt-copywriter', name: 'Copywriter', desc: 'Cria textos persuasivos para campanhas e mensagens', status: 'active' },
-        { id: 'mkt-segmentation', name: 'Segmentacao', desc: 'Analisa base e sugere segmentos de alto valor', status: 'beta' },
-        { id: 'mkt-nurturing', name: 'Nutrição de Leads', desc: 'Sequencias educativas para aquecer leads frios', status: 'active' },
-        { id: 'mkt-content', name: 'Planejador de Conteudo', desc: 'Calendario editorial e estrategia de posts', status: 'planned' },
-      ]
-    },
-    {
-      name: 'Atendimento',
-      color: 'from-blue-500 to-indigo-600',
-      icon: '🎧',
-      skills: [
-        { id: 'cs-firstcontact', name: 'Primeiro Contato', desc: 'Abordagem humanizada e profissional via WhatsApp', status: 'active' },
-        { id: 'cs-faq', name: 'FAQ Inteligente', desc: 'Responde perguntas frequentes com base de conhecimento', status: 'active' },
-        { id: 'cs-escalation', name: 'Escalacao', desc: 'Identifica quando transferir para humano', status: 'active' },
-        { id: 'cs-satisfaction', name: 'Pesquisa Satisfacao', desc: 'Coleta feedback apos interacao ou venda', status: 'beta' },
-      ]
-    },
-    {
-      name: 'Logistica',
-      color: 'from-amber-500 to-orange-600',
-      icon: '🚚',
-      skills: [
-        { id: 'log-tracking', name: 'Rastreamento', desc: 'Informa status do pedido e previsao de entrega', status: 'active' },
-        { id: 'log-scheduling', name: 'Agendamento', desc: 'Agenda entrega com confirmacao do cliente', status: 'beta' },
-        { id: 'log-returns', name: 'Trocas e Devolucoes', desc: 'Processa solicitacoes de troca e devolucao', status: 'planned' },
-      ]
-    },
-    {
-      name: 'Inteligencia',
-      color: 'from-pink-500 to-rose-600',
-      icon: '🧠',
-      skills: [
-        { id: 'intel-sentiment', name: 'Analise de Sentimento', desc: 'Classifica respostas como positiva/neutra/negativa', status: 'active' },
-        { id: 'intel-intent', name: 'Deteccao de Intencao', desc: 'Identifica o que o lead realmente quer', status: 'active' },
-        { id: 'intel-scoring', name: 'Lead Scoring', desc: 'Pontua leads automaticamente por engajamento', status: 'beta' },
-        { id: 'intel-predict', name: 'Predicao de Conversao', desc: 'Estima probabilidade de fechamento', status: 'planned' },
-      ]
-    },
+  const Toggle = ({ value, onChange }: { value: boolean; onChange: () => void }) => (
+    <button type="button" onClick={onChange}
+      className={`relative w-11 h-6 rounded-full transition shrink-0 ${value ? 'bg-emerald-500' : 'bg-gray-300'}`}>
+      <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${value ? 'translate-x-5' : ''}`} />
+    </button>
+  )
+
+  const tabs = [
+    { key: 'overview', label: 'Visao Geral' },
+    { key: 'config', label: 'Configuracao' },
+    { key: 'squad', label: 'Squad & Atendimento' },
+    { key: 'training', label: 'Treinamento' },
+    { key: 'skills', label: 'Skills' },
   ]
 
-  const statusLabel = (s: string) => {
-    if (s === 'active') return { text: 'Ativa', cls: 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200' }
-    if (s === 'beta') return { text: 'Beta', cls: 'bg-violet-50 text-violet-700 ring-1 ring-violet-200' }
-    return { text: 'Em breve', cls: 'bg-gray-100 text-gray-500' }
-  }
+  // Skills departments
+  const departments = [
+    { name: 'Vendas', icon: '💰', color: 'from-emerald-500 to-teal-600', skills: [
+      { name: 'Closer de Vendas', status: 'active' }, { name: 'Qualificador', status: 'active' },
+      { name: 'Quebra de Objecoes', status: 'beta' }, { name: 'Upsell & Cross-sell', status: 'planned' },
+    ]},
+    { name: 'Marketing', icon: '📣', color: 'from-violet-500 to-purple-600', skills: [
+      { name: 'Copywriter', status: 'active' }, { name: 'Segmentacao', status: 'beta' },
+      { name: 'Nutricao de Leads', status: 'active' }, { name: 'Conteudo', status: 'planned' },
+    ]},
+    { name: 'Atendimento', icon: '🎧', color: 'from-blue-500 to-indigo-600', skills: [
+      { name: 'Primeiro Contato', status: 'active' }, { name: 'FAQ Inteligente', status: 'active' },
+      { name: 'Escalacao Humano', status: 'active' }, { name: 'Pesquisa Satisfacao', status: 'beta' },
+    ]},
+    { name: 'Logistica', icon: '🚚', color: 'from-amber-500 to-orange-600', skills: [
+      { name: 'Rastreamento', status: 'active' }, { name: 'Agendamento', status: 'beta' },
+    ]},
+    { name: 'Inteligencia', icon: '🧠', color: 'from-pink-500 to-rose-600', skills: [
+      { name: 'Sentimento', status: 'active' }, { name: 'Intencao', status: 'active' },
+      { name: 'Lead Scoring', status: 'beta' }, { name: 'Predicao', status: 'planned' },
+    ]},
+  ]
 
   return (
     <div className="space-y-5">
-      <div>
-        <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">Agente IA</h2>
-        <p className="text-[13px] text-gray-400 mt-0.5">Sistema de skills especializadas · GPT-4o Mini</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">Agente IA</h2>
+          <p className="text-[13px] text-gray-400 mt-0.5">GPT-4o Mini · {agentName || 'Assistente'}</p>
+        </div>
+        {/* Global AI toggle */}
+        <div className="flex items-center gap-3">
+          <div className={`flex items-center gap-2 px-3 py-2 rounded-xl ${globalAiEnabled ? 'bg-emerald-50 ring-1 ring-emerald-200' : 'bg-red-50 ring-1 ring-red-200'}`}>
+            <div className={`w-2.5 h-2.5 rounded-full ${globalAiEnabled ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`} />
+            <span className={`text-xs font-bold ${globalAiEnabled ? 'text-emerald-700' : 'text-red-700'}`}>{globalAiEnabled ? 'IA Ativa' : 'IA Pausada'}</span>
+            <Toggle value={globalAiEnabled} onChange={toggleGlobalAi} />
+          </div>
+        </div>
       </div>
 
-      {/* Score + Profile header */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <div className="sm:col-span-2 bg-gradient-to-br from-violet-500 to-indigo-600 rounded-2xl p-5 text-white shadow-lg">
-          <div className="flex items-center justify-between mb-3">
+      {/* Tabs */}
+      <div className="flex gap-1 bg-gray-100 p-0.5 rounded-xl overflow-x-auto scrollbar-hide">
+        {tabs.map(t => (
+          <button key={t.key} onClick={() => setTab(t.key as any)}
+            className={`px-3.5 py-1.5 rounded-lg text-[11px] font-semibold transition whitespace-nowrap ${
+              tab === t.key ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'
+            }`}>{t.label}</button>
+        ))}
+      </div>
+
+      {/* ── Tab: Overview ── */}
+      {tab === 'overview' && (<>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="sm:col-span-2 bg-gradient-to-br from-violet-500 to-indigo-600 rounded-2xl p-5 text-white shadow-lg">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <p className="text-white/50 text-[10px] font-bold uppercase tracking-wider">Prontidao</p>
+                <p className="text-4xl font-extrabold mt-1">{score}<span className="text-lg text-white/50">%</span></p>
+              </div>
+              <div className="text-right">
+                <p className="text-sm font-bold">{profile.agent_name || 'Agente'}</p>
+                <p className="text-[10px] text-white/50">{profile.tone === 'friendly' ? 'Tom amigavel' : profile.tone} · {profile.language}</p>
+              </div>
+            </div>
+            <div className="w-full h-1.5 bg-white/20 rounded-full overflow-hidden">
+              <div className="h-full bg-white/80 rounded-full transition-all" style={{ width: `${score}%` }} />
+            </div>
+          </div>
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-4 flex flex-col justify-between">
+            <div className="flex items-center gap-2 mb-2">
+              <div className={`w-2.5 h-2.5 rounded-full ${whatsapp.autonomous ? 'bg-emerald-500 animate-pulse' : 'bg-gray-300'}`} />
+              <span className="text-xs font-bold text-gray-700">WhatsApp</span>
+            </div>
+            <div className="grid grid-cols-2 gap-1.5">
+              <div className="bg-gray-50 rounded-lg p-1.5 text-center">
+                <p className="text-sm font-extrabold text-gray-900">{training.total_entries || 0}</p>
+                <p className="text-[8px] text-gray-400">Treinamentos</p>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-1.5 text-center">
+                <p className="text-sm font-extrabold text-gray-900">{kbEntries.length}</p>
+                <p className="text-[8px] text-gray-400">Base Conhec.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+        {profile.objective && (
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-4">
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em] mb-1.5">Diretriz</p>
+            <p className="text-xs text-gray-600 leading-relaxed line-clamp-3">{profile.objective}</p>
+          </div>
+        )}
+      </>)}
+
+      {/* ── Tab: Config ── */}
+      {tab === 'config' && (<>
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-5 space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <p className="text-white/50 text-[10px] font-bold uppercase tracking-wider">Prontidao</p>
-              <p className="text-4xl font-extrabold mt-1">{score}<span className="text-lg text-white/50">%</span></p>
+              <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5 block">Nome do Agente</label>
+              <input type="text" value={agentName} onChange={e => setAgentName(e.target.value)} placeholder="Ex: Consultor Alho Pronto"
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-200" />
             </div>
-            <div className="text-right">
-              <p className="text-sm font-bold">{profile.agent_name || 'Agente'}</p>
-              <p className="text-[10px] text-white/50">{profile.tone === 'friendly' ? 'Tom amigavel' : profile.tone} · {profile.language}</p>
+            <div>
+              <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5 block">Tom de voz</label>
+              <select value={tone} onChange={e => setTone(e.target.value)}
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-200">
+                <option value="friendly">Amigavel</option>
+                <option value="professional">Profissional</option>
+                <option value="casual">Casual</option>
+                <option value="formal">Formal</option>
+              </select>
             </div>
           </div>
-          <div className="w-full h-1.5 bg-white/20 rounded-full overflow-hidden">
-            <div className="h-full bg-white/80 rounded-full transition-all" style={{ width: `${score}%` }} />
+          <div>
+            <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5 block">Objetivo do Agente</label>
+            <textarea value={objective} onChange={e => setObjective(e.target.value)} rows={3} placeholder="O que o agente deve fazer..."
+              className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-200 resize-none" />
+          </div>
+          <div>
+            <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5 block">Contexto do Negocio</label>
+            <textarea value={businessContext} onChange={e => setBusinessContext(e.target.value)} rows={3} placeholder="Descreva seu negocio, produtos, diferenciais..."
+              className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-200 resize-none" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex items-center justify-between bg-gray-50 rounded-xl p-3">
+              <span className="text-xs font-medium text-gray-600">Usar emojis</span>
+              <Toggle value={includeEmojis} onChange={() => setIncludeEmojis(!includeEmojis)} />
+            </div>
+            <div>
+              <label className="text-[11px] font-bold text-gray-400 uppercase mb-1 block">Max. caracteres</label>
+              <input type="number" value={maxLength} onChange={e => setMaxLength(e.target.value)} min={100} max={2000}
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-200" />
+            </div>
+          </div>
+          <button onClick={saveProfile} disabled={saving}
+            className="px-5 py-2.5 rounded-xl bg-violet-600 text-white text-xs font-bold hover:bg-violet-700 disabled:opacity-50 transition shadow-sm">
+            {saving ? 'Salvando...' : 'Salvar Perfil'}
+          </button>
+        </div>
+      </>)}
+
+      {/* ── Tab: Squad & Atendimento ── */}
+      {tab === 'squad' && (<>
+        {/* Global AI control */}
+        <div className={`rounded-2xl p-5 ${globalAiEnabled ? 'bg-emerald-50 border border-emerald-200' : 'bg-red-50 border border-red-200'}`}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className={`w-12 h-12 rounded-xl grid place-items-center ${globalAiEnabled ? 'bg-emerald-500' : 'bg-red-500'}`}>
+                <Bot size={24} className="text-white" />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-gray-900">Autoatendimento Global</p>
+                <p className="text-[10px] text-gray-500">{globalAiEnabled ? 'IA respondendo autonomamente' : 'IA pausada — respostas manuais'}</p>
+              </div>
+            </div>
+            <Toggle value={globalAiEnabled} onChange={toggleGlobalAi} />
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-4 flex flex-col justify-between">
-          <div className="flex items-center gap-2 mb-2">
-            <div className={`w-2.5 h-2.5 rounded-full ${whatsapp.autonomous ? 'bg-emerald-500 animate-pulse' : 'bg-gray-300'}`} />
-            <span className="text-xs font-bold text-gray-700">WhatsApp</span>
-          </div>
-          <p className="text-[10px] text-gray-400">{whatsapp.autonomous ? 'Autoatendimento ativo' : 'Desativado'}</p>
-          <div className="mt-2 grid grid-cols-2 gap-1.5">
-            <div className="bg-gray-50 rounded-lg p-1.5 text-center">
-              <p className="text-sm font-extrabold text-gray-900">{training.total_entries || 0}</p>
-              <p className="text-[8px] text-gray-400">Treinamentos</p>
+        {/* Squad modes */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-5 space-y-3">
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em]">Modos de atendimento</p>
+          {[
+            { key: 'autonomous', label: 'Autonomo', desc: 'IA responde sozinha, escala para humano quando necessario', icon: '🤖', active: globalAiEnabled },
+            { key: 'copilot', label: 'Co-piloto', desc: 'IA sugere respostas, humano aprova antes de enviar', icon: '🧑‍✈️', active: false },
+            { key: 'manual', label: 'Manual', desc: 'Somente respostas humanas, IA desativada', icon: '👤', active: !globalAiEnabled },
+          ].map(m => (
+            <div key={m.key} className={`flex items-center gap-3 p-3.5 rounded-xl border transition ${m.active ? 'border-violet-300 bg-violet-50' : 'border-gray-200'}`}>
+              <span className="text-2xl">{m.icon}</span>
+              <div className="flex-1">
+                <p className={`text-sm font-bold ${m.active ? 'text-violet-700' : 'text-gray-700'}`}>{m.label}</p>
+                <p className="text-[10px] text-gray-400">{m.desc}</p>
+              </div>
+              {m.active && <div className="w-2.5 h-2.5 rounded-full bg-violet-500 animate-pulse shrink-0" />}
             </div>
-            <div className="bg-gray-50 rounded-lg p-1.5 text-center">
-              <p className="text-sm font-extrabold text-gray-900">{training.categories_count || 0}</p>
-              <p className="text-[8px] text-gray-400">Categorias</p>
+          ))}
+        </div>
+
+        {/* Rules */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-5 space-y-3">
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em]">Regras de Escalonamento</p>
+          {[
+            { label: 'Escalar para humano se lead pedir', desc: 'Detecta "falar com atendente" e similares', enabled: true },
+            { label: 'Escalar apos 3 mensagens sem resolucao', desc: 'Se a IA nao resolver em 3 trocas', enabled: true },
+            { label: 'Notificar admin em pedidos acima de R$ 500', desc: 'Pedidos de alto valor recebem atencao humana', enabled: false },
+            { label: 'Pausar IA fora do horario comercial', desc: 'Das 18h as 8h o atendimento e manual', enabled: false },
+          ].map((r, i) => (
+            <div key={i} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
+              <div>
+                <p className="text-xs font-semibold text-gray-700">{r.label}</p>
+                <p className="text-[10px] text-gray-400">{r.desc}</p>
+              </div>
+              <div className={`relative w-9 h-5 rounded-full transition ${r.enabled ? 'bg-emerald-500' : 'bg-gray-300'}`}>
+                <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${r.enabled ? 'translate-x-4' : ''}`} />
+              </div>
+            </div>
+          ))}
+        </div>
+      </>)}
+
+      {/* ── Tab: Training ── */}
+      {tab === 'training' && (<>
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-5 space-y-4">
+          <p className="text-sm font-bold text-gray-900">Adicionar Conhecimento</p>
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+            <div className="sm:col-span-3">
+              <textarea value={trainingText} onChange={e => setTrainingText(e.target.value)} rows={2}
+                placeholder="Ex: Nosso alho descascado tipo A e ideal para restaurantes que processam grandes volumes..."
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-200 resize-none" />
+            </div>
+            <div className="flex flex-col gap-2">
+              <select value={trainingCategory} onChange={e => setTrainingCategory(e.target.value)}
+                className="px-3 py-2 border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-violet-200">
+                <option value="faq">FAQ</option>
+                <option value="produto">Produto</option>
+                <option value="preco">Preco</option>
+                <option value="entrega">Entrega</option>
+                <option value="geral">Geral</option>
+              </select>
+              <button onClick={addTraining}
+                className="px-3 py-2 rounded-xl bg-violet-600 text-white text-xs font-bold hover:bg-violet-700 transition">Adicionar</button>
             </div>
           </div>
         </div>
-      </div>
 
-      {/* Objective */}
-      {profile.objective && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-4">
-          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em] mb-1.5">Diretriz Principal</p>
-          <p className="text-xs text-gray-600 leading-relaxed line-clamp-3">{profile.objective}</p>
+        {/* KB entries */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+            <p className="text-xs font-bold text-gray-700">Base de Conhecimento</p>
+            <span className="text-[10px] text-gray-400">{kbEntries.length} entradas</span>
+          </div>
+          {kbEntries.length === 0 ? (
+            <div className="py-10 text-center"><p className="text-xs text-gray-400">Nenhum conhecimento cadastrado</p></div>
+          ) : kbEntries.map((e: any) => (
+            <div key={e.id} className="px-4 py-3 border-b border-gray-100 last:border-0 flex items-start gap-3">
+              <span className="text-[9px] font-bold text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded mt-0.5 shrink-0">{e.category || 'geral'}</span>
+              <p className="text-xs text-gray-600 flex-1 line-clamp-2">{e.question || e.answer || e.content}</p>
+              <button onClick={() => deleteKb(e.id)} className="text-gray-400 hover:text-red-500 transition shrink-0 p-1"><X size={12} /></button>
+            </div>
+          ))}
         </div>
-      )}
+      </>)}
 
-      {/* ── Skills by Department ── */}
-      <div>
-        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em] mb-3">Skills Especializadas</p>
+      {/* ── Tab: Skills ── */}
+      {tab === 'skills' && (<>
         <div className="space-y-3">
           {departments.map(dept => (
             <div key={dept.name} className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] overflow-hidden">
@@ -2314,42 +2534,27 @@ export function AgentView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'e
                 </div>
               </div>
               <div className="divide-y divide-gray-100">
-                {dept.skills.map(skill => {
-                  const sl = statusLabel(skill.status)
-                  const isOpen = activeSkill === skill.id
-                  return (
-                    <button key={skill.id} onClick={() => setActiveSkill(isOpen ? null : skill.id)}
-                      className="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-gray-50/50 transition">
-                      <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${skill.status === 'active' ? 'bg-emerald-500' : skill.status === 'beta' ? 'bg-violet-500' : 'bg-gray-300'}`} />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-semibold text-gray-800">{skill.name}</p>
-                        <p className="text-[10px] text-gray-400 mt-0.5">{skill.desc}</p>
-                      </div>
-                      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${sl.cls}`}>{sl.text}</span>
-                    </button>
-                  )
-                })}
+                {dept.skills.map(skill => (
+                  <div key={skill.name} className="px-4 py-3 flex items-center gap-3">
+                    <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${skill.status === 'active' ? 'bg-emerald-500' : skill.status === 'beta' ? 'bg-violet-500' : 'bg-gray-300'}`} />
+                    <span className="text-xs font-semibold text-gray-800 flex-1">{skill.name}</span>
+                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                      skill.status === 'active' ? 'bg-emerald-50 text-emerald-700' : skill.status === 'beta' ? 'bg-violet-50 text-violet-700' : 'bg-gray-100 text-gray-500'
+                    }`}>{skill.status === 'active' ? 'Ativa' : skill.status === 'beta' ? 'Beta' : 'Em breve'}</span>
+                  </div>
+                ))}
               </div>
             </div>
           ))}
         </div>
-      </div>
-
-      {/* Model info */}
-      <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
-        <div className="flex items-center gap-2">
-          <Bot size={14} className="text-gray-400" />
+        <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
           <span className="text-[11px] font-semibold text-gray-500">Motor: GPT-4o Mini</span>
+          <span className="text-[9px] text-gray-400">Alto raciocinio · Baixo custo</span>
         </div>
-        <span className="text-[9px] text-gray-400">Alto raciocinio · Baixo custo · Alta velocidade</span>
-      </div>
+      </>)}
     </div>
   )
 }
-
-/* ══════════════════════════════════════════════
-   NOTIFICATIONS VIEW
-   ══════════════════════════════════════════════ */
 export function NotificationsView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') => void }) {
   const [notifications, setNotifications] = useState<any[]>([])
   const [loading, setLoading] = useState(true)

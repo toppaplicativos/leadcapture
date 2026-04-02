@@ -28,7 +28,11 @@ export class AIService {
   private model: GenerativeModel;
 
   constructor() {
-    this.genAI = new GoogleGenerativeAI(config.geminiApiKey);
+    const apiKey = config.geminiApiKey;
+    if (!apiKey) {
+      logger.warn('GEMINI_API_KEY not configured — AI features will return fallback responses');
+    }
+    this.genAI = new GoogleGenerativeAI(apiKey || 'dummy-key');
     this.model = this.genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
   }
 

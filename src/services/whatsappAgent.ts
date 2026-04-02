@@ -18,6 +18,8 @@ type GenerateWhatsAppReplyResult = {
   profile: Awaited<ReturnType<AIAgentProfileService["getByUserId"]>>;
   knowledgeApplied: boolean;
   catalogApplied: boolean;
+  shouldEscalate?: boolean;
+  escalationReason?: string;
 };
 
 export class WhatsAppAgentService {
@@ -131,12 +133,32 @@ export class WhatsAppAgentService {
     const recentHistory = historyLines.slice(-Math.max(1, Math.min(Number(input.maxHistoryLines || 12), 20)));
 
     const profile = await this.aiAgentProfileService.getByUserId(userId, brandId || undefined);
-    const [kbContext, behaviorBlock, whatsappBlock, catalogContext] = await Promise.all([
+    // Check for escalation triggers before generating
+    const escalationKeywords = ['atendente', 'humano', 'pessoa real', 'falar com alguem', 'gerente', 'supervisor', 'reclamacao', 'reclamar', 'problema grave', 'cancelar tudo'];
+    const lowerMsg = incomingMessage.toLowerCase();
+    const shouldEscalate = escalationKeywords.some(kw => lowerMsg.includes(kw));
+    if (shouldEscalate) {
+      return {
+        text: `Entendi! Vou transferir você para um atendente humano agora. Um momento, por favor. 🙏`,
+        profile,
+        knowledgeApplied: false,
+        catalogApplied: false,
+        shouldEscalate: true,
+        escalationReason: 'customer_requested_human',
+      };
+    }
+
+    // Fetch context with error resilience
+    const results = await Promise.allSettled([
       this.knowledgeBaseService.searchForContext(incomingMessage, userId, brandId || profile.company_id),
       Promise.resolve(this.aiAgentProfileService.buildBehaviorBlock(profile)),
       Promise.resolve(this.buildWhatsAppOperatingBlock(profile)),
       this.getCatalogContext(userId, brandId),
     ]);
+    const kbContext = results[0].status === 'fulfilled' ? results[0].value : '';
+    const behaviorBlock = results[1].status === 'fulfilled' ? results[1].value : '';
+    const whatsappBlock = results[2].status === 'fulfilled' ? results[2].value : '';
+    const catalogContext = results[3].status === 'fulfilled' ? results[3].value : '';
 
     const mergedContext = [
       recentHistory.length ? `HISTÓRICO RECENTE:\n${recentHistory.join("\n")}` : "",

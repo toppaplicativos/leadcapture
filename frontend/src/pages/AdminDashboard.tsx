@@ -2306,7 +2306,7 @@ export function AgentView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'e
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">Agente IA</h2>
-          <p className="text-[13px] text-gray-400 mt-0.5">GPT-4o Mini · {agentName || 'Assistente'}</p>
+          <p className="text-[13px] text-gray-400 mt-0.5">Gemini 2.0 Flash · {agentName || 'Assistente'}</p>
         </div>
         {/* Global AI toggle */}
         <div className="flex items-center gap-3">
@@ -2548,7 +2548,7 @@ export function AgentView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'e
           ))}
         </div>
         <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
-          <span className="text-[11px] font-semibold text-gray-500">Motor: GPT-4o Mini</span>
+          <span className="text-[11px] font-semibold text-gray-500">Motor: Gemini 2.0 Flash</span>
           <span className="text-[9px] text-gray-400">Alto raciocinio · Baixo custo</span>
         </div>
       </>)}

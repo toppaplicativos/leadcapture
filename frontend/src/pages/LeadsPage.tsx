@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   Search, Users, Phone, Mail, MapPin, Tag, Star,
   ChevronLeft, ChevronRight, Loader2, Trash2,
   MessageSquare, Clock, X, Globe, Send, ExternalLink,
+  TrendingUp, Filter, Building2, Zap, UserCheck, UserX, Eye,
 } from 'lucide-react'
 
 /* ── Helpers ── */
@@ -18,17 +19,14 @@ function getHeaders(): Record<string, string> {
 const dt = (v?: string) => { try { return new Date(v!).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' }) } catch { return '' } }
 const dtFull = (v?: string) => { try { return new Date(v!).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) } catch { return '' } }
 
-const STATUS_MAP: Record<string, { label: string; cls: string }> = {
-  new: { label: 'Novo', cls: 'bg-blue-50 text-blue-700 ring-1 ring-blue-200' },
-  contacted: { label: 'Contatado', cls: 'bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200' },
-  replied: { label: 'Respondeu', cls: 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200' },
-  negotiating: { label: 'Negociando', cls: 'bg-amber-50 text-amber-800 ring-1 ring-amber-200' },
-  converted: { label: 'Convertido', cls: 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200' },
-  lost: { label: 'Perdido', cls: 'bg-red-50 text-red-700 ring-1 ring-red-200' },
-  inactive: { label: 'Inativo', cls: 'bg-gray-100 text-gray-600' },
-}
-const SOURCE_MAP: Record<string, string> = {
-  google_places: 'Google Places', manual: 'Manual', import: 'Importado', referral: 'Indicacao', website: 'Website',
+const STATUS_MAP: Record<string, { label: string; cls: string; bg: string }> = {
+  new: { label: 'Novo', cls: 'text-blue-700', bg: 'bg-blue-50 ring-1 ring-blue-200' },
+  contacted: { label: 'Contatado', cls: 'text-indigo-700', bg: 'bg-indigo-50 ring-1 ring-indigo-200' },
+  replied: { label: 'Respondeu', cls: 'text-emerald-700', bg: 'bg-emerald-50 ring-1 ring-emerald-200' },
+  negotiating: { label: 'Negociando', cls: 'text-amber-800', bg: 'bg-amber-50 ring-1 ring-amber-200' },
+  converted: { label: 'Convertido', cls: 'text-emerald-700', bg: 'bg-emerald-50 ring-1 ring-emerald-200' },
+  lost: { label: 'Perdido', cls: 'text-red-700', bg: 'bg-red-50 ring-1 ring-red-200' },
+  inactive: { label: 'Inativo', cls: 'text-gray-600', bg: 'bg-gray-100' },
 }
 
 interface Client {
@@ -38,37 +36,30 @@ interface Client {
   lead_score?: number; created_at?: string; updated_at?: string
   google_rating?: number; google_reviews_count?: number
   website?: string; google_maps_uri?: string; category?: string; subcategory?: string
-  phone_secondary?: string; business_status?: string
+  phone_secondary?: string; business_status?: string; has_whatsapp?: boolean
 }
 
 /* ══════════════════════════════════════════════
-   LEADS PAGE
+   LEADS PAGE — Dashboard + Table + Modal
    ══════════════════════════════════════════════ */
 export function LeadsPage() {
-  const [clients, setClients] = useState<Client[]>([])
+  const [allClients, setAllClients] = useState<Client[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState('')
-  const [sourceFilter, setSourceFilter] = useState('')
+  const [activeFilter, setActiveFilter] = useState<string>('')
   const [page, setPage] = useState(1)
-  const [total, setTotal] = useState(0)
   const [selectedLead, setSelectedLead] = useState<Client | null>(null)
-
-  const limit = 30
+  const limit = 25
 
   const fetchClients = useCallback(() => {
     setLoading(true)
-    const q = new URLSearchParams({ page: String(page), limit: String(limit) })
-    if (search) q.set('search', search)
-    if (statusFilter) q.set('status', statusFilter)
-    if (sourceFilter) q.set('source', sourceFilter)
     Promise.all([
-      fetch(`/api/customers?${q}`, { headers: getHeaders() }).then(r => r.json()).catch(() => ({ customers: [] })),
-      fetch(`/api/clients?${q}`, { headers: getHeaders() }).then(r => r.json()).catch(() => ({ clients: [] })),
+      fetch('/api/customers?limit=999', { headers: getHeaders() }).then(r => r.json()).catch(() => ({ customers: [] })),
+      fetch('/api/clients?limit=999', { headers: getHeaders() }).then(r => r.json()).catch(() => ({ clients: [] })),
     ]).then(([cust, cli]) => {
       const customers = (cust.customers || []).map((c: any) => ({ ...c, source: c.source || 'google_places' }))
-      const manualClients = (cli.clients || []).map((c: any) => ({ ...c, source: c.source || 'manual' }))
-      const all = [...customers, ...manualClients]
+      const manual = (cli.clients || []).map((c: any) => ({ ...c, source: c.source || 'manual' }))
+      const all = [...customers, ...manual]
       const seen = new Set<string>()
       const deduped = all.filter(c => {
         const key = (c.phone || c.id || '').replace(/\D/g, '')
@@ -76,65 +67,166 @@ export function LeadsPage() {
         if (key) seen.add(key)
         return true
       })
-      setClients(deduped)
-      const custTotal = Number(cust.total || cust.customers?.length || 0)
-      const cliTotal = Number(cli.total || cli.clients?.length || 0)
-      setTotal(custTotal + cliTotal)
+      setAllClients(deduped)
       setLoading(false)
     }).catch(() => setLoading(false))
-  }, [page, search, statusFilter, sourceFilter])
+  }, [])
 
   useEffect(() => { fetchClients() }, [fetchClients])
 
-  const hasFilters = statusFilter || sourceFilter
-  const totalPages = Math.ceil(total / limit)
+  // ── Computed metrics ──
+  const metrics = useMemo(() => {
+    const total = allClients.length
+    const withPhone = allClients.filter(c => c.phone).length
+    const withEmail = allClients.filter(c => c.email).length
+    const withRating = allClients.filter(c => Number(c.google_rating) > 0).length
+    const avgRating = withRating > 0 ? allClients.reduce((s, c) => s + (Number(c.google_rating) || 0), 0) / withRating : 0
+    const statusCounts: Record<string, number> = {}
+    allClients.forEach(c => { statusCounts[c.status || 'new'] = (statusCounts[c.status || 'new'] || 0) + 1 })
+    const categoryCounts: Record<string, number> = {}
+    allClients.forEach(c => { if (c.category) categoryCounts[c.category] = (categoryCounts[c.category] || 0) + 1 })
+    const cityCounts: Record<string, number> = {}
+    allClients.forEach(c => { if (c.city) cityCounts[c.city] = (cityCounts[c.city] || 0) + 1 })
+    const topCategories = Object.entries(categoryCounts).sort((a, b) => b[1] - a[1]).slice(0, 6)
+    const topCities = Object.entries(cityCounts).sort((a, b) => b[1] - a[1]).slice(0, 5)
+    const thisWeek = allClients.filter(c => {
+      const d = new Date(c.created_at || '')
+      return d.getTime() > Date.now() - 7 * 86400000
+    }).length
+    return { total, withPhone, withEmail, withRating, avgRating, statusCounts, topCategories, topCities, thisWeek }
+  }, [allClients])
+
+  // ── Filtered + searched ──
+  const filtered = useMemo(() => {
+    let list = allClients
+    if (activeFilter) {
+      if (activeFilter.startsWith('status:')) list = list.filter(c => (c.status || 'new') === activeFilter.slice(7))
+      else if (activeFilter.startsWith('category:')) list = list.filter(c => c.category === activeFilter.slice(9))
+      else if (activeFilter.startsWith('city:')) list = list.filter(c => c.city === activeFilter.slice(5))
+      else if (activeFilter === 'has_phone') list = list.filter(c => c.phone)
+      else if (activeFilter === 'has_email') list = list.filter(c => c.email)
+      else if (activeFilter === 'has_rating') list = list.filter(c => Number(c.google_rating) > 0)
+      else if (activeFilter === 'this_week') list = list.filter(c => new Date(c.created_at || '').getTime() > Date.now() - 7 * 86400000)
+    }
+    if (search) {
+      const q = search.toLowerCase()
+      list = list.filter(c => (c.name || '').toLowerCase().includes(q) || (c.phone || '').includes(q) || (c.email || '').toLowerCase().includes(q) || (c.city || '').toLowerCase().includes(q))
+    }
+    return list
+  }, [allClients, activeFilter, search])
+
+  const totalPages = Math.ceil(filtered.length / limit)
+  const paged = filtered.slice((page - 1) * limit, page * limit)
+
+  function toggleFilter(f: string) {
+    setActiveFilter(prev => prev === f ? '' : f)
+    setPage(1)
+  }
+
+  if (loading) return (
+    <div className="space-y-4">
+      <div className="h-8 w-40 bg-gray-200 rounded-lg skeleton" />
+      <div className="grid grid-cols-4 gap-3">{[1,2,3,4].map(i => <div key={i} className="h-24 bg-gray-100 rounded-2xl skeleton" />)}</div>
+      <div className="h-64 bg-gray-100 rounded-2xl skeleton" />
+    </div>
+  )
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">Leads</h2>
-          <p className="text-[13px] text-gray-400 mt-0.5">{total} registros</p>
+    <div className="space-y-5">
+      {/* Header */}
+      <div>
+        <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">Leads</h2>
+        <p className="text-[13px] text-gray-400 mt-0.5">{metrics.total} registros &middot; {metrics.thisWeek} esta semana</p>
+      </div>
+
+      {/* ── KPI Cards (clickable filters) ── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+        <MetricCard label="Total Leads" value={metrics.total} icon={Users} gradient="from-blue-500 to-indigo-600"
+          active={!activeFilter} onClick={() => setActiveFilter('')} />
+        <MetricCard label="Com Telefone" value={metrics.withPhone} icon={Phone} gradient="from-emerald-500 to-teal-600"
+          active={activeFilter === 'has_phone'} onClick={() => toggleFilter('has_phone')}
+          sub={`${Math.round(metrics.withPhone / Math.max(metrics.total, 1) * 100)}%`} />
+        <MetricCard label="Esta Semana" value={metrics.thisWeek} icon={TrendingUp} gradient="from-violet-500 to-purple-600"
+          active={activeFilter === 'this_week'} onClick={() => toggleFilter('this_week')} />
+        <MetricCard label="Rating Medio" value={metrics.avgRating > 0 ? metrics.avgRating.toFixed(1) : '—'} icon={Star} gradient="from-amber-500 to-orange-600"
+          active={activeFilter === 'has_rating'} onClick={() => toggleFilter('has_rating')}
+          sub={`${metrics.withRating} avaliados`} />
+      </div>
+
+      {/* ── Status funnel ── */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-4">
+        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em] mb-3">Funil de Status</p>
+        <div className="flex gap-1.5 flex-wrap">
+          {Object.entries(STATUS_MAP).map(([key, cfg]) => {
+            const count = metrics.statusCounts[key] || 0
+            const isActive = activeFilter === `status:${key}`
+            return (
+              <button key={key} onClick={() => toggleFilter(`status:${key}`)}
+                className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
+                  isActive ? cfg.bg + ' ' + cfg.cls + ' shadow-sm scale-105' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
+                }`}>
+                <span>{cfg.label}</span>
+                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${isActive ? 'bg-white/60' : 'bg-gray-200/60'}`}>{count}</span>
+              </button>
+            )
+          })}
         </div>
       </div>
 
-      {/* Search + Filters */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] overflow-hidden">
-        <div className="p-4 flex flex-col sm:flex-row gap-3">
-          <div className="flex-1 relative">
-            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input type="text" value={search}
-              onChange={e => { setSearch(e.target.value); setPage(1) }}
-              placeholder="Buscar por nome, telefone ou email..."
-              className="w-full pl-9 pr-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 placeholder:text-gray-300" />
-          </div>
-          <div className="flex gap-2">
-            <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1) }}
-              className="px-3 py-2.5 border border-gray-200 rounded-xl text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-200 text-gray-600">
-              <option value="">Status</option>
-              {Object.entries(STATUS_MAP).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-            </select>
-            <select value={sourceFilter} onChange={e => { setSourceFilter(e.target.value); setPage(1) }}
-              className="px-3 py-2.5 border border-gray-200 rounded-xl text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-200 text-gray-600">
-              <option value="">Origem</option>
-              {Object.entries(SOURCE_MAP).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-            </select>
-            {hasFilters && (
-              <button onClick={() => { setStatusFilter(''); setSourceFilter(''); setPage(1) }}
-                className="px-2.5 py-2 rounded-xl bg-gray-100 text-gray-500 hover:bg-gray-200 transition"><X size={14} /></button>
-            )}
-          </div>
+      {/* ── Categories + Cities chips ── */}
+      {(metrics.topCategories.length > 0 || metrics.topCities.length > 0) && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {metrics.topCategories.length > 0 && (
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-4">
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em] mb-2">Categorias</p>
+              <div className="flex flex-wrap gap-1">
+                {metrics.topCategories.map(([cat, count]) => (
+                  <button key={cat} onClick={() => toggleFilter(`category:${cat}`)}
+                    className={`px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition capitalize ${
+                      activeFilter === `category:${cat}` ? 'bg-violet-100 text-violet-700 ring-1 ring-violet-300' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
+                    }`}>{cat.replace(/_/g, ' ')} <span className="text-[9px] opacity-60">{count}</span></button>
+                ))}
+              </div>
+            </div>
+          )}
+          {metrics.topCities.length > 0 && (
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-4">
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em] mb-2">Cidades</p>
+              <div className="flex flex-wrap gap-1">
+                {metrics.topCities.map(([city, count]) => (
+                  <button key={city} onClick={() => toggleFilter(`city:${city}`)}
+                    className={`px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition ${
+                      activeFilter === `city:${city}` ? 'bg-blue-100 text-blue-700 ring-1 ring-blue-300' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
+                    }`}>{city} <span className="text-[9px] opacity-60">{count}</span></button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
+      )}
+
+      {/* ── Search + Active filter indicator ── */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex-1 relative min-w-[200px]">
+          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input type="text" value={search} onChange={e => { setSearch(e.target.value); setPage(1) }}
+            placeholder="Buscar por nome, telefone, email, cidade..."
+            className="w-full pl-9 pr-3 py-2.5 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-200 placeholder:text-gray-300" />
+        </div>
+        {activeFilter && (
+          <button onClick={() => { setActiveFilter(''); setPage(1) }}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-violet-50 text-violet-700 text-xs font-semibold hover:bg-violet-100 transition">
+            <Filter size={12} /> {activeFilter.replace(':', ': ').replace('_', ' ')}
+            <X size={12} />
+          </button>
+        )}
+        <span className="text-xs text-gray-400 shrink-0">{filtered.length} resultados</span>
       </div>
 
-      {/* Table */}
-      {loading ? (
-        <div className="space-y-2">{Array.from({ length: 6 }).map((_, i) => (
-          <div key={i} className="h-14 bg-gray-100 rounded-xl skeleton" />
-        ))}</div>
-      ) : clients.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-16 text-center">
-          <div className="w-14 h-14 bg-gray-100 rounded-2xl grid place-items-center mb-3"><Users size={24} className="text-gray-300" /></div>
+      {/* ── Table ── */}
+      {paged.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-14 text-center">
+          <Users size={28} className="text-gray-300 mb-2" />
           <p className="text-sm font-medium text-gray-600">Nenhum lead encontrado</p>
         </div>
       ) : (
@@ -144,33 +236,38 @@ export function LeadsPage() {
               <tr className="bg-gray-50/80 border-b border-gray-100">
                 <th className="text-left px-4 py-2.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Lead</th>
                 <th className="text-left px-4 py-2.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider hidden sm:table-cell">Contato</th>
-                <th className="text-center px-4 py-2.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Status</th>
-                <th className="text-left px-4 py-2.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider hidden md:table-cell">Origem</th>
-                <th className="text-right px-4 py-2.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider hidden lg:table-cell">Data</th>
+                <th className="text-center px-4 py-2.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider hidden md:table-cell">Rating</th>
+                <th className="text-left px-4 py-2.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider hidden lg:table-cell">Categoria</th>
+                <th className="text-right px-4 py-2.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Data</th>
               </tr>
             </thead>
             <tbody>
-              {clients.map(c => {
-                const st = STATUS_MAP[c.status] || { label: c.status || '?', cls: 'bg-gray-100 text-gray-600' }
+              {paged.map(c => {
+                const rating = Number(c.google_rating) || 0
                 return (
                   <tr key={c.id} onClick={() => setSelectedLead(c)}
-                    className="border-b border-gray-100 last:border-0 cursor-pointer hover:bg-blue-50/30 transition">
+                    className="border-b border-gray-100 last:border-0 cursor-pointer hover:bg-blue-50/30 transition group">
                     <td className="px-4 py-3">
-                      <p className="font-semibold text-gray-900 truncate max-w-[200px]">{c.name || '—'}</p>
-                      {c.city && <p className="text-[10px] text-gray-400 mt-0.5">{c.city}{c.state ? `, ${c.state}` : ''}</p>}
-                      <p className="text-[10px] text-gray-400 sm:hidden mt-0.5">{c.phone || c.email || ''}</p>
+                      <p className="font-semibold text-gray-900 truncate max-w-[200px] group-hover:text-blue-600 transition">{c.name || '—'}</p>
+                      <p className="text-[10px] text-gray-400 mt-0.5">{c.city || ''}{c.state ? `, ${c.state}` : ''}</p>
                     </td>
                     <td className="px-4 py-3 hidden sm:table-cell">
-                      {c.phone && <p className="text-xs text-gray-600 font-mono">{c.phone}</p>}
-                      {c.email && <p className="text-[10px] text-gray-400 truncate max-w-[160px]">{c.email}</p>}
+                      <div className="flex items-center gap-3">
+                        {c.phone && <span className="text-xs text-gray-600 font-mono">{c.phone}</span>}
+                        {c.phone && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" title="WhatsApp" />}
+                      </div>
                     </td>
-                    <td className="px-4 py-3 text-center">
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${st.cls}`}>{st.label}</span>
+                    <td className="px-4 py-3 text-center hidden md:table-cell">
+                      {rating > 0 ? (
+                        <span className="inline-flex items-center gap-0.5 text-xs font-bold text-amber-700">
+                          <Star size={10} className="fill-amber-500 text-amber-500" /> {rating.toFixed(1)}
+                        </span>
+                      ) : <span className="text-gray-300">—</span>}
                     </td>
-                    <td className="px-4 py-3 hidden md:table-cell">
-                      <span className="text-[10px] text-gray-400">{SOURCE_MAP[c.source] || c.source || '—'}</span>
+                    <td className="px-4 py-3 hidden lg:table-cell">
+                      <span className="text-[10px] text-gray-400 capitalize">{(c.category || '').replace(/_/g, ' ') || '—'}</span>
                     </td>
-                    <td className="px-4 py-3 text-right hidden lg:table-cell">
+                    <td className="px-4 py-3 text-right">
                       <span className="text-[10px] text-gray-400">{dt(c.created_at)}</span>
                     </td>
                   </tr>
@@ -186,7 +283,17 @@ export function LeadsPage() {
         <div className="flex items-center justify-center gap-2">
           <button disabled={page <= 1} onClick={() => setPage(p => p - 1)}
             className="p-2 rounded-lg bg-white border border-gray-200 disabled:opacity-40 hover:bg-gray-50 transition"><ChevronLeft size={16} /></button>
-          <span className="text-xs text-gray-400 px-3">{page} de {totalPages}</span>
+          <div className="flex gap-1">
+            {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
+              const p = totalPages <= 7 ? i + 1 : page <= 4 ? i + 1 : page >= totalPages - 3 ? totalPages - 6 + i : page - 3 + i
+              return (
+                <button key={p} onClick={() => setPage(p)}
+                  className={`w-8 h-8 rounded-lg text-xs font-semibold transition ${
+                    page === p ? 'bg-blue-600 text-white shadow-sm' : 'bg-white border border-gray-200 text-gray-500 hover:bg-gray-50'
+                  }`}>{p}</button>
+              )
+            })}
+          </div>
           <button disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}
             className="p-2 rounded-lg bg-white border border-gray-200 disabled:opacity-40 hover:bg-gray-50 transition"><ChevronRight size={16} /></button>
         </div>
@@ -198,13 +305,32 @@ export function LeadsPage() {
           lead={selectedLead}
           onClose={() => setSelectedLead(null)}
           onUpdated={(updated) => {
-            setClients(prev => prev.map(c => c.id === updated.id ? { ...c, ...updated } : c))
-            setSelectedLead({ ...selectedLead, ...updated })
+            setAllClients(prev => prev.map(c => c.id === updated.id ? { ...c, ...updated } : c))
+            setSelectedLead(prev => prev ? { ...prev, ...updated } : null)
           }}
           onDeleted={() => { setSelectedLead(null); fetchClients() }}
         />
       )}
     </div>
+  )
+}
+
+/* ── Metric Card ── */
+function MetricCard({ label, value, icon: Icon, gradient, active, onClick, sub }: {
+  label: string; value: string | number; icon: any; gradient: string; active: boolean; onClick: () => void; sub?: string
+}) {
+  return (
+    <button onClick={onClick}
+      className={`text-left p-4 rounded-2xl transition-all ${
+        active ? `bg-gradient-to-br ${gradient} text-white shadow-lg scale-[1.02]` : 'bg-white border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] hover:shadow-md'
+      }`}>
+      <div className="flex items-center justify-between mb-2">
+        <span className={`text-[10px] font-bold uppercase tracking-wider ${active ? 'text-white/60' : 'text-gray-400'}`}>{label}</span>
+        <Icon size={16} className={active ? 'text-white/50' : 'text-gray-300'} />
+      </div>
+      <p className={`text-2xl font-extrabold ${active ? '' : 'text-gray-900'}`}>{value}</p>
+      {sub && <p className={`text-[10px] mt-0.5 ${active ? 'text-white/50' : 'text-gray-400'}`}>{sub}</p>}
+    </button>
   )
 }
 
@@ -216,40 +342,33 @@ function LeadDetailModal({ lead, onClose, onUpdated, onDeleted }: {
   onUpdated: (c: Partial<Client>) => void; onDeleted: () => void
 }) {
   const [tab, setTab] = useState<'info' | 'actions'>('info')
-  const [status, setStatus] = useState(lead.status)
+  const [status, setStatus] = useState(lead.status || 'new')
   const [notes, setNotes] = useState(lead.notes || '')
   const [saving, setSaving] = useState(false)
 
-  async function saveStatus(newStatus: string) {
-    setStatus(newStatus)
-    try {
-      await fetch(`/api/customers/${lead.id}`, { method: 'PUT', headers: getHeaders(), body: JSON.stringify({ status: newStatus }) }).catch(() => {})
-      await fetch(`/api/clients/${lead.id}`, { method: 'PUT', headers: getHeaders(), body: JSON.stringify({ status: newStatus }) }).catch(() => {})
-      onUpdated({ id: lead.id, status: newStatus })
-    } catch {}
+  async function saveStatus(s: string) {
+    setStatus(s)
+    await fetch(`/api/customers/${lead.id}`, { method: 'PUT', headers: getHeaders(), body: JSON.stringify({ status: s }) }).catch(() => {})
+    onUpdated({ id: lead.id, status: s })
   }
 
   async function saveNotes() {
     setSaving(true)
-    try {
-      await fetch(`/api/clients/${lead.id}`, { method: 'PUT', headers: getHeaders(), body: JSON.stringify({ notes }) }).catch(() => {})
-      onUpdated({ id: lead.id, notes })
-    } catch {}
+    await fetch(`/api/clients/${lead.id}`, { method: 'PUT', headers: getHeaders(), body: JSON.stringify({ notes }) }).catch(() => {})
+    onUpdated({ id: lead.id, notes })
     setSaving(false)
   }
 
   async function handleDelete() {
     if (!confirm(`Remover "${lead.name}"?`)) return
-    try {
-      await fetch(`/api/clients/${lead.id}`, { method: 'DELETE', headers: getHeaders() }).catch(() => {})
-      await fetch(`/api/customers/${lead.id}`, { method: 'DELETE', headers: getHeaders() }).catch(() => {})
-      onDeleted()
-    } catch {}
+    await fetch(`/api/customers/${lead.id}`, { method: 'DELETE', headers: getHeaders() }).catch(() => {})
+    onDeleted()
   }
 
-  const st = STATUS_MAP[status] || { label: status, cls: 'bg-gray-100 text-gray-600' }
-  const tags = Array.isArray(lead.tags) ? lead.tags : typeof lead.tags === 'string' ? lead.tags.split(',').filter(Boolean) : []
+  const st = STATUS_MAP[status] || { label: status, cls: 'text-gray-600', bg: 'bg-gray-100' }
+  const tags = Array.isArray(lead.tags) ? lead.tags : typeof lead.tags === 'string' ? lead.tags.split(',').map((t: string) => t.replace(/[{}"]/g, '').trim()).filter(Boolean) : []
   const phone = (lead.phone || '').replace(/\D/g, '')
+  const rating = Number(lead.google_rating) || 0
 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={onClose}>
@@ -259,12 +378,13 @@ function LeadDetailModal({ lead, onClose, onUpdated, onDeleted }: {
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <h3 className="font-bold text-base text-gray-900 truncate">{lead.name}</h3>
-              <div className="flex items-center gap-2 mt-1">
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${st.cls}`}>{st.label}</span>
-                <span className="text-[10px] text-gray-400">{SOURCE_MAP[lead.source] || lead.source}</span>
-                {Number(lead.google_rating) > 0 && (
+              <div className="flex items-center gap-2 mt-1 flex-wrap">
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${st.bg} ${st.cls}`}>{st.label}</span>
+                {lead.category && <span className="text-[10px] text-gray-400 capitalize">{lead.category.replace(/_/g, ' ')}</span>}
+                {rating > 0 && (
                   <span className="flex items-center gap-0.5 text-[10px] font-bold text-amber-700">
-                    <Star size={10} className="fill-amber-500 text-amber-500" /> {Number(lead.google_rating).toFixed(1)}
+                    <Star size={10} className="fill-amber-500 text-amber-500" /> {rating.toFixed(1)}
+                    {lead.google_reviews_count ? <span className="text-amber-500/50">({lead.google_reviews_count})</span> : null}
                   </span>
                 )}
               </div>
@@ -277,16 +397,13 @@ function LeadDetailModal({ lead, onClose, onUpdated, onDeleted }: {
         <div className="px-5 pt-2 border-b border-gray-100 flex gap-1 shrink-0">
           {[['info', 'Informacoes'], ['actions', 'Acoes']].map(([k, l]) => (
             <button key={k} onClick={() => setTab(k as any)}
-              className={`px-3.5 py-2 text-xs font-semibold transition ${
-                tab === k ? 'text-blue-700 border-b-2 border-blue-500' : 'text-gray-400'
-              }`}>{l}</button>
+              className={`px-3.5 py-2 text-xs font-semibold transition ${tab === k ? 'text-blue-700 border-b-2 border-blue-500' : 'text-gray-400'}`}>{l}</button>
           ))}
         </div>
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
           {tab === 'info' && (<>
-            {/* Contact */}
             <div className="space-y-2">
               {lead.phone && (
                 <div className="flex items-center justify-between bg-gray-50 rounded-xl p-3">
@@ -298,13 +415,6 @@ function LeadDetailModal({ lead, onClose, onUpdated, onDeleted }: {
                     className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-500 text-white text-[11px] font-bold hover:bg-emerald-600 transition shadow-sm">
                     <MessageSquare size={12} /> WhatsApp
                   </a>
-                </div>
-              )}
-              {lead.phone_secondary && (
-                <div className="flex items-center gap-2.5 bg-gray-50 rounded-xl p-3">
-                  <Phone size={14} className="text-gray-400" />
-                  <span className="text-sm font-mono text-gray-600">{lead.phone_secondary}</span>
-                  <span className="text-[9px] text-gray-400">secundario</span>
                 </div>
               )}
               {lead.email && (
@@ -322,62 +432,31 @@ function LeadDetailModal({ lead, onClose, onUpdated, onDeleted }: {
               {lead.address && (
                 <div className="flex items-center gap-2.5 bg-gray-50 rounded-xl p-3">
                   <MapPin size={14} className="text-gray-400" />
-                  <span className="text-sm text-gray-600">{lead.address}{lead.city ? `, ${lead.city}` : ''}{lead.state ? ` - ${lead.state}` : ''}</span>
+                  <span className="text-sm text-gray-600 flex-1">{lead.address}</span>
                 </div>
               )}
             </div>
 
-            {/* Details grid */}
             <div className="grid grid-cols-2 gap-2">
-              {lead.category && (
-                <div className="bg-gray-50 rounded-xl p-3">
-                  <p className="text-[9px] font-bold text-gray-400 uppercase">Categoria</p>
-                  <p className="text-xs font-semibold text-gray-700 capitalize mt-0.5">{lead.category.replace(/_/g, ' ')}</p>
-                </div>
-              )}
-              {lead.trade_name && (
-                <div className="bg-gray-50 rounded-xl p-3">
-                  <p className="text-[9px] font-bold text-gray-400 uppercase">Nome Fantasia</p>
-                  <p className="text-xs font-semibold text-gray-700 mt-0.5">{lead.trade_name}</p>
-                </div>
-              )}
-              {lead.lead_score != null && lead.lead_score > 0 && (
-                <div className="bg-indigo-50 rounded-xl p-3">
-                  <p className="text-[9px] font-bold text-indigo-400 uppercase">Score</p>
-                  <p className="text-lg font-extrabold text-indigo-600 mt-0.5">{lead.lead_score}</p>
-                </div>
-              )}
-              {lead.google_reviews_count != null && lead.google_reviews_count > 0 && (
-                <div className="bg-amber-50 rounded-xl p-3">
-                  <p className="text-[9px] font-bold text-amber-500 uppercase">Avaliacoes Google</p>
-                  <p className="text-xs font-semibold text-amber-700 mt-0.5">{lead.google_reviews_count} reviews</p>
-                </div>
-              )}
-              <div className="bg-gray-50 rounded-xl p-3">
-                <p className="text-[9px] font-bold text-gray-400 uppercase">Cadastrado em</p>
-                <p className="text-xs font-semibold text-gray-700 mt-0.5">{dtFull(lead.created_at)}</p>
-              </div>
-              {lead.business_status && (
-                <div className="bg-gray-50 rounded-xl p-3">
-                  <p className="text-[9px] font-bold text-gray-400 uppercase">Status Negocio</p>
-                  <p className="text-xs font-semibold text-gray-700 mt-0.5">{lead.business_status}</p>
-                </div>
-              )}
+              {lead.city && <MiniInfo label="Cidade" value={`${lead.city}${lead.state ? ` - ${lead.state}` : ''}`} />}
+              {lead.trade_name && <MiniInfo label="Nome Fantasia" value={lead.trade_name} />}
+              {Number(lead.lead_score) > 0 && <MiniInfo label="Score" value={String(lead.lead_score)} accent />}
+              {lead.business_status && <MiniInfo label="Status Negocio" value={lead.business_status} />}
+              <MiniInfo label="Cadastrado" value={dtFull(lead.created_at)} />
+              <MiniInfo label="Fonte" value={lead.source || '—'} />
             </div>
 
-            {/* Tags */}
             {tags.length > 0 && (
               <div>
                 <p className="text-[9px] font-bold text-gray-400 uppercase mb-1.5">Tags</p>
                 <div className="flex flex-wrap gap-1">
                   {tags.map((t: string, i: number) => (
-                    <span key={i} className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-600">{t.trim()}</span>
+                    <span key={i} className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-600">{t}</span>
                   ))}
                 </div>
               </div>
             )}
 
-            {/* Links */}
             <div className="flex gap-2 flex-wrap">
               {lead.website && (
                 <a href={lead.website} target="_blank" rel="noreferrer"
@@ -395,63 +474,37 @@ function LeadDetailModal({ lead, onClose, onUpdated, onDeleted }: {
           </>)}
 
           {tab === 'actions' && (<>
-            {/* Status change */}
             <div>
               <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Alterar Status</p>
               <div className="flex flex-wrap gap-1.5">
                 {Object.entries(STATUS_MAP).map(([k, v]) => (
                   <button key={k} onClick={() => saveStatus(k)}
-                    className={`px-3 py-2 rounded-xl text-xs font-semibold transition ${
-                      status === k ? v.cls + ' shadow-sm' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                    }`}>{v.label}</button>
+                    className={`px-3 py-2 rounded-xl text-xs font-semibold transition ${status === k ? v.bg + ' ' + v.cls + ' shadow-sm' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>{v.label}</button>
                 ))}
               </div>
             </div>
 
-            {/* Notes */}
             <div>
               <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Observacoes</p>
               <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3}
-                placeholder="Adicione observacoes sobre este lead..."
+                placeholder="Notas sobre este lead..."
                 className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 resize-none" />
               <button onClick={saveNotes} disabled={saving}
                 className="mt-2 px-4 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 disabled:opacity-50 transition">
-                {saving ? 'Salvando...' : 'Salvar Observacoes'}
+                {saving ? 'Salvando...' : 'Salvar'}
               </button>
             </div>
 
-            {/* Quick communication */}
             <div>
-              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Comunicacao rapida</p>
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Comunicacao</p>
               <div className="grid grid-cols-2 gap-2">
-                {phone && (
-                  <a href={`https://wa.me/${phone}`} target="_blank" rel="noreferrer"
-                    className="flex items-center justify-center gap-2 p-3 rounded-xl bg-emerald-500 text-white font-bold text-sm hover:bg-emerald-600 transition shadow-sm">
-                    <MessageSquare size={16} /> WhatsApp
-                  </a>
-                )}
-                {lead.email && (
-                  <a href={`mailto:${lead.email}`}
-                    className="flex items-center justify-center gap-2 p-3 rounded-xl bg-blue-500 text-white font-bold text-sm hover:bg-blue-600 transition shadow-sm">
-                    <Mail size={16} /> Email
-                  </a>
-                )}
-                {phone && (
-                  <a href={`tel:+${phone}`}
-                    className="flex items-center justify-center gap-2 p-3 rounded-xl bg-gray-100 text-gray-700 font-bold text-sm hover:bg-gray-200 transition">
-                    <Phone size={16} /> Ligar
-                  </a>
-                )}
-                {phone && (
-                  <a href={`sms:+${phone}`}
-                    className="flex items-center justify-center gap-2 p-3 rounded-xl bg-gray-100 text-gray-700 font-bold text-sm hover:bg-gray-200 transition">
-                    <Send size={16} /> SMS
-                  </a>
-                )}
+                {phone && <ActionBtn href={`https://wa.me/${phone}`} icon={MessageSquare} label="WhatsApp" cls="bg-emerald-500 hover:bg-emerald-600 text-white" />}
+                {lead.email && <ActionBtn href={`mailto:${lead.email}`} icon={Mail} label="Email" cls="bg-blue-500 hover:bg-blue-600 text-white" />}
+                {phone && <ActionBtn href={`tel:+${phone}`} icon={Phone} label="Ligar" cls="bg-gray-100 hover:bg-gray-200 text-gray-700" />}
+                {phone && <ActionBtn href={`sms:+${phone}`} icon={Send} label="SMS" cls="bg-gray-100 hover:bg-gray-200 text-gray-700" />}
               </div>
             </div>
 
-            {/* Delete */}
             <div className="pt-2 border-t border-gray-100">
               <button onClick={handleDelete}
                 className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-red-500 text-xs font-semibold hover:bg-red-50 transition">
@@ -462,5 +515,23 @@ function LeadDetailModal({ lead, onClose, onUpdated, onDeleted }: {
         </div>
       </div>
     </div>
+  )
+}
+
+function MiniInfo({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+  return (
+    <div className={`rounded-xl p-3 ${accent ? 'bg-indigo-50' : 'bg-gray-50'}`}>
+      <p className={`text-[9px] font-bold uppercase ${accent ? 'text-indigo-400' : 'text-gray-400'}`}>{label}</p>
+      <p className={`text-xs font-semibold mt-0.5 ${accent ? 'text-indigo-600 text-lg font-extrabold' : 'text-gray-700'}`}>{value}</p>
+    </div>
+  )
+}
+
+function ActionBtn({ href, icon: Icon, label, cls }: { href: string; icon: any; label: string; cls: string }) {
+  return (
+    <a href={href} target="_blank" rel="noreferrer"
+      className={`flex items-center justify-center gap-2 p-3 rounded-xl font-bold text-sm transition shadow-sm ${cls}`}>
+      <Icon size={16} /> {label}
+    </a>
   )
 }

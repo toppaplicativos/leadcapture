@@ -105,16 +105,20 @@ function normalizeBusinessStatus(value: unknown): BusinessOrderStatus {
 
 function businessToCommerceStatus(status: BusinessOrderStatus): CommerceOrderStatus {
   if (status === "cancelado") return "cancelado";
-  if (["pago", "em_preparacao", "em_entrega", "entregue"].includes(status)) return "pago";
-  return "aguardando_pagamento";
+  if (status === "aguardando_pagamento") return "aguardando_pagamento";
+  // Store exact status in status_pedido for PostgreSQL compat (meta table may not exist)
+  return status as unknown as CommerceOrderStatus;
 }
 
 function commerceToBusinessStatus(status: string): BusinessOrderStatus {
   const v = String(status || "").trim().toLowerCase();
-  if (v === "pago") return "pago";
-  if (v === "cancelado" || v === "estornado") return "cancelado";
-  if (v === "aguardando_pagamento" || v === "abandonado") return "aguardando_pagamento";
-  return "novo";
+  // Recognize all business statuses stored directly in commerce_orders
+  const known: Record<string, BusinessOrderStatus> = {
+    novo: "novo", aguardando_pagamento: "aguardando_pagamento", pago: "pago",
+    em_preparacao: "em_preparacao", em_entrega: "em_entrega", entregue: "entregue",
+    cancelado: "cancelado", estornado: "cancelado", abandonado: "aguardando_pagamento",
+  };
+  return known[v] || "novo";
 }
 
 function commerceOriginToOrderOrigin(origem: unknown): OrderOrigin {
@@ -160,42 +164,56 @@ async function ensureOrderMeta(input: {
   deliveryStatus?: string;
   notes?: string | null;
 }): Promise<void> {
-  // Best-effort meta upsert — PostgreSQL store_id ambiguity is non-critical
+  // Two-step upsert to avoid PostgreSQL ON CONFLICT ambiguity issues
   try {
-  await ensureOrdersSchema();
+    await ensureOrdersSchema();
+    const existing = await queryOne<{ order_id: string }>(
+      `SELECT order_id FROM order_management_meta WHERE order_id = ? LIMIT 1`,
+      [input.orderId]
+    );
 
-  await query(
-    `INSERT INTO order_management_meta (
-      order_id, user_id, brand_id, store_id, origin, channel, created_by,
-      business_status, payment_status, delivery_status, notes
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON DUPLICATE KEY UPDATE
-      user_id = VALUES(user_id),
-      brand_id = VALUES(brand_id),
-      store_id = COALESCE(VALUES(store_id), store_id),
-      origin = COALESCE(VALUES(origin), origin),
-      channel = COALESCE(VALUES(channel), channel),
-      created_by = COALESCE(VALUES(created_by), created_by),
-      business_status = COALESCE(VALUES(business_status), business_status),
-      payment_status = COALESCE(VALUES(payment_status), payment_status),
-      delivery_status = COALESCE(VALUES(delivery_status), delivery_status),
-      notes = COALESCE(VALUES(notes), notes),
-      updated_at = CURRENT_TIMESTAMP`,
-    [
-      input.orderId,
-      input.userId,
-      input.brandId || null,
-      input.storeId || input.brandId || null,
-      input.origin,
-      channelFromOrigin(input.origin),
-      input.createdBy || null,
-      input.businessStatus || "novo",
-      input.paymentStatus || "pending",
-      input.deliveryStatus || "nao_iniciado",
-      input.notes || null,
-    ]
-  );
-  } catch { /* PostgreSQL store_id ambiguity — non-critical, skip silently */ }
+    if (existing) {
+      await update(
+        `UPDATE order_management_meta SET
+          user_id = ?, brand_id = ?, store_id = ?,
+          origin = ?, channel = ?, business_status = ?,
+          payment_status = ?, delivery_status = ?,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE order_id = ?`,
+        [
+          input.userId,
+          input.brandId || null,
+          input.storeId || input.brandId || null,
+          input.origin,
+          channelFromOrigin(input.origin),
+          input.businessStatus || "novo",
+          input.paymentStatus || "pending",
+          input.deliveryStatus || "nao_iniciado",
+          input.orderId,
+        ]
+      );
+    } else {
+      await query(
+        `INSERT INTO order_management_meta (
+          order_id, user_id, brand_id, store_id, origin, channel, created_by,
+          business_status, payment_status, delivery_status, notes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          input.orderId,
+          input.userId,
+          input.brandId || null,
+          input.storeId || input.brandId || null,
+          input.origin,
+          channelFromOrigin(input.origin),
+          input.createdBy || null,
+          input.businessStatus || "novo",
+          input.paymentStatus || "pending",
+          input.deliveryStatus || "nao_iniciado",
+          input.notes || null,
+        ]
+      );
+    }
+  } catch (err: any) { logger.warn(`ensureOrderMeta failed: ${err.message}`); }
 }
 
 async function appendTimeline(input: {

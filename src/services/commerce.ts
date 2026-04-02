@@ -6,6 +6,9 @@ export type CommerceOrderStatus =
   | "criado"
   | "aguardando_pagamento"
   | "pago"
+  | "em_preparacao"
+  | "em_entrega"
+  | "entregue"
   | "cancelado"
   | "estornado"
   | "abandonado";
@@ -98,6 +101,9 @@ export class CommerceService {
         "criado",
         "aguardando_pagamento",
         "pago",
+        "em_preparacao",
+        "em_entrega",
+        "entregue",
         "cancelado",
         "estornado",
         "abandonado",

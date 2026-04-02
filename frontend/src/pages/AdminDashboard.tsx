@@ -1811,11 +1811,38 @@ function ProductEditorModal({ product, categories, onClose, onSaved, showToast }
   const [category, setCategory] = useState(product?.category || '')
   const [price, setPrice] = useState(product?.price != null ? String(product.price) : '')
   const [promoPrice, setPromoPrice] = useState(product?.promoPrice != null ? String(product.promoPrice) : '')
-  const [unit, setUnit] = useState(product?.unit || 'unidade')
   const [features, setFeatures] = useState((product?.features || []).join(', '))
   const [active, setActive] = useState(product?.active !== false)
   const [imageUrl, setImageUrl] = useState(product?.imageUrl || product?.image || '')
   const [uploading, setUploading] = useState(false)
+
+  // Normalized unit system: parse "500g" → qty=500, baseUnit="g"
+  const UNITS = [
+    { value: 'kg', label: 'Quilograma (kg)' },
+    { value: 'g', label: 'Grama (g)' },
+    { value: 'un', label: 'Unidade (un)' },
+    { value: 'L', label: 'Litro (L)' },
+    { value: 'ml', label: 'Mililitro (ml)' },
+    { value: 'cx', label: 'Caixa (cx)' },
+    { value: 'pct', label: 'Pacote (pct)' },
+    { value: 'par', label: 'Par' },
+    { value: 'm', label: 'Metro (m)' },
+  ]
+
+  function parseUnit(raw: string): { qty: string; baseUnit: string } {
+    const s = (raw || 'unidade').trim().toLowerCase()
+    // Match patterns like "500g", "1kg", "10kg", "250ml", "1L"
+    const m = s.match(/^(\d+(?:[.,]\d+)?)\s*(kg|g|ml|l|un|cx|pct|m|par)$/i)
+    if (m) return { qty: m[1], baseUnit: m[2].toLowerCase() === 'l' ? 'L' : m[2].toLowerCase() }
+    // Already a base unit
+    const found = UNITS.find(u => u.value.toLowerCase() === s || u.label.toLowerCase().includes(s))
+    if (found) return { qty: '1', baseUnit: found.value }
+    return { qty: '1', baseUnit: 'un' }
+  }
+
+  const parsed = parseUnit(product?.unit || 'unidade')
+  const [unitQty, setUnitQty] = useState(parsed.qty)
+  const [baseUnit, setBaseUnit] = useState(parsed.baseUnit)
 
   async function uploadImage(file: File) {
     setUploading(true)
@@ -1834,10 +1861,14 @@ function ProductEditorModal({ product, categories, onClose, onSaved, showToast }
     if (!price || isNaN(parseFloat(price))) return showToast('Preco invalido', 'err')
     setSaving(true)
     try {
+      // Compose normalized unit: qty + baseUnit (e.g. "500" + "g" = "500g", "1" + "kg" = "kg")
+      const qtyNum = parseFloat(unitQty) || 1
+      const composedUnit = qtyNum === 1 ? baseUnit : `${qtyNum}${baseUnit}`
+
       const body = {
         name: name.trim(), description: description.trim(), category: category.trim(),
         price: parseFloat(price), promoPrice: promoPrice ? parseFloat(promoPrice) : null,
-        unit, features: features.split(',').map((f: string) => f.trim()).filter(Boolean),
+        unit: composedUnit, features: features.split(',').map((f: string) => f.trim()).filter(Boolean),
         active, imageUrl: imageUrl || null,
       }
       const url = isEdit ? `/api/products/${product.id}` : '/api/products'
@@ -1897,8 +1928,17 @@ function ProductEditorModal({ product, categories, onClose, onSaved, showToast }
               </select>
             </div>
             <div>
-              <label className={labelCls}>Unidade</label>
-              <input type="text" value={unit} onChange={e => setUnit(e.target.value)} placeholder="kg, un, L..." className={inputCls} />
+              <label className={labelCls}>Unidade de medida</label>
+              <div className="flex gap-2">
+                <input type="number" step="any" min="0.01" value={unitQty} onChange={e => setUnitQty(e.target.value)}
+                  placeholder="1" className={inputCls + ' !w-20 text-center'} />
+                <select value={baseUnit} onChange={e => setBaseUnit(e.target.value)} className={inputCls}>
+                  {UNITS.map(u => <option key={u.value} value={u.value}>{u.label}</option>)}
+                </select>
+              </div>
+              <p className="text-[9px] text-gray-400 mt-1">
+                Resultado: <span className="font-semibold text-gray-600">{parseFloat(unitQty) === 1 ? baseUnit : `${unitQty}${baseUnit}`}</span>
+              </p>
             </div>
             <div>
               <label className={labelCls}>Preco (R$) *</label>

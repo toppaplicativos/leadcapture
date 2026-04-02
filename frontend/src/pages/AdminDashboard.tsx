@@ -310,7 +310,7 @@ export function DashboardView({ showToast }: { showToast: (t: string, tp?: 'ok' 
     setLoading(true)
     Promise.all([
       inventoryApi.overview().catch(() => ({})),
-      adminApi.clients(1, 1).catch(() => ({ total: 0 })),
+      fetch('/api/customers?limit=1', { headers: getHeaders() }).then(r => r.json()).catch(() => ({ total: 0 })),
       adminApi.campaigns().catch(() => ({ campaigns: [] })),
       adminApi.orders(1, 1).catch(() => ({ total: 0 })),
     ]).then(([inv, clients, campaigns, orders]) => {
@@ -318,7 +318,7 @@ export function DashboardView({ showToast }: { showToast: (t: string, tp?: 'ok' 
         products: inv?.total_products || 0,
         totalStock: inv?.total_units || 0,
         outOfStock: inv?.out_of_stock || 0,
-        totalLeads: clients?.total || clients?.clients?.length || 0,
+        totalLeads: clients?.total || clients?.customers?.length || 0,
         activeCampaigns: (campaigns?.campaigns || []).filter((c: any) => c.status === 'active' || c.status === 'running').length,
         totalCampaigns: (campaigns?.campaigns || []).length,
         totalOrders: orders?.total || orders?.orders?.length || 0,

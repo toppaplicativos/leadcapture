@@ -572,16 +572,18 @@ router.get("/:id", async (req: AuthRequest, res: Response) => {
     const orderBundle = await commerceService.getOrderById(userId, brandId, orderId);
     if (!orderBundle) return res.status(404).json({ error: "Pedido não encontrado" });
 
-    await ensureOrderMeta({
-      orderId,
-      userId,
-      brandId,
-      storeId: orderBundle.order.brand_id || null,
-      origin: commerceOriginToOrderOrigin(orderBundle.order.origem),
-      businessStatus: commerceToBusinessStatus(orderBundle.order.status_pedido),
-      paymentStatus: orderBundle.order.status_pedido === "pago" ? "paid" : "pending",
-      deliveryStatus: "nao_iniciado",
-    });
+    try {
+      await ensureOrderMeta({
+        orderId,
+        userId,
+        brandId,
+        storeId: orderBundle.order.brand_id || null,
+        origin: commerceOriginToOrderOrigin(orderBundle.order.origem),
+        businessStatus: commerceToBusinessStatus(orderBundle.order.status_pedido),
+        paymentStatus: orderBundle.order.status_pedido === "pago" ? "paid" : "pending",
+        deliveryStatus: "nao_iniciado",
+      });
+    } catch { /* meta backfill best-effort */ }
 
     const meta = await queryOne<any>(`SELECT * FROM order_management_meta WHERE order_id = ? LIMIT 1`, [orderId]);
     const timeline = await query<any[]>(

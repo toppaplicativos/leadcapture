@@ -381,33 +381,58 @@ function LeadDetailModal({ lead, onClose, onUpdated, onDeleted }: {
   const tags = Array.isArray(lead.tags) ? lead.tags : typeof lead.tags === 'string' ? lead.tags.split(',').map((t: string) => t.replace(/[{}"]/g, '').trim()).filter(Boolean) : []
   const phone = (lead.phone || '').replace(/\D/g, '')
   const rating = Number(lead.google_rating) || 0
+  const realCity = extractRealCity(lead)
+  const bairro = lead.city && lead.city !== realCity ? lead.city : ''
 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
-        {/* Header */}
-        <div className="px-5 py-4 border-b border-gray-100 shrink-0">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[85vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+
+        {/* Header gradient */}
+        <div className="bg-gradient-to-br from-gray-900 to-gray-800 px-5 pt-5 pb-4 text-white shrink-0">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <h3 className="font-bold text-base text-gray-900 truncate">{lead.name}</h3>
-              <div className="flex items-center gap-2 mt-1 flex-wrap">
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${st.bg} ${st.cls}`}>{st.label}</span>
-                {lead.category && <span className="text-[10px] text-gray-400 capitalize">{lead.category.replace(/_/g, ' ')}</span>}
+              <h3 className="font-bold text-lg leading-tight truncate">{lead.name}</h3>
+              <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full bg-white/20`}>{st.label}</span>
+                {lead.category && <span className="text-[10px] text-white/50 capitalize">{lead.category.replace(/_/g, ' ')}</span>}
                 {rating > 0 && (
-                  <span className="flex items-center gap-0.5 text-[10px] font-bold text-amber-700">
-                    <Star size={10} className="fill-amber-500 text-amber-500" /> {rating.toFixed(1)}
-                    {lead.google_reviews_count ? <span className="text-amber-500/50">({lead.google_reviews_count})</span> : null}
+                  <span className="flex items-center gap-0.5 text-[10px] font-bold text-amber-300">
+                    <Star size={10} className="fill-amber-300 text-amber-300" /> {rating.toFixed(1)}
+                    {lead.google_reviews_count ? <span className="text-amber-300/50">({lead.google_reviews_count})</span> : null}
                   </span>
                 )}
               </div>
             </div>
-            <button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100 transition shrink-0"><X size={18} className="text-gray-400" /></button>
+            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-white/10 transition shrink-0"><X size={16} /></button>
+          </div>
+
+          {/* Quick contact buttons */}
+          <div className="flex gap-2 mt-3">
+            {phone && (
+              <a href={`https://wa.me/${phone}`} target="_blank" rel="noreferrer"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-500 text-white text-xs font-bold hover:bg-emerald-600 transition shadow-sm flex-1 justify-center">
+                <MessageSquare size={13} /> WhatsApp
+              </a>
+            )}
+            {lead.email && (
+              <a href={`mailto:${lead.email}`}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-blue-500 text-white text-xs font-bold hover:bg-blue-600 transition shadow-sm flex-1 justify-center">
+                <Mail size={13} /> Email
+              </a>
+            )}
+            {phone && (
+              <a href={`tel:+${phone}`}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 text-white text-xs font-bold hover:bg-white/20 transition justify-center">
+                <Phone size={13} />
+              </a>
+            )}
           </div>
         </div>
 
         {/* Tabs */}
         <div className="px-5 pt-2 border-b border-gray-100 flex gap-1 shrink-0">
-          {[['info', 'Informacoes'], ['actions', 'Acoes']].map(([k, l]) => (
+          {[['info', 'Detalhes'], ['actions', 'Acoes']].map(([k, l]) => (
             <button key={k} onClick={() => setTab(k as any)}
               className={`px-3.5 py-2 text-xs font-semibold transition ${tab === k ? 'text-blue-700 border-b-2 border-blue-500' : 'text-gray-400'}`}>{l}</button>
           ))}
@@ -416,48 +441,69 @@ function LeadDetailModal({ lead, onClose, onUpdated, onDeleted }: {
         {/* Content */}
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
           {tab === 'info' && (<>
-            <div className="space-y-2">
-              {lead.phone && (
-                <div className="flex items-center justify-between bg-gray-50 rounded-xl p-3">
-                  <div className="flex items-center gap-2.5">
-                    <Phone size={14} className="text-gray-400" />
-                    <span className="text-sm font-mono text-gray-700">{lead.phone}</span>
-                  </div>
-                  <a href={`https://wa.me/${phone}`} target="_blank" rel="noreferrer"
-                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-500 text-white text-[11px] font-bold hover:bg-emerald-600 transition shadow-sm">
-                    <MessageSquare size={12} /> WhatsApp
-                  </a>
-                </div>
-              )}
-              {lead.email && (
-                <div className="flex items-center justify-between bg-gray-50 rounded-xl p-3">
-                  <div className="flex items-center gap-2.5">
-                    <Mail size={14} className="text-gray-400" />
-                    <span className="text-sm text-gray-700">{lead.email}</span>
-                  </div>
-                  <a href={`mailto:${lead.email}`}
-                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-500 text-white text-[11px] font-bold hover:bg-blue-600 transition shadow-sm">
-                    <Send size={12} /> Email
-                  </a>
-                </div>
-              )}
-              {lead.address && (
-                <div className="flex items-center gap-2.5 bg-gray-50 rounded-xl p-3">
-                  <MapPin size={14} className="text-gray-400" />
-                  <span className="text-sm text-gray-600 flex-1">{lead.address}</span>
-                </div>
-              )}
-            </div>
+            {/* Contact */}
+            {lead.phone && (
+              <div className="flex items-center gap-2.5 bg-gray-50 rounded-xl px-3 py-2.5">
+                <Phone size={13} className="text-gray-400 shrink-0" />
+                <span className="text-sm font-mono text-gray-700 flex-1">{lead.phone}</span>
+              </div>
+            )}
+            {lead.address && (
+              <div className="flex items-start gap-2.5 bg-gray-50 rounded-xl px-3 py-2.5">
+                <MapPin size={13} className="text-gray-400 shrink-0 mt-0.5" />
+                <span className="text-xs text-gray-600 flex-1 leading-relaxed">{lead.address}</span>
+              </div>
+            )}
 
+            {/* Location details */}
             <div className="grid grid-cols-2 gap-2">
-              {lead.city && <MiniInfo label="Cidade" value={`${lead.city}${lead.state ? ` - ${lead.state}` : ''}`} />}
-              {lead.trade_name && <MiniInfo label="Nome Fantasia" value={lead.trade_name} />}
-              {Number(lead.lead_score) > 0 && <MiniInfo label="Score" value={String(lead.lead_score)} accent />}
-              {lead.business_status && <MiniInfo label="Status Negocio" value={lead.business_status} />}
-              <MiniInfo label="Cadastrado" value={dtFull(lead.created_at)} />
-              <MiniInfo label="Fonte" value={lead.source || '—'} />
+              {realCity && (
+                <div className="bg-gray-50 rounded-xl p-3">
+                  <p className="text-[9px] font-bold text-gray-400 uppercase">Cidade</p>
+                  <p className="text-xs font-semibold text-gray-700 mt-0.5">{realCity}</p>
+                </div>
+              )}
+              {bairro && (
+                <div className="bg-gray-50 rounded-xl p-3">
+                  <p className="text-[9px] font-bold text-gray-400 uppercase">Bairro</p>
+                  <p className="text-xs font-semibold text-gray-700 mt-0.5">{bairro}</p>
+                </div>
+              )}
+              {lead.trade_name && (
+                <div className="bg-gray-50 rounded-xl p-3">
+                  <p className="text-[9px] font-bold text-gray-400 uppercase">Nome Fantasia</p>
+                  <p className="text-xs font-semibold text-gray-700 mt-0.5">{lead.trade_name}</p>
+                </div>
+              )}
+              {lead.category && (
+                <div className="bg-gray-50 rounded-xl p-3">
+                  <p className="text-[9px] font-bold text-gray-400 uppercase">Categoria</p>
+                  <p className="text-xs font-semibold text-gray-700 mt-0.5 capitalize">{lead.category.replace(/_/g, ' ')}</p>
+                </div>
+              )}
+              <div className="bg-gray-50 rounded-xl p-3">
+                <p className="text-[9px] font-bold text-gray-400 uppercase">Cadastrado</p>
+                <p className="text-xs font-semibold text-gray-700 mt-0.5">{dtFull(lead.created_at)}</p>
+              </div>
+              <div className="bg-gray-50 rounded-xl p-3">
+                <p className="text-[9px] font-bold text-gray-400 uppercase">Fonte</p>
+                <p className="text-xs font-semibold text-gray-700 mt-0.5">{lead.source === 'google_places' ? 'Google Places' : lead.source || '—'}</p>
+              </div>
+              {Number(lead.lead_score) > 0 && (
+                <div className="bg-indigo-50 rounded-xl p-3">
+                  <p className="text-[9px] font-bold text-indigo-400 uppercase">Score</p>
+                  <p className="text-lg font-extrabold text-indigo-600 mt-0.5">{lead.lead_score}</p>
+                </div>
+              )}
+              {lead.business_status && (
+                <div className="bg-gray-50 rounded-xl p-3">
+                  <p className="text-[9px] font-bold text-gray-400 uppercase">Status Negocio</p>
+                  <p className="text-xs font-semibold text-gray-700 mt-0.5">{lead.business_status}</p>
+                </div>
+              )}
             </div>
 
+            {/* Tags */}
             {tags.length > 0 && (
               <div>
                 <p className="text-[9px] font-bold text-gray-400 uppercase mb-1.5">Tags</p>
@@ -469,23 +515,27 @@ function LeadDetailModal({ lead, onClose, onUpdated, onDeleted }: {
               </div>
             )}
 
-            <div className="flex gap-2 flex-wrap">
-              {lead.website && (
-                <a href={lead.website} target="_blank" rel="noreferrer"
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gray-50 text-gray-600 text-xs font-semibold hover:bg-gray-100 transition">
-                  <Globe size={13} /> Website <ExternalLink size={10} />
-                </a>
-              )}
-              {lead.google_maps_uri && (
-                <a href={lead.google_maps_uri} target="_blank" rel="noreferrer"
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gray-50 text-gray-600 text-xs font-semibold hover:bg-gray-100 transition">
-                  <MapPin size={13} /> Google Maps <ExternalLink size={10} />
-                </a>
-              )}
-            </div>
+            {/* External links */}
+            {(lead.website || lead.google_maps_uri) && (
+              <div className="flex gap-2 flex-wrap">
+                {lead.website && (
+                  <a href={lead.website} target="_blank" rel="noreferrer"
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gray-50 text-gray-600 text-xs font-semibold hover:bg-gray-100 transition">
+                    <Globe size={12} /> Website <ExternalLink size={9} />
+                  </a>
+                )}
+                {lead.google_maps_uri && (
+                  <a href={lead.google_maps_uri} target="_blank" rel="noreferrer"
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gray-50 text-gray-600 text-xs font-semibold hover:bg-gray-100 transition">
+                    <MapPin size={12} /> Maps <ExternalLink size={9} />
+                  </a>
+                )}
+              </div>
+            )}
           </>)}
 
           {tab === 'actions' && (<>
+            {/* Status */}
             <div>
               <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Alterar Status</p>
               <div className="flex flex-wrap gap-1.5">
@@ -496,6 +546,7 @@ function LeadDetailModal({ lead, onClose, onUpdated, onDeleted }: {
               </div>
             </div>
 
+            {/* Notes */}
             <div>
               <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Observacoes</p>
               <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3}
@@ -507,6 +558,7 @@ function LeadDetailModal({ lead, onClose, onUpdated, onDeleted }: {
               </button>
             </div>
 
+            {/* Communication grid */}
             <div>
               <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Comunicacao</p>
               <div className="grid grid-cols-2 gap-2">
@@ -517,6 +569,7 @@ function LeadDetailModal({ lead, onClose, onUpdated, onDeleted }: {
               </div>
             </div>
 
+            {/* Delete */}
             <div className="pt-2 border-t border-gray-100">
               <button onClick={handleDelete}
                 className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-red-500 text-xs font-semibold hover:bg-red-50 transition">
@@ -530,14 +583,7 @@ function LeadDetailModal({ lead, onClose, onUpdated, onDeleted }: {
   )
 }
 
-function MiniInfo({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
-  return (
-    <div className={`rounded-xl p-3 ${accent ? 'bg-indigo-50' : 'bg-gray-50'}`}>
-      <p className={`text-[9px] font-bold uppercase ${accent ? 'text-indigo-400' : 'text-gray-400'}`}>{label}</p>
-      <p className={`text-xs font-semibold mt-0.5 ${accent ? 'text-indigo-600 text-lg font-extrabold' : 'text-gray-700'}`}>{value}</p>
-    </div>
-  )
-}
+/* old MiniInfo removed — now inline in LeadDetailModal */
 
 function ActionBtn({ href, icon: Icon, label, cls }: { href: string; icon: any; label: string; cls: string }) {
   return (

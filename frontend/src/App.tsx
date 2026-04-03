@@ -19,6 +19,7 @@ import { ProductDetailPage } from '@/pages/ProductDetailPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { AdminShell, DashboardView, CampaignsView, OrdersView, AutomationsView, ProductsView, AgentView, NotificationsView, DomainView, FreteView, EstoqueAccessView, PaymentConfigView } from '@/pages/AdminDashboard'
 import { MessagesPage } from '@/pages/MessagesPage'
+import { FlowBuilderPage } from '@/pages/FlowBuilderPage'
 import { LeadSearchPage } from '@/pages/LeadSearchPage'
 import { LeadsPage } from '@/pages/LeadsPage'
 import { MessageSquare, Package, Zap, Bot, Palette, Truck, Globe, Settings } from 'lucide-react'
@@ -97,7 +98,7 @@ export default function App() {
         <Route path="/notificacoes" element={<AdminPage><NotificationsView showToast={() => {}} /></AdminPage>} />
         <Route path="/campanhas" element={<AdminPage><CampaignsInline /></AdminPage>} />
         <Route path="/campanha" element={<AdminPage><CampaignsInline /></AdminPage>} />
-        <Route path="/automacoes" element={<AdminPage><AutomationsView showToast={() => {}} /></AdminPage>} />
+        <Route path="/automacoes" element={<AdminPage><FlowBuilderPage /></AdminPage>} />
         <Route path="/criativos" element={<AdminPage><ComingSoon title="Estudio Criativo" icon={Palette} /></AdminPage>} />
         <Route path="/creative" element={<AdminPage><ComingSoon title="Estudio Criativo" icon={Palette} /></AdminPage>} />
         <Route path="/agente" element={<AdminPage><AgentView showToast={() => {}} /></AdminPage>} />

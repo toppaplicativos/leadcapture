@@ -270,7 +270,7 @@ const adminPages = [
   "/login", "/admin", "/dashboard", "/busca", "/leads", "/clientes",
   "/mensagens", "/notificacoes", "/campanhas", "/campanha", "/automacoes",
   "/criativos", "/creative", "/agente", "/produtos", "/pedidos",
-  "/design", "/pagamentos", "/frete", "/dominio", "/configuracoes",
+  "/whatsapp", "/design", "/pagamentos", "/frete", "/dominio", "/configuracoes",
 ];
 for (const page of adminPages) {
   app.get(page, (_req, res) => { serveCatalogSPA(res, "index.html"); });

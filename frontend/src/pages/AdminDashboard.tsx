@@ -48,6 +48,7 @@ const ROUTE_MAP: Record<string, string> = {
   '/pedidos': 'pedidos',
   '/estoque': 'estoque',
   '/design': 'design',
+  '/whatsapp': 'whatsapp',
   '/pagamentos': 'pagamentos',
   '/frete': 'frete',
   '/dominio': 'dominio',
@@ -68,6 +69,7 @@ const NAV_ITEMS: { key: string; path: string; icon: any; label: string; group: s
   { key: 'campanhas', path: '/campanhas', icon: Megaphone, label: 'Campanhas', group: 'main' },
   { key: 'automacoes', path: '/automacoes', icon: Zap, label: 'Automacoes', group: 'main' },
   { key: 'agente', path: '/agente', icon: Bot, label: 'Agente IA', group: 'main' },
+  { key: 'whatsapp', path: '/whatsapp', icon: Phone, label: 'WhatsApp', group: 'main' },
   { key: 'produtos', path: '/produtos', icon: Package, label: 'Produtos', group: 'loja' },
   { key: 'pedidos', path: '/pedidos', icon: ShoppingCart, label: 'Pedidos', group: 'loja' },
   { key: 'estoque', path: '/estoque', icon: BarChart3, label: 'Estoque', group: 'loja' },
@@ -3135,6 +3137,166 @@ export function EstoqueAccessView({ showToast }: { showToast: (t: string, tp?: '
 /* ══════════════════════════════════════════════
    PAYMENT CONFIG VIEW
    ══════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════
+   WHATSAPP MANAGER VIEW
+   ══════════════════════════════════════════════ */
+export function WhatsAppManagerView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') => void }) {
+  const [instances, setInstances] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [creating, setCreating] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [qrCode, setQrCode] = useState<string | null>(null)
+  const [qrInstance, setQrInstance] = useState<string | null>(null)
+
+  function load() {
+    setLoading(true)
+    fetch('/api/instances', { headers: getHeaders() }).then(r => r.json()).then(d => {
+      setInstances(d.instances || [])
+      setLoading(false)
+    }).catch(() => setLoading(false))
+  }
+  useEffect(() => { load() }, [])
+
+  async function createInstance() {
+    if (!newName.trim()) return showToast('Nome obrigatorio', 'err')
+    setCreating(true)
+    try {
+      const r = await fetch('/api/sessions', { method: 'POST', headers: getHeaders(), body: JSON.stringify({ name: newName.trim() }) })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.error || 'Erro')
+      showToast('Sessao criada! Escaneie o QR Code')
+      setNewName('')
+      // Check for QR code
+      if (d.qr || d.qrCode) { setQrCode(d.qr || d.qrCode); setQrInstance(d.instance?.id || d.id) }
+      load()
+    } catch (e: any) { showToast(e.message, 'err') }
+    setCreating(false)
+  }
+
+  async function restoreInstance(id: string) {
+    try {
+      const r = await fetch(`/api/sessions/${id}/restore`, { headers: getHeaders() })
+      const d = await r.json()
+      if (d.qr || d.qrCode) { setQrCode(d.qr || d.qrCode); setQrInstance(id) }
+      showToast('Restaurando sessao...')
+      setTimeout(load, 3000)
+    } catch (e: any) { showToast(e.message, 'err') }
+  }
+
+  async function deleteInstance(id: string) {
+    if (!confirm('Remover esta sessao WhatsApp?')) return
+    await fetch(`/api/sessions/${id}`, { method: 'DELETE', headers: getHeaders() }).catch(() => {})
+    showToast('Sessao removida')
+    load()
+  }
+
+  if (loading) return <Skeleton rows={4} />
+
+  const connected = instances.filter(i => i.status === 'authenticated' || i.status === 'connected').length
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">WhatsApp</h2>
+          <p className="text-[13px] text-gray-400 mt-0.5">{instances.length} sessoes · {connected} conectadas</p>
+        </div>
+      </div>
+
+      {/* Status overview */}
+      <div className="grid grid-cols-3 gap-2.5">
+        <div className="bg-gradient-to-br from-emerald-500 to-teal-600 rounded-2xl p-4 text-white shadow-lg">
+          <p className="text-[26px] font-extrabold">{connected}</p>
+          <p className="text-[9px] font-bold text-white/50 uppercase tracking-wider">Conectadas</p>
+        </div>
+        <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
+          <p className="text-[26px] font-extrabold text-amber-500">{instances.filter(i => i.status === 'disconnected').length}</p>
+          <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">Desconectadas</p>
+        </div>
+        <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
+          <p className="text-[26px] font-extrabold text-gray-900">{instances.length}</p>
+          <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">Total</p>
+        </div>
+      </div>
+
+      {/* Create new */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-4 space-y-3">
+        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em]">Nova sessao</p>
+        <div className="flex gap-2">
+          <input type="text" value={newName} onChange={e => setNewName(e.target.value)} placeholder="Nome da sessao (ex: atendimento1)"
+            onKeyDown={e => e.key === 'Enter' && createInstance()}
+            className="flex-1 px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-200 placeholder:text-gray-300" />
+          <button onClick={createInstance} disabled={creating}
+            className="px-5 py-2.5 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 disabled:opacity-50 transition shadow-sm">
+            {creating ? 'Criando...' : 'Criar'}
+          </button>
+        </div>
+      </div>
+
+      {/* QR Code */}
+      {qrCode && (
+        <div className="bg-white rounded-2xl border border-gray-200 shadow-lg p-6 text-center">
+          <p className="text-sm font-bold text-gray-900 mb-3">Escaneie o QR Code no WhatsApp</p>
+          <div className="bg-white p-4 rounded-xl inline-block shadow-inner border">
+            <img src={qrCode.startsWith('data:') ? qrCode : `data:image/png;base64,${qrCode}`} alt="QR Code"
+              className="w-48 h-48" onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
+          </div>
+          <p className="text-xs text-gray-400 mt-3">Abra WhatsApp → Configuracoes → Aparelhos Conectados → Conectar Aparelho</p>
+          <button onClick={() => { setQrCode(null); load() }} className="mt-3 text-xs text-blue-600 font-semibold hover:underline">Ja escaneei</button>
+        </div>
+      )}
+
+      {/* Instance list */}
+      {instances.length > 0 && (
+        <div className="space-y-2.5">
+          {instances.map((inst: any) => {
+            const isConnected = inst.status === 'authenticated' || inst.status === 'connected'
+            return (
+              <div key={inst.id} className={`bg-white rounded-2xl border shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-4 ${isConnected ? 'border-emerald-200' : 'border-gray-200'}`}>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className={`w-10 h-10 rounded-xl grid place-items-center shrink-0 ${isConnected ? 'bg-emerald-50' : 'bg-gray-100'}`}>
+                      <Phone size={18} className={isConnected ? 'text-emerald-500' : 'text-gray-400'} />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-bold text-gray-900">{inst.name}</p>
+                        <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-500 animate-pulse' : 'bg-gray-300'}`} />
+                      </div>
+                      <p className="text-[10px] text-gray-400 font-mono">{inst.phone || 'Sem numero'}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${
+                      isConnected ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200' : 'bg-red-50 text-red-600 ring-1 ring-red-200'
+                    }`}>{isConnected ? 'Online' : 'Offline'}</span>
+                    {!isConnected && (
+                      <button onClick={() => restoreInstance(inst.id)}
+                        className="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 text-[11px] font-bold hover:bg-blue-100 transition">
+                        Reconectar
+                      </button>
+                    )}
+                    <button onClick={() => deleteInstance(inst.id)}
+                      className="p-1.5 rounded-lg text-red-400 hover:bg-red-50 hover:text-red-600 transition">
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                </div>
+                {/* Stats */}
+                <div className="flex gap-4 mt-2 pt-2 border-t border-gray-100 text-[10px] text-gray-400">
+                  <span>Enviadas: {inst.messagessSent || 0}</span>
+                  <span>Recebidas: {inst.messagesReceived || 0}</span>
+                  {inst.brand_name && <span>Brand: {inst.brand_name}</span>}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function PaymentConfigView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') => void }) {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)

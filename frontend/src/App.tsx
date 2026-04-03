@@ -17,7 +17,7 @@ import { StockLoginPage } from '@/pages/StockLoginPage'
 import { InventoryPage, DesignView } from '@/pages/InventoryPage'
 import { ProductDetailPage } from '@/pages/ProductDetailPage'
 import { LoginPage } from '@/pages/LoginPage'
-import { AdminShell, DashboardView, CampaignsView, OrdersView, AutomationsView, ProductsView, AgentView, NotificationsView, DomainView, FreteView, EstoqueAccessView, PaymentConfigView } from '@/pages/AdminDashboard'
+import { AdminShell, DashboardView, CampaignsView, OrdersView, AutomationsView, ProductsView, AgentView, NotificationsView, DomainView, FreteView, EstoqueAccessView, PaymentConfigView, WhatsAppManagerView } from '@/pages/AdminDashboard'
 import { MessagesPage } from '@/pages/MessagesPage'
 import { FlowBuilderPage } from '@/pages/FlowBuilderPage'
 import { LeadSearchPage } from '@/pages/LeadSearchPage'
@@ -102,6 +102,7 @@ export default function App() {
         <Route path="/criativos" element={<AdminPage><ComingSoon title="Estudio Criativo" icon={Palette} /></AdminPage>} />
         <Route path="/creative" element={<AdminPage><ComingSoon title="Estudio Criativo" icon={Palette} /></AdminPage>} />
         <Route path="/agente" element={<AdminPage><AgentView showToast={() => {}} /></AdminPage>} />
+        <Route path="/whatsapp" element={<AdminPage><WhatsAppManagerView showToast={() => {}} /></AdminPage>} />
         <Route path="/produtos" element={<AdminPage><ProductsView showToast={() => {}} /></AdminPage>} />
         <Route path="/pedidos" element={<AdminPage><OrdersInline /></AdminPage>} />
         <Route path="/estoque" element={<AdminPage><EstoqueAccessView showToast={() => {}} /></AdminPage>} />

@@ -650,10 +650,14 @@ export function CampaignsView({ showToast }: { showToast: (t: string, tp?: 'ok' 
                 )}
                 {c.status !== 'cancelled' && c.status !== 'completed' && (
                   <button onClick={() => doAction(c.id, 'cancel')} disabled={actionLoading === c.id}
-                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-red-500 text-[11px] font-semibold hover:bg-red-50 transition ml-auto">
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-red-500 text-[11px] font-semibold hover:bg-red-50 transition">
                     <Ban size={11} /> Cancelar
                   </button>
                 )}
+                <button onClick={() => { if (confirm(`Excluir campanha "${c.name}"?`)) doAction(c.id, 'delete') }} disabled={actionLoading === c.id}
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-red-400 text-[11px] font-semibold hover:bg-red-50 hover:text-red-600 transition ml-auto">
+                  <Trash2 size={11} /> Excluir
+                </button>
               </div>
             </div>
           ))}

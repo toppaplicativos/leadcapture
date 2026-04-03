@@ -108,6 +108,10 @@ export function AdminShell({ children }: { children?: ReactNode }) {
         const b = list.find((x: any) => String(x.id) === String(active)) || list[0] || {}
         setBrand({ name: b.name, logo_url: b.logo_url })
         if (b.name) document.title = b.name + ' — Admin'
+        // Set brand CSS vars for all admin pages
+        const root = document.documentElement
+        if (b.primary_color) root.style.setProperty('--brand-primary', b.primary_color)
+        if (b.secondary_color) root.style.setProperty('--brand-secondary', b.secondary_color)
       }).catch(() => {})
   }, [refreshKey])
 
@@ -185,7 +189,7 @@ export function AdminShell({ children }: { children?: ReactNode }) {
                           ? <img src={b.logo_url} alt="" className="w-7 h-7 rounded-lg object-cover shrink-0 ring-1 ring-white/10" />
                           : <div className="w-7 h-7 rounded-lg bg-white/10 grid place-items-center shrink-0 text-[10px] font-bold text-white/30">{(b.name || '?')[0]}</div>}
                         <span className="truncate flex-1 text-left">{b.name}</span>
-                        {isActive && <div className="w-2.5 h-2.5 rounded-full bg-blue-400 shrink-0 animate-pulse" />}
+                        {isActive && <div className="w-2.5 h-2.5 rounded-full shrink-0 animate-pulse" style={{ backgroundColor: 'var(--brand-secondary, #3b82f6)' }} />}
                       </button>
                     )
                   })}
@@ -205,7 +209,7 @@ export function AdminShell({ children }: { children?: ReactNode }) {
                       ? 'bg-white/[0.12] text-white font-semibold shadow-sm'
                       : 'text-white/40 hover:bg-white/[0.06] hover:text-white/70'
                   }`}>
-                  <n.icon size={16} className={active ? 'text-blue-400' : ''} />
+                  <n.icon size={16} style={active ? { color: 'var(--brand-secondary, #3b82f6)' } : undefined} />
                   {n.label}
                 </button>
               )
@@ -222,7 +226,7 @@ export function AdminShell({ children }: { children?: ReactNode }) {
                       ? 'bg-white/[0.12] text-white font-semibold shadow-sm'
                       : 'text-white/40 hover:bg-white/[0.06] hover:text-white/70'
                   }`}>
-                  <n.icon size={16} className={active ? 'text-blue-400' : ''} />
+                  <n.icon size={16} style={active ? { color: 'var(--brand-secondary, #3b82f6)' } : undefined} />
                   {n.label}
                 </button>
               )
@@ -256,8 +260,9 @@ export function AdminShell({ children }: { children?: ReactNode }) {
           return (
             <button key={n.key} onClick={() => go(n.path)}
               className={`flex-1 flex flex-col items-center justify-center gap-0.5 text-[10px] font-medium transition ${
-                active ? 'text-blue-400' : 'text-white/30'
-              }`}>
+                active ? '' : 'text-white/30'
+              }`}
+              style={active ? { color: 'var(--brand-secondary, #3b82f6)' } : undefined}>
               <n.icon size={18} />
               {n.label}
             </button>

@@ -409,7 +409,8 @@ function PanfleteiroMap({ leads, capturedPoints, mapRef, mapInstance, panfleteir
       const pos: [number, number] = [l.location.latitude, l.location.longitude]
       bounds.push(pos)
       const isNew = l.captureStatus === 'new'
-      const brandSecondary = getComputedStyle(document.documentElement).getPropertyValue('--brand-secondary').trim() || '#8b5cf6'
+      // Get brand color: CSS var (set by AdminShell) or fallback
+      const brandSecondary = getComputedStyle(document.documentElement).getPropertyValue('--brand-secondary').trim() || '#933bce'
       L.circleMarker(pos, {
         radius: isNew ? 8 : 6,
         color: isNew ? '#10b981' : brandSecondary,
@@ -430,16 +431,19 @@ function PanfleteiroMap({ leads, capturedPoints, mapRef, mapInstance, panfleteir
     // Panfleteiro: crosshair + radius circle + moveend search
     let radiusCircle: L.Circle | null = null
     if (panfleteiro) {
+      // Get brand color for panfleteiro UI
+      const pColor = getComputedStyle(document.documentElement).getPropertyValue('--brand-secondary').trim() || '#933bce'
+
       // Crosshair
       const crosshair = L.DomUtil.create('div', '', map.getContainer())
-      crosshair.innerHTML = '<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);pointer-events:none;z-index:999"><div style="width:28px;height:28px;border:3px solid #7c3aed;border-radius:50%;opacity:0.6;box-shadow:0 0 12px rgba(124,58,237,0.3)"></div><div style="position:absolute;top:50%;left:50%;width:4px;height:4px;background:#7c3aed;border-radius:50%;transform:translate(-50%,-50%)"></div></div>'
+      crosshair.innerHTML = `<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);pointer-events:none;z-index:999"><div style="width:28px;height:28px;border:3px solid ${pColor};border-radius:50%;opacity:0.6;box-shadow:0 0 12px ${pColor}40"></div><div style="position:absolute;top:50%;left:50%;width:4px;height:4px;background:${pColor};border-radius:50%;transform:translate(-50%,-50%)"></div></div>`
 
       // Radius heatmap circle (updates on move)
       const searchRadiusM = (Number(localStorage.getItem('leadcapture:search-state') ? JSON.parse(localStorage.getItem('leadcapture:search-state')!).radius : 3) || 3) * 1000
       radiusCircle = L.circle(map.getCenter(), {
         radius: searchRadiusM,
-        color: '#7c3aed',
-        fillColor: '#7c3aed',
+        color: pColor,
+        fillColor: pColor,
         fillOpacity: 0.06,
         weight: 1.5,
         dashArray: '6,4',

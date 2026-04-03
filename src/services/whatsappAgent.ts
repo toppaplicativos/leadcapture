@@ -133,6 +133,35 @@ export class WhatsAppAgentService {
     const recentHistory = historyLines.slice(-Math.max(1, Math.min(Number(input.maxHistoryLines || 12), 20)));
 
     const profile = await this.aiAgentProfileService.getByUserId(userId, brandId || undefined);
+
+    // ── RULE: Pause AI outside business hours (18h-8h) ──
+    // Check store settings for squad_rules
+    let squadRules: Record<string, boolean> = {};
+    try {
+      const storeRow = await queryOne<any>(
+        `SELECT settings_json FROM storefront_stores WHERE owner_user_id = ? AND brand_id = ? LIMIT 1`,
+        [userId, brandId || ""]
+      );
+      const settings = storeRow?.settings_json ? (typeof storeRow.settings_json === 'string' ? JSON.parse(storeRow.settings_json) : storeRow.settings_json) : {};
+      squadRules = settings?.squad_rules || {};
+    } catch {}
+
+    if (squadRules.pause_outside_hours) {
+      const now = new Date();
+      const hour = now.getHours(); // Server timezone (usually BRT)
+      if (hour >= 18 || hour < 8) {
+        logger.info(`AI paused outside business hours (${hour}h) — manual mode`);
+        return {
+          text: '', // Don't respond
+          profile,
+          knowledgeApplied: false,
+          catalogApplied: false,
+          shouldEscalate: true,
+          escalationReason: 'outside_business_hours',
+        };
+      }
+    }
+
     // ── SKILL: Context Curator — detect bots, qualify conversations ──
     const lowerMsg = incomingMessage.toLowerCase();
 

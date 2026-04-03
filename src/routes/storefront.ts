@@ -2385,6 +2385,29 @@ publicRouter.post("/stores/:slug/orders", async (req, res) => {
         channels: ["in_app"],
         metadata: { order_id: created.order.id, customer_phone: customerPhone, store_slug: slug },
       });
+      // High-value order alert (R$ 500+)
+      if (orderTotal >= 500) {
+        try {
+          const storeSettings = await queryOne<any>(
+            `SELECT settings_json FROM storefront_stores WHERE id = ? LIMIT 1`,
+            [bundle.store.id]
+          );
+          const settings = storeSettings?.settings_json ? (typeof storeSettings.settings_json === 'string' ? JSON.parse(storeSettings.settings_json) : storeSettings.settings_json) : {};
+          if (settings?.squad_rules?.notify_high_value) {
+            await notificationService.createNotification({
+              user_id: inventoryUserId,
+              type: "system",
+              event: "high_value_order",
+              title: `⚠️ Pedido de alto valor: R$ ${orderTotal.toFixed(2)}`,
+              message: `${customerName} fez um pedido de R$ ${orderTotal.toFixed(2)}. Este pedido requer atenção humana.`,
+              priority: "high",
+              channels: ["in_app"],
+              metadata: { order_id: created.order.id, customer_phone: customerPhone, order_total: orderTotal },
+            });
+            logger.info(`High-value order notification sent: R$ ${orderTotal.toFixed(2)} from ${customerName}`);
+          }
+        } catch {}
+      }
     } catch (err: any) {
       logger.warn(`Order notification failed: ${err.message}`);
     }

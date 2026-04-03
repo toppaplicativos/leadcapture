@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   Search, Send, Phone, User, MessageSquare, ChevronLeft,
-  Loader2, Bot, Image, Smile, Paperclip, MoreVertical,
-  Clock, CheckCheck, Check, X,
+  Loader2, Bot, Paperclip, MoreVertical, X,
+  Clock, CheckCheck, Check, Tag, Star, GitBranch,
+  Zap, UserCheck, Ban, RefreshCw,
 } from 'lucide-react'
 
 function getHeaders(): Record<string, string> {
@@ -23,18 +24,18 @@ interface Conversation {
   contact_name: string; contact_phone: string; contact_push_name?: string
   status: string; last_message_text: string; last_message_at: string
   last_message_from_me: boolean; unread_count: number; is_group: boolean
-  ai_mode?: string; instance_name?: string; instance_phone?: string
-  pipeline_stage?: string; tags?: string; notes?: string
+  ai_mode?: string; instance_name?: string; pipeline_stage?: string
+  tags?: string; notes?: string
 }
 
 interface Message {
   id: string; conversation_id: string; from_me: boolean
-  message_type: string; body: string; timestamp: string
+  message_type: string; body: string; timestamp: string; message_timestamp?: number
   status?: string; media_url?: string
 }
 
 /* ══════════════════════════════════════════════
-   MESSAGES PAGE — WhatsApp-style messenger
+   MESSAGES PAGE
    ══════════════════════════════════════════════ */
 export function MessagesPage() {
   const [conversations, setConversations] = useState<Conversation[]>([])
@@ -45,9 +46,9 @@ export function MessagesPage() {
   const [sending, setSending] = useState(false)
   const [newMsg, setNewMsg] = useState('')
   const [search, setSearch] = useState('')
+  const [showCommands, setShowCommands] = useState(false)
   const messagesEnd = useRef<HTMLDivElement>(null)
 
-  // Load conversations
   const loadConvos = useCallback(() => {
     setLoadingConvos(true)
     fetch('/api/inbox/conversations?limit=100', { headers: getHeaders() })
@@ -56,91 +57,122 @@ export function MessagesPage() {
   }, [])
   useEffect(() => { loadConvos() }, [])
 
-  // Load messages for active conversation
   useEffect(() => {
     if (!activeConvo) return
     setLoadingMsgs(true)
     fetch(`/api/inbox/conversations/${activeConvo.id}/messages?limit=100`, { headers: getHeaders() })
-      .then(r => r.json()).then(d => { setMessages(d.messages || []); setLoadingMsgs(false) })
-      .catch(() => setLoadingMsgs(false))
+      .then(r => r.json()).then(d => {
+        let msgs = d.messages || []
+        // If no messages from DB, create synthetic from conversation data
+        if (msgs.length === 0 && activeConvo.last_message_text) {
+          msgs = [{
+            id: 'last-msg',
+            conversation_id: activeConvo.id,
+            from_me: activeConvo.last_message_from_me,
+            message_type: 'text',
+            body: activeConvo.last_message_text,
+            timestamp: activeConvo.last_message_at,
+            status: 'delivered',
+          }]
+        }
+        setMessages(msgs)
+        setLoadingMsgs(false)
+      }).catch(() => setLoadingMsgs(false))
   }, [activeConvo?.id])
 
-  // Auto-scroll to bottom
   useEffect(() => { messagesEnd.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
-  // Send message
-  async function sendMessage() {
-    if (!newMsg.trim() || !activeConvo) return
+  async function sendMessage(text?: string) {
+    const msgText = text || newMsg.trim()
+    if (!msgText || !activeConvo) return
     setSending(true)
     try {
       await fetch(`/api/inbox/conversations/${activeConvo.id}/send`, {
-        method: 'POST', headers: getHeaders(),
-        body: JSON.stringify({ text: newMsg.trim() }),
+        method: 'POST', headers: getHeaders(), body: JSON.stringify({ text: msgText }),
       })
       setNewMsg('')
-      // Reload messages
-      const r = await fetch(`/api/inbox/conversations/${activeConvo.id}/messages?limit=100`, { headers: getHeaders() })
-      const d = await r.json()
-      setMessages(d.messages || [])
-      loadConvos() // refresh unread counts
+      // Add optimistic message
+      setMessages(prev => [...prev, {
+        id: `sent-${Date.now()}`, conversation_id: activeConvo.id, from_me: true,
+        message_type: 'text', body: msgText, timestamp: new Date().toISOString(), status: 'sent',
+      }])
+      loadConvos()
     } catch {}
     setSending(false)
+    setShowCommands(false)
+  }
+
+  // Quick commands for human operators
+  const COMMANDS = [
+    { icon: '👋', label: 'Saudacao', msg: 'Olá! Tudo bem? Como posso ajudar hoje?' },
+    { icon: '⏳', label: 'Aguarde', msg: 'Um momento, por favor. Estou verificando para você!' },
+    { icon: '✅', label: 'Confirmacao', msg: 'Perfeito! Está tudo certo. Posso ajudar em mais alguma coisa?' },
+    { icon: '💰', label: 'Valor', msg: 'Vou verificar o valor e te retorno em instantes!' },
+    { icon: '🚚', label: 'Entrega', msg: 'Sua entrega está sendo preparada! Em breve enviaremos as informações de rastreio.' },
+    { icon: '📦', label: 'Pedido', msg: 'Recebi seu pedido! Vou processar e já te informo os próximos passos.' },
+    { icon: '🙏', label: 'Agradecimento', msg: 'Muito obrigado pela preferência! Estamos à disposição.' },
+    { icon: '⏰', label: 'Horario', msg: 'Nosso horário de atendimento é de segunda a sexta, das 8h às 18h.' },
+    { icon: '📋', label: 'Catalogo', msg: 'Confira nosso catálogo completo em: ' + window.location.origin + '/catalogo/alhopronto' },
+    { icon: '🔄', label: 'Transferir', msg: 'Vou transferir você para o setor responsável. Um momento!' },
+  ]
+
+  async function toggleAiMode(mode: string) {
+    if (!activeConvo) return
+    try {
+      await fetch(`/api/inbox/conversations/${activeConvo.id}/ai-state`, {
+        method: 'PATCH', headers: getHeaders(), body: JSON.stringify({ ai_mode: mode }),
+      })
+      setActiveConvo({ ...activeConvo, ai_mode: mode })
+      loadConvos()
+    } catch {}
   }
 
   const filteredConvos = search
-    ? conversations.filter(c => (c.contact_name || c.contact_phone || '').toLowerCase().includes(search.toLowerCase()))
+    ? conversations.filter(c => (c.contact_name || c.contact_phone || c.contact_push_name || '').toLowerCase().includes(search.toLowerCase()))
     : conversations
 
-  const contactName = (c: Conversation) => c.contact_push_name || c.contact_name || c.contact_phone || 'Contato'
+  const contactName = (c: Conversation) => c.contact_push_name || (c.contact_name?.length > 12 ? c.contact_phone : c.contact_name) || c.contact_phone || 'Contato'
   const contactInitial = (c: Conversation) => (contactName(c)[0] || '?').toUpperCase()
   const formatPhone = (p: string) => p?.replace(/@.*/, '').replace(/^55/, '+55 ')
 
   return (
     <div className="h-[calc(100vh-120px)] lg:h-[calc(100vh-80px)] flex bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] overflow-hidden">
 
-      {/* ── Conversations List (left panel) ── */}
+      {/* ── Conversations List ── */}
       <div className={`${activeConvo ? 'hidden md:flex' : 'flex'} flex-col w-full md:w-80 lg:w-96 border-r border-gray-100 shrink-0`}>
-        {/* Header */}
         <div className="px-4 py-3 border-b border-gray-100 shrink-0">
           <h2 className="text-base font-bold text-gray-900">Mensagens</h2>
           <p className="text-[10px] text-gray-400">{conversations.length} conversas</p>
         </div>
-
-        {/* Search */}
         <div className="px-3 py-2 border-b border-gray-100 shrink-0">
           <div className="relative">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input type="text" value={search} onChange={e => setSearch(e.target.value)}
-              placeholder="Buscar conversa..."
+            <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar conversa..."
               className="w-full pl-8 pr-3 py-2 border border-gray-200 rounded-xl text-xs bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-200 placeholder:text-gray-300" />
           </div>
         </div>
-
-        {/* Conversation list */}
         <div className="flex-1 overflow-y-auto">
           {loadingConvos ? (
             <div className="flex items-center justify-center py-10"><Loader2 size={20} className="text-gray-300 animate-spin" /></div>
           ) : filteredConvos.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-10 text-center px-4">
+            <div className="flex flex-col items-center justify-center py-10 px-4 text-center">
               <MessageSquare size={28} className="text-gray-300 mb-2" />
               <p className="text-xs text-gray-400">Nenhuma conversa</p>
             </div>
           ) : filteredConvos.map(c => {
             const active = activeConvo?.id === c.id
-            const name = contactName(c)
             return (
               <button key={c.id} onClick={() => setActiveConvo(c)}
-                className={`w-full flex items-center gap-3 px-4 py-3 text-left transition border-b border-gray-50 ${
-                  active ? 'bg-blue-50' : 'hover:bg-gray-50'
-                }`}>
-                {/* Avatar */}
+                className={`w-full flex items-center gap-3 px-4 py-3 text-left transition border-b border-gray-50 ${active ? 'bg-blue-50' : 'hover:bg-gray-50'}`}>
                 <div className={`w-10 h-10 rounded-full grid place-items-center shrink-0 text-white font-bold text-sm ${
                   c.is_group ? 'bg-gradient-to-br from-violet-500 to-purple-600' : 'bg-gradient-to-br from-blue-500 to-indigo-600'
                 }`}>{contactInitial(c)}</div>
-                {/* Info */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between">
-                    <p className={`text-[13px] truncate ${active ? 'font-bold text-blue-700' : 'font-semibold text-gray-900'}`}>{name}</p>
+                    <div className="flex items-center gap-1.5">
+                      <p className={`text-[13px] truncate ${active ? 'font-bold text-blue-700' : 'font-semibold text-gray-900'}`}>{contactName(c)}</p>
+                      {c.ai_mode === 'autonomous' && <Bot size={10} className="text-violet-500 shrink-0" />}
+                    </div>
                     <span className="text-[9px] text-gray-400 shrink-0 ml-2">{dtTime(c.last_message_at) || dtDate(c.last_message_at)}</span>
                   </div>
                   <div className="flex items-center justify-between mt-0.5">
@@ -159,43 +191,39 @@ export function MessagesPage() {
         </div>
       </div>
 
-      {/* ── Chat Area (center) ── */}
+      {/* ── Chat Area ── */}
       {activeConvo ? (
         <div className="flex-1 flex flex-col min-w-0">
-          {/* Chat header */}
+          {/* Header */}
           <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-3 shrink-0 bg-white">
-            <button onClick={() => setActiveConvo(null)} className="md:hidden p-1.5 rounded-lg hover:bg-gray-100 transition">
-              <ChevronLeft size={18} className="text-gray-500" />
-            </button>
-            <div className={`w-9 h-9 rounded-full grid place-items-center text-white font-bold text-sm shrink-0 ${
-              activeConvo.is_group ? 'bg-gradient-to-br from-violet-500 to-purple-600' : 'bg-gradient-to-br from-blue-500 to-indigo-600'
-            }`}>{contactInitial(activeConvo)}</div>
+            <button onClick={() => setActiveConvo(null)} className="md:hidden p-1.5 rounded-lg hover:bg-gray-100 transition"><ChevronLeft size={18} className="text-gray-500" /></button>
+            <div className={`w-9 h-9 rounded-full grid place-items-center text-white font-bold text-sm shrink-0 bg-gradient-to-br ${activeConvo.is_group ? 'from-violet-500 to-purple-600' : 'from-blue-500 to-indigo-600'}`}>{contactInitial(activeConvo)}</div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-bold text-gray-900 truncate">{contactName(activeConvo)}</p>
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] text-gray-400 font-mono">{formatPhone(activeConvo.contact_phone)}</span>
-                {activeConvo.ai_mode === 'autonomous' && (
-                  <span className="flex items-center gap-0.5 text-[9px] font-bold text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded-full"><Bot size={9} /> IA</span>
-                )}
-              </div>
+              <p className="text-[10px] text-gray-400 font-mono">{formatPhone(activeConvo.contact_phone)}</p>
             </div>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1 shrink-0">
+              {/* AI mode toggle */}
+              <button onClick={() => toggleAiMode(activeConvo.ai_mode === 'autonomous' ? 'manual' : 'autonomous')}
+                className={`flex items-center gap-1 px-2 py-1.5 rounded-lg text-[10px] font-bold transition ${
+                  activeConvo.ai_mode === 'autonomous' ? 'bg-violet-50 text-violet-700' : 'bg-gray-100 text-gray-500'
+                }`} title={activeConvo.ai_mode === 'autonomous' ? 'IA Ativa — clique para desativar' : 'IA Desativada — clique para ativar'}>
+                <Bot size={12} /> {activeConvo.ai_mode === 'autonomous' ? 'IA ON' : 'IA OFF'}
+              </button>
               <a href={`https://wa.me/${(activeConvo.contact_phone || '').replace(/@.*/, '')}`} target="_blank" rel="noreferrer"
-                className="p-2 rounded-lg hover:bg-gray-100 transition"><Phone size={15} className="text-gray-400" /></a>
+                className="p-2 rounded-lg hover:bg-gray-100 transition"><Phone size={14} className="text-gray-400" /></a>
             </div>
           </div>
 
-          {/* Messages area */}
+          {/* Messages */}
           <div className="flex-1 overflow-y-auto px-4 py-3 bg-[#f0f2f5]" style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%239C92AC\' fill-opacity=\'0.03\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")' }}>
             {loadingMsgs ? (
               <div className="flex items-center justify-center py-10"><Loader2 size={20} className="text-gray-300 animate-spin" /></div>
             ) : messages.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 text-center">
-                <div className="w-14 h-14 bg-white/80 rounded-2xl grid place-items-center mb-3 shadow-sm">
-                  <MessageSquare size={24} className="text-gray-300" />
-                </div>
-                <p className="text-sm font-medium text-gray-500">Nenhuma mensagem</p>
-                <p className="text-[10px] text-gray-400 mt-1">Envie uma mensagem para iniciar</p>
+                <MessageSquare size={24} className="text-gray-300 mb-2" />
+                <p className="text-sm text-gray-500">Nenhuma mensagem</p>
+                <p className="text-[10px] text-gray-400 mt-1">Use os comandos rapidos ou envie uma mensagem</p>
               </div>
             ) : (
               <div className="space-y-1.5 max-w-2xl mx-auto">
@@ -206,24 +234,14 @@ export function MessagesPage() {
                   return (
                     <div key={msg.id || i}>
                       {showDate && (
-                        <div className="text-center my-3">
-                          <span className="text-[10px] text-gray-500 bg-white/90 px-3 py-1 rounded-full shadow-sm font-medium">{dtDate(msg.timestamp)}</span>
-                        </div>
+                        <div className="text-center my-3"><span className="text-[10px] text-gray-500 bg-white/90 px-3 py-1 rounded-full shadow-sm font-medium">{dtDate(msg.timestamp)}</span></div>
                       )}
                       <div className={`flex ${fromMe ? 'justify-end' : 'justify-start'}`}>
-                        <div className={`max-w-[75%] px-3 py-2 rounded-2xl shadow-sm ${
-                          fromMe
-                            ? 'bg-[#d9fdd3] rounded-tr-sm'
-                            : 'bg-white rounded-tl-sm'
-                        }`}>
+                        <div className={`max-w-[75%] px-3 py-2 rounded-2xl shadow-sm ${fromMe ? 'bg-[#d9fdd3] rounded-tr-sm' : 'bg-white rounded-tl-sm'}`}>
                           <p className="text-[13px] text-gray-800 leading-relaxed whitespace-pre-wrap break-words">{msg.body || msg.message_type}</p>
                           <div className={`flex items-center gap-1 mt-0.5 ${fromMe ? 'justify-end' : 'justify-start'}`}>
                             <span className="text-[9px] text-gray-400">{dtTime(msg.timestamp)}</span>
-                            {fromMe && (
-                              msg.status === 'read' ? <CheckCheck size={11} className="text-blue-500" />
-                              : msg.status === 'delivered' ? <CheckCheck size={11} className="text-gray-400" />
-                              : <Check size={11} className="text-gray-400" />
-                            )}
+                            {fromMe && (msg.status === 'read' ? <CheckCheck size={11} className="text-blue-500" /> : <Check size={11} className="text-gray-400" />)}
                           </div>
                         </div>
                       </div>
@@ -235,18 +253,41 @@ export function MessagesPage() {
             )}
           </div>
 
-          {/* Input area */}
+          {/* Quick Commands */}
+          {showCommands && (
+            <div className="border-t border-gray-100 bg-white px-4 py-3 max-h-48 overflow-y-auto shrink-0">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Respostas rapidas</p>
+                <button onClick={() => setShowCommands(false)} className="p-1 rounded hover:bg-gray-100"><X size={12} className="text-gray-400" /></button>
+              </div>
+              <div className="grid grid-cols-2 gap-1.5">
+                {COMMANDS.map(cmd => (
+                  <button key={cmd.label} onClick={() => sendMessage(cmd.msg)}
+                    className="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-gray-50 hover:bg-blue-50 hover:text-blue-700 transition text-left">
+                    <span className="text-sm">{cmd.icon}</span>
+                    <span className="text-[11px] font-semibold text-gray-700 truncate">{cmd.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Input */}
           <div className="px-4 py-3 border-t border-gray-100 bg-white shrink-0">
             <div className="flex items-end gap-2 max-w-2xl mx-auto">
+              <button onClick={() => setShowCommands(!showCommands)}
+                className={`w-10 h-10 rounded-full grid place-items-center transition shrink-0 ${showCommands ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
+                <Zap size={16} />
+              </button>
               <div className="flex-1 relative">
                 <textarea value={newMsg} onChange={e => setNewMsg(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() } }}
                   placeholder="Digite uma mensagem..."
                   rows={1}
-                  className="w-full px-4 py-2.5 border border-gray-200 rounded-2xl text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-200 resize-none placeholder:text-gray-400 pr-12"
+                  className="w-full px-4 py-2.5 border border-gray-200 rounded-2xl text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-200 resize-none placeholder:text-gray-400"
                   style={{ maxHeight: '120px' }} />
               </div>
-              <button onClick={sendMessage} disabled={sending || !newMsg.trim()}
+              <button onClick={() => sendMessage()} disabled={sending || !newMsg.trim()}
                 className="w-10 h-10 rounded-full bg-emerald-500 text-white grid place-items-center hover:bg-emerald-600 disabled:opacity-40 transition shadow-sm shrink-0">
                 {sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
               </button>
@@ -254,14 +295,13 @@ export function MessagesPage() {
           </div>
         </div>
       ) : (
-        /* Empty state */
         <div className="flex-1 hidden md:flex items-center justify-center bg-[#f0f2f5]">
           <div className="text-center">
             <div className="w-20 h-20 bg-white/80 rounded-3xl grid place-items-center mx-auto mb-4 shadow-sm">
               <MessageSquare size={36} className="text-gray-300" />
             </div>
             <h3 className="text-base font-bold text-gray-600">LeadCapture Messenger</h3>
-            <p className="text-xs text-gray-400 mt-1 max-w-xs">Selecione uma conversa para ver as mensagens e responder seus leads</p>
+            <p className="text-xs text-gray-400 mt-1 max-w-xs">Selecione uma conversa para ver as mensagens</p>
           </div>
         </div>
       )}

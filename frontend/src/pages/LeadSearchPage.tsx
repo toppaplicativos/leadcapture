@@ -149,6 +149,8 @@ export function LeadSearchPage() {
             if (cd.success && cd.persisted?.created > 0) {
               capturedThisRound++
               setCapturedLive(c => c + 1)
+              // Update pin status immediately — new → captured
+              setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, captureStatus: 'captured' as const } : l))
             }
           } catch {}
         }

@@ -184,13 +184,23 @@ export function LeadSearchPage() {
         <div>
           <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">Busca de Leads</h2>
           <p className="text-[13px] text-gray-400 mt-0.5">
-            {stats ? `${stats.total} encontrados · ${stats.created} novos` : 'Google Maps + captacao automatica'}
+            {leads.length > 0 ? `${leads.length} encontrados · ${newCount} novos` : 'Google Maps + captacao automatica'}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {prospecting && <span className="flex items-center gap-1.5 text-xs bg-violet-50 text-violet-700 font-bold px-2.5 py-1 rounded-lg animate-pulse"><Loader2 size={11} className="animate-spin" /> Prospectando...</span>}
-          {radarCount > 0 && <span className="text-xs bg-blue-50 text-blue-700 font-bold px-2.5 py-1 rounded-lg">+{radarCount} encontrados</span>}
-          {capturedLive > 0 && <span className="text-xs bg-emerald-50 text-emerald-700 font-bold px-2.5 py-1 rounded-lg">+{capturedLive} captados</span>}
+          {prospecting && (
+            <span className="flex items-center gap-1.5 text-xs bg-violet-500 text-white font-bold px-3 py-1.5 rounded-xl animate-pulse shadow-lg shadow-violet-200">
+              <Loader2 size={12} className="animate-spin" /> Prospectando...
+            </span>
+          )}
+          {autoCapture && capturedLive > 0 && (
+            <span className="flex items-center gap-1.5 text-xs bg-emerald-500 text-white font-bold px-3 py-1.5 rounded-xl shadow-lg shadow-emerald-200 animate-pulse">
+              <Zap size={12} /> {capturedLive} captados
+            </span>
+          )}
+          {radarCount > 0 && !prospecting && (
+            <span className="text-xs bg-blue-50 text-blue-700 font-bold px-2.5 py-1 rounded-lg">+{radarCount} radar</span>
+          )}
         </div>
       </div>
 
@@ -276,13 +286,13 @@ export function LeadSearchPage() {
       </form>
 
       {/* Stats */}
-      {stats && (
+      {(leads.length > 0 || stats) && (
         <div className="grid grid-cols-4 gap-2">
           {[
-            { v: stats.total, l: 'Encontrados', c: 'text-gray-900', bg: 'bg-white border-gray-100' },
-            { v: stats.created, l: 'Novos', c: 'text-emerald-600', bg: 'bg-emerald-50 border-emerald-100' },
-            { v: stats.skipped, l: 'Existentes', c: 'text-amber-600', bg: 'bg-amber-50 border-amber-100' },
-            { v: stats.automationQueued, l: 'Automacoes', c: 'text-blue-600', bg: 'bg-blue-50 border-blue-100' },
+            { v: leads.length, l: 'Encontrados', c: 'text-gray-900', bg: 'bg-white border-gray-100' },
+            { v: newCount, l: 'Novos', c: 'text-emerald-600', bg: 'bg-emerald-50 border-emerald-100' },
+            { v: capturedCount, l: 'Existentes', c: 'text-amber-600', bg: 'bg-amber-50 border-amber-100' },
+            { v: capturedLive + (stats?.automationQueued || 0), l: 'Captados', c: 'text-blue-600', bg: 'bg-blue-50 border-blue-100' },
           ].map(s => (
             <div key={s.l} className={`border rounded-xl p-2.5 text-center ${s.bg}`}>
               <p className={`text-xl font-extrabold ${s.c}`}>{s.v}</p>
@@ -397,7 +407,14 @@ function PanfleteiroMap({ leads, capturedPoints, mapRef, mapInstance, panfleteir
       const pos: [number, number] = [l.location.latitude, l.location.longitude]
       bounds.push(pos)
       const isNew = l.captureStatus === 'new'
-      L.circleMarker(pos, { radius: 6, color: isNew ? '#10b981' : '#3b82f6', fillColor: isNew ? '#34d399' : '#60a5fa', fillOpacity: 0.85, weight: 2 })
+      const brandSecondary = getComputedStyle(document.documentElement).getPropertyValue('--brand-secondary').trim() || '#8b5cf6'
+      L.circleMarker(pos, {
+        radius: isNew ? 8 : 6,
+        color: isNew ? '#10b981' : brandSecondary,
+        fillColor: isNew ? '#34d399' : brandSecondary,
+        fillOpacity: isNew ? 0.9 : 0.7,
+        weight: isNew ? 3 : 2,
+      })
         .addTo(map).bindPopup(
           `<div style="min-width:140px"><b style="font-size:12px">${l.name}</b>` +
           (l.rating > 0 ? `<br><span style="font-size:10px;color:#d97706">★ ${l.rating.toFixed(1)}</span>` : '') +
@@ -454,7 +471,7 @@ function PanfleteiroMap({ leads, capturedPoints, mapRef, mapInstance, panfleteir
       <div ref={mapRef} className="w-full" style={{ height: '420px' }} />
       <div className="px-4 py-2 border-t border-gray-100 bg-gray-50/80 flex items-center gap-4 text-[10px] text-gray-400 flex-wrap">
         <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500" /> Novos</span>
-        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-blue-500" /> Existentes</span>
+        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-violet-500" /> Existentes</span>
         <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-gray-300" /> Historico</span>
         {panfleteiro && <span className="ml-auto text-violet-600 font-bold">Panfleteiro ativo — mova o mapa para buscar</span>}
       </div>

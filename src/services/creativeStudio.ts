@@ -5,6 +5,7 @@ import path from "path";
 import { config } from "../config";
 import { query, queryOne, update } from "../config/database";
 import { logger } from "../utils/logger";
+import { integrationService } from "./integrations";
 
 type VideoJobStatus = "processing" | "completed" | "failed";
 
@@ -152,9 +153,13 @@ export class CreativeStudioService {
     return !source.includes("upload");
   }
 
-  private getApiKey(): string {
-    const apiKey = config.geminiApiKey;
-    if (!apiKey) throw new Error("GEMINI_API_KEY is not configured");
+  private async getApiKey(userId?: string, brandId?: string | null): Promise<string> {
+    const provider = await integrationService.getProvider("gemini", {
+      userId,
+      brandId: String(brandId || "").trim() || undefined,
+    });
+    const apiKey = String(provider.key || "").trim();
+    if (!apiKey) throw new Error("GEMINI_API_KEY_NOT_CONFIGURED");
     return apiKey;
   }
 
@@ -254,8 +259,14 @@ export class CreativeStudioService {
     };
   }
 
-  private async requestImageFromParts(userId: string, model: string, prompt: string, imageInlineParts: Array<{ mimeType: string; data: string }>) {
-    const apiKey = this.getApiKey();
+  private async requestImageFromParts(
+    userId: string,
+    model: string,
+    prompt: string,
+    imageInlineParts: Array<{ mimeType: string; data: string }>,
+    brandId?: string | null
+  ) {
+    const apiKey = await this.getApiKey(userId, brandId);
     const response = await axios.post(
       `${this.baseUrl}/models/${model}:generateContent`,
       {
@@ -700,7 +711,7 @@ export class CreativeStudioService {
     brandId?: string | null
   ): Promise<{ text: string; model: string; asset: CreativeAsset }> {
     const model = config.creatives.textModel;
-    const apiKey = this.getApiKey();
+    const apiKey = await this.getApiKey(userId, brandId);
 
     const instruction = [
       "Voce e um especialista em marketing de performance para campanhas de WhatsApp.",
@@ -761,7 +772,7 @@ export class CreativeStudioService {
     brandId?: string | null
   ): Promise<{ imageUrl: string; caption: string; model: string; asset: CreativeAsset }> {
     const model = config.creatives.imageModel;
-    const apiKey = this.getApiKey();
+    const apiKey = await this.getApiKey(userId, brandId);
 
     const formatHint =
       input.format === "portrait"
@@ -819,8 +830,8 @@ export class CreativeStudioService {
     brandId?: string | null
   ): Promise<{ imageUrl: string; caption: string; model: string; asset: CreativeAsset }> {
     const model = config.creatives.imageModel;
-    const apiKey = this.getApiKey();
     await this.ensureAssetsTable();
+    const apiKey = await this.getApiKey(userId, brandId);
 
     let parentAssetId: string | undefined;
     let sourceUrl = input.sourceUrl;
@@ -949,7 +960,8 @@ export class CreativeStudioService {
             userId,
             model,
             `${prompt}\n\nOutput ratio target: ${format}.`,
-            inlineRefs.map((item) => ({ mimeType: item.mimeType, data: item.data }))
+            inlineRefs.map((item) => ({ mimeType: item.mimeType, data: item.data })),
+            brandId
           );
 
           const asset = await this.saveAsset({
@@ -1012,7 +1024,13 @@ export class CreativeStudioService {
       .filter(Boolean)
       .join("\n");
 
-    const result = await this.requestImageFromParts(userId, model, prompt, [{ mimeType: sourceInline.mimeType, data: sourceInline.data }]);
+    const result = await this.requestImageFromParts(
+      userId,
+      model,
+      prompt,
+      [{ mimeType: sourceInline.mimeType, data: sourceInline.data }],
+      brandId
+    );
 
     const tags = this.normalizeTagList(input.tags);
     const asset = await this.saveAsset({
@@ -1105,7 +1123,7 @@ export class CreativeStudioService {
 
   async startVideoGeneration(userId: string, input: GenerateVideoInput, brandId?: string | null): Promise<VideoJob> {
     const model = config.creatives.videoModel;
-    const apiKey = this.getApiKey();
+    const apiKey = await this.getApiKey(userId, brandId);
 
     const body: Record<string, unknown> = { instances: [{ prompt: input.prompt }] };
     if (input.aspectRatio) body.parameters = { aspectRatio: input.aspectRatio };
@@ -1172,7 +1190,7 @@ export class CreativeStudioService {
 
     if (job.status === "completed" || job.status === "failed") return job;
 
-    const apiKey = this.getApiKey();
+    const apiKey = await this.getApiKey(userId, brandId);
 
     try {
       const operationResponse = await axios.get(`${this.baseUrl}/${job.operationName}`, {

@@ -207,6 +207,8 @@ async function generateRefinedProductTestimonials(input: {
   price?: number;
   promoPrice?: number | null;
   policy: StorePolicyContext;
+  userId?: string | null;
+  brandId?: string | null;
 }): Promise<ProductTestimonial[]> {
   const prompt = [
     "Você gera prova social humanizada para páginas de produto de e-commerce.",
@@ -231,7 +233,10 @@ async function generateRefinedProductTestimonials(input: {
     .join("\n");
 
   try {
-    const raw = await geminiService.generatePlainText(prompt);
+    const raw = await geminiService.generatePlainText(prompt, {
+      userId: input.userId || undefined,
+      brandId: input.brandId || undefined,
+    });
     const clean = String(raw || "")
       .trim()
       .replace(/^```json\s*/i, "")
@@ -283,6 +288,8 @@ async function generateRefinedProductDescription(input: {
   policy?: StorePolicyContext;
   testimonials?: ProductTestimonial[];
   mode?: ProductRefineMode;
+  userId?: string | null;
+  brandId?: string | null;
 }): Promise<string | null> {
   const mode: ProductRefineMode = input.mode === "description_only" ? "description_only" : "full";
   const testimonials = Array.isArray(input.testimonials) ? input.testimonials : [];
@@ -340,7 +347,10 @@ async function generateRefinedProductDescription(input: {
     .join("\n");
 
   try {
-    const text = await geminiService.generatePlainText(prompt);
+    const text = await geminiService.generatePlainText(prompt, {
+      userId: input.userId || undefined,
+      brandId: input.brandId || undefined,
+    });
     const normalized = String(text || "").trim();
     return normalized || null;
   } catch {
@@ -421,6 +431,8 @@ router.post("/refine-description-preview", async (req: BrandRequest, res: Respon
           : null,
       hasImage: Boolean(req.body?.hasImage),
       mode: "description_only",
+      userId,
+      brandId: req.brandId || null,
     });
 
     if (!refinedDescription) {
@@ -547,16 +559,14 @@ router.post("/:id/image", withMulterErrorHandling(uploadProductImage.single("ima
 
     const id = String(req.params.id);
     const relativeImageUrl = `/uploads/product-images/${file.filename}`;
-    const absoluteImageUrl = `${req.protocol}://${req.get("host")}${relativeImageUrl}`;
-    const updated = await productsService.updateProduct(id, { imageUrl: absoluteImageUrl }, userId, req.brandId);
+    const updated = await productsService.updateProduct(id, { imageUrl: relativeImageUrl }, userId, req.brandId);
 
     if (!updated) return res.status(404).json({ error: "Product not found" });
 
     res.json({
       success: true,
       product: updated,
-      imageUrl: absoluteImageUrl,
-      absoluteImageUrl
+      imageUrl: relativeImageUrl
     });
   } catch (error: any) {
     logger.error(error, "Error uploading product image");
@@ -864,6 +874,8 @@ router.post("/:id/refine", async (req: BrandRequest, res: Response) => {
           ? Number(owned.promoPrice)
           : null,
       policy: storePolicy,
+      userId,
+      brandId: req.brandId || null,
     });
 
     if (alreadyRefined && !force) {
@@ -899,6 +911,8 @@ router.post("/:id/refine", async (req: BrandRequest, res: Response) => {
       policy: storePolicy,
       testimonials,
       mode: "full",
+      userId,
+      brandId: req.brandId || null,
     });
 
     const baseDescription = String(row.description || owned.description || "").trim();

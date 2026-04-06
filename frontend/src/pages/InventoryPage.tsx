@@ -4,10 +4,10 @@ import {
   LayoutDashboard, Package, ArrowLeftRight, Truck, AlertTriangle, BarChart3,
   Search, Plus, ArrowDown, ArrowUp, Scale, History, Settings, Pencil, X,
   ChevronLeft, ChevronRight, RefreshCw, Upload, Loader2, LogOut, Menu,
-  PackageOpen, Zap, ShoppingCart, Minus, User, Phone, Mail, CreditCard,
-  Banknote, CheckCircle2, Receipt, Palette, Globe,
+  PackageOpen, Zap, Users, Phone, Mail, MapPin, Tag, Eye, Trash2,
+  UserPlus, Filter,
 } from 'lucide-react'
-import { inventoryApi } from '@/lib/api-admin'
+import { inventoryApi, stockApi } from '@/lib/api-admin'
 
 /* ── Types ── */
 interface InventoryProduct {
@@ -71,20 +71,10 @@ function useToast() {
   return { msg, show }
 }
 
-/* ── Auth headers helper ── */
-function getAuthHeaders(): Record<string, string> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-  const token = localStorage.getItem('lead-system-token')
-  if (token) headers['Authorization'] = `Bearer ${token}`
-  const brandId = localStorage.getItem('lead-system:active-brand-id')
-  if (brandId) headers['x-brand-id'] = brandId
-  return headers
-}
-
 /* ══════════════════════════════════════════════
    MAIN COMPONENT
    ══════════════════════════════════════════════ */
-type ViewKey = 'overview' | 'stock' | 'products' | 'movements' | 'expedition' | 'alerts' | 'sales' | 'reports'
+type ViewKey = 'overview' | 'products' | 'movements' | 'expedition' | 'alerts' | 'reports' | 'clients'
 
 export function InventoryPage() {
   const navigate = useNavigate()
@@ -96,9 +86,8 @@ export function InventoryPage() {
   const [categories, setCategories] = useState<Category[]>([])
   const [refreshKey, setRefreshKey] = useState(0)
 
-  const [showPDV, setShowPDV] = useState(false)
   const token = localStorage.getItem('lead-system-token')
-  useEffect(() => { if (!token) navigate('/login', { replace: true }) }, [token])
+  useEffect(() => { if (!token) navigate('/', { replace: true }) }, [token])
 
   // Bootstrap
   useEffect(() => {
@@ -135,128 +124,92 @@ export function InventoryPage() {
 
   const navItems: { key: ViewKey; icon: typeof LayoutDashboard; label: string; badge?: number }[] = [
     { key: 'overview', icon: LayoutDashboard, label: 'Visão Geral' },
-    { key: 'stock' as ViewKey, icon: Scale, label: 'Estoque' },
     { key: 'products', icon: Package, label: 'Produtos' },
     { key: 'movements', icon: ArrowLeftRight, label: 'Movimentações' },
     { key: 'expedition', icon: Truck, label: 'Expedição' },
     { key: 'alerts', icon: AlertTriangle, label: 'Alertas', badge: alertCount },
-    { key: 'sales' as ViewKey, icon: ShoppingCart, label: 'Vendas' },
     { key: 'reports', icon: BarChart3, label: 'Relatórios' },
+    { key: 'clients', icon: Users, label: 'Clientes' },
   ]
-  const bottomItems = navItems.filter(n => !['expedition', 'reports'].includes(n.key))
+  const bottomItems = navItems.filter(n => n.key !== 'expedition' && n.key !== 'reports') // bottom nav items
 
   return (
-    <div className="h-screen bg-[#f8f9fb] flex flex-col">
-      {/* ── Mobile Topbar ── */}
-      <header className="sticky top-0 z-50 bg-gray-950 text-white flex items-center justify-between px-4 h-14 lg:hidden shadow-xl shrink-0">
+    <div className="min-h-screen bg-bg">
+      {/* ── Top bar (mobile) ── */}
+      <header className="sticky top-0 z-50 bg-slate-900 text-white flex items-center justify-between px-4 h-14 lg:hidden">
         <div className="flex items-center gap-2.5">
-          <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-1.5 rounded-lg hover:bg-white/10 transition">
-            {sidebarOpen ? <X size={18} /> : <Menu size={18} />}
-          </button>
-          {brand.logo_url && <img src={brand.logo_url} alt="" className="w-7 h-7 rounded-lg object-cover ring-2 ring-white/10" />}
-          <h1 className="text-[13px] font-bold truncate max-w-[120px]">{brand.name || 'Estoque'}</h1>
+          <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-1"><Menu size={20} /></button>
+          {brand.logo_url && <img src={brand.logo_url} alt="" className="w-7 h-7 rounded-lg object-cover" />}
+          <h1 className="text-sm font-bold truncate">{brand.name || 'Inventário'}</h1>
         </div>
-        <div className="flex items-center gap-1.5">
-          <button onClick={() => setShowPDV(true)} className="bg-emerald-500 rounded-lg px-2.5 py-1.5 text-[10px] font-bold flex items-center gap-1"><ShoppingCart size={12} /> PDV</button>
-          <button onClick={handleSync} className="bg-white/10 rounded-lg p-2 hover:bg-white/20 transition"><RefreshCw size={13} /></button>
+        <div className="flex gap-2">
+          <button onClick={handleSync} className="bg-white/10 rounded-lg p-2 hover:bg-white/20 transition"><RefreshCw size={14} /></button>
+          <button onClick={logout} className="bg-white/10 rounded-lg p-2 hover:bg-white/20 transition"><LogOut size={14} /></button>
         </div>
       </header>
 
-      <div className="flex flex-1 overflow-hidden">
-        {/* ── Premium Dark Sidebar ── */}
-        <aside className={`fixed inset-y-0 left-0 z-40 w-[220px] bg-gray-950 flex flex-col transition-transform lg:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-          {/* Brand header */}
-          <div className="hidden lg:flex items-center gap-3 h-[60px] px-4 border-b border-white/[0.06] shrink-0">
-            {brand.logo_url
-              ? <img src={brand.logo_url} alt="" className="w-9 h-9 rounded-xl object-cover ring-2 ring-white/10 shrink-0" />
-              : <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 grid place-items-center shrink-0"><Package size={16} className="text-white" /></div>}
-            <div className="min-w-0">
-              <span className="block text-[13px] font-bold text-white truncate">{brand.name || 'Estoque'}</span>
-              <span className="block text-[10px] text-white/30 font-medium">Gestao de estoque</span>
-            </div>
+      <div className="flex">
+        {/* ── Desktop Sidebar ── */}
+        <aside className={`fixed inset-y-0 left-0 z-40 w-60 bg-white border-r border-border flex flex-col transition-transform lg:translate-x-0 lg:static lg:z-auto ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+          <div className="h-14 flex items-center gap-2.5 px-4 border-b border-border">
+            {brand.logo_url && <img src={brand.logo_url} alt="" className="w-8 h-8 rounded-lg object-cover" />}
+            <span className="font-bold text-sm truncate">{brand.name || 'Inventário'}</span>
           </div>
-
-          {/* Nav */}
-          <nav className="flex-1 py-3 px-2.5 overflow-y-auto space-y-0.5">
-            {navItems.map(n => {
-              const active = view === n.key
-              return (
-                <button key={n.key} onClick={() => switchView(n.key)}
-                  className={`w-full flex items-center gap-2.5 px-3 py-[9px] text-[13px] rounded-lg transition-all ${
-                    active ? 'bg-white/[0.12] text-white font-semibold shadow-sm' : 'text-white/40 hover:bg-white/[0.06] hover:text-white/70'
-                  }`}>
-                  <n.icon size={16} className={active ? 'text-emerald-400' : ''} />
-                  <span className="flex-1 text-left">{n.label}</span>
-                  {n.badge ? <span className="bg-red-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">{n.badge}</span> : null}
-                </button>
-              )
-            })}
+          <nav className="flex-1 py-2 overflow-y-auto">
+            {navItems.map(n => (
+              <button key={n.key} onClick={() => switchView(n.key)}
+                className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm transition ${
+                  view === n.key ? 'bg-blue-50 text-blue-600 font-semibold' : 'text-gray-600 hover:bg-gray-50'
+                }`}>
+                <n.icon size={18} />
+                <span className="flex-1 text-left">{n.label}</span>
+                {n.badge ? (
+                  <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center">{n.badge}</span>
+                ) : null}
+              </button>
+            ))}
           </nav>
-
-          {/* Bottom actions */}
-          <div className="p-3 border-t border-white/[0.06] space-y-2 shrink-0">
-            <button onClick={() => setShowPDV(true)}
-              className="w-full flex items-center justify-center gap-1.5 text-[11px] font-bold py-2.5 rounded-lg bg-gradient-to-r from-emerald-500 to-teal-600 text-white hover:from-emerald-600 hover:to-teal-700 transition shadow-sm">
-              <ShoppingCart size={13} /> Novo Pedido (PDV)
+          <div className="p-3 border-t border-border flex gap-2">
+            <button onClick={handleSync} className="flex-1 flex items-center justify-center gap-1.5 text-xs font-semibold py-2 rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition">
+              <RefreshCw size={12} /> Sincronizar
             </button>
-            <div className="flex gap-2">
-              <button onClick={handleSync}
-                className="flex-1 flex items-center justify-center gap-1.5 text-[11px] font-semibold py-2 rounded-lg bg-white/[0.08] text-white/60 hover:bg-white/[0.12] hover:text-white/80 transition">
-                <RefreshCw size={12} /> Sync
-              </button>
-              <button onClick={() => navigate('/admin')}
-                className="px-3 py-2 rounded-lg bg-white/[0.08] text-white/40 hover:bg-white/[0.12] hover:text-white/70 transition" title="Voltar ao painel">
-                <ArrowLeftRight size={13} />
-              </button>
-            </div>
+            <button onClick={logout} className="px-3 py-2 rounded-lg bg-gray-100 text-gray-500 hover:bg-gray-200 transition">
+              <LogOut size={14} />
+            </button>
           </div>
         </aside>
-
-        {/* Overlay */}
-        {sidebarOpen && <div className="fixed inset-0 bg-black/50 z-30 lg:hidden backdrop-blur-sm" onClick={() => setSidebarOpen(false)} />}
+        {/* overlay */}
+        {sidebarOpen && <div className="fixed inset-0 bg-black/30 z-30 lg:hidden" onClick={() => setSidebarOpen(false)} />}
 
         {/* ── Main content ── */}
-        <main className="flex-1 lg:ml-[220px] overflow-y-auto">
-          <div className="max-w-5xl mx-auto px-5 pt-5 pb-20 lg:pb-8">
-            {view === 'overview' && <OverviewView showToast={showToast} onAlertCount={setAlertCount} refreshKey={refreshKey} />}
-            {view === 'stock' && <StockManagementView showToast={showToast} refreshKey={refreshKey} onRefresh={() => setRefreshKey(k => k + 1)} />}
-            {view === 'products' && <ProductsView showToast={showToast} categories={categories} refreshKey={refreshKey} onRefresh={() => setRefreshKey(k => k + 1)} />}
-            {view === 'movements' && <MovementsView showToast={showToast} />}
-            {view === 'expedition' && <ExpeditionView showToast={showToast} />}
-            {view === 'alerts' && <AlertsView showToast={showToast} onAlertCount={setAlertCount} onRefresh={() => setRefreshKey(k => k + 1)} />}
-            {view === 'sales' && <SalesView showToast={showToast} onPDV={() => setShowPDV(true)} />}
-            {view === 'reports' && <ReportsView showToast={showToast} />}
-          </div>
+        <main className="flex-1 max-w-4xl mx-auto px-4 pt-4 pb-20 lg:pb-6 page-enter min-w-0">
+          {view === 'overview' && <OverviewView showToast={showToast} onAlertCount={setAlertCount} refreshKey={refreshKey} />}
+          {view === 'products' && <ProductsView showToast={showToast} categories={categories} refreshKey={refreshKey} onRefresh={() => setRefreshKey(k => k + 1)} />}
+          {view === 'movements' && <MovementsView showToast={showToast} />}
+          {view === 'expedition' && <ExpeditionView showToast={showToast} />}
+          {view === 'alerts' && <AlertsView showToast={showToast} onAlertCount={setAlertCount} onRefresh={() => setRefreshKey(k => k + 1)} />}
+          {view === 'reports' && <ReportsView showToast={showToast} />}
+          {view === 'clients' && <ClientsView showToast={showToast} />}
         </main>
       </div>
 
-      {/* ── Mobile Bottom Nav ── */}
-      <nav className="fixed bottom-0 left-0 right-0 z-50 bg-gray-950/95 backdrop-blur-lg border-t border-white/[0.06] flex h-16 lg:hidden safe-area-inset-bottom shrink-0">
-        {bottomItems.map(n => {
-          const active = view === n.key
-          return (
-            <button key={n.key} onClick={() => switchView(n.key)}
-              className={`flex-1 flex flex-col items-center justify-center gap-0.5 text-[10px] font-medium transition ${
-                active ? 'text-emerald-400' : 'text-white/30'
-              }`}>
-              <span className="relative">
-                <n.icon size={18} />
-                {n.badge ? <span className="absolute -top-1 -right-2 bg-red-500 text-white text-[8px] font-bold rounded-full w-3.5 h-3.5 flex items-center justify-center">{n.badge}</span> : null}
-              </span>
-              {n.label.split(' ')[0]}
-            </button>
-          )
-        })}
+      {/* ── Bottom Nav (mobile) ── */}
+      <nav className="fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-border flex h-15 lg:hidden">
+        {bottomItems.map(n => (
+          <button key={n.key} onClick={() => switchView(n.key)}
+            className={`flex-1 flex flex-col items-center justify-center gap-0.5 text-[10px] transition ${
+              view === n.key ? 'text-blue-600 font-bold' : 'text-muted'
+            }`}>
+            <span className="relative">
+              <n.icon size={20} />
+              {n.badge ? (
+                <span className="absolute -top-1 -right-2 bg-red-500 text-white text-[9px] font-bold rounded-full min-w-[14px] h-3.5 flex items-center justify-center px-0.5">{n.badge}</span>
+              ) : null}
+            </span>
+            {n.label.split(' ')[0]}
+          </button>
+        ))}
       </nav>
-
-      {/* PDV Modal */}
-      {showPDV && (
-        <PDVModal
-          onClose={() => setShowPDV(false)}
-          showToast={showToast}
-          onOrderCreated={() => { setRefreshKey(k => k + 1); switchView('sales') }}
-        />
-      )}
 
       {/* Toast */}
       {toast && (
@@ -297,21 +250,18 @@ function OverviewView({ showToast, onAlertCount, refreshKey }: { showToast: (t: 
 
   return (
     <div className="space-y-5">
-      <div>
-        <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">Visao Geral</h2>
-        <p className="text-[13px] text-gray-400 mt-0.5">Resumo do estoque</p>
-      </div>
+      <h2 className="text-lg font-bold">Visão Geral</h2>
 
       {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
-        <KpiCard label="Produtos" value={num(data?.total_products)} icon={Package} bg="bg-blue-50" color="text-blue-600" />
-        <KpiCard label="Sem Estoque" value={num(data?.out_of_stock)} icon={AlertTriangle} bg="bg-red-50" color="text-red-500" />
-        <KpiCard label="Estoque Baixo" value={num(data?.low_stock)} icon={Zap} bg="bg-amber-50" color="text-amber-500" />
-        <KpiCard label="Valor Total" value={Number(data?.total_value) > 0 ? money(data.total_value) : '—'} icon={BarChart3} bg="bg-emerald-50" color={Number(data?.total_value) > 0 ? "text-emerald-500" : "text-muted"} />
-        <KpiCard label="Entradas Hoje" value={num(data?.entries_today)} icon={ArrowDown} bg="bg-emerald-50" color="text-emerald-500" />
-        <KpiCard label="Saídas Hoje" value={num(data?.exits_today)} icon={ArrowUp} bg="bg-orange-50" color="text-orange-500" />
-        <KpiCard label="Embalagens" value={num(data?.total_units)} icon={Scale} bg="bg-indigo-50" color="text-indigo-500" />
-        <KpiCard label="Reservado" value={num(data?.total_reserved)} icon={Package} bg="bg-purple-50" color="text-purple-500" />
+        <KpiCard label="Produtos" value={num(data?.total_products)} />
+        <KpiCard label="Sem Estoque" value={num(data?.out_of_stock)} color="text-red-500" />
+        <KpiCard label="Estoque Baixo" value={num(data?.low_stock)} color="text-amber-500" />
+        <KpiCard label="Valor Total" value={money(data?.total_value)} color="text-emerald-500" />
+        <KpiCard label="Entradas Hoje" value={num(data?.entries_today)} color="text-blue-500" />
+        <KpiCard label="Saídas Hoje" value={num(data?.exits_today)} color="text-orange-500" />
+        <KpiCard label="Total Unidades" value={num(data?.total_units)} />
+        <KpiCard label="Reservado" value={num(data?.total_reserved)} color="text-indigo-500" />
       </div>
 
       {/* Top Selling */}
@@ -351,246 +301,8 @@ function OverviewView({ showToast, onAlertCount, refreshKey }: { showToast: (t: 
 }
 
 /* ══════════════════════════════════════════════
-   STOCK MANAGEMENT VIEW — Gestao de estoque bruto
+   PRODUCTS VIEW
    ══════════════════════════════════════════════ */
-function StockManagementView({ showToast, refreshKey, onRefresh }: {
-  showToast: (t: string, tp?: 'success' | 'error') => void; refreshKey: number; onRefresh: () => void
-}) {
-  const [items, setItems] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
-  const [search, setSearch] = useState('')
-  const [actionModal, setActionModal] = useState<{ type: 'add' | 'remove' | 'adjust'; product: any } | null>(null)
-  const [qty, setQty] = useState('')
-  const [reason, setReason] = useState('')
-  const [saving, setSaving] = useState(false)
-
-  function load() {
-    setLoading(true)
-    // Merge inventory stock data with product catalog (correct units)
-    Promise.all([
-      inventoryApi.products(1, 200),
-      fetch('/api/products', { headers: getAuthHeaders() }).then(r => r.json()).catch(() => ({ products: [] })),
-    ]).then(([inv, cat]) => {
-      const catMap = new Map<string, any>()
-      ;(cat.products || []).forEach((p: any) => catMap.set(p.id, p))
-      const merged = (inv.items || []).map((item: any) => {
-        const catProduct = catMap.get(item.product_id) || {}
-        // Use catalog unit (normalized) over inventory unit (may be stale "unidade")
-        const realUnit = catProduct.unit || item.product_unit || 'kg'
-        return { ...item, real_unit: realUnit, catalog: catProduct }
-      })
-      setItems(merged)
-      setLoading(false)
-    }).catch(() => setLoading(false))
-  }
-  useEffect(() => { load() }, [refreshKey])
-
-  // Convert unit to kg multiplier
-  function unitToKg(unit: string): number {
-    const u = (unit || 'kg').toLowerCase().trim()
-    const m = u.match(/^(\d+(?:[.,]\d+)?)\s*(kg|g)$/i)
-    if (m) { const v = parseFloat(m[1]); return m[2].toLowerCase() === 'g' ? v / 1000 : v }
-    if (u === 'kg') return 1
-    if (u === 'g') return 0.001
-    return 1
-  }
-  function fmtKg(v: number): string {
-    if (v >= 1000) return `${(v / 1000).toFixed(2)} ton`
-    return `${v.toFixed(1)} kg`
-  }
-
-  const filtered = search
-    ? items.filter(p => ((p.product_name || '') as string).toLowerCase().includes(search.toLowerCase()))
-    : items
-
-  // Metrics from real data
-  const totalKg = items.reduce((s, p) => s + (Number(p.stock_current) || 0) * unitToKg(p.real_unit), 0)
-  const availableKg = items.reduce((s, p) => s + (Number(p.stock_available) || 0) * unitToKg(p.real_unit), 0)
-  const totalProducts = items.length
-  const lowStock = items.filter(p => (p.status || '').toLowerCase() === 'baixo').length
-  const zeroStock = items.filter(p => (p.status || '').toLowerCase() === 'zerado' || Number(p.stock_current) === 0).length
-
-  async function executeAction() {
-    if (!actionModal || !qty || Number(qty) <= 0) return showToast('Quantidade invalida', 'error')
-    const pid = actionModal.product.product_id || actionModal.product.id
-    setSaving(true)
-    try {
-      if (actionModal.type === 'add') {
-        await inventoryApi.addStock(pid, { quantity: Number(qty), source: 'reposicao', reason: reason || 'Entrada manual' })
-        showToast(`+${qty} adicionado`)
-      } else if (actionModal.type === 'remove') {
-        await inventoryApi.removeStock(pid, { quantity: Number(qty), source: 'ajuste', reason: reason || 'Saida manual' })
-        showToast(`-${qty} removido`)
-      } else {
-        await inventoryApi.adjustStock(pid, { new_quantity: Number(qty), reason: reason || 'Ajuste manual' })
-        showToast(`Ajustado para ${qty}`)
-      }
-      setActionModal(null); setQty(''); setReason(''); load(); onRefresh()
-    } catch (e: any) { showToast(e.message, 'error') }
-    setSaving(false)
-  }
-
-  if (loading) return <Skeleton rows={6} />
-
-  return (
-    <div className="space-y-5">
-      <div>
-        <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">Estoque</h2>
-        <p className="text-[13px] text-gray-400 mt-0.5">{totalProducts} produtos · {fmtKg(totalKg)} total</p>
-      </div>
-
-      {/* KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
-        <div className="bg-gradient-to-br from-indigo-500 to-blue-600 rounded-2xl p-4 text-white shadow-lg">
-          <Scale size={16} className="text-white/50 mb-1.5" />
-          <p className="text-[26px] font-extrabold leading-none">{fmtKg(totalKg)}</p>
-          <p className="text-[9px] font-bold text-white/50 uppercase tracking-wider mt-1">Total em Peso</p>
-        </div>
-        <div className="bg-gradient-to-br from-emerald-500 to-teal-600 rounded-2xl p-4 text-white shadow-lg">
-          <Package size={16} className="text-white/50 mb-1.5" />
-          <p className="text-[26px] font-extrabold leading-none">{fmtKg(availableKg)}</p>
-          <p className="text-[9px] font-bold text-white/50 uppercase tracking-wider mt-1">Disponivel</p>
-        </div>
-        <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
-          <p className="text-[26px] font-extrabold text-orange-500 leading-none">{lowStock}</p>
-          <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider mt-1">Estoque Baixo</p>
-        </div>
-        <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
-          <p className="text-[26px] font-extrabold text-red-500 leading-none">{zeroStock}</p>
-          <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider mt-1">Sem Estoque</p>
-        </div>
-      </div>
-
-      {/* Search */}
-      <div className="relative">
-        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-        <input type="text" value={search} onChange={e => setSearch(e.target.value)}
-          placeholder="Buscar produto..."
-          className="w-full pl-9 pr-3 py-2.5 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-emerald-200 placeholder:text-gray-300" />
-      </div>
-
-      {/* Stock list */}
-      <div className="space-y-2">
-        {filtered.map((p: any) => {
-          const current = Number(p.stock_current) || 0
-          const available = Number(p.stock_available) || 0
-          const reserved = Number(p.stock_reserved) || 0
-          const unit = p.real_unit || 'kg'
-          const kgPerUnit = unitToKg(unit)
-          const totalKgProduct = current * kgPerUnit
-          const sb = stockBadge(p.status)
-          const img = p.product_image || p.image_url || ''
-
-          return (
-            <div key={p.id} className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-4 hover:shadow-md transition-all">
-              <div className="flex items-center gap-3">
-                {img ? <img src={img} alt="" className="w-11 h-11 rounded-xl object-cover shrink-0" />
-                  : <div className="w-11 h-11 rounded-xl bg-gray-100 grid place-items-center shrink-0"><Package size={16} className="text-gray-300" /></div>}
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-bold text-gray-900 truncate">{p.product_name || 'Produto'}</p>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    <span className="text-[10px] font-mono text-gray-400">{unit}</span>
-                    <span className="text-[10px] text-gray-300">·</span>
-                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${sb.cls}`}>{sb.label}</span>
-                    {reserved > 0 && <span className="text-[9px] text-amber-600 font-semibold">Reserv: {num(reserved)}</span>}
-                  </div>
-                </div>
-                <div className="text-right shrink-0">
-                  <p className="text-lg font-extrabold text-gray-900">{num(current)}</p>
-                  <p className="text-[10px] text-gray-400 font-semibold">{totalKgProduct >= 1 ? `${totalKgProduct.toFixed(1)} kg` : `${(totalKgProduct * 1000).toFixed(0)} g`}</p>
-                </div>
-              </div>
-              {/* Actions */}
-              <div className="flex items-center gap-1.5 mt-3 pt-3 border-t border-gray-100">
-                <button onClick={() => { setActionModal({ type: 'add', product: p }); setQty(''); setReason('') }}
-                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 text-[11px] font-bold hover:bg-emerald-100 transition">
-                  <ArrowDown size={12} /> Entrada
-                </button>
-                <button onClick={() => { setActionModal({ type: 'remove', product: p }); setQty(''); setReason('') }}
-                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-red-50 text-red-600 text-[11px] font-bold hover:bg-red-100 transition">
-                  <ArrowUp size={12} /> Saida
-                </button>
-                <button onClick={() => { setActionModal({ type: 'adjust', product: p }); setQty(String(current)); setReason('') }}
-                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-600 text-[11px] font-bold hover:bg-blue-100 transition">
-                  <Scale size={12} /> Ajustar
-                </button>
-                <div className="flex-1" />
-                <span className="text-[10px] text-gray-400">min: {p.stock_min || 0}</span>
-              </div>
-            </div>
-          )
-        })}
-      </div>
-
-      {filtered.length === 0 && (
-        <div className="flex flex-col items-center py-14 text-center">
-          <Package size={28} className="text-gray-300 mb-2" />
-          <p className="text-sm text-gray-500">Nenhum produto encontrado</p>
-        </div>
-      )}
-
-      {/* Action Modal */}
-      {actionModal && (() => {
-        const current = Number(actionModal.product.stock_current) || 0
-        const unit = actionModal.product.real_unit || 'kg'
-        const kgPer = unitToKg(unit)
-        const preview = actionModal.type === 'add' ? current + Number(qty || 0)
-          : actionModal.type === 'remove' ? current - Number(qty || 0)
-          : Number(qty || 0)
-        return (
-          <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => setActionModal(null)}>
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
-              <div className={`px-5 py-4 rounded-t-2xl ${actionModal.type === 'add' ? 'bg-emerald-500' : actionModal.type === 'remove' ? 'bg-red-500' : 'bg-blue-500'} text-white`}>
-                <h3 className="font-bold text-base">
-                  {actionModal.type === 'add' ? 'Entrada de Estoque' : actionModal.type === 'remove' ? 'Saida de Estoque' : 'Ajustar Estoque'}
-                </h3>
-                <p className="text-white/70 text-xs mt-0.5">{actionModal.product.product_name}</p>
-                <p className="text-white/50 text-[10px] mt-0.5">Atual: {num(current)} {unit} ({(current * kgPer).toFixed(1)} kg)</p>
-              </div>
-              <div className="px-5 py-4 space-y-3">
-                <div>
-                  <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5 block">
-                    {actionModal.type === 'adjust' ? 'Nova quantidade' : `Quantidade (${unit})`}
-                  </label>
-                  <input type="number" step="any" min="0" value={qty} onChange={e => setQty(e.target.value)} autoFocus
-                    className="w-full px-4 py-3 border border-gray-200 rounded-xl text-xl font-bold text-center focus:outline-none focus:ring-2 focus:ring-emerald-200" />
-                </div>
-                <div>
-                  <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5 block">Motivo</label>
-                  <input type="text" value={reason} onChange={e => setReason(e.target.value)}
-                    placeholder="Ex: Reposicao fornecedor..."
-                    className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-200" />
-                </div>
-                {qty && Number(qty) > 0 && (
-                  <div className="bg-gray-50 rounded-xl p-3 text-center">
-                    <p className="text-[10px] text-gray-500 mb-1">Resultado</p>
-                    <p className="text-lg font-extrabold text-gray-900">
-                      {actionModal.type !== 'adjust' && <>{num(current)} {actionModal.type === 'add' ? '+' : '−'} {qty} = </>}
-                      <span className={actionModal.type === 'add' ? 'text-emerald-600' : actionModal.type === 'remove' ? 'text-red-500' : 'text-blue-600'}>
-                        {num(preview)} {unit}
-                      </span>
-                    </p>
-                    <p className="text-[10px] text-gray-400">{(preview * kgPer).toFixed(1)} kg</p>
-                  </div>
-                )}
-              </div>
-              <div className="px-5 py-4 border-t border-gray-100 flex gap-2">
-                <button onClick={() => setActionModal(null)} className="flex-1 py-2.5 rounded-xl bg-gray-100 text-gray-600 text-xs font-semibold hover:bg-gray-200 transition">Cancelar</button>
-                <button onClick={executeAction} disabled={saving || !qty || Number(qty) <= 0}
-                  className={`flex-1 py-2.5 rounded-xl text-white text-xs font-bold disabled:opacity-50 transition shadow-sm ${
-                    actionModal.type === 'add' ? 'bg-emerald-500 hover:bg-emerald-600' : actionModal.type === 'remove' ? 'bg-red-500 hover:bg-red-600' : 'bg-blue-500 hover:bg-blue-600'
-                  }`}>
-                  {saving ? 'Processando...' : actionModal.type === 'add' ? 'Adicionar' : actionModal.type === 'remove' ? 'Remover' : 'Ajustar'}
-                </button>
-              </div>
-            </div>
-          </div>
-        )
-      })()}
-    </div>
-  )
-}
-
 function ProductsView({ showToast, categories, refreshKey, onRefresh }: {
   showToast: (t: string, tp?: 'success' | 'error') => void; categories: Category[]; refreshKey: number; onRefresh: () => void
 }) {
@@ -640,7 +352,7 @@ function ProductsView({ showToast, categories, refreshKey, onRefresh }: {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-bold text-gray-900">Produtos</h2>
+        <h2 className="text-lg font-bold">Produtos</h2>
         <button onClick={() => setModal({ type: 'edit' })} className="flex items-center gap-1 text-xs font-semibold bg-blue-500 text-white px-3 py-2 rounded-lg hover:bg-blue-600 transition">
           <Plus size={14} /> Novo
         </button>
@@ -677,14 +389,14 @@ function ProductsView({ showToast, categories, refreshKey, onRefresh }: {
               const sb = stockBadge(p.status)
               return (
                 <div key={pid} onClick={() => setModal({ type: 'actions', product: p })}
-                  className="bg-white border border-border rounded-2xl p-3.5 cursor-pointer hover:border-blue-200 hover:shadow-sm transition-all">
+                  className="bg-white border border-border rounded-xl p-3.5 cursor-pointer hover:border-blue-200 transition">
                   <div className="flex items-start gap-2.5">
                     {img ? <img src={img} alt="" className="w-12 h-12 rounded-lg object-cover bg-gray-100 flex-shrink-0" loading="lazy" />
                       : <div className="w-12 h-12 rounded-lg bg-gray-100 grid place-items-center text-gray-400 flex-shrink-0">📦</div>}
                     <div className="flex-1 min-w-0">
                       <p className="font-bold text-sm truncate">{name}</p>
                       <p className="text-xs text-muted mt-0.5">
-                        {(p.product_sku || p.sku) ? `SKU: ${(p.product_sku || p.sku || '').substring(0, 12)} • ` : ''}
+                        {p.product_sku || p.sku ? `SKU: ${p.product_sku || p.sku} • ` : ''}
                         {unitShort(p.product_unit || p.unit)} • {typeLabel(p.product_type)}
                       </p>
                     </div>
@@ -752,7 +464,7 @@ function MovementsView({ showToast }: { showToast: (t: string, tp?: 'success' | 
 
   return (
     <div className="space-y-3">
-      <h2 className="text-lg font-bold text-gray-900">Movimentações</h2>
+      <h2 className="text-lg font-bold">Movimentações</h2>
       <div className="flex gap-1.5 overflow-x-auto pb-1 no-scrollbar">
         {filters.map(f => (
           <button key={f} onClick={() => onFilter(f)}
@@ -802,106 +514,54 @@ function MovementsView({ showToast }: { showToast: (t: string, tp?: 'success' | 
    EXPEDITION VIEW
    ══════════════════════════════════════════════ */
 function ExpeditionView({ showToast }: { showToast: (t: string, tp?: 'success' | 'error') => void }) {
-  const [orders, setOrders] = useState<any[]>([])
+  const [items, setItems] = useState<Expedition[]>([])
+  const [page, setPage] = useState(1)
+  const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
-  const [moving, setMoving] = useState<string | null>(null)
+  const [modal, setModal] = useState(false)
+  const limit = 50
 
-  function load() {
+  const load = useCallback((pg: number) => {
     setLoading(true)
-    fetch('/api/orders?limit=100', { headers: getAuthHeaders() })
-      .then(r => r.json()).then(d => { setOrders(d.orders || []); setLoading(false) })
-      .catch(() => setLoading(false))
-  }
-  useEffect(() => { load() }, [])
+    inventoryApi.expedition(pg, limit)
+      .then(d => { setItems(Array.isArray(d.items) ? d.items : []); setTotal(d.total || 0) })
+      .catch(e => showToast(e.message, 'error'))
+      .finally(() => setLoading(false))
+  }, [])
 
-  async function moveOrder(orderId: string, nextStatus: string) {
-    setMoving(orderId)
-    try {
-      const r = await fetch(`/api/orders/${orderId}/status`, {
-        method: 'PATCH', headers: getAuthHeaders(),
-        body: JSON.stringify({ status: nextStatus }),
-      })
-      const d = await r.json()
-      if (!r.ok) throw new Error(d.error || 'Erro')
-      showToast(`Movido para ${nextStatus.replace(/_/g, ' ')}`)
-      load()
-    } catch (e: any) { showToast(e.message, 'error') }
-    setMoving(null)
-  }
+  useEffect(() => { load(1) }, [])
 
-  if (loading) return <Skeleton rows={4} />
-
-  const columns = [
-    { key: 'aguardando', label: 'Pago', color: 'text-amber-700', bg: 'bg-amber-50', border: 'border-amber-200', statuses: ['pago'], nextStatus: 'em_preparacao', nextLabel: 'Separar →' },
-    { key: 'separando', label: 'Separando', color: 'text-orange-700', bg: 'bg-orange-50', border: 'border-orange-200', statuses: ['em_preparacao'], nextStatus: 'em_entrega', nextLabel: 'Enviar →' },
-    { key: 'rota', label: 'Em Rota', color: 'text-blue-700', bg: 'bg-blue-50', border: 'border-blue-200', statuses: ['em_entrega'], nextStatus: 'entregue', nextLabel: 'Entregar →' },
-    { key: 'entregue', label: 'Entregue', color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-200', statuses: ['entregue'], nextStatus: '', nextLabel: '' },
-  ]
-
-  const grouped: Record<string, any[]> = {}
-  columns.forEach(c => { grouped[c.key] = [] })
-  orders.forEach(o => {
-    const st = (o.business_status || o.status_pedido || '').toLowerCase()
-    if (['cancelado', 'aguardando_pagamento', 'novo', 'criado'].includes(st)) return
-    const col = columns.find(c => c.statuses.includes(st))
-    if (col) grouped[col.key].push(o)
-  })
-  const totalInKanban = Object.values(grouped).reduce((s, arr) => s + arr.length, 0)
+  const totalPages = Math.ceil(total / limit)
 
   return (
-    <div className="space-y-5">
-      <div>
-        <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">Expedicao</h2>
-        <p className="text-[13px] text-gray-400 mt-0.5">{totalInKanban} pedido(s) em fluxo</p>
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-bold">Expedição</h2>
+        <button onClick={() => setModal(true)} className="flex items-center gap-1 text-xs font-semibold bg-blue-500 text-white px-3 py-2 rounded-lg hover:bg-blue-600 transition">
+          <Plus size={14} /> Nova
+        </button>
       </div>
 
-      {totalInKanban === 0 ? (
-        <div className="flex flex-col items-center justify-center py-16 text-center">
-          <div className="w-16 h-16 bg-gray-100 rounded-2xl grid place-items-center mb-3">
-            <Truck size={28} className="text-gray-300" />
-          </div>
-          <p className="text-sm font-medium text-gray-600">Nenhum pedido em expedicao</p>
-          <p className="text-xs text-gray-400 mt-1">Pedidos pagos aparecerão aqui automaticamente</p>
-        </div>
+      {loading ? <Skeleton rows={4} /> : items.length === 0 ? (
+        <EmptyState text="Nenhuma expedição registrada" />
       ) : (
-        <div className="flex gap-3 overflow-x-auto pb-4 scrollbar-hide">
-          {columns.map(col => {
-            const items = grouped[col.key] || []
-            return (
-              <div key={col.key} className="shrink-0 w-64 min-w-[256px]">
-                <div className={`flex items-center justify-between px-3 py-2.5 rounded-t-xl ${col.bg} border ${col.border} border-b-0`}>
-                  <span className={`text-[10px] font-bold uppercase tracking-[0.1em] ${col.color}`}>{col.label}</span>
-                  <span className={`text-[10px] font-bold ${col.color} bg-white/80 rounded-full px-2 py-0.5`}>{items.length}</span>
-                </div>
-                <div className={`rounded-b-xl border ${col.border} border-t-0 min-h-[200px] p-2 space-y-2 bg-white/50`}>
-                  {items.length === 0 ? (
-                    <p className="text-center text-[11px] text-gray-400 py-8">Vazio</p>
-                  ) : items.map((o: any) => (
-                    <div key={o.id} className="bg-white rounded-xl p-3 shadow-[0_1px_3px_rgba(0,0,0,0.06)] border border-gray-100 hover:shadow-md transition-all">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="text-xs font-bold text-gray-900 truncate">{o.customer_name || 'Cliente'}</p>
-                          <p className="text-[10px] text-gray-400 font-mono">#{(o.order_number || o.id || '').slice(0, 8)}</p>
-                        </div>
-                        <span className="text-sm font-extrabold text-gray-900 shrink-0">{money(o.valor_total)}</span>
-                      </div>
-                      <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-100">
-                        <span className="text-[9px] text-gray-400">{dt(o.created_at)}</span>
-                        {col.nextStatus && (
-                          <button onClick={() => moveOrder(o.id, col.nextStatus)} disabled={moving === o.id}
-                            className={`text-[10px] font-bold px-2 py-1 rounded-lg transition ${col.bg} ${col.color} hover:opacity-80 disabled:opacity-40`}>
-                            {moving === o.id ? '...' : col.nextLabel}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
+        <>
+          <div className="space-y-2">
+            {items.map((e, i) => (
+              <div key={i} className="bg-white border border-border rounded-xl p-3 flex items-center gap-3">
+                <div className="w-9 h-9 rounded-lg bg-blue-100 text-blue-600 grid place-items-center flex-shrink-0"><Truck size={16} /></div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold">Pedido #{e.order_id}</p>
+                  <p className="text-xs text-muted">{dt(e.expedition_date)} • {num(e.items_count)} item(ns) • {num(e.total_units)} un</p>
                 </div>
               </div>
-            )
-          })}
-        </div>
+            ))}
+          </div>
+          <Pagination page={page} totalPages={totalPages} onChange={(p) => { setPage(p); load(p) }} />
+        </>
       )}
+
+      {modal && <ExpeditionModal onClose={() => setModal(false)} onDone={() => { setModal(false); load(1) }} showToast={showToast} />}
     </div>
   )
 }
@@ -931,7 +591,7 @@ function AlertsView({ showToast, onAlertCount, onRefresh }: {
 
   return (
     <div className="space-y-3">
-      <h2 className="text-lg font-bold text-gray-900">Alertas ({alerts.length})</h2>
+      <h2 className="text-lg font-bold">Alertas ({alerts.length})</h2>
       {alerts.length === 0 ? (
         <EmptyState text="Nenhum alerta no momento ✓" />
       ) : (
@@ -980,68 +640,56 @@ function ReportsView({ showToast }: { showToast: (t: string, tp?: 'success' | 'e
   const [analytics, setAnalytics] = useState<any>(null)
   const [loading, setLoading] = useState(true)
 
+  useEffect(() => { loadAll() }, [])
+
   function loadAll() {
     setLoading(true)
     Promise.all([
       inventoryApi.reports(dateFrom, dateTo).catch(() => ({})),
       inventoryApi.analytics().catch(() => ({})),
-      inventoryApi.overview().catch(() => ({})),
-    ]).then(([rpt, anl, ov]) => {
-      setReport({ ...rpt, overview: ov })
+    ]).then(([rpt, anl]) => {
+      setReport(rpt)
       setAnalytics(anl)
       setLoading(false)
     })
   }
-  useEffect(() => { loadAll() }, [])
 
   const ms = report?.movement_summary || {}
-  const ov = report?.overview || {}
+  const sv = report?.stock_value || {}
   const topSelling: any[] = Array.isArray(report?.top_selling) ? report.top_selling : []
   const leastMoving: any[] = Array.isArray(report?.least_moving) ? report.least_moving : []
   const daily: any[] = Array.isArray(analytics?.daily_summary) ? analytics.daily_summary : []
   const abc: any[] = Array.isArray(analytics?.abc_curve) ? analytics.abc_curve : []
 
   // ABC classification
-  const totalAbcValue = abc.reduce((s, a) => s + Number(a.stock_value || 0), 0) || 1
+  const totalAbcValue = abc.reduce((s, a) => s + Number(a.stock_value || a.total_value || 0), 0) || 1
   let cumPct = 0
   const abcClassified = abc.map(a => {
-    const val = Number(a.stock_value || 0)
+    const val = Number(a.stock_value || a.total_value || 0)
     cumPct += (val / totalAbcValue) * 100
     return { ...a, classification: cumPct <= 80 ? 'A' : cumPct <= 95 ? 'B' : 'C' }
   })
 
   // Daily chart
-  const chartDays = daily.slice(-14)
-  const maxDaily = Math.max(...chartDays.map(d => Math.max(Number(d.entries || d.total_entries || 0), Number(d.exits || d.total_exits || 0))), 1)
-
-  // Format date label from ISO or date string
-  const fmtDay = (d: string) => {
-    try {
-      const date = new Date(d)
-      return `${String(date.getDate()).padStart(2,'0')}/${String(date.getMonth()+1).padStart(2,'0')}`
-    } catch { return d?.slice(5, 10) || '' }
-  }
+  const maxDaily = Math.max(...daily.map(d => Math.max(Number(d.entries || 0), Number(d.exits || 0))), 1)
 
   return (
     <div className="space-y-5">
-      <div>
-        <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">Relatorios</h2>
-        <p className="text-[13px] text-gray-400 mt-0.5">Analise de movimentacoes e estoque</p>
-      </div>
+      <h2 className="text-lg font-bold">Relatórios</h2>
 
       {/* Date filters */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-4 flex gap-3 items-end flex-wrap">
+      <div className="flex gap-2 items-end flex-wrap">
         <div>
-          <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block mb-1">De</label>
+          <label className="text-xs font-semibold text-gray-500 block mb-1">De</label>
           <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
-            className="px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-200" />
+            className="px-3 py-2 border border-border rounded-xl text-sm" />
         </div>
         <div>
-          <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block mb-1">Ate</label>
+          <label className="text-xs font-semibold text-gray-500 block mb-1">Até</label>
           <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
-            className="px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-200" />
+            className="px-3 py-2 border border-border rounded-xl text-sm" />
         </div>
-        <button onClick={loadAll} className="px-5 py-2.5 bg-blue-600 text-white text-xs font-bold rounded-xl hover:bg-blue-700 transition shadow-sm">
+        <button onClick={loadAll} className="px-4 py-2 bg-blue-500 text-white text-sm font-semibold rounded-xl hover:bg-blue-600 transition">
           Filtrar
         </button>
       </div>
@@ -1049,118 +697,503 @@ function ReportsView({ showToast }: { showToast: (t: string, tp?: 'success' | 'e
       {loading ? <Skeleton rows={6} /> : (
         <>
           {/* KPIs */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
-            <div className="bg-gradient-to-br from-emerald-500 to-teal-600 rounded-2xl p-4 text-white shadow-lg">
-              <p className="text-[9px] font-bold text-white/50 uppercase tracking-wider">Total Entradas</p>
-              <p className="text-[26px] font-extrabold leading-none mt-1">{num(ms.total_entries)}</p>
-            </div>
-            <div className="bg-gradient-to-br from-red-500 to-rose-600 rounded-2xl p-4 text-white shadow-lg">
-              <p className="text-[9px] font-bold text-white/50 uppercase tracking-wider">Total Saidas</p>
-              <p className="text-[26px] font-extrabold leading-none mt-1">{num(ms.total_exits)}</p>
-            </div>
-            <KpiCard label="Produtos" value={num(ov.total_products)} icon={Package} bg="bg-blue-50" color="text-blue-500" />
-            <KpiCard label="Movimentacoes" value={num(ms.total_movements)} icon={ArrowLeftRight} bg="bg-violet-50" color="text-violet-500" />
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
+            <KpiCard label="Total Entradas" value={num(ms.total_entries)} color="text-emerald-500" />
+            <KpiCard label="Total Saídas" value={num(ms.total_exits)} color="text-red-500" />
+            <KpiCard label="Valor Estoque" value={money(sv.total_value)} color="text-blue-500" />
+            <KpiCard label="Unidades" value={num(sv.total_units)} />
           </div>
 
-          {/* Top Selling / Least Moving */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] overflow-hidden">
-              <div className="px-4 py-3 border-b border-gray-100">
-                <p className="text-xs font-bold text-gray-700">Mais Vendidos</p>
-              </div>
-              {topSelling.length === 0 ? (
-                <p className="px-4 py-6 text-center text-xs text-gray-400">Sem dados no periodo</p>
-              ) : topSelling.slice(0, 5).map((p: any, i: number) => (
-                <div key={i} className="px-4 py-2.5 flex items-center gap-2.5 border-b border-gray-100 last:border-0">
-                  <span className="w-6 h-6 rounded-lg bg-emerald-50 grid place-items-center text-[10px] font-extrabold text-emerald-700 shrink-0">{i + 1}</span>
-                  <span className="text-xs font-semibold text-gray-800 flex-1 truncate">{p.product_name || '–'}</span>
-                  <span className="text-xs font-extrabold text-gray-900">{num(p.total || p.total_sold || p.quantity || 0)}</span>
+          {/* Top / Least */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {topSelling.length > 0 && (
+              <section>
+                <h3 className="text-sm font-bold mb-2">Mais Vendidos</h3>
+                <div className="bg-white border border-border rounded-xl divide-y divide-gray-100">
+                  {topSelling.slice(0, 5).map((p: any, i: number) => (
+                    <div key={i} className="px-3 py-2 flex items-center gap-2 text-sm">
+                      <span className="font-bold text-muted w-5">{i + 1}</span>
+                      <span className="flex-1 truncate">{p.product_name || '–'}</span>
+                      <span className="font-semibold">{num(p.total_sold || p.quantity)}</span>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] overflow-hidden">
-              <div className="px-4 py-3 border-b border-gray-100">
-                <p className="text-xs font-bold text-gray-700">Menos Movimentados</p>
-              </div>
-              {leastMoving.length === 0 ? (
-                <p className="px-4 py-6 text-center text-xs text-gray-400">Sem dados no periodo</p>
-              ) : leastMoving.slice(0, 5).map((p: any, i: number) => (
-                <div key={i} className="px-4 py-2.5 flex items-center gap-2.5 border-b border-gray-100 last:border-0">
-                  <span className="text-xs font-semibold text-gray-600 flex-1 truncate">{p.product_name || '–'}</span>
-                  <span className="text-xs font-semibold text-gray-500">{num(p.total || p.total_sold || p.quantity || 0)}</span>
+              </section>
+            )}
+            {leastMoving.length > 0 && (
+              <section>
+                <h3 className="text-sm font-bold mb-2">Menos Movimentados</h3>
+                <div className="bg-white border border-border rounded-xl divide-y divide-gray-100">
+                  {leastMoving.slice(0, 5).map((p: any, i: number) => (
+                    <div key={i} className="px-3 py-2 flex items-center gap-2 text-sm">
+                      <span className="flex-1 truncate">{p.product_name || '–'}</span>
+                      <span className="font-semibold text-muted">{num(p.total_sold || p.quantity || 0)}</span>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              </section>
+            )}
           </div>
 
           {/* Daily chart */}
-          {chartDays.length > 0 && (
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-4">
-              <p className="text-xs font-bold text-gray-700 mb-3">Movimentacao Diaria</p>
-              <div className="overflow-x-auto">
-                <div className="flex items-end gap-1.5" style={{ minWidth: Math.max(chartDays.length * 45, 300) }}>
-                  {chartDays.map((d: any, i: number) => {
-                    const entries = Number(d.entries || d.total_entries || 0)
-                    const exits = Number(d.exits || d.total_exits || 0)
-                    const eH = Math.max(2, (entries / maxDaily) * 100)
-                    const xH = Math.max(2, (exits / maxDaily) * 100)
-                    const dayLabel = fmtDay(d.day || d.date || d.period || '')
+          {daily.length > 0 && (
+            <section>
+              <h3 className="text-sm font-bold mb-3">Movimentação Diária (últimos 14 dias)</h3>
+              <div className="bg-white border border-border rounded-xl p-4 overflow-x-auto">
+                <div className="flex items-end gap-1" style={{ minWidth: daily.length * 40 }}>
+                  {daily.slice(-14).map((d: any, i: number) => {
+                    const eH = (Number(d.entries || 0) / maxDaily) * 80
+                    const xH = (Number(d.exits || 0) / maxDaily) * 80
+                    const label = (d.day || '').slice(5) // MM-DD
                     return (
-                      <div key={i} className="flex flex-col items-center flex-1 min-w-[35px]">
-                        <div className="flex gap-0.5 items-end" style={{ height: 110 }}>
-                          <div className="w-3.5 bg-emerald-400 rounded-t transition-all" style={{ height: eH }} title={`Entradas: ${entries}`} />
-                          <div className="w-3.5 bg-red-400 rounded-t transition-all" style={{ height: xH }} title={`Saidas: ${exits}`} />
+                      <div key={i} className="flex flex-col items-center flex-1 min-w-[30px]">
+                        <div className="flex gap-0.5 items-end h-20">
+                          <div className="w-3 bg-emerald-400 rounded-t" style={{ height: eH }} title={`Entradas: ${d.entries}`} />
+                          <div className="w-3 bg-red-400 rounded-t" style={{ height: xH }} title={`Saídas: ${d.exits}`} />
                         </div>
-                        <span className="text-[8px] text-gray-400 mt-1 font-mono">{dayLabel}</span>
+                        <span className="text-[9px] text-muted mt-1">{label}</span>
                       </div>
                     )
                   })}
                 </div>
+                <div className="flex gap-4 mt-3 text-xs text-muted">
+                  <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 bg-emerald-400 rounded-sm" /> Entradas</span>
+                  <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 bg-red-400 rounded-sm" /> Saídas</span>
+                </div>
               </div>
-              <div className="flex gap-4 mt-3 text-[10px] text-gray-400">
-                <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 bg-emerald-400 rounded-sm" /> Entradas</span>
-                <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 bg-red-400 rounded-sm" /> Saidas</span>
-              </div>
-            </div>
+            </section>
           )}
 
           {/* ABC Curve */}
           {abcClassified.length > 0 && (
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] overflow-hidden">
-              <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-                <p className="text-xs font-bold text-gray-700">Curva ABC</p>
-                <div className="flex gap-2 text-[9px]">
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-emerald-500" /> A (80%)</span>
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-amber-500" /> B (95%)</span>
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-gray-400" /> C</span>
-                </div>
+            <section>
+              <h3 className="text-sm font-bold mb-3">Curva ABC</h3>
+              <div className="bg-white border border-border rounded-xl divide-y divide-gray-100">
+                {abcClassified.slice(0, 20).map((a: any, i: number) => {
+                  const cls = a.classification === 'A' ? 'bg-emerald-100 text-emerald-700' : a.classification === 'B' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600'
+                  return (
+                    <div key={i} className="px-3 py-2 flex items-center gap-2 text-sm">
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${cls}`}>{a.classification}</span>
+                      <span className="flex-1 truncate">{a.product_name || '–'}</span>
+                      <span className="font-semibold text-xs">{money(a.stock_value || a.total_value)}</span>
+                    </div>
+                  )
+                })}
               </div>
-              {abcClassified.slice(0, 15).map((a: any, i: number) => {
-                const cls = a.classification === 'A' ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'
-                  : a.classification === 'B' ? 'bg-amber-50 text-amber-700 ring-1 ring-amber-200'
-                  : 'bg-gray-100 text-gray-500'
-                const stockKg = Number(a.stock_current || 0)
-                return (
-                  <div key={i} className="px-4 py-2.5 flex items-center gap-2.5 border-b border-gray-100 last:border-0">
-                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${cls}`}>{a.classification}</span>
-                    <span className="text-xs font-semibold text-gray-800 flex-1 truncate">{a.product_name || '–'}</span>
-                    <span className="text-[10px] text-gray-400 font-mono">{num(stockKg)} un</span>
-                    <span className="text-xs font-bold text-gray-900">{money(a.stock_value)}</span>
-                  </div>
-                )
-              })}
-            </div>
+            </section>
           )}
         </>
       )}
     </div>
   )
 }
+
 /* ══════════════════════════════════════════════
    MODALS
    ══════════════════════════════════════════════ */
 
 /* ── Sheet wrapper ── */
+/* ══════════════════════════════════════════════
+   CLIENTS VIEW
+   ══════════════════════════════════════════════ */
+const CLIENT_STATUSES: [string, string, string][] = [
+  ['new', 'Novo', 'bg-emerald-100 text-emerald-700'],
+  ['contacted', 'Contatado', 'bg-blue-100 text-blue-700'],
+  ['negotiating', 'Negociando', 'bg-amber-100 text-amber-800'],
+  ['converted', 'Convertido', 'bg-violet-100 text-violet-700'],
+  ['lost', 'Perdido', 'bg-red-100 text-red-700'],
+  ['inactive', 'Inativo', 'bg-gray-100 text-gray-600'],
+]
+const statusLabel = (s: string) => CLIENT_STATUSES.find(x => x[0] === s) || ['', s, 'bg-gray-100 text-gray-600']
+
+function ClientsView({ showToast }: { showToast: (t: string, tp?: 'success' | 'error') => void }) {
+  const [clients, setClients] = useState<any[]>([])
+  const [total, setTotal] = useState(0)
+  const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('')
+  const [page, setPage] = useState(1)
+  const [editClient, setEditClient] = useState<any | null>(null)
+  const [showForm, setShowForm] = useState(false)
+  const [detail, setDetail] = useState<any | null>(null)
+  const limit = 30
+
+  useEffect(() => { loadClients() }, [page, statusFilter])
+
+  function loadClients() {
+    setLoading(true)
+    inventoryApi.clients(page, limit, search, statusFilter).then(d => {
+      setClients(d.clients || [])
+      setTotal(d.total || 0)
+      setLoading(false)
+    }).catch(e => { showToast(e.message, 'error'); setLoading(false) })
+  }
+
+  function handleSearch() { setPage(1); loadClients() }
+
+  async function handleDelete(id: string) {
+    if (!confirm('Excluir este cliente?')) return
+    try {
+      await inventoryApi.deleteClient(id)
+      showToast('Cliente excluido')
+      loadClients()
+    } catch (e: any) { showToast(e.message, 'error') }
+  }
+
+  async function handleStatusChange(id: string, status: string) {
+    try {
+      await inventoryApi.updateClientStatus(id, status)
+      showToast('Status atualizado')
+      loadClients()
+    } catch (e: any) { showToast(e.message, 'error') }
+  }
+
+  const totalPages = Math.ceil(total / limit)
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <h2 className="text-lg font-bold">Clientes</h2>
+        <button onClick={() => { setEditClient(null); setShowForm(true) }}
+          className="flex items-center gap-1.5 px-3 py-2 bg-blue-500 text-white text-xs font-bold rounded-xl hover:bg-blue-600 transition">
+          <UserPlus size={14} /> Novo Cliente
+        </button>
+      </div>
+
+      {/* Filters */}
+      <div className="flex gap-2 flex-wrap">
+        <div className="relative flex-1 min-w-[200px]">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input type="search" placeholder="Buscar nome, telefone, email..."
+            value={search} onChange={e => setSearch(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handleSearch()}
+            className="w-full pl-9 pr-3 py-2.5 border border-border rounded-xl text-sm" />
+        </div>
+        <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1) }}
+          className="px-3 py-2.5 border border-border rounded-xl text-sm bg-white">
+          <option value="">Todos</option>
+          {CLIENT_STATUSES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        </select>
+        <button onClick={handleSearch}
+          className="px-4 py-2.5 bg-gray-100 text-gray-600 rounded-xl text-sm font-semibold hover:bg-gray-200 transition">
+          <Filter size={14} />
+        </button>
+      </div>
+
+      {/* Summary */}
+      <p className="text-xs text-muted">{total} cliente{total !== 1 ? 's' : ''} encontrado{total !== 1 ? 's' : ''}</p>
+
+      {loading ? <Skeleton rows={6} /> : clients.length === 0 ? (
+        <EmptyBox icon={Users} text="Nenhum cliente encontrado" />
+      ) : (
+        <div className="space-y-2">
+          {clients.map(c => {
+            const [, sLabel, sCls] = statusLabel(c.status)
+            const tags = Array.isArray(c.tags) ? c.tags : (typeof c.tags === 'string' ? (() => { try { return JSON.parse(c.tags) } catch { return [] } })() : [])
+            return (
+              <div key={c.id} className="bg-white rounded-2xl border border-border p-3.5 hover:shadow-sm transition">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="font-bold text-sm truncate">{c.name || 'Sem nome'}</p>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${sCls}`}>{sLabel}</span>
+                    </div>
+                    <div className="flex items-center gap-3 mt-1 text-xs text-muted flex-wrap">
+                      {c.phone && <span className="flex items-center gap-1"><Phone size={11} />{c.phone}</span>}
+                      {c.email && <span className="flex items-center gap-1"><Mail size={11} />{c.email}</span>}
+                      {c.city && <span className="flex items-center gap-1"><MapPin size={11} />{c.city}{c.state ? ` - ${c.state}` : ''}</span>}
+                    </div>
+                    {tags.length > 0 && (
+                      <div className="flex gap-1 mt-1.5 flex-wrap">
+                        {tags.slice(0, 5).map((t: string, i: number) => (
+                          <span key={i} className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded-md">{t}</span>
+                        ))}
+                        {tags.length > 5 && <span className="text-[10px] text-muted">+{tags.length - 5}</span>}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex gap-1 shrink-0">
+                    <button onClick={() => setDetail(c)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400"><Eye size={14} /></button>
+                    <button onClick={() => { setEditClient(c); setShowForm(true) }} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400"><Pencil size={14} /></button>
+                    <button onClick={() => handleDelete(c.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-400"><Trash2 size={14} /></button>
+                  </div>
+                </div>
+                {/* Quick status change */}
+                <div className="flex gap-1 mt-2.5 flex-wrap">
+                  {CLIENT_STATUSES.filter(([v]) => v !== c.status).slice(0, 4).map(([v, l, cls]) => (
+                    <button key={v} onClick={() => handleStatusChange(c.id, v)}
+                      className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${cls} opacity-60 hover:opacity-100 transition`}>
+                      {l}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-2 pt-2">
+          <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}
+            className="p-2 rounded-lg bg-gray-100 disabled:opacity-30"><ChevronLeft size={16} /></button>
+          <span className="text-xs font-semibold">{page} / {totalPages}</span>
+          <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages}
+            className="p-2 rounded-lg bg-gray-100 disabled:opacity-30"><ChevronRight size={16} /></button>
+        </div>
+      )}
+
+      {/* Client Detail */}
+      {detail && (
+        <Sheet onClose={() => setDetail(null)}>
+          <ClientDetail client={detail} showToast={showToast} onStatusChange={(s) => {
+            handleStatusChange(detail.id, s)
+            setDetail({ ...detail, status: s })
+          }} />
+        </Sheet>
+      )}
+
+      {/* Client Form */}
+      {showForm && (
+        <Sheet onClose={() => setShowForm(false)}>
+          <ClientForm client={editClient} showToast={showToast} onSaved={() => {
+            setShowForm(false); setEditClient(null); loadClients()
+          }} />
+        </Sheet>
+      )}
+    </div>
+  )
+}
+
+function ClientDetail({ client, showToast, onStatusChange }: { client: any; showToast: (t: string, tp?: 'success' | 'error') => void; onStatusChange: (s: string) => void }) {
+  const [, sLabel, sCls] = statusLabel(client.status)
+  const tags = Array.isArray(client.tags) ? client.tags : []
+  const custom = client.custom_fields && typeof client.custom_fields === 'object' ? client.custom_fields : {}
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-2xl flex items-center justify-center font-bold text-lg">
+          {(client.name || '?')[0].toUpperCase()}
+        </div>
+        <div>
+          <h2 className="text-lg font-bold">{client.name}</h2>
+          <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${sCls}`}>{sLabel}</span>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-2 text-sm">
+        {client.phone && <InfoRow icon={<Phone size={14} />} label="Telefone" value={client.phone} />}
+        {client.email && <InfoRow icon={<Mail size={14} />} label="Email" value={client.email} />}
+        {client.cpf && <InfoRow icon={<Tag size={14} />} label="CPF" value={client.cpf} />}
+        {client.city && <InfoRow icon={<MapPin size={14} />} label="Cidade" value={`${client.city}${client.state ? ` - ${client.state}` : ''}`} />}
+        {client.address && <InfoRow icon={<MapPin size={14} />} label="Endereço" value={client.address} />}
+        {client.zip_code && <InfoRow icon={<Tag size={14} />} label="CEP" value={client.zip_code} />}
+        {client.birth_date && <InfoRow icon={<Tag size={14} />} label="Nascimento" value={dt(client.birth_date)} />}
+        {client.source && <InfoRow icon={<Tag size={14} />} label="Origem" value={client.source} />}
+        {client.lead_score != null && <InfoRow icon={<Tag size={14} />} label="Score" value={String(client.lead_score)} />}
+      </div>
+
+      {client.notes && (
+        <div>
+          <p className="text-xs font-semibold text-gray-500 mb-1">Observacoes</p>
+          <p className="text-sm bg-gray-50 rounded-xl p-3 whitespace-pre-wrap">{client.notes}</p>
+        </div>
+      )}
+
+      {tags.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold text-gray-500 mb-1">Tags</p>
+          <div className="flex gap-1 flex-wrap">
+            {tags.map((t: string, i: number) => (
+              <span key={i} className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded-lg font-medium">{t}</span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {Object.keys(custom).length > 0 && (
+        <div>
+          <p className="text-xs font-semibold text-gray-500 mb-1">Campos Personalizados</p>
+          <div className="bg-gray-50 rounded-xl p-3 text-sm space-y-1">
+            {Object.entries(custom).map(([k, v]) => (
+              <p key={k}><span className="text-muted">{k}:</span> {String(v ?? '')}</p>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div>
+        <p className="text-xs font-semibold text-gray-500 mb-1">Alterar Status</p>
+        <div className="flex gap-1.5 flex-wrap">
+          {CLIENT_STATUSES.map(([v, l, cls]) => (
+            <button key={v} onClick={() => onStatusChange(v)}
+              className={`text-[11px] font-bold px-2.5 py-1 rounded-full transition ${v === client.status ? cls + ' ring-2 ring-offset-1 ring-current' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
+              {l}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <p className="text-[10px] text-muted">Criado em {dt(client.created_at)}</p>
+    </div>
+  )
+}
+
+function InfoRow({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+  return (
+    <div className="flex items-center gap-2 py-1.5 border-b border-border/50 last:border-0">
+      <span className="text-gray-400">{icon}</span>
+      <span className="text-xs text-muted w-20 shrink-0">{label}</span>
+      <span className="text-sm font-medium truncate">{value}</span>
+    </div>
+  )
+}
+
+function ClientForm({ client, showToast, onSaved }: { client: any | null; showToast: (t: string, tp?: 'success' | 'error') => void; onSaved: () => void }) {
+  const [name, setName] = useState(client?.name || '')
+  const [phone, setPhone] = useState(client?.phone || '')
+  const [email, setEmail] = useState(client?.email || '')
+  const [cpf, setCpf] = useState(client?.cpf || '')
+  const [birthDate, setBirthDate] = useState(client?.birth_date ? String(client.birth_date).slice(0, 10) : '')
+  const [address, setAddress] = useState(client?.address || '')
+  const [city, setCity] = useState(client?.city || '')
+  const [state, setState] = useState(client?.state || '')
+  const [zipCode, setZipCode] = useState(client?.zip_code || '')
+  const [notes, setNotes] = useState(client?.notes || '')
+  const [tags, setTags] = useState((Array.isArray(client?.tags) ? client.tags : []).join(', '))
+  const [status, setStatus] = useState(client?.status || 'new')
+  const [saving, setSaving] = useState(false)
+
+  async function submit() {
+    if (!name.trim()) { showToast('Nome obrigatorio', 'error'); return }
+    setSaving(true)
+    const data: Record<string, any> = {
+      name: name.trim(),
+      phone: phone.trim() || null,
+      email: email.trim() || null,
+      cpf: cpf.trim() || null,
+      birth_date: birthDate || null,
+      address: address.trim() || null,
+      city: city.trim() || null,
+      state: state.trim() || null,
+      zip_code: zipCode.trim() || null,
+      notes: notes.trim() || null,
+      tags: tags.split(',').map((s: string) => s.trim()).filter(Boolean),
+      status,
+    }
+    try {
+      if (client?.id) {
+        await inventoryApi.updateClient(client.id, data)
+        showToast('Cliente atualizado')
+      } else {
+        await inventoryApi.createClient(data)
+        showToast('Cliente cadastrado')
+      }
+      onSaved()
+    } catch (e: any) { showToast(e.message, 'error') }
+    finally { setSaving(false) }
+  }
+
+  return (
+    <div className="space-y-3">
+      <h2 className="text-lg font-bold">{client ? 'Editar Cliente' : 'Novo Cliente'}</h2>
+
+      <div>
+        <label className="text-xs font-semibold text-gray-500 mb-1 block">Nome *</label>
+        <input value={name} onChange={e => setName(e.target.value)} placeholder="Nome completo"
+          className="w-full px-3 py-2.5 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="text-xs font-semibold text-gray-500 mb-1 block">Telefone</label>
+          <input value={phone} onChange={e => setPhone(e.target.value)} placeholder="(11) 99999-9999"
+            className="w-full px-3 py-2.5 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-gray-500 mb-1 block">Email</label>
+          <input value={email} onChange={e => setEmail(e.target.value)} placeholder="email@exemplo.com" type="email"
+            className="w-full px-3 py-2.5 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="text-xs font-semibold text-gray-500 mb-1 block">CPF</label>
+          <input value={cpf} onChange={e => setCpf(e.target.value)} placeholder="000.000.000-00"
+            className="w-full px-3 py-2.5 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-gray-500 mb-1 block">Nascimento</label>
+          <input type="date" value={birthDate} onChange={e => setBirthDate(e.target.value)}
+            className="w-full px-3 py-2.5 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
+        </div>
+      </div>
+
+      <div>
+        <label className="text-xs font-semibold text-gray-500 mb-1 block">Endereco</label>
+        <input value={address} onChange={e => setAddress(e.target.value)} placeholder="Rua, numero, complemento"
+          className="w-full px-3 py-2.5 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
+      </div>
+
+      <div className="grid grid-cols-3 gap-3">
+        <div>
+          <label className="text-xs font-semibold text-gray-500 mb-1 block">Cidade</label>
+          <input value={city} onChange={e => setCity(e.target.value)} placeholder="Cidade"
+            className="w-full px-3 py-2.5 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-gray-500 mb-1 block">Estado</label>
+          <input value={state} onChange={e => setState(e.target.value)} placeholder="UF" maxLength={2}
+            className="w-full px-3 py-2.5 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-gray-500 mb-1 block">CEP</label>
+          <input value={zipCode} onChange={e => setZipCode(e.target.value)} placeholder="00000-000"
+            className="w-full px-3 py-2.5 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
+        </div>
+      </div>
+
+      <div>
+        <label className="text-xs font-semibold text-gray-500 mb-1 block">Tags (separadas por virgula)</label>
+        <input value={tags} onChange={e => setTags(e.target.value)} placeholder="vip, recorrente, atacado"
+          className="w-full px-3 py-2.5 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
+      </div>
+
+      <div>
+        <label className="text-xs font-semibold text-gray-500 mb-1 block">Status</label>
+        <select value={status} onChange={e => setStatus(e.target.value)}
+          className="w-full px-3 py-2.5 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30">
+          {CLIENT_STATUSES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        </select>
+      </div>
+
+      <div>
+        <label className="text-xs font-semibold text-gray-500 mb-1 block">Observacoes</label>
+        <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} placeholder="Anotacoes sobre o cliente..."
+          className="w-full px-3 py-2.5 border border-gray-300 rounded-xl text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
+      </div>
+
+      <button onClick={submit} disabled={saving}
+        className="w-full py-3 bg-blue-500 text-white font-bold rounded-xl hover:bg-blue-600 transition disabled:opacity-50">
+        {saving ? 'Salvando...' : client ? 'Salvar Alteracoes' : 'Cadastrar Cliente'}
+      </button>
+    </div>
+  )
+}
+
+function EmptyBox({ icon: Icon, text }: { icon: typeof Users; text: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-12 text-muted">
+      <Icon size={36} className="opacity-30 mb-2" />
+      <p className="text-sm">{text}</p>
+    </div>
+  )
+}
+
+/* ── UI Primitives ── */
 function Sheet({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-[200] bg-black/45 flex items-end justify-center" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
@@ -1500,42 +1533,40 @@ function EditProductModal({ product, categories, onClose, onDone, showToast }: {
 }) {
   const isNew = !product
   const pid = product?.product_id || product?.id || ''
-  const [loading, setLoading] = useState(false)
+  const [detail, setDetail] = useState<any>(null)
+  const [loading, setLoading] = useState(!!pid)
 
-  // Pre-fill from inventory product data + fetch catalog for extra fields
-  const [name, setName] = useState(product?.product_name || product?.name || '')
-  const [description, setDescription] = useState(product?.description || '')
-  const [unit, setUnit] = useState('kg')
-  const [price, setPrice] = useState(product?.product_price || product?.price ? String(product.product_price || product.price) : '')
-  const [promoPrice, setPromoPrice] = useState(product?.promoPrice || product?.promo_price ? String(product.promoPrice || product.promo_price) : '')
-  const [category, setCategory] = useState(product?.category || '')
-  const [active, setActive] = useState(product?.active !== false && product?.is_active !== false)
-  const [features, setFeatures] = useState(Array.isArray(product?.features) ? product.features.join(', ') : (product?.features || ''))
+  const [name, setName] = useState('')
+  const [description, setDescription] = useState('')
+  const [unit, setUnit] = useState('unidade')
+  const [price, setPrice] = useState('')
+  const [promoPrice, setPromoPrice] = useState('')
+  const [category, setCategory] = useState('')
+  const [active, setActive] = useState(true)
+  const [features, setFeatures] = useState('')
   const [imageFile, setImageFile] = useState<File | null>(null)
-  const [imagePreview, setImagePreview] = useState(product?.product_image || product?.image_url || product?.imageUrl || product?.image || '')
+  const [imagePreview, setImagePreview] = useState('')
   const [saving, setSaving] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  // Fetch full product details from catalog list (GET /:id doesn't exist)
   useEffect(() => {
     if (!pid) return
-    setLoading(true)
-    fetch('/api/products', { headers: getAuthHeaders() })
-      .then(r => r.json()).then(d => {
-        const p = (d.products || []).find((x: any) => x.id === pid)
-        if (p) {
-          setName(p.name || name)
-          setDescription(p.description || '')
-          setUnit(p.unit || 'kg')
-          setPrice(String(p.price || price))
-          setPromoPrice(String(p.promoPrice || p.promo_price || ''))
-          setCategory(p.category || '')
-          setActive(p.active !== false && p.is_active !== false)
-          setFeatures(Array.isArray(p.features) ? p.features.join(', ') : '')
-          setImagePreview(p.imageUrl || p.image || imagePreview)
-        }
-        setLoading(false)
-      }).catch(() => setLoading(false))
+    fetch(`/api/products/${pid}`, {
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('lead-system-token')}`, 'Content-Type': 'application/json' },
+    }).then(r => r.json()).then(d => {
+      const p = d.product || d
+      setName(p.name || '')
+      setDescription(p.description || '')
+      setUnit(p.unit || 'unidade')
+      setPrice(String(p.price || ''))
+      setPromoPrice(String(p.promoPrice || p.promo_price || ''))
+      setCategory(String(p.category || ''))
+      setActive(p.active !== undefined ? p.active : p.is_active !== false)
+      setFeatures(Array.isArray(p.features) ? p.features.join(', ') : (p.features || ''))
+      setImagePreview(p.image_url || p.imageUrl || p.image || '')
+      setDetail(p)
+      setLoading(false)
+    }).catch(() => setLoading(false))
   }, [pid])
 
   function pickImage() { fileRef.current?.click() }
@@ -1593,10 +1624,8 @@ function EditProductModal({ product, categories, onClose, onDone, showToast }: {
   if (loading) return <Sheet onClose={onClose}><div className="flex justify-center py-10"><Loader2 className="animate-spin" size={24} /></div></Sheet>
 
   const unitOptions: [string, string][] = [
-    ['kg', 'Quilograma (kg)'], ['g', 'Grama (g)'], ['500g', '500 gramas'],
-    ['250g', '250 gramas'], ['10kg', '10 quilogramas'], ['un', 'Unidade'],
-    ['L', 'Litro (L)'], ['ml', 'Mililitro (ml)'], ['cx', 'Caixa'],
-    ['pct', 'Pacote'], ['par', 'Par'],
+    ['unidade', 'Unidade'], ['kg', 'Kilograma'], ['g', 'Grama'], ['litro', 'Litro'], ['ml', 'Mililitro'],
+    ['metro', 'Metro'], ['cm', 'Centímetro'], ['caixa', 'Caixa'], ['pacote', 'Pacote'], ['par', 'Par'], ['digital', 'Digital'],
   ]
 
   return (
@@ -1647,20 +1676,11 @@ function EditProductModal({ product, categories, onClose, onDone, showToast }: {
    SHARED UI
    ══════════════════════════════════════════════ */
 
-function KpiCard({ label, value, color, icon: Icon, bg }: {
-  label: string; value: string; color?: string; icon?: any; bg?: string
-}) {
+function KpiCard({ label, value, color }: { label: string; value: string; color?: string }) {
   return (
-    <div className="bg-white rounded-2xl p-4 shadow-[0_1px_3px_rgba(0,0,0,0.06)] hover:shadow-[0_4px_12px_rgba(0,0,0,0.08)] transition-all border border-gray-100">
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em]">{label}</span>
-        {Icon && (
-          <div className={`w-9 h-9 rounded-xl grid place-items-center ${bg || 'bg-gray-50'}`}>
-            <Icon size={16} className={color || 'text-gray-400'} />
-          </div>
-        )}
-      </div>
-      <p className={`text-[26px] font-extrabold tracking-tight leading-none ${color || 'text-gray-900'}`}>{value}</p>
+    <div className="bg-white border border-border rounded-xl p-3.5">
+      <p className="text-[11px] text-muted uppercase tracking-wide mb-1">{label}</p>
+      <p className={`text-xl font-extrabold ${color || ''}`}>{value}</p>
     </div>
   )
 }
@@ -1683,114 +1703,13 @@ function Pagination({ page, totalPages, onChange }: { page: number; totalPages: 
 }
 
 function EmptyState({ text }: { text: string }) {
-  return (
-    <div className="flex flex-col items-center justify-center py-16 text-center">
-      <div className="w-16 h-16 bg-gray-100 rounded-2xl grid place-items-center mb-4">
-        <Package size={28} className="text-muted-light" />
-      </div>
-      <p className="text-sm font-medium text-muted">{text}</p>
-    </div>
-  )
+  return <div className="text-center py-12 text-muted"><Package size={40} className="mx-auto mb-3 opacity-40" /><p className="text-sm">{text}</p></div>
 }
 
 function Skeleton({ rows }: { rows: number }) {
   return (
-    <div className="space-y-3">
-      {[...Array(rows)].map((_, i) => (
-        <div key={i} className="skeleton rounded-2xl" style={{ height: i === 0 ? 80 : 64, opacity: 1 - i * 0.1 }} />
-      ))}
-    </div>
-  )
-}
-
-/* ══════════════════════════════════════════════
-   SALES VIEW
-   ══════════════════════════════════════════════ */
-function SalesView({ showToast, onPDV }: { showToast: (t: string, tp?: 'success' | 'error') => void; onPDV?: () => void }) {
-  const [orders, setOrders] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    setLoading(true)
-    fetch('/api/orders?limit=50', { headers: { ...getAuthHeaders() } })
-      .then(r => r.json())
-      .then(d => {
-        setOrders(d.orders || [])
-        setLoading(false)
-      })
-      .catch(() => setLoading(false))
-  }, [])
-
-  if (loading) return <Skeleton rows={5} />
-
-  const today = new Date().toISOString().slice(0, 10)
-  const todayOrders = orders.filter(o => (o.created_at || '').slice(0, 10) === today)
-  const totalToday = todayOrders.reduce((s, o) => s + Number(o.valor_total || 0), 0)
-  const avgTicket = todayOrders.length ? totalToday / todayOrders.length : 0
-  const pending = orders.filter(o => {
-    const st = o.business_status || o.status_pedido || ''
-    return st === 'aguardando_pagamento' || st === 'novo' || st === 'criado'
-  }).length
-
-  const statusConfig: Record<string, { label: string; cls: string }> = {
-    pago:                { label: 'Pago',          cls: 'bg-emerald-100 text-emerald-700' },
-    aguardando_pagamento:{ label: 'Aguardando',    cls: 'bg-amber-100 text-amber-800' },
-    cancelado:           { label: 'Cancelado',     cls: 'bg-red-100 text-red-700' },
-    em_entrega:          { label: 'Em entrega',    cls: 'bg-blue-100 text-blue-700' },
-    saiu_para_entrega:   { label: 'Saiu p/ entrega', cls: 'bg-blue-100 text-blue-700' },
-    entregue:            { label: 'Entregue',      cls: 'bg-emerald-100 text-emerald-700' },
-    em_preparacao:       { label: 'Preparando',    cls: 'bg-orange-100 text-orange-700' },
-    pronto:              { label: 'Pronto',        cls: 'bg-teal-100 text-teal-700' },
-    novo:                { label: 'Novo',          cls: 'bg-gray-100 text-gray-600' },
-    criado:              { label: 'Novo',          cls: 'bg-gray-100 text-gray-600' },
-    aprovado:            { label: 'Aprovado',      cls: 'bg-emerald-100 text-emerald-700' },
-  }
-
-  return (
-    <div className="space-y-5">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-bold text-gray-900">Vendas</h2>
-        <button onClick={onPDV} className="flex items-center gap-1.5 text-xs font-semibold bg-emerald-500 text-white px-3 py-2 rounded-lg hover:bg-emerald-600 transition">
-          <Plus size={14} /> Novo Pedido
-        </button>
-      </div>
-
-      <div className="grid grid-cols-3 gap-2.5">
-        <KpiCard label="Vendas Hoje" value={money(totalToday)} icon={BarChart3} bg="bg-emerald-50" color="text-emerald-600" />
-        <KpiCard label="Ticket Médio" value={money(avgTicket)} icon={CreditCard} bg="bg-blue-50" color="text-blue-600" />
-        <KpiCard label="Pendentes" value={String(pending)} icon={Zap} bg="bg-amber-50" color="text-amber-500" />
-      </div>
-
-      <div className="space-y-2">
-        {orders.length === 0 ? (
-          <div className="text-center py-12 text-muted">
-            <ShoppingCart className="w-10 h-10 mx-auto mb-3 opacity-30" />
-            <p>Nenhum pedido</p>
-          </div>
-        ) : orders.map((o, i) => {
-          const st = o.business_status || o.status_pedido || 'novo'
-          const stCfg = statusConfig[st] || { label: st.replace(/_/g, ' '), cls: 'bg-gray-100 text-gray-600' }
-          const customerName = (o.customer_name || '').trim()
-          const displayName = customerName && customerName !== 'Cliente' ? customerName : (o.customer_email || o.customer_phone || 'Cliente')
-          return (
-            <div key={i} className="bg-white border border-border rounded-2xl p-3.5 hover:border-blue-100 hover:shadow-sm transition-all">
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-xs font-bold text-muted-light">#{(o.order_number || o.id || '').substring(0, 8)}</span>
-                <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${stCfg.cls}`}>
-                  {stCfg.label}
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-semibold">{displayName}</p>
-                  <p className="text-xs text-muted">{dt(o.created_at)}</p>
-                </div>
-                <span className="text-base font-bold text-gray-900">{money(o.valor_total || o.total)}</span>
-              </div>
-            </div>
-          )
-        })}
-      </div>
+    <div className="space-y-3 animate-pulse">
+      {[...Array(rows)].map((_, i) => <div key={i} className="h-16 bg-gray-100 rounded-xl" />)}
     </div>
   )
 }
@@ -1822,731 +1741,6 @@ function FieldSelect({ label, value, onChange, options }: { label: string; value
         className="w-full px-3 py-2.5 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30">
         {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
       </select>
-    </div>
-  )
-}
-
-/* ══════════════════════════════════════════════
-   PDV MODAL — Ponto de Venda
-   ══════════════════════════════════════════════ */
-interface CartItem {
-  product_id: string
-  product_name: string
-  price: number
-  qty: number
-  unit: string
-  image?: string
-}
-
-const ORIGINS = [
-  ['balcao', '🏪 Balcão'],
-  ['whatsapp', '💬 WhatsApp'],
-  ['telefone', '📞 Telefone'],
-  ['instagram', '📸 Instagram'],
-  ['site', '🌐 Site'],
-]
-const PAYMENTS = [
-  ['pix', 'PIX'],
-  ['dinheiro', 'Dinheiro'],
-  ['cartao_credito', 'Cartão Crédito'],
-  ['cartao_debito', 'Cartão Débito'],
-  ['boleto', 'Boleto'],
-  ['fiado', 'Fiado'],
-]
-
-function PDVModal({ onClose, showToast, onOrderCreated }: {
-  onClose: () => void
-  showToast: (t: string, tp?: 'success' | 'error') => void
-  onOrderCreated?: () => void
-}) {
-  const [step, setStep] = useState<'cart' | 'customer' | 'success'>('cart')
-  const [products, setProducts] = useState<InventoryProduct[]>([])
-  const [search, setSearch] = useState('')
-  const [searchRes, setSearchRes] = useState<InventoryProduct[]>([])
-  const [cart, setCart] = useState<CartItem[]>([])
-  const [customerName, setCustomerName] = useState('')
-  const [customerPhone, setCustomerPhone] = useState('')
-  const [customerEmail, setCustomerEmail] = useState('')
-  const [origin, setOrigin] = useState('balcao')
-  const [paymentMethod, setPaymentMethod] = useState('pix')
-  const [notes, setNotes] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [createdOrder, setCreatedOrder] = useState<any>(null)
-  const searchTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
-  const searchInputRef = useRef<HTMLInputElement>(null)
-
-  useEffect(() => {
-    inventoryApi.products(1, 500)
-      .then(d => setProducts(Array.isArray(d.items) ? d.items : []))
-      .catch(() => {})
-  }, [])
-
-  function onSearch(q: string) {
-    setSearch(q)
-    clearTimeout(searchTimer.current)
-    if (!q.trim()) { setSearchRes([]); return }
-    searchTimer.current = setTimeout(() => {
-      const lower = q.toLowerCase()
-      setSearchRes(
-        products
-          .filter(p => (p.product_name || p.name || '').toLowerCase().includes(lower))
-          .slice(0, 8)
-      )
-    }, 150)
-  }
-
-  function addToCart(p: InventoryProduct) {
-    const pid = p.product_id || p.id || ''
-    setCart(prev => {
-      const existing = prev.find(c => c.product_id === pid)
-      if (existing) return prev.map(c => c.product_id === pid ? { ...c, qty: c.qty + 1 } : c)
-      return [...prev, {
-        product_id: pid,
-        product_name: p.product_name || p.name || '',
-        price: Number(p.product_price || p.price || 0),
-        qty: 1,
-        unit: unitShort(p.product_unit || p.unit),
-        image: p.product_image || p.image_url || '',
-      }]
-    })
-    setSearch(''); setSearchRes([])
-    searchInputRef.current?.focus()
-  }
-
-  function updateQty(pid: string, delta: number) {
-    setCart(prev => prev
-      .map(c => c.product_id === pid ? { ...c, qty: c.qty + delta } : c)
-      .filter(c => c.qty > 0)
-    )
-  }
-
-  function setQtyDirect(pid: string, val: string) {
-    const n = parseFloat(val)
-    if (isNaN(n) || n <= 0) { setCart(prev => prev.filter(c => c.product_id !== pid)); return }
-    setCart(prev => prev.map(c => c.product_id === pid ? { ...c, qty: n } : c))
-  }
-
-  const total = cart.reduce((s, c) => s + c.price * c.qty, 0)
-
-  async function submitOrder() {
-    if (cart.length === 0) { showToast('Carrinho vazio', 'error'); return }
-    if (!customerName.trim()) { showToast('Informe o nome do cliente', 'error'); return }
-    setSaving(true)
-    try {
-      const originLabel = ORIGINS.find(o => o[0] === origin)?.[1].replace(/.*\s/, '') || origin
-      const payload = {
-        items: cart.map(c => ({ product_id: c.product_id, quantity: c.qty })),
-        customer: {
-          name: customerName.trim(),
-          phone: customerPhone.trim() || '00000000000',
-          email: customerEmail.trim() || undefined,
-        },
-        payment_method: paymentMethod,
-        notes: [notes.trim(), `Canal: ${originLabel}`].filter(Boolean).join(' | '),
-        channel: origin,
-      }
-      const res = await fetch('/api/orders', {
-        method: 'POST',
-        headers: getAuthHeaders(),
-        body: JSON.stringify(payload),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || data.message || `Erro ${res.status}`)
-      setCreatedOrder(data.order || data)
-      setStep('success')
-      onOrderCreated?.()
-    } catch (e: any) { showToast(e.message, 'error') }
-    finally { setSaving(false) }
-  }
-
-  return (
-    <div className="fixed inset-0 z-[250] bg-black/50 flex items-stretch md:items-center justify-center" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="bg-white w-full md:max-w-2xl md:rounded-2xl md:max-h-[90vh] flex flex-col overflow-hidden shadow-2xl">
-
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-gradient-to-r from-emerald-600 to-emerald-500 text-white flex-shrink-0">
-          <div className="flex items-center gap-2">
-            <Receipt size={20} />
-            <span className="font-bold text-base">
-              {step === 'cart' ? 'Ponto de Venda' : step === 'customer' ? 'Dados do Cliente' : 'Pedido Criado!'}
-            </span>
-          </div>
-          <button onClick={onClose} className="p-1 hover:bg-white/20 rounded-lg transition"><X size={20} /></button>
-        </div>
-
-        {/* Step: Cart */}
-        {step === 'cart' && (
-          <div className="flex flex-col flex-1 overflow-hidden">
-            {/* Product Search */}
-            <div className="px-4 py-3 border-b border-border flex-shrink-0">
-              <div className="relative">
-                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                <input
-                  ref={searchInputRef}
-                  type="search"
-                  value={search}
-                  onChange={e => onSearch(e.target.value)}
-                  placeholder="Buscar produto para adicionar..."
-                  autoFocus
-                  className="w-full pl-9 pr-4 py-2.5 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/50"
-                />
-              </div>
-              {/* Search Results */}
-              {searchRes.length > 0 && (
-                <div className="mt-2 border border-border rounded-xl overflow-hidden shadow-lg bg-white z-10">
-                  {searchRes.map(p => {
-                    const pid = p.product_id || p.id || ''
-                    const img = p.product_image || p.image_url || ''
-                    return (
-                      <button key={pid} onClick={() => addToCart(p)}
-                        className="w-full flex items-center gap-3 px-3 py-2.5 text-sm hover:bg-emerald-50 transition text-left border-b border-border last:border-b-0">
-                        {img ? <img src={img} alt="" className="w-8 h-8 rounded-lg object-cover flex-shrink-0" />
-                          : <div className="w-8 h-8 rounded-lg bg-gray-100 grid place-items-center text-gray-400 flex-shrink-0 text-xs">📦</div>}
-                        <div className="flex-1 min-w-0">
-                          <p className="font-semibold truncate">{p.product_name || p.name}</p>
-                          <p className="text-xs text-muted">{unitShort(p.product_unit || p.unit)} • estoque: {num(p.stock_available ?? p.stock_current)}</p>
-                        </div>
-                        <span className="font-bold text-emerald-600 flex-shrink-0">{money(p.product_price || p.price)}</span>
-                      </button>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-
-            {/* Cart Items */}
-            <div className="flex-1 overflow-y-auto px-4 py-3">
-              {cart.length === 0 ? (
-                <div className="text-center py-16 text-muted">
-                  <ShoppingCart className="w-12 h-12 mx-auto mb-3 opacity-20" />
-                  <p className="font-medium">Carrinho vazio</p>
-                  <p className="text-sm mt-1">Busque produtos acima para adicionar</p>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {cart.map(item => (
-                    <div key={item.product_id} className="bg-white border border-border rounded-xl p-3 flex items-center gap-3">
-                      {item.image ? <img src={item.image} alt="" className="w-10 h-10 rounded-lg object-cover flex-shrink-0" />
-                        : <div className="w-10 h-10 rounded-lg bg-gray-100 grid place-items-center text-gray-400 flex-shrink-0">📦</div>}
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold truncate">{item.product_name}</p>
-                        <p className="text-xs text-muted">{money(item.price)} / {item.unit}</p>
-                      </div>
-                      {/* Qty controls */}
-                      <div className="flex items-center gap-1.5 flex-shrink-0">
-                        <button onClick={() => updateQty(item.product_id, -1)}
-                          className="w-7 h-7 rounded-lg bg-gray-100 hover:bg-red-100 text-gray-600 hover:text-red-600 transition grid place-items-center">
-                          <Minus size={14} />
-                        </button>
-                        <input
-                          type="number"
-                          value={item.qty}
-                          onChange={e => setQtyDirect(item.product_id, e.target.value)}
-                          className="w-12 text-center border border-border rounded-lg text-sm font-bold py-1"
-                          min={0.01}
-                          step="0.001"
-                        />
-                        <button onClick={() => updateQty(item.product_id, 1)}
-                          className="w-7 h-7 rounded-lg bg-gray-100 hover:bg-emerald-100 text-gray-600 hover:text-emerald-600 transition grid place-items-center">
-                          <Plus size={14} />
-                        </button>
-                      </div>
-                      <div className="text-sm font-bold text-right min-w-[60px]">{money(item.price * item.qty)}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Footer */}
-            <div className="px-4 py-4 border-t border-border flex-shrink-0 bg-gray-50">
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-sm text-muted">{cart.length} item(s)</span>
-                <div className="text-right">
-                  <p className="text-xs text-muted">Total</p>
-                  <p className="text-xl font-bold text-emerald-600">{money(total)}</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setStep('customer')}
-                disabled={cart.length === 0}
-                className="w-full py-3 rounded-xl bg-emerald-500 text-white font-bold text-sm hover:bg-emerald-600 disabled:opacity-40 transition"
-              >
-                Continuar → Dados do Cliente
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Step: Customer */}
-        {step === 'customer' && (
-          <div className="flex flex-col flex-1 overflow-hidden">
-            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-
-              {/* Order Summary */}
-              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3">
-                <p className="text-xs font-semibold text-emerald-700 mb-2">{cart.length} produto(s) no carrinho</p>
-                <div className="space-y-1 max-h-28 overflow-y-auto">
-                  {cart.map(c => (
-                    <div key={c.product_id} className="flex justify-between text-sm">
-                      <span className="text-gray-700 truncate flex-1 mr-2">{c.qty}× {c.product_name}</span>
-                      <span className="font-semibold flex-shrink-0">{money(c.price * c.qty)}</span>
-                    </div>
-                  ))}
-                </div>
-                <div className="border-t border-emerald-200 mt-2 pt-2 flex justify-between">
-                  <span className="font-bold text-emerald-700">Total</span>
-                  <span className="font-bold text-emerald-700 text-base">{money(total)}</span>
-                </div>
-              </div>
-
-              {/* Customer fields */}
-              <div>
-                <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-1.5"><User size={12} /> Cliente</p>
-                <div className="space-y-3">
-                  <div>
-                    <label className="text-xs font-semibold text-gray-500 mb-1 block">Nome *</label>
-                    <div className="relative">
-                      <User size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                      <input type="text" value={customerName} onChange={e => setCustomerName(e.target.value)}
-                        placeholder="Nome completo"
-                        className="w-full pl-9 pr-4 py-2.5 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/50" />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="text-xs font-semibold text-gray-500 mb-1 block">Telefone / WhatsApp</label>
-                    <div className="relative">
-                      <Phone size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                      <input type="tel" value={customerPhone} onChange={e => setCustomerPhone(e.target.value)}
-                        placeholder="(99) 99999-9999"
-                        className="w-full pl-9 pr-4 py-2.5 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/50" />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="text-xs font-semibold text-gray-500 mb-1 block">E-mail</label>
-                    <div className="relative">
-                      <Mail size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                      <input type="email" value={customerEmail} onChange={e => setCustomerEmail(e.target.value)}
-                        placeholder="email@exemplo.com"
-                        className="w-full pl-9 pr-4 py-2.5 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/50" />
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Origin & Payment */}
-              <div>
-                <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-1.5"><CreditCard size={12} /> Pagamento e Canal</p>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs font-semibold text-gray-500 mb-1 block">Canal de venda</label>
-                    <div className="flex flex-col gap-1">
-                      {ORIGINS.map(([val, label]) => (
-                        <button key={val} onClick={() => setOrigin(val)}
-                          className={`text-left px-3 py-2 rounded-lg text-sm transition border ${
-                            origin === val ? 'bg-emerald-50 border-emerald-400 text-emerald-700 font-semibold' : 'border-border text-gray-600 hover:bg-gray-50'
-                          }`}>
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div>
-                    <label className="text-xs font-semibold text-gray-500 mb-1 block">Forma de pagamento</label>
-                    <div className="flex flex-col gap-1">
-                      {PAYMENTS.map(([val, label]) => (
-                        <button key={val} onClick={() => setPaymentMethod(val)}
-                          className={`text-left px-3 py-2 rounded-lg text-sm transition border ${
-                            paymentMethod === val ? 'bg-blue-50 border-blue-400 text-blue-700 font-semibold' : 'border-border text-gray-600 hover:bg-gray-50'
-                          }`}>
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Notes */}
-              <div>
-                <label className="text-xs font-semibold text-gray-500 mb-1 block">Observações</label>
-                <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2}
-                  placeholder="Endereço de entrega, instruções especiais..."
-                  className="w-full px-3 py-2.5 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/50 resize-none" />
-              </div>
-            </div>
-
-            {/* Footer */}
-            <div className="px-4 py-4 border-t border-border flex-shrink-0 bg-gray-50 flex gap-2">
-              <button onClick={() => setStep('cart')} className="px-4 py-3 rounded-xl bg-gray-100 text-gray-600 font-semibold text-sm hover:bg-gray-200 transition">
-                ← Voltar
-              </button>
-              <button onClick={submitOrder} disabled={saving || !customerName.trim()}
-                className="flex-1 py-3 rounded-xl bg-emerald-500 text-white font-bold text-sm hover:bg-emerald-600 disabled:opacity-50 transition flex items-center justify-center gap-2">
-                {saving ? <><Loader2 size={16} className="animate-spin" /> Criando pedido...</> : <><Banknote size={16} /> Finalizar Pedido · {money(total)}</>}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Step: Success */}
-        {step === 'success' && (
-          <div className="flex flex-col flex-1 items-center justify-center px-6 py-10 text-center">
-            <div className="w-20 h-20 bg-emerald-100 rounded-full grid place-items-center mb-5">
-              <CheckCircle2 size={44} className="text-emerald-500" />
-            </div>
-            <h3 className="text-xl font-bold mb-2">Pedido criado!</h3>
-            <p className="text-muted text-sm mb-1">
-              {customerName && <span className="font-semibold text-gray-700">{customerName}</span>}
-            </p>
-            {createdOrder?.order_number && (
-              <p className="text-sm text-muted mb-2">Pedido #{createdOrder.order_number}</p>
-            )}
-            <p className="text-2xl font-bold text-emerald-600 mb-1">{money(total)}</p>
-            <p className="text-xs text-muted mb-2">
-              {PAYMENTS.find(p => p[0] === paymentMethod)?.[1]} · {ORIGINS.find(o => o[0] === origin)?.[1]}
-            </p>
-
-            {/* Cart recap */}
-            <div className="w-full bg-gray-50 rounded-xl p-3 mb-6 text-left">
-              {cart.map(c => (
-                <div key={c.product_id} className="flex justify-between text-sm py-1">
-                  <span className="text-gray-600">{c.qty}× {c.product_name}</span>
-                  <span className="font-semibold">{money(c.price * c.qty)}</span>
-                </div>
-              ))}
-            </div>
-
-            <div className="flex gap-3 w-full">
-              <button onClick={() => { setStep('cart'); setCart([]); setCustomerName(''); setCustomerPhone(''); setCustomerEmail(''); setNotes('') }}
-                className="flex-1 py-3 rounded-xl bg-gray-100 text-gray-600 font-semibold text-sm hover:bg-gray-200 transition">
-                Novo Pedido
-              </button>
-              <button onClick={onClose}
-                className="flex-1 py-3 rounded-xl bg-emerald-500 text-white font-bold text-sm hover:bg-emerald-600 transition">
-                Fechar
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-/* ══════════════════════════════════════════════
-   DESIGN VIEW — Configurações do Catálogo
-   ══════════════════════════════════════════════ */
-export function DesignView({ showToast }: { showToast: (t: string, tp?: 'success' | 'error') => void }) {
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [storeId, setStoreId] = useState('')
-  const [brandId, setBrandId] = useState('')
-  const [slug, setSlug] = useState('')
-  const [currentBrand, setCurrentBrand] = useState<Record<string, any>>({})
-
-  // Brand identity
-  const [brandName, setBrandName] = useState('')
-  const [slogan, setSlogan] = useState('')
-  const [description, setDescription] = useState('')
-  const [logoUrl, setLogoUrl] = useState('')
-  const [primaryColor, setPrimaryColor] = useState('#111827')
-  const [secondaryColor, setSecondaryColor] = useState('#3b82f6')
-  const [coverImage, setCoverImage] = useState('')
-
-  // Logistics
-  const [deliveryFee, setDeliveryFee] = useState('')
-  const [deliveryRadius, setDeliveryRadius] = useState('')
-  const [freeShippingAbove, setFreeShippingAbove] = useState('')
-  const [deliveryTimeText, setDeliveryTimeText] = useState('')
-  const [etaMinutes, setEtaMinutes] = useState('')
-
-  // Checkout
-  const [collectEmail, setCollectEmail] = useState(true)
-  const [collectAddress, setCollectAddress] = useState(true)
-
-  // Status
-  const [storeStatus, setStoreStatus] = useState<'aberto' | 'fechado'>('aberto')
-
-  function getHeaders(): Record<string, string> {
-    const h: Record<string, string> = { 'Content-Type': 'application/json' }
-    const token = localStorage.getItem('lead-system-token')
-    if (token) h['Authorization'] = `Bearer ${token}`
-    const bid = localStorage.getItem('lead-system:active-brand-id')
-    if (bid) h['x-brand-id'] = bid
-    return h
-  }
-
-  useEffect(() => {
-    setLoading(true)
-    const headers = getHeaders()
-    fetch('/api/storefront/stores', { headers })
-      .then(r => r.json())
-      .then(async d => {
-        const stores = d.stores || []
-        if (!stores.length) { setLoading(false); return }
-        const store = stores[0]
-        setStoreId(store.id)
-        setSlug(store.slug || '')
-
-        const r2 = await fetch(`/api/storefront/stores/${store.id}`, { headers })
-        const d2 = await r2.json()
-        const s = d2.store || {}
-        const brand = s.brand || {}
-        const settings = s.settings || {}
-        const logistics = settings.logistics || {}
-        const checkout = settings.checkout || {}
-
-        setCurrentBrand(brand)
-        setBrandId(brand.id || store.brand_id || '')
-        setBrandName(brand.name || s.name || '')
-        setSlogan(brand.slogan || '')
-        setDescription(brand.description || '')
-        setLogoUrl(brand.logo_url || s.theme?.logo_url || '')
-        setPrimaryColor(brand.primary_color || s.theme?.primary_color || '#111827')
-        setSecondaryColor(brand.secondary_color || s.theme?.secondary_color || '#3b82f6')
-        setCoverImage(brand.cover_image || s.theme?.cover_image || '')
-        setDeliveryFee(logistics.delivery_fee != null ? String(logistics.delivery_fee) : '')
-        setDeliveryRadius(logistics.delivery_radius_km != null ? String(logistics.delivery_radius_km) : '')
-        setFreeShippingAbove(logistics.free_shipping_above != null ? String(logistics.free_shipping_above) : '')
-        setDeliveryTimeText(logistics.delivery_time_text || '')
-        setEtaMinutes(logistics.default_eta_minutes != null ? String(logistics.default_eta_minutes) : '')
-        setCollectEmail(checkout.collect_email !== false)
-        setCollectAddress(checkout.collect_address !== false)
-        setStoreStatus(brand.status === 'fechado' ? 'fechado' : 'aberto')
-        setLoading(false)
-      })
-      .catch(err => {
-        showToast(err.message || 'Erro ao carregar configurações', 'error')
-        setLoading(false)
-      })
-  }, [])
-
-  async function handleSave() {
-    if (!storeId) return
-    setSaving(true)
-    try {
-      const headers = getHeaders()
-      // Save brand identity to brand_units
-      if (brandId) {
-        const br = await fetch(`/api/brands/${brandId}`, {
-          method: 'PATCH', headers,
-          body: JSON.stringify({ name: brandName, slogan, logo_url: logoUrl, primary_color: primaryColor, secondary_color: secondaryColor }),
-        })
-        if (!br.ok) { const e = await br.json(); throw new Error(e.error || 'Erro ao salvar marca') }
-      }
-      // Save store settings (logistics, checkout, status, cover_image via brand)
-      const sr = await fetch(`/api/storefront/stores/${storeId}`, {
-        method: 'PATCH', headers,
-        body: JSON.stringify({
-          brand: { ...currentBrand, name: brandName, slogan, description, logo_url: logoUrl, primary_color: primaryColor, secondary_color: secondaryColor, cover_image: coverImage, status: storeStatus },
-          settings: {
-            logistics: {
-              ...(deliveryFee !== '' ? { delivery_fee: parseFloat(deliveryFee) } : {}),
-              ...(deliveryRadius !== '' ? { delivery_radius_km: parseFloat(deliveryRadius) } : {}),
-              ...(freeShippingAbove !== '' ? { free_shipping_above: parseFloat(freeShippingAbove) } : {}),
-              ...(deliveryTimeText ? { delivery_time_text: deliveryTimeText } : {}),
-              ...(etaMinutes !== '' ? { default_eta_minutes: parseInt(etaMinutes) } : {}),
-            },
-            checkout: { collect_email: collectEmail, collect_address: collectAddress },
-          },
-        }),
-      })
-      if (!sr.ok) { const e = await sr.json(); throw new Error(e.error || 'Erro ao salvar loja') }
-      showToast('Configurações salvas! O catálogo foi atualizado.')
-    } catch (e: any) {
-      showToast(e.message || 'Erro ao salvar', 'error')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const Toggle = ({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) => (
-    <button type="button" onClick={() => onChange(!value)}
-      className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${value ? 'bg-emerald-500' : 'bg-gray-300'}`}>
-      <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${value ? 'translate-x-5' : 'translate-x-0'}`} />
-    </button>
-  )
-
-  const Field = ({ label, children }: { label: string; children: React.ReactNode }) => (
-    <div>
-      <label className="text-xs font-semibold text-gray-500 mb-1.5 block">{label}</label>
-      {children}
-    </div>
-  )
-
-  const inputCls = 'w-full px-3 py-2.5 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400 bg-white'
-
-  if (loading) return <Skeleton rows={10} />
-
-  return (
-    <div className="space-y-5 pb-10">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div>
-          <h2 className="text-lg font-bold text-gray-900">Design do Catálogo</h2>
-          <p className="text-sm text-muted mt-0.5">Aparência, frete e configurações do catálogo público</p>
-        </div>
-        <div className="flex gap-2 flex-wrap">
-          {slug && (
-            <a href={`/catalogo/${slug}`} target="_blank" rel="noreferrer"
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-border text-sm font-medium text-gray-600 hover:bg-gray-50 transition">
-              <Globe size={14} /> Visualizar Catálogo
-            </a>
-          )}
-          <button onClick={handleSave} disabled={saving}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-500 text-white text-sm font-semibold hover:bg-blue-600 disabled:opacity-60 transition shadow-sm">
-            {saving ? <><Loader2 size={14} className="animate-spin" /> Salvando...</> : 'Salvar Alterações'}
-          </button>
-        </div>
-      </div>
-
-      {/* ── 1. Identidade Visual ── */}
-      <section className="bg-white border border-border rounded-2xl p-5 space-y-4">
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 bg-purple-50 rounded-lg grid place-items-center shrink-0">
-            <Palette size={15} className="text-purple-500" />
-          </div>
-          <h3 className="text-sm font-bold">Identidade Visual</h3>
-        </div>
-
-        <Field label="Logo da Loja (1:1 — recomendado 500×500px)">
-          <div className="flex items-center gap-3">
-            <div className="w-16 h-16 rounded-xl border-2 border-dashed border-gray-300 bg-gray-50 flex items-center justify-center overflow-hidden shrink-0 relative group">
-              {logoUrl
-                ? <img src={logoUrl} alt="Logo" className="w-full h-full object-cover" onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
-                : <Upload size={20} className="text-gray-300" />}
-              <label className="absolute inset-0 cursor-pointer opacity-0 group-hover:opacity-100 bg-black/40 flex items-center justify-center transition-opacity rounded-xl">
-                <Upload size={16} className="text-white" />
-                <input type="file" accept="image/*" className="hidden" onChange={async (e) => {
-                  const file = e.target.files?.[0]; if (!file) return
-                  const fd = new FormData(); fd.append('file', file)
-                  try {
-                    const r = await fetch('/api/media/upload', { method: 'POST', headers: { 'Authorization': getHeaders()['Authorization'] }, body: fd })
-                    const d = await r.json(); if (d.file?.url) setLogoUrl(d.file.url)
-                  } catch {}
-                }} />
-              </label>
-            </div>
-            <div className="flex-1">
-              <input type="url" value={logoUrl} onChange={e => setLogoUrl(e.target.value)}
-                placeholder="URL ou clique no quadrado para upload" className={inputCls + ' text-xs'} />
-              <p className="text-[10px] text-gray-400 mt-1">Formato quadrado 1:1. Clique no icone para fazer upload.</p>
-            </div>
-          </div>
-        </Field>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <Field label="Nome da Loja">
-            <input type="text" value={brandName} onChange={e => setBrandName(e.target.value)} placeholder="Ex: Minha Loja" className={inputCls} />
-          </Field>
-          <Field label="Slogan / Subtítulo">
-            <input type="text" value={slogan} onChange={e => setSlogan(e.target.value)} placeholder="Ex: Qualidade que você pode confiar" className={inputCls} />
-          </Field>
-        </div>
-
-        <Field label="Descrição / Sobre nós">
-          <textarea value={description} onChange={e => setDescription(e.target.value)} rows={2}
-            placeholder="Conte um pouco sobre sua loja..."
-            className={inputCls + ' resize-none'} />
-        </Field>
-
-        <div className="grid grid-cols-2 gap-4">
-          <Field label="Cor Primária">
-            <div className="flex items-center gap-3 px-3 py-2 border border-border rounded-xl bg-white">
-              <input type="color" value={primaryColor} onChange={e => setPrimaryColor(e.target.value)}
-                className="w-8 h-8 rounded-lg cursor-pointer border-0 p-0 bg-transparent" />
-              <span className="text-sm font-mono text-gray-600">{primaryColor}</span>
-            </div>
-          </Field>
-          <Field label="Cor Secundária">
-            <div className="flex items-center gap-3 px-3 py-2 border border-border rounded-xl bg-white">
-              <input type="color" value={secondaryColor} onChange={e => setSecondaryColor(e.target.value)}
-                className="w-8 h-8 rounded-lg cursor-pointer border-0 p-0 bg-transparent" />
-              <span className="text-sm font-mono text-gray-600">{secondaryColor}</span>
-            </div>
-          </Field>
-        </div>
-
-        <Field label="Imagem de Capa / Banner (820×312px — proporcao Facebook)">
-          <div className="relative rounded-xl overflow-hidden border-2 border-dashed border-gray-300 bg-gray-50 group" style={{ aspectRatio: '820/312' }}>
-            {coverImage
-              ? <img src={coverImage} alt="Capa" className="w-full h-full object-cover" onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
-              : <div className="w-full h-full flex flex-col items-center justify-center text-gray-300">
-                  <Upload size={28} />
-                  <p className="text-xs mt-1.5">820 × 312 px</p>
-                </div>}
-            <label className="absolute inset-0 cursor-pointer opacity-0 group-hover:opacity-100 bg-black/40 flex items-center justify-center transition-opacity">
-              <div className="bg-white/90 rounded-lg px-3 py-1.5 text-xs font-semibold text-gray-700">Trocar imagem</div>
-              <input type="file" accept="image/*" className="hidden" onChange={async (e) => {
-                const file = e.target.files?.[0]; if (!file) return
-                const fd = new FormData(); fd.append('file', file)
-                try {
-                  const r = await fetch('/api/media/upload', { method: 'POST', headers: { 'Authorization': getHeaders()['Authorization'] }, body: fd })
-                  const d = await r.json(); if (d.file?.url) setCoverImage(d.file.url)
-                } catch {}
-              }} />
-            </label>
-          </div>
-          <input type="url" value={coverImage} onChange={e => setCoverImage(e.target.value)}
-            placeholder="Ou cole uma URL diretamente" className={inputCls + ' text-xs mt-2'} />
-        </Field>
-      </section>
-
-      {/* Frete & Entrega: configurar em /frete (secao dedicada) */}
-
-      {/* ── 2. Checkout ── */}
-      <section className="bg-white border border-border rounded-2xl p-5 space-y-3">
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 bg-emerald-50 rounded-lg grid place-items-center shrink-0">
-            <ShoppingCart size={15} className="text-emerald-500" />
-          </div>
-          <h3 className="text-sm font-bold">Checkout</h3>
-        </div>
-        {[
-          { label: 'Coletar e-mail do cliente', sub: 'Campo de e-mail no formulário de pedido', value: collectEmail, onChange: setCollectEmail },
-          { label: 'Coletar endereço de entrega', sub: 'Campo de endereço no formulário de pedido', value: collectAddress, onChange: setCollectAddress },
-        ].map(({ label, sub, value, onChange }) => (
-          <div key={label} className="flex items-center justify-between gap-4 py-2.5 border-b border-border last:border-0">
-            <div>
-              <p className="text-sm font-medium text-gray-800">{label}</p>
-              <p className="text-xs text-muted">{sub}</p>
-            </div>
-            <Toggle value={value} onChange={onChange} />
-          </div>
-        ))}
-      </section>
-
-      {/* ── 4. Status da Loja ── */}
-      <section className="bg-white border border-border rounded-2xl p-5 space-y-4">
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 bg-amber-50 rounded-lg grid place-items-center shrink-0">
-            <Globe size={15} className="text-amber-500" />
-          </div>
-          <h3 className="text-sm font-bold">Status da Loja</h3>
-        </div>
-        <p className="text-sm text-muted -mt-2">Controla o badge "Aberto/Fechado" exibido no catálogo</p>
-        <div className="flex gap-3">
-          {(['aberto', 'fechado'] as const).map(s => (
-            <button key={s} type="button" onClick={() => setStoreStatus(s)}
-              className={`flex-1 py-3 rounded-xl text-sm font-bold transition ${
-                storeStatus === s
-                  ? s === 'aberto' ? 'bg-emerald-500 text-white shadow-sm' : 'bg-red-500 text-white shadow-sm'
-                  : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-              }`}>
-              {s === 'aberto' ? '🟢 Aberto' : '🔴 Fechado'}
-            </button>
-          ))}
-        </div>
-      </section>
-
-      {/* Bottom save */}
-      <div className="flex justify-end">
-        <button onClick={handleSave} disabled={saving}
-          className="flex items-center gap-2 px-6 py-3 rounded-xl bg-blue-500 text-white font-semibold hover:bg-blue-600 disabled:opacity-60 transition shadow-sm">
-          {saving ? <><Loader2 size={16} className="animate-spin" /> Salvando...</> : 'Salvar Alterações'}
-        </button>
-      </div>
     </div>
   )
 }

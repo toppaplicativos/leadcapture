@@ -1,5 +1,6 @@
 /* eslint-disable no-restricted-globals */
-const CACHE_NAME = "lead-system-v10-20260306";
+const SHELL_CACHE_NAME = "lead-system-shell-v12-20260404";
+const RUNTIME_CACHE_NAME = "lead-system-runtime-v12-20260404";
 
 function getBasePath() {
   try {
@@ -14,6 +15,7 @@ function getBasePath() {
 }
 
 const basePath = getBasePath();
+const shellCacheKey = toScopedPath("__app_shell__");
 
 function toScopedPath(path = "") {
   const normalizedBase = basePath.endsWith("/") ? basePath : `${basePath}/`;
@@ -24,27 +26,52 @@ function toScopedPath(path = "") {
   return `${normalizedBase}${path}`.replace(/([^:]\/)\/+/g, "$1");
 }
 
-const urlsToCache = [toScopedPath("index.html")];
+function shouldHandleNavigation(request) {
+  if (request.mode !== "navigate") return false;
+  const url = new URL(request.url);
+  if (url.pathname.startsWith("/api/")) return false;
+  return true;
+}
+
+function shouldCacheRuntime(request) {
+  const url = new URL(request.url);
+  if (url.origin !== self.location.origin) return false;
+  if (url.pathname.startsWith("/api/")) return false;
+  if (url.pathname.startsWith("/assets/")) return true;
+  if (url.pathname.startsWith("/uploads/")) return true;
+  return ["script", "style", "image", "font", "manifest", "worker"].includes(request.destination);
+}
 
 // Instalacao do Service Worker
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(urlsToCache).catch(() => Promise.resolve())));
+  event.waitUntil(Promise.resolve());
   self.skipWaiting();
 });
 
 // Ativacao do Service Worker
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((cacheNames) =>
-      Promise.all(
-        cacheNames.map((cacheName) => {
-          if (cacheName !== CACHE_NAME || cacheName.startsWith("lead-system-v")) {
+    Promise.all([
+      caches.keys().then((cacheNames) =>
+        Promise.all(
+          cacheNames.map((cacheName) => {
+            const isLeadSystemCache =
+              cacheName.startsWith("lead-system-v") ||
+              cacheName.startsWith("lead-system-shell-") ||
+              cacheName.startsWith("lead-system-runtime-");
+
+            if (!isLeadSystemCache) return Promise.resolve();
+            if (cacheName === SHELL_CACHE_NAME || cacheName === RUNTIME_CACHE_NAME) {
+              return Promise.resolve();
+            }
             return caches.delete(cacheName);
-          }
-          return Promise.resolve();
-        })
-      )
-    )
+          })
+        )
+      ),
+      self.registration.navigationPreload
+        ? self.registration.navigationPreload.enable().catch(() => Promise.resolve())
+        : Promise.resolve(),
+    ])
   );
   self.clients.claim();
 });
@@ -56,29 +83,68 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  const isNavigationRequest = request.mode === "navigate";
+  if (shouldHandleNavigation(request)) {
+    event.respondWith(handleNavigationRequest(event));
+    return;
+  }
 
-  event.respondWith(
+  if (shouldCacheRuntime(request)) {
+    event.respondWith(handleRuntimeRequest(request));
+  }
+});
+
+async function handleNavigationRequest(event) {
+  const { request } = event;
+
+  try {
+    const preloadResponse = await event.preloadResponse;
+    const networkResponse = preloadResponse || (await fetch(request));
+
+    if (networkResponse && networkResponse.ok) {
+      const shellCache = await caches.open(SHELL_CACHE_NAME);
+      await shellCache.put(shellCacheKey, networkResponse.clone());
+      await shellCache.put(request, networkResponse.clone());
+      return networkResponse;
+    }
+  } catch (_error) {
+    // Fall through to cache recovery.
+  }
+
+  const shellCache = await caches.open(SHELL_CACHE_NAME);
+  const exactMatch = await shellCache.match(request);
+  if (exactMatch) return exactMatch;
+
+  const cachedShell = await shellCache.match(shellCacheKey);
+  if (cachedShell) return cachedShell;
+
+  return new Response("Offline - recurso nao disponivel", { status: 503 });
+}
+
+async function handleRuntimeRequest(request) {
+  const runtimeCache = await caches.open(RUNTIME_CACHE_NAME);
+  const cached = await runtimeCache.match(request);
+
+  if (cached) {
     fetch(request)
       .then((response) => {
-        if (isNavigationRequest && response && response.status === 200) {
-          const responseClone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(toScopedPath("index.html"), responseClone));
+        if (response && response.ok) {
+          runtimeCache.put(request, response.clone());
         }
-        return response;
       })
-      .catch(() => {
-        if (isNavigationRequest) {
-          return caches.match(toScopedPath("index.html")).then(
-            (cached) => cached || new Response("Offline - recurso nao disponivel", { status: 503 })
-          );
-        }
-        return caches.match(request).then(
-          (cached) => cached || new Response("Offline - recurso nao disponivel", { status: 503 })
-        );
-      })
-  );
-});
+      .catch(() => Promise.resolve());
+    return cached;
+  }
+
+  try {
+    const response = await fetch(request);
+    if (response && response.ok) {
+      runtimeCache.put(request, response.clone());
+    }
+    return response;
+  } catch (_error) {
+    return new Response("Offline - recurso nao disponivel", { status: 503 });
+  }
+}
 
 // Suporte para notificacoes push
 self.addEventListener("push", (event) => {

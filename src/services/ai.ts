@@ -1,5 +1,4 @@
-import { GoogleGenerativeAI, GenerativeModel } from "@google/generative-ai";
-import { config } from "../config";
+import { GeminiService } from "./gemini";
 import { logger } from "../utils/logger";
 
 interface AIMessageOptions {
@@ -24,17 +23,7 @@ interface AIAnalysisResult {
 }
 
 export class AIService {
-  private genAI: GoogleGenerativeAI;
-  private model: GenerativeModel;
-
-  constructor() {
-    const apiKey = config.geminiApiKey;
-    if (!apiKey) {
-      logger.warn('GEMINI_API_KEY not configured — AI features will return fallback responses');
-    }
-    this.genAI = new GoogleGenerativeAI(apiKey || 'dummy-key');
-    this.model = this.genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-  }
+  private readonly gemini = new GeminiService();
 
   async generateCustomMessage(prompt: string, options: AIMessageOptions = {}): Promise<string> {
     const {
@@ -71,9 +60,7 @@ Regras:
 - Nao use markdown, apenas texto puro para WhatsApp`;
 
     try {
-      const result = await this.model.generateContent(`${systemPrompt}\n\nSolicitacao: ${prompt}`);
-      const response = result.response;
-      return response.text().trim();
+      return await this.gemini.generatePlainText(`${systemPrompt}\n\nSolicitacao: ${prompt}`);
     } catch (error) {
       logger.error(error, "Erro ao gerar mensagem customizada");
       throw new Error("Falha ao gerar mensagem com IA");
@@ -92,17 +79,14 @@ Mensagem: "${message}"
 Retorne APENAS o JSON valido, sem markdown.`;
 
     try {
-      const result = await this.model.generateContent(prompt);
-      const text = result.response.text().trim();
-      const cleaned = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-      return JSON.parse(cleaned);
+      return await this.gemini.generateJson<AIAnalysisResult>(prompt);
     } catch (error) {
       logger.error(error, "Erro ao analisar mensagem");
       return {
         sentiment: "neutral",
         intent: "indefinido",
         suggestedResponse: "Obrigado pela mensagem! Como posso ajudar?",
-        keywords: []
+        keywords: [],
       };
     }
   }
@@ -122,8 +106,7 @@ Regras:
 - Retorne APENAS a mensagem melhorada, sem explicacoes`;
 
     try {
-      const result = await this.model.generateContent(prompt);
-      return result.response.text().trim();
+      return await this.gemini.generatePlainText(prompt);
     } catch (error) {
       logger.error(error, "Erro ao melhorar mensagem");
       throw new Error("Falha ao melhorar mensagem");
@@ -139,10 +122,7 @@ Mensagem base: "${baseMessage}"
 Retorne APENAS um JSON array com as ${count} variacoes. Sem markdown.`;
 
     try {
-      const result = await this.model.generateContent(prompt);
-      const text = result.response.text().trim();
-      const cleaned = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-      return JSON.parse(cleaned);
+      return await this.gemini.generateJson<string[]>(prompt);
     } catch (error) {
       logger.error(error, "Erro ao gerar variacoes");
       return [baseMessage];
@@ -156,11 +136,10 @@ Retorne APENAS um JSON array com as ${count} variacoes. Sem markdown.`;
       promotion: `Crie uma mensagem promocional sobre {produto} com desconto de {desconto}. Para o cliente {nome}. Empresa: {empresa}.`,
       reactivation: `Crie uma mensagem para reativar o cliente {nome} que nao compra ha {tempo}. Empresa: {empresa}. Oferta: {oferta}.`,
       appointment: `Crie uma mensagem confirmando agendamento para {nome} no dia {data} as {hora}. Empresa: {empresa}. Servico: {servico}.`,
-      thankyou: `Crie uma mensagem de agradecimento pos-compra para {nome} que adquiriu {produto}. Empresa: {empresa}.`
+      thankyou: `Crie uma mensagem de agradecimento pos-compra para {nome} que adquiriu {produto}. Empresa: {empresa}.`,
     };
 
     let templatePrompt = templates[templateName] || templateName;
-    
     for (const [key, value] of Object.entries(variables)) {
       templatePrompt = templatePrompt.replace(new RegExp(`{${key}}`, "g"), value);
     }

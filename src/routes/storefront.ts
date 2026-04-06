@@ -8,8 +8,6 @@ import { OrderManagementService } from "../services/orderManagement";
 import { StorefrontService } from "../services/storefront";
 import { PaymentConfigService } from "../services/paymentConfig";
 import { ProspectionMatchService } from "../services/prospectionMatch";
-import { CustomersService } from "../services/customers";
-import { getNotificationService } from "../services/notifications";
 import { query, queryOne } from "../config/database";
 import { logger } from "../utils/logger";
 import { exec } from "child_process";
@@ -26,8 +24,6 @@ const inventoryService = new InventoryService();
 const omsService = new OrderManagementService();
 const prospectionMatch = new ProspectionMatchService();
 const paymentConfig = new PaymentConfigService();
-const customersService = new CustomersService();
-const notificationService = getNotificationService();
 router.use(attachBrandContext);
 
 type ManagedBusinessStatus =
@@ -911,42 +907,11 @@ async function generatePageWithAi(input: {
     `Context JSON: ${JSON.stringify(contextBlock)}`,
   ].join("\n");
 
-  const model = (gemini as any).model;
-  if (!model || typeof model.generateContent !== "function") {
-    return {
-      title: fallbackTitle,
-      slug: "pagina-ia",
-      page_type: "ai_generated",
-      seo: {
-        title: fallbackTitle,
-        description: "Pagina gerada automaticamente com contexto de loja e produtos.",
-        keywords,
-      },
-      sections: [
-        {
-          id: "sec-hero",
-          type: "hero",
-          content: {
-            headline: input.selectedProduct?.name
-              ? `Conheca ${input.selectedProduct.name}`
-              : String(input.prompt || "Sua nova pagina inteligente"),
-            subheadline: "Pagina gerada com estrutura inicial para edicao no builder.",
-            cta: "Comprar agora",
-          },
-          media: {
-            image_url: productImages[0] || null,
-            gallery: productImages,
-          },
-        },
-      ],
-    };
-  }
-
   try {
-    const result = await model.generateContent(prompt);
-    const raw = String(result?.response?.text?.() || "").trim();
-    const clean = raw.replace(/^```json\s*/i, "").replace(/^```/i, "").replace(/```$/i, "").trim();
-    const parsed = JSON.parse(clean);
+    const parsed = await gemini.generateJson<any>(prompt, {
+      userId: String(input.store?.owner_user_id || input.store?.user_id || "").trim() || undefined,
+      brandId: String(input.store?.brand_id || "").trim() || undefined,
+    });
 
     const title = String(parsed?.title || fallbackTitle).trim() || fallbackTitle;
     const slug = String(parsed?.slug || "pagina-ia").trim() || "pagina-ia";
@@ -2122,7 +2087,11 @@ publicRouter.get("/stores/:slug/catalog/search", async (req, res) => {
             description: p.description,
             category: p.category,
             price: p.price,
-          }))
+          })),
+          {
+            userId: requireUserId(req),
+            brandId: String((req as any).brandId || "").trim() || undefined,
+          }
         );
 
         /* Merge AI scores back onto product objects */
@@ -2351,66 +2320,6 @@ publicRouter.post("/stores/:slug/orders", async (req, res) => {
       event: "order.created",
       variables: vars,
     }).catch(() => undefined);
-
-    // ── Register customer in CRM (upsert by phone/email) ──
-    try {
-      const existingByPhone = customerPhone ? await customersService.findByPhone(customerPhone, inventoryUserId, inventoryBrandId) : null;
-      if (!existingByPhone) {
-        await customersService.create({
-          name: customerName,
-          phone: customerPhone,
-          email: req.body?.customer?.email || null,
-          source: "website",
-          status: "new",
-          address: req.body?.customer?.address?.text || null,
-          trade_name: req.body?.customer?.address?.establishment_name || null,
-          notes: `Primeiro pedido via checkout - ${slug}`,
-        }, inventoryUserId, inventoryBrandId);
-        logger.info(`New customer registered from checkout: ${customerName} (${customerPhone})`);
-      }
-    } catch (err: any) {
-      logger.warn(`Customer registration from checkout failed: ${err.message}`);
-    }
-
-    // ── Send in-app notification ──
-    try {
-      const orderTotal = normalizedItems.reduce((s: number, i: any) => s + (Number(i.valor_unitario) || 0) * (Number(i.quantidade) || 0), 0);
-      await notificationService.createNotification({
-        user_id: inventoryUserId,
-        type: "system",
-        event: "order_created",
-        title: `Novo pedido de ${customerName}`,
-        message: `Pedido #${buildPublicOrderNumber(created.order.id)} no valor de R$ ${orderTotal.toFixed(2)}. ${normalizedItems.length} item(ns).`,
-        priority: "high",
-        channels: ["in_app"],
-        metadata: { order_id: created.order.id, customer_phone: customerPhone, store_slug: slug },
-      });
-      // High-value order alert (R$ 500+)
-      if (orderTotal >= 500) {
-        try {
-          const storeSettings = await queryOne<any>(
-            `SELECT settings_json FROM storefront_stores WHERE id = ? LIMIT 1`,
-            [bundle.store.id]
-          );
-          const settings = storeSettings?.settings_json ? (typeof storeSettings.settings_json === 'string' ? JSON.parse(storeSettings.settings_json) : storeSettings.settings_json) : {};
-          if (settings?.squad_rules?.notify_high_value) {
-            await notificationService.createNotification({
-              user_id: inventoryUserId,
-              type: "system",
-              event: "high_value_order",
-              title: `⚠️ Pedido de alto valor: R$ ${orderTotal.toFixed(2)}`,
-              message: `${customerName} fez um pedido de R$ ${orderTotal.toFixed(2)}. Este pedido requer atenção humana.`,
-              priority: "high",
-              channels: ["in_app"],
-              metadata: { order_id: created.order.id, customer_phone: customerPhone, order_total: orderTotal },
-            });
-            logger.info(`High-value order notification sent: R$ ${orderTotal.toFixed(2)} from ${customerName}`);
-          }
-        } catch {}
-      }
-    } catch (err: any) {
-      logger.warn(`Order notification failed: ${err.message}`);
-    }
 
     res.status(201).json({ success: true, ...created });
   } catch (error: any) {

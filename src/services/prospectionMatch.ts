@@ -1,6 +1,6 @@
-import { GoogleGenerativeAI, GenerativeModel } from "@google/generative-ai";
-import { config } from "../config";
 import { logger } from "../utils/logger";
+import { GeminiService } from "./gemini";
+import { IntegrationScope } from "./integrations";
 
 /* ════════════════════════════════════════════════════════════
    ProspectionMatchService
@@ -54,23 +54,21 @@ function scoreToGrade(score: number): "A" | "B" | "C" | "D" {
 }
 
 export class ProspectionMatchService {
-  private genAI: GoogleGenerativeAI;
-  private model: GenerativeModel;
+  private gemini: GeminiService;
 
   constructor() {
-    this.genAI = new GoogleGenerativeAI(config.geminiApiKey);
-    this.model = this.genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+    this.gemini = new GeminiService();
   }
 
   /* ── Score a single product against a query ────────── */
-  async scoreMatch(query: string, product: ProductForMatch): Promise<MatchScoreResult> {
+  async scoreMatch(query: string, product: ProductForMatch, scope?: IntegrationScope): Promise<MatchScoreResult> {
     const prompt = this.buildSinglePrompt(query, product);
 
     try {
-      const result = await this.model.generateContent(prompt);
-      const text = result.response.text().trim();
-      const cleaned = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-      const parsed = JSON.parse(cleaned);
+      const parsed = await this.gemini.generateJson<any>(prompt, {
+        ...scope,
+        model: "gemini-2.0-flash",
+      });
 
       const score = Math.min(100, Math.max(0, Number(parsed.score) || 0));
       return {
@@ -89,7 +87,7 @@ export class ProspectionMatchService {
   }
 
   /* ── Score multiple products in a single AI call ──── */
-  async scoreBulk(query: string, products: ProductForMatch[]): Promise<BulkMatchResult> {
+  async scoreBulk(query: string, products: ProductForMatch[], scope?: IntegrationScope): Promise<BulkMatchResult> {
     if (!products.length) {
       return { query, results: [], total: 0, relevant_count: 0 };
     }
@@ -97,7 +95,7 @@ export class ProspectionMatchService {
     // For small batches use single calls (more reliable JSON)
     if (products.length <= 3) {
       const results = await Promise.all(
-        products.map((p) => this.scoreMatch(query, p))
+        products.map((p) => this.scoreMatch(query, p, scope))
       );
       results.sort((a, b) => b.score - a.score);
       return {
@@ -112,10 +110,10 @@ export class ProspectionMatchService {
     const prompt = this.buildBulkPrompt(query, products);
 
     try {
-      const result = await this.model.generateContent(prompt);
-      const text = result.response.text().trim();
-      const cleaned = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-      const parsed: any[] = JSON.parse(cleaned);
+      const parsed = await this.gemini.generateJson<any[]>(prompt, {
+        ...scope,
+        model: "gemini-2.0-flash",
+      });
 
       const results: MatchScoreResult[] = parsed.map((item: any, idx: number) => {
         const productId = item.product_id || products[idx]?.id || "";
@@ -143,7 +141,7 @@ export class ProspectionMatchService {
       logger.error(err, "ProspectionMatch: bulk scoring failed, falling back to individual");
       // Fallback: score individually
       const results = await Promise.all(
-        products.map((p) => this.scoreMatch(query, p))
+        products.map((p) => this.scoreMatch(query, p, scope))
       );
       results.sort((a, b) => b.score - a.score);
       return {

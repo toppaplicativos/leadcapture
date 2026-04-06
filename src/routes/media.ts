@@ -70,7 +70,8 @@ router.post("/upload", upload.single("file"), async (req: AuthRequest, res: Resp
     const id = uuidv4();
     const category = getCategory(file.mimetype);
     const relativePath = `/uploads/${category === "document" ? "documents" : category + "s"}/${file.filename}`;
-    const url = `${req.protocol}://${req.get("host")}${relativePath}`;
+    // Retorna apenas a URL relativa para evitar Mixed Content
+    const url = relativePath;
 
     await getPool().execute(
       `INSERT INTO media_files (id, user_id, company_id, original_name, stored_name, mime_type, file_size, file_path, url, category, tags)
@@ -101,7 +102,8 @@ router.post("/upload-multiple", upload.array("files", 10), async (req: AuthReque
       const id = uuidv4();
       const category = getCategory(file.mimetype);
       const relativePath = `/uploads/${category === "document" ? "documents" : category + "s"}/${file.filename}`;
-      const url = `${req.protocol}://${req.get("host")}${relativePath}`;
+      // Retorna apenas a URL relativa para evitar Mixed Content
+      const url = relativePath;
 
       await getPool().execute(
         `INSERT INTO media_files (id, user_id, original_name, stored_name, mime_type, file_size, file_path, url, category)

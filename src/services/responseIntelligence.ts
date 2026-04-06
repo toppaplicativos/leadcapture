@@ -1,5 +1,6 @@
 import { query, queryOne, update } from "../config/database";
 import { GeminiService } from "./gemini";
+import { IntegrationScope } from "./integrations";
 import { logger } from "../utils/logger";
 
 // ─── Types ──────────────────────────────────────────────────────
@@ -172,7 +173,7 @@ export class ResponseIntelligenceService {
 
   // ─── AI-enhanced classification (optional) ─────────────────────
 
-  async classifyWithAI(text: string, contextBlock?: string): Promise<ResponseClassification> {
+  async classifyWithAI(text: string, contextBlock?: string, scope?: IntegrationScope): Promise<ResponseClassification> {
     // First get rule-based classification as baseline
     const rulesBased = this.classifyText(text);
 
@@ -203,27 +204,20 @@ Criterios:
 
 JSON:`;
 
-      const result = await (gemini as any).model.generateContent(prompt);
-      const raw = result.response.text().trim();
+      const parsed = await gemini.generateJson<{
+        sentiment: SentimentColor;
+        intent: ResponseClassification["intent"];
+        confidence: number;
+        action: string;
+      }>(prompt, scope);
 
-      // Extract JSON from response
-      const jsonMatch = raw.match(/\{[\s\S]*?\}/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
-        const aiSentiment = parsed.sentiment as SentimentColor;
-        const aiIntent = parsed.intent;
-
-        // Merge AI with rules-based, preferring higher confidence
-        if (parsed.confidence > rulesBased.confidence) {
-          const merged = this.classifyText(text); // re-get base
-          merged.sentiment = aiSentiment;
-          merged.intent = aiIntent;
-          merged.confidence = parsed.confidence;
-          merged.suggestedAction = String(parsed.action || merged.suggestedAction);
-
-          // Re-derive tags and score from AI intent
-          return this.enrichClassification(merged);
-        }
+      if (parsed.confidence > rulesBased.confidence) {
+        const merged = this.classifyText(text);
+        merged.sentiment = parsed.sentiment;
+        merged.intent = parsed.intent;
+        merged.confidence = parsed.confidence;
+        merged.suggestedAction = String(parsed.action || merged.suggestedAction);
+        return this.enrichClassification(merged);
       }
     } catch (err: any) {
       logger.warn(`ResponseIntelligence AI classification failed: ${err.message}`);

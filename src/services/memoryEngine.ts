@@ -1,7 +1,6 @@
 import { getPool } from "../config/database";
-import { GoogleGenerativeAI } from "@google/generative-ai";
-import { config } from "../config";
 import { logger } from "../utils/logger";
+import { GeminiService } from "./gemini";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -46,13 +45,10 @@ const DEFAULT_MEMORY: LeadContextMemory = {
 // ─── Service ──────────────────────────────────────────────────────────────────
 
 export class MemoryEngineService {
-  private genAI: GoogleGenerativeAI;
-  private model: any;
+  private gemini: GeminiService;
 
   constructor() {
-    this.genAI = new GoogleGenerativeAI(config.geminiApiKey);
-    const modelName = process.env.GEMINI_MEMORY_MODEL || process.env.GEMINI_TEXT_MODEL || "gemini-2.0-flash";
-    this.model = this.genAI.getGenerativeModel({ model: modelName });
+    this.gemini = new GeminiService();
   }
 
   // ─── Ensure columns exist ─────────────────────────────────────────────────
@@ -151,13 +147,11 @@ export class MemoryEngineService {
 
       let updatedMemory: LeadContextMemory;
       try {
-        const aiResult = await this.model.generateContent(prompt);
-        const text: string = aiResult.response.text().trim();
-
-        // Extract JSON from response (Gemini may wrap it in markdown)
-        const jsonMatch = text.match(/```json\s*([\s\S]*?)\s*```/) || text.match(/\{[\s\S]*\}/);
-        const jsonStr = jsonMatch ? (jsonMatch[1] || jsonMatch[0]) : text;
-        const parsed = JSON.parse(jsonStr);
+        const parsed = await this.gemini.generateJson<Partial<LeadContextMemory>>(prompt, {
+          userId,
+          brandId,
+          model: process.env.GEMINI_MEMORY_MODEL || process.env.GEMINI_TEXT_MODEL || undefined,
+        });
         updatedMemory = { ...DEFAULT_MEMORY, ...memory, ...parsed };
       } catch (aiErr: any) {
         // If AI fails, at minimum update last_interaction_at

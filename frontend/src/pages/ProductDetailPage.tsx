@@ -103,7 +103,7 @@ export function ProductDetailPage() {
   return (
     <div className="min-h-screen bg-bg">
       {/* Header */}
-      <header className="sticky top-0 z-30 bg-surface/80 backdrop-blur border-b border-border px-4 py-3 flex items-center gap-3">
+      <header className="sticky top-0 z-30 bg-surface/80 backdrop-blur border-b border-border px-4 py-3 flex items-center gap-3 safe-area-top">
         <button
           onClick={() => navigate(storeUrl())}
           className="p-1.5 -ml-1.5 rounded-lg hover:bg-bg transition-colors"

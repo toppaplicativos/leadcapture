@@ -1575,6 +1575,7 @@ export class CampaignEngineService {
   }
 
   async reExecuteCampaign(userId: string, campaignId: string, brandId?: string | null): Promise<{ ok: boolean; message: string }> {
+    await this.ensureSchema();
     const normalizedBrandId = String(brandId || "").trim() || null;
     const campaign = await this.getCampaign(userId, campaignId, normalizedBrandId);
     if (!campaign) return { ok: false, message: "Campanha nao encontrada" };
@@ -1585,13 +1586,13 @@ export class CampaignEngineService {
 
     // Reset campaign status to draft
     await update(
-      `UPDATE campaign_history SET status = 'draft', started_at = NULL, completed_at = NULL, sent_count = 0, failed_count = 0, updated_at = NOW() WHERE id = ? AND user_id = ? AND ${normalizedBrandId ? "brand_id = ?" : "brand_id IS NULL"}`,
+      `UPDATE campaign_history SET status = 'draft', started_at = NULL, completed_at = NULL, sent_count = 0, failed_count = 0, delivered_count = 0, read_count = 0, replied_count = 0, interested_count = 0, neutral_count = 0, negative_count = 0, opted_out_count = 0, updated_at = NOW() WHERE id = ? AND user_id = ? AND ${normalizedBrandId ? "brand_id = ?" : "brand_id IS NULL"}`,
       normalizedBrandId ? [campaignId, userId, normalizedBrandId] : [campaignId, userId]
     );
 
     // Reset all leads back to pending
     await update(
-      `UPDATE campaign_leads SET status = 'pending', error_message = NULL, sent_at = NULL, whatsapp_valid = NULL, generated_message = NULL WHERE campaign_id = ? AND user_id = ? AND ${normalizedBrandId ? "brand_id = ?" : "brand_id IS NULL"}`,
+      `UPDATE campaign_leads SET status = 'pending', error_message = NULL, sent_at = NULL, delivered_at = NULL, read_at = NULL, replied_at = NULL, reply_text = NULL, reply_classification = NULL, score_delta = 0, tags_added = NULL, whatsapp_valid = NULL, message_text = NULL, ai_generated = 0, attempt_count = 0 WHERE campaign_id = ? AND user_id = ? AND ${normalizedBrandId ? "brand_id = ?" : "brand_id IS NULL"}`,
       normalizedBrandId ? [campaignId, userId, normalizedBrandId] : [campaignId, userId]
     );
 
@@ -1658,7 +1659,7 @@ export class CampaignEngineService {
 
     let generated = templatePrompt;
     try {
-      generated = await this.gemini.generateMessage(leadContext, templatePrompt);
+      generated = await this.gemini.generateMessage(leadContext, templatePrompt, { userId });
     } catch {
       generated = templatePrompt;
     }
@@ -1911,7 +1912,10 @@ export class CampaignEngineService {
             .filter(Boolean)
             .join("\n\n");
 
-          messageText = await this.gemini.generateMessage(leadContext, fullPrompt);
+          messageText = await this.gemini.generateMessage(leadContext, fullPrompt, {
+            userId,
+            brandId: normalizedBrandId || undefined,
+          });
         } catch (err: any) {
           logger.warn(`[Campaign ${campaignId}] AI generation failed for ${lead.lead_name}: ${err.message}`);
           // Fall back to template

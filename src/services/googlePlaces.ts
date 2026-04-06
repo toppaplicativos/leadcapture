@@ -1,20 +1,13 @@
 import axios from "axios";
-import { config } from "../config";
 import { GooglePlaceV2, PlaceSearchRequest } from "../types";
 import { logger } from "../utils/logger";
+import { IntegrationScope, integrationService } from "./integrations";
 
-const RAPIDAPI_BASE = "https://google-map-places-new-v2.p.rapidapi.com";
 const SEARCH_PAGE_SIZE = 20;
 const MAX_SEARCH_LIMIT = 100;
 const MAX_SEARCH_PAGES = 8;
 const ENRICH_DETAILS_LIMIT = 24;
 const ENRICH_BATCH_SIZE = 4;
-
-const rapidApiHeaders = {
-  "x-rapidapi-key": config.rapidApi.key,
-  "x-rapidapi-host": config.rapidApi.host,
-  "Content-Type": "application/json",
-};
 
 type PlacesPageResult = {
   places: GooglePlaceV2[];
@@ -25,7 +18,46 @@ type SearchProvider = "rapid" | "official";
 type SearchProviderPreference = "rapid_first" | "official_first" | "rapid_only" | "official_only";
 type SearchFieldProfile = "full" | "radar";
 
+type RapidProviderConfig = {
+  key: string;
+  host: string;
+  baseUrl: string;
+  timeout: number;
+};
+
+type GoogleOfficialProviderConfig = {
+  key: string;
+  timeout: number;
+};
+
 export class GooglePlacesService {
+  private toScope(input?: IntegrationScope): IntegrationScope {
+    return {
+      accountId: String(input?.accountId || "").trim() || undefined,
+      userId: String(input?.userId || "").trim() || undefined,
+      brandId: String(input?.brandId || "").trim() || undefined,
+    };
+  }
+
+  private async getRapidProvider(scope?: IntegrationScope): Promise<RapidProviderConfig | null> {
+    const resolved = await integrationService.getProvider("rapidapi", this.toScope(scope));
+    const key = String(resolved.key || "").trim();
+    const host = String(resolved.config.host || "").trim();
+    const baseUrl = String(resolved.config.baseUrl || "").trim();
+    const timeout = Math.max(500, Math.floor(Number(resolved.config.timeout || 15000)));
+
+    if (!key || !host || !baseUrl) return null;
+    return { key, host, baseUrl: baseUrl.replace(/\/+$/, ""), timeout };
+  }
+
+  private async getGoogleOfficialProvider(scope?: IntegrationScope): Promise<GoogleOfficialProviderConfig | null> {
+    const resolved = await integrationService.getProvider("google_places", this.toScope(scope));
+    const key = String(resolved.key || "").trim();
+    const timeout = Math.max(500, Math.floor(Number(resolved.config.timeout || 15000)));
+    if (!key) return null;
+    return { key, timeout };
+  }
+
   private buildTextQuery(params: {
     query: string;
     location?: string;
@@ -93,7 +125,7 @@ export class GooglePlacesService {
     };
   }
 
-  private resolveProviderChain(preference: SearchProviderPreference): SearchProvider[] {
+  private async resolveProviderChain(preference: SearchProviderPreference, scope?: IntegrationScope): Promise<SearchProvider[]> {
     const desired: SearchProvider[] =
       preference === "official_first"
         ? ["official", "rapid"]
@@ -103,21 +135,26 @@ export class GooglePlacesService {
         ? ["official"]
         : ["rapid", "official"];
 
-    const chain = desired.filter((provider) => {
+    const chain: SearchProvider[] = [];
+
+    for (const provider of desired) {
       if (provider === "official") {
-        if (!config.googlePlacesApiKey) {
+        const google = await this.getGoogleOfficialProvider(scope);
+        if (!google) {
           logger.warn("Google Places official provider skipped: GOOGLE_PLACES_API_KEY not configured.");
-          return false;
+          continue;
         }
-        return true;
+        chain.push(provider);
+        continue;
       }
 
-      if (!config.rapidApi.key || !config.rapidApi.host) {
+      const rapid = await this.getRapidProvider(scope);
+      if (!rapid) {
         logger.warn("Google Places RapidAPI provider skipped: RAPIDAPI_KEY/RAPIDAPI_HOST not configured.");
-        return false;
+        continue;
       }
-      return true;
-    });
+      chain.push(provider);
+    }
 
     return chain;
   }
@@ -132,7 +169,15 @@ export class GooglePlacesService {
     languageCode?: string;
     pageToken?: string;
     fieldProfile?: SearchFieldProfile;
+    accountId?: string;
+    userId?: string;
+    brandId?: string;
   }): Promise<PlacesPageResult> {
+    const rapid = await this.getRapidProvider(this.toScope(params));
+    if (!rapid) {
+      throw new Error("RAPIDAPI_KEY_NOT_CONFIGURED");
+    }
+
     const textQuery = this.buildTextQuery(params);
     const body: PlaceSearchRequest = {
       textQuery,
@@ -161,12 +206,14 @@ export class GooglePlacesService {
     );
 
     const response = await axios.post(
-      `${RAPIDAPI_BASE}/v1/places:searchText`,
+      `${rapid.baseUrl}/v1/places:searchText`,
       body,
       {
-        timeout: 15000,
+        timeout: rapid.timeout,
         headers: {
-          ...rapidApiHeaders,
+          "Content-Type": "application/json",
+          "x-rapidapi-key": rapid.key,
+          "x-rapidapi-host": rapid.host,
           "X-Goog-FieldMask": this.getPlacesFieldMask(params.fieldProfile || "full", true),
         },
       }
@@ -188,9 +235,13 @@ export class GooglePlacesService {
     languageCode?: string;
     pageToken?: string;
     fieldProfile?: SearchFieldProfile;
+    accountId?: string;
+    userId?: string;
+    brandId?: string;
   }): Promise<PlacesPageResult> {
-    if (!config.googlePlacesApiKey) {
-      throw new Error("Google Places API key not configured");
+    const google = await this.getGoogleOfficialProvider(this.toScope(params));
+    if (!google) {
+      throw new Error("GOOGLE_PLACES_API_KEY_NOT_CONFIGURED");
     }
 
     const textQuery = this.buildTextQuery(params);
@@ -225,10 +276,10 @@ export class GooglePlacesService {
       "https://places.googleapis.com/v1/places:searchText",
       body,
       {
-        timeout: 15000,
+        timeout: google.timeout,
         headers: {
           "Content-Type": "application/json",
-          "X-Goog-Api-Key": config.googlePlacesApiKey,
+          "X-Goog-Api-Key": google.key,
           "X-Goog-FieldMask": this.getPlacesFieldMask(params.fieldProfile || "full", true),
         },
       }
@@ -255,11 +306,15 @@ export class GooglePlacesService {
     providerPreference?: SearchProviderPreference;
     includeDetails?: boolean;
     fieldProfile?: SearchFieldProfile;
+    accountId?: string;
+    userId?: string;
+    brandId?: string;
   }): Promise<GooglePlaceV2[]> {
     try {
       const target = this.sanitizeMaxResults(params.maxResults);
       const placeById = new Map<string, GooglePlaceV2>();
-      const providerChain = this.resolveProviderChain(params.providerPreference || "rapid_first");
+      const scope = this.toScope(params);
+      const providerChain = await this.resolveProviderChain(params.providerPreference || "rapid_first", scope);
       if (providerChain.length === 0) {
         throw new Error("No Google Places provider is configured");
       }
@@ -292,6 +347,24 @@ export class GooglePlacesService {
             });
           }
         } catch (providerError: any) {
+          const message =
+            providerError?.response?.data?.error?.message ||
+            providerError?.response?.data?.message ||
+            providerError?.message ||
+            "Unknown provider error";
+
+          await integrationService.logEvent(
+            provider === "rapid" ? "rapidapi" : "google_places",
+            "error",
+            `Google Places search failed: ${message}`,
+            scope,
+            {
+              action: "searchText",
+              provider,
+              status_code: providerError?.response?.status,
+            }
+          );
+
           if (providerIndex < providerChain.length - 1) {
             const nextProvider = providerChain[providerIndex + 1];
             logger.warn(
@@ -337,7 +410,7 @@ export class GooglePlacesService {
             chunk.map(async ({ place }) => {
               const placeId = String(place?.id || "");
               if (!placeId) return null;
-              return this.getPlaceDetails(placeId);
+              return this.getPlaceDetails(placeId, scope);
             })
           );
 
@@ -367,16 +440,17 @@ export class GooglePlacesService {
   /**
    * Get detailed info for a single place by ID
    */
-  async getPlaceDetails(placeId: string): Promise<GooglePlaceV2 | null> {
+  async getPlaceDetails(placeId: string, scope?: IntegrationScope): Promise<GooglePlaceV2 | null> {
     try {
-      if (config.googlePlacesApiKey) {
+      const google = await this.getGoogleOfficialProvider(scope);
+      if (google?.key) {
         const official = await axios.get(
           `https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}`,
           {
-            timeout: 15000,
+            timeout: google.timeout,
             headers: {
               "Content-Type": "application/json",
-              "X-Goog-Api-Key": config.googlePlacesApiKey,
+              "X-Goog-Api-Key": google.key,
               "X-Goog-FieldMask": this.getPlacesFieldMask("full", false),
             },
           }
@@ -386,12 +460,17 @@ export class GooglePlacesService {
         }
       }
 
+      const rapidProvider = await this.getRapidProvider(scope);
+      if (!rapidProvider) return null;
+
       const rapid = await axios.get(
-        `${RAPIDAPI_BASE}/maps/places/${encodeURIComponent(placeId)}`,
+        `${rapidProvider.baseUrl}/maps/places/${encodeURIComponent(placeId)}`,
         {
-          timeout: 15000,
+          timeout: rapidProvider.timeout,
           headers: {
-            ...rapidApiHeaders,
+            "Content-Type": "application/json",
+            "x-rapidapi-key": rapidProvider.key,
+            "x-rapidapi-host": rapidProvider.host,
             "X-Goog-FieldMask": this.getPlacesFieldMask("full", false),
           },
         }
@@ -413,6 +492,9 @@ export class GooglePlacesService {
     location: string;
     radius?: number;
     maxResults?: number;
+    accountId?: string;
+    userId?: string;
+    brandId?: string;
   }): Promise<any[]> {
     const places = await this.searchText(params);
 

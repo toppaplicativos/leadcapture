@@ -1,24 +1,99 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { config } from "../config";
 import { Lead } from "../types";
 import { logger } from "../utils/logger";
+import { IntegrationScope, integrationService } from "./integrations";
+
+export type GeminiExecutionOptions = IntegrationScope & {
+  model?: string;
+  temperature?: number;
+};
+
+type GeminiClient = {
+  model: any;
+  modelName: string;
+};
+
+const CLIENT_CACHE_TTL_MS = 60_000;
+
+function parseJsonBlock<T>(value: string): T {
+  const cleaned = String(value || "").trim();
+  const fenced = cleaned.match(/```json\s*([\s\S]*?)\s*```/i);
+  const candidate = fenced?.[1] || cleaned.match(/\{[\s\S]*\}|\[[\s\S]*\]/)?.[0] || cleaned;
+  return JSON.parse(candidate) as T;
+}
 
 export class GeminiService {
-  private genAI: GoogleGenerativeAI;
-  private model: any;
-  private modelName: string;
+  private clientCache = new Map<string, { value: GeminiClient; expires: number }>();
 
-  constructor() {
-    this.genAI = new GoogleGenerativeAI(config.geminiApiKey);
-    this.modelName =
+  private normalizeScope(options?: GeminiExecutionOptions): GeminiExecutionOptions {
+    return {
+      accountId: String(options?.accountId || "").trim() || undefined,
+      userId: String(options?.userId || "").trim() || undefined,
+      brandId: String(options?.brandId || "").trim() || undefined,
+      model: String(options?.model || "").trim() || undefined,
+      temperature: Number.isFinite(Number(options?.temperature)) ? Number(options?.temperature) : undefined,
+    };
+  }
+
+  private scopeCacheKey(scope?: GeminiExecutionOptions): string {
+    const accountId = String(scope?.accountId || "").trim();
+    const userId = String(scope?.userId || "").trim();
+    const brandId = String(scope?.brandId || "").trim();
+    return accountId || (userId && brandId ? `${userId}::${brandId}` : userId || "__global__");
+  }
+
+  private async resolveClient(options?: GeminiExecutionOptions): Promise<GeminiClient> {
+    const scope = this.normalizeScope(options);
+    const integration = await integrationService.getProvider("gemini", scope);
+    const apiKey = String(integration.key || "").trim();
+    if (!apiKey) {
+      throw new Error("GEMINI_API_KEY_NOT_CONFIGURED");
+    }
+
+    const modelName =
+      scope.model ||
+      String(integration.config.model || "").trim() ||
       process.env.GEMINI_CAMPAIGN_MODEL ||
       process.env.GEMINI_TEXT_MODEL ||
       "gemini-2.0-flash";
-    this.model = this.genAI.getGenerativeModel({ model: this.modelName });
+
+    const cacheKey = `${this.scopeCacheKey(scope)}::${modelName}::${apiKey.slice(-8)}`;
+    const cached = this.clientCache.get(cacheKey);
+    if (cached && cached.expires > Date.now()) {
+      return cached.value;
+    }
+
+    const generationConfig: Record<string, any> = {};
+    const temperature = Number.isFinite(Number(scope.temperature))
+      ? Number(scope.temperature)
+      : Number(integration.config.temperature);
+    if (Number.isFinite(temperature)) {
+      generationConfig.temperature = temperature;
+    }
+
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel(
+      Object.keys(generationConfig).length > 0
+        ? { model: modelName, generationConfig }
+        : { model: modelName }
+    );
+
+    const client = { model, modelName };
+    this.clientCache.set(cacheKey, { value: client, expires: Date.now() + CLIENT_CACHE_TTL_MS });
+    return client;
   }
 
-  async generateMessage(lead: Lead, templatePrompt: string): Promise<string> {
+  private async logFailure(error: any, options?: GeminiExecutionOptions): Promise<void> {
+    const message = String(error?.message || error || "Gemini request failed");
+    logger.error(`Error calling Gemini: ${message}`);
+    await integrationService.logEvent("gemini", "error", message, this.normalizeScope(options), {
+      action: "gemini_request",
+    });
+  }
+
+  async generateMessage(lead: Lead, templatePrompt: string, options?: GeminiExecutionOptions): Promise<string> {
     try {
+      const { model, modelName } = await this.resolveClient(options);
       const prompt = `Voce e um assistente de vendas profissional. Gere uma mensagem de WhatsApp personalizada para o seguinte lead.
 
 REGRAS IMPORTANTES:
@@ -47,20 +122,21 @@ ${templatePrompt}
 
 Gere APENAS a mensagem, sem explicacoes adicionais.`;
 
-      const result = await this.model.generateContent(prompt);
+      const result = await model.generateContent(prompt);
       const response = result.response;
       const text = response.text();
 
-      logger.info(`Generated message for lead: ${lead.name} using ${this.modelName}`);
-      return text.trim();
+      logger.info(`Generated message for lead: ${lead.name} using ${modelName}`);
+      return String(text || "").trim();
     } catch (error: any) {
-      logger.error(`Error generating message: ${error.message}`);
+      await this.logFailure(error, options);
       throw error;
     }
   }
 
-  async generateFollowUp(lead: Lead, previousMessages: string[]): Promise<string> {
+  async generateFollowUp(lead: Lead, previousMessages: string[], options?: GeminiExecutionOptions): Promise<string> {
     try {
+      const { model } = await this.resolveClient(options);
       const prompt = `Voce e um assistente de vendas. Gere uma mensagem de follow-up para WhatsApp.
 
 REGRAS:
@@ -78,10 +154,10 @@ ${previousMessages.map((m, i) => `${i + 1}. ${m}`).join("\n")}
 
 Gere APENAS a mensagem de follow-up.`;
 
-      const result = await this.model.generateContent(prompt);
-      return result.response.text().trim();
+      const result = await model.generateContent(prompt);
+      return String(result.response.text() || "").trim();
     } catch (error: any) {
-      logger.error(`Error generating follow-up: ${error.message}`);
+      await this.logFailure(error, options);
       throw error;
     }
   }
@@ -90,71 +166,63 @@ Gere APENAS a mensagem de follow-up.`;
     images: Array<{ base64: string; mimeType: string; name?: string }>,
     prompt: string,
     context?: string,
-    detailedAnalysis?: boolean
+    detailedAnalysis?: boolean,
+    options?: GeminiExecutionOptions
   ): Promise<string> {
     try {
-      // Preparar conteúdo com imagens
+      const { model, modelName } = await this.resolveClient(options);
       const parts: any[] = [];
 
-      // Adicionar contexto se fornecido
       if (context) {
         parts.push(`CONTEXTO:\n${context}\n\n`);
       }
 
-      // Adicionar imagens em base64
       for (let i = 0; i < images.length; i++) {
         const image = images[i];
-
         parts.push({
           inlineData: {
             data: image.base64,
-            mimeType: image.mimeType
-          }
+            mimeType: image.mimeType,
+          },
         });
 
-        // Adicionar identificador da imagem se houver múltiplas
         if (images.length > 1) {
-          parts.push(`[IMAGEM ${i + 1}: ${image.name || `Image ${i + 1}`}]\n`);
+          parts.push(`[IMAGEM ${i + 1}: ${image.name || `Image ${i + 1}`} ]\n`);
         }
       }
 
-      // Adicionar prompt
-      if (detailedAnalysis) {
-        parts.push(`\n${prompt}\n\nForneca uma analise DETALHADA e COMPLETA.`);
-      } else {
-        parts.push(`\n${prompt}`);
-      }
+      parts.push(detailedAnalysis ? `\n${prompt}\n\nForneca uma analise DETALHADA e COMPLETA.` : `\n${prompt}`);
 
       logger.info(`Analisando ${images.length} imagem(ns) com Gemini...`);
 
-      const result = await this.model.generateContent({
-        contents: [{ role: "user", parts }]
+      const result = await model.generateContent({
+        contents: [{ role: "user", parts }],
       });
 
-      const response = result.response;
-      const text = response.text();
-
-      logger.info(`Analise de imagens concluida com ${this.modelName}`);
-
-      return text.trim();
+      logger.info(`Analise de imagens concluida com ${modelName}`);
+      return String(result.response.text() || "").trim();
     } catch (error: any) {
-      logger.error(`Erro ao analisar imagens: ${error.message}`);
+      await this.logFailure(error, options);
       throw error;
     }
   }
 
-  async generatePlainText(prompt: string): Promise<string> {
+  async generatePlainText(prompt: string, options?: GeminiExecutionOptions): Promise<string> {
     try {
       const textPrompt = String(prompt || "").trim();
       if (!textPrompt) return "";
 
-      const result = await this.model.generateContent(textPrompt);
-      const response = result.response;
-      const text = response.text();
-      return String(text || "").trim();
+      const { model } = await this.resolveClient(options);
+      const result = await model.generateContent(textPrompt);
+      return String(result.response.text() || "").trim();
     } catch (error: any) {
-      logger.error(`Error generating plain text: ${error.message}`);
+      await this.logFailure(error, options);
       throw error;
     }
+  }
+
+  async generateJson<T>(prompt: string, options?: GeminiExecutionOptions): Promise<T> {
+    const text = await this.generatePlainText(prompt, options);
+    return parseJsonBlock<T>(text);
   }
 }

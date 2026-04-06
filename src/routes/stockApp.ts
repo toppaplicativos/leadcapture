@@ -2,11 +2,13 @@ import { Router, Response } from "express";
 import { AuthRequest } from "../middleware/auth";
 import { CommerceService } from "../services/commerce";
 import { InventoryService } from "../services/inventory";
+import { ClientsService } from "../services/clients";
 import { queryOne } from "../config/database";
 
 const router = Router();
 const commerceService = new CommerceService();
 const inventoryService = new InventoryService();
+const clientsService = new ClientsService();
 
 function requireStockCredential(req: AuthRequest, res: Response): { ownerUserId: string; brandId: string; managerUserId: string } | null {
   const credentialType = String(req.user?.credential_type || "").trim().toLowerCase();
@@ -252,6 +254,89 @@ router.post("/inventory/sync", async (req: AuthRequest, res: Response) => {
     res.json({ success: true });
   } catch (e: any) {
     res.status(500).json({ error: e.message || "Falha ao sincronizar" });
+  }
+});
+
+/* ── Client / Customer Management ── */
+
+router.get("/clients", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = requireStockCredential(req, res);
+    if (!ctx) return;
+    const { status, source, search, page, limit } = req.query;
+    const result = await clientsService.getAll(ctx.ownerUserId, {
+      status: status as string,
+      source: source as string,
+      search: search as string,
+      page: page ? parseInt(page as string) : 1,
+      limit: limit ? Math.min(parseInt(limit as string), 200) : 50,
+      brand_id: ctx.brandId,
+    });
+    res.json({ success: true, ...result });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Falha ao listar clientes" });
+  }
+});
+
+router.get("/clients/:id", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = requireStockCredential(req, res);
+    if (!ctx) return;
+    const client = await clientsService.getById(String(req.params.id), ctx.ownerUserId, ctx.brandId);
+    if (!client) return res.status(404).json({ error: "Cliente nao encontrado" });
+    res.json({ success: true, client });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Falha ao buscar cliente" });
+  }
+});
+
+router.post("/clients", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = requireStockCredential(req, res);
+    if (!ctx) return;
+    if (!req.body?.name) return res.status(400).json({ error: "Nome obrigatorio" });
+    const client = await clientsService.create(ctx.ownerUserId, req.body, ctx.brandId);
+    res.status(201).json({ success: true, client });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Falha ao criar cliente" });
+  }
+});
+
+router.put("/clients/:id", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = requireStockCredential(req, res);
+    if (!ctx) return;
+    const client = await clientsService.update(String(req.params.id), ctx.ownerUserId, req.body, ctx.brandId);
+    if (!client) return res.status(404).json({ error: "Cliente nao encontrado" });
+    res.json({ success: true, client });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Falha ao atualizar cliente" });
+  }
+});
+
+router.patch("/clients/:id/status", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = requireStockCredential(req, res);
+    if (!ctx) return;
+    const { status } = req.body || {};
+    if (!status) return res.status(400).json({ error: "Status obrigatorio" });
+    const client = await clientsService.updateStatus(String(req.params.id), ctx.ownerUserId, status, ctx.brandId);
+    if (!client) return res.status(404).json({ error: "Cliente nao encontrado" });
+    res.json({ success: true, client });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Falha ao atualizar status" });
+  }
+});
+
+router.delete("/clients/:id", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = requireStockCredential(req, res);
+    if (!ctx) return;
+    const ok = await clientsService.delete(String(req.params.id), ctx.ownerUserId, ctx.brandId);
+    if (!ok) return res.status(404).json({ error: "Cliente nao encontrado" });
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Falha ao excluir cliente" });
   }
 });
 

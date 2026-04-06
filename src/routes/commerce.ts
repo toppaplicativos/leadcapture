@@ -85,6 +85,8 @@ async function generateAiProductDescription(input: {
   price?: number;
   promoPrice?: number | null;
   storeName?: string | null;
+  userId?: string | null;
+  brandId?: string | null;
 }): Promise<string | null> {
   const productId = String(input.productId || "").trim();
   if (!productId) return null;
@@ -116,7 +118,10 @@ async function generateAiProductDescription(input: {
     .join("\n");
 
   try {
-    const generated = await geminiService.generatePlainText(prompt);
+    const generated = await geminiService.generatePlainText(prompt, {
+      userId: input.userId || undefined,
+      brandId: input.brandId || undefined,
+    });
     const clean = String(generated || "").trim();
     if (!clean) return null;
     aiDescriptionCache.set(productId, { text: clean, generatedAt: now });
@@ -635,6 +640,8 @@ publicRouter.get("/checkout/:token", async (req, res) => {
             price: Number(product?.preco || item.valor_unitario || 0),
             promoPrice: product?.preco_promocional ?? null,
             storeName: storefront?.name || null,
+            userId: checkout.order.user_id,
+            brandId: checkout.order.brand_id || null,
           });
 
           const shouldUseAi = isGenericDescription(baseDescription);

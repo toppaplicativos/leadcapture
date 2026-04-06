@@ -44,6 +44,7 @@ const ROUTE_MAP: Record<string, string> = {
   '/campanhas': 'campanhas', '/campanha': 'campanhas',
   '/automacoes': 'automacoes',
   '/criativos': 'criativos', '/creative': 'criativos',
+  '/integracoes': 'integracoes',
   '/produtos': 'produtos',
   '/pedidos': 'pedidos',
   '/estoque': 'estoque',
@@ -70,6 +71,7 @@ const NAV_ITEMS: { key: string; path: string; icon: any; label: string; group: s
   { key: 'automacoes', path: '/automacoes', icon: Zap, label: 'Automacoes', group: 'main' },
   { key: 'agente', path: '/agente', icon: Bot, label: 'Agente IA', group: 'main' },
   { key: 'whatsapp', path: '/whatsapp', icon: Phone, label: 'WhatsApp', group: 'main' },
+  { key: 'integracoes', path: '/integracoes', icon: Settings, label: 'Integracoes', group: 'main' },
   { key: 'produtos', path: '/produtos', icon: Package, label: 'Produtos', group: 'loja' },
   { key: 'pedidos', path: '/pedidos', icon: ShoppingCart, label: 'Pedidos', group: 'loja' },
   { key: 'estoque', path: '/estoque', icon: BarChart3, label: 'Estoque', group: 'loja' },
@@ -142,7 +144,7 @@ export function AdminShell({ children }: { children?: ReactNode }) {
   return (
     <div className="h-screen bg-[#f8f9fb] flex flex-col">
       {/* ── Mobile Topbar ── */}
-      <header className="sticky top-0 z-50 bg-gray-950 text-white flex items-center justify-between px-4 h-14 lg:hidden shadow-xl shrink-0">
+      <header className="admin-shell-mobile-header sticky top-0 z-50 bg-gray-950 text-white flex items-center justify-between px-4 lg:hidden shadow-xl shrink-0">
         <div className="flex items-center gap-2.5">
           <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-1.5 rounded-lg hover:bg-white/10 transition">
             {sidebarOpen ? <X size={18} /> : <Menu size={18} />}
@@ -155,7 +157,19 @@ export function AdminShell({ children }: { children?: ReactNode }) {
 
       <div className="flex flex-1 overflow-hidden">
         {/* ── Premium Sidebar ── */}
-        <aside className={`fixed inset-y-0 left-0 z-40 w-[220px] bg-gray-950 flex flex-col transition-transform lg:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+        <aside className={`admin-shell-mobile-sidebar fixed left-0 z-40 w-[220px] bg-gray-950 flex flex-col transition-transform lg:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+          <div className="lg:hidden px-4 py-4 border-b border-white/[0.06] bg-white/[0.03]">
+            <div className="flex items-center gap-3">
+              {brand.logo_url
+                ? <img src={brand.logo_url} alt="" className="w-10 h-10 rounded-2xl object-cover ring-2 ring-white/10 shrink-0" />
+                : <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 grid place-items-center shrink-0"><Package size={18} className="text-white" /></div>}
+              <div className="min-w-0">
+                <p className="text-[13px] font-bold text-white truncate">{brand.name || 'Admin'}</p>
+                <p className="text-[10px] text-white/35 font-medium uppercase tracking-[0.14em]">Painel de controle</p>
+              </div>
+            </div>
+          </div>
+
           {/* Brand header + account switcher */}
           <div className="hidden lg:block shrink-0">
             <button onClick={() => brands.length > 1 && setShowBrandPicker(!showBrandPicker)}

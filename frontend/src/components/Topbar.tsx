@@ -12,7 +12,7 @@ export function Topbar({ storeName, logoUrl }: TopbarProps) {
   const totalItems = useCartStore((s) => s.totalItems())
 
   return (
-    <header className="sticky top-0 z-50 bg-surface/95 backdrop-blur border-b border-border">
+    <header className="sticky top-0 z-50 bg-surface/95 backdrop-blur border-b border-border safe-area-top">
       <div className="flex items-center justify-between px-4 h-14 max-w-2xl mx-auto">
         <div className="flex items-center gap-3 min-w-0">
           {logoUrl ? (

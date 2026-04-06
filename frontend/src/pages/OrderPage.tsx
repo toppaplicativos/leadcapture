@@ -61,7 +61,7 @@ export function OrderPage() {
   return (
     <div className="page-enter min-h-screen bg-bg">
       {/* Header */}
-      <header className="sticky top-0 z-50 bg-surface/95 backdrop-blur border-b border-border">
+      <header className="sticky top-0 z-50 bg-surface/95 backdrop-blur border-b border-border safe-area-top">
         <div className="flex items-center gap-3 px-4 h-14 max-w-2xl mx-auto">
           <button
             onClick={() => navigate(storeUrl())}

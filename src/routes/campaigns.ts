@@ -484,7 +484,10 @@ export function createCampaignRoutes(
       if (!text) return res.status(400).json({ error: "text is required" });
 
       const classification = useAI
-        ? await responseIntelligence.classifyWithAI(text)
+        ? await responseIntelligence.classifyWithAI(text, undefined, {
+            userId,
+            brandId: String(req.brandId || "").trim() || undefined,
+          })
         : responseIntelligence.classifyText(text);
 
       res.json({ success: true, classification });

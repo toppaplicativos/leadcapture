@@ -111,6 +111,40 @@ export const inventoryApi = {
   sync: () => authFetch<any>('/api/inventory/sync', getAdminHeaders(), { method: 'POST' }),
 
   categories: () => authFetch<any>('/api/categories', getAdminHeaders()),
+
+  /* ── Clients ── */
+  clients: (page = 1, limit = 50, search = '', status = '') => {
+    const q = new URLSearchParams({ page: String(page), limit: String(limit) })
+    if (search) q.set('search', search)
+    if (status) q.set('status', status)
+    return authFetch<any>(`/api/clients?${q}`, getAdminHeaders())
+  },
+
+  getClient: (id: string) =>
+    authFetch<any>(`/api/clients/${id}`, getAdminHeaders()),
+
+  createClient: (data: Record<string, any>) =>
+    authFetch<any>('/api/clients', getAdminHeaders(), {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  updateClient: (id: string, data: Record<string, any>) =>
+    authFetch<any>(`/api/clients/${id}`, getAdminHeaders(), {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  updateClientStatus: (id: string, status: string) =>
+    authFetch<any>(`/api/clients/${id}/status`, getAdminHeaders(), {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    }),
+
+  deleteClient: (id: string) =>
+    authFetch<any>(`/api/clients/${id}`, getAdminHeaders(), {
+      method: 'DELETE',
+    }),
 }
 
 /* ══════════════════════════════════════════════
@@ -168,6 +202,40 @@ export const stockApi = {
     }),
 
   sync: () => authFetch<any>('/api/stock-app/inventory/sync', getStockHeaders(), { method: 'POST' }),
+
+  /* ── Clients ── */
+  clients: (page = 1, limit = 50, search = '', status = '') => {
+    const q = new URLSearchParams({ page: String(page), limit: String(limit) })
+    if (search) q.set('search', search)
+    if (status) q.set('status', status)
+    return authFetch<any>(`/api/stock-app/clients?${q}`, getStockHeaders())
+  },
+
+  getClient: (id: string) =>
+    authFetch<any>(`/api/stock-app/clients/${id}`, getStockHeaders()),
+
+  createClient: (data: Record<string, any>) =>
+    authFetch<any>('/api/stock-app/clients', getStockHeaders(), {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  updateClient: (id: string, data: Record<string, any>) =>
+    authFetch<any>(`/api/stock-app/clients/${id}`, getStockHeaders(), {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  updateClientStatus: (id: string, status: string) =>
+    authFetch<any>(`/api/stock-app/clients/${id}/status`, getStockHeaders(), {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    }),
+
+  deleteClient: (id: string) =>
+    authFetch<any>(`/api/stock-app/clients/${id}`, getStockHeaders(), {
+      method: 'DELETE',
+    }),
 }
 
 /* ── Stock auth helpers ── */
@@ -191,53 +259,154 @@ export function getStockBrandRef(): string | null {
   return localStorage.getItem(STOCK_BRAND_REF_KEY)
 }
 
-/* ══════════════════════════════════════════════
-   ADMIN PANEL APIs (clients, inbox, campaigns, orders)
-   ══════════════════════════════════════════════ */
-
-export const adminApi = {
-  // Clients/Leads
-  clients: (page = 1, limit = 50, search = '') => {
-    const q = new URLSearchParams({ page: String(page), limit: String(limit) })
-    if (search) q.set('search', search)
-    return authFetch<any>(`/api/clients?${q}`, getAdminHeaders())
-  },
-  clientDetail: (id: string) => authFetch<any>(`/api/clients/${id}`, getAdminHeaders()),
-
-  // Inbox
-  inbox: (page = 1, limit = 50) =>
-    authFetch<any>(`/api/inbox?page=${page}&limit=${limit}`, getAdminHeaders()),
-
-  // Campaigns
-  campaigns: () => authFetch<any>('/api/campaigns', getAdminHeaders()),
-  campaignDetail: (id: string) => authFetch<any>(`/api/campaigns/${id}`, getAdminHeaders()),
-  createCampaign: (body: Record<string, any>) => authFetch<any>('/api/campaigns', getAdminHeaders(), { method: 'POST', body: JSON.stringify(body) }),
-  updateCampaign: (id: string, body: Record<string, any>) => authFetch<any>(`/api/campaigns/${id}`, getAdminHeaders(), { method: 'PUT', body: JSON.stringify(body) }),
-  deleteCampaign: (id: string) => authFetch<any>(`/api/campaigns/${id}`, getAdminHeaders(), { method: 'DELETE' }),
-  startCampaign: (id: string) => authFetch<any>(`/api/campaigns/${id}/start`, getAdminHeaders(), { method: 'POST' }),
-  pauseCampaign: (id: string) => authFetch<any>(`/api/campaigns/${id}/pause`, getAdminHeaders(), { method: 'POST' }),
-  cancelCampaign: (id: string) => authFetch<any>(`/api/campaigns/${id}/stop`, getAdminHeaders(), { method: 'POST' }),
-  duplicateCampaign: (id: string) => authFetch<any>(`/api/campaigns/${id}/duplicate`, getAdminHeaders(), { method: 'POST' }),
-  reexecuteCampaign: (id: string) => authFetch<any>(`/api/campaigns/${id}/re-execute`, getAdminHeaders(), { method: 'POST' }),
-  campaignMetrics: (id: string) => authFetch<any>(`/api/campaigns/${id}/metrics`, getAdminHeaders()),
-
-  // Automations
-  automations: () => authFetch<any>('/api/automations', getAdminHeaders()),
-  updateAutomationRule: (ruleId: string, body: Record<string, any>) =>
-    authFetch<any>(`/api/automations/rules/${ruleId}`, getAdminHeaders(), { method: 'PUT', body: JSON.stringify(body) }),
-
-  // Orders
-  orders: (page = 1, limit = 50) =>
-    authFetch<any>(`/api/orders?page=${page}&limit=${limit}`, getAdminHeaders()),
-
-  // Products (commerce)
-  products: () => authFetch<any>('/api/products', getAdminHeaders()),
-}
-
 /* ── Onboarding API (public) ── */
 export function submitOnboarding(data: Record<string, unknown>) {
   return authFetch<any>('/api/public/brand-onboarding', { 'Content-Type': 'application/json' }, {
     method: 'POST',
     body: JSON.stringify(data),
   })
+}
+
+export type AdminIntegrationProvider = 'openai' | 'gemini' | 'grok' | 'rapidapi' | 'google_places' | 'runway'
+
+export interface AdminIntegrationSnapshot {
+  provider: AdminIntegrationProvider
+  source: 'database' | 'env' | 'empty'
+  account_id: string
+  has_key: boolean
+  masked_key: string | null
+  is_active: boolean
+  priority: number
+  config: Record<string, unknown>
+  updated_at?: string
+  env_fallback_available: boolean
+}
+
+export interface AdminIntegrationLogEntry {
+  id: string
+  account_id: string
+  provider: AdminIntegrationProvider
+  status: 'success' | 'error'
+  message: string
+  metadata_json?: Record<string, unknown> | null
+  created_at?: string
+}
+
+/* ══════════════════════════════════════════════
+   ADMIN API (dashboard/admin shell)
+   ══════════════════════════════════════════════ */
+
+export const adminApi = {
+  campaigns: () => authFetch<any>('/api/campaigns-v2', getAdminHeaders()),
+
+  createCampaign: (body: Record<string, unknown>) =>
+    authFetch<any>('/api/campaigns-v2', getAdminHeaders(), {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  updateCampaign: (campaignId: string, body: Record<string, unknown>) =>
+    authFetch<any>(`/api/campaigns-v2/${campaignId}`, getAdminHeaders(), {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+
+  startCampaign: (campaignId: string) =>
+    authFetch<any>(`/api/campaigns-v2/${campaignId}/start`, getAdminHeaders(), {
+      method: 'POST',
+    }),
+
+  pauseCampaign: (campaignId: string) =>
+    authFetch<any>(`/api/campaigns-v2/${campaignId}/pause`, getAdminHeaders(), {
+      method: 'POST',
+    }),
+
+  cancelCampaign: (campaignId: string) =>
+    authFetch<any>(`/api/campaigns-v2/${campaignId}/cancel`, getAdminHeaders(), {
+      method: 'POST',
+    }),
+
+  deleteCampaign: (campaignId: string) =>
+    authFetch<any>(`/api/campaigns-v2/${campaignId}`, getAdminHeaders(), {
+      method: 'DELETE',
+    }),
+
+  duplicateCampaign: (campaignId: string) =>
+    authFetch<any>(`/api/campaigns-v2/${campaignId}/duplicate`, getAdminHeaders(), {
+      method: 'POST',
+    }),
+
+  reexecuteCampaign: (campaignId: string) =>
+    authFetch<any>(`/api/campaigns-v2/${campaignId}/re-execute`, getAdminHeaders(), {
+      method: 'POST',
+    }),
+
+  clients: async (page = 1, limit = 30, search = '') => {
+    const q = new URLSearchParams({ page: String(page), limit: String(limit) })
+    if (search.trim()) q.set('search', search.trim())
+    const data = await authFetch<any>(`/api/customers?${q.toString()}`, getAdminHeaders())
+    return {
+      ...data,
+      clients: data.clients || data.customers || [],
+      total: data.total || data.customers?.length || data.clients?.length || 0,
+    }
+  },
+
+  orders: async (page = 1, limit = 50, search = '') => {
+    const q = new URLSearchParams({
+      limit: String(limit),
+      offset: String(Math.max(0, (page - 1) * limit)),
+    })
+    if (search.trim()) q.set('customer', search.trim())
+    const data = await authFetch<any>(`/api/orders?${q.toString()}`, getAdminHeaders())
+    return {
+      ...data,
+      total: data.total || data.orders?.length || 0,
+    }
+  },
+
+  updateAutomationRule: (ruleCode: string, body: Record<string, unknown>) =>
+    authFetch<any>(`/api/automations/${ruleCode}`, getAdminHeaders(), {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+}
+
+/* ══════════════════════════════════════════════
+   INTEGRATIONS API (/api/integrations/*)
+   ══════════════════════════════════════════════ */
+
+export const integrationApi = {
+  listProviders: () => authFetch<{ success: boolean; providers: AdminIntegrationSnapshot[] }>('/api/integrations/providers', getAdminHeaders()),
+
+  getProvider: (provider: AdminIntegrationProvider) =>
+    authFetch<{ success: boolean; provider: AdminIntegrationSnapshot }>(`/api/integrations/${provider}`, getAdminHeaders()),
+
+  saveProvider: (
+    provider: AdminIntegrationProvider,
+    body: { key?: string; config?: Record<string, unknown>; is_active?: boolean; priority?: number },
+  ) => authFetch<{ success: boolean; provider: AdminIntegrationSnapshot }>(`/api/integrations/${provider}`, getAdminHeaders(), {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  }),
+
+  testProvider: (
+    provider: AdminIntegrationProvider,
+    body?: { key?: string; config?: Record<string, unknown> },
+  ) => fetch(`/api/integrations/${provider}/test`, {
+    method: 'POST',
+    headers: getAdminHeaders(),
+    body: JSON.stringify(body || {}),
+  }).then(async (res) => {
+    const data = await res.json()
+    if (data?.result) return data.result
+    if (!res.ok) throw new Error(data.error || data.message || `Erro ${res.status}`)
+    return data
+  }),
+
+  logs: (provider?: AdminIntegrationProvider, limit = 40) => {
+    const q = new URLSearchParams({ limit: String(limit) })
+    if (provider) q.set('provider', provider)
+    return authFetch<{ success: boolean; logs: AdminIntegrationLogEntry[] }>(`/api/integrations/logs?${q.toString()}`, getAdminHeaders())
+  },
 }

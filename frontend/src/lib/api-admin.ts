@@ -154,12 +154,6 @@ export const inventoryApi = {
   categories: () => inventoryFetch<any>('/api/categories'),
 
   /* ── Clients ── */
-  realClients: (page = 1, limit = 50, search = '') => {
-    const q = new URLSearchParams({ page: String(page), limit: String(limit) })
-    if (search) q.set('search', search)
-    return inventoryFetch<any>(`/api/clients/real?${q}`)
-  },
-
   clients: (page = 1, limit = 50, search = '', status = '') => {
     const q = new URLSearchParams({ page: String(page), limit: String(limit) })
     if (search) q.set('search', search)
@@ -192,6 +186,17 @@ export const inventoryApi = {
     inventoryFetch<any>(`/api/clients/${id}`, {
       method: 'DELETE',
     }),
+
+  realClients: async (page = 1, limit = 50, search = '') => {
+    const q = new URLSearchParams({ page: String(page), limit: String(limit) })
+    if (search.trim()) q.set('search', search.trim())
+    const data = await inventoryFetch<any>(`/api/clients/real?${q.toString()}`)
+    return {
+      ...data,
+      clients: data.clients || data.customers || [],
+      total: data.total || data.clients?.length || 0,
+    }
+  },
 }
 
 /* ══════════════════════════════════════════════
@@ -388,6 +393,17 @@ export const adminApi = {
       method: 'POST',
     }),
 
+  realClients: async (page = 1, limit = 50, search = '') => {
+    const q = new URLSearchParams({ page: String(page), limit: String(limit) })
+    if (search.trim()) q.set('search', search.trim())
+    const data = await authFetch<any>(`/api/clients/real?${q.toString()}`, getAdminHeaders())
+    return {
+      ...data,
+      clients: data.clients || data.customers || [],
+      total: data.total || data.clients?.length || 0,
+    }
+  },
+
   clients: async (page = 1, limit = 30, search = '') => {
     const q = new URLSearchParams({ page: String(page), limit: String(limit) })
     if (search.trim()) q.set('search', search.trim())
@@ -397,12 +413,6 @@ export const adminApi = {
       clients: data.clients || data.customers || [],
       total: data.total || data.customers?.length || data.clients?.length || 0,
     }
-  },
-
-  realClients: async (page = 1, limit = 50, search = '') => {
-    const q = new URLSearchParams({ page: String(page), limit: String(limit) })
-    if (search.trim()) q.set('search', search.trim())
-    return authFetch<any>(`/api/clients/real?${q.toString()}`, getAdminHeaders())
   },
 
   orders: async (page = 1, limit = 50, search = '') => {

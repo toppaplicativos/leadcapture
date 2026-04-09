@@ -83,7 +83,27 @@
       "Bash(grep -n \"^}$\\\\|^export function\" frontend/src/pages/AdminDashboard.tsx)",
       "Bash(scp /tmp/deploy_estoque_access.tar.gz root@187.77.230.211:/tmp/)",
       "Bash(ssh root@187.77.230.211 \"cd /home/leadcapture/app.leadcapture.online && tar xzf /tmp/deploy_estoque_access.tar.gz && pm2 restart leadcapture && echo done\")",
-      "Bash(npx vite:*)"
+      "Bash(npx vite:*)",
+      "Bash(Remove-Item \"C:\\\\Users\\\\Public\\\\Projetos\\\\leadcapture\\\\.git\\\\index.lock\" -Force)",
+      "Bash(tasklist)",
+      "Bash(ls -la \"C:/Users/Public/Projetos/leadcapture/.git/index\"*)",
+      "Bash(handle \"C:/Users/Public/Projetos/leadcapture/.git/index.lock\")",
+      "Bash(fuser \"C:/Users/Public/Projetos/leadcapture/.git/index.lock\")",
+      "Bash(gh auth:*)",
+      "Bash(ssh -i ~/.ssh/id_ed25519_leadcapture leadcapture@109.176.198.123)",
+      "Bash(python3 -c ':*)",
+      "Bash(scp leadcapture-dist-campaigns-fix.tar.gz root@209.182.237.95:/root/)",
+      "Bash(scp -P 22 leadcapture-dist-campaigns-fix.tar.gz root@209.182.237.95:/root/)",
+      "Bash(scp -P 2222 leadcapture-dist-campaigns-fix.tar.gz root@209.182.237.95:/root/)",
+      "Bash(mysql -h srv2020.hstgr.io -P 3306 -u u979026148_leadcapture -p'@Milionarios2026' u979026148_leadcapture -e \"SELECT id, name, status, instance_id, target_count, sent_count, use_instance_rotation, filter_json, settings FROM campaign_history WHERE id='2f282398-9d86-462c-b595-0a05a609d83f'\\\\G\")",
+      "Bash(node -e ':*)",
+      "Bash(curl -s --max-time 10 \"http://209.182.237.95:3001/api/health\")",
+      "Bash(curl -s --max-time 10 \"http://209.182.237.95:3001/\")",
+      "Bash(sshpass -p '@Milionarios2026' ssh -o ConnectTimeout=15 -o StrictHostKeyChecking=no root@app.leadcapture.online \"echo ok && pm2 list | grep leadcapture\")",
+      "Bash(pip3 install:*)",
+      "Bash(python3 -m pip install paramiko -q)",
+      "Bash(python3 -c \"import paramiko; print\\('ok'\\)\")",
+      "Bash(git add:*)"
     ]
   }
 }

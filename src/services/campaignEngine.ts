@@ -1427,7 +1427,14 @@ export class CampaignEngineService {
           : [destination.targets.length, campaign.id, userId]
       );
     } else {
-      const leads = await this.filterLeadsByBrand(userId, campaign.filter_json || {}, normalizedBrandId);
+      let leads = await this.filterLeadsByBrand(userId, campaign.filter_json || {}, normalizedBrandId);
+
+      // Fallback: if hasWhatsapp filter eliminates all leads, retry without it
+      if (leads.length === 0 && (campaign.filter_json as any)?.hasWhatsapp === true) {
+        logger.warn(`Campaign ${campaign.id}: hasWhatsapp filter returned 0 leads, retrying without WhatsApp validation filter`);
+        const relaxedFilter = { ...(campaign.filter_json || {}), hasWhatsapp: false };
+        leads = await this.filterLeadsByBrand(userId, relaxedFilter, normalizedBrandId);
+      }
 
       for (const lead of leads) {
         const phone = normalizePhone(lead.phone);
@@ -1503,22 +1510,31 @@ export class CampaignEngineService {
         );
       }
     } else {
-      // Verify fixed instance
-      const instance = this.instanceManager.getInstance(campaign.instance_id, userId);
+      // Verify fixed instance — try with owner check first, then without (instance may be shared across users)
+      const instance = this.instanceManager.getInstance(campaign.instance_id, userId)
+        ?? this.instanceManager.getInstance(campaign.instance_id);
       if (!instance || instance.status !== "connected") {
-        if (this.rotationEngine) {
+        // Try fallback: any connected instance (skip ownership filter for campaign context)
+        const anyConnected = this.instanceManager.getAllInstances().find(i => i.status === "connected");
+        if (anyConnected) {
+          await update(
+            `UPDATE campaign_history
+             SET instance_id = ?, use_instance_rotation = TRUE, updated_at = NOW()
+             WHERE id = ? AND user_id = ? AND ${normalizedBrandId ? "brand_id = ?" : "brand_id IS NULL"}`,
+            normalizedBrandId ? [anyConnected.id, campaignId, userId, normalizedBrandId] : [anyConnected.id, campaignId, userId]
+          );
+          startMessageSuffix = ` (failover automatico para instancia ${anyConnected.id.slice(0, 8)}...)`;
+        } else if (this.rotationEngine) {
           const selected = await this.rotationEngine.selectInstance(userId, { preferredInstanceId: campaign.instance_id });
           if (!selected) {
             return { ok: false, message: "Instancia WhatsApp nao esta conectada" };
           }
-
           await update(
             `UPDATE campaign_history
              SET instance_id = ?, use_instance_rotation = TRUE, updated_at = NOW()
              WHERE id = ? AND user_id = ? AND ${normalizedBrandId ? "brand_id = ?" : "brand_id IS NULL"}`,
             normalizedBrandId ? [selected, campaignId, userId, normalizedBrandId] : [selected, campaignId, userId]
           );
-
           startMessageSuffix = ` (failover automatico para instancia ${selected.slice(0, 8)}...)`;
         } else {
           return { ok: false, message: "Instancia WhatsApp nao esta conectada" };

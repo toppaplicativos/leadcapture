@@ -87,8 +87,11 @@ async function ensureOrdersSchema(): Promise<void> {
         }
       } catch { /* ignora se já existir */ }
     };
-    await ensureMetaColumn("seller_name", "seller_name VARCHAR(255) NULL");
-    await ensureMetaColumn("scheduled_at", "scheduled_at DATETIME NULL");
+    await ensureMetaColumn("seller_name",          "seller_name VARCHAR(255) NULL");
+    await ensureMetaColumn("scheduled_at",         "scheduled_at DATETIME NULL");
+    await ensureMetaColumn("agent_instance_id",    "agent_instance_id VARCHAR(255) NULL");
+    await ensureMetaColumn("attributed_channel",   "attributed_channel VARCHAR(100) NULL");
+    await ensureMetaColumn("attributed_to",        "attributed_to VARCHAR(255) NULL");
 
     schemaReady = true;
   })().finally(() => {
@@ -753,7 +756,11 @@ router.post("/", async (req: AuthRequest, res: Response) => {
       paymentStatus: created.order.status_pedido === "pago" ? "paid" : "pending",
       deliveryStatus: "nao_iniciado",
       extraFields: {
-        ...(body.seller_name ? { seller_name: String(body.seller_name) } : {}),
+        ...(body.seller_name        ? { seller_name:          String(body.seller_name) }           : {}),
+        ...(body.agent_name         ? { seller_name:          String(body.agent_name) }            : {}),
+        ...(body.agent_instance_id  ? { agent_instance_id:   String(body.agent_instance_id) }     : {}),
+        ...(body.attributed_channel ? { attributed_channel:  String(body.attributed_channel) }    : {}),
+        ...(body.attributed_to      ? { attributed_to:       String(body.attributed_to) }          : {}),
         ...(isScheduled ? { scheduled_at: scheduledAt!.toISOString().slice(0, 19).replace("T", " ") } : {}),
       },
     });

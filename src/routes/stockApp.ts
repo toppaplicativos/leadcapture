@@ -3,7 +3,7 @@ import { AuthRequest } from "../middleware/auth";
 import { CommerceService } from "../services/commerce";
 import { InventoryService } from "../services/inventory";
 import { ClientsService } from "../services/clients";
-import { queryOne, getPool } from "../config/database";
+import { queryOne } from "../config/database";
 
 const router = Router();
 const commerceService = new CommerceService();
@@ -414,87 +414,6 @@ router.get("/categories", async (req: AuthRequest, res: Response) => {
 });
 
 /* ── Client / Customer Management ── */
-
-router.get("/clients/real", async (req: AuthRequest, res: Response) => {
-  try {
-    const ctx = requireStockCredential(req, res);
-    if (!ctx) return;
-    const pool = getPool();
-    const { search, page, limit } = req.query;
-    const pageNum = Math.max(1, parseInt(page as string) || 1);
-    const limitNum = Math.min(100, parseInt(limit as string) || 50);
-    const offset = (pageNum - 1) * limitNum;
-    const searchTerm = (search as string || '').trim();
-    const userId = ctx.ownerUserId;
-    const brandId = ctx.brandId;
-
-    const searchClause = searchTerm ? `WHERE (phone LIKE ? OR name LIKE ? OR email LIKE ?)` : '';
-    const searchArgs = searchTerm ? [`%${searchTerm}%`, `%${searchTerm}%`, `%${searchTerm}%`] : [];
-
-    const sql = `
-      SELECT phone, name, email, SUM(order_count) as order_count,
-             SUM(total_spent) as total_spent, MAX(last_order_at) as last_order_at,
-             MAX(source_type) as source_type
-      FROM (
-        SELECT o.customer_phone as phone,
-               MAX(o.customer_name) as name,
-               MAX(o.customer_email) as email,
-               COUNT(*) as order_count,
-               SUM(COALESCE(o.valor_total, 0)) as total_spent,
-               MAX(o.created_at) as last_order_at,
-               'order' as source_type
-        FROM commerce_orders o
-        JOIN order_management_meta m ON m.order_id = o.id AND m.user_id = ? AND m.brand_id = ?
-        WHERE o.customer_phone IS NOT NULL AND o.customer_phone != ''
-        GROUP BY o.customer_phone
-
-        UNION ALL
-
-        SELECT c.phone, c.name, c.email,
-               0 as order_count, 0 as total_spent, NULL as last_order_at, 'manual' as source_type
-        FROM clients c
-        WHERE c.user_id = ? AND c.source = 'manual' AND (c.is_active IS NULL OR c.is_active = 1)
-        AND (c.brand_id = ? OR c.brand_id IS NULL)
-        AND (c.phone IS NULL OR c.phone NOT IN (
-          SELECT DISTINCT o2.customer_phone FROM commerce_orders o2
-          JOIN order_management_meta m2 ON m2.order_id = o2.id AND m2.user_id = ? AND m2.brand_id = ?
-          WHERE o2.customer_phone IS NOT NULL
-        ))
-      ) combined
-      ${searchClause}
-      GROUP BY phone, name, email
-      ORDER BY last_order_at DESC, name ASC
-      LIMIT ? OFFSET ?
-    `;
-
-    const mainArgs: any[] = [userId, brandId, userId, brandId, userId, brandId];
-    const [rows]: any = await pool.execute(sql, [...mainArgs, ...searchArgs, limitNum, offset]);
-
-    const countSql = `SELECT COUNT(*) as total FROM (
-      SELECT phone FROM (
-        SELECT o.customer_phone as phone FROM commerce_orders o
-        JOIN order_management_meta m ON m.order_id = o.id AND m.user_id = ? AND m.brand_id = ?
-        WHERE o.customer_phone IS NOT NULL AND o.customer_phone != ''
-        GROUP BY o.customer_phone
-        UNION ALL
-        SELECT c.phone FROM clients c
-        WHERE c.user_id = ? AND c.source = 'manual' AND (c.is_active IS NULL OR c.is_active = 1)
-        AND (c.brand_id = ? OR c.brand_id IS NULL)
-        AND (c.phone IS NULL OR c.phone NOT IN (
-          SELECT DISTINCT o2.customer_phone FROM commerce_orders o2
-          JOIN order_management_meta m2 ON m2.order_id = o2.id AND m2.user_id = ? AND m2.brand_id = ?
-          WHERE o2.customer_phone IS NOT NULL
-        ))
-      ) inner_q
-    ) outer_q`;
-
-    const [[countRow]]: any = await pool.execute(countSql, [userId, brandId, userId, brandId, userId, brandId]);
-
-    res.json({ success: true, clients: rows, total: countRow?.total || 0, page: pageNum, limit: limitNum });
-  } catch (e: any) {
-    res.status(500).json({ error: e.message || "Falha ao listar clientes" });
-  }
-});
 
 router.get("/clients", async (req: AuthRequest, res: Response) => {
   try {

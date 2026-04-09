@@ -17,6 +17,7 @@ import { InventoryPage } from '@/pages/InventoryPage'
 import { ProductDetailPage } from '@/pages/ProductDetailPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { AdminShell, DashboardView, CampaignsView, OrdersView, AutomationsView, ProductsView, AgentView, NotificationsView, DomainView, FreteView, EstoqueAccessView, PaymentConfigView, WhatsAppManagerView, ClientesView } from '@/pages/AdminDashboard'
+import { AgentPDVPage } from '@/pages/AgentPDVPage'
 import { MessagesPage } from '@/pages/MessagesPage'
 import { FlowBuilderPage } from '@/pages/FlowBuilderPage'
 import { LeadSearchPage } from '@/pages/LeadSearchPage'
@@ -24,6 +25,7 @@ import { LeadsPage } from '@/pages/LeadsPage'
 import { SettingsView } from '@/pages/AdminDashboard'
 import { MessageSquare, Package, Zap, Bot, Palette, Truck, Globe, Settings } from 'lucide-react'
 import { PWAInstallBanner } from '@/components/PWAInstallBanner'
+import { useToast } from '@/components/Toast'
 
 function CatalogShell() {
   const [activeTab, setActiveTab] = useState('catalogo')
@@ -130,6 +132,7 @@ export default function App() {
         <Route path="/criativos" element={<AdminPage><ComingSoon title="Estudio Criativo" icon={Palette} /></AdminPage>} />
         <Route path="/creative" element={<AdminPage><ComingSoon title="Estudio Criativo" icon={Palette} /></AdminPage>} />
         <Route path="/agente" element={<AdminPage><AgentView showToast={() => {}} /></AdminPage>} />
+        <Route path="/tirar-pedido" element={<AdminPage><AgentPDVPage /></AdminPage>} />
         <Route path="/whatsapp" element={<AdminPage><WhatsAppManagerView showToast={() => {}} /></AdminPage>} />
         <Route path="/produtos" element={<AdminPage><ProductsView showToast={() => {}} /></AdminPage>} />
         <Route path="/pedidos" element={<AdminPage><OrdersInline /></AdminPage>} />
@@ -187,5 +190,8 @@ export default function App() {
 /* ── Inline wrappers ── */
 const noop = () => {}
 function DashboardInline() { return <DashboardView showToast={noop} /> }
-function CampaignsInline() { return <CampaignsView showToast={noop} /> }
+function CampaignsInline() {
+  const { showToast } = useToast()
+  return <CampaignsView showToast={(msg, tp) => showToast(tp === 'err' ? `Erro: ${msg}` : msg)} />
+}
 function OrdersInline() { return <OrdersView showToast={noop} /> }

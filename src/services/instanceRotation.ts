@@ -525,12 +525,16 @@ export class InstanceRotationService {
 
     if (!settings.enabled) {
       if (preferred && !excluded.has(preferred)) {
-        const preferredRuntime = this.instanceManager.getInstance(preferred, userId);
+        // Check with owner filter first, then without (shared instances)
+        const preferredRuntime = this.instanceManager.getInstance(preferred, userId)
+          ?? this.instanceManager.getInstance(preferred);
         if (preferredRuntime?.status === "connected") return preferred;
       }
 
       if (eligible[0]) return eligible[0].instanceId;
-      const fallback = this.instanceManager.getAllInstances(userId).find((item) => item.status === "connected");
+      // Check own instances first, then all shared instances as fallback
+      const fallback = this.instanceManager.getAllInstances(userId).find((item) => item.status === "connected")
+        ?? this.instanceManager.getAllInstances().find((item) => item.status === "connected");
       return fallback?.id || null;
     }
 

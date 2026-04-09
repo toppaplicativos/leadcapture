@@ -5,7 +5,7 @@ import {
   Package, Palette, Search, RefreshCw, LogOut, Menu, X, Loader2,
   Plus, Phone, Mail, Clock, ArrowRight, BarChart3, Zap, Eye,
   ChevronLeft, ChevronRight, Send, Pause, Ban, Bot, Bell, Trash2,
-  Wand2, Truck, Globe, Settings, Volume2, FileText, Link2,
+  Wand2, Truck, Globe, Settings, Volume2, FileText, Link2, Receipt,
 } from 'lucide-react'
 import { adminApi, inventoryApi } from '@/lib/api-admin'
 
@@ -74,6 +74,7 @@ const NAV_ITEMS: { key: string; path: string; icon: any; label: string; group: s
   { key: 'whatsapp', path: '/whatsapp', icon: Phone, label: 'WhatsApp', group: 'main' },
   { key: 'produtos', path: '/produtos', icon: Package, label: 'Produtos', group: 'loja' },
   { key: 'pedidos', path: '/pedidos', icon: ShoppingCart, label: 'Pedidos', group: 'loja' },
+  { key: 'tirar-pedido', path: '/tirar-pedido', icon: Receipt, label: 'Tirar Pedido', group: 'loja' },
   { key: 'estoque', path: '/estoque', icon: BarChart3, label: 'Estoque', group: 'loja' },
   { key: 'design', path: '/design', icon: Palette, label: 'Design', group: 'loja' },
   { key: 'pagamentos', path: '/pagamentos', icon: ShoppingCart, label: 'Pagamentos', group: 'loja' },
@@ -419,6 +420,7 @@ export function DashboardView({ showToast }: { showToast: (t: string, tp?: 'ok' 
             { icon: Search, label: 'Buscar Leads', path: '/busca', gradient: 'from-blue-500 to-indigo-500' },
             { icon: Megaphone, label: 'Campanhas', path: '/campanhas', gradient: 'from-violet-500 to-purple-500' },
             { icon: ShoppingCart, label: 'Pedidos', path: '/pedidos', gradient: 'from-emerald-500 to-teal-500' },
+            { icon: Receipt, label: 'Tirar Pedido', path: '/tirar-pedido', gradient: 'from-orange-500 to-rose-500' },
             { icon: Package, label: 'Estoque', path: '/estoque', gradient: 'from-amber-500 to-orange-500' },
           ].map(a => (
             <button key={a.label} onClick={() => navigate(a.path)}
@@ -760,85 +762,109 @@ export function CampaignsView({ showToast }: { showToast: (t: string, tp?: 'ok' 
       {loading ? <Skeleton rows={4} /> : filtered.length === 0 ? (
         <EmptyState icon={Megaphone} text="Nenhuma campanha encontrada" />
       ) : (
-        <div className="space-y-2.5">
-          {filtered.map((c: any) => (
-            <div key={c.id} className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] hover:shadow-md transition-all p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 mb-1">
-                    <h4 className="font-bold text-sm text-gray-900 truncate">{c.name || 'Sem titulo'}</h4>
-                    {statusBadge(c.status)}
-                    {c.use_ai && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-violet-50 text-violet-600">IA</span>}
-                  </div>
-                  <p className="text-xs text-gray-400">{c.campaign_mode || 'relationship'} · {dt(c.created_at)}</p>
-                </div>
-                {/* Metrics mini */}
-                {c.target_count > 0 && (
-                  <div className="text-right shrink-0">
-                    <p className="text-xs font-bold text-gray-900">{c.sent_count || 0}<span className="text-gray-400 font-normal">/{c.target_count}</span></p>
-                    <p className="text-[9px] text-gray-400">enviados</p>
-                  </div>
-                )}
-              </div>
+        <div className="space-y-3">
+          {filtered.map((c: any) => {
+            const pct = c.target_count > 0 ? Math.round(((c.sent_count || 0) / c.target_count) * 100) : 0
+            const isRunning = ['active', 'running', 'sending'].includes(c.status)
+            const canStart = ['draft', 'paused', 'scheduled'].includes(c.status)
+            const isDone = ['completed', 'cancelled'].includes(c.status)
+            const accentColor = isRunning ? 'bg-blue-500' : canStart ? 'bg-emerald-500' : isDone ? 'bg-gray-300' : 'bg-amber-400'
+            return (
+              <div key={c.id} className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_4px_rgba(0,0,0,0.07)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.1)] transition-all overflow-hidden">
+                {/* Accent bar */}
+                <div className={`h-1 w-full ${accentColor} ${isRunning ? 'animate-pulse' : ''}`} />
 
-              {/* Progress bar */}
-              {c.target_count > 0 && (
-                <div className="mt-2.5">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-[9px] text-gray-400">{Math.round(((c.sent_count || 0) / c.target_count) * 100)}% concluido</span>
-                    {c.replied_count > 0 && <span className="text-[9px] text-emerald-600 font-semibold">{c.replied_count} respostas</span>}
+                <div className="p-4">
+                  {/* Header row */}
+                  <div className="flex items-start justify-between gap-3 mb-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h4 className="font-extrabold text-[15px] text-gray-900 truncate">{c.name || 'Sem titulo'}</h4>
+                        {statusBadge(c.status)}
+                        {c.use_ai && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 border border-violet-200">IA</span>}
+                      </div>
+                      <p className="text-[11px] text-gray-400 mt-0.5">{c.campaign_mode || 'relationship'} · {dt(c.created_at)}</p>
+                    </div>
+                    {/* Primary action */}
+                    <div className="shrink-0">
+                      {canStart && (
+                        <button onClick={() => doAction(c.id, 'start')} disabled={actionLoading === c.id}
+                          className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-green-500 text-white text-[11px] font-bold hover:from-emerald-600 hover:to-green-600 transition-all shadow-sm disabled:opacity-60">
+                          {actionLoading === c.id ? <Loader2 size={11} className="animate-spin" /> : <Send size={11} />} Iniciar
+                        </button>
+                      )}
+                      {isRunning && (
+                        <button onClick={() => doAction(c.id, 'pause')} disabled={actionLoading === c.id}
+                          className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-50 text-amber-700 border border-amber-200 text-[11px] font-bold hover:bg-amber-100 transition disabled:opacity-60">
+                          {actionLoading === c.id ? <Loader2 size={11} className="animate-spin" /> : <Pause size={11} />} Pausar
+                        </button>
+                      )}
+                      {isDone && (
+                        <button onClick={async () => { setActionLoading(c.id); try { await adminApi.reexecuteCampaign(c.id); showToast('Campanha reaberta!'); loadCampaigns() } catch (e: any) { showToast(e.message, 'err') } setActionLoading(null) }}
+                          disabled={actionLoading === c.id}
+                          className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-50 text-blue-700 border border-blue-200 text-[11px] font-bold hover:bg-blue-100 transition disabled:opacity-60">
+                          {actionLoading === c.id ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />} Reaproveitar
+                        </button>
+                      )}
+                    </div>
                   </div>
-                  <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                    <div className="h-full bg-gradient-to-r from-violet-500 to-purple-500 rounded-full transition-all" style={{ width: `${Math.min(100, ((c.sent_count || 0) / Math.max(c.target_count, 1)) * 100)}%` }} />
+
+                  {/* Stats chips */}
+                  <div className="flex gap-2 mb-3">
+                    <div className="flex-1 bg-gray-50 rounded-xl px-3 py-2 text-center">
+                      <p className="text-[13px] font-extrabold text-gray-900">{num(c.target_count || 0)}</p>
+                      <p className="text-[9px] text-gray-400 uppercase tracking-wide font-semibold">Leads</p>
+                    </div>
+                    <div className="flex-1 bg-gray-50 rounded-xl px-3 py-2 text-center">
+                      <p className="text-[13px] font-extrabold text-violet-700">{num(c.sent_count || 0)}</p>
+                      <p className="text-[9px] text-gray-400 uppercase tracking-wide font-semibold">Enviados</p>
+                    </div>
+                    <div className="flex-1 bg-gray-50 rounded-xl px-3 py-2 text-center">
+                      <p className="text-[13px] font-extrabold text-emerald-600">{num(c.replied_count || 0)}</p>
+                      <p className="text-[9px] text-gray-400 uppercase tracking-wide font-semibold">Respostas</p>
+                    </div>
+                    {c.target_count > 0 && (
+                      <div className="flex-1 bg-gray-50 rounded-xl px-3 py-2 text-center">
+                        <p className="text-[13px] font-extrabold text-gray-700">{pct}%</p>
+                        <p className="text-[9px] text-gray-400 uppercase tracking-wide font-semibold">Progresso</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Progress bar */}
+                  {c.target_count > 0 && (
+                    <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden mb-3">
+                      <div className={`h-full rounded-full transition-all ${isRunning ? 'bg-gradient-to-r from-blue-400 to-blue-600' : 'bg-gradient-to-r from-violet-400 to-purple-500'}`}
+                        style={{ width: `${Math.min(100, pct)}%` }} />
+                    </div>
+                  )}
+
+                  {/* Secondary actions */}
+                  <div className="flex items-center gap-1.5 pt-2.5 border-t border-gray-100">
+                    <button onClick={() => openEdit(c)}
+                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-violet-50 text-violet-700 text-[11px] font-bold hover:bg-violet-100 transition">
+                      <Settings size={10} /> Configurar
+                    </button>
+                    <button onClick={async () => { setActionLoading(c.id); try { await adminApi.duplicateCampaign(c.id); showToast('Campanha duplicada!'); loadCampaigns() } catch (e: any) { showToast(e.message, 'err') } setActionLoading(null) }}
+                      disabled={actionLoading === c.id}
+                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-gray-50 text-gray-600 text-[11px] font-semibold hover:bg-gray-100 transition">
+                      Duplicar
+                    </button>
+                    {!isDone && (
+                      <button onClick={() => doAction(c.id, 'cancel')} disabled={actionLoading === c.id}
+                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-red-400 text-[11px] font-semibold hover:bg-red-50 hover:text-red-600 transition">
+                        <Ban size={10} /> Cancelar
+                      </button>
+                    )}
+                    <button onClick={() => { if (confirm(`Excluir campanha "${c.name}"?`)) doAction(c.id, 'delete') }} disabled={actionLoading === c.id}
+                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-red-400 text-[11px] font-semibold hover:bg-red-50 hover:text-red-600 transition ml-auto">
+                      <Trash2 size={10} /> Excluir
+                    </button>
                   </div>
                 </div>
-              )}
-
-              {/* Actions */}
-              <div className="flex items-center gap-1.5 mt-3 pt-3 border-t border-gray-100 flex-wrap">
-                {(c.status === 'draft' || c.status === 'paused') && (
-                  <button onClick={() => doAction(c.id, 'start')} disabled={actionLoading === c.id}
-                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 text-[11px] font-bold hover:bg-emerald-100 transition">
-                    <Send size={11} /> Iniciar
-                  </button>
-                )}
-                {(c.status === 'active' || c.status === 'running' || c.status === 'sending') && (
-                  <button onClick={() => doAction(c.id, 'pause')} disabled={actionLoading === c.id}
-                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-50 text-amber-700 text-[11px] font-bold hover:bg-amber-100 transition">
-                    <Pause size={11} /> Pausar
-                  </button>
-                )}
-                <button onClick={() => openEdit(c)}
-                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-violet-50 text-violet-700 text-[11px] font-bold hover:bg-violet-100 transition">
-                  Configurar
-                </button>
-                {/* Duplicate */}
-                <button onClick={async () => { setActionLoading(c.id); try { await adminApi.duplicateCampaign(c.id); showToast('Campanha duplicada!'); loadCampaigns() } catch (e: any) { showToast(e.message, 'err') } setActionLoading(null) }}
-                  disabled={actionLoading === c.id}
-                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-gray-50 text-gray-600 text-[11px] font-semibold hover:bg-gray-100 transition">
-                  Duplicar
-                </button>
-                {/* Re-execute (completed/cancelled) */}
-                {(c.status === 'completed' || c.status === 'cancelled') && (
-                  <button onClick={async () => { setActionLoading(c.id); try { await adminApi.reexecuteCampaign(c.id); showToast('Campanha reaberta!'); loadCampaigns() } catch (e: any) { showToast(e.message, 'err') } setActionLoading(null) }}
-                    disabled={actionLoading === c.id}
-                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-700 text-[11px] font-bold hover:bg-blue-100 transition">
-                    <RefreshCw size={11} /> Reaproveitar
-                  </button>
-                )}
-                {c.status !== 'cancelled' && c.status !== 'completed' && (
-                  <button onClick={() => doAction(c.id, 'cancel')} disabled={actionLoading === c.id}
-                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-red-500 text-[11px] font-semibold hover:bg-red-50 transition">
-                    <Ban size={11} /> Cancelar
-                  </button>
-                )}
-                <button onClick={() => { if (confirm(`Excluir campanha "${c.name}"?`)) doAction(c.id, 'delete') }} disabled={actionLoading === c.id}
-                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-red-400 text-[11px] font-semibold hover:bg-red-50 hover:text-red-600 transition ml-auto">
-                  <Trash2 size={11} /> Excluir
-                </button>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
 
@@ -936,7 +962,7 @@ function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
 
   // Tab 3: Segmentacao
   const [filterStatuses, setFilterStatuses] = useState<string[]>(filter.statuses || ['new'])
-  const [filterHasWhatsapp, setFilterHasWhatsapp] = useState(filter.hasWhatsapp !== false)
+  const [filterHasWhatsapp, setFilterHasWhatsapp] = useState(filter.hasWhatsapp === true)
   const [filterTagsInclude, setFilterTagsInclude] = useState((filter.tagsInclude || []).join(', '))
   const [filterTagsExclude, setFilterTagsExclude] = useState((filter.tagsExclude || []).join(', '))
   const [filterCities, setFilterCities] = useState((filter.cities || []).join(', '))

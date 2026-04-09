@@ -166,6 +166,24 @@ export class InboxService {
       await pool.execute("ALTER TABLE whatsapp_messages ADD COLUMN sender_jid VARCHAR(191) NULL AFTER remote_jid");
     }
 
+    /* Ensure body column (alias para message_text usado em várias rotas) */
+    const hasBody = await hasColumn("whatsapp_messages", "body");
+    if (!hasBody) {
+      await pool.execute("ALTER TABLE whatsapp_messages ADD COLUMN body TEXT NULL");
+    }
+
+    /* Ensure sender_name column */
+    const hasSenderName = await hasColumn("whatsapp_messages", "sender_name");
+    if (!hasSenderName) {
+      await pool.execute("ALTER TABLE whatsapp_messages ADD COLUMN sender_name VARCHAR(255) NULL");
+    }
+
+    /* Ensure caption column */
+    const hasCaption = await hasColumn("whatsapp_messages", "caption");
+    if (!hasCaption) {
+      await pool.execute("ALTER TABLE whatsapp_messages ADD COLUMN caption TEXT NULL");
+    }
+
     await pool.execute(
       "UPDATE whatsapp_conversations SET ai_mode = 'manual' WHERE ai_mode IS NULL OR ai_mode = ''"
     );

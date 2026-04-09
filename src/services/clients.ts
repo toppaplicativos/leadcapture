@@ -21,6 +21,7 @@ export interface Client {
   source: string;
   lead_score: number;
   status: string;
+  client_type?: string;
   last_contact_at?: Date;
   custom_fields?: Record<string, any>;
   is_active: boolean;
@@ -44,6 +45,7 @@ export interface ClientCreateDTO {
   source?: string;
   lead_score?: number;
   status?: string;
+  client_type?: string;
   custom_fields?: Record<string, any>;
 }
 
@@ -140,23 +142,23 @@ export class ClientsService {
 
     if (cols.has("brand_id")) {
       await pool.execute(
-        `INSERT INTO clients (id, user_id, brand_id, company_id, name, phone, email, cpf, birth_date, address, city, state, zip_code, tags, notes, source, lead_score, status, custom_fields)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO clients (id, user_id, brand_id, company_id, name, phone, email, cpf, birth_date, address, city, state, zip_code, tags, notes, source, lead_score, status, client_type, custom_fields)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [id, userId, normalizedBrandId || null, data.company_id || null, data.name, data.phone || null, data.email || null,
          data.cpf || null, data.birth_date || null, data.address || null, data.city || null,
          data.state || null, data.zip_code || null, data.tags ? JSON.stringify(data.tags) : null,
          data.notes || null, data.source || "manual", data.lead_score || 0,
-         data.status || "new", data.custom_fields ? JSON.stringify(data.custom_fields) : null]
+         data.status || "new", data.client_type || null, data.custom_fields ? JSON.stringify(data.custom_fields) : null]
       );
     } else {
       await pool.execute(
-        `INSERT INTO clients (id, user_id, company_id, name, phone, email, cpf, birth_date, address, city, state, zip_code, tags, notes, source, lead_score, status, custom_fields)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO clients (id, user_id, company_id, name, phone, email, cpf, birth_date, address, city, state, zip_code, tags, notes, source, lead_score, status, client_type, custom_fields)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [id, userId, data.company_id || null, data.name, data.phone || null, data.email || null,
          data.cpf || null, data.birth_date || null, data.address || null, data.city || null,
          data.state || null, data.zip_code || null, data.tags ? JSON.stringify(data.tags) : null,
          data.notes || null, data.source || "manual", data.lead_score || 0,
-         data.status || "new", data.custom_fields ? JSON.stringify(data.custom_fields) : null]
+         data.status || "new", data.client_type || null, data.custom_fields ? JSON.stringify(data.custom_fields) : null]
       );
     }
 

@@ -8,6 +8,7 @@ export type BrandUnit = {
   name: string;
   slug: string;
   logo_url?: string | null;
+  cover_image?: string | null;
   site_url?: string | null;
   sales_page_url?: string | null;
   instagram_url?: string | null;
@@ -140,6 +141,7 @@ export class BrandUnitsService {
             name VARCHAR(120) NOT NULL,
             slug VARCHAR(140) NOT NULL,
             logo_url TEXT NULL,
+            cover_image TEXT NULL,
             site_url TEXT NULL,
             sales_page_url TEXT NULL,
             instagram_url TEXT NULL,
@@ -168,6 +170,7 @@ export class BrandUnitsService {
           )
         `);
 
+        await this.ensureTableColumn("brand_units", "cover_image", "TEXT NULL");
         await this.ensureTableColumn("brand_units", "site_url", "TEXT NULL");
         await this.ensureTableColumn("brand_units", "sales_page_url", "TEXT NULL");
         await this.ensureTableColumn("brand_units", "instagram_url", "TEXT NULL");
@@ -203,6 +206,7 @@ export class BrandUnitsService {
           name VARCHAR(120) NOT NULL,
           slug VARCHAR(140) NOT NULL,
           logo_url TEXT NULL,
+          cover_image TEXT NULL,
           site_url TEXT NULL,
           sales_page_url TEXT NULL,
           instagram_url TEXT NULL,
@@ -224,6 +228,7 @@ export class BrandUnitsService {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
       `);
 
+      await this.ensureTableColumn("brand_units", "cover_image", "TEXT NULL");
       await this.ensureTableColumn("brand_units", "site_url", "TEXT NULL");
       await this.ensureTableColumn("brand_units", "sales_page_url", "TEXT NULL");
       await this.ensureTableColumn("brand_units", "instagram_url", "TEXT NULL");
@@ -310,6 +315,7 @@ export class BrandUnitsService {
       name: string;
       slug?: string;
       logo_url?: string;
+      cover_image?: string;
       site_url?: string;
       sales_page_url?: string;
       instagram_url?: string;
@@ -345,14 +351,15 @@ export class BrandUnitsService {
     const id = randomUUID();
     await query(
       `INSERT INTO brand_units
-       (id, user_id, name, slug, logo_url, site_url, sales_page_url, instagram_url, facebook_url, twitter_url, tiktok_url, slogan, primary_color, secondary_color, theme_json, voice_json, domain, status, is_default)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)`,
+       (id, user_id, name, slug, logo_url, cover_image, site_url, sales_page_url, instagram_url, facebook_url, twitter_url, tiktok_url, slogan, primary_color, secondary_color, theme_json, voice_json, domain, status, is_default)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)`,
       [
         id,
         userId,
         name,
         slug,
         normalizeLogoUrl(payload.logo_url),
+        normalizeLogoUrl(payload.cover_image),
         payload.site_url || null,
         payload.sales_page_url || null,
         payload.instagram_url || null,
@@ -385,6 +392,7 @@ export class BrandUnitsService {
       name: string;
       slug: string;
       logo_url: string;
+      cover_image: string;
       site_url: string;
       sales_page_url: string;
       instagram_url: string;
@@ -420,6 +428,10 @@ export class BrandUnitsService {
     if (payload.logo_url !== undefined) {
       fields.push("logo_url = ?");
       values.push(normalizeLogoUrl(payload.logo_url));
+    }
+    if (payload.cover_image !== undefined) {
+      fields.push("cover_image = ?");
+      values.push(normalizeLogoUrl(payload.cover_image));
     }
     if (payload.site_url !== undefined) {
       fields.push("site_url = ?");
@@ -531,6 +543,15 @@ export class BrandUnitsService {
     );
 
     return fallback?.id ? String(fallback.id) : null;
+  }
+
+  async delete(userId: string, brandId: string): Promise<boolean> {
+    await this.ensureSchema();
+    const brand = await this.getById(userId, brandId);
+    if (!brand) return false;
+
+    await update(`DELETE FROM brand_units WHERE id = ? AND user_id = ?`, [brandId, userId]);
+    return true;
   }
 
   async resolveActiveBrandId(userId: string, requestedBrandId?: string | null): Promise<string | null> {

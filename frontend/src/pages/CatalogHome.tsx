@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { MapPin, Truck, Clock, Package } from 'lucide-react'
+import { MapPin, Truck, Clock, Package, Search } from 'lucide-react'
 import { fetchCatalog, type Product, type StoreData } from '@/lib/api'
 import { money } from '@/lib/store-context'
 import { useCartStore } from '@/lib/store'
@@ -18,6 +18,8 @@ export function CatalogHome({ onStoreLoaded }: CatalogHomeProps) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [selectedCategory, setSelectedCategory] = useState('')
   const addItem = useCartStore((s) => s.addItem)
   const { showToast } = useToast()
 
@@ -69,6 +71,16 @@ export function CatalogHome({ onStoreLoaded }: CatalogHomeProps) {
   const displaySlogan = brand?.slogan || brand?.description || 'Catálogo de produtos'
   const logoUrl = brand?.logo_url || store?.theme?.logo_url || ''
   const isOpen = (profile?.status || 'aberto').toLowerCase() === 'aberto'
+
+  const categories = [...new Set(products.map(p => p.category || p.category_name).filter(Boolean))]
+  const filtered = products.filter(p => {
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase()
+      if (!(p.name || '').toLowerCase().includes(q) && !(p.description || '').toLowerCase().includes(q)) return false
+    }
+    if (selectedCategory && (p.category || p.category_name) !== selectedCategory) return false
+    return true
+  })
 
   return (
     <div className="page-enter">
@@ -146,21 +158,88 @@ export function CatalogHome({ onStoreLoaded }: CatalogHomeProps) {
         </div>
       )}
 
+      {/* Shipping banner */}
+      {!loading && (() => {
+        const prof = (store as any)?.profile || {}
+        const freeAbove = Number(prof.free_shipping_above) || 0
+        const deliveryFee = Number(prof.delivery_fee) || 0
+        const deliveryTime = prof.delivery_time_text || ''
+        if (!freeAbove && !deliveryFee && !deliveryTime) return null
+        return (
+          <div className="mx-4 mt-3 flex items-center gap-2 overflow-x-auto scrollbar-hide">
+            {freeAbove > 0 && (
+              <span className="flex items-center gap-1.5 bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-full text-[11px] font-bold whitespace-nowrap shrink-0">
+                🚚 Frete gratis acima de R$ {freeAbove.toFixed(0)}
+              </span>
+            )}
+            {deliveryFee > 0 && (
+              <span className="bg-gray-100 text-gray-600 px-3 py-1.5 rounded-full text-[11px] font-semibold whitespace-nowrap shrink-0">
+                Entrega R$ {deliveryFee.toFixed(2)}
+              </span>
+            )}
+            {deliveryTime && (
+              <span className="bg-blue-50 text-blue-600 px-3 py-1.5 rounded-full text-[11px] font-semibold whitespace-nowrap shrink-0">
+                ⏱ {deliveryTime}
+              </span>
+            )}
+          </div>
+        )
+      })()}
+
       {/* Products section */}
       <div className="px-4 pt-5 pb-24">
-        <h2 className="text-base font-bold mb-4">Produtos</h2>
+        {/* Search bar */}
+        <div className="relative mb-4">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-light" />
+          <input
+            type="search"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder="Buscar produto..."
+            className="w-full pl-10 pr-4 py-2.5 border border-border rounded-xl text-sm bg-surface focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400"
+          />
+        </div>
+
+        {/* Category chips */}
+        {categories.length > 1 && (
+          <div className="flex gap-2 overflow-x-auto pb-3 mb-3 scrollbar-hide">
+            <button
+              onClick={() => setSelectedCategory('')}
+              className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold transition ${
+                !selectedCategory ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              Todos
+            </button>
+            {categories.map(cat => (
+              <button
+                key={cat}
+                onClick={() => setSelectedCategory(cat === selectedCategory ? '' : (cat || ''))}
+                className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold transition ${
+                  selectedCategory === cat ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <h2 className="text-base font-bold mb-4">
+          Produtos <span className="text-muted font-normal text-sm">({filtered.length})</span>
+        </h2>
 
         {loading ? (
-          <div className="grid grid-cols-2 gap-3">
-            {Array.from({ length: 6 }).map((_, i) => (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+            {Array.from({ length: 8 }).map((_, i) => (
               <ProductSkeleton key={i} />
             ))}
           </div>
-        ) : products.length === 0 ? (
-          <p className="text-muted text-center py-12">Nenhum produto disponível.</p>
+        ) : filtered.length === 0 ? (
+          <p className="text-muted text-center py-12">Nenhum produto encontrado.</p>
         ) : (
-          <div className="grid grid-cols-2 gap-3">
-            {products.map((product) => (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+            {filtered.map((product) => (
               <ProductCard
                 key={product.id}
                 product={product}

@@ -1,4 +1,6 @@
 import { randomUUID } from "crypto";
+import path from "path";
+import fs from "fs";
 import { query, queryOne, update, insert } from "../config/database";
 import { InstanceManager } from "../core/instanceManager";
 import { ContextEngineService } from "./contextEngine";
@@ -1939,9 +1941,28 @@ export class CampaignEngineService {
         [messageText, useAI ? true : false, lead.id]
       );
 
+      // Extract media + link config from campaign settings
+      const mediaConfig = this.extractCampaignMediaConfig(campaignSettings);
+      const hasMedia =
+        Boolean(mediaConfig.imagePath) ||
+        Boolean(mediaConfig.videoPath) ||
+        Boolean(mediaConfig.audioPath) ||
+        Boolean(mediaConfig.documentPath);
+      const hasLink = Boolean(mediaConfig.linkUrl);
+
       try {
         const sendResult = await withTimeout<CampaignSendResult>(
-          jid
+          // Path A: media or link present → use the rich-message helper (no rotation, single instance)
+          hasMedia || hasLink
+            ? this.sendCampaignMessageWithMedia(
+                campaign.instance_id,
+                jid,
+                phone,
+                messageText,
+                mediaConfig
+              )
+            // Path B: text-only via JID
+            : jid
             ? (async () => {
                 const ok = await this.instanceManager.sendMessageByJid(campaign.instance_id, jid, messageText);
                 return {
@@ -1950,6 +1971,7 @@ export class CampaignEngineService {
                   error: ok ? undefined : "Envio falhou",
                 };
               })()
+            // Path C: text-only via instance rotation
             : campaign.use_instance_rotation && this.rotationEngine
             ? this.rotationEngine.sendTextWithFailover({
                 userId,
@@ -1961,6 +1983,7 @@ export class CampaignEngineService {
                 preferredInstanceId: campaign.instance_id,
                 maxAttempts: 3,
               })
+            // Path D: text-only direct send
             : (async () => {
                 const ok = await this.instanceManager.sendMessage(campaign.instance_id, phone, messageText);
                 return {
@@ -1969,7 +1992,8 @@ export class CampaignEngineService {
                   error: ok ? undefined : "Envio falhou",
                 };
               })(),
-          20000,
+          // Media uploads can take longer than text, so allow extra time when media is present
+          hasMedia ? 60000 : 20000,
           "Timeout no envio da mensagem"
         );
 
@@ -2583,6 +2607,176 @@ export class CampaignEngineService {
     }
 
     await update(sql, values);
+  }
+
+  // ─── Campaign media helpers ────────────────────────────────────
+
+  /**
+   * Resolve a media URL stored in campaign settings to an absolute filesystem path.
+   * The frontend stores media as URLs like "/uploads/images/abc.jpg" via /api/media/upload.
+   * This converts that to an absolute path on disk so it can be read for sending.
+   */
+  private resolveCampaignMediaPath(mediaUrl: string | null | undefined): string | null {
+    const cleaned = String(mediaUrl || "").trim();
+    if (!cleaned) return null;
+    if (/^https?:\/\//i.test(cleaned)) return null; // External URL not supported (would need download)
+    const relative = cleaned.replace(/^\/+/, "");
+    if (!relative.startsWith("uploads/")) return null;
+    const absolute = path.resolve(process.cwd(), relative);
+    if (!absolute.startsWith(path.resolve(process.cwd(), "uploads"))) return null; // Path traversal guard
+    if (!fs.existsSync(absolute)) {
+      logger.warn(`[Campaign] Media file not found: ${absolute}`);
+      return null;
+    }
+    return absolute;
+  }
+
+  /**
+   * Extract media + link configuration from a campaign's settings JSON.
+   */
+  private extractCampaignMediaConfig(campaignSettings: any): {
+    imagePath: string | null;
+    imageCaption: string;
+    imageUseTextAsCaption: boolean;
+    videoPath: string | null;
+    videoCaption: string;
+    videoUseTextAsCaption: boolean;
+    audioPath: string | null;
+    audioVoiceNote: boolean;
+    documentPath: string | null;
+    documentName: string | null;
+    linkUrl: string;
+  } {
+    const media = (campaignSettings && typeof campaignSettings === "object" && (campaignSettings as any).media) || {};
+    return {
+      imagePath: this.resolveCampaignMediaPath((media as any).imageFileName),
+      imageCaption: String((media as any).imageCaption || "").trim(),
+      imageUseTextAsCaption: Boolean((media as any).imageUseTextAsCaption),
+      videoPath: this.resolveCampaignMediaPath((media as any).videoFileName),
+      videoCaption: String((media as any).videoCaption || "").trim(),
+      videoUseTextAsCaption: Boolean((media as any).videoUseTextAsCaption),
+      audioPath: this.resolveCampaignMediaPath((media as any).audioFileName),
+      audioVoiceNote: Boolean((media as any).audioVoiceNote),
+      documentPath: this.resolveCampaignMediaPath((media as any).documentFileName),
+      documentName: String((media as any).documentName || "").trim() || null,
+      linkUrl: String((media as any).linkUrl || "").trim(),
+    };
+  }
+
+  /**
+   * Append a link URL to the message text so WhatsApp generates a link preview.
+   * If the link is already in the text, returns the text unchanged.
+   */
+  private appendLinkToMessage(messageText: string, linkUrl: string): string {
+    const url = String(linkUrl || "").trim();
+    if (!url) return messageText;
+    // If the URL is already present in the message, leave it alone
+    if (messageText.includes(url)) return messageText;
+    return `${messageText.trimEnd()}\n\n${url}`;
+  }
+
+  /**
+   * Send a campaign message to a single lead, including any configured media + link.
+   * Returns true if at least the primary message was delivered.
+   *
+   * Send order:
+   *   1. Image (caption = text if useTextAsCaption, else explicit caption)
+   *   2. Video (caption = text if useTextAsCaption, else explicit caption)
+   *   3. Audio (voice note option)
+   *   4. Document
+   *   5. Text message (with link appended if configured) — only if not already used as caption
+   */
+  private async sendCampaignMessageWithMedia(
+    instanceId: string,
+    jid: string | null | undefined,
+    phone: string,
+    messageText: string,
+    media: ReturnType<CampaignEngineService["extractCampaignMediaConfig"]>
+  ): Promise<{ ok: boolean; instanceId: string; error?: string }> {
+    const finalText = this.appendLinkToMessage(messageText, media.linkUrl);
+    let textConsumedAsCaption = false;
+    let anySent = false;
+    let lastError: string | undefined;
+
+    const send = async (
+      mediaType: "image" | "video" | "audio" | "document",
+      filePath: string,
+      opts: { caption?: string; voiceNote?: boolean; fileName?: string } = {}
+    ): Promise<boolean> => {
+      try {
+        const ok = jid
+          ? await this.instanceManager.sendMediaByJid(instanceId, jid, {
+              mediaType,
+              filePath,
+              caption: opts.caption,
+              voiceNote: opts.voiceNote,
+              fileName: opts.fileName,
+            })
+          : await this.instanceManager.sendMedia(instanceId, phone, {
+              mediaType,
+              filePath,
+              caption: opts.caption,
+              voiceNote: opts.voiceNote,
+              fileName: opts.fileName,
+            });
+        if (ok) anySent = true;
+        else lastError = `${mediaType} send failed`;
+        return ok;
+      } catch (err: any) {
+        lastError = `${mediaType}: ${err.message}`;
+        logger.error(`[Campaign media] ${lastError}`);
+        return false;
+      }
+    };
+
+    // 1. Image
+    if (media.imagePath) {
+      const caption = media.imageUseTextAsCaption
+        ? finalText
+        : (media.imageCaption || undefined);
+      await send("image", media.imagePath, { caption });
+      if (media.imageUseTextAsCaption) textConsumedAsCaption = true;
+    }
+
+    // 2. Video
+    if (media.videoPath) {
+      const caption = media.videoUseTextAsCaption
+        ? finalText
+        : (media.videoCaption || undefined);
+      await send("video", media.videoPath, { caption });
+      if (media.videoUseTextAsCaption) textConsumedAsCaption = true;
+    }
+
+    // 3. Audio
+    if (media.audioPath) {
+      await send("audio", media.audioPath, { voiceNote: media.audioVoiceNote });
+    }
+
+    // 4. Document
+    if (media.documentPath) {
+      await send("document", media.documentPath, {
+        fileName: media.documentName || undefined,
+      });
+    }
+
+    // 5. Text (only if not already sent as caption)
+    if (!textConsumedAsCaption && finalText.trim()) {
+      try {
+        const ok = jid
+          ? await this.instanceManager.sendMessageByJid(instanceId, jid, finalText)
+          : await this.instanceManager.sendMessage(instanceId, phone, finalText);
+        if (ok) anySent = true;
+        else lastError = "text send failed";
+      } catch (err: any) {
+        lastError = `text: ${err.message}`;
+      }
+    }
+
+    return {
+      ok: anySent,
+      instanceId,
+      error: anySent ? undefined : (lastError || "Envio falhou"),
+    };
   }
 
   // ─── Template filling ──────────────────────────────────────────

@@ -401,6 +401,119 @@ router.patch("/stock-access/:id/deactivate", authMiddleware, requireRole(["admin
   }
 });
 
+router.patch("/stock-access/:id/reactivate", authMiddleware, requireRole(["admin"]), async (req: AuthRequest, res: Response) => {
+  try {
+    await ensureStockCredentialSchema();
+    const ownerUserId = String(req.user?.userId || "").trim();
+    if (!ownerUserId) return res.status(401).json({ error: "Unauthorized" });
+    const id = String(req.params.id || "").trim();
+    if (!id) return res.status(400).json({ error: "id inválido" });
+    await query(
+      `UPDATE stock_app_credentials SET is_active = TRUE, updated_at = NOW()
+       WHERE id = ? AND owner_user_id = ?`,
+      [id, ownerUserId]
+    );
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || "Failed to reactivate stock credential" });
+  }
+});
+
+router.patch("/stock-access/:id", authMiddleware, requireRole(["admin"]), async (req: AuthRequest, res: Response) => {
+  try {
+    await ensureStockCredentialSchema();
+    const ownerUserId = String(req.user?.userId || "").trim();
+    if (!ownerUserId) return res.status(401).json({ error: "Unauthorized" });
+    const id = String(req.params.id || "").trim();
+    if (!id) return res.status(400).json({ error: "id inválido" });
+
+    const name = req.body?.name !== undefined ? String(req.body.name).trim() : null;
+    const phone = req.body?.phone !== undefined ? String(req.body.phone).trim() : null;
+    const email = req.body?.email !== undefined ? String(req.body.email).trim().toLowerCase() : null;
+
+    // Find the credential + manager user
+    const cred = await queryOne<any>(
+      `SELECT s.id, s.manager_user_id, s.email FROM stock_app_credentials s
+       WHERE s.id = ? AND s.owner_user_id = ? LIMIT 1`,
+      [id, ownerUserId]
+    );
+    if (!cred) return res.status(404).json({ error: "Acesso não encontrado" });
+
+    // Update users table (name/phone)
+    if (name !== null || phone !== null) {
+      const fields: string[] = [];
+      const values: any[] = [];
+      if (name !== null) { fields.push("name = ?"); values.push(name); }
+      if (phone !== null) { fields.push("phone = ?"); values.push(phone); }
+      if (fields.length > 0) {
+        values.push(String(cred.manager_user_id));
+        await query(`UPDATE users SET ${fields.join(", ")}, updated_at = NOW() WHERE id = ?`, values);
+      }
+    }
+
+    // Update email (in both tables)
+    if (email !== null && email !== String(cred.email || "").toLowerCase()) {
+      // Check if email is already in use
+      const existing = await queryOne<any>(
+        `SELECT id FROM users WHERE LOWER(email) = LOWER(?) AND id != ? LIMIT 1`,
+        [email, String(cred.manager_user_id)]
+      );
+      if (existing) return res.status(409).json({ error: "Email já em uso por outro usuário" });
+      await query(`UPDATE users SET email = ?, updated_at = NOW() WHERE id = ?`, [email, String(cred.manager_user_id)]);
+      await query(`UPDATE stock_app_credentials SET email = ?, updated_at = NOW() WHERE id = ?`, [email, id]);
+    } else {
+      await query(`UPDATE stock_app_credentials SET updated_at = NOW() WHERE id = ?`, [id]);
+    }
+
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || "Failed to update stock credential" });
+  }
+});
+
+router.patch("/stock-access/:id/password", authMiddleware, requireRole(["admin"]), async (req: AuthRequest, res: Response) => {
+  try {
+    await ensureStockCredentialSchema();
+    const ownerUserId = String(req.user?.userId || "").trim();
+    if (!ownerUserId) return res.status(401).json({ error: "Unauthorized" });
+    const id = String(req.params.id || "").trim();
+    const password = String(req.body?.password || "").trim();
+    if (!id) return res.status(400).json({ error: "id inválido" });
+    if (!password || password.length < 6) return res.status(400).json({ error: "Senha deve ter no mínimo 6 caracteres" });
+
+    const cred = await queryOne<any>(
+      `SELECT manager_user_id FROM stock_app_credentials WHERE id = ? AND owner_user_id = ? LIMIT 1`,
+      [id, ownerUserId]
+    );
+    if (!cred) return res.status(404).json({ error: "Acesso não encontrado" });
+
+    const password_hash = await bcrypt.hash(password, 10);
+    await query(`UPDATE users SET password_hash = ?, updated_at = NOW() WHERE id = ?`, [password_hash, String(cred.manager_user_id)]);
+    await query(`UPDATE stock_app_credentials SET updated_at = NOW() WHERE id = ?`, [id]);
+
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || "Failed to update password" });
+  }
+});
+
+router.delete("/stock-access/:id", authMiddleware, requireRole(["admin"]), async (req: AuthRequest, res: Response) => {
+  try {
+    await ensureStockCredentialSchema();
+    const ownerUserId = String(req.user?.userId || "").trim();
+    if (!ownerUserId) return res.status(401).json({ error: "Unauthorized" });
+    const id = String(req.params.id || "").trim();
+    if (!id) return res.status(400).json({ error: "id inválido" });
+    await query(
+      `DELETE FROM stock_app_credentials WHERE id = ? AND owner_user_id = ?`,
+      [id, ownerUserId]
+    );
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || "Failed to delete stock credential" });
+  }
+});
+
 router.get("/stock-brand", async (req: Request, res: Response) => {
   try {
     const brandRef = resolveRequestedBrandId(req);
@@ -416,6 +529,9 @@ router.get("/stock-brand", async (req: Request, res: Response) => {
         slug: String(brand.slug || "").trim() || null,
         name: String(brand.name || "").trim() || null,
         logo_url: String(brand.logo_url || "").trim() || null,
+        primary_color: String((brand as any).primary_color || "").trim() || null,
+        secondary_color: String((brand as any).secondary_color || "").trim() || null,
+        slogan: String((brand as any).slogan || "").trim() || null,
       },
     });
   } catch (error: any) {

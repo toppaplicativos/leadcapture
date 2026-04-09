@@ -1,11 +1,11 @@
-import { useState, useEffect, useCallback, useMemo, type ReactNode } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, Users, MessageSquare, Megaphone, ShoppingCart,
   Package, Palette, Search, RefreshCw, LogOut, Menu, X, Loader2,
   Plus, Phone, Mail, Clock, ArrowRight, BarChart3, Zap, Eye,
   ChevronLeft, ChevronRight, Send, Pause, Ban, Bot, Bell, Trash2,
-  Wand2, Truck, Globe, Settings,
+  Wand2, Truck, Globe, Settings, Volume2, FileText, Link2,
 } from 'lucide-react'
 import { adminApi, inventoryApi } from '@/lib/api-admin'
 
@@ -37,14 +37,14 @@ function useToast() {
 /* ── Route → Section mapping ── */
 const ROUTE_MAP: Record<string, string> = {
   '/admin': 'dashboard', '/dashboard': 'dashboard',
-  '/leads': 'leads', '/clientes': 'leads',
+  '/leads': 'leads',
+  '/clientes': 'clientes',
   '/busca': 'busca',
   '/mensagens': 'mensagens',
   '/notificacoes': 'notificacoes',
   '/campanhas': 'campanhas', '/campanha': 'campanhas',
   '/automacoes': 'automacoes',
   '/criativos': 'criativos', '/creative': 'criativos',
-  '/integracoes': 'integracoes',
   '/produtos': 'produtos',
   '/pedidos': 'pedidos',
   '/estoque': 'estoque',
@@ -65,13 +65,13 @@ function resolveSection(pathname: string): string {
 const NAV_ITEMS: { key: string; path: string; icon: any; label: string; group: string }[] = [
   { key: 'dashboard', path: '/admin', icon: LayoutDashboard, label: 'Painel', group: 'main' },
   { key: 'leads', path: '/leads', icon: Users, label: 'Leads', group: 'main' },
+  { key: 'clientes', path: '/clientes', icon: Users, label: 'Clientes', group: 'main' },
   { key: 'busca', path: '/busca', icon: Search, label: 'Busca', group: 'main' },
   { key: 'mensagens', path: '/mensagens', icon: MessageSquare, label: 'Mensagens', group: 'main' },
   { key: 'campanhas', path: '/campanhas', icon: Megaphone, label: 'Campanhas', group: 'main' },
   { key: 'automacoes', path: '/automacoes', icon: Zap, label: 'Automacoes', group: 'main' },
   { key: 'agente', path: '/agente', icon: Bot, label: 'Agente IA', group: 'main' },
   { key: 'whatsapp', path: '/whatsapp', icon: Phone, label: 'WhatsApp', group: 'main' },
-  { key: 'integracoes', path: '/integracoes', icon: Settings, label: 'Integracoes', group: 'main' },
   { key: 'produtos', path: '/produtos', icon: Package, label: 'Produtos', group: 'loja' },
   { key: 'pedidos', path: '/pedidos', icon: ShoppingCart, label: 'Pedidos', group: 'loja' },
   { key: 'estoque', path: '/estoque', icon: BarChart3, label: 'Estoque', group: 'loja' },
@@ -112,10 +112,19 @@ export function AdminShell({ children }: { children?: ReactNode }) {
         const b = list.find((x: any) => String(x.id) === String(active)) || list[0] || {}
         setBrand({ name: b.name, logo_url: b.logo_url })
         if (b.name) document.title = b.name + ' — Admin'
-        // Set brand CSS vars for all admin pages
+        // Set brand CSS vars for all admin pages + cache in localStorage for FOUC prevention
         const root = document.documentElement
         if (b.primary_color) root.style.setProperty('--brand-primary', b.primary_color)
-        if (b.secondary_color) root.style.setProperty('--brand-secondary', b.secondary_color)
+        if (b.secondary_color) {
+          root.style.setProperty('--brand-secondary', b.secondary_color)
+          root.style.setProperty('--brand-secondary-soft', b.secondary_color + '1a')
+          root.style.setProperty('--brand-secondary-light', b.secondary_color + '26')
+        }
+        try {
+          localStorage.setItem('lead-system:brand-colors', JSON.stringify({
+            primary: b.primary_color, secondary: b.secondary_color,
+          }))
+        } catch { /* ignore */ }
       }).catch(() => {})
   }, [refreshKey])
 
@@ -521,6 +530,154 @@ function LeadsView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') =>
 }
 
 /* ══════════════════════════════════════════════
+   CLIENTES VIEW (real customers — orders + manual)
+   ══════════════════════════════════════════════ */
+export function ClientesView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') => void }) {
+  const [clients, setClients] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState('')
+  const [page, setPage] = useState(1)
+  const [total, setTotal] = useState(0)
+  const [selected, setSelected] = useState<any>(null)
+
+  function load(p = page, s = search) {
+    setLoading(true)
+    adminApi.realClients(p, 50, s).then(d => {
+      setClients(d.clients || [])
+      setTotal(d.total || 0)
+      setLoading(false)
+    }).catch(e => { showToast(e.message, 'err'); setLoading(false) })
+  }
+
+  useEffect(() => { load(page, search) }, [page, search])
+
+  const totalPages = Math.ceil(total / 50)
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <h2 className="text-lg font-bold text-gray-900">Clientes</h2>
+          <p className="text-xs text-muted mt-0.5">Pessoas que fizeram pedidos ou foram cadastradas manualmente</p>
+        </div>
+        <span className="text-xs text-muted">{total} clientes</span>
+      </div>
+
+      {/* Search */}
+      <div className="relative">
+        <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted" />
+        <input type="text" value={search}
+          onChange={e => { setSearch(e.target.value); setPage(1) }}
+          placeholder="Buscar por nome, telefone ou email..."
+          className="w-full pl-10 pr-4 py-2.5 border border-border rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-200" />
+      </div>
+
+      {loading ? <Skeleton rows={6} /> : clients.length === 0 ? (
+        <EmptyState icon={Users} text="Nenhum cliente encontrado. Clientes aparecem automaticamente ao fazer pedidos." />
+      ) : (
+        <>
+          <div className="bg-white border border-border rounded-2xl overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-border">
+                    <th className="text-left px-4 py-2.5 text-xs font-bold text-muted uppercase">Cliente</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-bold text-muted uppercase hidden sm:table-cell">Telefone</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-bold text-muted uppercase hidden md:table-cell">Pedidos</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-bold text-muted uppercase hidden md:table-cell">Total gasto</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-bold text-muted uppercase">Ultimo pedido</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {clients.map((c: any, i: number) => (
+                    <tr key={i} onClick={() => setSelected(c)}
+                      className="border-b border-border/50 last:border-0 hover:bg-gray-50/80 cursor-pointer transition-colors">
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-indigo-500 grid place-items-center shrink-0 text-white text-xs font-bold">
+                            {(c.name || c.phone || '?')[0].toUpperCase()}
+                          </div>
+                          <div>
+                            <p className="font-medium text-gray-900 text-sm">{c.name || '(sem nome)'}</p>
+                            <p className="text-xs text-muted">{c.email || ''}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-muted hidden sm:table-cell">{c.phone || '—'}</td>
+                      <td className="px-4 py-3 hidden md:table-cell">
+                        <span className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 text-xs font-semibold px-2 py-0.5 rounded-full">
+                          {c.order_count || 0} pedidos
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 font-semibold text-emerald-700 hidden md:table-cell">
+                        {Number(c.total_spent || 0) > 0 ? money(c.total_spent) : '—'}
+                      </td>
+                      <td className="px-4 py-3 text-muted text-xs">{c.last_order_at ? dt(c.last_order_at) : 'Manual'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center gap-2">
+              <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}
+                className="p-2 rounded-lg bg-white border border-border disabled:opacity-40 hover:bg-gray-50 transition">
+                <ChevronLeft size={16} />
+              </button>
+              <span className="text-sm text-muted">{page} / {totalPages}</span>
+              <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages}
+                className="p-2 rounded-lg bg-white border border-border disabled:opacity-40 hover:bg-gray-50 transition">
+                <ChevronRight size={16} />
+              </button>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Client detail modal */}
+      {selected && (
+        <div className="fixed inset-0 bg-black/50 z-[200] flex items-end sm:items-center justify-center p-4" onClick={() => setSelected(null)}>
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl p-6" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-5">
+              <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-400 to-indigo-500 grid place-items-center text-white font-bold text-lg">
+                {(selected.name || selected.phone || '?')[0].toUpperCase()}
+              </div>
+              <div>
+                <h3 className="font-bold text-gray-900">{selected.name || '(sem nome)'}</h3>
+                <p className="text-xs text-muted capitalize">{selected.source_type === 'manual' ? 'Cadastro manual' : 'Cliente por pedido'}</p>
+              </div>
+              <button onClick={() => setSelected(null)} className="ml-auto p-2 rounded-lg hover:bg-gray-100 transition"><X size={16} /></button>
+            </div>
+            <div className="space-y-2.5 text-sm">
+              {selected.phone && <div className="flex items-center gap-2 text-gray-700"><Phone size={14} className="text-muted" />{selected.phone}</div>}
+              {selected.email && <div className="flex items-center gap-2 text-gray-700"><Mail size={14} className="text-muted" />{selected.email}</div>}
+              <div className="grid grid-cols-2 gap-3 pt-3 mt-3 border-t border-border">
+                <div className="bg-blue-50 rounded-xl p-3 text-center">
+                  <p className="text-2xl font-bold text-blue-700">{selected.order_count || 0}</p>
+                  <p className="text-[10px] text-muted uppercase font-bold mt-0.5">Pedidos</p>
+                </div>
+                <div className="bg-emerald-50 rounded-xl p-3 text-center">
+                  <p className="text-xl font-bold text-emerald-700">{money(selected.total_spent)}</p>
+                  <p className="text-[10px] text-muted uppercase font-bold mt-0.5">Total gasto</p>
+                </div>
+              </div>
+              {selected.last_order_at && (
+                <div className="flex items-center gap-2 text-muted text-xs pt-1">
+                  <Clock size={13} />Ultimo pedido: {dtFull(selected.last_order_at)}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ══════════════════════════════════════════════
    CAMPAIGNS VIEW
    ══════════════════════════════════════════════ */
 export function CampaignsView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') => void }) {
@@ -736,18 +893,29 @@ function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
   const [personalizedPerLead, setPersonalizedPerLead] = useState(comp.personalizedPerLead !== false)
   const [useAutoVariations, setUseAutoVariations] = useState(comp.useAutoVariations !== false)
 
-  // Tab 2b: Media (imagem/video)
+  // Tab 2b: Media (imagem/video/audio/documento) + link
   const media = s.media || {}
   const [imageUrl, setImageUrl] = useState(media.imageFileName || '')
   const [imageCaption, setImageCaption] = useState(media.imageCaption || '')
   const [imageUseTextAsCaption, setImageUseTextAsCaption] = useState(media.imageUseTextAsCaption !== false)
   const [videoUrl, setVideoUrl] = useState(media.videoFileName || '')
+  const [videoCaption, setVideoCaption] = useState(media.videoCaption || '')
+  const [videoUseTextAsCaption, setVideoUseTextAsCaption] = useState(Boolean(media.videoUseTextAsCaption))
+  const [audioUrl, setAudioUrl] = useState(media.audioFileName || '')
+  const [audioVoiceNote, setAudioVoiceNote] = useState(media.audioVoiceNote !== false)
+  const [documentUrl, setDocumentUrl] = useState(media.documentFileName || '')
+  const [documentName, setDocumentName] = useState(media.documentName || '')
+  const [linkUrl, setLinkUrl] = useState(media.linkUrl || '')
   const [uploadingImage, setUploadingImage] = useState(false)
   const [uploadingVideo, setUploadingVideo] = useState(false)
+  const [uploadingAudio, setUploadingAudio] = useState(false)
+  const [uploadingDocument, setUploadingDocument] = useState(false)
 
-  async function uploadMedia(file: File, type: 'image' | 'video') {
-    const setter = type === 'image' ? setImageUrl : setVideoUrl
-    const loadingSetter = type === 'image' ? setUploadingImage : setUploadingVideo
+  async function uploadMedia(file: File, type: 'image' | 'video' | 'audio' | 'document') {
+    const setterMap = { image: setImageUrl, video: setVideoUrl, audio: setAudioUrl, document: setDocumentUrl }
+    const loadingMap = { image: setUploadingImage, video: setUploadingVideo, audio: setUploadingAudio, document: setUploadingDocument }
+    const setter = setterMap[type]
+    const loadingSetter = loadingMap[type]
     loadingSetter(true)
     try {
       const fd = new FormData()
@@ -758,7 +926,10 @@ function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
         body: fd,
       })
       const d = await r.json()
-      if (d.file?.url) setter(d.file.url)
+      if (d.file?.url) {
+        setter(d.file.url)
+        if (type === 'document' && !documentName) setDocumentName(file.name)
+      }
     } catch {}
     loadingSetter(false)
   }
@@ -845,7 +1016,19 @@ function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
           triggers: { onNewLead: trigOnNewLead, onStatusChange: trigOnStatusChange, onTagMatch: trigOnTagMatch, onOrderCreated: trigOnOrderCreated },
           composer: { intentText, personalizedPerLead, useAutoVariations },
           antiBlock: { autoPauseByBlocks: parseInt(autoPauseBlocks) || 5, autoPauseByErrorRate: parseInt(autoPauseErrorRate) || 20, autoPauseOnOffline: autoPauseOffline, avoidNight, avoidSunday },
-          media: { imageFileName: imageUrl || null, imageCaption: imageCaption || null, imageUseTextAsCaption, videoFileName: videoUrl || null, audioFileName: null },
+          media: {
+            imageFileName: imageUrl || null,
+            imageCaption: imageCaption || null,
+            imageUseTextAsCaption,
+            videoFileName: videoUrl || null,
+            videoCaption: videoCaption || null,
+            videoUseTextAsCaption,
+            audioFileName: audioUrl || null,
+            audioVoiceNote,
+            documentFileName: documentUrl || null,
+            documentName: documentName || null,
+            linkUrl: linkUrl.trim() || null,
+          },
         },
       }
       if (isEdit) await adminApi.updateCampaign(campaign.id, body)
@@ -967,9 +1150,11 @@ function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
           {/* Tab: Mensagem & IA — Full composer */}
           {activeTab === 'mensagem' && (<>
 
-            {/* ─── 1. MIDIA (topo) ─── */}
-            <div className="bg-gray-50 rounded-xl p-3">
-              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em] mb-2">Midia (opcional)</p>
+            {/* ─── 1. MIDIA + LINK (topo) ─── */}
+            <div className="bg-gray-50 rounded-xl p-3 space-y-3">
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em]">Midia & Link (opcional)</p>
+
+              {/* Imagem + Video */}
               <div className="grid grid-cols-2 gap-2">
                 {/* Imagem */}
                 <div className={`rounded-xl border-2 border-dashed overflow-hidden transition-all ${imageUrl ? 'border-violet-300 bg-violet-50/30' : 'border-gray-200 bg-white'}`}>
@@ -1012,16 +1197,90 @@ function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
                   )}
                 </div>
               </div>
+
+              {/* Imagem caption */}
               {imageUrl && (
-                <div className="flex items-center gap-2 mt-2">
-                  <Toggle value={imageUseTextAsCaption} onChange={setImageUseTextAsCaption} />
-                  <span className="text-[10px] text-gray-500 font-medium">Usar texto da mensagem como legenda da imagem</span>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Toggle value={imageUseTextAsCaption} onChange={setImageUseTextAsCaption} />
+                    <span className="text-[10px] text-gray-500 font-medium">Usar texto da mensagem como legenda da imagem</span>
+                  </div>
+                  {!imageUseTextAsCaption && (
+                    <input type="text" value={imageCaption} onChange={e => setImageCaption(e.target.value)}
+                      placeholder="Legenda da imagem..." className={inputCls + ' !text-xs !py-2'} />
+                  )}
                 </div>
               )}
-              {imageUrl && !imageUseTextAsCaption && (
-                <input type="text" value={imageCaption} onChange={e => setImageCaption(e.target.value)}
-                  placeholder="Legenda personalizada..." className={inputCls + ' !text-xs !py-2 mt-2'} />
+
+              {/* Video caption */}
+              {videoUrl && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Toggle value={videoUseTextAsCaption} onChange={setVideoUseTextAsCaption} />
+                    <span className="text-[10px] text-gray-500 font-medium">Usar texto da mensagem como legenda do video</span>
+                  </div>
+                  {!videoUseTextAsCaption && (
+                    <input type="text" value={videoCaption} onChange={e => setVideoCaption(e.target.value)}
+                      placeholder="Legenda do video..." className={inputCls + ' !text-xs !py-2'} />
+                  )}
+                </div>
               )}
+
+              {/* Audio + Documento */}
+              <div className="grid grid-cols-2 gap-2">
+                {/* Audio */}
+                <div className={`rounded-xl border-2 border-dashed transition-all ${audioUrl ? 'border-violet-300 bg-violet-50/30' : 'border-gray-200 bg-white'}`}>
+                  {audioUrl ? (
+                    <div className="p-2.5 space-y-2">
+                      <audio src={audioUrl} controls className="w-full h-8" />
+                      <div className="flex items-center justify-between gap-2">
+                        <label className="flex items-center gap-1.5 text-[10px] text-gray-600 font-medium">
+                          <input type="checkbox" checked={audioVoiceNote} onChange={e => setAudioVoiceNote(e.target.checked)} className="w-3 h-3" />
+                          Voice note
+                        </label>
+                        <button onClick={() => setAudioUrl('')} className="text-[10px] text-red-500 font-bold">Remover</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <label className="flex flex-col items-center justify-center py-5 cursor-pointer hover:bg-violet-50/50 transition">
+                      {uploadingAudio ? <Loader2 size={18} className="text-violet-400 animate-spin" /> : <Volume2 size={18} className="text-gray-300" />}
+                      <p className="text-[10px] text-gray-400 mt-1 font-medium">{uploadingAudio ? 'Enviando...' : 'Audio'}</p>
+                      <input type="file" accept="audio/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) uploadMedia(f, 'audio') }} />
+                    </label>
+                  )}
+                </div>
+                {/* Documento */}
+                <div className={`rounded-xl border-2 border-dashed transition-all ${documentUrl ? 'border-violet-300 bg-violet-50/30' : 'border-gray-200 bg-white'}`}>
+                  {documentUrl ? (
+                    <div className="p-2.5 space-y-2">
+                      <div className="flex items-center gap-1.5">
+                        <FileText size={14} className="text-violet-500 shrink-0" />
+                        <span className="text-[11px] font-bold text-gray-700 truncate">{documentName || 'documento'}</span>
+                      </div>
+                      <input type="text" value={documentName} onChange={e => setDocumentName(e.target.value)}
+                        placeholder="Nome do arquivo..." className="w-full px-2 py-1 border border-gray-200 rounded-md text-[10px]" />
+                      <button onClick={() => { setDocumentUrl(''); setDocumentName('') }} className="text-[10px] text-red-500 font-bold">Remover</button>
+                    </div>
+                  ) : (
+                    <label className="flex flex-col items-center justify-center py-5 cursor-pointer hover:bg-violet-50/50 transition">
+                      {uploadingDocument ? <Loader2 size={18} className="text-violet-400 animate-spin" /> : <FileText size={18} className="text-gray-300" />}
+                      <p className="text-[10px] text-gray-400 mt-1 font-medium">{uploadingDocument ? 'Enviando...' : 'Documento'}</p>
+                      <input type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) uploadMedia(f, 'document') }} />
+                    </label>
+                  )}
+                </div>
+              </div>
+
+              {/* Link */}
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em] mb-1 block flex items-center gap-1.5">
+                  <Link2 size={11} /> Link (gera preview no WhatsApp)
+                </label>
+                <input type="url" value={linkUrl} onChange={e => setLinkUrl(e.target.value)}
+                  placeholder="https://exemplo.com/sua-pagina"
+                  className={inputCls + ' !text-xs !py-2'} />
+                <p className="text-[9px] text-gray-400 mt-1">O link sera adicionado ao final da mensagem. Se ja estiver no texto, nao sera duplicado.</p>
+              </div>
             </div>
 
             {/* ─── 2. CONTEUDO DA MENSAGEM ─── */}
@@ -1440,6 +1699,7 @@ export function OrdersView({ showToast }: { showToast: (t: string, tp?: 'ok' | '
           <table className="w-full text-sm"><thead><tr className="bg-gray-50/80 border-b border-gray-100">
             <th className="text-left px-4 py-2.5 text-[10px] font-bold text-gray-400 uppercase">Pedido</th>
             <th className="text-left px-4 py-2.5 text-[10px] font-bold text-gray-400 uppercase">Cliente</th>
+            <th className="text-left px-4 py-2.5 text-[10px] font-bold text-gray-400 uppercase hidden sm:table-cell">Vendedor</th>
             <th className="text-center px-4 py-2.5 text-[10px] font-bold text-gray-400 uppercase">Status</th>
             <th className="text-center px-4 py-2.5 text-[10px] font-bold text-gray-400 uppercase hidden sm:table-cell">Pagto</th>
             <th className="text-right px-4 py-2.5 text-[10px] font-bold text-gray-400 uppercase">Valor</th>
@@ -1449,6 +1709,7 @@ export function OrdersView({ showToast }: { showToast: (t: string, tp?: 'ok' | '
               <tr key={o.id} onClick={() => openDetail(o)} className="border-b border-gray-100 last:border-0 cursor-pointer hover:bg-blue-50/30 transition group">
                 <td className="px-4 py-3"><p className="font-mono text-xs font-bold text-gray-700 group-hover:text-blue-600">#{o.order_number || o.id?.slice(0, 8)}</p><p className="text-[9px] text-gray-400">{o.channel || o.origem}</p></td>
                 <td className="px-4 py-3"><p className="font-semibold text-gray-900 truncate max-w-[140px]">{o.customer_name || '—'}</p></td>
+                <td className="px-4 py-3 hidden sm:table-cell"><p className="text-xs text-gray-600">{o.seller_name || o.vendedor || '—'}</p></td>
                 <td className="px-4 py-3 text-center"><span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${st.cls}`}>{st.label}</span></td>
                 <td className="px-4 py-3 text-center hidden sm:table-cell"><span className="text-[10px] text-gray-500">{(o.forma_pagamento || '').toUpperCase()}</span></td>
                 <td className="px-4 py-3 text-right font-bold text-gray-900">{money(o.valor_total)}</td>
@@ -2150,7 +2411,7 @@ export function MessagesView({ showToast }: { showToast: (t: string, tp?: 'ok' |
 
   useEffect(() => {
     setLoading(true)
-    fetch('/api/sessions?limit=50', { headers: getHeaders() })
+    fetch('/api/sessions', { headers: getHeaders() })
       .then(r => r.json()).then(d => {
         setSessions(d.sessions || [])
         setLoading(false)
@@ -2974,6 +3235,7 @@ export function DomainView({ showToast }: { showToast: (t: string, tp?: 'ok' | '
 export function EstoqueAccessView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') => void }) {
   const [credentials, setCredentials] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [saving, setSaving] = useState(false)
   const [formName, setFormName] = useState('')
@@ -2981,17 +3243,28 @@ export function EstoqueAccessView({ showToast }: { showToast: (t: string, tp?: '
   const [formPassword, setFormPassword] = useState('')
   const [formPhone, setFormPhone] = useState('')
   const [brandSlug, setBrandSlug] = useState('')
-  const [toggling, setToggling] = useState<string | null>(null)
+  const [managing, setManaging] = useState<any>(null)
 
   function loadCredentials() {
     setLoading(true)
+    setLoadError('')
+    // getHeaders() already sends x-brand-id. Also include as query for safety.
     const brandId = localStorage.getItem('lead-system:active-brand-id') || ''
-    fetch(`/api/auth/stock-access?brand_id=${brandId}`, { headers: getHeaders() })
-      .then(r => r.json()).then(d => {
+    const url = brandId ? `/api/auth/stock-access?brand_id=${brandId}` : '/api/auth/stock-access'
+    fetch(url, { headers: getHeaders() })
+      .then(async r => {
+        const d = await r.json()
+        if (!r.ok) throw new Error(d.error || `Erro ${r.status}`)
+        return d
+      })
+      .then(d => {
         setCredentials(d.credentials || [])
         if (d.credentials?.[0]?.brand_slug) setBrandSlug(d.credentials[0].brand_slug)
         setLoading(false)
-      }).catch(() => setLoading(false))
+      }).catch((e) => {
+        setLoadError(e.message || 'Erro ao carregar acessos')
+        setLoading(false)
+      })
   }
   useEffect(() => {
     loadCredentials()
@@ -3007,7 +3280,7 @@ export function EstoqueAccessView({ showToast }: { showToast: (t: string, tp?: '
 
   async function createAccess() {
     if (!formEmail.trim() || !formPassword || formPassword.length < 6) {
-      return showToast('Email e senha (min 6 chars) obrigatorios', 'err')
+      return showToast('Email e senha (min 6 chars) obrigatórios', 'err')
     }
     setSaving(true)
     try {
@@ -3025,42 +3298,31 @@ export function EstoqueAccessView({ showToast }: { showToast: (t: string, tp?: '
     setSaving(false)
   }
 
-  async function deactivate(id: string) {
-    setToggling(id)
-    try {
-      await fetch(`/api/auth/stock-access/${id}/deactivate`, { method: 'PATCH', headers: getHeaders() })
-      showToast('Acesso desativado')
-      loadCredentials()
-    } catch (e: any) { showToast(e.message, 'err') }
-    setToggling(null)
-  }
-
-  if (loading) return <Skeleton rows={4} />
-
-  const appUrl = '/estoque/app'
+  const stockAppUrl = brandSlug ? `/app-estoque/${brandSlug}` : '/app-estoque'
 
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">Estoque</h2>
-          <p className="text-[13px] text-gray-400 mt-0.5">Gerencie usuarios e acessos ao app de estoque</p>
+          <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">Acesso ao Estoque</h2>
+          <p className="text-[13px] text-gray-400 mt-0.5">Gerencie usuários e credenciais do app de estoque</p>
         </div>
         <button onClick={() => setShowForm(!showForm)}
-          className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 text-white text-xs font-bold hover:from-emerald-600 hover:to-teal-700 transition-all shadow-md">
+          style={{ backgroundColor: 'var(--brand-secondary)' }}
+          className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-white text-xs font-bold hover:opacity-90 transition shadow-md">
           <Plus size={14} /> Novo Acesso
         </button>
       </div>
 
       {/* App link card */}
       <div className="bg-gradient-to-br from-gray-900 to-gray-800 rounded-2xl p-5 text-white shadow-lg">
-        <div className="flex items-center justify-between">
-          <div>
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
             <p className="text-white/50 text-[10px] font-bold uppercase tracking-wider">App de Estoque</p>
             <p className="text-sm font-bold mt-1">Acesso dos gerentes ao painel de controle de estoque</p>
-            <p className="text-xs text-white/40 mt-1.5 font-mono">{window.location.origin}{appUrl}</p>
+            <p className="text-xs text-white/40 mt-1.5 font-mono truncate">{window.location.origin}{stockAppUrl}</p>
           </div>
-          <a href={appUrl} target="_blank" rel="noreferrer"
+          <a href={stockAppUrl} target="_blank" rel="noreferrer"
             className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-bold transition shrink-0">
             Abrir App →
           </a>
@@ -3075,75 +3337,317 @@ export function EstoqueAccessView({ showToast }: { showToast: (t: string, tp?: '
             <div>
               <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1 block">Nome do gerente</label>
               <input type="text" value={formName} onChange={e => setFormName(e.target.value)}
-                placeholder="Ex: Joao Silva"
-                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-200" />
+                placeholder="Ex: João Silva"
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand" />
             </div>
             <div>
               <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1 block">Telefone (opcional)</label>
               <input type="text" value={formPhone} onChange={e => setFormPhone(e.target.value)}
                 placeholder="31999998888"
-                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-200" />
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand" />
             </div>
             <div>
               <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1 block">Email de login *</label>
               <input type="email" value={formEmail} onChange={e => setFormEmail(e.target.value)}
                 placeholder="gerente@empresa.com" required
-                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-200" />
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand" />
             </div>
             <div>
               <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1 block">Senha *</label>
               <input type="password" value={formPassword} onChange={e => setFormPassword(e.target.value)}
-                placeholder="Min 6 caracteres" required
-                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-200" />
+                placeholder="Mín. 6 caracteres" required
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand" />
             </div>
           </div>
           <div className="flex justify-end gap-2">
             <button onClick={() => setShowForm(false)}
               className="px-4 py-2 rounded-xl bg-gray-100 text-gray-600 text-xs font-semibold hover:bg-gray-200 transition">Cancelar</button>
             <button onClick={createAccess} disabled={saving}
-              className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 disabled:opacity-50 transition">
+              style={{ backgroundColor: 'var(--brand-secondary)' }}
+              className="px-4 py-2 rounded-xl text-white text-xs font-bold hover:opacity-90 disabled:opacity-50 transition">
               {saving ? 'Criando...' : 'Criar Acesso'}
             </button>
           </div>
         </div>
       )}
 
+      {/* Error state */}
+      {loadError && !loading && (
+        <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-sm text-red-700">
+          <p className="font-bold">Erro ao carregar acessos</p>
+          <p className="text-xs mt-1">{loadError}</p>
+          <button onClick={loadCredentials} className="mt-2 px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-semibold hover:bg-red-700 transition">
+            Tentar novamente
+          </button>
+        </div>
+      )}
+
       {/* Credentials list */}
-      {credentials.length === 0 ? (
+      {loading ? <Skeleton rows={3} /> : credentials.length === 0 && !loadError ? (
         <EmptyState icon={Users} text="Nenhum acesso de estoque configurado" />
-      ) : (
+      ) : credentials.length > 0 && (
         <div className="space-y-2.5">
+          <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">{credentials.length} acesso{credentials.length !== 1 ? 's' : ''} registrado{credentials.length !== 1 ? 's' : ''}</p>
           {credentials.map((c: any) => (
-            <div key={c.id} className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-4">
+            <button key={c.id} type="button" onClick={() => setManaging(c)}
+              className="w-full text-left bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-4 hover:shadow-md hover:border-brand transition-all active:scale-[0.99]">
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-3 min-w-0">
-                  <div className={`w-10 h-10 rounded-xl grid place-items-center shrink-0 ${c.is_active ? 'bg-emerald-50' : 'bg-gray-100'}`}>
-                    <Users size={18} className={c.is_active ? 'text-emerald-500' : 'text-gray-400'} />
+                  <div className={`w-11 h-11 rounded-xl grid place-items-center shrink-0 ${c.is_active ? '' : 'bg-gray-100'}`}
+                    style={c.is_active ? { backgroundColor: 'var(--brand-secondary-soft)' } : undefined}>
+                    <Users size={18} style={c.is_active ? { color: 'var(--brand-secondary)' } : { color: '#9ca3af' }} />
                   </div>
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
-                      <p className="font-bold text-sm text-gray-900">{c.manager_name || 'Gerente'}</p>
-                      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${c.is_active ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200' : 'bg-red-50 text-red-600'}`}>
+                      <p className="font-bold text-sm text-gray-900 truncate">{c.manager_name || 'Gerente'}</p>
+                      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${c.is_active ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200' : 'bg-red-50 text-red-600'}`}>
                         {c.is_active ? 'ATIVO' : 'INATIVO'}
                       </span>
                     </div>
-                    <p className="text-xs text-gray-400 font-mono">{c.email}</p>
+                    <p className="text-xs text-gray-400 font-mono truncate">{c.email}</p>
                     {c.manager_phone && <p className="text-[10px] text-gray-400">{c.manager_phone}</p>}
                   </div>
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  {c.is_active && (
-                    <button onClick={() => deactivate(c.id)} disabled={toggling === c.id}
-                      className="px-3 py-1.5 rounded-lg text-red-500 text-[11px] font-semibold hover:bg-red-50 transition">
-                      Desativar
-                    </button>
-                  )}
-                </div>
+                <ChevronRight size={18} className="text-gray-300 shrink-0" />
               </div>
-            </div>
+            </button>
           ))}
         </div>
       )}
+
+      {managing && (
+        <StockAccessManageModal
+          credential={managing}
+          onClose={() => setManaging(null)}
+          onChanged={() => { setManaging(null); loadCredentials() }}
+          showToast={showToast}
+        />
+      )}
+    </div>
+  )
+}
+
+/* ══════════════════════════════════════════════
+   STOCK ACCESS MANAGE MODAL
+   ══════════════════════════════════════════════ */
+function StockAccessManageModal({ credential, onClose, onChanged, showToast }: {
+  credential: any
+  onClose: () => void
+  onChanged: () => void
+  showToast: (t: string, tp?: 'ok' | 'err') => void
+}) {
+  const [tab, setTab] = useState<'dados' | 'senha' | 'zona'>('dados')
+  const [name, setName] = useState(credential.manager_name || '')
+  const [phone, setPhone] = useState(credential.manager_phone || '')
+  const [email, setEmail] = useState(credential.email || '')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [toggling, setToggling] = useState(false)
+
+  async function saveData() {
+    if (!name.trim()) return showToast('Nome é obrigatório', 'err')
+    if (!email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return showToast('Email inválido', 'err')
+    setSaving(true)
+    try {
+      const r = await fetch(`/api/auth/stock-access/${credential.id}`, {
+        method: 'PATCH', headers: getHeaders(),
+        body: JSON.stringify({ name: name.trim(), phone: phone.trim(), email: email.trim() }),
+      })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.error || 'Erro ao salvar')
+      showToast('Dados atualizados!')
+      onChanged()
+    } catch (e: any) { showToast(e.message, 'err') }
+    finally { setSaving(false) }
+  }
+
+  async function changePassword() {
+    if (!newPassword || newPassword.length < 6) return showToast('Senha deve ter no mínimo 6 caracteres', 'err')
+    if (newPassword !== confirmPassword) return showToast('As senhas não coincidem', 'err')
+    setSaving(true)
+    try {
+      const r = await fetch(`/api/auth/stock-access/${credential.id}/password`, {
+        method: 'PATCH', headers: getHeaders(),
+        body: JSON.stringify({ password: newPassword }),
+      })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.error || 'Erro ao trocar senha')
+      showToast('Senha alterada com sucesso!')
+      setNewPassword(''); setConfirmPassword('')
+      onChanged()
+    } catch (e: any) { showToast(e.message, 'err') }
+    finally { setSaving(false) }
+  }
+
+  async function toggleActive() {
+    setToggling(true)
+    try {
+      const url = credential.is_active
+        ? `/api/auth/stock-access/${credential.id}/deactivate`
+        : `/api/auth/stock-access/${credential.id}/reactivate`
+      const r = await fetch(url, { method: 'PATCH', headers: getHeaders() })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.error || 'Erro')
+      showToast(credential.is_active ? 'Acesso desativado' : 'Acesso reativado!')
+      onChanged()
+    } catch (e: any) { showToast(e.message, 'err') }
+    finally { setToggling(false) }
+  }
+
+  async function deleteAccess() {
+    if (!confirm(`Excluir permanentemente o acesso de ${credential.manager_name || credential.email}?\n\nEsta ação não pode ser desfeita.`)) return
+    setDeleting(true)
+    try {
+      const r = await fetch(`/api/auth/stock-access/${credential.id}`, {
+        method: 'DELETE', headers: getHeaders(),
+      })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.error || 'Erro ao excluir')
+      showToast('Acesso excluído')
+      onChanged()
+    } catch (e: any) { showToast(e.message, 'err') }
+    finally { setDeleting(false) }
+  }
+
+  const inp = "w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand transition"
+
+  const TABS = [
+    { id: 'dados', label: 'Dados', icon: Users },
+    { id: 'senha', label: 'Senha', icon: Settings },
+    { id: 'zona', label: 'Zona de risco', icon: Trash2 },
+  ] as const
+
+  return (
+    <div className="fixed inset-0 z-[200] bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center sm:p-4"
+      onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="relative bg-white rounded-t-3xl sm:rounded-3xl w-full sm:max-w-lg flex flex-col max-h-[92vh] shadow-2xl">
+        <button onClick={onClose}
+          className="absolute top-4 right-4 z-10 w-9 h-9 rounded-full bg-gray-100 hover:bg-gray-200 grid place-items-center transition">
+          <X size={15} className="text-gray-600" />
+        </button>
+
+        {/* Header */}
+        <div className="shrink-0 px-6 pt-6 pb-4 border-b border-gray-100">
+          <div className="flex items-center gap-3 pr-10">
+            <div className="w-12 h-12 rounded-2xl grid place-items-center text-white shrink-0 shadow-md"
+              style={{ backgroundColor: 'var(--brand-secondary)' }}>
+              <Users size={22} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <h2 className="text-base font-bold text-gray-900 truncate">{credential.manager_name || 'Gerente'}</h2>
+              <p className="text-xs text-gray-400 font-mono truncate">{credential.email}</p>
+            </div>
+            <span className={`text-[9px] font-bold px-2 py-1 rounded-full shrink-0 ${credential.is_active ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200' : 'bg-red-50 text-red-600'}`}>
+              {credential.is_active ? 'ATIVO' : 'INATIVO'}
+            </span>
+          </div>
+        </div>
+
+        {/* Tabs */}
+        <div className="shrink-0 flex border-b border-gray-100 px-4 bg-white">
+          {TABS.map(t => (
+            <button key={t.id} onClick={() => setTab(t.id as any)}
+              style={tab === t.id ? { borderColor: 'var(--brand-secondary)', color: 'var(--brand-secondary)' } : undefined}
+              className={`flex items-center gap-1.5 px-3 py-3 text-xs font-semibold border-b-2 transition-all -mb-px ${
+                tab === t.id ? '' : 'border-transparent text-gray-400 hover:text-gray-600'
+              }`}>
+              <t.icon size={13} />{t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto px-6 py-5">
+          {tab === 'dados' && (
+            <div className="space-y-3.5">
+              <div>
+                <label className="text-[11px] font-bold text-gray-500 uppercase tracking-wide mb-1.5 block">Nome *</label>
+                <input value={name} onChange={e => setName(e.target.value)} className={inp} placeholder="Nome completo" />
+              </div>
+              <div>
+                <label className="text-[11px] font-bold text-gray-500 uppercase tracking-wide mb-1.5 block">Email de login *</label>
+                <input type="email" value={email} onChange={e => setEmail(e.target.value)} className={inp} placeholder="email@exemplo.com" />
+                <p className="text-[10px] text-gray-400 mt-1">Usado para fazer login no app de estoque</p>
+              </div>
+              <div>
+                <label className="text-[11px] font-bold text-gray-500 uppercase tracking-wide mb-1.5 block">Telefone</label>
+                <input value={phone} onChange={e => setPhone(e.target.value)} className={inp} placeholder="31999998888" />
+              </div>
+              <button onClick={saveData} disabled={saving}
+                style={{ backgroundColor: 'var(--brand-secondary)' }}
+                className="w-full py-3 rounded-xl text-white font-bold text-sm disabled:opacity-50 hover:opacity-90 transition shadow-md">
+                {saving ? 'Salvando...' : 'Salvar alterações'}
+              </button>
+            </div>
+          )}
+
+          {tab === 'senha' && (
+            <div className="space-y-3.5">
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-800">
+                <p className="font-bold">⚠ Alteração de senha</p>
+                <p className="mt-1">Ao trocar a senha, o gerente precisará usar a nova senha para entrar no app.</p>
+              </div>
+              <div>
+                <label className="text-[11px] font-bold text-gray-500 uppercase tracking-wide mb-1.5 block">Nova senha *</label>
+                <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)}
+                  className={inp} placeholder="Mín. 6 caracteres" />
+              </div>
+              <div>
+                <label className="text-[11px] font-bold text-gray-500 uppercase tracking-wide mb-1.5 block">Confirmar senha *</label>
+                <input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)}
+                  className={inp} placeholder="Digite a senha novamente" />
+              </div>
+              <button onClick={changePassword} disabled={saving || !newPassword || newPassword !== confirmPassword}
+                style={{ backgroundColor: 'var(--brand-secondary)' }}
+                className="w-full py-3 rounded-xl text-white font-bold text-sm disabled:opacity-50 hover:opacity-90 transition shadow-md">
+                {saving ? 'Alterando...' : 'Trocar senha'}
+              </button>
+            </div>
+          )}
+
+          {tab === 'zona' && (
+            <div className="space-y-4">
+              {/* Toggle active/inactive */}
+              <div className="bg-white border border-gray-200 rounded-2xl p-4">
+                <div className="flex items-start justify-between gap-3 mb-3">
+                  <div>
+                    <p className="font-bold text-sm text-gray-900">{credential.is_active ? 'Desativar acesso' : 'Reativar acesso'}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      {credential.is_active
+                        ? 'O gerente não conseguirá mais fazer login, mas os dados ficam preservados.'
+                        : 'Permite que o gerente faça login novamente no app.'}
+                    </p>
+                  </div>
+                </div>
+                <button onClick={toggleActive} disabled={toggling}
+                  className={`w-full py-2.5 rounded-xl text-sm font-bold transition disabled:opacity-50 ${
+                    credential.is_active
+                      ? 'bg-amber-100 text-amber-700 hover:bg-amber-200'
+                      : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
+                  }`}>
+                  {toggling ? 'Processando...' : credential.is_active ? 'Desativar acesso' : 'Reativar acesso'}
+                </button>
+              </div>
+
+              {/* Delete permanently */}
+              <div className="bg-red-50 border border-red-200 rounded-2xl p-4">
+                <div className="mb-3">
+                  <p className="font-bold text-sm text-red-900">⚠ Excluir permanentemente</p>
+                  <p className="text-xs text-red-700 mt-0.5">
+                    Esta ação removerá o acesso definitivamente do sistema. O usuário não poderá ser recuperado.
+                  </p>
+                </div>
+                <button onClick={deleteAccess} disabled={deleting}
+                  className="w-full py-2.5 rounded-xl bg-red-600 text-white text-sm font-bold hover:bg-red-700 transition disabled:opacity-50">
+                  {deleting ? 'Excluindo...' : 'Excluir acesso permanentemente'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
@@ -3157,13 +3661,15 @@ export function EstoqueAccessView({ showToast }: { showToast: (t: string, tp?: '
 export function WhatsAppManagerView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') => void }) {
   const [instances, setInstances] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [reconnecting, setReconnecting] = useState<string | null>(null)
+  const [reconnectMsg, setReconnectMsg] = useState('')
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
   const [qrCode, setQrCode] = useState<string | null>(null)
   const [qrInstance, setQrInstance] = useState<string | null>(null)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   function load() {
-    setLoading(true)
     fetch('/api/instances', { headers: getHeaders() }).then(r => r.json()).then(d => {
       setInstances(d.instances || [])
       setLoading(false)
@@ -3171,36 +3677,89 @@ export function WhatsAppManagerView({ showToast }: { showToast: (t: string, tp?:
   }
   useEffect(() => { load() }, [])
 
+  // Polling enquanto QR code está aberto — detecta conexão automática
+  useEffect(() => {
+    if (qrInstance) {
+      pollRef.current = setInterval(() => {
+        fetch(`/api/instances/${qrInstance}`, { headers: getHeaders() })
+          .then(r => r.json())
+          .then(d => {
+            const st = d.status || ''
+            if (st === 'connected' || st === 'authenticated') {
+              setQrCode(null)
+              setQrInstance(null)
+              showToast('WhatsApp conectado!')
+              load()
+            } else if (d.hasQr && !qrCode) {
+              // QR rotacionou — busca novo
+              fetch(`/api/instances/${qrInstance}/qr`, { headers: getHeaders() })
+                .then(r => r.json()).then(q => { if (q.qr) setQrCode(q.qr) }).catch(() => {})
+            }
+          }).catch(() => {})
+      }, 4000)
+    } else {
+      if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
+    }
+    return () => { if (pollRef.current) clearInterval(pollRef.current) }
+  }, [qrInstance])
+
   async function createInstance() {
     if (!newName.trim()) return showToast('Nome obrigatorio', 'err')
     setCreating(true)
     try {
-      const r = await fetch('/api/sessions', { method: 'POST', headers: getHeaders(), body: JSON.stringify({ name: newName.trim() }) })
+      const r = await fetch('/api/instances', { method: 'POST', headers: getHeaders(), body: JSON.stringify({ name: newName.trim() }) })
       const d = await r.json()
-      if (!r.ok) throw new Error(d.error || 'Erro')
-      showToast('Sessao criada! Escaneie o QR Code')
+      if (!r.ok) throw new Error(d.error || 'Erro ao criar instancia')
+      showToast('Instancia criada! Escaneie o QR Code')
       setNewName('')
-      // Check for QR code
-      if (d.qr || d.qrCode) { setQrCode(d.qr || d.qrCode); setQrInstance(d.instance?.id || d.id) }
+      if (d.qr || d.qrCode) { setQrCode(d.qr || d.qrCode); setQrInstance(d.id) }
       load()
     } catch (e: any) { showToast(e.message, 'err') }
     setCreating(false)
   }
 
   async function restoreInstance(id: string) {
+    setReconnecting(id)
+    setReconnectMsg('Desconectando sessão anterior...')
+    setQrCode(null)
+    setQrInstance(null)
     try {
-      const r = await fetch(`/api/sessions/${id}/restore`, { headers: getHeaders() })
+      // Feedback progressivo enquanto aguarda o QR (pode demorar até 18s)
+      const msgs = ['Iniciando reconexão...', 'Aguardando QR Code do WhatsApp...', 'Quase lá...']
+      let msgIdx = 0
+      const msgTimer = setInterval(() => {
+        msgIdx = Math.min(msgIdx + 1, msgs.length - 1)
+        setReconnectMsg(msgs[msgIdx])
+      }, 5000)
+
+      const r = await fetch(`/api/instances/${id}/reconnect`, { method: 'POST', headers: getHeaders() })
+      clearInterval(msgTimer)
       const d = await r.json()
-      if (d.qr || d.qrCode) { setQrCode(d.qr || d.qrCode); setQrInstance(id) }
-      showToast('Restaurando sessao...')
-      setTimeout(load, 3000)
-    } catch (e: any) { showToast(e.message, 'err') }
+      if (!r.ok) throw new Error(d.error || 'Erro ao reconectar')
+
+      if (d.qr || d.qrCode) {
+        setQrCode(d.qr || d.qrCode)
+        setQrInstance(id)
+        showToast('Escaneie o QR Code no WhatsApp!')
+      } else if (d.status === 'connected') {
+        showToast('Reconectado com sucesso!', 'ok')
+        load()
+      } else {
+        // Ainda conectando com sessão salva — inicia polling
+        setQrInstance(id)
+        showToast(d.message || 'Conectando com sessão salva...')
+        setTimeout(load, 5000)
+      }
+    } catch (e: any) { showToast(e.message || 'Erro ao reconectar', 'err') }
+    setReconnecting(null)
+    setReconnectMsg('')
   }
 
   async function deleteInstance(id: string) {
-    if (!confirm('Remover esta sessao WhatsApp?')) return
-    await fetch(`/api/sessions/${id}`, { method: 'DELETE', headers: getHeaders() }).catch(() => {})
-    showToast('Sessao removida')
+    if (!confirm('Remover esta instancia WhatsApp?')) return
+    await fetch(`/api/instances/${id}`, { method: 'DELETE', headers: getHeaders() }).catch(() => {})
+    showToast('Instancia removida')
+    if (qrInstance === id) { setQrCode(null); setQrInstance(null) }
     load()
   }
 
@@ -3247,16 +3806,30 @@ export function WhatsAppManagerView({ showToast }: { showToast: (t: string, tp?:
         </div>
       </div>
 
-      {/* QR Code */}
+      {/* QR Code Modal */}
       {qrCode && (
-        <div className="bg-white rounded-2xl border border-gray-200 shadow-lg p-6 text-center">
-          <p className="text-sm font-bold text-gray-900 mb-3">Escaneie o QR Code no WhatsApp</p>
-          <div className="bg-white p-4 rounded-xl inline-block shadow-inner border">
-            <img src={qrCode.startsWith('data:') ? qrCode : `data:image/png;base64,${qrCode}`} alt="QR Code"
-              className="w-48 h-48" onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
+        <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => { setQrCode(null); setQrInstance(null); load() }}>
+          <div className="bg-white rounded-2xl shadow-2xl p-6 text-center max-w-xs w-full mx-4" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm font-bold text-gray-900">Escaneie o QR Code</p>
+              <button onClick={() => { setQrCode(null); setQrInstance(null); load() }} className="p-1.5 rounded-lg hover:bg-gray-100 transition"><X size={16} className="text-gray-400" /></button>
+            </div>
+            <div className="bg-gray-50 p-4 rounded-xl inline-block border border-gray-200">
+              <img src={qrCode.startsWith('data:') ? qrCode : `data:image/png;base64,${qrCode}`} alt="QR Code"
+                className="w-52 h-52" onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
+            </div>
+            <p className="text-[11px] text-gray-400 mt-3 leading-relaxed">
+              Abra o WhatsApp → Configuracoes →<br />Aparelhos Conectados → Conectar Aparelho
+            </p>
+            <div className="mt-3 flex items-center justify-center gap-1.5 text-[10px] text-emerald-600">
+              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              Aguardando conexao...
+            </div>
+            <button onClick={() => { setQrCode(null); setQrInstance(null); load() }}
+              className="mt-3 text-xs text-blue-600 font-semibold hover:underline">
+              Ja escaneei
+            </button>
           </div>
-          <p className="text-xs text-gray-400 mt-3">Abra WhatsApp → Configuracoes → Aparelhos Conectados → Conectar Aparelho</p>
-          <button onClick={() => { setQrCode(null); load() }} className="mt-3 text-xs text-blue-600 font-semibold hover:underline">Ja escaneei</button>
         </div>
       )}
 
@@ -3285,9 +3858,9 @@ export function WhatsAppManagerView({ showToast }: { showToast: (t: string, tp?:
                       isConnected ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200' : 'bg-red-50 text-red-600 ring-1 ring-red-200'
                     }`}>{isConnected ? 'Online' : 'Offline'}</span>
                     {!isConnected && (
-                      <button onClick={() => restoreInstance(inst.id)}
-                        className="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 text-[11px] font-bold hover:bg-blue-100 transition">
-                        Reconectar
+                      <button onClick={() => restoreInstance(inst.id)} disabled={!!reconnecting}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 text-[11px] font-bold hover:bg-blue-100 transition disabled:opacity-60">
+                        {reconnecting === inst.id ? <><Loader2 size={11} className="animate-spin" /> {reconnectMsg || 'Aguardando...'}</> : 'Reconectar'}
                       </button>
                     )}
                     <button onClick={() => deleteInstance(inst.id)}
@@ -3634,6 +4207,518 @@ export function FreteView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'e
           <input type="tel" value={expeditionPhone} onChange={e => setExpeditionPhone(e.target.value)}
             placeholder="Ex: 5531991619663" className={inputCls + ' pl-9'} />
         </div>
+      </div>
+    </div>
+  )
+}
+
+/* ── Edit Form Component ── */
+function BrandEditForm({ brand, onSave, onCancel, showToast }: any) {
+  const [form, setForm] = useState({
+    name: brand.name,
+    slug: brand.slug,
+    primary_color: brand.primary_color || '',
+    secondary_color: brand.secondary_color || '',
+    logo_url: brand.logo_url || '',
+    cover_image: brand.cover_image || '',
+  })
+  const [saving, setSaving] = useState(false)
+
+  async function save() {
+    if (!form.name.trim()) {
+      showToast('Nome é obrigatório', 'err')
+      return
+    }
+    setSaving(true)
+    try {
+      const r = await fetch(`/api/brands/${brand.id}`, {
+        method: 'PATCH',
+        headers: getHeaders(),
+        body: JSON.stringify({
+          name: form.name,
+          slug: form.slug || undefined,
+          primary_color: form.primary_color || null,
+          secondary_color: form.secondary_color || null,
+          logo_url: form.logo_url || null,
+          cover_image: form.cover_image || null,
+        }),
+      })
+      if (!r.ok) {
+        const err = await r.json()
+        throw new Error(err.error || 'Erro ao salvar')
+      }
+      showToast('Brand atualizado com sucesso')
+      onSave()
+    } catch (e: any) {
+      showToast(e.message || 'Erro ao salvar', 'err')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="space-y-4 p-5 bg-gray-50 rounded-lg border border-gray-200">
+      <div>
+        <label className="block text-sm font-semibold text-gray-900 mb-2">Nome do Brand</label>
+        <input
+          type="text"
+          value={form.name}
+          onChange={(e) => setForm({ ...form, name: e.target.value })}
+          autoFocus
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+        />
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs font-semibold text-gray-700 mb-1">Cor Primária</label>
+          <div className="flex gap-2">
+            <input
+              type="color"
+              value={form.primary_color || '#3b82f6'}
+              onChange={(e) => setForm({ ...form, primary_color: e.target.value })}
+              className="w-12 h-10 border border-gray-300 rounded cursor-pointer"
+            />
+            <input
+              type="text"
+              value={form.primary_color}
+              onChange={(e) => setForm({ ...form, primary_color: e.target.value })}
+              placeholder="#3b82f6"
+              className="flex-1 px-2 py-1 border border-gray-300 rounded text-xs"
+            />
+          </div>
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-gray-700 mb-1">Cor Secundária</label>
+          <div className="flex gap-2">
+            <input
+              type="color"
+              value={form.secondary_color || '#1e40af'}
+              onChange={(e) => setForm({ ...form, secondary_color: e.target.value })}
+              className="w-12 h-10 border border-gray-300 rounded cursor-pointer"
+            />
+            <input
+              type="text"
+              value={form.secondary_color}
+              onChange={(e) => setForm({ ...form, secondary_color: e.target.value })}
+              placeholder="#1e40af"
+              className="flex-1 px-2 py-1 border border-gray-300 rounded text-xs"
+            />
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <label className="block text-xs font-semibold text-gray-700 mb-1">URL da Logo</label>
+        <input
+          type="text"
+          value={form.logo_url}
+          onChange={(e) => setForm({ ...form, logo_url: e.target.value })}
+          placeholder="https://..."
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+        />
+      </div>
+
+      <div>
+        <label className="block text-xs font-semibold text-gray-700 mb-1">URL da Capa do Catálogo</label>
+        <input
+          type="text"
+          value={form.cover_image}
+          onChange={(e) => setForm({ ...form, cover_image: e.target.value })}
+          placeholder="https://..."
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+        />
+      </div>
+
+      <div className="flex gap-2 pt-2">
+        <button
+          onClick={save}
+          disabled={saving}
+          className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg font-semibold text-sm hover:bg-blue-700 transition disabled:opacity-50"
+        >
+          {saving ? 'Salvando...' : 'Salvar'}
+        </button>
+        <button
+          onClick={onCancel}
+          className="flex-1 bg-gray-200 text-gray-900 px-4 py-2 rounded-lg font-semibold text-sm hover:bg-gray-300 transition"
+        >
+          Cancelar
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/* ══════════════════════════════════════════════
+   SETTINGS VIEW — Brand Management
+   ══════════════════════════════════════════════ */
+function ClientTypesSection({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') => void }) {
+  const [types, setTypes] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [showNew, setShowNew] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [newColor, setNewColor] = useState('#3b82f6')
+  const [creatingType, setCreatingType] = useState(false)
+  const [deleting, setDeleting] = useState<string | null>(null)
+
+  useEffect(() => {
+    refreshTypes()
+  }, [])
+
+  async function refreshTypes() {
+    setLoading(true)
+    try {
+      const r = await fetch('/api/client-types', { headers: getHeaders() })
+      const d = await r.json()
+      setTypes(d.types || [])
+    } catch (e) {
+      showToast('Erro ao carregar tipos de cliente', 'err')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function createType() {
+    if (!newName.trim()) {
+      showToast('Nome é obrigatório', 'err')
+      return
+    }
+    setCreatingType(true)
+    try {
+      const r = await fetch('/api/client-types', {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({ name: newName.trim(), color: newColor }),
+      })
+      if (!r.ok) throw new Error('Erro ao criar tipo')
+      showToast('Tipo de cliente criado!')
+      setNewName('')
+      setShowNew(false)
+      await refreshTypes()
+    } catch (e: any) {
+      showToast(e.message, 'err')
+    } finally {
+      setCreatingType(false)
+    }
+  }
+
+  async function deleteType(id: string) {
+    if (!confirm('Tem certeza que quer deletar este tipo?')) return
+    setDeleting(id)
+    try {
+      const r = await fetch(`/api/client-types/${id}`, { method: 'DELETE', headers: getHeaders() })
+      if (!r.ok) throw new Error('Erro ao deletar')
+      showToast('Tipo deletado!')
+      await refreshTypes()
+    } catch (e: any) {
+      showToast(e.message, 'err')
+    } finally {
+      setDeleting(null)
+    }
+  }
+
+  if (loading) return <Skeleton rows={3} />
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="font-bold text-gray-900">Tipos de Cliente ({types.length})</h2>
+        <button
+          onClick={() => setShowNew(true)}
+          className="bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-emerald-700 transition"
+        >
+          + Novo Tipo
+        </button>
+      </div>
+
+      {showNew && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 space-y-3">
+          <input
+            type="text"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && createType()}
+            placeholder="Ex: Cliente Premium, Revendedor, etc"
+            autoFocus
+            className="w-full px-3 py-2 border border-emerald-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none"
+          />
+          <div className="flex gap-2 items-end">
+            <div className="flex-1">
+              <label className="text-xs font-semibold text-gray-600 block mb-1">Cor</label>
+              <input
+                type="color"
+                value={newColor}
+                onChange={(e) => setNewColor(e.target.value)}
+                className="w-full h-9 rounded-lg border border-emerald-300 cursor-pointer"
+              />
+            </div>
+            <button
+              onClick={createType}
+              disabled={creatingType}
+              className="bg-emerald-600 text-white px-4 py-2 rounded-lg text-xs font-semibold hover:bg-emerald-700 transition disabled:opacity-50"
+            >
+              {creatingType ? 'Criando...' : 'Criar'}
+            </button>
+            <button
+              onClick={() => setShowNew(false)}
+              className="bg-white text-gray-900 px-4 py-2 rounded-lg text-xs font-semibold border border-gray-200 hover:bg-gray-50 transition"
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="grid gap-2">
+        {types.length === 0 ? (
+          <p className="text-sm text-gray-400 text-center py-4">Nenhum tipo criado ainda</p>
+        ) : (
+          types.map((type) => (
+            <div key={type.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+              <div className="flex items-center gap-3">
+                <div className="w-4 h-4 rounded-full border border-gray-300" style={{ backgroundColor: type.color || '#999' }} />
+                <span className="text-sm font-semibold text-gray-900">{type.name}</span>
+              </div>
+              <button
+                onClick={() => deleteType(type.id)}
+                disabled={deleting === type.id}
+                className="p-1 text-red-600 hover:bg-red-50 rounded transition text-xs disabled:opacity-50"
+              >
+                {deleting === type.id ? '...' : '✕'}
+              </button>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  )
+}
+
+export function SettingsView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') => void }) {
+  const navigate = useNavigate()
+  const [brands, setBrands] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [activeBrandId, setActiveBrandId] = useState('')
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState<string | null>(null)
+
+  useEffect(() => {
+    refreshBrands()
+  }, [])
+
+  async function refreshBrands() {
+    setLoading(true)
+    try {
+      const r = await fetch('/api/brands', { headers: getHeaders() })
+      const d = await r.json()
+      setBrands(d.brands || [])
+      setActiveBrandId(d.active_brand_id || '')
+    } catch (e) {
+      showToast('Erro ao carregar brands', 'err')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function deleteBrand(brandId: string, brandName: string) {
+    if (brandId === activeBrandId) {
+      showToast('Nao pode deletar o brand ativo', 'err')
+      return
+    }
+    if (!confirm(`Tem certeza que quer deletar "${brandName}"?\nEsta acao nao pode ser desfeita.`)) return
+
+    setDeleting(brandId)
+    try {
+      const r = await fetch(`/api/brands/${brandId}`, {
+        method: 'DELETE',
+        headers: getHeaders(),
+      })
+      if (!r.ok) {
+        const err = await r.json()
+        throw new Error(err.error || 'Erro ao deletar')
+      }
+      showToast('Brand deletado com sucesso')
+      await refreshBrands()
+    } catch (e: any) {
+      showToast(e.message || 'Erro ao deletar', 'err')
+    } finally {
+      setDeleting(null)
+    }
+  }
+
+  if (loading) return <Skeleton rows={5} />
+
+  const [showNewBrand, setShowNewBrand] = useState(false)
+  const [newBrandName, setNewBrandName] = useState('')
+  const [creatingBrand, setCreatingBrand] = useState(false)
+
+  async function createNewBrand() {
+    if (!newBrandName.trim()) {
+      showToast('Nome do brand é obrigatório', 'err')
+      return
+    }
+    setCreatingBrand(true)
+    try {
+      const r = await fetch('/api/brands', {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({ name: newBrandName.trim() }),
+      })
+      if (!r.ok) {
+        const err = await r.json()
+        throw new Error(err.error || 'Erro ao criar brand')
+      }
+      showToast('Brand criado com sucesso!')
+      setNewBrandName('')
+      setShowNewBrand(false)
+      await refreshBrands()
+    } catch (e: any) {
+      showToast(e.message || 'Erro ao criar', 'err')
+    } finally {
+      setCreatingBrand(false)
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 mb-1">Configuracoes</h1>
+          <p className="text-sm text-gray-500">Gerenciar seus brands, lojas e companhias</p>
+        </div>
+        <button
+          onClick={() => setShowNewBrand(true)}
+          className="bg-blue-600 text-white px-4 py-2 rounded-lg font-semibold text-sm hover:bg-blue-700 transition"
+        >
+          + Novo Brand
+        </button>
+      </div>
+
+      {/* Create Brand Form */}
+      {showNewBrand && (
+        <div className="bg-blue-50 border border-blue-200 rounded-2xl p-5 space-y-3">
+          <h3 className="font-bold text-gray-900">Criar Novo Brand</h3>
+          <input
+            type="text"
+            value={newBrandName}
+            onChange={(e) => setNewBrandName(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && createNewBrand()}
+            placeholder="Nome do seu brand/loja/companhia"
+            autoFocus
+            className="w-full px-3 py-2 border border-blue-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+          />
+          <div className="flex gap-2">
+            <button
+              onClick={createNewBrand}
+              disabled={creatingBrand}
+              className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg font-semibold text-sm hover:bg-blue-700 transition disabled:opacity-50"
+            >
+              {creatingBrand ? 'Criando...' : 'Criar Brand'}
+            </button>
+            <button
+              onClick={() => setShowNewBrand(false)}
+              className="flex-1 bg-white text-gray-900 px-4 py-2 rounded-lg font-semibold text-sm border border-gray-200 hover:bg-gray-50 transition"
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Brands List */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-100">
+          <h2 className="font-bold text-gray-900">Seus Brands ({brands.length})</h2>
+        </div>
+        <div className="divide-y divide-gray-100">
+          {brands.map((brand) => {
+            const isEditing = editingId === brand.id
+            const isActive = brand.id === activeBrandId
+
+            return (
+              <div key={brand.id} className="p-5">
+                {isEditing ? (
+                  <BrandEditForm
+                    brand={brand}
+                    onSave={() => {
+                      setEditingId(null)
+                      refreshBrands()
+                    }}
+                    onCancel={() => setEditingId(null)}
+                    showToast={showToast}
+                  />
+                ) : (
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4 flex-1">
+                      {brand.logo_url && (
+                        <img
+                          src={brand.logo_url}
+                          alt={brand.name}
+                          className="w-12 h-12 rounded-lg object-cover"
+                        />
+                      )}
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-bold text-gray-900">{brand.name}</h3>
+                          {isActive && (
+                            <span className="text-[10px] font-bold bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded">
+                              ATIVO
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-500">
+                          {brand.slug} • Criado {new Date(brand.created_at).toLocaleDateString('pt-BR')}
+                        </p>
+                        {(brand.primary_color || brand.secondary_color) && (
+                          <div className="flex gap-2 mt-2">
+                            {brand.primary_color && (
+                              <div
+                                className="w-4 h-4 rounded-full border border-gray-300"
+                                style={{ backgroundColor: brand.primary_color }}
+                              />
+                            )}
+                            {brand.secondary_color && (
+                              <div
+                                className="w-4 h-4 rounded-full border border-gray-300"
+                                style={{ backgroundColor: brand.secondary_color }}
+                              />
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setEditingId(brand.id)}
+                        className="px-3 py-1 bg-blue-50 text-blue-600 rounded-lg text-xs font-semibold hover:bg-blue-100 transition"
+                      >
+                        Editar
+                      </button>
+                      {brand.id !== activeBrandId && (
+                        <button
+                          onClick={() => deleteBrand(brand.id, brand.name)}
+                          disabled={deleting === brand.id}
+                          className="px-3 py-1 bg-red-50 text-red-600 rounded-lg text-xs font-semibold hover:bg-red-100 transition disabled:opacity-50"
+                        >
+                          {deleting === brand.id ? 'Deletando...' : 'Deletar'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      {brands.length === 0 && (
+        <EmptyState icon={Package} text="Nenhum brand criado ainda" />
+      )}
+
+      {/* Client Types Section */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-5">
+        <ClientTypesSection showToast={showToast} />
       </div>
     </div>
   )

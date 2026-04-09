@@ -6,6 +6,16 @@ const STOCK_TOKEN_KEY = 'lead-system-token-estoque'
 const STOCK_BRAND_KEY = 'lead-system:active-brand-id-estoque'
 const STOCK_BRAND_REF_KEY = 'lead-system:active-brand-ref-estoque'
 
+/**
+ * Detects whether the current page is the stock-manager app.
+ * When true, the inventoryApi calls are rewritten to /api/stock-app/* and
+ * use the stock manager token instead of the admin token.
+ */
+function isStockAppRoute(): boolean {
+  if (typeof window === 'undefined') return false
+  return window.location.pathname.startsWith('/app-estoque')
+}
+
 function getAdminHeaders(): Record<string, string> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   const token = localStorage.getItem(ADMIN_TOKEN_KEY)
@@ -24,6 +34,29 @@ function getStockHeaders(): Record<string, string> {
   return headers
 }
 
+/**
+ * Returns admin or stock headers depending on the current route.
+ * Used by inventoryApi so the same code path works for both admin and stock-manager users.
+ */
+function getInventoryHeaders(): Record<string, string> {
+  return isStockAppRoute() ? getStockHeaders() : getAdminHeaders()
+}
+
+/**
+ * Rewrites a /api/inventory/... or /api/clients/... or /api/categories URL into the
+ * /api/stock-app/... equivalent when the user is in the stock-manager app context.
+ * Returns the URL unchanged for admin users.
+ */
+function rewriteInventoryUrl(url: string): string {
+  if (!isStockAppRoute()) return url
+  if (url.startsWith('/api/inventory/')) return url.replace('/api/inventory/', '/api/stock-app/inventory/')
+  if (url.startsWith('/api/clients/')) return url.replace('/api/clients/', '/api/stock-app/clients/')
+  if (url === '/api/clients') return '/api/stock-app/clients'
+  if (url.startsWith('/api/clients?')) return url.replace('/api/clients?', '/api/stock-app/clients?')
+  if (url === '/api/categories') return '/api/stock-app/categories'
+  return url
+}
+
 /* ── Generic authenticated fetch ── */
 async function authFetch<T>(url: string, headers: Record<string, string>, options?: RequestInit): Promise<T> {
   const res = await fetch(url, {
@@ -38,46 +71,54 @@ async function authFetch<T>(url: string, headers: Record<string, string>, option
   return data
 }
 
+/**
+ * Inventory-aware fetch: rewrites the URL and headers automatically based on whether
+ * the user is on the admin or stock-manager route. All inventoryApi methods route through here.
+ */
+async function inventoryFetch<T>(url: string, options?: RequestInit): Promise<T> {
+  return authFetch<T>(rewriteInventoryUrl(url), getInventoryHeaders(), options)
+}
+
 /* ══════════════════════════════════════════════
    INVENTORY API (admin - /api/inventory/*)
    ══════════════════════════════════════════════ */
 
 export const inventoryApi = {
-  overview: () => authFetch<any>('/api/inventory/overview', getAdminHeaders()),
+  overview: () => inventoryFetch<any>('/api/inventory/overview'),
 
   products: (page = 1, limit = 50, search = '', status = '') => {
     const q = new URLSearchParams({ page: String(page), limit: String(limit) })
     if (search) q.set('search', search)
     if (status) q.set('status', status)
-    return authFetch<any>(`/api/inventory/products?${q}`, getAdminHeaders())
+    return inventoryFetch<any>(`/api/inventory/products?${q}`)
   },
 
   productDetail: (pid: string) =>
-    authFetch<any>(`/api/inventory/products/${pid}`, getAdminHeaders()),
+    inventoryFetch<any>(`/api/inventory/products/${pid}`),
 
   productHistory: (pid: string, limit = 50) =>
-    authFetch<any>(`/api/inventory/products/${pid}/history?limit=${limit}`, getAdminHeaders()),
+    inventoryFetch<any>(`/api/inventory/products/${pid}/history?limit=${limit}`),
 
   addStock: (pid: string, body: { quantity: number; source?: string; reason?: string }) =>
-    authFetch<any>(`/api/inventory/products/${pid}/add`, getAdminHeaders(), {
+    inventoryFetch<any>(`/api/inventory/products/${pid}/add`, {
       method: 'POST',
       body: JSON.stringify(body),
     }),
 
   removeStock: (pid: string, body: { quantity: number; source?: string; reason?: string }) =>
-    authFetch<any>(`/api/inventory/products/${pid}/remove`, getAdminHeaders(), {
+    inventoryFetch<any>(`/api/inventory/products/${pid}/remove`, {
       method: 'POST',
       body: JSON.stringify(body),
     }),
 
   adjustStock: (pid: string, body: { new_quantity: number; reason: string }) =>
-    authFetch<any>(`/api/inventory/products/${pid}/adjust`, getAdminHeaders(), {
+    inventoryFetch<any>(`/api/inventory/products/${pid}/adjust`, {
       method: 'POST',
       body: JSON.stringify(body),
     }),
 
   updateSettings: (pid: string, body: { stock_min?: number; cost_price?: number }) =>
-    authFetch<any>(`/api/inventory/products/${pid}/settings`, getAdminHeaders(), {
+    inventoryFetch<any>(`/api/inventory/products/${pid}/settings`, {
       method: 'PUT',
       body: JSON.stringify(body),
     }),
@@ -85,64 +126,70 @@ export const inventoryApi = {
   movements: (page = 1, limit = 50, type = '') => {
     const q = new URLSearchParams({ page: String(page), limit: String(limit) })
     if (type) q.set('type', type)
-    return authFetch<any>(`/api/inventory/movements?${q}`, getAdminHeaders())
+    return inventoryFetch<any>(`/api/inventory/movements?${q}`)
   },
 
   expedition: (page = 1, limit = 50) =>
-    authFetch<any>(`/api/inventory/expedition?page=${page}&limit=${limit}`, getAdminHeaders()),
+    inventoryFetch<any>(`/api/inventory/expedition?page=${page}&limit=${limit}`),
 
   createExpedition: (orderId: string) =>
-    authFetch<any>('/api/inventory/expedition', getAdminHeaders(), {
+    inventoryFetch<any>('/api/inventory/expedition', {
       method: 'POST',
       body: JSON.stringify({ order_id: orderId }),
     }),
 
-  alerts: () => authFetch<any>('/api/inventory/alerts', getAdminHeaders()),
+  alerts: () => inventoryFetch<any>('/api/inventory/alerts'),
 
   reports: (dateFrom?: string, dateTo?: string) => {
     const q = new URLSearchParams()
     if (dateFrom) q.set('date_from', dateFrom)
     if (dateTo) q.set('date_to', dateTo)
-    return authFetch<any>(`/api/inventory/reports?${q}`, getAdminHeaders())
+    return inventoryFetch<any>(`/api/inventory/reports?${q}`)
   },
 
-  analytics: () => authFetch<any>('/api/inventory/analytics', getAdminHeaders()),
+  analytics: () => inventoryFetch<any>('/api/inventory/analytics'),
 
-  sync: () => authFetch<any>('/api/inventory/sync', getAdminHeaders(), { method: 'POST' }),
+  sync: () => inventoryFetch<any>('/api/inventory/sync', { method: 'POST' }),
 
-  categories: () => authFetch<any>('/api/categories', getAdminHeaders()),
+  categories: () => inventoryFetch<any>('/api/categories'),
 
   /* ── Clients ── */
+  realClients: (page = 1, limit = 50, search = '') => {
+    const q = new URLSearchParams({ page: String(page), limit: String(limit) })
+    if (search) q.set('search', search)
+    return inventoryFetch<any>(`/api/clients/real?${q}`)
+  },
+
   clients: (page = 1, limit = 50, search = '', status = '') => {
     const q = new URLSearchParams({ page: String(page), limit: String(limit) })
     if (search) q.set('search', search)
     if (status) q.set('status', status)
-    return authFetch<any>(`/api/clients?${q}`, getAdminHeaders())
+    return inventoryFetch<any>(`/api/clients?${q}`)
   },
 
   getClient: (id: string) =>
-    authFetch<any>(`/api/clients/${id}`, getAdminHeaders()),
+    inventoryFetch<any>(`/api/clients/${id}`),
 
   createClient: (data: Record<string, any>) =>
-    authFetch<any>('/api/clients', getAdminHeaders(), {
+    inventoryFetch<any>('/api/clients', {
       method: 'POST',
       body: JSON.stringify(data),
     }),
 
   updateClient: (id: string, data: Record<string, any>) =>
-    authFetch<any>(`/api/clients/${id}`, getAdminHeaders(), {
+    inventoryFetch<any>(`/api/clients/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),
     }),
 
   updateClientStatus: (id: string, status: string) =>
-    authFetch<any>(`/api/clients/${id}/status`, getAdminHeaders(), {
+    inventoryFetch<any>(`/api/clients/${id}/status`, {
       method: 'PATCH',
       body: JSON.stringify({ status }),
     }),
 
   deleteClient: (id: string) =>
-    authFetch<any>(`/api/clients/${id}`, getAdminHeaders(), {
+    inventoryFetch<any>(`/api/clients/${id}`, {
       method: 'DELETE',
     }),
 }
@@ -350,6 +397,12 @@ export const adminApi = {
       clients: data.clients || data.customers || [],
       total: data.total || data.customers?.length || data.clients?.length || 0,
     }
+  },
+
+  realClients: async (page = 1, limit = 50, search = '') => {
+    const q = new URLSearchParams({ page: String(page), limit: String(limit) })
+    if (search.trim()) q.set('search', search.trim())
+    return authFetch<any>(`/api/clients/real?${q.toString()}`, getAdminHeaders())
   },
 
   orders: async (page = 1, limit = 50, search = '') => {

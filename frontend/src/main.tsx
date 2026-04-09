@@ -5,6 +5,21 @@ import App from './App'
 import './index.css'
 import { isCustomDomain, storeSlug } from './lib/store-context'
 
+/* Apply cached brand colors synchronously before React renders — prevents FOUC (blue flash) */
+try {
+  const cached = localStorage.getItem('lead-system:brand-colors')
+  if (cached) {
+    const { primary, secondary } = JSON.parse(cached)
+    const root = document.documentElement
+    if (primary) root.style.setProperty('--brand-primary', primary)
+    if (secondary) {
+      root.style.setProperty('--brand-secondary', secondary)
+      root.style.setProperty('--brand-secondary-soft', secondary + '1a')
+      root.style.setProperty('--brand-secondary-light', secondary + '26')
+    }
+  }
+} catch { /* ignore */ }
+
 type SplashApi = {
   startedAt: number
   dismiss: () => void

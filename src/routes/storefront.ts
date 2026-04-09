@@ -2,6 +2,8 @@ import { Router } from "express";
 import { randomUUID } from "crypto";
 import { attachBrandContext, BrandRequest } from "../middleware/brandContext";
 import { CommerceService } from "../services/commerce";
+import { ClientsService } from "../services/clients";
+import { ClientTypesService } from "../services/clientTypes";
 import { GeminiService } from "../services/gemini";
 import { InventoryService } from "../services/inventory";
 import { OrderManagementService } from "../services/orderManagement";
@@ -18,6 +20,8 @@ const router = Router();
 const publicRouter = Router();
 
 const commerceService = new CommerceService();
+const clientsService = new ClientsService();
+const clientTypesService = new ClientTypesService();
 const storefront = new StorefrontService();
 const gemini = new GeminiService();
 const inventoryService = new InventoryService();
@@ -2294,6 +2298,43 @@ publicRouter.post("/stores/:slug/orders", async (req, res) => {
       deliveryStatus: "nao_iniciado",
       notes: deliveryAddress,
     });
+
+    // Auto-create/upsert client with "Site" type (non-blocking)
+    try {
+      await clientTypesService.ensureByName(
+        inventoryUserId,
+        "Site",
+        { color: "#3b82f6", icon: "globe", description: "Cliente que comprou pelo catálogo público" },
+        inventoryBrandId || undefined
+      );
+      const normalizedPhone = customerPhone.replace(/\D/g, "");
+      if (normalizedPhone) {
+        // Check if client already exists
+        const existing = await clientsService.getAll(inventoryUserId, {
+          search: normalizedPhone,
+          brand_id: inventoryBrandId || undefined,
+          limit: 1,
+          page: 1,
+        });
+        if (!existing.clients || existing.clients.length === 0) {
+          await clientsService.create(
+            inventoryUserId,
+            {
+              name: customerName,
+              phone: normalizedPhone,
+              email: req.body?.customer?.email || undefined,
+              address: deliveryAddress || undefined,
+              source: "manual",
+              client_type: "Site",
+              status: "new",
+            } as any,
+            inventoryBrandId || undefined
+          );
+        }
+      }
+    } catch (error) {
+      logger.warn({ error }, "Failed to auto-create client from site order");
+    }
 
     await appendManagedTimeline({
       orderId: created.order.id,

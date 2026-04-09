@@ -19,6 +19,7 @@ import mediaRoutes from "./routes/media";
 import messagesRoutes from "./routes/messages";
 import companiesRoutes from "./routes/companies";
 import clientsRoutes from "./routes/clients";
+import clientTypesRoutes from "./routes/clientTypes";
 import sessionsRoutes from "./routes/sessions";
 import automationsRoutes from "./routes/automations";
 import brandsRoutes from "./routes/brands";
@@ -40,6 +41,7 @@ import storefrontRoutes, { storefrontPublicRoutes } from "./routes/storefront";
 import stockAppRoutes from "./routes/stockApp";
 import inventoryRoutes from "./routes/inventory";
 import publicOnboardingRoutes from "./routes/publicOnboarding";
+import publicPwaRoutes from "./routes/publicPwa";
 import { InboxService } from "./services/inbox";
 import { AutomationRuntimeService } from "./services/automationRuntime";
 import { InstanceRotationService } from "./services/instanceRotation";
@@ -172,6 +174,13 @@ if (hasReactBuild) {
   app.use("/assets", express.static(path.join(reactDistPath, "assets"), { maxAge: "30d", immutable: true }));
 }
 
+// Service worker must never be cached — always serve fresh so version bumps take effect immediately
+app.get("/service-worker.js", (_req, res) => {
+  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+  res.sendFile(path.join(__dirname, "../public/service-worker.js"));
+});
 app.use(express.static(path.join(__dirname, "../public")));
 app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
 
@@ -181,6 +190,7 @@ app.use("/api/commerce/public", commercePublicRoutes);
 app.use("/api/payments/public", paymentPublicRoutes);
 app.use("/api/storefront/public", storefrontPublicRoutes);
 app.use("/api/public", publicOnboardingRoutes);
+app.use("/pwa", publicPwaRoutes);
 
 // Health check (public)
 app.get("/api/health", (req, res) => {
@@ -244,26 +254,10 @@ app.get("/catalogo", (_req, res) => {
   serveCatalogSPA(res, "catalogo-publico.html");
 });
 
-app.get("/app-estoque", (_req, res) => {
-  serveCatalogSPA(res, "app-estoque.html");
-});
-
-app.get("/app-estoque/painel", (_req, res) => {
-  serveCatalogSPA(res, "app-estoque-painel.html");
-});
-
-app.get("/app-estoque/:brand/painel", (req, res) => {
-  const brand = req.params.brand;
-  res.redirect(`/app-estoque/painel?brand=${encodeURIComponent(brand)}`);
-});
-
-app.get("/app-estoque/:brand", (req, res) => {
-  if (hasReactBuild) {
-    return res.sendFile(reactIndexPath);
-  }
-  const brand = req.params.brand;
-  res.redirect(`/app-estoque?brand=${encodeURIComponent(brand)}`);
-});
+// App Estoque — all sub-routes serve the React SPA
+app.get("/app-estoque", (_req, res) => { serveCatalogSPA(res, "index.html"); });
+app.get("/app-estoque/:brand", (_req, res) => { serveCatalogSPA(res, "index.html"); });
+app.get("/app-estoque/:brand/painel", (_req, res) => { serveCatalogSPA(res, "index.html"); });
 
 // Admin panel routes (all serve React SPA)
 const adminPages = [
@@ -271,16 +265,11 @@ const adminPages = [
   "/mensagens", "/notificacoes", "/campanhas", "/campanha", "/automacoes",
   "/criativos", "/creative", "/agente", "/produtos", "/pedidos",
   "/whatsapp", "/design", "/pagamentos", "/frete", "/dominio", "/configuracoes",
+  "/estoque", "/estoque/app", "/inventario",
 ];
 for (const page of adminPages) {
   app.get(page, (_req, res) => { serveCatalogSPA(res, "index.html"); });
 }
-
-app.get("/estoque", (_req, res) => {
-  serveCatalogSPA(res, "inventario.html");
-});
-
-app.get("/inventario", (_req, res) => res.redirect(301, "/estoque"));
 
 app.get("/brand-onboarding", (_req, res) => {
   serveCatalogSPA(res, "brand-onboarding.html");
@@ -293,6 +282,7 @@ app.use("/api/ai", authMiddleware, aiRoutes);
 app.use("/api/media", authMiddleware, mediaRoutes);
 app.use("/api/companies", authMiddleware, companiesRoutes);
 app.use("/api/clients", authMiddleware, clientsRoutes);
+app.use("/api/client-types", authMiddleware, clientTypesRoutes);
 app.use("/api/sessions", authMiddleware, sessionsRoutes);
 app.use("/api/automations", authMiddleware, automationsRoutes);
 app.use("/api/brands", authMiddleware, brandsRoutes);
@@ -785,8 +775,11 @@ app.post("/api/instances/:id/connect", authMiddleware, async (req: any, res) => 
     const brandId = await brandUnitsService.resolveActiveBrandId(userId, getRequestedBrandId(req));
     const allowed = await instanceBelongsToUser(req.params.id, userId, brandId);
     if (!allowed) return res.status(404).json({ error: "Instance not found" });
-    const qr = await instanceManager.connectInstance(req.params.id);
-    res.json({ success: true, qrCode: qr });
+    // Start connection asynchronously — return immediately so the frontend can poll /qr
+    instanceManager.connectInstance(req.params.id).catch((err: any) => {
+      logger.error(`connectInstance error (${req.params.id}): ${err.message}`);
+    });
+    res.json({ success: true, connecting: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -805,6 +798,37 @@ app.get("/api/instances/:id/qr", authMiddleware, async (req: any, res) => {
     } else {
       res.json({ success: false, message: "QR not available" });
     }
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/instances/:id/reconnect", authMiddleware, async (req: any, res) => {
+  try {
+    const userId = req.user?.userId as string | undefined;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const brandId = await brandUnitsService.resolveActiveBrandId(userId, getRequestedBrandId(req));
+    const allowed = await instanceBelongsToUser(req.params.id, userId, brandId);
+    if (!allowed) return res.status(404).json({ error: "Instance not found" });
+
+    const id = req.params.id;
+
+    // Desconecta o socket atual para forçar novo QR
+    await instanceManager.disconnectInstance(id).catch(() => {});
+
+    // Inicia reconexão — aguarda QR por até 18s
+    const qrPromise = instanceManager.connectInstance(id);
+    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 18000));
+    const qrCode = await Promise.race([qrPromise, timeoutPromise]);
+
+    if (qrCode) {
+      return res.json({ success: true, qr: qrCode, qrCode, status: "qr_ready" });
+    }
+
+    // Sem QR → provavelmente reconectou com sessão salva
+    const liveInst = instanceManager.getAllInstances(userId).find((i: any) => i.id === id);
+    const status = liveInst?.status || "connecting";
+    res.json({ success: true, qr: null, status, message: status === "connected" ? "Reconectado com sessao salva!" : "Conectando..." });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }

@@ -33,7 +33,7 @@ interface Client {
   id: string; name: string; phone?: string; email?: string
   status: string; source: string; tags?: string[] | string; notes?: string
   city?: string; state?: string; address?: string; trade_name?: string
-  lead_score?: number; created_at?: string; updated_at?: string
+  client_type?: string; lead_score?: number; created_at?: string; updated_at?: string
   google_rating?: number; google_reviews_count?: number
   website?: string; google_maps_uri?: string; category?: string; subcategory?: string
   phone_secondary?: string; business_status?: string; has_whatsapp?: boolean
@@ -356,7 +356,16 @@ function LeadDetailModal({ lead, onClose, onUpdated, onDeleted }: {
   const [tab, setTab] = useState<'info' | 'actions'>('info')
   const [status, setStatus] = useState(lead.status || 'new')
   const [notes, setNotes] = useState(lead.notes || '')
+  const [clientType, setClientType] = useState(lead.client_type || '')
+  const [clientTypes, setClientTypes] = useState<any[]>([])
   const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    fetch('/api/client-types', { headers: getHeaders() })
+      .then(r => r.json())
+      .then(d => setClientTypes(d.types || []))
+      .catch(() => {})
+  }, [])
 
   async function saveStatus(s: string) {
     setStatus(s)
@@ -369,6 +378,12 @@ function LeadDetailModal({ lead, onClose, onUpdated, onDeleted }: {
     await fetch(`/api/clients/${lead.id}`, { method: 'PUT', headers: getHeaders(), body: JSON.stringify({ notes }) }).catch(() => {})
     onUpdated({ id: lead.id, notes })
     setSaving(false)
+  }
+
+  async function saveClientType(ct: string) {
+    setClientType(ct)
+    await fetch(`/api/clients/${lead.id}`, { method: 'PUT', headers: getHeaders(), body: JSON.stringify({ client_type: ct }) }).catch(() => {})
+    onUpdated({ id: lead.id, client_type: ct })
   }
 
   async function handleDelete() {
@@ -545,6 +560,20 @@ function LeadDetailModal({ lead, onClose, onUpdated, onDeleted }: {
                 ))}
               </div>
             </div>
+
+            {/* Client Type */}
+            {clientTypes.length > 0 && (
+              <div>
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Tipo de Cliente</p>
+                <select value={clientType} onChange={(e) => saveClientType(e.target.value)}
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 bg-white">
+                  <option value="">Selecionar tipo...</option>
+                  {clientTypes.map((t: any) => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             {/* Notes */}
             <div>

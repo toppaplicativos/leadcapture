@@ -3,7 +3,7 @@ import { AuthRequest } from "../middleware/auth";
 import { CommerceService } from "../services/commerce";
 import { InventoryService } from "../services/inventory";
 import { ClientsService } from "../services/clients";
-import { queryOne } from "../config/database";
+import { queryOne, getPool } from "../config/database";
 
 const router = Router();
 const commerceService = new CommerceService();
@@ -257,7 +257,244 @@ router.post("/inventory/sync", async (req: AuthRequest, res: Response) => {
   }
 });
 
+/* ── Aliases for /inventory/products → mirror admin /api/inventory/products
+   Allows the InventoryPage to work in stock-mode using the same API surface. ── */
+
+router.get("/inventory/products", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = requireStockCredential(req, res);
+    if (!ctx) return;
+    const filters = {
+      status: req.query.status as any,
+      search: req.query.search as string,
+      page: Number(req.query.page) || 1,
+      limit: Math.min(Number(req.query.limit) || 50, 200),
+    };
+    const data = await inventoryService.listStock(ctx.ownerUserId, ctx.brandId, filters);
+    res.json({ success: true, ...data });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Falha ao listar produtos" });
+  }
+});
+
+router.get("/inventory/products/:id", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = requireStockCredential(req, res);
+    if (!ctx) return;
+    const product = await inventoryService.getProductStock(ctx.ownerUserId, ctx.brandId, String(req.params.id));
+    if (!product) return res.status(404).json({ error: "Produto não encontrado" });
+    res.json({ success: true, product });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Falha ao buscar produto" });
+  }
+});
+
+router.get("/inventory/products/:id/history", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = requireStockCredential(req, res);
+    if (!ctx) return;
+    const limit = Number(req.query.limit) || 50;
+    const history = await inventoryService.getProductHistory(ctx.ownerUserId, ctx.brandId, String(req.params.id), limit);
+    res.json({ success: true, history });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Falha ao buscar histórico" });
+  }
+});
+
+router.post("/inventory/products/:id/add", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = requireStockCredential(req, res);
+    if (!ctx) return;
+    const { quantity, source, reason, reference_id } = req.body || {};
+    if (!quantity || Number(quantity) <= 0) return res.status(400).json({ error: "Quantidade inválida" });
+    const result = await inventoryService.addStock(
+      ctx.ownerUserId, ctx.brandId, String(req.params.id), Number(quantity),
+      source || "reposicao", reason, ctx.managerUserId, reference_id
+    );
+    res.json({ success: true, inventory: result });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message || "Falha ao adicionar estoque" });
+  }
+});
+
+router.post("/inventory/products/:id/remove", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = requireStockCredential(req, res);
+    if (!ctx) return;
+    const { quantity, source, reason, reference_id } = req.body || {};
+    if (!quantity || Number(quantity) <= 0) return res.status(400).json({ error: "Quantidade inválida" });
+    const result = await inventoryService.removeStock(
+      ctx.ownerUserId, ctx.brandId, String(req.params.id), Number(quantity),
+      source || "manual", reason, ctx.managerUserId, reference_id
+    );
+    res.json({ success: true, inventory: result });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message || "Falha ao remover estoque" });
+  }
+});
+
+router.post("/inventory/products/:id/adjust", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = requireStockCredential(req, res);
+    if (!ctx) return;
+    const { new_quantity, reason } = req.body || {};
+    if (new_quantity === undefined || Number(new_quantity) < 0) return res.status(400).json({ error: "Quantidade inválida" });
+    if (!reason) return res.status(400).json({ error: "Motivo é obrigatório para ajustes" });
+    const result = await inventoryService.adjustStock(
+      ctx.ownerUserId, ctx.brandId, String(req.params.id), Number(new_quantity), reason, ctx.managerUserId
+    );
+    res.json({ success: true, inventory: result });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message || "Falha ao ajustar estoque" });
+  }
+});
+
+router.put("/inventory/products/:id/settings", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = requireStockCredential(req, res);
+    if (!ctx) return;
+    const { stock_min, cost_price } = req.body || {};
+    const result = await inventoryService.updateSettings(ctx.ownerUserId, ctx.brandId, String(req.params.id), { stock_min, cost_price });
+    res.json({ success: true, inventory: result });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message || "Falha ao atualizar configurações" });
+  }
+});
+
+router.get("/inventory/expedition", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = requireStockCredential(req, res);
+    if (!ctx) return;
+    const filters = {
+      page: Number(req.query.page) || 1,
+      limit: Number(req.query.limit) || 50,
+    };
+    const result = await inventoryService.listExpeditions(ctx.ownerUserId, ctx.brandId, filters);
+    res.json({ success: true, ...result });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Falha ao listar expedições" });
+  }
+});
+
+router.post("/inventory/expedition", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = requireStockCredential(req, res);
+    if (!ctx) return;
+    const { order_id } = req.body || {};
+    if (!order_id) return res.status(400).json({ error: "order_id é obrigatório" });
+    const result = await inventoryService.registerExpedition(ctx.ownerUserId, ctx.brandId, order_id, ctx.managerUserId);
+    res.json({ success: true, ...result });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message || "Falha ao registrar expedição" });
+  }
+});
+
+router.get("/inventory/reports", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = requireStockCredential(req, res);
+    if (!ctx) return;
+    const dateFrom = String(req.query.date_from || "") || undefined;
+    const dateTo = String(req.query.date_to || "") || undefined;
+    const reports = await inventoryService.getReports(ctx.ownerUserId, ctx.brandId, dateFrom, dateTo);
+    res.json({ success: true, ...reports });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Falha ao gerar relatórios" });
+  }
+});
+
+router.get("/categories", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = requireStockCredential(req, res);
+    if (!ctx) return;
+    // Return empty list — categories are managed in admin
+    res.json({ success: true, categories: [] });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Falha ao listar categorias" });
+  }
+});
+
 /* ── Client / Customer Management ── */
+
+router.get("/clients/real", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = requireStockCredential(req, res);
+    if (!ctx) return;
+    const pool = getPool();
+    const { search, page, limit } = req.query;
+    const pageNum = Math.max(1, parseInt(page as string) || 1);
+    const limitNum = Math.min(100, parseInt(limit as string) || 50);
+    const offset = (pageNum - 1) * limitNum;
+    const searchTerm = (search as string || '').trim();
+    const userId = ctx.ownerUserId;
+    const brandId = ctx.brandId;
+
+    const searchClause = searchTerm ? `WHERE (phone LIKE ? OR name LIKE ? OR email LIKE ?)` : '';
+    const searchArgs = searchTerm ? [`%${searchTerm}%`, `%${searchTerm}%`, `%${searchTerm}%`] : [];
+
+    const sql = `
+      SELECT phone, name, email, SUM(order_count) as order_count,
+             SUM(total_spent) as total_spent, MAX(last_order_at) as last_order_at,
+             MAX(source_type) as source_type
+      FROM (
+        SELECT o.customer_phone as phone,
+               MAX(o.customer_name) as name,
+               MAX(o.customer_email) as email,
+               COUNT(*) as order_count,
+               SUM(COALESCE(o.valor_total, 0)) as total_spent,
+               MAX(o.created_at) as last_order_at,
+               'order' as source_type
+        FROM commerce_orders o
+        JOIN order_management_meta m ON m.order_id = o.id AND m.user_id = ? AND m.brand_id = ?
+        WHERE o.customer_phone IS NOT NULL AND o.customer_phone != ''
+        GROUP BY o.customer_phone
+
+        UNION ALL
+
+        SELECT c.phone, c.name, c.email,
+               0 as order_count, 0 as total_spent, NULL as last_order_at, 'manual' as source_type
+        FROM clients c
+        WHERE c.user_id = ? AND c.source = 'manual' AND (c.is_active IS NULL OR c.is_active = 1)
+        AND (c.brand_id = ? OR c.brand_id IS NULL)
+        AND (c.phone IS NULL OR c.phone NOT IN (
+          SELECT DISTINCT o2.customer_phone FROM commerce_orders o2
+          JOIN order_management_meta m2 ON m2.order_id = o2.id AND m2.user_id = ? AND m2.brand_id = ?
+          WHERE o2.customer_phone IS NOT NULL
+        ))
+      ) combined
+      ${searchClause}
+      GROUP BY phone, name, email
+      ORDER BY last_order_at DESC, name ASC
+      LIMIT ? OFFSET ?
+    `;
+
+    const mainArgs: any[] = [userId, brandId, userId, brandId, userId, brandId];
+    const [rows]: any = await pool.execute(sql, [...mainArgs, ...searchArgs, limitNum, offset]);
+
+    const countSql = `SELECT COUNT(*) as total FROM (
+      SELECT phone FROM (
+        SELECT o.customer_phone as phone FROM commerce_orders o
+        JOIN order_management_meta m ON m.order_id = o.id AND m.user_id = ? AND m.brand_id = ?
+        WHERE o.customer_phone IS NOT NULL AND o.customer_phone != ''
+        GROUP BY o.customer_phone
+        UNION ALL
+        SELECT c.phone FROM clients c
+        WHERE c.user_id = ? AND c.source = 'manual' AND (c.is_active IS NULL OR c.is_active = 1)
+        AND (c.brand_id = ? OR c.brand_id IS NULL)
+        AND (c.phone IS NULL OR c.phone NOT IN (
+          SELECT DISTINCT o2.customer_phone FROM commerce_orders o2
+          JOIN order_management_meta m2 ON m2.order_id = o2.id AND m2.user_id = ? AND m2.brand_id = ?
+          WHERE o2.customer_phone IS NOT NULL
+        ))
+      ) inner_q
+    ) outer_q`;
+
+    const [[countRow]]: any = await pool.execute(countSql, [userId, brandId, userId, brandId, userId, brandId]);
+
+    res.json({ success: true, clients: rows, total: countRow?.total || 0, page: pageNum, limit: limitNum });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Falha ao listar clientes" });
+  }
+});
 
 router.get("/clients", async (req: AuthRequest, res: Response) => {
   try {

@@ -75,6 +75,21 @@ async function ensureOrdersSchema(): Promise<void> {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
 
+    // Migrations adicionais — colunas opcionais adicionadas após o DDL inicial
+    const ensureMetaColumn = async (col: string, ddl: string) => {
+      try {
+        const [rows] = await query<any[]>(
+          `SELECT 1 FROM information_schema.columns
+           WHERE table_name = 'order_management_meta' AND column_name = ? LIMIT 1`, [col]
+        );
+        if (!Array.isArray(rows) || rows.length === 0) {
+          await query(`ALTER TABLE order_management_meta ADD COLUMN ${ddl}`);
+        }
+      } catch { /* ignora se já existir */ }
+    };
+    await ensureMetaColumn("seller_name", "seller_name VARCHAR(255) NULL");
+    await ensureMetaColumn("scheduled_at", "scheduled_at DATETIME NULL");
+
     schemaReady = true;
   })().finally(() => {
     schemaPromise = null;
@@ -163,6 +178,7 @@ async function ensureOrderMeta(input: {
   paymentStatus?: "pending" | "paid" | "failed" | "refunded";
   deliveryStatus?: string;
   notes?: string | null;
+  extraFields?: Record<string, any>;
 }): Promise<void> {
   // Two-step upsert to avoid PostgreSQL ON CONFLICT ambiguity issues
   try {
@@ -172,6 +188,10 @@ async function ensureOrderMeta(input: {
       [input.orderId]
     );
 
+    const extra = input.extraFields || {};
+    const extraSetClauses = Object.keys(extra).map(k => `${k} = ?`).join(", ");
+    const extraValues = Object.values(extra);
+
     if (existing) {
       await update(
         `UPDATE order_management_meta SET
@@ -179,6 +199,7 @@ async function ensureOrderMeta(input: {
           origin = ?, channel = ?, business_status = ?,
           payment_status = ?, delivery_status = ?,
           updated_at = CURRENT_TIMESTAMP
+          ${extraSetClauses ? ", " + extraSetClauses : ""}
         WHERE order_id = ?`,
         [
           input.userId,
@@ -189,15 +210,18 @@ async function ensureOrderMeta(input: {
           input.businessStatus || "novo",
           input.paymentStatus || "pending",
           input.deliveryStatus || "nao_iniciado",
+          ...extraValues,
           input.orderId,
         ]
       );
     } else {
+      const extraCols = Object.keys(extra).length ? ", " + Object.keys(extra).join(", ") : "";
+      const extraPlaceholders = Object.keys(extra).length ? ", " + Object.keys(extra).map(() => "?").join(", ") : "";
       await query(
         `INSERT INTO order_management_meta (
           order_id, user_id, brand_id, store_id, origin, channel, created_by,
-          business_status, payment_status, delivery_status, notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          business_status, payment_status, delivery_status, notes${extraCols}
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${extraPlaceholders})`,
         [
           input.orderId,
           input.userId,
@@ -210,6 +234,7 @@ async function ensureOrderMeta(input: {
           input.paymentStatus || "pending",
           input.deliveryStatus || "nao_iniciado",
           input.notes || null,
+          ...extraValues,
         ]
       );
     }
@@ -714,6 +739,9 @@ router.post("/", async (req: AuthRequest, res: Response) => {
       itens: Array.isArray(body.itens) ? body.itens : [],
     });
 
+    const scheduledAt = body.scheduled_at ? new Date(body.scheduled_at) : null;
+    const isScheduled = scheduledAt && scheduledAt > new Date();
+
     await ensureOrderMeta({
       orderId: created.order.id,
       userId,
@@ -724,6 +752,10 @@ router.post("/", async (req: AuthRequest, res: Response) => {
       businessStatus: created.order.status_pedido === "pago" ? "pago" : "aguardando_pagamento",
       paymentStatus: created.order.status_pedido === "pago" ? "paid" : "pending",
       deliveryStatus: "nao_iniciado",
+      extraFields: {
+        ...(body.seller_name ? { seller_name: String(body.seller_name) } : {}),
+        ...(isScheduled ? { scheduled_at: scheduledAt!.toISOString().slice(0, 19).replace("T", " ") } : {}),
+      },
     });
 
     await appendTimeline({

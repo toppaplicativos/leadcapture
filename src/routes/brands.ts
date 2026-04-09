@@ -94,4 +94,26 @@ router.post("/:id/activate", async (req: AuthRequest, res: Response) => {
   }
 });
 
+router.delete("/:id", async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId as string | undefined;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+    const brandId = String(req.params.id);
+    const activeBrandId = await brandUnitsService.getActiveBrandId(userId);
+
+    // Prevent deletion of the active brand
+    if (brandId === activeBrandId) {
+      return res.status(400).json({ error: "Nao pode deletar o brand ativo. Ative outro brand primeiro." });
+    }
+
+    const ok = await brandUnitsService.delete(userId, brandId);
+    if (!ok) return res.status(404).json({ error: "Brand not found" });
+
+    res.json({ success: true, message: "Brand deletado com sucesso" });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 export default router;

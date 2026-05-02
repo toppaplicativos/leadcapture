@@ -33,37 +33,48 @@ function dismissInitialSplash() {
   const splashApi = (window as LeadCaptureWindow).__LC_SPLASH__
   if (!splashApi) return
 
+  // Keep the splash visible for at least 200ms so the fade-in animation
+  // completes — otherwise it flashes out before the user perceives it.
   const elapsed = Date.now() - splashApi.startedAt
-  const remaining = Math.max(0, 720 - elapsed)
+  const remaining = Math.max(0, 200 - elapsed)
 
   window.setTimeout(() => {
-    window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => {
-        splashApi.dismiss()
-      })
-    })
+    window.requestAnimationFrame(() => splashApi.dismiss())
   }, remaining)
 }
 
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {
-  const baseScope = isCustomDomain
-    ? '/'
-    : (() => {
-        const parts = window.location.pathname.split('/').filter(Boolean)
-        if ((parts[0] === 'catalogo' || parts[0] === 'loja') && (parts[1] || storeSlug)) {
-          return `/${parts[0]}/${encodeURIComponent(parts[1] || storeSlug)}/`
-        }
-        return ''
-      })()
+  /**
+   * Resolve the right scope for each app surface so each PWA install
+   * (admin, stock, storefront) gets its own offline shell.
+   *
+   *   - Custom domain → '/' (whole site is the storefront)
+   *   - /catalogo/:slug or /loja/:slug → that catalog scope
+   *   - /app-estoque/:slug → that brand's stock scope
+   *   - /admin, /login, /dashboard, etc → '/' admin scope
+   */
+  const baseScope = (() => {
+    if (isCustomDomain) return '/'
 
-  if (baseScope) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker
-        .register('/service-worker.js', { scope: baseScope })
-        .then((registration) => registration.update().catch(() => undefined))
-        .catch(() => undefined)
-    })
-  }
+    const parts = window.location.pathname.split('/').filter(Boolean)
+    const first = parts[0] || ''
+
+    if ((first === 'catalogo' || first === 'loja') && (parts[1] || storeSlug)) {
+      return `/${first}/${encodeURIComponent(parts[1] || storeSlug)}/`
+    }
+    if (first === 'app-estoque' && parts[1]) {
+      return `/${first}/${encodeURIComponent(parts[1])}/`
+    }
+    // Admin / login / generic admin routes
+    return '/'
+  })()
+
+  window.addEventListener('load', () => {
+    navigator.serviceWorker
+      .register('/service-worker.js', { scope: baseScope })
+      .then((registration) => registration.update().catch(() => undefined))
+      .catch(() => undefined)
+  })
 }
 
 createRoot(document.getElementById('root')!).render(

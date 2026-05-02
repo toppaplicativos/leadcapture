@@ -1,18 +1,37 @@
 @import "tailwindcss";
 
+/* Inter — distinctive, dense, premium (used by GitHub, Stripe, Linear, Vercel) */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
 @theme {
-  --font-sans: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif;
   --color-brand-primary: #111827;
   --color-brand-secondary: #3b82f6;
   --color-brand-primary-light: #1118270d;
   --color-brand-secondary-light: #3b82f614;
+
+  /* Neutral grays — true gray (no blue tint) */
   --color-surface: #ffffff;
-  --color-surface-alt: #f5f7fa;
-  --color-bg: #f8fafc;
-  --color-muted: #6b7280;
-  --color-muted-light: #94a3b8;
-  --color-border: #e2e8f0;
-  --color-border-light: #f1f5f9;
+  --color-surface-alt: #f3f3f3;
+  --color-bg: #f5f5f5;
+  --color-muted: #6b6b6b;
+  --color-muted-light: #9a9a9a;
+  --color-border: #e5e5e5;
+  --color-border-light: #ededed;
+
+  /* Override Tailwind gray scale to true neutral */
+  --color-gray-50: #fafafa;
+  --color-gray-100: #f3f3f3;
+  --color-gray-200: #e5e5e5;
+  --color-gray-300: #d4d4d4;
+  --color-gray-400: #9a9a9a;
+  --color-gray-500: #6b6b6b;
+  --color-gray-600: #525252;
+  --color-gray-700: #404040;
+  --color-gray-800: #262626;
+  --color-gray-900: #171717;
+  --color-gray-950: #0a0a0a;
+
   --color-success: #10b981;
   --color-danger: #ef4444;
   --color-warning: #f59e0b;
@@ -53,14 +72,85 @@ html {
 
 body {
   @apply bg-bg text-gray-900 antialiased;
-  font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  letter-spacing: -0.01em;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif;
+  font-feature-settings: 'cv11', 'ss01', 'ss03';
+  font-optical-sizing: auto;
+  letter-spacing: -0.011em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* ── Typography Premium ── */
+/* ── Typography Premium — Instagram-like weighted hierarchy ── */
+/* Color is intentionally inherited so dark sections (text-white) work. */
 h1, h2, h3, h4, h5, h6 {
-  font-weight: 600;
-  letter-spacing: -0.02em;
+  font-weight: 700;
+  letter-spacing: -0.022em;
+  color: inherit;
+}
+h1 { letter-spacing: -0.028em; }
+h2 { letter-spacing: -0.025em; }
+
+/* Tabular numerals everywhere we want consistent number widths */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+
+/* ── Animated text shimmer — sweep of light over highlighted words.
+   Used on dark hero/CTA sections to add a sophisticated, premium feel
+   without breaking the minimal monochrome palette. ── */
+.text-shimmer {
+  background: linear-gradient(
+    110deg,
+    rgba(255, 255, 255, 0.32) 0%,
+    rgba(255, 255, 255, 0.32) 35%,
+    rgba(255, 255, 255, 1) 50%,
+    rgba(255, 255, 255, 0.32) 65%,
+    rgba(255, 255, 255, 0.32) 100%
+  );
+  background-size: 250% auto;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: textShimmer 5.5s linear infinite;
+}
+
+@keyframes textShimmer {
+  0% { background-position: 250% center; }
+  100% { background-position: -50% center; }
+}
+
+/* Radar / crosshair pulse — used in the live map preview and in the
+   Panfleteiro mode of the real LeadSearch map. */
+.radar-pulse {
+  position: relative;
+  width: 80px;
+  height: 80px;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+.radar-pulse::before,
+.radar-pulse::after {
+  content: '';
+  position: absolute;
+  border-radius: 9999px;
+  border: 2px solid rgba(99, 102, 241, 0.55);
+  animation: radarPulse 2.4s ease-out infinite;
+}
+.radar-pulse::after { animation-delay: 1.2s; }
+.radar-pulse > span {
+  width: 14px;
+  height: 14px;
+  border-radius: 9999px;
+  background: rgb(99, 102, 241);
+  box-shadow: 0 0 12px rgba(99, 102, 241, 0.85);
+  z-index: 1;
+}
+@keyframes radarPulse {
+  0% { width: 16px; height: 16px; opacity: 0.9; }
+  100% { width: 80px; height: 80px; opacity: 0; }
 }
 
 /* ── Card System ── */

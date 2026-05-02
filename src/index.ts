@@ -37,11 +37,18 @@ import expeditionRoutes from "./routes/expedition";
 import ordersRoutes from "./routes/orders";
 import commerceRoutes, { commercePublicRoutes } from "./routes/commerce";
 import paymentsRoutes, { paymentPublicRoutes } from "./routes/payments";
-import storefrontRoutes, { storefrontPublicRoutes } from "./routes/storefront";
+import storefrontRoutes, { storefrontPublicRoutes, reconcileNginxForVerifiedDomains } from "./routes/storefront";
 import stockAppRoutes from "./routes/stockApp";
 import inventoryRoutes from "./routes/inventory";
 import publicOnboardingRoutes from "./routes/publicOnboarding";
 import publicPwaRoutes from "./routes/publicPwa";
+import landingChatRoutes from "./routes/landingChat";
+import masterRoutes from "./routes/master";
+import stripeWebhookRoutes from "./routes/stripeWebhook";
+import publicSignupRoutes from "./routes/publicSignup";
+import adminEmailsRoutes from "./routes/adminEmails";
+import { masterService } from "./services/master";
+import { emailService } from "./services/email";
 import { InboxService } from "./services/inbox";
 import { AutomationRuntimeService } from "./services/automationRuntime";
 import { InstanceRotationService } from "./services/instanceRotation";
@@ -56,12 +63,18 @@ import flowBuilderRoutes from "./routes/flowBuilder";
 import { FlowExecutorService } from "./services/flowExecutor";
 import notificationsRoutes from "./routes/notifications";
 import supportRoutes from "./routes/support";
+import integrationsRoutes from "./routes/integrations";
 import { getNotificationService } from "./services/notifications";
 import { socketManager } from "./core/socketManager";
 
 const app = express();
 const httpServer = createServer(app);
 app.use(cors());
+
+// ⚠ IMPORTANT: Stripe webhook must be mounted BEFORE express.json() so the
+// signature verification can use the raw body bytes.
+app.use("/api/stripe/webhook", stripeWebhookRoutes);
+
 app.use(
   express.json({
     verify: (req: any, _res, buf) => {
@@ -190,6 +203,10 @@ app.use("/api/commerce/public", commercePublicRoutes);
 app.use("/api/payments/public", paymentPublicRoutes);
 app.use("/api/storefront/public", storefrontPublicRoutes);
 app.use("/api/public", publicOnboardingRoutes);
+app.use("/api/public", publicSignupRoutes);
+app.use("/api/landing", landingChatRoutes);
+app.use("/api/master", masterRoutes);
+app.use("/api/admin/emails", adminEmailsRoutes);
 app.use("/pwa", publicPwaRoutes);
 
 // Health check (public)
@@ -303,6 +320,7 @@ app.use("/api/lead-categories", leadCategoriesRoutes);
 app.use("/api/flows", flowBuilderRoutes);
 app.use("/api/notifications", notificationsRoutes);
 app.use("/api/support", supportRoutes);
+app.use("/api/integrations", authMiddleware, integrationsRoutes);
 
 // Services
 const instanceManager = new InstanceManager();
@@ -2094,6 +2112,23 @@ httpServer.listen(config.port, "0.0.0.0", () => {
       logger.error(`Notification schema bootstrap failed: ${formatError(err)}`);
     });
   }
+  // Master/super-admin schema (postgres-only — uses JSONB / partial indexes)
+  masterService.ensureSchema()
+    .then(() => emailService.seedSystemTemplates())
+    .then(() => emailService.seedTenantTemplates())
+    .catch((err: any) => {
+      logger.error(`Master schema bootstrap failed: ${formatError(err)}`);
+    });
+
+  /* Nginx reconcile: any domain that's already verified in the DB but
+   * missing from the live nginx sites-enabled gets provisioned on boot.
+   * Runs after a 5s grace period so the HTTP server is fully up. */
+  setTimeout(() => {
+    reconcileNginxForVerifiedDomains().catch((err: any) => {
+      logger.error(`Nginx reconcile failed: ${formatError(err)}`);
+    });
+  }, 5000);
+
   logger.info(`Lead Captation System running on port ${config.port}`);
   // Auto-restore WhatsApp sessions
   instanceManager
@@ -2117,22 +2152,20 @@ httpServer.listen(config.port, "0.0.0.0", () => {
   logger.info(`Dashboard: http://0.0.0.0:${config.port}`);
   logger.info(`API: http://0.0.0.0:${config.port}/api`);
 
-  if (!usingPostgresMode) {
-    // Campaign Engine — check for scheduled campaigns every 60s
-    setInterval(() => {
-      Promise.all([
-        campaignEngine.processScheduledCampaigns(),
-        campaignEngine.resumeRunningCampaigns(),
-      ]).catch((err: any) => {
-        logger.error(`Campaign scheduler tick failed: ${formatError(err)}`);
-      });
-    }, 60_000);
-
-    // Kick once on boot so running campaigns recover right away after restart
-    campaignEngine.resumeRunningCampaigns().catch((err: any) => {
-      logger.error(`Campaign auto-resume bootstrap failed: ${formatError(err)}`);
+  // Campaign Engine — check for scheduled campaigns every 60s (runs in all modes)
+  setInterval(() => {
+    Promise.all([
+      campaignEngine.processScheduledCampaigns(),
+      campaignEngine.resumeRunningCampaigns(),
+    ]).catch((err: any) => {
+      logger.error(`Campaign scheduler tick failed: ${formatError(err)}`);
     });
-  }
+  }, 60_000);
+
+  // Kick once on boot so running campaigns recover right away after restart
+  campaignEngine.resumeRunningCampaigns().catch((err: any) => {
+    logger.error(`Campaign auto-resume bootstrap failed: ${formatError(err)}`);
+  });
 });
 
 process.on("SIGTERM", () => {

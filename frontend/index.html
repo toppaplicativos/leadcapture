@@ -3,243 +3,86 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no" />
-    <meta name="theme-color" content="#0f82ff" />
+    <meta name="theme-color" content="#0a0a0a" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Catálogo" />
     <meta name="mobile-web-app-capable" content="yes" />
-    <meta name="description" content="Catálogo imersivo com pedido, acompanhamento e histórico." />
+    <meta name="description" content="Catálogo, pedidos e atendimento integrado." />
     <style>
-      :root {
-        color-scheme: light;
-      }
+      :root { color-scheme: light; }
+
+      html, body { margin: 0; padding: 0; }
 
       body.app-shell-loading {
         margin: 0;
         overflow: hidden;
-        background:
-          radial-gradient(circle at top, rgba(59, 130, 246, 0.15), transparent 34%),
-          linear-gradient(180deg, #f8fbff 0%, #eff5ff 54%, #f8fafc 100%);
+        background: #ffffff;
       }
 
       #app-splash {
-        --splash-accent: #0f82ff;
-        --splash-soft: rgba(15, 130, 255, 0.14);
+        --splash-bg: #ffffff;
+        --splash-fg: #0f172a;
+        --splash-muted: #64748b;
         position: fixed;
         inset: 0;
         z-index: 9999;
         display: flex;
         align-items: center;
         justify-content: center;
+        flex-direction: column;
+        gap: 18px;
+        background: var(--splash-bg);
         padding:
-          max(24px, env(safe-area-inset-top, 0px))
-          max(20px, env(safe-area-inset-right, 0px))
-          max(24px, env(safe-area-inset-bottom, 0px))
-          max(20px, env(safe-area-inset-left, 0px));
-        background:
-          radial-gradient(circle at 16% 18%, rgba(255, 255, 255, 0.92), transparent 28%),
-          linear-gradient(180deg, rgba(248, 251, 255, 0.96) 0%, rgba(238, 244, 255, 0.98) 100%);
-        transition: opacity 320ms ease, transform 420ms cubic-bezier(0.22, 1, 0.36, 1), visibility 0s linear 320ms;
-      }
-
-      #app-splash::before,
-      #app-splash::after {
-        content: '';
-        position: absolute;
-        border-radius: 999px;
-        filter: blur(10px);
-        pointer-events: none;
-      }
-
-      #app-splash::before {
-        width: 320px;
-        height: 320px;
-        top: -120px;
-        right: -60px;
-        background: radial-gradient(circle, var(--splash-soft) 0%, transparent 72%);
-        animation: splashFloat 7s ease-in-out infinite;
-      }
-
-      #app-splash::after {
-        width: 260px;
-        height: 260px;
-        bottom: -120px;
-        left: -80px;
-        background: radial-gradient(circle, rgba(56, 189, 248, 0.1) 0%, transparent 72%);
-        animation: splashFloat 8.5s ease-in-out infinite reverse;
+          env(safe-area-inset-top, 0px)
+          env(safe-area-inset-right, 0px)
+          env(safe-area-inset-bottom, 0px)
+          env(safe-area-inset-left, 0px);
+        opacity: 1;
+        transition: opacity 240ms ease;
       }
 
       #app-splash[data-view='admin'] {
-        --splash-accent: #111827;
-        --splash-soft: rgba(17, 24, 39, 0.12);
+        --splash-bg: #ffffff;
+        --splash-fg: #0f172a;
       }
 
       #app-splash[data-view='stock'] {
-        --splash-accent: #0f766e;
-        --splash-soft: rgba(15, 118, 110, 0.12);
+        --splash-bg: #ffffff;
+        --splash-fg: #0f172a;
       }
 
       #app-splash[data-state='closing'] {
         opacity: 0;
-        transform: scale(1.02);
-        visibility: hidden;
         pointer-events: none;
       }
 
-      .app-splash__card {
-        position: relative;
-        width: min(100%, 420px);
-        padding: 28px 24px 24px;
-        border-radius: 30px;
-        background: rgba(255, 255, 255, 0.78);
-        border: 1px solid rgba(148, 163, 184, 0.16);
-        box-shadow: 0 28px 80px rgba(15, 23, 42, 0.12);
-        backdrop-filter: blur(16px);
-      }
-
-      .app-splash__eyebrow {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        padding: 8px 12px;
-        border-radius: 999px;
-        background: var(--splash-soft);
-        color: var(--splash-accent);
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.14em;
-        text-transform: uppercase;
-      }
-
-      .app-splash__eyebrow::before {
-        content: '';
-        width: 8px;
-        height: 8px;
-        border-radius: 999px;
-        background: currentColor;
-        opacity: 0.85;
-      }
-
-      .app-splash__body {
-        display: flex;
-        align-items: center;
-        gap: 18px;
-        margin-top: 18px;
-      }
-
       .app-splash__logo {
-        position: relative;
-        width: 76px;
-        height: 76px;
-        border-radius: 26px;
-        display: grid;
-        place-items: center;
-        background: linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(226, 239, 255, 0.88));
-        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 16px 36px rgba(59, 130, 246, 0.14);
-        overflow: hidden;
-        flex-shrink: 0;
-      }
-
-      .app-splash__logo::after {
-        content: '';
-        position: absolute;
-        inset: 10px;
-        border-radius: 20px;
-        border: 1px solid rgba(255, 255, 255, 0.8);
-      }
-
-      .app-splash__logo img {
-        width: 48px;
-        height: 48px;
-        border-radius: 16px;
+        width: 64px;
+        height: 64px;
+        border-radius: 18px;
         object-fit: cover;
-        position: relative;
-        z-index: 1;
+        opacity: 0;
+        transform: scale(0.96);
+        animation: splashFadeIn 280ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
       }
 
-      .app-splash__copy {
-        min-width: 0;
-      }
-
-      .app-splash__title {
+      .app-splash__brand {
         margin: 0;
-        color: #0f172a;
-        font-size: clamp(1.45rem, 3vw, 1.85rem);
-        line-height: 1.05;
-        font-weight: 800;
-        letter-spacing: -0.04em;
+        color: var(--splash-fg);
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', system-ui, sans-serif;
+        font-size: 17px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+        opacity: 0;
+        animation: splashFadeIn 280ms cubic-bezier(0.16, 1, 0.3, 1) 60ms forwards;
       }
 
-      .app-splash__subtitle {
-        margin: 10px 0 0;
-        color: rgba(51, 65, 85, 0.78);
-        font-size: 0.95rem;
-        line-height: 1.5;
-      }
-
-      .app-splash__progress {
-        position: relative;
-        margin-top: 22px;
-        height: 6px;
-        border-radius: 999px;
-        overflow: hidden;
-        background: rgba(148, 163, 184, 0.16);
-      }
-
-      .app-splash__progress span {
-        position: absolute;
-        inset: 0;
-        border-radius: inherit;
-        background: linear-gradient(90deg, transparent 0%, var(--splash-accent) 24%, rgba(56, 189, 248, 0.95) 76%, transparent 100%);
-        transform: translateX(-100%);
-        animation: splashProgress 1.45s cubic-bezier(0.4, 0, 0.2, 1) infinite;
-      }
-
-      .app-splash__hint {
-        margin: 14px 0 0;
-        color: rgba(100, 116, 139, 0.9);
-        font-size: 12px;
-        letter-spacing: 0.02em;
-      }
-
-      @keyframes splashProgress {
-        0% {
-          transform: translateX(-100%);
-        }
-        100% {
-          transform: translateX(100%);
-        }
-      }
-
-      @keyframes splashFloat {
-        0%,
-        100% {
-          transform: translate3d(0, 0, 0);
-        }
-        50% {
-          transform: translate3d(0, 16px, 0);
-        }
-      }
-
-      @media (max-width: 640px) {
-        .app-splash__card {
-          padding: 24px 20px 20px;
-          border-radius: 26px;
-        }
-
-        .app-splash__body {
-          gap: 14px;
-        }
-
-        .app-splash__logo {
-          width: 68px;
-          height: 68px;
-          border-radius: 22px;
-        }
-
-        .app-splash__logo img {
-          width: 42px;
-          height: 42px;
+      @keyframes splashFadeIn {
+        to {
+          opacity: 1;
+          transform: scale(1);
         }
       }
     </style>
@@ -250,27 +93,11 @@
         var channel = 'catalogo'
         var firstPath = pathParts[0] || ''
         var adminPaths = {
-          admin: true,
-          dashboard: true,
-          login: true,
-          leads: true,
-          clientes: true,
-          busca: true,
-          mensagens: true,
-          notificacoes: true,
-          campanhas: true,
-          automacoes: true,
-          criativos: true,
-          creative: true,
-          integracoes: true,
-          produtos: true,
-          pedidos: true,
-          design: true,
-          whatsapp: true,
-          pagamentos: true,
-          frete: true,
-          dominio: true,
-          agente: true,
+          admin: true, dashboard: true, login: true, leads: true, clientes: true,
+          busca: true, mensagens: true, notificacoes: true, campanhas: true,
+          automacoes: true, criativos: true, creative: true, integracoes: true,
+          produtos: true, pedidos: true, design: true, whatsapp: true,
+          pagamentos: true, frete: true, dominio: true, agente: true,
           configuracoes: true,
         }
         var splashView = 'store'
@@ -280,11 +107,8 @@
           channel = pathParts[0]
         }
 
-        if (adminPaths[firstPath]) {
-          splashView = 'admin'
-        } else if (firstPath === 'app-estoque' || firstPath === 'inventario' || firstPath === 'estoque') {
-          splashView = 'stock'
-        }
+        if (adminPaths[firstPath]) splashView = 'admin'
+        else if (firstPath === 'app-estoque' || firstPath === 'inventario' || firstPath === 'estoque') splashView = 'stock'
 
         var params = new URLSearchParams()
         if (slug) {
@@ -296,41 +120,34 @@
         var querySuffix = query ? '?' + query : ''
         var iconSuffix = query ? '?' + query + '&size=192' : '?size=192'
         var iconLargeSuffix = query ? '?' + query + '&size=512' : '?size=512'
-        var splashIcon = slug ? '/pwa/icon' + iconSuffix : '/logo.png'
-        var splashContent = {
-          store: {
-            eyebrow: 'Modo imersivo',
-            title: 'Abrindo sua vitrine',
-            subtitle: 'Preparando tema, atalhos e a navegação em tela cheia.',
-            hint: 'A experiência offline e a identidade da loja entram junto no primeiro frame.',
-          },
-          admin: {
-            eyebrow: 'Painel protegido',
-            title: 'Abrindo o admin',
-            subtitle: 'Carregando módulos, permissões e contexto da marca ativa.',
-            hint: 'O menu e os atalhos são montados antes do primeiro clique.',
-          },
-          stock: {
-            eyebrow: 'Operação ágil',
-            title: 'Abrindo o estoque',
-            subtitle: 'Sincronizando contagem, atalhos rápidos e visual limpo.',
-            hint: 'Fluxo otimizado para uso móvel, sem ruído nem flashes.',
-          },
-        }
+        // When there's no brand slug (admin/landing/login), use the LeadCapture
+        // brand mark — a crosshair on a black square. When there's a slug,
+        // use the brand-specific dynamic icon.
+        var splashIcon = slug ? '/pwa/icon' + iconSuffix : '/brand-mark.svg'
 
-        function appendLink(id, rel, href, sizes) {
+        var brandNames = { store: 'Catálogo', admin: 'Admin', stock: 'Estoque' }
+
+        function appendLink(id, rel, href, sizes, type) {
           var link = document.createElement('link')
           link.id = id
           link.rel = rel
           link.href = href
           if (sizes) link.sizes = sizes
+          if (type) link.type = type
           document.head.appendChild(link)
         }
 
         appendLink('pwa-manifest', 'manifest', '/pwa/manifest.webmanifest' + querySuffix)
-        appendLink('pwa-apple-touch-icon', 'apple-touch-icon', '/pwa/icon' + iconSuffix, '192x192')
-        appendLink('pwa-favicon-192', 'icon', '/pwa/icon' + iconSuffix, '192x192')
-        appendLink('pwa-favicon-512', 'icon', '/pwa/icon' + iconLargeSuffix, '512x512')
+
+        if (slug) {
+          appendLink('pwa-apple-touch-icon', 'apple-touch-icon', '/pwa/icon' + iconSuffix, '192x192')
+          appendLink('pwa-favicon-192', 'icon', '/pwa/icon' + iconSuffix, '192x192')
+          appendLink('pwa-favicon-512', 'icon', '/pwa/icon' + iconLargeSuffix, '512x512')
+        } else {
+          // LeadCapture default — crosshair brand mark
+          appendLink('pwa-favicon-svg', 'icon', '/brand-mark.svg', null, 'image/svg+xml')
+          appendLink('pwa-apple-touch-icon', 'apple-touch-icon', '/brand-mark.svg', '180x180')
+        }
 
         window.__LC_SPLASH__ = {
           startedAt: Date.now(),
@@ -339,19 +156,14 @@
             if (!splash || splash.dataset.state === 'closing') return
             splash.dataset.state = 'closing'
             document.body.classList.remove('app-shell-loading')
-            window.setTimeout(function () {
-              splash.remove()
-            }, 420)
+            window.setTimeout(function () { splash.remove() }, 260)
           },
         }
 
         window.__LC_SPLASH_CONFIG__ = {
           view: splashView,
           icon: splashIcon,
-          eyebrow: splashContent[splashView].eyebrow,
-          title: splashContent[splashView].title,
-          subtitle: splashContent[splashView].subtitle,
-          hint: splashContent[splashView].hint,
+          brand: brandNames[splashView] || 'Catálogo',
         }
       })()
     </script>
@@ -359,33 +171,17 @@
   </head>
   <body class="app-shell-loading">
     <div id="app-splash" aria-hidden="true">
-      <div class="app-splash__card">
-        <span id="app-splash-eyebrow" class="app-splash__eyebrow">Modo imersivo</span>
-        <div class="app-splash__body">
-          <div class="app-splash__logo">
-            <img id="app-splash-logo" src="/logo.png" alt="" />
-          </div>
-          <div class="app-splash__copy">
-            <h1 id="app-splash-title" class="app-splash__title">Abrindo sua vitrine</h1>
-            <p id="app-splash-subtitle" class="app-splash__subtitle">Preparando tema, atalhos e a navegacao em tela cheia.</p>
-          </div>
-        </div>
-        <div class="app-splash__progress"><span></span></div>
-        <p id="app-splash-hint" class="app-splash__hint">A experiencia offline e a identidade da loja entram junto no primeiro frame.</p>
-      </div>
+      <img id="app-splash-logo" class="app-splash__logo" src="/logo.png" alt="" />
+      <p id="app-splash-brand" class="app-splash__brand">Catálogo</p>
     </div>
     <script>
       (function () {
         var config = window.__LC_SPLASH_CONFIG__
         var splash = document.getElementById('app-splash')
         if (!config || !splash) return
-
         splash.dataset.view = config.view
-        document.getElementById('app-splash-eyebrow').textContent = config.eyebrow
-        document.getElementById('app-splash-title').textContent = config.title
-        document.getElementById('app-splash-subtitle').textContent = config.subtitle
-        document.getElementById('app-splash-hint').textContent = config.hint
         document.getElementById('app-splash-logo').src = config.icon
+        document.getElementById('app-splash-brand').textContent = config.brand
       })()
     </script>
     <div id="root"></div>

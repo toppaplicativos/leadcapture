@@ -664,27 +664,64 @@ export class InstanceManager {
       const fileBuffer = fs.readFileSync(input.filePath);
       const payload: Record<string, unknown> = {};
 
+      // Auto-detect mimetype from file extension if not provided
+      // WhatsApp requires correct mimetype to render media on recipient side;
+      // missing/wrong mimetype causes "message pending forever" issue.
+      const ext = (input.filePath.split(".").pop() || "").toLowerCase();
+      const autoMimeType = input.mimeType || (() => {
+        if (input.mediaType === "image") {
+          if (ext === "png") return "image/png";
+          if (ext === "webp") return "image/webp";
+          if (ext === "gif") return "image/gif";
+          return "image/jpeg";
+        }
+        if (input.mediaType === "video") {
+          if (ext === "webm") return "video/webm";
+          if (ext === "3gp") return "video/3gpp";
+          return "video/mp4";
+        }
+        if (input.mediaType === "audio") {
+          if (ext === "mp3") return "audio/mpeg";
+          if (ext === "m4a") return "audio/mp4";
+          if (ext === "wav") return "audio/wav";
+          return "audio/ogg; codecs=opus";
+        }
+        if (input.mediaType === "document") {
+          if (ext === "pdf") return "application/pdf";
+          if (ext === "doc") return "application/msword";
+          if (ext === "docx") return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+          if (ext === "xlsx") return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+          return "application/octet-stream";
+        }
+        return undefined;
+      })();
+
       if (input.mediaType === "image") {
         payload.image = fileBuffer;
+        if (autoMimeType) payload.mimetype = autoMimeType;
         if (input.caption) payload.caption = input.caption;
       } else if (input.mediaType === "video") {
         payload.video = fileBuffer;
+        if (autoMimeType) payload.mimetype = autoMimeType;
         if (input.caption) payload.caption = input.caption;
       } else if (input.mediaType === "audio") {
         payload.audio = fileBuffer;
         payload.ptt = Boolean(input.voiceNote);
-        if (input.mimeType) payload.mimetype = input.mimeType;
+        if (autoMimeType) payload.mimetype = autoMimeType;
       } else {
         payload.document = fileBuffer;
         if (input.caption) payload.caption = input.caption;
-        if (input.mimeType) payload.mimetype = input.mimeType;
+        if (autoMimeType) payload.mimetype = autoMimeType;
         if (input.fileName) payload.fileName = input.fileName;
       }
 
-      await sock.sendMessage(targetJid, payload as any);
+      const sent = await sock.sendMessage(targetJid, payload as any);
+      if (!sent?.key?.id) {
+        logger.warn(`Media send returned no message key for ${targetJid} — delivery uncertain`);
+      }
       instance.messagessSent++;
       this.instances.set(instanceId, instance);
-      logger.info(`Media message sent from ${instance.name} to ${targetJid} (${input.mediaType})`);
+      logger.info(`Media message sent from ${instance.name} to ${targetJid} (${input.mediaType}, ${autoMimeType || 'auto'}, ${fileBuffer.length} bytes)`);
       return true;
     } catch (error: any) {
       logger.error(`Error sending media by JID: ${error.message}`);

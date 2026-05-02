@@ -1,6 +1,8 @@
 import { Router, Response } from "express";
 import { attachBrandContext, BrandRequest } from "../middleware/brandContext";
 import { integrationService } from "../services/integrations";
+import { AI_MODELS, DEFAULT_PREFERENCES } from "../config/ai-models";
+import { aiRouter } from "../services/aiRouter";
 
 const router = Router();
 
@@ -21,6 +23,33 @@ function resolveScope(req: BrandRequest) {
     brandId: String(req.brandId || "").trim() || undefined,
   };
 }
+
+router.get("/models-catalog", async (_req: BrandRequest, res: Response) => {
+  res.json({ success: true, models: AI_MODELS, defaults: DEFAULT_PREFERENCES });
+});
+
+router.get("/preferences", async (req: BrandRequest, res: Response) => {
+  const userId = requireUserId(req, res);
+  if (!userId) return;
+  try {
+    const prefs = await aiRouter.getPreferences({ userId, brandId: req.brandId || undefined });
+    res.json({ success: true, preferences: prefs });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.put("/preferences", async (req: BrandRequest, res: Response) => {
+  const userId = requireUserId(req, res);
+  if (!userId) return;
+  try {
+    await aiRouter.savePreferences(req.body, { userId, brandId: req.brandId || undefined });
+    const prefs = await aiRouter.getPreferences({ userId, brandId: req.brandId || undefined });
+    res.json({ success: true, preferences: prefs });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
 router.get("/providers", async (req: BrandRequest, res: Response) => {
   const userId = requireUserId(req, res);

@@ -883,7 +883,13 @@ export class CustomersService {
     source?: string;
     category?: string;
     city?: string;
+    state?: string;
     search?: string;
+    minRating?: number;
+    maxRating?: number;
+    tags?: string;
+    tagsExclude?: string;
+    hasWhatsapp?: "true" | "false";
     limit?: number;
     offset?: number;
     ownerUserId?: string;
@@ -900,36 +906,81 @@ export class CustomersService {
     const brandFiltered = this.appendBrandClause(columns, where, params, filters?.brandId);
     where = brandFiltered.where;
 
+    // status — supports comma-separated multi-value
     if (filters?.status && this.hasColumn(columns, "status")) {
-      where += " AND status = ?";
-      params.push(filters.status);
+      const vals = filters.status.split(",").map((v) => v.trim()).filter(Boolean);
+      if (vals.length === 1) {
+        where += " AND status = ?";
+        params.push(vals[0]);
+      } else if (vals.length > 1) {
+        where += ` AND status IN (${vals.map(() => "?").join(", ")})`;
+        params.push(...vals);
+      }
     }
 
+    // source — supports comma-separated multi-value
     if (filters?.source && this.hasColumn(columns, "source")) {
-      where += " AND source = ?";
-      params.push(filters.source);
+      const vals = filters.source.split(",").map((v) => v.trim()).filter(Boolean);
+      if (vals.length === 1) {
+        where += " AND source = ?";
+        params.push(vals[0]);
+      } else if (vals.length > 1) {
+        where += ` AND source IN (${vals.map(() => "?").join(", ")})`;
+        params.push(...vals);
+      }
     }
 
+    // category — supports comma-separated multi-value
     if (filters?.category) {
+      const vals = filters.category.split(",").map((v) => v.trim()).filter(Boolean);
       if (this.hasColumn(columns, "category")) {
-        where += " AND category = ?";
-        params.push(filters.category);
-      } else if (this.hasColumn(columns, "source_details")) {
-        where += " AND source_details::jsonb->>'category' = ?";
-        params.push(filters.category);
+        if (vals.length === 1) {
+          where += " AND category = ?";
+          params.push(vals[0]);
+        } else if (vals.length > 1) {
+          where += ` AND category IN (${vals.map(() => "?").join(", ")})`;
+          params.push(...vals);
+        }
+      } else if (this.hasColumn(columns, "source_details") && vals.length > 0) {
+        if (vals.length === 1) {
+          where += " AND source_details::jsonb->>'category' = ?";
+          params.push(vals[0]);
+        } else {
+          where += ` AND source_details::jsonb->>'category' IN (${vals.map(() => "?").join(", ")})`;
+          params.push(...vals);
+        }
       }
     }
 
+    // city — supports comma-separated multi-value
     if (filters?.city) {
+      const vals = filters.city.split(",").map((v) => v.trim()).filter(Boolean);
       if (this.hasColumn(columns, "city")) {
-        where += " AND city LIKE ?";
-        params.push(`%${filters.city}%`);
+        if (vals.length === 1) {
+          where += " AND city LIKE ?";
+          params.push(`%${vals[0]}%`);
+        } else if (vals.length > 1) {
+          where += ` AND (${vals.map(() => "city LIKE ?").join(" OR ")})`;
+          params.push(...vals.map((v) => `%${v}%`));
+        }
       } else if (this.hasColumn(columns, "address_city")) {
-        where += " AND address_city LIKE ?";
-        params.push(`%${filters.city}%`);
+        if (vals.length === 1) {
+          where += " AND address_city LIKE ?";
+          params.push(`%${vals[0]}%`);
+        } else if (vals.length > 1) {
+          where += ` AND (${vals.map(() => "address_city LIKE ?").join(" OR ")})`;
+          params.push(...vals.map((v) => `%${v}%`));
+        }
       }
     }
 
+    // state
+    if (filters?.state && this.hasColumn(columns, "state")) {
+      where += " AND state = ?";
+      params.push(filters.state);
+    }
+
+    // search
     if (filters?.search) {
       const searchFields = ["name", "trade_name", "phone", "email"].filter((field) =>
         this.hasColumn(columns, field)
@@ -942,25 +993,64 @@ export class CustomersService {
       }
     }
 
-    // WhatsApp validation filter
-    if (filters?.whatsappFilter === "confirmed") {
+    // rating range
+    if (filters?.minRating !== undefined && this.hasColumn(columns, "rating")) {
+      where += " AND rating >= ?";
+      params.push(filters.minRating);
+    }
+    if (filters?.maxRating !== undefined && this.hasColumn(columns, "rating")) {
+      where += " AND rating <= ?";
+      params.push(filters.maxRating);
+    }
+
+    // tags include (comma-separated; each must be present in the JSON array)
+    if (filters?.tags && this.hasColumn(columns, "tags")) {
+      const tagList = filters.tags.split(",").map((t) => t.trim()).filter(Boolean);
+      for (const tag of tagList) {
+        where += " AND tags::jsonb @> ?::jsonb";
+        params.push(JSON.stringify([tag]));
+      }
+    }
+
+    // tags exclude
+    if (filters?.tagsExclude && this.hasColumn(columns, "tags")) {
+      const tagList = filters.tagsExclude.split(",").map((t) => t.trim()).filter(Boolean);
+      for (const tag of tagList) {
+        where += " AND NOT (tags::jsonb @> ?::jsonb)";
+        params.push(JSON.stringify([tag]));
+      }
+    }
+
+    // hasWhatsapp boolean filter (takes precedence over whatsappFilter)
+    if (filters?.hasWhatsapp === "true") {
       const expr = this.resolveHasWhatsAppExpression(columns);
       if (expr) where += ` AND ${expr}`;
-    } else if (filters?.whatsappFilter === "unconfirmed") {
+    } else if (filters?.hasWhatsapp === "false") {
       const expr = this.resolveWithoutWhatsAppExpression(columns);
       if (expr) where += ` AND ${expr}`;
-    } else if (filters?.whatsappFilter === "pending") {
-      // Pending = has phone but has_whatsapp is NULL (never validated)
-      const phoneCol = this.hasColumn(columns, "phone") ? "phone" : null;
-      if (this.hasColumn(columns, "has_whatsapp")) {
-        where += " AND has_whatsapp IS NULL";
-        if (phoneCol) where += ` AND ${phoneCol} IS NOT NULL AND ${phoneCol} != ''`;
-      } else if (this.hasColumn(columns, "whatsapp_valid")) {
-        where += " AND whatsapp_valid IS NULL";
-        if (phoneCol) where += ` AND ${phoneCol} IS NOT NULL AND ${phoneCol} != ''`;
-      } else if (this.hasColumn(columns, "source_details")) {
-        where += " AND (source_details::jsonb->'whatsapp_validation'->>'has_whatsapp' IS NULL)";
-        if (phoneCol) where += ` AND ${phoneCol} IS NOT NULL AND ${phoneCol} != ''`;
+    }
+
+    // WhatsApp validation filter (legacy)
+    if (!filters?.hasWhatsapp) {
+      if (filters?.whatsappFilter === "confirmed") {
+        const expr = this.resolveHasWhatsAppExpression(columns);
+        if (expr) where += ` AND ${expr}`;
+      } else if (filters?.whatsappFilter === "unconfirmed") {
+        const expr = this.resolveWithoutWhatsAppExpression(columns);
+        if (expr) where += ` AND ${expr}`;
+      } else if (filters?.whatsappFilter === "pending") {
+        // Pending = has phone but has_whatsapp is NULL (never validated)
+        const phoneCol = this.hasColumn(columns, "phone") ? "phone" : null;
+        if (this.hasColumn(columns, "has_whatsapp")) {
+          where += " AND has_whatsapp IS NULL";
+          if (phoneCol) where += ` AND ${phoneCol} IS NOT NULL AND ${phoneCol} != ''`;
+        } else if (this.hasColumn(columns, "whatsapp_valid")) {
+          where += " AND whatsapp_valid IS NULL";
+          if (phoneCol) where += ` AND ${phoneCol} IS NOT NULL AND ${phoneCol} != ''`;
+        } else if (this.hasColumn(columns, "source_details")) {
+          where += " AND (source_details::jsonb->'whatsapp_validation'->>'has_whatsapp' IS NULL)";
+          if (phoneCol) where += ` AND ${phoneCol} IS NOT NULL AND ${phoneCol} != ''`;
+        }
       }
     }
 
@@ -1085,6 +1175,77 @@ export class CustomersService {
     }
     const affected = await update(sql, params);
     return affected > 0;
+  }
+
+  /**
+   * Delete many customers at once. Server enforces owner+brand scoping in the
+   * WHERE clause, so a malformed/cross-tenant ID list silently no-ops on the
+   * rows that don't belong. Returns the actual affected count.
+   */
+  async bulkDelete(ids: Array<string | number>, ownerUserId: string, brandId?: string | null): Promise<number> {
+    if (!ownerUserId) throw new Error("Missing owner user context for bulk delete");
+    if (!ids?.length) return 0;
+    const columns = await this.getColumns();
+    const ownerColumn = this.requireOwnerColumn(columns);
+    const brandColumn = this.resolveBrandColumn(columns);
+
+    const placeholders = ids.map(() => "?").join(",");
+    const params: any[] = [...ids, ownerUserId];
+    let sql = `DELETE FROM customers WHERE id IN (${placeholders}) AND ${ownerColumn} = ?`;
+    if (brandColumn && brandId) {
+      sql += ` AND ${brandColumn} = ?`;
+      params.push(String(brandId));
+    }
+    return await update(sql, params);
+  }
+
+  /**
+   * Update many customers at once with a whitelisted patch. Same scoping
+   * pattern as bulkDelete. The patch goes through `legacyOrModernMap`-style
+   * column resolution so it works across both legacy and modern schemas.
+   */
+  async bulkUpdate(
+    ids: Array<string | number>,
+    patch: Record<string, any>,
+    ownerUserId: string,
+    brandId?: string | null
+  ): Promise<number> {
+    if (!ownerUserId) throw new Error("Missing owner user context for bulk update");
+    if (!ids?.length) return 0;
+    if (!patch || !Object.keys(patch).length) return 0;
+
+    const columns = await this.getColumns();
+    const ownerColumn = this.requireOwnerColumn(columns);
+    const brandColumn = this.resolveBrandColumn(columns);
+
+    const columnMap: Record<string, string[]> = {
+      status: ["status"],
+      category: ["category"],
+      subcategory: ["subcategory"],
+      tags: ["tags"],
+      notes: ["notes"],
+      assigned_to: ["assigned_to"],
+    };
+
+    const setClauses: string[] = [];
+    const setValues: any[] = [];
+    for (const [field, candidates] of Object.entries(columnMap)) {
+      if (!(field in patch)) continue;
+      const target = candidates.find((c) => this.hasColumn(columns, c));
+      if (!target) continue;
+      setClauses.push(`${target} = ?`);
+      setValues.push(this.normalizeColumnValue(columns.get(target), patch[field]));
+    }
+    if (!setClauses.length) return 0;
+
+    const placeholders = ids.map(() => "?").join(",");
+    const params: any[] = [...setValues, ...ids, ownerUserId];
+    let sql = `UPDATE customers SET ${setClauses.join(", ")} WHERE id IN (${placeholders}) AND ${ownerColumn} = ?`;
+    if (brandColumn && brandId) {
+      sql += ` AND ${brandColumn} = ?`;
+      params.push(String(brandId));
+    }
+    return await update(sql, params);
   }
 
   async getLeadStats(ownerUserId?: string, brandId?: string | null): Promise<LeadStats> {
@@ -1257,7 +1418,7 @@ export class CustomersService {
     const normalizedStatusExpr = "LOWER(TRIM(COALESCE(status, '')))";
 
     const stats = await query(`
-      SELECT 
+      SELECT
         COUNT(*) as total,
         COALESCE(SUM(CASE WHEN ${normalizedStatusExpr} IN ('new', 'novo', 'lead novo', 'novo lead') THEN 1 ELSE 0 END), 0) as new_count,
         COALESCE(SUM(CASE WHEN ${normalizedStatusExpr} IN ('contacted', 'contatado', 'contatados', 'contato iniciado', 'em contato') THEN 1 ELSE 0 END), 0) as contacted,
@@ -1270,5 +1431,61 @@ export class CustomersService {
       ${whereClause}
     `, params);
     return stats[0];
+  }
+
+  async getFilterOptions(scope: { userId?: string; brandId?: string }): Promise<any> {
+    const columns = await this.getColumns();
+    const conditions: string[] = [];
+    const params: any[] = [];
+
+    const ownerColumn = this.resolveOwnerColumn(columns);
+    if (ownerColumn && scope.userId) {
+      conditions.push(`${ownerColumn} = ?`);
+      params.push(scope.userId);
+    }
+
+    const brandColumn = this.resolveBrandColumn(columns);
+    if (brandColumn) {
+      if (scope.brandId) {
+        conditions.push(`${brandColumn} = ?`);
+        params.push(scope.brandId);
+      } else {
+        conditions.push(`${brandColumn} IS NULL`);
+      }
+    }
+
+    const baseWhere = conditions.length > 0 ? conditions.join(" AND ") : "1=1";
+
+    const [categories, cities, statuses, sources, states, tags, total] = await Promise.all([
+      query<any[]>(`SELECT category AS value, COUNT(*)::int AS count FROM customers WHERE ${baseWhere} AND category IS NOT NULL AND TRIM(category) != '' GROUP BY category ORDER BY count DESC LIMIT 30`, params),
+      query<any[]>(`SELECT city AS value, COUNT(*)::int AS count FROM customers WHERE ${baseWhere} AND city IS NOT NULL AND TRIM(city) != '' GROUP BY city ORDER BY count DESC LIMIT 30`, params),
+      query<any[]>(`SELECT status AS value, COUNT(*)::int AS count FROM customers WHERE ${baseWhere} GROUP BY status ORDER BY count DESC`, params),
+      query<any[]>(`SELECT source AS value, COUNT(*)::int AS count FROM customers WHERE ${baseWhere} AND source IS NOT NULL GROUP BY source ORDER BY count DESC LIMIT 20`, params),
+      this.hasColumn(columns, "state")
+        ? query<any[]>(`SELECT state AS value, COUNT(*)::int AS count FROM customers WHERE ${baseWhere} AND state IS NOT NULL AND TRIM(state) != '' GROUP BY state ORDER BY count DESC LIMIT 20`, params)
+        : Promise.resolve([]),
+      this.hasColumn(columns, "tags")
+        ? query<any[]>(`SELECT tags FROM customers WHERE ${baseWhere} AND tags IS NOT NULL AND tags::text != '[]' AND tags::text != 'null' LIMIT 200`, params)
+        : Promise.resolve([]),
+      query<any[]>(`SELECT COUNT(*)::int AS total FROM customers WHERE ${baseWhere}`, params),
+    ]);
+
+    const allTags = new Set<string>();
+    for (const row of tags) {
+      try {
+        const t = typeof row.tags === "string" ? JSON.parse(row.tags) : row.tags;
+        if (Array.isArray(t)) t.forEach((tag: string) => allTags.add(tag));
+      } catch {}
+    }
+
+    return {
+      categories,
+      cities,
+      statuses,
+      sources,
+      states,
+      tags: [...allTags].sort(),
+      total: (total[0] as any)?.total || 0,
+    };
   }
 }

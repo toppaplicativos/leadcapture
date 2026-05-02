@@ -13,7 +13,7 @@ import { ProspectionMatchService } from "../services/prospectionMatch";
 import { query, queryOne } from "../config/database";
 import { logger } from "../utils/logger";
 import { exec } from "child_process";
-import { writeFileSync, existsSync, symlinkSync, unlinkSync } from "fs";
+import { writeFileSync } from "fs";
 import path from "path";
 
 const router = Router();
@@ -1156,14 +1156,34 @@ router.get("/stores/:storeId/domains/:domain/instructions", async (req: BrandReq
 router.post("/stores/:storeId/domains/:domain/verify", async (req: BrandRequest, res) => {
   try {
     const userId = requireUserId(req);
+    const rawDomain = String(req.params.domain || "");
     const result = await storefront.verifyDomainOwnership(
       userId,
       String(req.params.storeId),
-      String(req.params.domain || ""),
+      rawDomain,
       requestPublicHost(req),
       req.brandId
     );
-    res.json({ success: true, ...result });
+
+    /* Auto-provision: if TXT verified AND DNS already points to this server,
+     * provision the Caddy block + reload + flip status to "active" all in
+     * one go. The user clicks Verify once and it's done. If the A record
+     * isn't pointing yet, we leave the row at "verified" — the next Verify
+     * click (or the boot reconcile) will provision it. */
+    let provisioned = false;
+    let provisionSteps: string[] | undefined;
+    if (result.verified && (result as any).checks?.a_points_to_server) {
+      try {
+        provisionSteps = await provisionDomainNginx(rawDomain);
+        provisioned = true;
+        (result as any).verification_status = "active";
+        logger.info(`Domain auto-provisioned via /verify: ${rawDomain} (${provisionSteps.join(", ")})`);
+      } catch (err: any) {
+        logger.error(`Auto-provision failed for ${rawDomain}: ${err?.message || err}`);
+      }
+    }
+
+    res.json({ success: true, ...result, provisioned, provision_steps: provisionSteps });
   } catch (error: any) {
     const badRequest = String(error.message || "").includes("invalid") || String(error.message || "").includes("not found");
     const status = error.message === "Store not found" ? 404 : badRequest ? 400 : 500;
@@ -1171,9 +1191,35 @@ router.post("/stores/:storeId/domains/:domain/verify", async (req: BrandRequest,
   }
 });
 
-/* ── Domain auto-provisioning (nginx + SSL) ── */
-const NGINX_AVAILABLE = "/etc/nginx/sites-available";
-const NGINX_ENABLED = "/etc/nginx/sites-enabled";
+/* Domain auto-provisioning (nginx + certbot)
+ *
+ * Why nginx instead of Caddy? The host already runs an nginx serving 4 other
+ * sites (aktien-news, tattooai, kronosdigitalmkt, topp-api), and there's a
+ * working certbot install with auto-renewal via systemd timer. Trying to
+ * front Caddy on top of that fights for ports 80/443 and is fragile —
+ * nginx + certbot is what the rest of the box already does.
+ *
+ * The flow:
+ *   1. User adds domain → row inserted with status="pending"
+ *   2. User points DNS at our IP, clicks Verify → if TXT matches and DNS
+ *      points to our IP, we run provisionDomainNginx() automatically.
+ *   3. provisionDomainNginx writes /etc/nginx/sites-available/lc-tenant-X.conf
+ *      (HTTP-only block), symlinks into sites-enabled, nginx reloads, then
+ *      certbot --nginx adds the SSL block + emits the Let's Encrypt cert.
+ *   4. On boot, reconcileNginxForVerifiedDomains() picks up any verified
+ *      rows that don't have a matching nginx config and provisions them.
+ *
+ * The certbot systemd timer (`certbot.timer`, already active) handles
+ * renewals every 12 hours — certs are 90 days, get auto-renewed at 30 days
+ * remaining. No code change needed for renewal.
+ */
+
+const NGINX_AVAILABLE_DIR = "/etc/nginx/sites-available";
+const NGINX_ENABLED_DIR = "/etc/nginx/sites-enabled";
+const CERTBOT_EMAIL = process.env.CERTBOT_EMAIL || "admin@leadcapture.online";
+/* Prefix that uniquely tags configs we manage. Anything in sites-available
+ * that doesn't start with this prefix is left alone. */
+const TENANT_CONFIG_PREFIX = "lc-tenant-";
 
 function isValidDomainName(d: string): boolean {
   return /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(d) && d.length <= 253;
@@ -1181,98 +1227,209 @@ function isValidDomainName(d: string): boolean {
 
 function execPromise(cmd: string): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    exec(cmd, { timeout: 120_000 }, (err, stdout, stderr) => {
+    exec(cmd, { timeout: 180_000 }, (err, stdout, stderr) => {
       if (err) return reject(Object.assign(err, { stdout, stderr }));
       resolve({ stdout, stderr });
     });
   });
 }
 
-function buildNginxConfig(domain: string): string {
-  return `server {
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+/** File-safe slug from a domain — used to build the config filename. */
+function configBaseName(domain: string): string {
+  const apex = domain.startsWith("www.") ? domain.slice(4) : domain;
+  return `${TENANT_CONFIG_PREFIX}${apex.replace(/[^a-z0-9.-]/g, "-")}`;
+}
+
+function buildHttpOnlyNginxConfig(domain: string): string {
+  const apex = domain.startsWith("www.") ? domain.slice(4) : domain;
+  /* Single server block listening on 80 for both apex and www. certbot will
+   * later add the SSL counterparts inline. The proxy_pass target matches the
+   * other LeadCapture nginx blocks (Express on 127.0.0.1:3001). */
+  return `# AUTO-GENERATED by LeadCapture — do not edit by hand
+# Domain: ${apex}
+server {
     listen 80;
-    server_name ${domain};
+    listen [::]:80;
+    server_name ${apex} www.${apex};
+    client_max_body_size 25M;
 
     location / {
         proxy_pass http://127.0.0.1:3001;
         proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
         proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Host $host;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_cache_bypass $http_upgrade;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 300s;
     }
 }
 `;
 }
 
+/**
+ * Write the HTTP-only nginx config and symlink it into sites-enabled.
+ * Idempotent: re-running just overwrites the file.
+ */
+async function writeNginxConfig(domain: string): Promise<"created" | "updated"> {
+  const base = configBaseName(domain);
+  const availPath = `${NGINX_AVAILABLE_DIR}/${base}.conf`;
+  const enabledPath = `${NGINX_ENABLED_DIR}/${base}.conf`;
+  const content = buildHttpOnlyNginxConfig(domain);
+
+  /* Detect whether the symlink already exists so we report create vs update. */
+  let existed = false;
+  try {
+    await execPromise(`sudo test -L ${shellQuote(enabledPath)}`);
+    existed = true;
+  } catch {}
+
+  /* Use a temp file we own (the node user) and sudo cp it into place. Avoids
+   * needing tee or shell redirection inside sudo. */
+  const tmp = path.join("/tmp", `${base}.tmp`);
+  writeFileSync(tmp, content, "utf-8");
+  try {
+    await execPromise(`sudo cp ${shellQuote(tmp)} ${shellQuote(availPath)}`);
+    await execPromise(`sudo ln -sf ${shellQuote(availPath)} ${shellQuote(enabledPath)}`);
+  } finally {
+    await execPromise(`rm -f ${shellQuote(tmp)}`).catch(() => undefined);
+  }
+  return existed ? "updated" : "created";
+}
+
+async function nginxValidateAndReload(): Promise<void> {
+  await execPromise(`sudo nginx -t`);
+  await execPromise(`sudo systemctl reload nginx`);
+}
+
+/**
+ * Issue (or load) a Let's Encrypt cert for {domain, www.domain} and inject
+ * the SSL server block into our config. certbot --nginx is idempotent — if
+ * the cert already exists and is valid, it just deploys it.
+ */
+async function runCertbot(domain: string): Promise<void> {
+  const apex = domain.startsWith("www.") ? domain.slice(4) : domain;
+  /* `--reinstall` is critical: when our HTTP-only config gets re-written by
+   * the reconciler, the cert may still be valid from a previous run. Without
+   * --reinstall, certbot sees a valid cert and skips the nginx mutation step
+   * — leaving the config without a `listen 443 ssl` block, so the domain
+   * silently falls back to the wrong default cert on port 443. */
+  const cmd = [
+    "sudo certbot --nginx",
+    "--non-interactive",
+    "--agree-tos",
+    "--redirect",
+    "--reinstall",
+    `-m ${shellQuote(CERTBOT_EMAIL)}`,
+    `-d ${shellQuote(apex)}`,
+    `-d ${shellQuote("www." + apex)}`,
+  ].join(" ");
+  await execPromise(cmd);
+}
+
+/**
+ * Full end-to-end provision for one domain. Returns a step log so callers
+ * can surface progress in the UI / logs.
+ */
+export async function provisionDomainNginx(domain: string): Promise<string[]> {
+  const steps: string[] = [];
+  const action = await writeNginxConfig(domain);
+  steps.push(`nginx config ${action}`);
+  await nginxValidateAndReload();
+  steps.push("nginx reloaded");
+  try {
+    await runCertbot(domain);
+    steps.push("certbot ok");
+  } catch (err: any) {
+    /* Certbot failures shouldn't roll back the http config — the user can
+     * retry once DNS settles. We do still mark the domain as "verified" but
+     * not "active" so the UI shows a clear "TLS pending" state. */
+    steps.push(`certbot FAILED: ${err?.message || err}`);
+    throw err;
+  }
+  await query(
+    `UPDATE storefront_domains SET verification_status = 'active', updated_at = NOW() WHERE domain = ?`,
+    [domain]
+  );
+  steps.push("status=active");
+  return steps;
+}
+
+/**
+ * Boot-time reconciler: every domain marked verified/active in the DB needs
+ * a matching nginx config in sites-enabled. Anything missing gets re-
+ * provisioned. Covers manual DB edits, restored backups, fresh boxes, etc.
+ */
+export async function reconcileNginxForVerifiedDomains(): Promise<void> {
+  try {
+    const rows = (await query<any>(
+      `SELECT domain, verification_status FROM storefront_domains
+       WHERE verification_status IN ('verified', 'active')
+       ORDER BY created_at ASC`
+    )) as Array<{ domain: string; verification_status: string }>;
+    if (!rows?.length) return;
+
+    /* List enabled tenant configs in one ls. */
+    let enabledList = "";
+    try {
+      const { stdout } = await execPromise(`sudo ls ${shellQuote(NGINX_ENABLED_DIR)}`);
+      enabledList = stdout;
+    } catch (err: any) {
+      logger.warn(`nginx reconcile skipped — could not list enabled dir: ${err?.message || err}`);
+      return;
+    }
+
+    const missing: string[] = [];
+    for (const row of rows) {
+      const base = configBaseName(row.domain);
+      if (!enabledList.includes(`${base}.conf`)) missing.push(row.domain);
+    }
+    if (!missing.length) {
+      logger.info(`nginx reconcile: all ${rows.length} verified domain(s) already provisioned`);
+      return;
+    }
+
+    logger.info(`nginx reconcile: provisioning ${missing.length} missing domain(s): ${missing.join(", ")}`);
+    for (const d of missing) {
+      try {
+        const steps = await provisionDomainNginx(d);
+        logger.info(`nginx reconcile: ${d} OK (${steps.join(", ")})`);
+      } catch (err: any) {
+        logger.error(`nginx reconcile: ${d} FAILED — ${err?.message || err}`);
+      }
+    }
+  } catch (err: any) {
+    logger.error(`nginx reconcile error: ${err?.message || err}`);
+  }
+}
+
+/* Backward-compat aliases — older code (and the index.ts boot hook) still
+ * imports the Caddy-named functions. These keep that import path working. */
+export const provisionDomainInCaddy = provisionDomainNginx;
+export const reconcileCaddyForVerifiedDomains = reconcileNginxForVerifiedDomains;
+
 router.post("/stores/:storeId/domains/:domain/provision", async (req: BrandRequest, res) => {
   const storeId = String(req.params.storeId || "").trim();
   const rawDomain = String(req.params.domain || "").toLowerCase().trim();
   try {
-    const userId = requireUserId(req);
+    requireUserId(req);
     if (!isValidDomainName(rawDomain)) {
       return res.status(400).json({ error: "Invalid domain name" });
     }
-
-    // Verify domain belongs to this store
-    const domainRow = await queryOne<{ id: string; store_id: string; verification_status: string }>(
-      `SELECT d.id, d.store_id, d.verification_status FROM storefront_domains d
-       INNER JOIN storefront_stores s ON s.id = d.store_id
-       WHERE d.domain = ? AND d.store_id = ?`,
+    const domainRow = await queryOne<{ id: string }>(
+      `SELECT d.id FROM storefront_domains d WHERE d.domain = ? AND d.store_id = ?`,
       [rawDomain, storeId]
     );
     if (!domainRow) {
       return res.status(404).json({ error: "Domain not registered for this store" });
     }
-
-    const steps: string[] = [];
-
-    // Step 1: Create nginx config if not exists
-    const availPath = path.join(NGINX_AVAILABLE, rawDomain);
-    if (!existsSync(availPath)) {
-      writeFileSync(availPath, buildNginxConfig(rawDomain), "utf-8");
-      steps.push("nginx config created");
-    } else {
-      steps.push("nginx config already exists");
-    }
-
-    // Step 2: Symlink to sites-enabled
-    const enabledPath = path.join(NGINX_ENABLED, rawDomain);
-    if (!existsSync(enabledPath)) {
-      symlinkSync(availPath, enabledPath);
-      steps.push("site enabled");
-    } else {
-      steps.push("site already enabled");
-    }
-
-    // Step 3: Test and reload nginx
-    await execPromise("nginx -t");
-    await execPromise("systemctl reload nginx");
-    steps.push("nginx reloaded");
-
-    // Step 4: Obtain SSL certificate via certbot
-    try {
-      const certResult = await execPromise(
-        `certbot --nginx -d ${rawDomain} --non-interactive --agree-tos --email admin@leadcapture.online --redirect`
-      );
-      steps.push("SSL certificate obtained");
-      logger.info(`certbot success for ${rawDomain}: ${certResult.stdout.slice(0, 200)}`);
-    } catch (certErr: any) {
-      logger.error(`certbot failed for ${rawDomain}: ${certErr.stderr || certErr.message}`);
-      steps.push(`SSL pending: ${String(certErr.stderr || certErr.message).slice(0, 150)}`);
-    }
-
-    // Step 5: Update domain status
-    await query(
-      `UPDATE storefront_domains SET verification_status = 'active' WHERE id = ?`,
-      [domainRow.id]
-    );
-    steps.push("domain status set to active");
-
-    logger.info(`Domain provisioned: ${rawDomain} for store ${storeId} — ${steps.join(", ")}`);
+    const steps = await provisionDomainNginx(rawDomain);
+    logger.info(`Domain provisioned via /provision: ${rawDomain} (${steps.join(", ")})`);
     res.json({ success: true, domain: rawDomain, steps });
   } catch (error: any) {
     logger.error(`Domain provision failed for ${rawDomain}: ${error.message || error}`);

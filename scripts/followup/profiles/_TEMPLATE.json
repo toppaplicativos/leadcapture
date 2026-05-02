@@ -1,0 +1,112 @@
+{
+  "$schema": "Regua Reev 8-contatos — Template para novos brands",
+  "$docs": "Copie este arquivo, renomeie para <slug-do-brand>.json e preencha todos os campos.",
+
+  "brandId": "UUID-do-brand-unit-aqui",
+  "userId": "UUID-do-usuario-dono-aqui",
+  "instanceId": "UUID-da-instancia-whatsapp-aqui",
+
+  "agent": {
+    "name": "Nome do agente comercial (ex: Elenice)",
+    "role": "Papel profissional (ex: representante comercial, consultora de vendas, assistente)"
+  },
+
+  "company": {
+    "name": "Nome da empresa (ex: Alho Pronto)",
+    "description": "Descricao em 1 frase — tipo de empresa + proposta principal"
+  },
+
+  "product": {
+    "category": "Categoria do segmento (ex: alimenticio, construcao, beleza, saude)",
+    "name": "Nome/descricao curta do produto ou servico",
+    "coreIngredient": "Ingrediente/insumo principal (opcional, usado em prompts)",
+    "shortPitch": "Pitch curto de 1 linha para o fallback template",
+    "painLine": "Dor especifica pra mencao casual (usado no FU1 fallback)",
+    "costFigure": "Frase sobre custo desperdicado (ex: 'isso custa 40h/mes na folha')",
+    "mainBenefits": [
+      "Beneficio 1 — pratico e direto",
+      "Beneficio 2",
+      "Beneficio 3"
+    ],
+    "targetPains": [
+      "Dor 1 do cliente (ex: tempo perdido descascando alho manualmente)",
+      "Dor 2 (ex: risco de acidente)",
+      "Dor 3"
+    ],
+    "costsOfInaction": [
+      "Custo 1 de nao agir (ex: 40h/mes de folha desperdicadas)",
+      "Custo 2 (ex: alho oxidando nas caixas = perda de dinheiro)"
+    ],
+    "futureGains": [
+      "Ganho 1 futuro (ex: equipe focada no que importa)",
+      "Ganho 2 (ex: mais rotatividade, menos desperdicio)"
+    ]
+  },
+
+  "target": {
+    "segments": ["segmento 1", "segmento 2"],
+    "region": "Regiao de atendimento (ex: Belo Horizonte e Grande BH)",
+    "commonSegment": "Descritor generico do segmento (ex: cozinha comercial, operacao)"
+  },
+
+  "tone": "consultivo, humano, de relacionamento",
+  "requireWhatsApp": false,
+  "initialStatuses": ["new"],
+
+  "socialProof": {
+    "clientCount": "120+ estabelecimentos",
+    "clientType": "estabelecimentos",
+    "skuCount": "3 SKUs",
+    "headlineMetric": "8h/semana economizadas no descasque",
+    "metrics": [
+      "Hoje atendemos X estabelecimentos na regiao",
+      "Media de Y horas/semana economizadas",
+      "Reduz Z% do custo de mao de obra"
+    ],
+    "miniCases": [
+      "Mini-case 1 — GENERICO, sem nomes inventados (ex: churrascaria em Contagem trocou e ganhou)",
+      "Mini-case 2",
+      "Mini-case 3"
+    ],
+    "stories": [
+      "Storytelling completo 1 — historia de transformacao com antes/depois (sem nomes fake)",
+      "Storytelling 2"
+    ]
+  },
+
+  "techEducation": [
+    "Info tecnica 1 — detalhe profissional que surpreende/educa",
+    "Info tecnica 2",
+    "Info tecnica 3"
+  ],
+
+  "expertise": [
+    "Linha sobre expertise do agente (ex: cuido dessa parte ha 5 anos)",
+    "Outra linha (ex: comecei na cozinha antes das vendas)"
+  ],
+
+  "freeContentOffers": [
+    "Conteudo gratuito 1 (ex: Planilha de controle mensal)",
+    "Conteudo gratuito 2 (ex: Checklist de prep diario)",
+    "Conteudo gratuito 3"
+  ],
+
+  "exitSurveyOptions": [
+    "razao 1 pra nao ter interesse (ex: nao usa muito)",
+    "razao 2 (ex: prefere continuar fazendo na casa)",
+    "razao 3 (ex: ja tem bom fornecedor)",
+    "razao 4 (ex: nao e prioridade agora)"
+  ],
+
+  "templates": {
+    "$comment": "Fallback templates usados quando a IA falha. Todos opcionais — se nao fornecer, o builder gera um fallback automatico.",
+    "fu0": "Template opcional de abertura",
+    "fu1": "Template opcional de check-in",
+    "fu2": "Template opcional de consciencia",
+    "fu3": "Template opcional de prova social",
+    "fu4": "Template opcional de educacao",
+    "fu5": "Template opcional de caso real",
+    "fu6": "Template opcional de valor puro",
+    "fu7": "Template opcional de break-up"
+  }
+}

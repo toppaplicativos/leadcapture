@@ -315,7 +315,7 @@ export class StorefrontService {
     if (!brandId || !userId) return;
 
     const brandUnit = await queryOne<any>(
-      `SELECT id, name, slug, logo_url, slogan, primary_color, secondary_color, site_url, sales_page_url,
+      `SELECT id, name, slug, logo_url, cover_image, slogan, primary_color, secondary_color, site_url, sales_page_url,
               instagram_url, facebook_url, twitter_url, tiktok_url, domain, status, theme_json
        FROM brand_units
        WHERE id = ? AND user_id = ?
@@ -327,17 +327,40 @@ export class StorefrontService {
     const currentBrand = this.parseObjectJson(store.brand_json);
     const currentTheme = this.parseObjectJson(store.theme_json);
     const brandThemeData = this.parseObjectJson(brandUnit.theme_json);
+    const brandLogoUrl =
+      String(
+        brandUnit.logo_url ||
+          brandThemeData.logo_url ||
+          brandThemeData.logoUrl ||
+          brandThemeData.logo ||
+          ""
+      ).trim() || null;
+    const brandCoverImage =
+      String(
+        brandUnit.cover_image ||
+          brandThemeData.cover_image ||
+          brandThemeData.cover_image_url ||
+          brandThemeData.hero_image ||
+          ""
+      ).trim() || null;
+    const brandDescription =
+      String(brandThemeData.description || brandUnit.slogan || "").trim() ||
+      currentBrand.description ||
+      currentBrand.slogan ||
+      null;
+    const brandAddress =
+      String(brandThemeData.address || "").trim() || currentBrand.address || null;
 
     const nextBrand = {
       ...currentBrand,
       id: String(brandUnit.id || brandId),
       name: String(brandUnit.name || currentBrand.name || store.name || "").trim() || store.name,
       slug: String(brandUnit.slug || currentBrand.slug || "").trim() || toSlug(String(brandUnit.name || store.name || "")),
-      logo_url: String(brandUnit.logo_url || "").trim() || currentBrand.logo_url || null,
+      logo_url: brandLogoUrl,
       slogan: String(brandUnit.slogan || "").trim() || currentBrand.slogan || null,
-      description: String(brandThemeData.description || brandUnit.slogan || "").trim() || currentBrand.description || currentBrand.slogan || null,
-      cover_image: String(brandThemeData.cover_image || brandThemeData.cover_image_url || brandThemeData.hero_image || "").trim() || currentBrand.cover_image || null,
-      address: String(brandThemeData.address || "").trim() || currentBrand.address || null,
+      description: brandDescription,
+      cover_image: brandCoverImage,
+      address: brandAddress,
       primary_color: String(brandUnit.primary_color || "").trim() || currentBrand.primary_color || null,
       secondary_color: String(brandUnit.secondary_color || "").trim() || currentBrand.secondary_color || null,
       site_url: String(brandUnit.site_url || "").trim() || currentBrand.site_url || null,
@@ -353,18 +376,19 @@ export class StorefrontService {
 
     const nextTheme = {
       ...currentTheme,
-      logo_url:
-        String(brandUnit.logo_url || "").trim() ||
-        String(currentTheme.logo_url || currentTheme.logo || "").trim() ||
-        undefined,
+      logo_url: brandLogoUrl,
+      logo: brandLogoUrl,
+      cover_image: brandCoverImage,
+      cover_image_url: brandCoverImage,
+      hero_image: brandCoverImage,
       primary_color:
         String(brandUnit.primary_color || "").trim() ||
         String(currentTheme.primary_color || currentTheme.primary || "").trim() ||
-        undefined,
+        null,
       secondary_color:
         String(brandUnit.secondary_color || "").trim() ||
         String(currentTheme.secondary_color || currentTheme.secondary || "").trim() ||
-        undefined,
+        null,
     } as Record<string, any>;
 
     const beforeBrand = JSON.stringify(this.parseObjectJson(store.brand_json));
@@ -1240,26 +1264,38 @@ export class StorefrontService {
     const verificationHost = `_leadcapture-verify.${domain}`;
     const verificationValue = `leadcapture-verification=${verificationToken}`;
     const publicHost = normalizePublicHost(String(publicHostInput || ""));
-    const recordType = domain.startsWith("www.") ? "CNAME" : publicHost ? "ALIAS_OR_A" : "TXT_ONLY";
+    const serverIp = String(process.env.VPS_PUBLIC_IP || "109.176.198.123").trim();
+
+    const isWww = domain.startsWith("www.");
+    /* Para subdomínios (www.x.com): CNAME pra plataforma.
+     * Para apex/raiz (x.com): A record com IP. ALIAS/ANAME funcionam mas
+     * variam por provedor — recomendamos "A" porque é universal. */
+    const connection = isWww
+      ? {
+          type: "CNAME",
+          host: "www",
+          value: publicHost || "app.leadcapture.online",
+          note: `Crie um registro CNAME com host "www" apontando para ${publicHost || "app.leadcapture.online"}.`,
+        }
+      : {
+          type: "A",
+          host: "@",
+          value: serverIp,
+          alt_type: "ALIAS",
+          alt_value: publicHost || "app.leadcapture.online",
+          note: `Crie um registro A com host "@" (raiz) apontando para o IP ${serverIp}. Se o seu provedor pedir um campo "TTL", deixe automático ou 3600. Se aparecer também a opção ALIAS ou ANAME, prefira A — funciona em todos os registradores (Hostinger, Registro.br, GoDaddy, etc).`,
+        };
 
     return {
       domain,
+      server_ip: serverIp,
       verification: {
         type: "TXT",
         host: verificationHost,
         value: verificationValue,
       },
-      connection: {
-        type: recordType,
-        host: domain.startsWith("www.") ? "www" : "@",
-        target: publicHost,
-        note: publicHost
-          ? domain.startsWith("www.")
-            ? `Crie um CNAME apontando para ${publicHost}`
-            : `Aponte o domínio raiz para o servidor que atende ${publicHost} ou configure ALIAS/ANAME no seu provedor.`
-          : "Configure o apontamento do domínio para o servidor público da aplicação.",
-      },
-      expected_origin: publicHost ? `https://${domain}` : null,
+      connection,
+      expected_origin: `https://${domain}`,
       verification_token: verificationToken,
     };
   }
@@ -1295,8 +1331,10 @@ export class StorefrontService {
     try {
       const cname = await resolveCname(domain);
       cnameRecords = cname.map((item) => sanitizeDomain(item));
-      const target = normalizePublicHost(String(instructions.connection.target || ""));
-      cnameVerified = !!target && cnameRecords.includes(target);
+      const cnameTarget = (instructions.connection as any).value
+        ? normalizePublicHost(String((instructions.connection as any).value))
+        : null;
+      cnameVerified = !!cnameTarget && cnameRecords.includes(cnameTarget);
     } catch {}
 
     try {
@@ -1304,6 +1342,11 @@ export class StorefrontService {
       aRecords = Array.isArray(a) ? a : [];
       aResolved = aRecords.length > 0;
     } catch {}
+
+    /* O A record bate com o IP do servidor? Útil pra UI dar feedback claro
+     * "DNS apontando" vs "DNS pendente" sem confundir o usuário. */
+    const expectedIp = (instructions as any).server_ip as string | undefined;
+    const aPointsToServer = !!expectedIp && aRecords.includes(expectedIp);
 
     const verified = txtVerified;
     await update(
@@ -1319,6 +1362,8 @@ export class StorefrontService {
         txt_verified: txtVerified,
         cname_verified: cnameVerified,
         a_resolved: aResolved,
+        a_points_to_server: aPointsToServer,
+        expected_ip: expectedIp || null,
         txt_records: txtRecords,
         cname_records: cnameRecords,
         a_records: aRecords,

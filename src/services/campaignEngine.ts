@@ -6,6 +6,7 @@ import { InstanceManager } from "../core/instanceManager";
 import { ContextEngineService } from "./contextEngine";
 import { GeminiService } from "./gemini";
 import { InstanceRotationService, RotationMode } from "./instanceRotation";
+import { aiRouter } from "./aiRouter";
 import { logger } from "../utils/logger";
 
 // ─── Types ──────────────────────────────────────────────────────
@@ -597,6 +598,23 @@ export class CampaignEngineService {
       this.campaignHistoryColumnsCache = rows.map((row) => String(row.Field || ""));
     }
     return new Set(this.campaignHistoryColumnsCache);
+  }
+
+  /**
+   * Extract the pool of allowed instance IDs from campaign settings.
+   * Returns campaignCore.poolInstanceIds[] when rotation is enabled, else [].
+   */
+  private resolveCampaignPoolIds(campaign: Campaign): string[] {
+    try {
+      const settings = typeof campaign.settings === "string"
+        ? JSON.parse(campaign.settings)
+        : (campaign.settings || {});
+      const core = (settings as any)?.campaignCore || {};
+      const pool = Array.isArray(core.poolInstanceIds) ? core.poolInstanceIds : [];
+      return pool.map((id: any) => String(id || "").trim()).filter(Boolean);
+    } catch {
+      return [];
+    }
   }
 
   private normalizeCampaignDestinationSettings(settingsInput: Record<string, unknown> | null | undefined): CampaignDestinationSettings {
@@ -1427,14 +1445,7 @@ export class CampaignEngineService {
           : [destination.targets.length, campaign.id, userId]
       );
     } else {
-      let leads = await this.filterLeadsByBrand(userId, campaign.filter_json || {}, normalizedBrandId);
-
-      // Fallback: if hasWhatsapp filter eliminates all leads, retry without it
-      if (leads.length === 0 && (campaign.filter_json as any)?.hasWhatsapp === true) {
-        logger.warn(`Campaign ${campaign.id}: hasWhatsapp filter returned 0 leads, retrying without WhatsApp validation filter`);
-        const relaxedFilter = { ...(campaign.filter_json || {}), hasWhatsapp: false };
-        leads = await this.filterLeadsByBrand(userId, relaxedFilter, normalizedBrandId);
-      }
+      const leads = await this.filterLeadsByBrand(userId, campaign.filter_json || {}, normalizedBrandId);
 
       for (const lead of leads) {
         const phone = normalizePhone(lead.phone);
@@ -1496,49 +1507,34 @@ export class CampaignEngineService {
     let startMessageSuffix = "";
 
     if (campaign.use_instance_rotation && this.rotationEngine) {
-      const selected = await this.rotationEngine.selectInstance(userId, { preferredInstanceId: campaign.instance_id });
-      if (!selected) {
-        return { ok: false, message: "Nenhuma instancia conectada disponivel para rotacao" };
+      // Validate the pool — at least one allowed instance must be connected
+      const poolIds = this.resolveCampaignPoolIds(campaign);
+      const connectedInPool = poolIds.length > 0
+        ? poolIds.filter(id => {
+            const i = this.instanceManager.getInstance(id, userId) ?? this.instanceManager.getInstance(id);
+            return i?.status === "connected";
+          })
+        : [];
+
+      if (poolIds.length > 0 && connectedInPool.length === 0) {
+        return { ok: false, message: "Nenhuma instancia do pool da campanha esta conectada. Verifique o WhatsApp Manager." };
       }
 
-      if (selected !== campaign.instance_id) {
-        await update(
-          `UPDATE campaign_history
-           SET instance_id = ?, updated_at = NOW()
-           WHERE id = ? AND user_id = ? AND ${normalizedBrandId ? "brand_id = ?" : "brand_id IS NULL"}`,
-          normalizedBrandId ? [selected, campaignId, userId, normalizedBrandId] : [selected, campaignId, userId]
-        );
+      // If pool is empty, fall back to any connected instance
+      if (poolIds.length === 0) {
+        const selected = await this.rotationEngine.selectInstance(userId, { preferredInstanceId: campaign.instance_id });
+        if (!selected) {
+          return { ok: false, message: "Nenhuma instancia conectada disponivel para rotacao" };
+        }
       }
+      // IMPORTANT: do NOT mutate campaign.instance_id — preserve user's original preference.
+      // Rotation selects per-message, not per-campaign.
     } else {
-      // Verify fixed instance — try with owner check first, then without (instance may be shared across users)
+      // Verify fixed instance — skip ownership filter (instances may be shared across users)
       const instance = this.instanceManager.getInstance(campaign.instance_id, userId)
         ?? this.instanceManager.getInstance(campaign.instance_id);
       if (!instance || instance.status !== "connected") {
-        // Try fallback: any connected instance (skip ownership filter for campaign context)
-        const anyConnected = this.instanceManager.getAllInstances().find(i => i.status === "connected");
-        if (anyConnected) {
-          await update(
-            `UPDATE campaign_history
-             SET instance_id = ?, use_instance_rotation = TRUE, updated_at = NOW()
-             WHERE id = ? AND user_id = ? AND ${normalizedBrandId ? "brand_id = ?" : "brand_id IS NULL"}`,
-            normalizedBrandId ? [anyConnected.id, campaignId, userId, normalizedBrandId] : [anyConnected.id, campaignId, userId]
-          );
-          startMessageSuffix = ` (failover automatico para instancia ${anyConnected.id.slice(0, 8)}...)`;
-        } else if (this.rotationEngine) {
-          const selected = await this.rotationEngine.selectInstance(userId, { preferredInstanceId: campaign.instance_id });
-          if (!selected) {
-            return { ok: false, message: "Instancia WhatsApp nao esta conectada" };
-          }
-          await update(
-            `UPDATE campaign_history
-             SET instance_id = ?, use_instance_rotation = TRUE, updated_at = NOW()
-             WHERE id = ? AND user_id = ? AND ${normalizedBrandId ? "brand_id = ?" : "brand_id IS NULL"}`,
-            normalizedBrandId ? [selected, campaignId, userId, normalizedBrandId] : [selected, campaignId, userId]
-          );
-          startMessageSuffix = ` (failover automatico para instancia ${selected.slice(0, 8)}...)`;
-        } else {
-          return { ok: false, message: "Instancia WhatsApp nao esta conectada" };
-        }
+        return { ok: false, message: `Instancia WhatsApp ${campaign.instance_id?.slice(0, 8) || '?'} nao esta conectada. Reconecte em WhatsApp Manager.` };
       }
     }
 
@@ -1850,8 +1846,23 @@ export class CampaignEngineService {
         );
       } else {
         try {
+          // When rotation is enabled, use first connected pool instance for validation
+          // (campaign.instance_id may be a stale/missing ID when pool is configured)
+          const validationInstanceId = (() => {
+            if (campaign.use_instance_rotation) {
+              const poolIds = this.resolveCampaignPoolIds(campaign);
+              const connected = poolIds.find((id) => {
+                const inst =
+                  this.instanceManager.getInstance(id, userId) ??
+                  this.instanceManager.getInstance(id);
+                return inst?.status === "connected";
+              });
+              if (connected) return connected;
+            }
+            return campaign.instance_id;
+          })();
           const validation = await withTimeout(
-            this.instanceManager.checkWhatsAppNumber(campaign.instance_id, phone),
+            this.instanceManager.checkWhatsAppNumber(validationInstanceId, phone),
             15000,
             "Timeout na validacao WhatsApp"
           );
@@ -1966,12 +1977,27 @@ export class CampaignEngineService {
         Boolean(mediaConfig.documentPath);
       const hasLink = Boolean(mediaConfig.linkUrl);
 
+      // Resolve which instance will actually send this message.
+      // When rotation is ON, pick per-message from the campaign's allowed pool.
+      // When rotation is OFF, always use the campaign's fixed instance.
+      const poolIds = campaign.use_instance_rotation ? this.resolveCampaignPoolIds(campaign) : [];
+      let sendingInstanceId = campaign.instance_id;
+
+      if (campaign.use_instance_rotation && this.rotationEngine) {
+        const rotated = await this.rotationEngine.selectInstance(userId, {
+          leadId: String(lead.lead_id || ""),
+          preferredInstanceId: campaign.instance_id,
+          allowedInstanceIds: poolIds.length > 0 ? poolIds : undefined,
+        });
+        if (rotated) sendingInstanceId = rotated;
+      }
+
       try {
         const sendResult = await withTimeout<CampaignSendResult>(
-          // Path A: media or link present → use the rich-message helper (no rotation, single instance)
+          // Path A: media or link present → use rich-message helper with selected instance
           hasMedia || hasLink
             ? this.sendCampaignMessageWithMedia(
-                campaign.instance_id,
+                sendingInstanceId,
                 jid,
                 phone,
                 messageText,
@@ -1980,14 +2006,14 @@ export class CampaignEngineService {
             // Path B: text-only via JID
             : jid
             ? (async () => {
-                const ok = await this.instanceManager.sendMessageByJid(campaign.instance_id, jid, messageText);
+                const ok = await this.instanceManager.sendMessageByJid(sendingInstanceId, jid, messageText);
                 return {
                   ok,
-                  instanceId: campaign.instance_id,
+                  instanceId: sendingInstanceId,
                   error: ok ? undefined : "Envio falhou",
                 };
               })()
-            // Path C: text-only via instance rotation
+            // Path C: text-only with rotation + failover (tries multiple instances)
             : campaign.use_instance_rotation && this.rotationEngine
             ? this.rotationEngine.sendTextWithFailover({
                 userId,
@@ -1996,15 +2022,16 @@ export class CampaignEngineService {
                 leadId: String(lead.lead_id || ""),
                 campaignId,
                 automationCode: "campaign_v2",
-                preferredInstanceId: campaign.instance_id,
+                preferredInstanceId: sendingInstanceId,
+                allowedInstanceIds: poolIds.length > 0 ? poolIds : undefined,
                 maxAttempts: 3,
               })
-            // Path D: text-only direct send
+            // Path D: text-only direct send (rotation off)
             : (async () => {
-                const ok = await this.instanceManager.sendMessage(campaign.instance_id, phone, messageText);
+                const ok = await this.instanceManager.sendMessage(sendingInstanceId, phone, messageText);
                 return {
                   ok,
-                  instanceId: campaign.instance_id,
+                  instanceId: sendingInstanceId,
                   error: ok ? undefined : "Envio falhou",
                 };
               })(),
@@ -2014,7 +2041,19 @@ export class CampaignEngineService {
         );
 
         const sent = sendResult.ok;
-        const usedInstanceId = sendResult.instanceId || campaign.instance_id;
+        const usedInstanceId = sendResult.instanceId || sendingInstanceId;
+
+        // Record metric for rotation engine so it knows which instance actually sent
+        if (campaign.use_instance_rotation && this.rotationEngine && usedInstanceId) {
+          await this.rotationEngine.recordSendMetric({
+            userId,
+            instanceId: usedInstanceId,
+            leadId: String(lead.lead_id || ""),
+            campaignId,
+            automationCode: "campaign_v2",
+            status: sent ? "sent" : "failed",
+          }).catch(() => {});
+        }
 
         if (sent) {
           const tagsToAdd = ["campanha_disparada", "primeiro_contato_enviado", "aguardando_resposta"];
@@ -2710,88 +2749,115 @@ export class CampaignEngineService {
     media: ReturnType<CampaignEngineService["extractCampaignMediaConfig"]>
   ): Promise<{ ok: boolean; instanceId: string; error?: string }> {
     const finalText = this.appendLinkToMessage(messageText, media.linkUrl);
-    let textConsumedAsCaption = false;
-    let anySent = false;
+    let textSent = false;
+    let anyMediaSent = false;
     let lastError: string | undefined;
 
-    const send = async (
+    // STRATEGY: Send TEXT FIRST (guaranteed small + fast delivery),
+    // then send each media as a SEPARATE message.
+    // Never use caption — captions on broken media cause messages to
+    // appear as "loading" on recipient's WhatsApp and never display the text.
+
+    // 1. Send text first (ALWAYS separate, never as caption)
+    if (finalText.trim()) {
+      try {
+        const ok = jid
+          ? await this.instanceManager.sendMessageByJid(instanceId, jid, finalText)
+          : await this.instanceManager.sendMessage(instanceId, phone, finalText);
+        if (ok) {
+          textSent = true;
+          logger.info(`[Campaign media] Text sent successfully to ${jid || phone}`);
+        } else {
+          lastError = "text send failed";
+          logger.warn(`[Campaign media] Text send failed to ${jid || phone}`);
+        }
+      } catch (err: any) {
+        lastError = `text: ${err.message}`;
+        logger.error(`[Campaign media] Text send error: ${err.message}`);
+      }
+
+      // Small delay between text and media so recipient sees them in order
+      if (textSent) await new Promise((r) => setTimeout(r, 1500));
+    }
+
+    const sendMedia = async (
       mediaType: "image" | "video" | "audio" | "document",
       filePath: string,
-      opts: { caption?: string; voiceNote?: boolean; fileName?: string } = {}
+      opts: { voiceNote?: boolean; fileName?: string } = {}
     ): Promise<boolean> => {
       try {
+        // Validate file exists and has size before sending
+        if (!fs.existsSync(filePath)) {
+          lastError = `${mediaType}: file not found`;
+          logger.error(`[Campaign media] File not found: ${filePath}`);
+          return false;
+        }
+        const stat = fs.statSync(filePath);
+        if (stat.size === 0) {
+          lastError = `${mediaType}: file empty`;
+          logger.error(`[Campaign media] File is empty: ${filePath}`);
+          return false;
+        }
+
         const ok = jid
           ? await this.instanceManager.sendMediaByJid(instanceId, jid, {
               mediaType,
               filePath,
-              caption: opts.caption,
               voiceNote: opts.voiceNote,
               fileName: opts.fileName,
             })
           : await this.instanceManager.sendMedia(instanceId, phone, {
               mediaType,
               filePath,
-              caption: opts.caption,
               voiceNote: opts.voiceNote,
               fileName: opts.fileName,
             });
-        if (ok) anySent = true;
-        else lastError = `${mediaType} send failed`;
+        if (ok) {
+          anyMediaSent = true;
+          logger.info(`[Campaign media] ${mediaType} sent successfully to ${jid || phone}`);
+        } else {
+          lastError = `${mediaType} send failed`;
+          logger.warn(`[Campaign media] ${mediaType} send failed to ${jid || phone}`);
+        }
         return ok;
       } catch (err: any) {
         lastError = `${mediaType}: ${err.message}`;
-        logger.error(`[Campaign media] ${lastError}`);
+        logger.error(`[Campaign media] ${mediaType} error: ${err.message}`);
         return false;
       }
     };
 
-    // 1. Image
+    // 2. Image (always separate message, no caption)
     if (media.imagePath) {
-      const caption = media.imageUseTextAsCaption
-        ? finalText
-        : (media.imageCaption || undefined);
-      await send("image", media.imagePath, { caption });
-      if (media.imageUseTextAsCaption) textConsumedAsCaption = true;
+      await sendMedia("image", media.imagePath);
+      await new Promise((r) => setTimeout(r, 800));
     }
 
-    // 2. Video
+    // 3. Video
     if (media.videoPath) {
-      const caption = media.videoUseTextAsCaption
-        ? finalText
-        : (media.videoCaption || undefined);
-      await send("video", media.videoPath, { caption });
-      if (media.videoUseTextAsCaption) textConsumedAsCaption = true;
+      await sendMedia("video", media.videoPath);
+      await new Promise((r) => setTimeout(r, 800));
     }
 
-    // 3. Audio
+    // 4. Audio
     if (media.audioPath) {
-      await send("audio", media.audioPath, { voiceNote: media.audioVoiceNote });
+      await sendMedia("audio", media.audioPath, { voiceNote: media.audioVoiceNote });
+      await new Promise((r) => setTimeout(r, 800));
     }
 
-    // 4. Document
+    // 5. Document
     if (media.documentPath) {
-      await send("document", media.documentPath, {
+      await sendMedia("document", media.documentPath, {
         fileName: media.documentName || undefined,
       });
     }
 
-    // 5. Text (only if not already sent as caption)
-    if (!textConsumedAsCaption && finalText.trim()) {
-      try {
-        const ok = jid
-          ? await this.instanceManager.sendMessageByJid(instanceId, jid, finalText)
-          : await this.instanceManager.sendMessage(instanceId, phone, finalText);
-        if (ok) anySent = true;
-        else lastError = "text send failed";
-      } catch (err: any) {
-        lastError = `text: ${err.message}`;
-      }
-    }
-
+    // Succeeded if text OR any media arrived. Text is the critical piece.
+    const ok = textSent || anyMediaSent;
     return {
-      ok: anySent,
+      ok,
       instanceId,
-      error: anySent ? undefined : (lastError || "Envio falhou"),
+      error: ok ? undefined : (lastError || "Envio falhou"),
     };
   }
 

@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Minus, Plus, Trash2, ShoppingBag, ArrowLeft, ArrowRight, CreditCard, ImageOff, User, MapPin, CheckCircle2 } from 'lucide-react'
+import { Minus, Plus, Trash2, ShoppingBag, ArrowLeft, ArrowRight, CreditCard, ImageOff, User, MapPin, CheckCircle2, MessageCircle, QrCode, FileText, Banknote, Truck, Clock } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { fetchCatalog, createOrder, type Product } from '@/lib/api'
 import { useCartStore } from '@/lib/store'
@@ -197,8 +197,8 @@ export function CheckoutPage() {
                         </div>
                       </div>
                     ) : freeAbove > 0 && missingForFree > 0 ? (
-                      <div className="flex items-center gap-2 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2.5">
-                        <span className="text-lg">🚚</span>
+                      <div className="flex items-center gap-2.5 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2.5">
+                        <Truck size={18} strokeWidth={1.75} className="text-amber-600 shrink-0" />
                         <div>
                           <p className="text-xs font-bold text-amber-700">Falta R$ {missingForFree.toFixed(2)} para frete gratis!</p>
                           <p className="text-[10px] text-amber-600">Pedidos acima de R$ {freeAbove.toFixed(0)} tem entrega gratuita</p>
@@ -212,7 +212,7 @@ export function CheckoutPage() {
                       </div>
                     ) : null}
                     {storeProfile.delivery_time_text && (
-                      <p className="text-[10px] text-gray-400 flex items-center gap-1">⏱ {storeProfile.delivery_time_text}</p>
+                      <p className="text-[10px] text-gray-400 flex items-center gap-1.5"><Clock size={11} strokeWidth={2} /> {storeProfile.delivery_time_text}</p>
                     )}
                     {storeProfile.frete_texto && (
                       <p className="text-[10px] text-gray-400 leading-relaxed">{storeProfile.frete_texto}</p>
@@ -267,7 +267,9 @@ export function CheckoutPage() {
               {phone && (
                 <div className="flex items-center justify-between bg-emerald-50 border border-emerald-100 rounded-xl p-3.5">
                   <div className="flex items-center gap-2.5">
-                    <span className="text-lg">💬</span>
+                    <span className="w-9 h-9 rounded-full bg-white grid place-items-center text-emerald-600 shrink-0">
+                      <MessageCircle size={18} strokeWidth={1.75} />
+                    </span>
                     <div>
                       <p className="text-sm font-semibold text-gray-800">Notificacoes por WhatsApp</p>
                       <p className="text-[10px] text-gray-500">Receba atualizacoes do pedido em {phone}</p>
@@ -295,18 +297,28 @@ export function CheckoutPage() {
               <h2 className="text-lg font-bold text-gray-900">Forma de Pagamento</h2>
               <div className="space-y-2">
                 {[
-                  ...paymentMethods.map(m => ({ value: m.type, label: m.label, icon: m.type === 'pix' ? '💎' : m.type === 'card' ? '💳' : m.type === 'boleto' ? '📄' : '💵' })),
-                  { value: 'dinheiro', label: 'Dinheiro', icon: '💵' },
-                ].filter((m, i, arr) => arr.findIndex(x => x.value === m.value) === i).map(m => (
-                  <button key={m.value} type="button" onClick={() => setPaymentMethod(m.value)}
-                    className={`w-full flex items-center gap-3 p-4 rounded-xl border transition text-left ${
-                      paymentMethod === m.value ? 'border-[var(--brand-secondary)] bg-[var(--brand-secondary-light)] ring-2 ring-[var(--brand-secondary)]/20' : 'border-gray-200 hover:border-gray-300'
-                    }`}>
-                    <span className="text-xl">{m.icon}</span>
-                    <span className={`text-sm font-semibold ${paymentMethod === m.value ? 'text-[var(--brand-secondary)]' : 'text-gray-700'}`}>{m.label}</span>
-                    {paymentMethod === m.value && <CheckCircle2 size={16} className="ml-auto text-[var(--brand-secondary)]" />}
-                  </button>
-                ))}
+                  ...paymentMethods.map(m => ({
+                    value: m.type,
+                    label: m.label,
+                    Icon: m.type === 'pix' ? QrCode : m.type === 'card' ? CreditCard : m.type === 'boleto' ? FileText : Banknote,
+                  })),
+                  { value: 'dinheiro', label: 'Dinheiro', Icon: Banknote },
+                ].filter((m, i, arr) => arr.findIndex(x => x.value === m.value) === i).map(m => {
+                  const selected = paymentMethod === m.value
+                  const Icon = m.Icon
+                  return (
+                    <button key={m.value} type="button" onClick={() => setPaymentMethod(m.value)}
+                      className={`w-full flex items-center gap-3 p-4 rounded-xl border transition text-left ${
+                        selected ? 'border-[var(--brand-secondary)] bg-[var(--brand-secondary-light)] ring-2 ring-[var(--brand-secondary)]/20' : 'border-gray-200 hover:border-gray-300'
+                      }`}>
+                      <span className={`w-10 h-10 rounded-xl grid place-items-center shrink-0 ${selected ? 'bg-white text-[var(--brand-secondary)]' : 'bg-gray-50 text-gray-500'}`}>
+                        <Icon size={18} strokeWidth={1.75} />
+                      </span>
+                      <span className={`text-sm font-semibold ${selected ? 'text-[var(--brand-secondary)]' : 'text-gray-700'}`}>{m.label}</span>
+                      {selected && <CheckCircle2 size={16} className="ml-auto text-[var(--brand-secondary)]" />}
+                    </button>
+                  )
+                })}
               </div>
 
               {/* Order summary */}

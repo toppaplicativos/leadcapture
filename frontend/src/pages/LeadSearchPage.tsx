@@ -181,150 +181,251 @@ export function LeadSearchPage() {
   const capturedCount = leads.filter(l => l.captureStatus === 'captured').length
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between flex-wrap gap-2">
+    <div className="space-y-5">
+      {/* ── Header ── */}
+      <header className="flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">Busca de Leads</h2>
-          <p className="text-[13px] text-gray-400 mt-0.5">
-            {leads.length > 0 ? `${leads.length} encontrados · ${newCount} novos` : 'Google Maps + captacao automatica'}
+          <h2 className="text-[28px] font-bold text-gray-900 tracking-[-0.025em] leading-tight">Busca de leads</h2>
+          <p className="text-[13px] font-medium text-gray-500 mt-1 tabular-nums">
+            {leads.length > 0
+              ? <>{leads.length} encontrados <span className="text-gray-300">·</span> <span className="text-emerald-700">{newCount} novos</span></>
+              : 'Encontre clientes com Google Maps'}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           {prospecting && (
-            <span className="flex items-center gap-1.5 text-xs bg-violet-500 text-white font-bold px-3 py-1.5 rounded-xl animate-pulse shadow-lg shadow-violet-200">
-              <Loader2 size={12} className="animate-spin" /> Prospectando...
+            <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold bg-gray-900 text-white px-2.5 py-1.5 rounded-full">
+              <Loader2 size={11} className="animate-spin" /> Prospectando
             </span>
           )}
           {autoCapture && capturedLive > 0 && (
-            <span className="flex items-center gap-1.5 text-xs bg-emerald-500 text-white font-bold px-3 py-1.5 rounded-xl shadow-lg shadow-emerald-200 animate-pulse">
-              <Zap size={12} /> {capturedLive} captados
+            <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold bg-emerald-600 text-white px-2.5 py-1.5 rounded-full tabular-nums">
+              <Zap size={11} strokeWidth={2.25} /> {capturedLive} captados
             </span>
           )}
           {radarCount > 0 && !prospecting && (
-            <span className="text-xs bg-blue-50 text-blue-700 font-bold px-2.5 py-1 rounded-lg">+{radarCount} radar</span>
+            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-gray-700 bg-gray-100 px-2.5 py-1.5 rounded-full tabular-nums">
+              +{radarCount} radar
+            </span>
           )}
         </div>
-      </div>
+      </header>
 
-      {/* Search Form */}
-      <form onSubmit={handleSearch} className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] overflow-hidden">
-        <div className="p-4 pb-3">
-          <div className="flex flex-col sm:flex-row gap-3">
-            <div className="flex-1">
-              <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5 block">Segmento</label>
+      {/* ── Search Form ── */}
+      <form onSubmit={handleSearch} className="bg-white rounded-2xl border border-border-light overflow-hidden">
+        <div className="p-4 space-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[12px] font-semibold text-gray-700 mb-1.5">Segmento</label>
               <div className="relative">
-                <Building2 size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                <input type="text" value={query} onChange={e => setQuery(e.target.value)} placeholder="pizzaria, hortifruti..." required autoFocus
-                  className="w-full pl-9 pr-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 placeholder:text-gray-300" />
+                <Building2 size={15} strokeWidth={1.75} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                <input
+                  type="text"
+                  value={query}
+                  onChange={e => setQuery(e.target.value)}
+                  placeholder="pizzaria, hortifruti…"
+                  required
+                  autoFocus
+                  className="w-full h-11 pl-10 pr-3 rounded-xl border border-border bg-white text-sm font-medium text-gray-900 placeholder:text-gray-400 placeholder:font-normal focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900 transition"
+                />
               </div>
             </div>
-            <div className="flex-1">
-              <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5 block">Cidade</label>
+            <div>
+              <label className="block text-[12px] font-semibold text-gray-700 mb-1.5">Cidade</label>
               <div className="relative">
-                <MapPin size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                <input type="text" value={location} onChange={e => setLocation(e.target.value)} placeholder="Sao Paulo, BH..." required
-                  className="w-full pl-9 pr-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 placeholder:text-gray-300" />
+                <MapPin size={15} strokeWidth={1.75} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                <input
+                  type="text"
+                  value={location}
+                  onChange={e => setLocation(e.target.value)}
+                  placeholder="São Paulo, BH…"
+                  required
+                  className="w-full h-11 pl-10 pr-3 rounded-xl border border-border bg-white text-sm font-medium text-gray-900 placeholder:text-gray-400 placeholder:font-normal focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900 transition"
+                />
               </div>
-            </div>
-            <div className="flex items-end">
-              <button type="submit" disabled={loading} className="w-full sm:w-auto whitespace-nowrap flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 text-white font-bold text-sm hover:bg-blue-700 disabled:opacity-40 transition-all shadow-sm">
-                {loading ? <Loader2 size={15} className="animate-spin" /> : <Search size={15} />} Buscar
-              </button>
             </div>
           </div>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full h-12 inline-flex items-center justify-center gap-2 rounded-xl bg-gray-900 text-white font-semibold text-[14px] tracking-tight hover:bg-gray-800 disabled:opacity-40 active:scale-[0.99] transition"
+          >
+            {loading ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} strokeWidth={2.25} />}
+            {loading ? 'Buscando…' : 'Buscar leads'}
+          </button>
         </div>
 
-        {/* Panfleteiro bar */}
-        <div className="border-t border-gray-100 bg-gray-50/80 px-4 py-2.5 flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-3">
-            <button type="button" onClick={() => setShowAdvanced(!showAdvanced)} className="flex items-center gap-1.5 text-[11px] font-semibold text-gray-500 hover:text-gray-700 transition">
-              <Filter size={11} /> Avancado {showAdvanced ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
-            </button>
-            <span className="text-gray-300">|</span>
-            {/* Panfleteiro toggle */}
-            <button type="button" onClick={() => setPanfleteiro(!panfleteiro)}
-              className={`flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-lg transition ${panfleteiro ? 'bg-violet-100 text-violet-700' : 'text-gray-500 hover:bg-gray-100'}`}>
-              <Crosshair size={11} /> Panfleteiro
+        {/* Options bar */}
+        <div className="border-t border-border-light px-4 py-2.5 flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setPanfleteiro(!panfleteiro)}
+              aria-pressed={panfleteiro}
+              className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-full text-[11px] font-semibold transition ${
+                panfleteiro
+                  ? 'bg-gray-900 text-white'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+            >
+              <Crosshair size={11} strokeWidth={2.25} /> Panfleteiro
             </button>
             {panfleteiro && (
-              <button type="button" onClick={() => setAutoCapture(!autoCapture)}
-                className={`flex items-center gap-1.5 text-[10px] font-bold px-2 py-1 rounded-lg transition ${autoCapture ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
-                {autoCapture ? <><Zap size={10} /> Auto-captura ON</> : <><Pause size={10} /> Auto-captura OFF</>}
+              <button
+                type="button"
+                onClick={() => setAutoCapture(!autoCapture)}
+                aria-pressed={autoCapture}
+                className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-full text-[11px] font-semibold transition ${
+                  autoCapture
+                    ? 'bg-emerald-600 text-white'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                {autoCapture ? <Zap size={11} strokeWidth={2.25} /> : <Pause size={11} strokeWidth={2.25} />}
+                Auto-captura
               </button>
             )}
+            <button
+              type="button"
+              onClick={() => setShowAdvanced(!showAdvanced)}
+              aria-expanded={showAdvanced}
+              className="inline-flex items-center gap-1.5 h-8 px-3 rounded-full text-[11px] font-semibold text-gray-700 hover:bg-gray-100 transition"
+            >
+              <Filter size={11} strokeWidth={2.25} /> Avançado
+              {showAdvanced ? <ChevronUp size={11} strokeWidth={2.25} /> : <ChevronDown size={11} strokeWidth={2.25} />}
+            </button>
           </div>
-          <div className="flex items-center gap-3">
-            <span className="text-[11px] text-gray-400">{maxResults} res.</span>
-            <label className="flex items-center gap-1.5 cursor-pointer">
-              <button type="button" onClick={() => setAutomate(!automate)}
-                className={`relative w-9 h-5 rounded-full transition shrink-0 ${automate ? 'bg-emerald-500' : 'bg-gray-300'}`}>
-                <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${automate ? 'translate-x-4' : ''}`} />
-              </button>
-              <span className="text-[11px] font-medium text-gray-500">Automacao</span>
-            </label>
-          </div>
+          <label className="inline-flex items-center gap-2 cursor-pointer">
+            <span className="text-[11px] font-semibold text-gray-700">Automação</span>
+            <button
+              type="button"
+              onClick={() => setAutomate(!automate)}
+              role="switch"
+              aria-checked={automate}
+              className={`relative w-9 h-5 rounded-full transition shrink-0 ${automate ? 'bg-emerald-500' : 'bg-gray-300'}`}
+            >
+              <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${automate ? 'translate-x-4' : ''}`} />
+            </button>
+          </label>
         </div>
 
         {showAdvanced && (
-          <div className="border-t border-gray-100 bg-gray-50/60 px-4 py-3 grid grid-cols-3 gap-3">
+          <div className="border-t border-border-light px-4 py-3 grid grid-cols-1 sm:grid-cols-3 gap-3 bg-gray-50/60">
             <div>
-              <label className="text-[11px] font-bold text-gray-400 uppercase mb-1 block">Max. resultados</label>
-              <select value={maxResults} onChange={e => setMaxResults(Number(e.target.value))} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-200">
+              <label className="block text-[12px] font-semibold text-gray-700 mb-1.5">Máx. resultados</label>
+              <select
+                value={maxResults}
+                onChange={e => setMaxResults(Number(e.target.value))}
+                className="w-full h-10 px-3 rounded-xl border border-border bg-white text-sm font-medium text-gray-900 focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900 transition"
+              >
                 {[10, 20, 30, 50, 80, 100].map(n => <option key={n} value={n}>{n}</option>)}
               </select>
             </div>
             <div>
-              <label className="text-[11px] font-bold text-gray-400 uppercase mb-1 block">Raio (km)</label>
-              <input type="number" value={radius} onChange={e => setRadius(e.target.value)} placeholder="auto" min={1} max={50}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-200 placeholder:text-gray-300" />
+              <label className="block text-[12px] font-semibold text-gray-700 mb-1.5">Raio (km)</label>
+              <input
+                type="number"
+                value={radius}
+                onChange={e => setRadius(e.target.value)}
+                placeholder="auto"
+                min={1}
+                max={50}
+                className="w-full h-10 px-3 rounded-xl border border-border bg-white text-sm font-medium text-gray-900 placeholder:text-gray-400 placeholder:font-normal focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900 transition"
+              />
             </div>
             <div className="flex items-end">
-              <p className="text-[10px] text-gray-400 leading-relaxed">Vazio = Google decide automaticamente</p>
+              <p className="text-[11px] text-gray-500 leading-relaxed">Vazio = Google decide automaticamente.</p>
             </div>
           </div>
         )}
 
-        {error && <div className="mx-4 mb-3 px-4 py-3 rounded-xl bg-red-50 border border-red-100 text-red-600 text-sm font-medium">{error}</div>}
+        {error && (
+          <div className="mx-4 mb-4 px-3.5 py-2.5 rounded-xl bg-red-50 border border-red-100 text-red-700 text-[13px] font-medium">
+            {error}
+          </div>
+        )}
       </form>
 
-      {/* Stats */}
+      {/* ── Stats ── */}
       {(leads.length > 0 || stats) && (
-        <div className="grid grid-cols-4 gap-2">
-          {[
-            { v: leads.length, l: 'Encontrados', c: 'text-gray-900', bg: 'bg-white border-gray-100' },
-            { v: newCount, l: 'Novos', c: 'text-emerald-600', bg: 'bg-emerald-50 border-emerald-100' },
-            { v: capturedCount, l: 'Existentes', c: 'text-amber-600', bg: 'bg-amber-50 border-amber-100' },
-            { v: capturedLive + (stats?.automationQueued || 0), l: 'Captados', c: 'text-blue-600', bg: 'bg-blue-50 border-blue-100' },
-          ].map(s => (
-            <div key={s.l} className={`border rounded-xl p-2.5 text-center ${s.bg}`}>
-              <p className={`text-xl font-extrabold ${s.c}`}>{s.v}</p>
-              <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">{s.l}</p>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {([
+            { v: leads.length, l: 'Encontrados', accent: 'text-gray-900' },
+            { v: newCount, l: 'Novos', accent: 'text-emerald-700' },
+            { v: capturedCount, l: 'Existentes', accent: 'text-amber-700' },
+            { v: capturedLive + (stats?.automationQueued || 0), l: 'Captados', accent: 'text-gray-900' },
+          ] as const).map(s => (
+            <div key={s.l} className="bg-white border border-border-light rounded-2xl p-3.5">
+              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">{s.l}</p>
+              <p className={`text-[24px] font-bold tracking-tight tabular-nums leading-none mt-1.5 ${s.accent}`}>{s.v}</p>
             </div>
           ))}
         </div>
       )}
 
-      {/* Results */}
+      {/* ── Results ── */}
       {searched && !loading && leads.length > 0 && (
         <div className="space-y-3">
           {/* Controls */}
           <div className="flex items-center justify-between gap-3 flex-wrap">
-            <div className="flex items-center gap-2">
-              <div className="flex gap-0.5 bg-gray-100 p-0.5 rounded-lg">
-                <button onClick={() => setViewMode('map')} className={`p-1.5 rounded-md transition ${viewMode === 'map' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-400'}`}><MapIcon size={14} /></button>
-                <button onClick={() => setViewMode('list')} className={`p-1.5 rounded-md transition ${viewMode === 'list' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-400'}`}><List size={14} /></button>
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* View toggle */}
+              <div className="inline-flex bg-gray-100 p-0.5 rounded-full">
+                <button
+                  onClick={() => setViewMode('map')}
+                  aria-pressed={viewMode === 'map'}
+                  aria-label="Mapa"
+                  className={`w-8 h-8 grid place-items-center rounded-full transition ${
+                    viewMode === 'map' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500'
+                  }`}
+                >
+                  <MapIcon size={14} strokeWidth={1.75} />
+                </button>
+                <button
+                  onClick={() => setViewMode('list')}
+                  aria-pressed={viewMode === 'list'}
+                  aria-label="Lista"
+                  className={`w-8 h-8 grid place-items-center rounded-full transition ${
+                    viewMode === 'list' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500'
+                  }`}
+                >
+                  <List size={14} strokeWidth={1.75} />
+                </button>
               </div>
-              <div className="flex gap-1 bg-gray-100 p-0.5 rounded-lg">
-                {([['all', `Todos (${leads.length})`], ['new', `Novos (${newCount})`], ['captured', `Existentes (${capturedCount})`]] as const).map(([k, l]) => (
-                  <button key={k} onClick={() => setStatusFilter(k)} className={`px-3 py-1.5 rounded-md text-[11px] font-semibold transition ${statusFilter === k ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}>{l}</button>
+
+              {/* Status filter */}
+              <div className="inline-flex bg-gray-100 p-0.5 rounded-full">
+                {([
+                  ['all', 'Todos', leads.length],
+                  ['new', 'Novos', newCount],
+                  ['captured', 'Existentes', capturedCount],
+                ] as const).map(([k, l, c]) => (
+                  <button
+                    key={k}
+                    onClick={() => setStatusFilter(k)}
+                    aria-pressed={statusFilter === k}
+                    className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-full text-[11px] font-semibold transition ${
+                      statusFilter === k ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    {l}
+                    <span className={`tabular-nums ${statusFilter === k ? 'text-gray-400' : 'text-gray-400'}`}>{c}</span>
+                  </button>
                 ))}
               </div>
-              {radarLoading && <Loader2 size={14} className="text-violet-500 animate-spin" />}
+              {radarLoading && <Loader2 size={14} className="text-gray-400 animate-spin" />}
             </div>
+
             <div className="relative">
-              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input type="text" value={searchFilter} onChange={e => setSearchFilter(e.target.value)} placeholder="Filtrar..."
-                className="pl-7 pr-3 py-1.5 border border-gray-200 rounded-lg text-[11px] bg-white focus:outline-none focus:ring-2 focus:ring-blue-200 w-44" />
+              <Search size={13} strokeWidth={1.75} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+              <input
+                type="text"
+                value={searchFilter}
+                onChange={e => setSearchFilter(e.target.value)}
+                placeholder="Filtrar resultados"
+                className="h-9 pl-8 pr-3 rounded-full border-0 bg-gray-100 text-[12px] font-medium text-gray-900 placeholder:text-gray-400 placeholder:font-normal focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:bg-white transition w-48"
+              />
             </div>
           </div>
 
@@ -352,16 +453,24 @@ export function LeadSearchPage() {
       )}
 
       {searched && !loading && leads.length === 0 && !error && (
-        <div className="flex flex-col items-center justify-center py-14 text-center">
-          <Users size={24} className="text-gray-300 mb-2" /><p className="text-sm text-gray-500">Nenhum resultado</p>
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <div className="w-14 h-14 rounded-2xl bg-gray-100 grid place-items-center mb-3">
+            <Users size={22} className="text-gray-400" strokeWidth={1.5} />
+          </div>
+          <p className="text-[14px] font-semibold text-gray-900">Nenhum resultado</p>
+          <p className="text-[12px] text-gray-500 mt-0.5">Tente outro segmento ou cidade</p>
         </div>
       )}
 
       {!searched && (
-        <div className="flex flex-col items-center justify-center py-14 text-center">
-          <div className="w-16 h-16 bg-gradient-to-br from-blue-50 to-indigo-100 rounded-2xl grid place-items-center mb-4 shadow-sm"><Sparkles size={28} className="text-blue-500" /></div>
-          <h2 className="text-base font-bold text-gray-900 mb-1">Encontre novos clientes</h2>
-          <p className="text-xs text-gray-400 max-w-sm leading-relaxed">Busque por segmento e cidade. Ative o modo <strong>Panfleteiro</strong> para buscar automaticamente ao mover o mapa.</p>
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <div className="w-14 h-14 rounded-2xl bg-gray-900 grid place-items-center mb-4">
+            <Sparkles size={22} className="text-white" strokeWidth={1.75} />
+          </div>
+          <h2 className="text-[18px] font-bold text-gray-900 tracking-tight mb-1.5">Encontre novos clientes</h2>
+          <p className="text-[13px] text-gray-500 max-w-sm leading-relaxed">
+            Busque por segmento e cidade. Ative o modo <span className="font-semibold text-gray-700">Panfleteiro</span> para buscar automaticamente ao mover o mapa.
+          </p>
         </div>
       )}
     </div>
@@ -428,22 +537,27 @@ function PanfleteiroMap({ leads, capturedPoints, mapRef, mapInstance, panfleteir
 
     if (!savedPos && bounds.length > 1) map.fitBounds(bounds, { padding: [40, 40] })
 
-    // Panfleteiro: crosshair + radius circle + moveend search
+    // Panfleteiro: pulsing radar crosshair + radius circle + moveend search
     let radiusCircle: L.Circle | null = null
     if (panfleteiro) {
-      // Get brand color for panfleteiro UI
-      const pColor = getComputedStyle(document.documentElement).getPropertyValue('--brand-secondary').trim() || '#933bce'
-
-      // Crosshair
-      const crosshair = L.DomUtil.create('div', '', map.getContainer())
-      crosshair.innerHTML = `<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);pointer-events:none;z-index:999"><div style="width:28px;height:28px;border:3px solid ${pColor};border-radius:50%;opacity:0.6;box-shadow:0 0 12px ${pColor}40"></div><div style="position:absolute;top:50%;left:50%;width:4px;height:4px;background:${pColor};border-radius:50%;transform:translate(-50%,-50%)"></div></div>`
+      // Animated radar pulse (uses .radar-pulse from index.css — same look
+      // as the live PanfleteiroPreview on the landing page).
+      const radar = L.DomUtil.create('div', 'panf-radar-overlay', map.getContainer())
+      radar.innerHTML = `<div class="radar-pulse"><span></span></div>`
+      // Position absolutely at center of map container
+      radar.style.position = 'absolute'
+      radar.style.top = '50%'
+      radar.style.left = '50%'
+      radar.style.transform = 'translate(-50%, -50%)'
+      radar.style.pointerEvents = 'none'
+      radar.style.zIndex = '999'
 
       // Radius heatmap circle (updates on move)
       const searchRadiusM = (Number(localStorage.getItem('leadcapture:search-state') ? JSON.parse(localStorage.getItem('leadcapture:search-state')!).radius : 3) || 3) * 1000
       radiusCircle = L.circle(map.getCenter(), {
         radius: searchRadiusM,
-        color: pColor,
-        fillColor: pColor,
+        color: '#6366f1',
+        fillColor: '#6366f1',
         fillOpacity: 0.06,
         weight: 1.5,
         dashArray: '6,4',
@@ -473,13 +587,21 @@ function PanfleteiroMap({ leads, capturedPoints, mapRef, mapInstance, panfleteir
   }, [leads, capturedPoints, panfleteiro])
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] overflow-hidden">
+    <div className="bg-white rounded-2xl border border-border-light overflow-hidden">
       <div ref={mapRef} className="w-full" style={{ height: '420px' }} />
-      <div className="px-4 py-2 border-t border-gray-100 bg-gray-50/80 flex items-center gap-4 text-[10px] text-gray-400 flex-wrap">
-        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500" /> Novos</span>
-        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-violet-500" /> Existentes</span>
-        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-gray-300" /> Historico</span>
-        {panfleteiro && <span className="ml-auto text-violet-600 font-bold">Panfleteiro ativo — mova o mapa para buscar</span>}
+      <div className="px-4 py-2.5 border-t border-border-light flex items-center gap-4 text-[11px] text-gray-500 flex-wrap font-medium">
+        <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-emerald-500" /> Novos</span>
+        <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-brand" /> Existentes</span>
+        <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-gray-300" /> Histórico</span>
+        {panfleteiro && (
+          <span className="ml-auto inline-flex items-center gap-1.5 text-gray-900 font-semibold">
+            <span className="relative flex w-2 h-2">
+              <span className="absolute inset-0 rounded-full bg-indigo-500 animate-ping opacity-75" />
+              <span className="relative inline-flex rounded-full w-2 h-2 bg-indigo-500" />
+            </span>
+            Panfleteiro ativo · mova o mapa
+          </span>
+        )}
       </div>
     </div>
   )

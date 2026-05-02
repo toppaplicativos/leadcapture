@@ -335,7 +335,7 @@ export function AgentPDVPage() {
               <div className="w-16 h-16 bg-white/20 rounded-full grid place-items-center mx-auto mb-3">
                 <CheckCircle2 size={32} />
               </div>
-              <h2 className="text-xl font-extrabold">Pedido Registrado!</h2>
+              <h2 className="text-[26px] font-bold tracking-tight">Pedido Registrado!</h2>
               <p className="text-white/70 text-sm mt-1">#{String(orderDone.orderId).slice(-6).toUpperCase()}</p>
             </div>
 
@@ -397,7 +397,7 @@ export function AgentPDVPage() {
   return (
     <div className="min-h-screen bg-[#f8f9fb]">
       {/* ── Top bar ── */}
-      <div className="sticky top-0 z-30 bg-white border-b border-gray-100 shadow-sm">
+      <div className="sticky top-0 z-30 bg-white border-b border-border-light">
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
           {/* Title + channel */}
           <div className="flex items-center gap-3">
@@ -504,7 +504,7 @@ export function AgentPDVPage() {
         <div className="space-y-4">
 
           {/* ── Customer section ── */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="bg-white rounded-2xl border border-border-light overflow-hidden">
             <div className="px-5 pt-4 pb-3 border-b border-gray-50">
               <div className="flex items-center gap-2">
                 <User size={14} className="text-gray-400" />
@@ -624,7 +624,7 @@ export function AgentPDVPage() {
           </div>
 
           {/* ── Product search ── */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="bg-white rounded-2xl border border-border-light overflow-hidden">
             <div className="px-5 pt-4 pb-3 border-b border-gray-50">
               <div className="flex items-center gap-2">
                 <Search size={14} className="text-gray-400" />
@@ -735,7 +735,7 @@ export function AgentPDVPage() {
             RIGHT COLUMN — Cart
         ════════════════════════════ */}
         <div className={`mt-4 lg:mt-0 lg:sticky lg:top-[72px] ${!showCart ? 'hidden lg:block' : ''}`}>
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="bg-white rounded-2xl border border-border-light overflow-hidden">
             {/* Cart header */}
             <div className="px-5 pt-4 pb-3 border-b border-gray-50 flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -827,7 +827,7 @@ export function AgentPDVPage() {
                   </div>
                   <div className="flex items-center justify-between border-t border-gray-200 pt-2">
                     <span className="font-extrabold text-gray-900">Total</span>
-                    <span className="text-xl font-extrabold" style={{ color: 'var(--brand-secondary)' }}>
+                    <span className="text-[26px] font-bold tracking-tight" style={{ color: 'var(--brand-secondary)' }}>
                       {money(total)}
                     </span>
                   </div>

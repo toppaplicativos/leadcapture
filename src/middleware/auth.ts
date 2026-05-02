@@ -35,7 +35,11 @@ export function authenticateToken(
     // Verificar e decodificar token
     jwt.verify(token, JWT_SECRET as string, (err: any, decoded: any) => {
       if (err) {
-        res.status(403).json({ error: 'Token inválido ou expirado' });
+        const expired = err.name === 'TokenExpiredError';
+        res.status(401).json({
+          error: expired ? 'Token expirado' : 'Token inválido',
+          code: expired ? 'TOKEN_EXPIRED' : 'TOKEN_INVALID',
+        });
         return;
       }
 
@@ -78,5 +82,34 @@ export function verifyToken(token: string): any {
     return jwt.verify(token, JWT_SECRET as string);
   } catch (error) {
     return null;
+  }
+}
+
+/**
+ * Super-admin guard. Must be chained AFTER authenticateToken.
+ * Hits the DB once per request to verify is_super_admin flag — caches
+ * the boolean on the request object.
+ */
+export async function requireSuperAdmin(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const userId = req.userId
+    if (!userId) {
+      res.status(401).json({ error: 'Não autenticado' })
+      return
+    }
+    // Lazy import to avoid circular dep with services that load config
+    const { masterService } = await import('../services/master')
+    const ok = await masterService.isSuperAdmin(userId)
+    if (!ok) {
+      res.status(403).json({ error: 'Acesso restrito ao super admin' })
+      return
+    }
+    next()
+  } catch (err: any) {
+    res.status(500).json({ error: 'Erro de autorização' })
   }
 }

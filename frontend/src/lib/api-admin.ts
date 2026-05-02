@@ -6,6 +6,8 @@ const STOCK_TOKEN_KEY = 'lead-system-token-estoque'
 const STOCK_BRAND_KEY = 'lead-system:active-brand-id-estoque'
 const STOCK_BRAND_REF_KEY = 'lead-system:active-brand-ref-estoque'
 
+let authRedirecting = false
+
 /**
  * Detects whether the current page is the stock-manager app.
  * When true, the inventoryApi calls are rewritten to /api/stock-app/* and
@@ -42,6 +44,37 @@ function getInventoryHeaders(): Record<string, string> {
   return isStockAppRoute() ? getStockHeaders() : getAdminHeaders()
 }
 
+function isTokenAuthFailure(status: number, data: any, sentAuthHeader: boolean): boolean {
+  const code = String(data?.code || '')
+  const message = String(data?.error || data?.message || '').toLowerCase()
+  return (
+    (status === 401 && sentAuthHeader) ||
+    code === 'TOKEN_EXPIRED' ||
+    code === 'TOKEN_INVALID' ||
+    message.includes('token inválido') ||
+    message.includes('token invalido') ||
+    message.includes('token expirado') ||
+    message.includes('token expired') ||
+    message.includes('invalid token')
+  )
+}
+
+function clearAuthAndRedirect(url: string) {
+  if (typeof window === 'undefined' || authRedirecting) return
+  authRedirecting = true
+
+  const stockScope = isStockAppRoute() || url.startsWith('/api/stock-app/')
+  if (stockScope) {
+    clearStockAuth()
+    window.location.assign('/app-estoque')
+    return
+  }
+
+  localStorage.removeItem(ADMIN_TOKEN_KEY)
+  localStorage.removeItem(ADMIN_BRAND_KEY)
+  window.location.assign('/login')
+}
+
 /**
  * Rewrites a /api/inventory/... or /api/clients/... or /api/categories URL into the
  * /api/stock-app/... equivalent when the user is in the stock-manager app context.
@@ -59,15 +92,21 @@ function rewriteInventoryUrl(url: string): string {
 
 /* ── Generic authenticated fetch ── */
 async function authFetch<T>(url: string, headers: Record<string, string>, options?: RequestInit): Promise<T> {
+  const mergedHeaders = {
+    ...headers,
+    ...(options?.headers as Record<string, string> || {}),
+  }
   const res = await fetch(url, {
     ...options,
-    headers: {
-      ...headers,
-      ...(options?.headers as Record<string, string> || {}),
-    },
+    headers: mergedHeaders,
   })
-  const data = await res.json()
-  if (!res.ok) throw new Error(data.error || data.message || `Erro ${res.status}`)
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    if (isTokenAuthFailure(res.status, data, Boolean(mergedHeaders.Authorization))) {
+      clearAuthAndRedirect(url)
+    }
+    throw new Error(data.error || data.message || `Erro ${res.status}`)
+  }
   return data
 }
 

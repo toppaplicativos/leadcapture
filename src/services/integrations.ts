@@ -11,6 +11,9 @@ export const INTEGRATION_PROVIDERS = [
   "rapidapi",
   "google_places",
   "runway",
+  "veo",
+  "kling",
+  "__preferences__",
 ] as const;
 
 export type IntegrationProvider = (typeof INTEGRATION_PROVIDERS)[number];
@@ -378,6 +381,16 @@ export class IntegrationService {
           key: cleanString(process.env.RUNWAY_API_KEY),
           config: this.normalizeConfig(provider, defaults),
           is_active: true,
+          priority: 999,
+          source: "env",
+          account_id: GLOBAL_ACCOUNT_ID,
+        };
+      default:
+        return {
+          provider,
+          key: null,
+          config: this.normalizeConfig(provider, defaults),
+          is_active: false,
           priority: 999,
           source: "env",
           account_id: GLOBAL_ACCOUNT_ID,

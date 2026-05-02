@@ -4,7 +4,17 @@ import {
   Zap, MessageSquare, Clock, GitBranch, Target, Mail,
   Phone, Tag, Star, Globe, Bell, Bot, ArrowRight,
   Loader2, CheckCircle2, AlertTriangle, Copy,
+  Diamond, Square,
 } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
+
+const NODE_ICON: Record<string, LucideIcon> = {
+  trigger: Zap,
+  action: Play,
+  condition: Diamond,
+  delay: Clock,
+  end: Square,
+}
 
 function getHeaders(): Record<string, string> {
   const h: Record<string, string> = { 'Content-Type': 'application/json' }
@@ -305,7 +315,7 @@ function FlowEditor({ flow, onClose }: { flow: Flow; onClose: () => void }) {
             <Plus size={13} /> Adicionar Node
           </button>
           <button onClick={save} disabled={saving}
-            className="flex items-center gap-1 px-4 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 disabled:opacity-50 transition shadow-sm">
+            className="flex items-center gap-1 px-4 py-2 rounded-xl bg-gray-900 text-white text-xs font-semibold hover:bg-gray-800 disabled:opacity-40 transition">
             {saving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />} Salvar
           </button>
         </div>
@@ -320,10 +330,8 @@ function FlowEditor({ flow, onClose }: { flow: Flow; onClose: () => void }) {
                 className={`relative flex flex-col items-center p-3 rounded-xl min-w-[100px] transition-all ${
                   selectedNode === node.id ? 'ring-2 ring-white/40 scale-105' : 'hover:scale-105'
                 }`}>
-                <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${typeColors[node.type] || 'from-gray-500 to-gray-600'} grid place-items-center shadow-lg`}>
-                  <span className="text-white text-sm">
-                    {node.type === 'trigger' ? '⚡' : node.type === 'action' ? '▶' : node.type === 'condition' ? '◆' : node.type === 'delay' ? '⏱' : '⏹'}
-                  </span>
+                <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${typeColors[node.type] || 'from-gray-500 to-gray-600'} grid place-items-center shadow-lg text-white`}>
+                  {(() => { const Icon = NODE_ICON[node.type] || Square; return <Icon size={16} strokeWidth={1.75} /> })()}
                 </div>
                 <p className="text-[10px] font-bold text-white/80 mt-1.5 text-center max-w-[90px] truncate">{node.label}</p>
                 <p className="text-[8px] text-white/30 mt-0.5">{node.subtype}</p>
@@ -344,10 +352,8 @@ function FlowEditor({ flow, onClose }: { flow: Flow; onClose: () => void }) {
         <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-5 space-y-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <div className={`w-8 h-8 rounded-lg bg-gradient-to-br ${typeColors[selected.type]} grid place-items-center`}>
-                <span className="text-white text-xs">
-                  {selected.type === 'trigger' ? '⚡' : selected.type === 'action' ? '▶' : selected.type === 'condition' ? '◆' : '⏱'}
-                </span>
+              <div className={`w-8 h-8 rounded-lg bg-gradient-to-br ${typeColors[selected.type]} grid place-items-center text-white`}>
+                {(() => { const Icon = NODE_ICON[selected.type] || Square; return <Icon size={14} strokeWidth={1.75} /> })()}
               </div>
               <div>
                 <p className="text-sm font-bold text-gray-900">{selected.type.charAt(0).toUpperCase() + selected.type.slice(1)}</p>

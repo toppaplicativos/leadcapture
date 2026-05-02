@@ -4,7 +4,10 @@ import {
   Loader2, Bot, Paperclip, MoreVertical, X,
   Clock, CheckCheck, Check, Tag, Star, GitBranch,
   Zap, UserCheck, Ban, RefreshCw,
+  Hand, Hourglass, CheckCircle2, DollarSign, Truck, Package,
+  Heart, Calendar, BookOpen, ArrowLeftRight,
 } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 
 function getHeaders(): Record<string, string> {
   const h: Record<string, string> = { 'Content-Type': 'application/json' }
@@ -103,17 +106,17 @@ export function MessagesPage() {
   }
 
   // Quick commands for human operators
-  const COMMANDS = [
-    { icon: '👋', label: 'Saudacao', msg: 'Olá! Tudo bem? Como posso ajudar hoje?' },
-    { icon: '⏳', label: 'Aguarde', msg: 'Um momento, por favor. Estou verificando para você!' },
-    { icon: '✅', label: 'Confirmacao', msg: 'Perfeito! Está tudo certo. Posso ajudar em mais alguma coisa?' },
-    { icon: '💰', label: 'Valor', msg: 'Vou verificar o valor e te retorno em instantes!' },
-    { icon: '🚚', label: 'Entrega', msg: 'Sua entrega está sendo preparada! Em breve enviaremos as informações de rastreio.' },
-    { icon: '📦', label: 'Pedido', msg: 'Recebi seu pedido! Vou processar e já te informo os próximos passos.' },
-    { icon: '🙏', label: 'Agradecimento', msg: 'Muito obrigado pela preferência! Estamos à disposição.' },
-    { icon: '⏰', label: 'Horario', msg: 'Nosso horário de atendimento é de segunda a sexta, das 8h às 18h.' },
-    { icon: '📋', label: 'Catalogo', msg: 'Confira nosso catálogo completo em: ' + window.location.origin + '/catalogo/alhopronto' },
-    { icon: '🔄', label: 'Transferir', msg: 'Vou transferir você para o setor responsável. Um momento!' },
+  const COMMANDS: { Icon: LucideIcon; label: string; msg: string }[] = [
+    { Icon: Hand, label: 'Saudacao', msg: 'Olá! Tudo bem? Como posso ajudar hoje?' },
+    { Icon: Hourglass, label: 'Aguarde', msg: 'Um momento, por favor. Estou verificando para você!' },
+    { Icon: CheckCircle2, label: 'Confirmacao', msg: 'Perfeito! Está tudo certo. Posso ajudar em mais alguma coisa?' },
+    { Icon: DollarSign, label: 'Valor', msg: 'Vou verificar o valor e te retorno em instantes!' },
+    { Icon: Truck, label: 'Entrega', msg: 'Sua entrega está sendo preparada! Em breve enviaremos as informações de rastreio.' },
+    { Icon: Package, label: 'Pedido', msg: 'Recebi seu pedido! Vou processar e já te informo os próximos passos.' },
+    { Icon: Heart, label: 'Agradecimento', msg: 'Muito obrigado pela preferência! Estamos à disposição.' },
+    { Icon: Calendar, label: 'Horario', msg: 'Nosso horário de atendimento é de segunda a sexta, das 8h às 18h.' },
+    { Icon: BookOpen, label: 'Catalogo', msg: 'Confira nosso catálogo completo em: ' + window.location.origin + '/catalogo/alhopronto' },
+    { Icon: ArrowLeftRight, label: 'Transferir', msg: 'Vou transferir você para o setor responsável. Um momento!' },
   ]
 
   async function toggleAiMode(mode: string) {
@@ -136,52 +139,67 @@ export function MessagesPage() {
   const formatPhone = (p: string) => p?.replace(/@.*/, '').replace(/^55/, '+55 ')
 
   return (
-    <div className="h-[calc(100vh-120px)] lg:h-[calc(100vh-80px)] flex bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] overflow-hidden">
+    <div className="h-[calc(100vh-120px)] lg:h-[calc(100vh-80px)] flex bg-white rounded-2xl border border-border-light overflow-hidden">
 
       {/* ── Conversations List ── */}
-      <div className={`${activeConvo ? 'hidden md:flex' : 'flex'} flex-col w-full md:w-80 lg:w-96 border-r border-gray-100 shrink-0`}>
-        <div className="px-4 py-3 border-b border-gray-100 shrink-0">
-          <h2 className="text-base font-bold text-gray-900">Mensagens</h2>
-          <p className="text-[10px] text-gray-400">{conversations.length} conversas</p>
+      <div className={`${activeConvo ? 'hidden md:flex' : 'flex'} flex-col w-full md:w-80 lg:w-96 border-r border-border-light shrink-0`}>
+        <div className="px-4 py-3.5 border-b border-border-light shrink-0">
+          <h2 className="text-[15px] font-bold tracking-tight text-gray-900">Mensagens</h2>
+          <p className="text-[11px] text-gray-500 mt-0.5 tabular-nums">{conversations.length} conversa{conversations.length === 1 ? '' : 's'}</p>
         </div>
-        <div className="px-3 py-2 border-b border-gray-100 shrink-0">
+        <div className="px-3 py-2.5 border-b border-border-light shrink-0">
           <div className="relative">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar conversa..."
-              className="w-full pl-8 pr-3 py-2 border border-gray-200 rounded-xl text-xs bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-200 placeholder:text-gray-300" />
+            <Search size={14} strokeWidth={1.75} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+            <input
+              type="text"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Buscar conversa"
+              className="w-full h-9 pl-9 pr-3 rounded-full border-0 bg-gray-100 text-[12px] text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:bg-white transition"
+            />
           </div>
         </div>
         <div className="flex-1 overflow-y-auto">
           {loadingConvos ? (
-            <div className="flex items-center justify-center py-10"><Loader2 size={20} className="text-gray-300 animate-spin" /></div>
+            <div className="flex items-center justify-center py-10"><Loader2 size={18} className="text-gray-400 animate-spin" /></div>
           ) : filteredConvos.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-10 px-4 text-center">
-              <MessageSquare size={28} className="text-gray-300 mb-2" />
-              <p className="text-xs text-gray-400">Nenhuma conversa</p>
+              <div className="w-12 h-12 rounded-2xl bg-gray-100 grid place-items-center mb-3">
+                <MessageSquare size={20} className="text-gray-400" strokeWidth={1.5} />
+              </div>
+              <p className="text-[13px] font-medium text-gray-900">Nenhuma conversa</p>
             </div>
           ) : filteredConvos.map(c => {
             const active = activeConvo?.id === c.id
             return (
-              <button key={c.id} onClick={() => setActiveConvo(c)}
-                className={`w-full flex items-center gap-3 px-4 py-3 text-left transition border-b border-gray-50 ${active ? 'bg-blue-50' : 'hover:bg-gray-50'}`}>
-                <div className={`w-10 h-10 rounded-full grid place-items-center shrink-0 text-white font-bold text-sm ${
-                  c.is_group ? 'bg-gradient-to-br from-violet-500 to-purple-600' : 'bg-gradient-to-br from-blue-500 to-indigo-600'
-                }`}>{contactInitial(c)}</div>
+              <button
+                key={c.id}
+                onClick={() => setActiveConvo(c)}
+                aria-current={active ? 'page' : undefined}
+                className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors border-b border-border-light ${
+                  active ? 'bg-gray-100' : 'hover:bg-gray-50'
+                }`}
+              >
+                <div className="w-10 h-10 rounded-full grid place-items-center shrink-0 text-white font-semibold text-sm bg-gray-900">
+                  {contactInitial(c)}
+                </div>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5">
-                      <p className={`text-[13px] truncate ${active ? 'font-bold text-blue-700' : 'font-semibold text-gray-900'}`}>{contactName(c)}</p>
-                      {c.ai_mode === 'autonomous' && <Bot size={10} className="text-violet-500 shrink-0" />}
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <p className={`text-[13px] truncate ${active ? 'font-semibold text-gray-900' : 'font-medium text-gray-900'}`}>{contactName(c)}</p>
+                      {c.ai_mode === 'autonomous' && <Bot size={11} strokeWidth={1.75} className="text-gray-500 shrink-0" />}
                     </div>
-                    <span className="text-[9px] text-gray-400 shrink-0 ml-2">{dtTime(c.last_message_at) || dtDate(c.last_message_at)}</span>
+                    <span className="text-[10px] text-gray-400 shrink-0 tabular-nums">{dtTime(c.last_message_at) || dtDate(c.last_message_at)}</span>
                   </div>
-                  <div className="flex items-center justify-between mt-0.5">
-                    <p className="text-[11px] text-gray-400 truncate max-w-[180px]">
-                      {c.last_message_from_me && <span className="text-blue-500">Voce: </span>}
+                  <div className="flex items-center justify-between gap-2 mt-0.5">
+                    <p className="text-[11px] text-gray-500 truncate flex-1">
+                      {c.last_message_from_me && <span className="text-gray-400">Você: </span>}
                       {c.last_message_text || 'Sem mensagens'}
                     </p>
                     {c.unread_count > 0 && (
-                      <span className="bg-emerald-500 text-white text-[9px] font-bold rounded-full w-5 h-5 grid place-items-center shrink-0">{c.unread_count}</span>
+                      <span className="bg-emerald-600 text-white text-[10px] font-semibold rounded-full min-w-[18px] h-[18px] grid place-items-center px-1.5 shrink-0 tabular-nums">
+                        {c.unread_count}
+                      </span>
                     )}
                   </div>
                 </div>
@@ -195,35 +213,58 @@ export function MessagesPage() {
       {activeConvo ? (
         <div className="flex-1 flex flex-col min-w-0">
           {/* Header */}
-          <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-3 shrink-0 bg-white">
-            <button onClick={() => setActiveConvo(null)} className="md:hidden p-1.5 rounded-lg hover:bg-gray-100 transition"><ChevronLeft size={18} className="text-gray-500" /></button>
-            <div className={`w-9 h-9 rounded-full grid place-items-center text-white font-bold text-sm shrink-0 bg-gradient-to-br ${activeConvo.is_group ? 'from-violet-500 to-purple-600' : 'from-blue-500 to-indigo-600'}`}>{contactInitial(activeConvo)}</div>
+          <div className="px-4 py-3 border-b border-border-light flex items-center gap-3 shrink-0 bg-white">
+            <button
+              onClick={() => setActiveConvo(null)}
+              aria-label="Voltar"
+              className="md:hidden w-9 h-9 grid place-items-center rounded-full text-gray-700 hover:bg-gray-100 active:scale-90 transition"
+            >
+              <ChevronLeft size={18} strokeWidth={1.75} />
+            </button>
+            <div className="w-9 h-9 rounded-full grid place-items-center text-white font-semibold text-sm shrink-0 bg-gray-900">
+              {contactInitial(activeConvo)}
+            </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-bold text-gray-900 truncate">{contactName(activeConvo)}</p>
-              <p className="text-[10px] text-gray-400 font-mono">{formatPhone(activeConvo.contact_phone)}</p>
+              <p className="text-[14px] font-semibold tracking-tight text-gray-900 truncate">{contactName(activeConvo)}</p>
+              <p className="text-[11px] text-gray-500 font-mono tabular-nums">{formatPhone(activeConvo.contact_phone)}</p>
             </div>
             <div className="flex items-center gap-1 shrink-0">
-              {/* AI mode toggle */}
-              <button onClick={() => toggleAiMode(activeConvo.ai_mode === 'autonomous' ? 'manual' : 'autonomous')}
-                className={`flex items-center gap-1 px-2 py-1.5 rounded-lg text-[10px] font-bold transition ${
-                  activeConvo.ai_mode === 'autonomous' ? 'bg-violet-50 text-violet-700' : 'bg-gray-100 text-gray-500'
-                }`} title={activeConvo.ai_mode === 'autonomous' ? 'IA Ativa — clique para desativar' : 'IA Desativada — clique para ativar'}>
-                <Bot size={12} /> {activeConvo.ai_mode === 'autonomous' ? 'IA ON' : 'IA OFF'}
+              <button
+                onClick={() => toggleAiMode(activeConvo.ai_mode === 'autonomous' ? 'manual' : 'autonomous')}
+                aria-pressed={activeConvo.ai_mode === 'autonomous'}
+                title={activeConvo.ai_mode === 'autonomous' ? 'IA ativa — clique para desativar' : 'IA desativada — clique para ativar'}
+                className={`flex items-center gap-1.5 px-2.5 h-8 rounded-full text-[11px] font-medium transition ${
+                  activeConvo.ai_mode === 'autonomous'
+                    ? 'bg-gray-900 text-white'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                <Bot size={12} strokeWidth={1.75} />
+                {activeConvo.ai_mode === 'autonomous' ? 'IA on' : 'IA off'}
               </button>
-              <a href={`https://wa.me/${(activeConvo.contact_phone || '').replace(/@.*/, '')}`} target="_blank" rel="noreferrer"
-                className="p-2 rounded-lg hover:bg-gray-100 transition"><Phone size={14} className="text-gray-400" /></a>
+              <a
+                href={`https://wa.me/${(activeConvo.contact_phone || '').replace(/@.*/, '')}`}
+                target="_blank"
+                rel="noreferrer"
+                aria-label="Abrir WhatsApp"
+                className="w-9 h-9 grid place-items-center rounded-full text-gray-500 hover:bg-gray-100 hover:text-gray-900 active:scale-90 transition"
+              >
+                <Phone size={14} strokeWidth={1.75} />
+              </a>
             </div>
           </div>
 
           {/* Messages */}
-          <div className="flex-1 overflow-y-auto px-4 py-3 bg-[#f0f2f5]" style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%239C92AC\' fill-opacity=\'0.03\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")' }}>
+          <div className="flex-1 overflow-y-auto px-4 py-3 bg-bg">
             {loadingMsgs ? (
-              <div className="flex items-center justify-center py-10"><Loader2 size={20} className="text-gray-300 animate-spin" /></div>
+              <div className="flex items-center justify-center py-10"><Loader2 size={18} className="text-gray-400 animate-spin" /></div>
             ) : messages.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 text-center">
-                <MessageSquare size={24} className="text-gray-300 mb-2" />
-                <p className="text-sm text-gray-500">Nenhuma mensagem</p>
-                <p className="text-[10px] text-gray-400 mt-1">Use os comandos rapidos ou envie uma mensagem</p>
+                <div className="w-12 h-12 rounded-2xl bg-gray-100 grid place-items-center mb-3">
+                  <MessageSquare size={20} className="text-gray-400" strokeWidth={1.5} />
+                </div>
+                <p className="text-[14px] font-medium text-gray-900">Nenhuma mensagem</p>
+                <p className="text-[12px] text-gray-500 mt-0.5">Use os comandos rápidos ou envie uma mensagem</p>
               </div>
             ) : (
               <div className="space-y-1.5 max-w-2xl mx-auto">
@@ -234,14 +275,29 @@ export function MessagesPage() {
                   return (
                     <div key={msg.id || i}>
                       {showDate && (
-                        <div className="text-center my-3"><span className="text-[10px] text-gray-500 bg-white/90 px-3 py-1 rounded-full shadow-sm font-medium">{dtDate(msg.timestamp)}</span></div>
+                        <div className="text-center my-3">
+                          <span className="text-[10px] text-gray-500 bg-white px-2.5 py-1 rounded-full font-medium tabular-nums border border-border-light">
+                            {dtDate(msg.timestamp)}
+                          </span>
+                        </div>
                       )}
                       <div className={`flex ${fromMe ? 'justify-end' : 'justify-start'}`}>
-                        <div className={`max-w-[75%] px-3 py-2 rounded-2xl shadow-sm ${fromMe ? 'bg-[#d9fdd3] rounded-tr-sm' : 'bg-white rounded-tl-sm'}`}>
-                          <p className="text-[13px] text-gray-800 leading-relaxed whitespace-pre-wrap break-words">{msg.body || msg.message_type}</p>
+                        <div
+                          className={`max-w-[78%] px-3 py-2 rounded-2xl ${
+                            fromMe
+                              ? 'bg-gray-900 text-white rounded-br-md'
+                              : 'bg-white text-gray-900 border border-border-light rounded-bl-md'
+                          }`}
+                        >
+                          <p className={`text-[13px] leading-relaxed whitespace-pre-wrap break-words ${fromMe ? 'text-white' : 'text-gray-900'}`}>
+                            {msg.body || msg.message_type}
+                          </p>
                           <div className={`flex items-center gap-1 mt-0.5 ${fromMe ? 'justify-end' : 'justify-start'}`}>
-                            <span className="text-[9px] text-gray-400">{dtTime(msg.timestamp)}</span>
-                            {fromMe && (msg.status === 'read' ? <CheckCheck size={11} className="text-blue-500" /> : <Check size={11} className="text-gray-400" />)}
+                            <span className={`text-[9px] tabular-nums ${fromMe ? 'text-white/50' : 'text-gray-400'}`}>{dtTime(msg.timestamp)}</span>
+                            {fromMe && (msg.status === 'read'
+                              ? <CheckCheck size={11} strokeWidth={1.75} className="text-blue-300" />
+                              : <Check size={11} strokeWidth={1.75} className="text-white/50" />
+                            )}
                           </div>
                         </div>
                       </div>
@@ -255,53 +311,78 @@ export function MessagesPage() {
 
           {/* Quick Commands */}
           {showCommands && (
-            <div className="border-t border-gray-100 bg-white px-4 py-3 max-h-48 overflow-y-auto shrink-0">
+            <div className="border-t border-border-light bg-white px-4 py-3 max-h-48 overflow-y-auto shrink-0">
               <div className="flex items-center justify-between mb-2">
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Respostas rapidas</p>
-                <button onClick={() => setShowCommands(false)} className="p-1 rounded hover:bg-gray-100"><X size={12} className="text-gray-400" /></button>
+                <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Respostas rápidas</p>
+                <button
+                  onClick={() => setShowCommands(false)}
+                  aria-label="Fechar"
+                  className="w-6 h-6 grid place-items-center rounded-full hover:bg-gray-100 text-gray-400 hover:text-gray-700"
+                >
+                  <X size={12} strokeWidth={2.25} />
+                </button>
               </div>
               <div className="grid grid-cols-2 gap-1.5">
-                {COMMANDS.map(cmd => (
-                  <button key={cmd.label} onClick={() => sendMessage(cmd.msg)}
-                    className="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-gray-50 hover:bg-blue-50 hover:text-blue-700 transition text-left">
-                    <span className="text-sm">{cmd.icon}</span>
-                    <span className="text-[11px] font-semibold text-gray-700 truncate">{cmd.label}</span>
-                  </button>
-                ))}
+                {COMMANDS.map(cmd => {
+                  const Icon = cmd.Icon
+                  return (
+                    <button
+                      key={cmd.label}
+                      onClick={() => sendMessage(cmd.msg)}
+                      className="flex items-center gap-2 px-2.5 h-9 rounded-lg bg-gray-100 hover:bg-gray-200 transition text-left group"
+                    >
+                      <Icon size={14} strokeWidth={1.75} className="text-gray-500 shrink-0" />
+                      <span className="text-[11px] font-medium text-gray-700 truncate">{cmd.label}</span>
+                    </button>
+                  )
+                })}
               </div>
             </div>
           )}
 
           {/* Input */}
-          <div className="px-4 py-3 border-t border-gray-100 bg-white shrink-0">
+          <div className="px-4 py-3 border-t border-border-light bg-white shrink-0">
             <div className="flex items-end gap-2 max-w-2xl mx-auto">
-              <button onClick={() => setShowCommands(!showCommands)}
-                className={`w-10 h-10 rounded-full grid place-items-center transition shrink-0 ${showCommands ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
-                <Zap size={16} />
+              <button
+                onClick={() => setShowCommands(!showCommands)}
+                aria-label="Respostas rápidas"
+                aria-pressed={showCommands}
+                className={`w-10 h-10 rounded-full grid place-items-center shrink-0 transition active:scale-90 ${
+                  showCommands ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                }`}
+              >
+                <Zap size={15} strokeWidth={1.75} />
               </button>
               <div className="flex-1 relative">
-                <textarea value={newMsg} onChange={e => setNewMsg(e.target.value)}
+                <textarea
+                  value={newMsg}
+                  onChange={e => setNewMsg(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage() } }}
-                  placeholder="Digite uma mensagem..."
+                  placeholder="Digite uma mensagem"
                   rows={1}
-                  className="w-full px-4 py-2.5 border border-gray-200 rounded-2xl text-sm bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-200 resize-none placeholder:text-gray-400"
-                  style={{ maxHeight: '120px' }} />
+                  className="w-full px-4 py-2.5 rounded-2xl border-0 bg-gray-100 text-[14px] text-gray-900 placeholder:text-gray-400 resize-none focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:bg-white transition"
+                  style={{ maxHeight: '120px' }}
+                />
               </div>
-              <button onClick={() => sendMessage()} disabled={sending || !newMsg.trim()}
-                className="w-10 h-10 rounded-full bg-emerald-500 text-white grid place-items-center hover:bg-emerald-600 disabled:opacity-40 transition shadow-sm shrink-0">
-                {sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+              <button
+                onClick={() => sendMessage()}
+                disabled={sending || !newMsg.trim()}
+                aria-label="Enviar"
+                className="w-10 h-10 rounded-full bg-emerald-600 text-white grid place-items-center hover:bg-emerald-700 disabled:opacity-40 disabled:hover:bg-emerald-600 active:scale-90 transition shrink-0"
+              >
+                {sending ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} strokeWidth={1.75} />}
               </button>
             </div>
           </div>
         </div>
       ) : (
-        <div className="flex-1 hidden md:flex items-center justify-center bg-[#f0f2f5]">
+        <div className="flex-1 hidden md:flex items-center justify-center bg-bg">
           <div className="text-center">
-            <div className="w-20 h-20 bg-white/80 rounded-3xl grid place-items-center mx-auto mb-4 shadow-sm">
-              <MessageSquare size={36} className="text-gray-300" />
+            <div className="w-16 h-16 bg-white border border-border-light rounded-3xl grid place-items-center mx-auto mb-4">
+              <MessageSquare size={28} className="text-gray-400" strokeWidth={1.5} />
             </div>
-            <h3 className="text-base font-bold text-gray-600">LeadCapture Messenger</h3>
-            <p className="text-xs text-gray-400 mt-1 max-w-xs">Selecione uma conversa para ver as mensagens</p>
+            <h3 className="text-[15px] font-bold tracking-tight text-gray-900">Selecione uma conversa</h3>
+            <p className="text-[12px] text-gray-500 mt-1 max-w-xs">Escolha um contato à esquerda para ver as mensagens</p>
           </div>
         </div>
       )}

@@ -58,6 +58,8 @@ type SelectOptions = {
   leadId?: string;
   preferredInstanceId?: string;
   excludedInstanceIds?: string[];
+  /** Campaign-specific instance pool. If set, only these instances are eligible. */
+  allowedInstanceIds?: string[];
 };
 
 type SendOptions = {
@@ -68,6 +70,7 @@ type SendOptions = {
   campaignId?: string;
   automationCode?: string;
   preferredInstanceId?: string;
+  allowedInstanceIds?: string[];
   maxAttempts?: number;
 };
 
@@ -518,13 +521,21 @@ export class InstanceRotationService {
     const settings = await this.getSettings(userId);
 
     const excluded = new Set((options?.excludedInstanceIds || []).map((id) => String(id)));
+    const allowedSet = options?.allowedInstanceIds?.length
+      ? new Set(options.allowedInstanceIds.map((id) => String(id)))
+      : null;
     const preferred = String(options?.preferredInstanceId || "").trim();
 
+    // Helper — check if an instance is in the campaign-specific pool (if set)
+    const isAllowed = (id: string) => !allowedSet || allowedSet.has(id);
+
     const snapshot = await this.getPoolSnapshot(userId, options?.leadId);
-    const eligible = snapshot.items.filter((item) => item.eligible && !excluded.has(item.instanceId));
+    const eligible = snapshot.items.filter(
+      (item) => item.eligible && !excluded.has(item.instanceId) && isAllowed(item.instanceId)
+    );
 
     if (!settings.enabled) {
-      if (preferred && !excluded.has(preferred)) {
+      if (preferred && !excluded.has(preferred) && isAllowed(preferred)) {
         // Check with owner filter first, then without (shared instances)
         const preferredRuntime = this.instanceManager.getInstance(preferred, userId)
           ?? this.instanceManager.getInstance(preferred);
@@ -533,18 +544,20 @@ export class InstanceRotationService {
 
       if (eligible[0]) return eligible[0].instanceId;
       // Check own instances first, then all shared instances as fallback
-      const fallback = this.instanceManager.getAllInstances(userId).find((item) => item.status === "connected")
-        ?? this.instanceManager.getAllInstances().find((item) => item.status === "connected");
+      const fallbackList = this.instanceManager.getAllInstances(userId).length
+        ? this.instanceManager.getAllInstances(userId)
+        : this.instanceManager.getAllInstances();
+      const fallback = fallbackList.find((item) => item.status === "connected" && isAllowed(item.id));
       return fallback?.id || null;
     }
 
     const affinity = await this.getAffinityInstance(userId, options?.leadId);
-    if (affinity && !excluded.has(affinity)) {
+    if (affinity && !excluded.has(affinity) && isAllowed(affinity)) {
       const affinityRow = eligible.find((item) => item.instanceId === affinity);
       if (affinityRow) return affinity;
     }
 
-    if (preferred && !excluded.has(preferred)) {
+    if (preferred && !excluded.has(preferred) && isAllowed(preferred)) {
       const preferredEligible = eligible.find((item) => item.instanceId === preferred);
       if (preferredEligible) return preferred;
     }
@@ -588,6 +601,7 @@ export class InstanceRotationService {
         leadId: input.leadId,
         preferredInstanceId: i === 0 ? input.preferredInstanceId : undefined,
         excludedInstanceIds: excluded,
+        allowedInstanceIds: input.allowedInstanceIds,
       });
 
       if (!instanceId) {

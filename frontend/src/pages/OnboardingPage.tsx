@@ -122,11 +122,11 @@ export function OnboardingPage() {
             {STEPS.map((s, i) => (
               <div key={i} className="flex items-center gap-1">
                 <div
-                  className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
+                  className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold transition-all ${
                     i < step
-                      ? 'bg-success text-white'
+                      ? 'bg-emerald-600 text-white'
                       : i === step
-                        ? 'bg-blue-500 text-white ring-4 ring-blue-500/20'
+                        ? 'bg-gray-900 text-white ring-4 ring-gray-900/10'
                         : 'bg-gray-200 text-gray-400'
                   }`}
                 >
@@ -155,8 +155,8 @@ export function OnboardingPage() {
             })()}
           </div>
           <div>
-            <p className="text-xs text-muted font-medium">Etapa {step + 1} de 4</p>
-            <h2 className="text-lg font-bold">{STEPS[step].title}</h2>
+            <p className="text-[11px] font-medium text-gray-500 tabular-nums">Etapa {step + 1} de 4</p>
+            <h2 className="text-[18px] font-semibold tracking-tight text-gray-900">{STEPS[step].title}</h2>
           </div>
         </div>
 
@@ -274,7 +274,7 @@ export function OnboardingPage() {
               const form = document.querySelector('form') as HTMLFormElement
               if (form) form.requestSubmit()
             }}
-            className="flex-1 flex items-center justify-center gap-2 bg-blue-500 text-white font-semibold py-3 rounded-xl hover:bg-blue-600 active:scale-[0.98] transition-all disabled:opacity-50"
+            className="flex-1 flex items-center justify-center gap-2 bg-gray-900 text-white font-semibold py-3 rounded-xl hover:bg-gray-800 active:scale-[0.98] transition disabled:opacity-50"
           >
             {step < 3 ? (
               <>
@@ -351,10 +351,10 @@ function ChipGroup({
               key={opt}
               type="button"
               onClick={() => onToggle(opt)}
-              className={`px-4 py-2 rounded-full text-sm font-medium border transition-all ${
+              className={`px-4 py-1.5 rounded-full text-[12px] font-medium transition-colors ${
                 isSelected
-                  ? 'bg-blue-500 text-white border-blue-500'
-                  : 'bg-white text-gray-600 border-border hover:border-blue-300'
+                  ? 'bg-gray-900 text-white'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
               }`}
             >
               {opt}

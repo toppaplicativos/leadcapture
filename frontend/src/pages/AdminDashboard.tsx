@@ -5,8 +5,11 @@ import {
   Package, Palette, Search, RefreshCw, LogOut, Menu, X, Loader2,
   Plus, Phone, Mail, Clock, ArrowRight, BarChart3, Zap, Eye,
   ChevronLeft, ChevronRight, Send, Pause, Ban, Bot, Bell, Trash2,
-  Wand2, Truck, Globe, Settings, Volume2, FileText, Link2, Receipt,
+  Wand2, Truck, Globe, Settings, Volume2, FileText, Link2, Receipt, Sparkles,
+  CreditCard, QrCode, Banknote, User, BadgeCheck, Headphones, Brain,
+  Boxes, Store, Laptop, CheckCircle2, Copy, Info,
 } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import { adminApi, inventoryApi } from '@/lib/api-admin'
 
 /* ── Helpers ── */
@@ -22,6 +25,11 @@ function getHeaders(): Record<string, string> {
   const b = localStorage.getItem('lead-system:active-brand-id')
   if (b) h['x-brand-id'] = b
   return h
+}
+
+function clearAdminAuth() {
+  localStorage.removeItem('lead-system-token')
+  localStorage.removeItem('lead-system:active-brand-id')
 }
 
 /* ── Toast ── */
@@ -55,6 +63,8 @@ const ROUTE_MAP: Record<string, string> = {
   '/dominio': 'dominio',
   '/agente': 'agente',
   '/configuracoes': 'configuracoes',
+  '/provedores-ia': 'provedores-ia',
+  '/emails': 'emails',
 }
 
 function resolveSection(pathname: string): string {
@@ -80,6 +90,8 @@ const NAV_ITEMS: { key: string; path: string; icon: any; label: string; group: s
   { key: 'pagamentos', path: '/pagamentos', icon: ShoppingCart, label: 'Pagamentos', group: 'loja' },
   { key: 'frete', path: '/frete', icon: Truck, label: 'Frete', group: 'loja' },
   { key: 'dominio', path: '/dominio', icon: Globe, label: 'Dominio', group: 'loja' },
+  { key: 'emails', path: '/emails', icon: Mail, label: 'Emails', group: 'config' },
+  { key: 'provedores-ia', path: '/provedores-ia', icon: Sparkles, label: 'Provedores IA', group: 'config' },
 ]
 
 const MOBILE_NAV = ['dashboard', 'leads', 'busca', 'mensagens', 'campanhas']
@@ -99,13 +111,48 @@ export function AdminShell({ children }: { children?: ReactNode }) {
   const [activeBrandId, setActiveBrandId] = useState(localStorage.getItem('lead-system:active-brand-id') || '')
   const [showBrandPicker, setShowBrandPicker] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
-
-  const token = localStorage.getItem('lead-system-token')
-  useEffect(() => { if (!token) navigate('/login', { replace: true }) }, [token])
+  const [authReady, setAuthReady] = useState(false)
 
   useEffect(() => {
+    const token = localStorage.getItem('lead-system-token')
+    if (!token) {
+      clearAdminAuth()
+      navigate('/login', { replace: true })
+      return
+    }
+
+    let mounted = true
+    fetch('/api/auth/me', {
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+    })
+      .then(async r => {
+        if (!r.ok) {
+          clearAdminAuth()
+          if (mounted) navigate('/login', { replace: true })
+          return
+        }
+        if (mounted) setAuthReady(true)
+      })
+      .catch(() => {
+        if (mounted) setAuthReady(true)
+      })
+
+    return () => { mounted = false }
+  }, [navigate])
+
+  useEffect(() => {
+    if (!authReady) return
     fetch('/api/brands', { headers: getHeaders() })
-      .then(r => r.json()).then(d => {
+      .then(async r => {
+        if (!r.ok) {
+          if (r.status === 401) {
+            clearAdminAuth()
+            navigate('/login', { replace: true })
+          }
+          return {}
+        }
+        return r.json()
+      }).then(d => {
         const list = d.brands || []
         const active = d.active_brand_id
         setBrands(list)
@@ -127,7 +174,7 @@ export function AdminShell({ children }: { children?: ReactNode }) {
           }))
         } catch { /* ignore */ }
       }).catch(() => {})
-  }, [refreshKey])
+  }, [authReady, refreshKey, navigate])
 
   async function switchBrand(brandId: string) {
     try {
@@ -140,8 +187,7 @@ export function AdminShell({ children }: { children?: ReactNode }) {
   }
 
   function logout() {
-    localStorage.removeItem('lead-system-token')
-    localStorage.removeItem('lead-system:active-brand-id')
+    clearAdminAuth()
     navigate('/login', { replace: true })
   }
 
@@ -150,158 +196,256 @@ export function AdminShell({ children }: { children?: ReactNode }) {
   const mobileItems = NAV_ITEMS.filter(n => MOBILE_NAV.includes(n.key))
   const mainNav = NAV_ITEMS.filter(n => n.group === 'main')
   const lojaNav = NAV_ITEMS.filter(n => n.group === 'loja')
+  const configNav = NAV_ITEMS.filter(n => n.group === 'config')
+
+  function NavButton({ item, active, onClick }: { item: typeof NAV_ITEMS[number]; active: boolean; onClick: () => void }) {
+    return (
+      <button
+        onClick={onClick}
+        aria-current={active ? 'page' : undefined}
+        className={`w-full flex items-center gap-3 px-3 h-9 text-[13px] rounded-lg transition-colors ${
+          active
+            ? 'bg-gray-100 text-gray-900 font-semibold'
+            : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+        }`}
+      >
+        <item.icon
+          size={16}
+          strokeWidth={active ? 2 : 1.75}
+          className={active ? 'text-gray-900' : 'text-gray-400'}
+        />
+        <span className="truncate">{item.label}</span>
+      </button>
+    )
+  }
+
+  function NavSection({ label, items }: { label?: string; items: typeof NAV_ITEMS }) {
+    if (items.length === 0) return null
+    return (
+      <div className="space-y-0.5">
+        {label && (
+          <p className="px-3 pt-3 pb-1.5 text-[10px] font-semibold text-gray-400 uppercase tracking-wide">
+            {label}
+          </p>
+        )}
+        {items.map(n => (
+          <NavButton
+            key={n.key}
+            item={n}
+            active={section === n.key}
+            onClick={() => go(n.path)}
+          />
+        ))}
+      </div>
+    )
+  }
+
+  const sidebarContent = (
+    <>
+      {/* Brand picker */}
+      <div className="shrink-0 px-3 pt-3">
+        <button
+          onClick={() => brands.length > 1 && setShowBrandPicker(!showBrandPicker)}
+          className="w-full flex items-center gap-3 p-2.5 rounded-xl hover:bg-gray-50 transition"
+        >
+          {brand.logo_url ? (
+            <img src={brand.logo_url} alt="" className="w-9 h-9 rounded-lg object-cover shrink-0" />
+          ) : (
+            <div className="w-9 h-9 rounded-lg bg-gray-900 text-white grid place-items-center text-sm font-semibold shrink-0">
+              {(brand.name || 'A').charAt(0).toUpperCase()}
+            </div>
+          )}
+          <div className="flex-1 min-w-0 text-left">
+            <span className="block text-[13px] font-semibold text-gray-900 truncate">
+              {brand.name || 'Admin'}
+            </span>
+            <span className="block text-[11px] text-gray-500 truncate">Painel</span>
+          </div>
+          {brands.length > 1 && (
+            <ChevronRight
+              size={14}
+              strokeWidth={2}
+              className={`text-gray-400 transition-transform shrink-0 ${
+                showBrandPicker ? 'rotate-90' : ''
+              }`}
+            />
+          )}
+        </button>
+
+        {showBrandPicker && brands.length > 1 && (
+          <div className="mt-1 mb-1 p-1 rounded-xl bg-gray-50 space-y-0.5">
+            <p className="px-2 pt-1 pb-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wide">
+              Trocar conta
+            </p>
+            {brands.map((b: any) => {
+              const isActive = String(b.id) === String(activeBrandId)
+              return (
+                <button
+                  key={b.id}
+                  onClick={() => switchBrand(b.id)}
+                  className={`w-full flex items-center gap-2.5 px-2 h-9 rounded-lg text-[12px] transition ${
+                    isActive
+                      ? 'bg-white text-gray-900 font-semibold shadow-sm'
+                      : 'text-gray-600 hover:bg-white/60'
+                  }`}
+                >
+                  {b.logo_url ? (
+                    <img src={b.logo_url} alt="" className="w-6 h-6 rounded-md object-cover shrink-0" />
+                  ) : (
+                    <div className="w-6 h-6 rounded-md bg-gray-200 text-gray-600 grid place-items-center shrink-0 text-[10px] font-semibold">
+                      {(b.name || '?')[0]}
+                    </div>
+                  )}
+                  <span className="truncate flex-1 text-left">{b.name}</span>
+                  {isActive && (
+                    <span
+                      className="w-1.5 h-1.5 rounded-full shrink-0"
+                      style={{ backgroundColor: 'var(--brand-secondary, #111827)' }}
+                    />
+                  )}
+                </button>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      <div className="my-2 mx-3 border-t border-border-light" />
+
+      <nav className="flex-1 px-3 pb-3 overflow-y-auto space-y-1">
+        <NavSection items={mainNav} />
+        <NavSection label="Catálogo" items={lojaNav} />
+        <NavSection label="Configurações" items={configNav} />
+      </nav>
+
+      <div className="shrink-0 p-3 border-t border-border-light">
+        <button
+          onClick={logout}
+          className="w-full flex items-center gap-2.5 px-3 h-9 rounded-lg text-[13px] text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition"
+        >
+          <LogOut size={15} strokeWidth={1.75} className="text-gray-400" />
+          <span>Sair</span>
+        </button>
+      </div>
+    </>
+  )
 
   return (
-    <div className="h-screen bg-[#f8f9fb] flex flex-col">
-      {/* ── Mobile Topbar ── */}
-      <header className="admin-shell-mobile-header sticky top-0 z-50 bg-gray-950 text-white flex items-center justify-between px-4 lg:hidden shadow-xl shrink-0">
-        <div className="flex items-center gap-2.5">
-          <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-1.5 rounded-lg hover:bg-white/10 transition">
-            {sidebarOpen ? <X size={18} /> : <Menu size={18} />}
-          </button>
-          {brand.logo_url && <img src={brand.logo_url} alt="" className="w-7 h-7 rounded-lg object-cover ring-2 ring-white/10" />}
-          <h1 className="text-[13px] font-bold truncate max-w-[160px]">{brand.name || 'Admin'}</h1>
-        </div>
-        <button onClick={logout} className="bg-white/10 rounded-lg p-2 hover:bg-white/20 transition"><LogOut size={14} /></button>
-      </header>
-
-      <div className="flex flex-1 overflow-hidden">
-        {/* ── Premium Sidebar ── */}
-        <aside className={`admin-shell-mobile-sidebar fixed left-0 z-40 w-[220px] bg-gray-950 flex flex-col transition-transform lg:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-          <div className="lg:hidden px-4 py-4 border-b border-white/[0.06] bg-white/[0.03]">
-            <div className="flex items-center gap-3">
-              {brand.logo_url
-                ? <img src={brand.logo_url} alt="" className="w-10 h-10 rounded-2xl object-cover ring-2 ring-white/10 shrink-0" />
-                : <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 grid place-items-center shrink-0"><Package size={18} className="text-white" /></div>}
-              <div className="min-w-0">
-                <p className="text-[13px] font-bold text-white truncate">{brand.name || 'Admin'}</p>
-                <p className="text-[10px] text-white/35 font-medium uppercase tracking-[0.14em]">Painel de controle</p>
-              </div>
-            </div>
-          </div>
-
-          {/* Brand header + account switcher */}
-          <div className="hidden lg:block shrink-0">
-            <button onClick={() => brands.length > 1 && setShowBrandPicker(!showBrandPicker)}
-              className="w-full h-[60px] flex items-center gap-3 px-4 hover:bg-white/[0.04] transition border-b border-white/[0.06]">
-              {brand.logo_url
-                ? <img src={brand.logo_url} alt="" className="w-9 h-9 rounded-xl object-cover ring-2 ring-white/10 shrink-0" />
-                : <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 grid place-items-center shrink-0"><Package size={16} className="text-white" /></div>}
-              <div className="flex-1 min-w-0 text-left">
-                <span className="block text-[13px] font-bold text-white truncate">{brand.name || 'Admin'}</span>
-                <span className="block text-[10px] text-white/30 font-medium">Painel de controle</span>
-              </div>
-              {brands.length > 1 && (
-                <div className="flex items-center gap-1 shrink-0">
-                  <span className="w-5 h-5 rounded-md bg-blue-500/30 text-blue-300 text-[9px] font-bold grid place-items-center">{brands.length}</span>
-                  <ChevronRight size={12} className={`text-white/30 transition-transform ${showBrandPicker ? 'rotate-90' : ''}`} />
-                </div>
-              )}
+    <div className="h-screen bg-bg flex flex-col">
+      {/* ── Mobile Topbar (hidden when drawer is open) ── */}
+      {!sidebarOpen && (
+        <header className="admin-shell-mobile-header sticky top-0 z-40 bg-white/85 backdrop-blur-xl text-gray-900 flex items-center justify-between px-3 lg:hidden border-b border-border-light shrink-0">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setSidebarOpen(true)}
+              aria-label="Abrir menu"
+              className="w-9 h-9 grid place-items-center rounded-full text-gray-700 hover:bg-gray-100 active:scale-90 transition"
+            >
+              <Menu size={18} strokeWidth={1.75} />
             </button>
-
-            {/* Account/Brand Picker */}
-            {showBrandPicker && brands.length > 1 && (
-              <div className="border-b border-white/[0.06] bg-white/[0.02]">
-                <p className="px-4 pt-2.5 pb-1.5 text-[9px] font-bold text-white/20 uppercase tracking-[0.15em]">Trocar conta</p>
-                <div className="px-2 pb-2.5 space-y-1">
-                  {brands.map((b: any) => {
-                    const isActive = String(b.id) === String(activeBrandId)
-                    return (
-                      <button key={b.id} onClick={() => switchBrand(b.id)}
-                        className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-xs transition-all ${
-                          isActive ? 'bg-blue-500/20 text-blue-300 font-semibold ring-1 ring-blue-500/30' : 'text-white/40 hover:bg-white/[0.06] hover:text-white/70'
-                        }`}>
-                        {b.logo_url
-                          ? <img src={b.logo_url} alt="" className="w-7 h-7 rounded-lg object-cover shrink-0 ring-1 ring-white/10" />
-                          : <div className="w-7 h-7 rounded-lg bg-white/10 grid place-items-center shrink-0 text-[10px] font-bold text-white/30">{(b.name || '?')[0]}</div>}
-                        <span className="truncate flex-1 text-left">{b.name}</span>
-                        {isActive && <div className="w-2.5 h-2.5 rounded-full shrink-0 animate-pulse" style={{ backgroundColor: 'var(--brand-secondary, #3b82f6)' }} />}
-                      </button>
-                    )
-                  })}
-                </div>
+            {brand.logo_url ? (
+              <img src={brand.logo_url} alt="" className="w-7 h-7 rounded-lg object-cover" />
+            ) : (
+              <div className="w-7 h-7 rounded-lg bg-gray-900 text-white grid place-items-center text-xs font-semibold">
+                {(brand.name || 'A').charAt(0).toUpperCase()}
               </div>
             )}
+            <h1 className="text-[14px] font-semibold tracking-tight truncate max-w-[160px]">
+              {brand.name || 'Admin'}
+            </h1>
           </div>
+          <button
+            onClick={logout}
+            aria-label="Sair"
+            className="w-9 h-9 grid place-items-center rounded-full text-gray-500 hover:bg-gray-100 hover:text-gray-900 active:scale-90 transition"
+          >
+            <LogOut size={16} strokeWidth={1.75} />
+          </button>
+        </header>
+      )}
 
-          {/* Nav */}
-          <nav className="flex-1 py-3 px-2.5 overflow-y-auto space-y-0.5">
-            {mainNav.map(n => {
-              const active = section === n.key
-              return (
-                <button key={n.key} onClick={() => go(n.path)}
-                  className={`w-full flex items-center gap-2.5 px-3 py-[9px] text-[13px] rounded-lg transition-all ${
-                    active
-                      ? 'bg-white/[0.12] text-white font-semibold shadow-sm'
-                      : 'text-white/40 hover:bg-white/[0.06] hover:text-white/70'
-                  }`}>
-                  <n.icon size={16} style={active ? { color: 'var(--brand-secondary, #3b82f6)' } : undefined} />
-                  {n.label}
-                </button>
-              )
-            })}
+      <div className="flex flex-1 overflow-hidden">
+        {/* ── Mobile drawer overlay (z below drawer, above content) ── */}
+        {sidebarOpen && (
+          <div
+            className="fixed inset-0 bg-black/40 z-[60] lg:hidden"
+            onClick={() => setSidebarOpen(false)}
+            aria-hidden="true"
+          />
+        )}
 
-            <div className="!my-3 mx-1 border-t border-white/[0.06]" />
-            <p className="px-3 mb-1.5 text-[9px] font-bold text-white/15 uppercase tracking-[0.15em]">Catalogo</p>
-            {lojaNav.map(n => {
-              const active = section === n.key
-              return (
-                <button key={n.key} onClick={() => go(n.path)}
-                  className={`w-full flex items-center gap-2.5 px-3 py-[9px] text-[13px] rounded-lg transition-all ${
-                    active
-                      ? 'bg-white/[0.12] text-white font-semibold shadow-sm'
-                      : 'text-white/40 hover:bg-white/[0.06] hover:text-white/70'
-                  }`}>
-                  <n.icon size={16} style={active ? { color: 'var(--brand-secondary, #3b82f6)' } : undefined} />
-                  {n.label}
-                </button>
-              )
-            })}
-          </nav>
-
-          {/* Bottom */}
-          <div className="p-3 border-t border-white/[0.06] shrink-0">
-            <button onClick={logout}
-              className="w-full flex items-center justify-center gap-1.5 text-[11px] font-medium py-2 rounded-lg text-white/30 hover:bg-white/[0.06] hover:text-white/60 transition">
-              <LogOut size={12} /> Sair da conta
-            </button>
-          </div>
+        {/* ── Sidebar (desktop fixed + mobile drawer above everything) ── */}
+        <aside
+          className={`fixed top-0 bottom-0 left-0 w-[280px] sm:w-[260px] bg-white border-r border-border-light flex flex-col transition-transform duration-200 lg:translate-x-0 lg:w-[240px] safe-area-top ${
+            sidebarOpen ? 'translate-x-0 z-[70] shadow-2xl lg:shadow-none lg:z-30' : '-translate-x-full lg:translate-x-0 lg:z-30'
+          }`}
+        >
+          {/* Mobile-only close button (floats on top right) */}
+          <button
+            onClick={() => setSidebarOpen(false)}
+            aria-label="Fechar menu"
+            className="lg:hidden absolute top-3 right-3 z-10 w-9 h-9 grid place-items-center rounded-full text-gray-500 hover:text-gray-900 hover:bg-gray-100 active:scale-90 transition"
+          >
+            <X size={18} strokeWidth={1.75} />
+          </button>
+          {sidebarContent}
         </aside>
 
-        {/* Overlay */}
-        {sidebarOpen && <div className="fixed inset-0 bg-black/50 z-30 lg:hidden backdrop-blur-sm" onClick={() => setSidebarOpen(false)} />}
-
-        {/* ── Main Content ── */}
-        <main className="flex-1 lg:ml-[220px] overflow-y-auto">
-          <div className="max-w-5xl mx-auto px-5 pt-5 pb-20 lg:pb-8">
-            <div key={activeBrandId}>{children}</div>
+        {/* ── Main ── */}
+        <main className="flex-1 lg:ml-[240px] overflow-y-auto">
+          <div className="max-w-5xl mx-auto px-4 pt-5 pb-24 lg:pb-10 lg:px-8">
+            <div key={activeBrandId}>
+              {authReady ? children : (
+                <div className="min-h-[55vh] grid place-items-center">
+                  <Loader2 size={20} className="animate-spin text-gray-400" />
+                </div>
+              )}
+            </div>
           </div>
         </main>
       </div>
 
-      {/* ── Mobile Bottom Nav ── */}
-      <nav className="fixed bottom-0 left-0 right-0 z-50 bg-gray-950/95 backdrop-blur-lg border-t border-white/[0.06] flex h-16 lg:hidden safe-area-inset-bottom shrink-0">
-        {mobileItems.map(n => {
-          const active = section === n.key
-          return (
-            <button key={n.key} onClick={() => go(n.path)}
-              className={`flex-1 flex flex-col items-center justify-center gap-0.5 text-[10px] font-medium transition ${
-                active ? '' : 'text-white/30'
-              }`}
-              style={active ? { color: 'var(--brand-secondary, #3b82f6)' } : undefined}>
-              <n.icon size={18} />
-              {n.label}
-            </button>
-          )
-        })}
-      </nav>
+      {/* ── Mobile Bottom Nav (hidden when drawer is open) ── */}
+      {!sidebarOpen && (
+        <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white/85 backdrop-blur-xl border-t border-border-light flex h-[60px] lg:hidden safe-area-bottom shrink-0">
+          {mobileItems.map(n => {
+            const active = section === n.key
+            return (
+              <button
+                key={n.key}
+                onClick={() => go(n.path)}
+                aria-current={active ? 'page' : undefined}
+                className="flex-1 flex flex-col items-center justify-center gap-1 text-[10px] active:scale-[0.96] transition-transform"
+              >
+                <n.icon
+                  size={20}
+                  strokeWidth={active ? 2 : 1.5}
+                  className={active ? 'text-gray-900' : 'text-gray-400'}
+                />
+                <span
+                  className={`tracking-wide ${
+                    active ? 'font-semibold text-gray-900' : 'font-medium text-gray-500'
+                  }`}
+                >
+                  {n.label}
+                </span>
+              </button>
+            )
+          })}
+        </nav>
+      )}
 
       {/* Toast */}
       {toast && (
-        <div className="fixed bottom-20 lg:bottom-6 left-1/2 -translate-x-1/2 z-[300]">
-          <div className={`px-5 py-3 rounded-2xl text-white text-sm font-semibold shadow-2xl backdrop-blur-lg ${
-            toast.type === 'err' ? 'bg-red-500/90' : 'bg-emerald-500/90'
-          }`}>{toast.text}</div>
+        <div className="fixed bottom-[76px] lg:bottom-6 left-1/2 -translate-x-1/2 z-[300] pointer-events-none">
+          <div
+            className={`px-4 py-2.5 rounded-full text-white text-[13px] font-medium shadow-lg pointer-events-auto ${
+              toast.type === 'err' ? 'bg-red-600' : 'bg-gray-900'
+            }`}
+            role="status"
+          >
+            {toast.text}
+          </div>
         </div>
       )}
     </div>
@@ -359,7 +503,7 @@ export function DashboardView({ showToast }: { showToast: (t: string, tp?: 'ok' 
     setLoading(true)
     Promise.all([
       inventoryApi.overview().catch(() => ({})),
-      fetch('/api/customers?limit=1', { headers: getHeaders() }).then(r => r.json()).catch(() => ({ total: 0 })),
+      adminApi.clients(1, 1).catch(() => ({ total: 0 })),
       adminApi.campaigns().catch(() => ({ campaigns: [] })),
       adminApi.orders(1, 1).catch(() => ({ total: 0 })),
     ]).then(([inv, clients, campaigns, orders]) => {
@@ -380,55 +524,70 @@ export function DashboardView({ showToast }: { showToast: (t: string, tp?: 'ok' 
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">Painel</h2>
-        <p className="text-[13px] text-gray-400 mt-0.5">Visao geral do seu negocio</p>
+      <header>
+        <h2 className="text-[26px] font-bold tracking-tight text-gray-900">Painel</h2>
+        <p className="text-[13px] text-gray-500 mt-0.5">Visão geral do seu negócio</p>
+      </header>
+
+      {/* KPIs principais */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+        {([
+          { label: 'Leads', value: num(data?.totalLeads), Icon: Users },
+          { label: 'Campanhas', value: num(data?.totalCampaigns), Icon: Megaphone },
+          { label: 'Pedidos', value: num(data?.totalOrders), Icon: ShoppingCart },
+          { label: 'Produtos', value: num(data?.products), Icon: Package },
+        ] as { label: string; value: string; Icon: LucideIcon }[]).map(k => (
+          <div key={k.label} className="bg-white border border-border-light rounded-2xl p-4">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">{k.label}</span>
+              <span className="w-8 h-8 rounded-xl bg-gray-100 grid place-items-center text-gray-500">
+                <k.Icon size={15} strokeWidth={1.75} />
+              </span>
+            </div>
+            <p className="text-[26px] font-bold tracking-tight tabular-nums text-gray-900 leading-none">{k.value}</p>
+          </div>
+        ))}
       </div>
 
-      {/* KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <KpiCard label="Total Leads" value={num(data?.totalLeads)} icon={Users} bg="bg-blue-50" color="text-blue-500" accent="text-blue-600" />
-        <KpiCard label="Campanhas" value={num(data?.totalCampaigns)} icon={Megaphone} bg="bg-violet-50" color="text-violet-500" accent="text-violet-600" />
-        <KpiCard label="Pedidos" value={num(data?.totalOrders)} icon={ShoppingCart} bg="bg-emerald-50" color="text-emerald-500" accent="text-emerald-600" />
-        <KpiCard label="Produtos" value={num(data?.products)} icon={Package} bg="bg-amber-50" color="text-amber-500" accent="text-amber-600" />
-      </div>
-
-      {/* Secondary KPIs */}
-      <div className="grid grid-cols-3 gap-3">
-        <div className="bg-gradient-to-br from-indigo-500 to-blue-600 rounded-2xl p-4 text-white shadow-lg">
-          <BarChart3 size={18} className="text-white/50 mb-2" />
-          <p className="text-2xl font-extrabold">{num(data?.totalStock)}</p>
-          <p className="text-[10px] font-bold text-white/60 uppercase tracking-wider">Unidades em Estoque</p>
+      {/* KPIs secundários */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+        <div className="bg-gray-900 text-white rounded-2xl p-4">
+          <BarChart3 size={16} strokeWidth={1.75} className="text-white/50" />
+          <p className="text-[24px] font-semibold tracking-tight tabular-nums mt-2 leading-none">{num(data?.totalStock)}</p>
+          <p className="text-[10px] font-semibold text-white/50 uppercase tracking-wide mt-1.5">Unidades em estoque</p>
         </div>
-        <div className="bg-gradient-to-br from-emerald-500 to-teal-600 rounded-2xl p-4 text-white shadow-lg">
-          <Send size={18} className="text-white/50 mb-2" />
-          <p className="text-2xl font-extrabold">{num(data?.activeCampaigns)}</p>
-          <p className="text-[10px] font-bold text-white/60 uppercase tracking-wider">Campanhas Ativas</p>
+        <div className="bg-emerald-600 text-white rounded-2xl p-4">
+          <Send size={16} strokeWidth={1.75} className="text-white/60" />
+          <p className="text-[24px] font-semibold tracking-tight tabular-nums mt-2 leading-none">{num(data?.activeCampaigns)}</p>
+          <p className="text-[10px] font-semibold text-white/60 uppercase tracking-wide mt-1.5">Campanhas ativas</p>
         </div>
-        <div className={`rounded-2xl p-4 shadow-lg ${Number(data?.outOfStock) > 0 ? 'bg-gradient-to-br from-red-500 to-rose-600 text-white' : 'bg-gradient-to-br from-gray-100 to-gray-200 text-gray-700'}`}>
-          <Zap size={18} className={Number(data?.outOfStock) > 0 ? 'text-white/50' : 'text-gray-400'} />
-          <p className="text-2xl font-extrabold mt-2">{num(data?.outOfStock)}</p>
-          <p className={`text-[10px] font-bold uppercase tracking-wider ${Number(data?.outOfStock) > 0 ? 'text-white/60' : 'text-gray-400'}`}>Sem Estoque</p>
+        <div className={`rounded-2xl p-4 ${Number(data?.outOfStock) > 0 ? 'bg-red-600 text-white' : 'bg-white border border-border-light text-gray-900'}`}>
+          <Zap size={16} strokeWidth={1.75} className={Number(data?.outOfStock) > 0 ? 'text-white/60' : 'text-gray-400'} />
+          <p className="text-[24px] font-semibold tracking-tight tabular-nums mt-2 leading-none">{num(data?.outOfStock)}</p>
+          <p className={`text-[10px] font-semibold uppercase tracking-wide mt-1.5 ${Number(data?.outOfStock) > 0 ? 'text-white/60' : 'text-gray-400'}`}>Sem estoque</p>
         </div>
       </div>
 
       {/* Quick actions */}
       <section>
-        <h3 className="text-xs font-bold text-gray-400 uppercase tracking-[0.1em] mb-3">Acesso rapido</h3>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-          {[
-            { icon: Search, label: 'Buscar Leads', path: '/busca', gradient: 'from-blue-500 to-indigo-500' },
-            { icon: Megaphone, label: 'Campanhas', path: '/campanhas', gradient: 'from-violet-500 to-purple-500' },
-            { icon: ShoppingCart, label: 'Pedidos', path: '/pedidos', gradient: 'from-emerald-500 to-teal-500' },
-            { icon: Receipt, label: 'Tirar Pedido', path: '/tirar-pedido', gradient: 'from-orange-500 to-rose-500' },
-            { icon: Package, label: 'Estoque', path: '/estoque', gradient: 'from-amber-500 to-orange-500' },
-          ].map(a => (
-            <button key={a.label} onClick={() => navigate(a.path)}
-              className="group flex items-center gap-3 p-3.5 rounded-xl bg-white border border-gray-100 hover:border-gray-200 hover:shadow-md transition-all">
-              <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${a.gradient} grid place-items-center shadow-sm group-hover:scale-105 transition-transform`}>
-                <a.icon size={17} className="text-white" />
-              </div>
-              <span className="text-[13px] font-semibold text-gray-700">{a.label}</span>
+        <h3 className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-3">Acesso rápido</h3>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+          {([
+            { Icon: Search, label: 'Buscar leads', path: '/busca' },
+            { Icon: Megaphone, label: 'Campanhas', path: '/campanhas' },
+            { Icon: ShoppingCart, label: 'Pedidos', path: '/pedidos' },
+            { Icon: Receipt, label: 'Tirar pedido', path: '/tirar-pedido' },
+            { Icon: Package, label: 'Estoque', path: '/estoque' },
+          ] as { Icon: LucideIcon; label: string; path: string }[]).map(a => (
+            <button
+              key={a.label}
+              onClick={() => navigate(a.path)}
+              className="flex items-center gap-3 p-3 rounded-2xl bg-white border border-border-light hover:border-gray-300 active:scale-[0.98] transition text-left"
+            >
+              <span className="w-9 h-9 rounded-xl bg-gray-100 grid place-items-center text-gray-700 shrink-0">
+                <a.Icon size={15} strokeWidth={1.75} />
+              </span>
+              <span className="text-[13px] font-medium text-gray-900 truncate">{a.label}</span>
             </button>
           ))}
         </div>
@@ -459,7 +618,7 @@ function LeadsView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') =>
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <h2 className="text-lg font-bold text-gray-900">Leads / Clientes</h2>
+        <h2 className="text-[20px] font-bold tracking-tight text-gray-900">Leads / Clientes</h2>
         <span className="text-xs text-muted">{total} registros</span>
       </div>
 
@@ -469,7 +628,7 @@ function LeadsView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') =>
         <input type="text" value={search}
           onChange={e => { setSearch(e.target.value); setPage(1) }}
           placeholder="Buscar por nome, telefone ou email..."
-          className="w-full pl-10 pr-4 py-2.5 border border-border rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-200" />
+          className="w-full pl-10 pr-4 py-2.5 border border-border rounded-xl text-sm bg-white focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900" />
       </div>
 
       {loading ? <Skeleton rows={6} /> : clients.length === 0 ? (
@@ -557,64 +716,63 @@ export function ClientesView({ showToast }: { showToast: (t: string, tp?: 'ok' |
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3 flex-wrap">
+      <header className="flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <h2 className="text-lg font-bold text-gray-900">Clientes</h2>
-          <p className="text-xs text-muted mt-0.5">Pessoas que fizeram pedidos ou foram cadastradas manualmente</p>
+          <h2 className="text-[26px] font-bold tracking-tight text-gray-900">Clientes</h2>
+          <p className="text-[13px] text-gray-500 mt-0.5 tabular-nums">{total} cliente{total === 1 ? '' : 's'}</p>
         </div>
-        <span className="text-xs text-muted">{total} clientes</span>
-      </div>
+      </header>
 
       {/* Search */}
       <div className="relative">
-        <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted" />
+        <Search size={16} strokeWidth={1.75} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
         <input type="text" value={search}
           onChange={e => { setSearch(e.target.value); setPage(1) }}
-          placeholder="Buscar por nome, telefone ou email..."
-          className="w-full pl-10 pr-4 py-2.5 border border-border rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-200" />
+          placeholder="Buscar por nome, telefone ou email"
+          className="w-full h-10 pl-10 pr-4 rounded-full border-0 bg-gray-100 text-[13px] text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:bg-white transition" />
       </div>
 
       {loading ? <Skeleton rows={6} /> : clients.length === 0 ? (
         <EmptyState icon={Users} text="Nenhum cliente encontrado. Clientes aparecem automaticamente ao fazer pedidos." />
       ) : (
         <>
-          <div className="bg-white border border-border rounded-2xl overflow-hidden">
+          <div className="bg-white border border-border-light rounded-2xl overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="bg-gray-50 border-b border-border">
-                    <th className="text-left px-4 py-2.5 text-xs font-bold text-muted uppercase">Cliente</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-bold text-muted uppercase hidden sm:table-cell">Telefone</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-bold text-muted uppercase hidden md:table-cell">Pedidos</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-bold text-muted uppercase hidden md:table-cell">Total gasto</th>
-                    <th className="text-left px-4 py-2.5 text-xs font-bold text-muted uppercase">Ultimo pedido</th>
+                  <tr className="border-b border-border-light">
+                    <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Cliente</th>
+                    <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-gray-400 uppercase tracking-wide hidden sm:table-cell">Telefone</th>
+                    <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-gray-400 uppercase tracking-wide hidden md:table-cell">Pedidos</th>
+                    <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-gray-400 uppercase tracking-wide hidden md:table-cell">Total gasto</th>
+                    <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Último pedido</th>
                   </tr>
                 </thead>
                 <tbody>
                   {clients.map((c: any, i: number) => (
                     <tr key={i} onClick={() => setSelected(c)}
-                      className="border-b border-border/50 last:border-0 hover:bg-gray-50/80 cursor-pointer transition-colors">
+                      className="border-b border-border-light last:border-0 hover:bg-gray-50 cursor-pointer transition-colors">
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2.5">
-                          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-400 to-indigo-500 grid place-items-center shrink-0 text-white text-xs font-bold">
+                          <div className="w-8 h-8 rounded-full bg-gray-900 grid place-items-center shrink-0 text-white text-xs font-semibold">
                             {(c.name || c.phone || '?')[0].toUpperCase()}
                           </div>
-                          <div>
-                            <p className="font-medium text-gray-900 text-sm">{c.name || '(sem nome)'}</p>
-                            <p className="text-xs text-muted">{c.email || ''}</p>
+                          <div className="min-w-0">
+                            <p className="text-[13px] font-medium text-gray-900 truncate">{c.name || '(sem nome)'}</p>
+                            <p className="text-[11px] text-gray-500 truncate">{c.email || ''}</p>
                           </div>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-muted hidden sm:table-cell">{c.phone || '—'}</td>
+                      <td className="px-4 py-3 text-[12px] text-gray-600 hidden sm:table-cell font-mono">{c.phone || '—'}</td>
                       <td className="px-4 py-3 hidden md:table-cell">
-                        <span className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 text-xs font-semibold px-2 py-0.5 rounded-full">
-                          {c.order_count || 0} pedidos
+                        <span className="inline-flex items-center text-[11px] font-medium bg-gray-100 text-gray-700 px-2 py-0.5 rounded-full tabular-nums">
+                          {c.order_count || 0}
                         </span>
                       </td>
-                      <td className="px-4 py-3 font-semibold text-emerald-700 hidden md:table-cell">
-                        {Number(c.total_spent || 0) > 0 ? money(c.total_spent) : '—'}
+                      <td className="px-4 py-3 text-[13px] font-medium text-gray-900 tabular-nums hidden md:table-cell">
+                        {Number(c.total_spent || 0) > 0 ? money(c.total_spent) : <span className="text-gray-300">—</span>}
                       </td>
-                      <td className="px-4 py-3 text-muted text-xs">{c.last_order_at ? dt(c.last_order_at) : 'Manual'}</td>
+                      <td className="px-4 py-3 text-[11px] text-gray-500 tabular-nums">{c.last_order_at ? dt(c.last_order_at) : 'Manual'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -624,15 +782,17 @@ export function ClientesView({ showToast }: { showToast: (t: string, tp?: 'ok' |
 
           {/* Pagination */}
           {totalPages > 1 && (
-            <div className="flex items-center justify-center gap-2">
+            <div className="flex items-center justify-center gap-2 py-2">
               <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}
-                className="p-2 rounded-lg bg-white border border-border disabled:opacity-40 hover:bg-gray-50 transition">
-                <ChevronLeft size={16} />
+                aria-label="Página anterior"
+                className="w-9 h-9 grid place-items-center rounded-full bg-white border border-border-light text-gray-600 disabled:opacity-30 hover:bg-gray-50 active:scale-90 transition">
+                <ChevronLeft size={16} strokeWidth={2} />
               </button>
-              <span className="text-sm text-muted">{page} / {totalPages}</span>
+              <span className="text-[13px] text-gray-600 tabular-nums px-2">{page} / {totalPages}</span>
               <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages}
-                className="p-2 rounded-lg bg-white border border-border disabled:opacity-40 hover:bg-gray-50 transition">
-                <ChevronRight size={16} />
+                aria-label="Próxima página"
+                className="w-9 h-9 grid place-items-center rounded-full bg-white border border-border-light text-gray-600 disabled:opacity-30 hover:bg-gray-50 active:scale-90 transition">
+                <ChevronRight size={16} strokeWidth={2} />
               </button>
             </div>
           )}
@@ -641,36 +801,51 @@ export function ClientesView({ showToast }: { showToast: (t: string, tp?: 'ok' |
 
       {/* Client detail modal */}
       {selected && (
-        <div className="fixed inset-0 bg-black/50 z-[200] flex items-end sm:items-center justify-center p-4" onClick={() => setSelected(null)}>
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl p-6" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center gap-3 mb-5">
-              <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-400 to-indigo-500 grid place-items-center text-white font-bold text-lg">
-                {(selected.name || selected.phone || '?')[0].toUpperCase()}
-              </div>
-              <div>
-                <h3 className="font-bold text-gray-900">{selected.name || '(sem nome)'}</h3>
-                <p className="text-xs text-muted capitalize">{selected.source_type === 'manual' ? 'Cadastro manual' : 'Cliente por pedido'}</p>
-              </div>
-              <button onClick={() => setSelected(null)} className="ml-auto p-2 rounded-lg hover:bg-gray-100 transition"><X size={16} /></button>
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-[2px] z-[200] flex items-end sm:items-center justify-center sm:p-4" onClick={() => setSelected(null)} role="dialog" aria-modal="true">
+          <div
+            className="bg-white w-full max-w-md sm:rounded-3xl rounded-t-3xl shadow-2xl"
+            style={{ animation: 'slideUp 280ms cubic-bezier(0.16, 1, 0.3, 1)' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="sm:hidden pt-2 pb-1 flex justify-center">
+              <span className="w-10 h-1 rounded-full bg-gray-300" />
             </div>
-            <div className="space-y-2.5 text-sm">
-              {selected.phone && <div className="flex items-center gap-2 text-gray-700"><Phone size={14} className="text-muted" />{selected.phone}</div>}
-              {selected.email && <div className="flex items-center gap-2 text-gray-700"><Mail size={14} className="text-muted" />{selected.email}</div>}
-              <div className="grid grid-cols-2 gap-3 pt-3 mt-3 border-t border-border">
-                <div className="bg-blue-50 rounded-xl p-3 text-center">
-                  <p className="text-2xl font-bold text-blue-700">{selected.order_count || 0}</p>
-                  <p className="text-[10px] text-muted uppercase font-bold mt-0.5">Pedidos</p>
+            <div className="px-5 pt-3 pb-5">
+              <div className="flex items-center gap-3 mb-5">
+                <div className="w-12 h-12 rounded-full bg-gray-900 grid place-items-center text-white font-semibold text-base">
+                  {(selected.name || selected.phone || '?')[0].toUpperCase()}
                 </div>
-                <div className="bg-emerald-50 rounded-xl p-3 text-center">
-                  <p className="text-xl font-bold text-emerald-700">{money(selected.total_spent)}</p>
-                  <p className="text-[10px] text-muted uppercase font-bold mt-0.5">Total gasto</p>
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-[17px] font-bold tracking-tight text-gray-900 truncate">{selected.name || '(sem nome)'}</h3>
+                  <p className="text-[11px] text-gray-500">{selected.source_type === 'manual' ? 'Cadastro manual' : 'Cliente por pedido'}</p>
                 </div>
+                <button
+                  onClick={() => setSelected(null)}
+                  aria-label="Fechar"
+                  className="w-9 h-9 grid place-items-center rounded-full text-gray-400 hover:text-gray-700 hover:bg-gray-100 active:scale-90 transition"
+                >
+                  <X size={16} strokeWidth={1.75} />
+                </button>
               </div>
-              {selected.last_order_at && (
-                <div className="flex items-center gap-2 text-muted text-xs pt-1">
-                  <Clock size={13} />Ultimo pedido: {dtFull(selected.last_order_at)}
+              <div className="space-y-2.5 text-sm">
+                {selected.phone && <div className="flex items-center gap-2.5 bg-gray-50 rounded-xl px-3.5 py-2.5"><Phone size={14} strokeWidth={1.75} className="text-gray-400" /><span className="text-[13px] font-mono text-gray-800">{selected.phone}</span></div>}
+                {selected.email && <div className="flex items-center gap-2.5 bg-gray-50 rounded-xl px-3.5 py-2.5"><Mail size={14} strokeWidth={1.75} className="text-gray-400" /><span className="text-[13px] text-gray-800 truncate">{selected.email}</span></div>}
+                <div className="grid grid-cols-2 gap-2 pt-3 mt-3 border-t border-border-light">
+                  <div className="bg-gray-50 rounded-xl p-3 text-center">
+                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Pedidos</p>
+                    <p className="text-[20px] font-semibold text-gray-900 mt-1 tabular-nums">{selected.order_count || 0}</p>
+                  </div>
+                  <div className="bg-gray-50 rounded-xl p-3 text-center">
+                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Total gasto</p>
+                    <p className="text-[17px] font-bold text-gray-900 mt-1 tabular-nums">{money(selected.total_spent)}</p>
+                  </div>
                 </div>
-              )}
+                {selected.last_order_at && (
+                  <div className="flex items-center gap-1.5 text-[11px] text-gray-500 pt-1 tabular-nums">
+                    <Clock size={12} strokeWidth={1.75} /> Último pedido: {dtFull(selected.last_order_at)}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -739,7 +914,7 @@ export function CampaignsView({ showToast }: { showToast: (t: string, tp?: 'ok' 
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">Campanhas</h2>
+          <h2 className="text-[26px] font-bold text-gray-900 tracking-tight">Campanhas</h2>
           <p className="text-[13px] text-gray-400 mt-0.5">{campaigns.length} campanhas</p>
         </div>
         <button onClick={openCreate}
@@ -762,7 +937,7 @@ export function CampaignsView({ showToast }: { showToast: (t: string, tp?: 'ok' 
       {loading ? <Skeleton rows={4} /> : filtered.length === 0 ? (
         <EmptyState icon={Megaphone} text="Nenhuma campanha encontrada" />
       ) : (
-        <div className="space-y-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
           {filtered.map((c: any) => {
             const pct = c.target_count > 0 ? Math.round(((c.sent_count || 0) / c.target_count) * 100) : 0
             const isRunning = ['active', 'running', 'sending'].includes(c.status)
@@ -770,95 +945,95 @@ export function CampaignsView({ showToast }: { showToast: (t: string, tp?: 'ok' 
             const isDone = ['completed', 'cancelled'].includes(c.status)
             const accentColor = isRunning ? 'bg-blue-500' : canStart ? 'bg-emerald-500' : isDone ? 'bg-gray-300' : 'bg-amber-400'
             return (
-              <div key={c.id} className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_4px_rgba(0,0,0,0.07)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.1)] transition-all overflow-hidden">
+              <div key={c.id} className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_4px_rgba(0,0,0,0.07)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.1)] transition-all overflow-hidden flex flex-col">
                 {/* Accent bar */}
                 <div className={`h-1 w-full ${accentColor} ${isRunning ? 'animate-pulse' : ''}`} />
 
-                <div className="p-4">
-                  {/* Header row */}
-                  <div className="flex items-start justify-between gap-3 mb-3">
+                <div className="p-3 flex-1 flex flex-col">
+                  {/* Header row — title + badges + primary action */}
+                  <div className="flex items-start justify-between gap-2 mb-2.5">
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <h4 className="font-extrabold text-[15px] text-gray-900 truncate">{c.name || 'Sem titulo'}</h4>
+                      <h4 className="font-extrabold text-[13px] text-gray-900 truncate leading-tight">{c.name || 'Sem titulo'}</h4>
+                      <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                         {statusBadge(c.status)}
-                        {c.use_ai && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 border border-violet-200">IA</span>}
+                        {c.use_ai && <span className="text-[8px] font-bold px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 border border-violet-200">IA</span>}
+                        <span className="text-[9px] text-gray-400">· {dt(c.created_at)}</span>
                       </div>
-                      <p className="text-[11px] text-gray-400 mt-0.5">{c.campaign_mode || 'relationship'} · {dt(c.created_at)}</p>
                     </div>
-                    {/* Primary action */}
+                    {/* Primary action (compact) */}
                     <div className="shrink-0">
                       {canStart && (
                         <button onClick={() => doAction(c.id, 'start')} disabled={actionLoading === c.id}
-                          className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-green-500 text-white text-[11px] font-bold hover:from-emerald-600 hover:to-green-600 transition-all shadow-sm disabled:opacity-60">
-                          {actionLoading === c.id ? <Loader2 size={11} className="animate-spin" /> : <Send size={11} />} Iniciar
+                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-gradient-to-r from-emerald-500 to-green-500 text-white text-[10px] font-bold hover:from-emerald-600 hover:to-green-600 transition-all shadow-sm disabled:opacity-60">
+                          {actionLoading === c.id ? <Loader2 size={10} className="animate-spin" /> : <Send size={10} />} Iniciar
                         </button>
                       )}
                       {isRunning && (
                         <button onClick={() => doAction(c.id, 'pause')} disabled={actionLoading === c.id}
-                          className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-50 text-amber-700 border border-amber-200 text-[11px] font-bold hover:bg-amber-100 transition disabled:opacity-60">
-                          {actionLoading === c.id ? <Loader2 size={11} className="animate-spin" /> : <Pause size={11} />} Pausar
+                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-50 text-amber-700 border border-amber-200 text-[10px] font-bold hover:bg-amber-100 transition disabled:opacity-60">
+                          {actionLoading === c.id ? <Loader2 size={10} className="animate-spin" /> : <Pause size={10} />} Pausar
                         </button>
                       )}
                       {isDone && (
                         <button onClick={async () => { setActionLoading(c.id); try { await adminApi.reexecuteCampaign(c.id); showToast('Campanha reaberta!'); loadCampaigns() } catch (e: any) { showToast(e.message, 'err') } setActionLoading(null) }}
                           disabled={actionLoading === c.id}
-                          className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-50 text-blue-700 border border-blue-200 text-[11px] font-bold hover:bg-blue-100 transition disabled:opacity-60">
-                          {actionLoading === c.id ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />} Reaproveitar
+                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 text-[10px] font-bold hover:bg-blue-100 transition disabled:opacity-60">
+                          {actionLoading === c.id ? <Loader2 size={10} className="animate-spin" /> : <RefreshCw size={10} />} Reabrir
                         </button>
                       )}
                     </div>
                   </div>
 
-                  {/* Stats chips */}
-                  <div className="flex gap-2 mb-3">
-                    <div className="flex-1 bg-gray-50 rounded-xl px-3 py-2 text-center">
-                      <p className="text-[13px] font-extrabold text-gray-900">{num(c.target_count || 0)}</p>
-                      <p className="text-[9px] text-gray-400 uppercase tracking-wide font-semibold">Leads</p>
+                  {/* Compact stats: 3 KPIs inline */}
+                  <div className="grid grid-cols-3 gap-1.5 mb-2">
+                    <div className="bg-gray-50 rounded-lg px-2 py-1.5 text-center">
+                      <p className="text-[12px] font-extrabold text-gray-900 leading-none">{num(c.target_count || 0)}</p>
+                      <p className="text-[8px] text-gray-400 uppercase tracking-wide font-bold mt-0.5">Leads</p>
                     </div>
-                    <div className="flex-1 bg-gray-50 rounded-xl px-3 py-2 text-center">
-                      <p className="text-[13px] font-extrabold text-violet-700">{num(c.sent_count || 0)}</p>
-                      <p className="text-[9px] text-gray-400 uppercase tracking-wide font-semibold">Enviados</p>
+                    <div className="bg-gray-50 rounded-lg px-2 py-1.5 text-center">
+                      <p className="text-[12px] font-extrabold text-violet-700 leading-none">{num(c.sent_count || 0)}</p>
+                      <p className="text-[8px] text-gray-400 uppercase tracking-wide font-bold mt-0.5">Enviados</p>
                     </div>
-                    <div className="flex-1 bg-gray-50 rounded-xl px-3 py-2 text-center">
-                      <p className="text-[13px] font-extrabold text-emerald-600">{num(c.replied_count || 0)}</p>
-                      <p className="text-[9px] text-gray-400 uppercase tracking-wide font-semibold">Respostas</p>
+                    <div className="bg-gray-50 rounded-lg px-2 py-1.5 text-center">
+                      <p className="text-[12px] font-extrabold text-emerald-600 leading-none">{num(c.replied_count || 0)}</p>
+                      <p className="text-[8px] text-gray-400 uppercase tracking-wide font-bold mt-0.5">Resp.</p>
                     </div>
-                    {c.target_count > 0 && (
-                      <div className="flex-1 bg-gray-50 rounded-xl px-3 py-2 text-center">
-                        <p className="text-[13px] font-extrabold text-gray-700">{pct}%</p>
-                        <p className="text-[9px] text-gray-400 uppercase tracking-wide font-semibold">Progresso</p>
-                      </div>
-                    )}
                   </div>
 
-                  {/* Progress bar */}
+                  {/* Progress bar with percentage label */}
                   {c.target_count > 0 && (
-                    <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden mb-3">
-                      <div className={`h-full rounded-full transition-all ${isRunning ? 'bg-gradient-to-r from-blue-400 to-blue-600' : 'bg-gradient-to-r from-violet-400 to-purple-500'}`}
-                        style={{ width: `${Math.min(100, pct)}%` }} />
+                    <div className="mb-2">
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="text-[9px] font-semibold text-gray-500">{pct}% concluido</span>
+                      </div>
+                      <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                        <div className={`h-full rounded-full transition-all ${isRunning ? 'bg-gradient-to-r from-blue-400 to-blue-600' : 'bg-gradient-to-r from-violet-400 to-purple-500'}`}
+                          style={{ width: `${Math.min(100, pct)}%` }} />
+                      </div>
                     </div>
                   )}
 
-                  {/* Secondary actions */}
-                  <div className="flex items-center gap-1.5 pt-2.5 border-t border-gray-100">
-                    <button onClick={() => openEdit(c)}
-                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-violet-50 text-violet-700 text-[11px] font-bold hover:bg-violet-100 transition">
-                      <Settings size={10} /> Configurar
+                  {/* Secondary actions (compact, footer-aligned) */}
+                  <div className="flex items-center gap-1 pt-2 mt-auto border-t border-gray-100">
+                    <button onClick={() => openEdit(c)} title="Configurar"
+                      className="flex items-center gap-1 px-2 py-1 rounded-md bg-violet-50 text-violet-700 text-[10px] font-bold hover:bg-violet-100 transition">
+                      <Settings size={10} /> Config
                     </button>
                     <button onClick={async () => { setActionLoading(c.id); try { await adminApi.duplicateCampaign(c.id); showToast('Campanha duplicada!'); loadCampaigns() } catch (e: any) { showToast(e.message, 'err') } setActionLoading(null) }}
-                      disabled={actionLoading === c.id}
-                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-gray-50 text-gray-600 text-[11px] font-semibold hover:bg-gray-100 transition">
+                      disabled={actionLoading === c.id} title="Duplicar"
+                      className="flex items-center gap-1 px-2 py-1 rounded-md bg-gray-50 text-gray-600 text-[10px] font-semibold hover:bg-gray-100 transition">
                       Duplicar
                     </button>
                     {!isDone && (
-                      <button onClick={() => doAction(c.id, 'cancel')} disabled={actionLoading === c.id}
-                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-red-400 text-[11px] font-semibold hover:bg-red-50 hover:text-red-600 transition">
-                        <Ban size={10} /> Cancelar
+                      <button onClick={() => doAction(c.id, 'cancel')} disabled={actionLoading === c.id} title="Cancelar"
+                        className="flex items-center gap-1 px-2 py-1 rounded-md text-red-400 text-[10px] font-semibold hover:bg-red-50 hover:text-red-600 transition">
+                        <Ban size={10} />
                       </button>
                     )}
-                    <button onClick={() => { if (confirm(`Excluir campanha "${c.name}"?`)) doAction(c.id, 'delete') }} disabled={actionLoading === c.id}
-                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-red-400 text-[11px] font-semibold hover:bg-red-50 hover:text-red-600 transition ml-auto">
-                      <Trash2 size={10} /> Excluir
+                    <button onClick={() => { if (confirm(`Excluir campanha "${c.name}"?`)) doAction(c.id, 'delete') }}
+                      disabled={actionLoading === c.id} title="Excluir"
+                      className="flex items-center gap-1 px-2 py-1 rounded-md text-red-400 text-[10px] font-semibold hover:bg-red-50 hover:text-red-600 transition ml-auto">
+                      <Trash2 size={10} />
                     </button>
                   </div>
                 </div>
@@ -908,7 +1083,7 @@ function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
   const [slug, setSlug] = useState(core.slug || '')
   const [instanceId, setInstanceId] = useState(campaign?.instance_id || '')
   const [instanceMode, setInstanceMode] = useState(core.instanceMode || 'specific')
-  const [poolIds, setPoolIds] = useState((core.poolInstanceIds || []).join(', '))
+  const [poolIds, setPoolIds] = useState<string[]>(core.poolInstanceIds || [])
   const [rotationMode, setRotationMode] = useState(core.rotationMode || campaign?.rotation_mode || 'balanced')
 
   // Tab 2: Mensagem & IA
@@ -965,9 +1140,12 @@ function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
   const [filterHasWhatsapp, setFilterHasWhatsapp] = useState(filter.hasWhatsapp === true)
   const [filterTagsInclude, setFilterTagsInclude] = useState((filter.tagsInclude || []).join(', '))
   const [filterTagsExclude, setFilterTagsExclude] = useState((filter.tagsExclude || []).join(', '))
-  const [filterCities, setFilterCities] = useState((filter.cities || []).join(', '))
-  const [filterScoreMin, setFilterScoreMin] = useState(filter.scoreMin != null ? String(filter.scoreMin) : '')
-  const [filterScoreMax, setFilterScoreMax] = useState(filter.scoreMax != null ? String(filter.scoreMax) : '')
+  const [filterCategories, setFilterCategories] = useState<string[]>(filter.segments || filter.categories || [])
+  const [filterCities, setFilterCities] = useState<string[]>(filter.cities || [])
+  const [filterSources, setFilterSources] = useState<string[]>(filter.sources || [])
+  const [filterMinRating, setFilterMinRating] = useState<number | undefined>(filter.scoreMin)
+  const [filterOptions, setFilterOptions] = useState<any>(null)
+  const [previewCount, setPreviewCount] = useState<number | null>(null)
 
   // Tab 4: Velocidade & Anti-block
   const [maxPerMinute, setMaxPerMinute] = useState(String(speed.maxPerMinute || 3))
@@ -1001,6 +1179,30 @@ function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
     fetch('/api/instances', { headers: getHeaders() }).then(r => r.json()).then(d => setInstances(d.instances || [])).catch(() => {})
   }, [])
 
+  useEffect(() => {
+    fetch('/api/customers/filter-options', { headers: getHeaders() })
+      .then(r => r.json()).then(d => setFilterOptions(d)).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const f: any = { statuses: filterStatuses }
+      if (filterCategories.length) f.segments = filterCategories
+      if (filterCities.length) f.cities = filterCities
+      if (filterSources.length) f.sources = filterSources
+      if (filterMinRating) f.scoreMin = filterMinRating
+      if (filterHasWhatsapp) f.hasWhatsapp = true
+      if (filterTagsInclude.trim()) f.tagsInclude = filterTagsInclude.split(',').map((t: string) => t.trim()).filter(Boolean)
+      if (filterTagsExclude.trim()) f.tagsExclude = filterTagsExclude.split(',').map((t: string) => t.trim()).filter(Boolean)
+
+      fetch('/api/campaigns-v2/preview', {
+        method: 'POST', headers: getHeaders(),
+        body: JSON.stringify({ filter: f })
+      }).then(r => r.json()).then(d => setPreviewCount(d.count ?? d.total ?? null)).catch(() => {})
+    }, 500)
+    return () => clearTimeout(t)
+  }, [filterStatuses, filterCategories, filterCities, filterSources, filterMinRating, filterHasWhatsapp, filterTagsInclude, filterTagsExclude])
+
   const splitTags = (v: string) => v.split(',').map((t: string) => t.trim()).filter(Boolean)
 
   async function save() {
@@ -1019,11 +1221,12 @@ function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
         filter: {
           statuses: filterStatuses,
           hasWhatsapp: filterHasWhatsapp,
+          ...(filterCategories.length ? { segments: filterCategories } : {}),
+          ...(filterCities.length ? { cities: filterCities } : {}),
+          ...(filterSources.length ? { sources: filterSources } : {}),
+          ...(filterMinRating ? { scoreMin: filterMinRating } : {}),
           ...(filterTagsInclude.trim() ? { tagsInclude: splitTags(filterTagsInclude) } : {}),
           ...(filterTagsExclude.trim() ? { tagsExclude: splitTags(filterTagsExclude) } : {}),
-          ...(filterCities.trim() ? { cities: splitTags(filterCities) } : {}),
-          ...(filterScoreMin ? { scoreMin: parseInt(filterScoreMin) } : {}),
-          ...(filterScoreMax ? { scoreMax: parseInt(filterScoreMax) } : {}),
         },
         speedControl: {
           maxPerMinute: parseInt(maxPerMinute) || 3,
@@ -1035,7 +1238,7 @@ function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
         settings: {
           ...s,
           campaignMode: mode,
-          campaignCore: { slug: slug || undefined, instanceMode, poolInstanceIds: poolIds ? splitTags(poolIds) : [], rotationMode },
+          campaignCore: { slug: slug || undefined, instanceMode, poolInstanceIds: poolIds, rotationMode },
           scheduler: { scheduleMode, timeZone, smartWindowStart, smartWindowEnd },
           actionWindow: { enabled: windowEnabled, start: smartWindowStart, end: smartWindowEnd },
           finalActions: { nextStatus: nextStatus || undefined, addTags: addTags.trim() ? splitTags(addTags) : [] },
@@ -1159,16 +1362,60 @@ function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
             </div>
             {instanceMode === 'smart-rotation' && (<>
               <div>
-                <label className={labelCls}>IDs do pool (separar por virgula)</label>
-                <input type="text" value={poolIds} onChange={e => setPoolIds(e.target.value)} placeholder="id1, id2, id3" className={inputCls + ' font-mono text-xs'} />
+                <label className={labelCls}>Instancias do pool</label>
+                <p className="text-[10px] text-gray-400 mb-2">Selecione as instancias que participarao do rodizio. A campanha alternara entre elas automaticamente.</p>
+                <div className="space-y-1.5 max-h-64 overflow-y-auto">
+                  {instances.length === 0 ? (
+                    <p className="text-xs text-gray-400 p-3 bg-gray-50 rounded-xl">Nenhuma instancia WhatsApp cadastrada.</p>
+                  ) : instances.map((inst: any) => {
+                    const checked = poolIds.includes(inst.id)
+                    const isConnected = inst.status === 'connected'
+                    return (
+                      <label key={inst.id}
+                        className={`flex items-center gap-2.5 p-2.5 rounded-xl border cursor-pointer transition ${
+                          checked ? 'border-violet-400 bg-violet-50' : 'border-gray-200 bg-white hover:border-gray-300'
+                        } ${!isConnected ? 'opacity-60' : ''}`}>
+                        <input type="checkbox" checked={checked}
+                          onChange={() => {
+                            setPoolIds(checked ? poolIds.filter(id => id !== inst.id) : [...poolIds, inst.id])
+                          }}
+                          className="w-4 h-4 accent-violet-500" />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-emerald-500' : 'bg-gray-300'}`} />
+                            <span className="text-xs font-bold text-gray-900 truncate">{inst.name || inst.id.slice(0, 8)}</span>
+                            <span className="text-[10px] text-gray-400">{inst.phone || 'sem numero'}</span>
+                          </div>
+                          <span className={`text-[9px] font-semibold ${isConnected ? 'text-emerald-600' : 'text-gray-400'}`}>
+                            {isConnected ? 'Conectada' : (inst.status === 'qr_ready' ? 'QR pendente' : 'Desconectada')}
+                          </span>
+                        </div>
+                      </label>
+                    )
+                  })}
+                </div>
+                {poolIds.length > 0 && (
+                  <div className="flex items-center justify-between mt-2 px-1">
+                    <span className="text-[10px] font-bold text-violet-600">{poolIds.length} instancia{poolIds.length > 1 ? 's' : ''} selecionada{poolIds.length > 1 ? 's' : ''}</span>
+                    <button type="button" onClick={() => setPoolIds([])} className="text-[10px] font-semibold text-gray-400 hover:text-red-500 transition">Limpar</button>
+                  </div>
+                )}
               </div>
               <div>
                 <label className={labelCls}>Modo de rodizio</label>
-                <select value={rotationMode} onChange={e => setRotationMode(e.target.value)} className={inputCls}>
-                  <option value="balanced">Balanceado (padrao)</option>
-                  <option value="conservative">Conservador (menos msgs)</option>
-                  <option value="aggressive">Agressivo (mais msgs)</option>
-                </select>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    ['balanced', 'Balanceado', 'Distribui de forma uniforme'],
+                    ['conservative', 'Conservador', 'Menos msgs por instancia'],
+                    ['aggressive', 'Agressivo', 'Mais msgs por instancia'],
+                  ].map(([k, l, d]) => (
+                    <button key={k} type="button" onClick={() => setRotationMode(k)}
+                      className={`p-2.5 rounded-xl border text-left transition ${rotationMode === k ? 'border-violet-400 bg-violet-50' : 'border-gray-200'}`}>
+                      <p className={`text-[11px] font-bold ${rotationMode === k ? 'text-violet-700' : 'text-gray-700'}`}>{l}</p>
+                      <p className="text-[9px] text-gray-400 mt-0.5 leading-tight">{d}</p>
+                    </button>
+                  ))}
+                </div>
               </div>
             </>)}
           </>)}
@@ -1403,51 +1650,158 @@ function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
 
 
           {/* Tab: Segmentacao */}
-          {activeTab === 'segmentacao' && (<>
-            <div>
-              <label className={labelCls}>Status dos leads</label>
-              <div className="flex flex-wrap gap-1.5">
-                {LEAD_STATUSES.map(s => (
-                  <button key={s} type="button"
-                    onClick={() => setFilterStatuses(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s])}
-                    className={`px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition ${
-                      filterStatuses.includes(s) ? 'bg-violet-100 text-violet-700 ring-1 ring-violet-300' : 'bg-gray-100 text-gray-500'
-                    }`}>{s}</button>
-                ))}
+          {activeTab === 'segmentacao' && (() => {
+            const CAT_LABEL: Record<string, string> = {
+              restaurant: 'Restaurante', buffet_restaurant: 'Buffet', pizza_restaurant: 'Pizzaria',
+              brazilian_restaurant: 'Brasileiro', barbecue_restaurant: 'Churrascaria', bar: 'Bar',
+              manufacturer: 'Fabricante', italian_restaurant: 'Italiano', seafood_restaurant: 'Frutos do Mar',
+              family_restaurant: 'Familiar', food: 'Alimentacao', snack_bar: 'Lanchonete',
+              health_food_store: 'Emporio', meal_delivery: 'Delivery', hamburger_restaurant: 'Hamburgueria',
+              japanese_restaurant: 'Japones', wholesaler: 'Atacadista',
+            }
+            const chipActive = 'border border-violet-400 bg-violet-50 text-violet-800'
+            const chipInactive = 'border border-gray-200 bg-gray-50 text-gray-600 hover:border-gray-300'
+            const sectionLabel = 'text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-2 block'
+            const availCats: { value: string; count: number }[] = (filterOptions?.categories || []).slice(0, 12)
+            const availCities: { value: string; count: number }[] = (filterOptions?.cities || []).slice(0, 10)
+            const availTags: string[] = filterOptions?.tags || []
+            const statusCounts: Record<string, number> = filterOptions?.statusCounts || {}
+            const toggleArr = (arr: string[], set: (v: string[]) => void, val: string) =>
+              set(arr.includes(val) ? arr.filter(x => x !== val) : [...arr, val])
+            return (<>
+              {/* Preview banner */}
+              <div className={`rounded-xl px-4 py-2.5 text-sm font-semibold flex items-center gap-2 ${
+                previewCount === null ? 'bg-gray-50 text-gray-400' :
+                previewCount === 0 ? 'bg-amber-50 text-amber-700 border border-amber-200' :
+                'bg-green-50 text-green-700 border border-green-200'
+              }`}>
+                <span className="text-base">{previewCount === null ? '...' : previewCount === 0 ? '⚠' : '✓'}</span>
+                {previewCount === null
+                  ? 'Calculando alcance...'
+                  : previewCount === 0
+                  ? 'Nenhum lead corresponde aos filtros atuais'
+                  : `Esta campanha alcancara ~${previewCount.toLocaleString('pt-BR')} leads`}
               </div>
-            </div>
-            <div className="flex items-center justify-between py-1">
+
+              {/* Status */}
               <div>
-                <p className="text-sm font-semibold text-gray-800">Somente com WhatsApp</p>
-                <p className="text-[11px] text-gray-400">Filtrar apenas leads com WhatsApp validado</p>
+                <span className={sectionLabel}>Status</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {LEAD_STATUSES.map(s => {
+                    const cnt = statusCounts[s]
+                    const active = filterStatuses.includes(s)
+                    return (
+                      <button key={s} type="button"
+                        onClick={() => toggleArr(filterStatuses, setFilterStatuses, s)}
+                        className={`px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition flex items-center gap-1 ${active ? chipActive : chipInactive}`}>
+                        {s}{cnt != null && <span className="text-[9px] opacity-60">({cnt})</span>}
+                      </button>
+                    )
+                  })}
+                </div>
               </div>
-              <Toggle value={filterHasWhatsapp} onChange={setFilterHasWhatsapp} />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
+
+              {/* Categoria */}
+              {availCats.length > 0 && (
+                <div>
+                  <span className={sectionLabel}>Categoria</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {availCats.map(({ value, count }) => {
+                      const active = filterCategories.includes(value)
+                      return (
+                        <button key={value} type="button"
+                          onClick={() => toggleArr(filterCategories, setFilterCategories, value)}
+                          className={`px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition flex items-center gap-1 ${active ? chipActive : chipInactive}`}>
+                          {CAT_LABEL[value] || value}
+                          {count != null && <span className="text-[9px] opacity-60">({count})</span>}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Cidade */}
+              {availCities.length > 0 && (
+                <div>
+                  <span className={sectionLabel}>Cidade</span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {availCities.map(({ value, count }) => {
+                      const active = filterCities.includes(value)
+                      return (
+                        <button key={value} type="button"
+                          onClick={() => toggleArr(filterCities, setFilterCities, value)}
+                          className={`px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition flex items-center gap-1 ${active ? chipActive : chipInactive}`}>
+                          {value}
+                          {count != null && <span className="text-[9px] opacity-60">({count})</span>}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Rating minimo */}
               <div>
-                <label className={labelCls}>Tags incluir (separar por virgula)</label>
-                <input type="text" value={filterTagsInclude} onChange={e => setFilterTagsInclude(e.target.value)} placeholder="tag1, tag2" className={inputCls} />
+                <span className={sectionLabel}>Rating minimo</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {([undefined, 3, 4, 4.5] as (number | undefined)[]).map(v => {
+                    const active = filterMinRating === v
+                    const label = v == null ? 'Qualquer' : `★${v}+`
+                    return (
+                      <button key={String(v)} type="button"
+                        onClick={() => setFilterMinRating(v)}
+                        className={`px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition ${active ? chipActive : chipInactive}`}>
+                        {label}
+                      </button>
+                    )
+                  })}
+                </div>
               </div>
+
+              {/* Tags */}
               <div>
-                <label className={labelCls}>Tags excluir</label>
-                <input type="text" value={filterTagsExclude} onChange={e => setFilterTagsExclude(e.target.value)} placeholder="tag_excluir" className={inputCls} />
+                <span className={sectionLabel}>Tags</span>
+                <div className="grid grid-cols-2 gap-3 mb-2">
+                  <div>
+                    <label className="text-[10px] text-gray-400 mb-1 block">Incluir (virgula)</label>
+                    <input type="text" value={filterTagsInclude} onChange={e => setFilterTagsInclude(e.target.value)} placeholder="tag1, tag2" className={inputCls} />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-gray-400 mb-1 block">Excluir (virgula)</label>
+                    <input type="text" value={filterTagsExclude} onChange={e => setFilterTagsExclude(e.target.value)} placeholder="tag_excluir" className={inputCls} />
+                  </div>
+                </div>
+                {availTags.length > 0 && (
+                  <div className="flex flex-wrap gap-1">
+                    {availTags.slice(0, 20).map(tag => {
+                      const included = filterTagsInclude.split(',').map((t: string) => t.trim()).includes(tag)
+                      return (
+                        <button key={tag} type="button"
+                          onClick={() => {
+                            const parts = filterTagsInclude.split(',').map((t: string) => t.trim()).filter(Boolean)
+                            if (included) setFilterTagsInclude(parts.filter((t: string) => t !== tag).join(', '))
+                            else setFilterTagsInclude([...parts, tag].join(', '))
+                          }}
+                          className={`px-2 py-1 rounded text-[10px] font-medium transition ${included ? chipActive : chipInactive}`}>
+                          {tag}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
-            </div>
-            <div>
-              <label className={labelCls}>Cidades (separar por virgula)</label>
-              <input type="text" value={filterCities} onChange={e => setFilterCities(e.target.value)} placeholder="Sao Paulo, Belo Horizonte" className={inputCls} />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className={labelCls}>Score minimo</label>
-                <input type="number" min={0} max={100} value={filterScoreMin} onChange={e => setFilterScoreMin(e.target.value)} placeholder="0" className={inputCls} />
+
+              {/* WhatsApp toggle */}
+              <div className="flex items-center justify-between py-1 border-t border-gray-100 pt-3">
+                <div>
+                  <p className="text-sm font-semibold text-gray-800">Somente com WhatsApp</p>
+                  <p className="text-[11px] text-gray-400">Filtrar apenas leads com WhatsApp validado</p>
+                </div>
+                <Toggle value={filterHasWhatsapp} onChange={setFilterHasWhatsapp} />
               </div>
-              <div>
-                <label className={labelCls}>Score maximo</label>
-                <input type="number" min={0} max={100} value={filterScoreMax} onChange={e => setFilterScoreMax(e.target.value)} placeholder="100" className={inputCls} />
-              </div>
-            </div>
-          </>)}
+            </>)
+          })()}
 
           {/* Tab: Velocidade & Anti-block */}
           {activeTab === 'velocidade' && (<>
@@ -1697,7 +2051,7 @@ export function OrdersView({ showToast }: { showToast: (t: string, tp?: 'ok' | '
 
   return (
     <div className="space-y-5">
-      <div><h2 className="text-xl font-extrabold text-gray-900 tracking-tight">Pedidos</h2>
+      <div><h2 className="text-[26px] font-bold text-gray-900 tracking-tight">Pedidos</h2>
         <p className="text-[13px] text-gray-400 mt-0.5">{metrics.total} pedidos · {money(metrics.totalValue)} total</p></div>
 
       {/* KPIs */}
@@ -1709,7 +2063,7 @@ export function OrdersView({ showToast }: { showToast: (t: string, tp?: 'ok' | '
       </div>
 
       {/* Status pipeline */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-4">
+      <div className="bg-white rounded-2xl border border-border-light p-4">
         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em] mb-3">Pipeline</p>
         <div className="flex gap-1.5 flex-wrap">
           <button onClick={() => setStatusFilter('')} className={`px-3 py-2 rounded-xl text-xs font-semibold transition ${!statusFilter ? 'bg-blue-100 text-blue-700 ring-1 ring-blue-300' : 'bg-gray-50 text-gray-500'}`}>Todos ({metrics.total})</button>
@@ -1721,7 +2075,7 @@ export function OrdersView({ showToast }: { showToast: (t: string, tp?: 'ok' | '
 
       {/* Table */}
       {filtered.length === 0 ? <EmptyState icon={ShoppingCart} text="Nenhum pedido" /> : (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] overflow-hidden">
+        <div className="bg-white rounded-2xl border border-border-light overflow-hidden">
           <table className="w-full text-sm"><thead><tr className="bg-gray-50/80 border-b border-gray-100">
             <th className="text-left px-4 py-2.5 text-[10px] font-bold text-gray-400 uppercase">Pedido</th>
             <th className="text-left px-4 py-2.5 text-[10px] font-bold text-gray-400 uppercase">Cliente</th>
@@ -1812,7 +2166,7 @@ export function OrdersView({ showToast }: { showToast: (t: string, tp?: 'ok' | '
                 </div>)}
                 {/* Actions */}
                 <div className="flex gap-2 flex-wrap pt-1">
-                  <button onClick={() => sendExpedition(selectedOrder.id)} disabled={actionLoading} className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-blue-500 text-white text-xs font-bold hover:bg-blue-600 disabled:opacity-50 transition shadow-sm"><Send size={12} /> Enviar Expedicao</button>
+                  <button onClick={() => sendExpedition(selectedOrder.id)} disabled={actionLoading} className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gray-900 text-white text-xs font-semibold hover:bg-gray-800 disabled:opacity-40 transition"><Send size={12} strokeWidth={1.75} /> Enviar expedição</button>
                   {selectedOrder.payment_link && <a href={selectedOrder.payment_link} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gray-100 text-gray-700 text-xs font-semibold hover:bg-gray-200 transition"><Eye size={12} /> Link Pgto</a>}
                   <button onClick={() => cancelOrder(selectedOrder.id)} disabled={actionLoading} className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-red-500 text-xs font-semibold hover:bg-red-50 transition ml-auto"><Ban size={12} /> Cancelar</button>
                 </div>
@@ -1850,7 +2204,7 @@ function InventoryOverview({ showToast }: { showToast: (t: string, tp?: 'ok' | '
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-bold text-gray-900">Estoque</h2>
+        <h2 className="text-[20px] font-bold tracking-tight text-gray-900">Estoque</h2>
         <button onClick={() => navigate('/estoque')}
           className="flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-700 transition">
           Abrir Painel Completo <ArrowRight size={13} />
@@ -1948,13 +2302,13 @@ export function AutomationsView({ showToast }: { showToast: (t: string, tp?: 'ok
   return (
     <div className="space-y-5">
       <div>
-        <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">Automacoes</h2>
+        <h2 className="text-[26px] font-bold text-gray-900 tracking-tight">Automacoes</h2>
         <p className="text-[13px] text-gray-400 mt-0.5">{rules.length} regras configuradas</p>
       </div>
 
       {/* Funnel */}
       {funnelStatuses.length > 0 && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-4">
+        <div className="bg-white rounded-2xl border border-border-light p-4">
           <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em] mb-3">Funil de Conversao</h3>
           <div className="flex flex-wrap gap-1">
             {funnelStatuses.map((s, i) => (
@@ -1975,7 +2329,7 @@ export function AutomationsView({ showToast }: { showToast: (t: string, tp?: 'ok
           {rules.map((r: any) => {
             const isExpanded = expanded === r.id
             return (
-              <div key={r.id} className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] overflow-hidden">
+              <div key={r.id} className="bg-white rounded-2xl border border-border-light overflow-hidden">
                 <div className="p-4 flex items-start justify-between gap-3 cursor-pointer" onClick={() => setExpanded(isExpanded ? null : r.id)}>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 mb-1">
@@ -2095,7 +2449,7 @@ export function ProductsView({ showToast }: { showToast: (t: string, tp?: 'ok' |
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">Produtos</h2>
+          <h2 className="text-[26px] font-bold text-gray-900 tracking-tight">Produtos</h2>
           <p className="text-[13px] text-gray-400 mt-0.5">{metrics.total} produtos · {metrics.active} ativos</p>
         </div>
         <button onClick={() => { setEditProduct(null); setShowCreate(true) }}
@@ -2135,7 +2489,7 @@ export function ProductsView({ showToast }: { showToast: (t: string, tp?: 'ok' |
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input type="text" value={search} onChange={e => setSearch(e.target.value)}
             placeholder="Buscar produto..."
-            className="w-full pl-9 pr-3 py-2.5 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-200 placeholder:text-gray-300" />
+            className="w-full pl-9 pr-3 py-2.5 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900 placeholder:text-gray-300" />
         </div>
         <div className="flex gap-0.5 bg-gray-100 p-0.5 rounded-lg">
           <button onClick={() => setViewMode('grid')} className={`p-1.5 rounded-md transition ${viewMode === 'grid' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-400'}`}>
@@ -2151,7 +2505,7 @@ export function ProductsView({ showToast }: { showToast: (t: string, tp?: 'ok' |
       {viewMode === 'grid' && (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
           {filtered.map((p: any) => (
-            <div key={p.id} className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] overflow-hidden group hover:shadow-md transition-all cursor-pointer"
+            <div key={p.id} className="bg-white rounded-2xl border border-border-light overflow-hidden group hover:shadow-md transition-all cursor-pointer"
               onClick={() => { setEditProduct(p); setShowCreate(true) }}>
               <div className="aspect-square bg-gray-100 relative overflow-hidden">
                 {(p.imageUrl || p.image) ? (
@@ -2178,7 +2532,7 @@ export function ProductsView({ showToast }: { showToast: (t: string, tp?: 'ok' |
 
       {/* List view */}
       {viewMode === 'list' && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] overflow-hidden">
+        <div className="bg-white rounded-2xl border border-border-light overflow-hidden">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-gray-50/80 border-b border-gray-100">
@@ -2324,7 +2678,7 @@ function ProductEditorModal({ product, categories, onClose, onSaved, showToast }
     setSaving(false)
   }
 
-  const inputCls = 'w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-200'
+  const inputCls = 'w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900'
   const labelCls = 'text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5 block'
 
   return (
@@ -2449,7 +2803,7 @@ export function MessagesView({ showToast }: { showToast: (t: string, tp?: 'ok' |
   return (
     <div className="space-y-5">
       <div>
-        <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">Mensagens</h2>
+        <h2 className="text-[26px] font-bold text-gray-900 tracking-tight">Mensagens</h2>
         <p className="text-[13px] text-gray-400 mt-0.5">{sessions.length} conversas</p>
       </div>
       {sessions.length === 0 ? (
@@ -2457,7 +2811,7 @@ export function MessagesView({ showToast }: { showToast: (t: string, tp?: 'ok' |
       ) : (
         <div className="space-y-2">
           {sessions.map((s: any, i: number) => (
-            <div key={s.id || i} className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-4 flex items-center gap-3">
+            <div key={s.id || i} className="bg-white rounded-2xl border border-border-light p-4 flex items-center gap-3">
               <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 grid place-items-center text-white font-bold text-sm shrink-0">
                 {(s.contact_name || s.phone || '?')[0]?.toUpperCase()}
               </div>
@@ -2512,7 +2866,7 @@ function SquadRules({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') =
   ]
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-5 space-y-3">
+    <div className="bg-white rounded-2xl border border-border-light p-5 space-y-3">
       <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em]">Regras de Escalonamento</p>
       {items.map(r => (
         <div key={r.key} className="flex items-center justify-between py-2.5 border-b border-gray-100 last:border-0">
@@ -2644,24 +2998,24 @@ export function AgentView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'e
   ]
 
   // Skills departments
-  const departments = [
-    { name: 'Vendas', icon: '💰', color: 'from-emerald-500 to-teal-600', skills: [
+  const departments: { name: string; Icon: LucideIcon; color: string; skills: { name: string; status: string }[] }[] = [
+    { name: 'Vendas', Icon: ShoppingCart, color: 'from-emerald-500 to-teal-600', skills: [
       { name: 'Closer de Vendas', status: 'active' }, { name: 'Qualificador', status: 'active' },
       { name: 'Quebra de Objecoes', status: 'beta' }, { name: 'Upsell & Cross-sell', status: 'planned' },
     ]},
-    { name: 'Marketing', icon: '📣', color: 'from-violet-500 to-purple-600', skills: [
+    { name: 'Marketing', Icon: Megaphone, color: 'from-violet-500 to-purple-600', skills: [
       { name: 'Copywriter', status: 'active' }, { name: 'Segmentacao', status: 'beta' },
       { name: 'Nutricao de Leads', status: 'active' }, { name: 'Conteudo', status: 'planned' },
     ]},
-    { name: 'Atendimento', icon: '🎧', color: 'from-blue-500 to-indigo-600', skills: [
+    { name: 'Atendimento', Icon: Headphones, color: 'from-blue-500 to-indigo-600', skills: [
       { name: 'Primeiro Contato', status: 'active' }, { name: 'FAQ Inteligente', status: 'active' },
       { name: 'Escalacao Humano', status: 'active' }, { name: 'Detector de Bot', status: 'active' },
       { name: 'Curador de Contexto', status: 'active' }, { name: 'Pesquisa Satisfacao', status: 'beta' },
     ]},
-    { name: 'Logistica', icon: '🚚', color: 'from-amber-500 to-orange-600', skills: [
+    { name: 'Logistica', Icon: Truck, color: 'from-amber-500 to-orange-600', skills: [
       { name: 'Rastreamento', status: 'active' }, { name: 'Agendamento', status: 'beta' },
     ]},
-    { name: 'Inteligencia', icon: '🧠', color: 'from-pink-500 to-rose-600', skills: [
+    { name: 'Inteligencia', Icon: Brain, color: 'from-pink-500 to-rose-600', skills: [
       { name: 'Sentimento', status: 'active' }, { name: 'Intencao', status: 'active' },
       { name: 'Lead Scoring', status: 'beta' }, { name: 'Predicao', status: 'planned' },
     ]},
@@ -2671,7 +3025,7 @@ export function AgentView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'e
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">Agente IA</h2>
+          <h2 className="text-[26px] font-bold text-gray-900 tracking-tight">Agente IA</h2>
           <p className="text-[13px] text-gray-400 mt-0.5">Gemini 2.0 Flash · {agentName || 'Assistente'}</p>
         </div>
         {/* Global AI toggle */}
@@ -2712,7 +3066,7 @@ export function AgentView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'e
               <div className="h-full bg-white/80 rounded-full transition-all" style={{ width: `${score}%` }} />
             </div>
           </div>
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-4 flex flex-col justify-between">
+          <div className="bg-white rounded-2xl border border-border-light p-4 flex flex-col justify-between">
             <div className="flex items-center gap-2 mb-2">
               <div className={`w-2.5 h-2.5 rounded-full ${whatsapp.autonomous ? 'bg-emerald-500 animate-pulse' : 'bg-gray-300'}`} />
               <span className="text-xs font-bold text-gray-700">WhatsApp</span>
@@ -2730,7 +3084,7 @@ export function AgentView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'e
           </div>
         </div>
         {profile.objective && (
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-4">
+          <div className="bg-white rounded-2xl border border-border-light p-4">
             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em] mb-1.5">Diretriz</p>
             <p className="text-xs text-gray-600 leading-relaxed line-clamp-3">{profile.objective}</p>
           </div>
@@ -2739,7 +3093,7 @@ export function AgentView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'e
 
       {/* ── Tab: Config ── */}
       {tab === 'config' && (<>
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-5 space-y-4">
+        <div className="bg-white rounded-2xl border border-border-light p-5 space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5 block">Nome do Agente</label>
@@ -2804,15 +3158,17 @@ export function AgentView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'e
         </div>
 
         {/* Squad modes */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-5 space-y-3">
+        <div className="bg-white rounded-2xl border border-border-light p-5 space-y-3">
           <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em]">Modos de atendimento</p>
-          {[
-            { key: 'autonomous', label: 'Autonomo', desc: 'IA responde sozinha, escala para humano quando necessario', icon: '🤖', active: globalAiEnabled },
-            { key: 'copilot', label: 'Co-piloto', desc: 'IA sugere respostas, humano aprova antes de enviar', icon: '🧑‍✈️', active: false },
-            { key: 'manual', label: 'Manual', desc: 'Somente respostas humanas, IA desativada', icon: '👤', active: !globalAiEnabled },
-          ].map(m => (
+          {([
+            { key: 'autonomous', label: 'Autonomo', desc: 'IA responde sozinha, escala para humano quando necessario', Icon: Bot, active: globalAiEnabled },
+            { key: 'copilot', label: 'Co-piloto', desc: 'IA sugere respostas, humano aprova antes de enviar', Icon: BadgeCheck, active: false },
+            { key: 'manual', label: 'Manual', desc: 'Somente respostas humanas, IA desativada', Icon: User, active: !globalAiEnabled },
+          ] as { key: string; label: string; desc: string; Icon: LucideIcon; active: boolean }[]).map(m => (
             <div key={m.key} className={`flex items-center gap-3 p-3.5 rounded-xl border transition ${m.active ? 'border-violet-300 bg-violet-50' : 'border-gray-200'}`}>
-              <span className="text-2xl">{m.icon}</span>
+              <span className={`w-10 h-10 rounded-xl grid place-items-center shrink-0 ${m.active ? 'bg-violet-100 text-violet-700' : 'bg-gray-100 text-gray-500'}`}>
+                <m.Icon size={18} strokeWidth={1.75} />
+              </span>
               <div className="flex-1">
                 <p className={`text-sm font-bold ${m.active ? 'text-violet-700' : 'text-gray-700'}`}>{m.label}</p>
                 <p className="text-[10px] text-gray-400">{m.desc}</p>
@@ -2828,7 +3184,7 @@ export function AgentView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'e
 
       {/* ── Tab: Training ── */}
       {tab === 'training' && (<>
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-5 space-y-4">
+        <div className="bg-white rounded-2xl border border-border-light p-5 space-y-4">
           <p className="text-sm font-bold text-gray-900">Adicionar Conhecimento</p>
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
             <div className="sm:col-span-3">
@@ -2852,7 +3208,7 @@ export function AgentView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'e
         </div>
 
         {/* KB entries */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] overflow-hidden">
+        <div className="bg-white rounded-2xl border border-border-light overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
             <p className="text-xs font-bold text-gray-700">Base de Conhecimento</p>
             <span className="text-[10px] text-gray-400">{kbEntries.length} entradas</span>
@@ -2873,9 +3229,9 @@ export function AgentView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'e
       {tab === 'skills' && (<>
         <div className="space-y-3">
           {departments.map(dept => (
-            <div key={dept.name} className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] overflow-hidden">
+            <div key={dept.name} className="bg-white rounded-2xl border border-border-light overflow-hidden">
               <div className="px-4 py-3 flex items-center gap-3 border-b border-gray-100">
-                <div className={`w-8 h-8 rounded-lg bg-gradient-to-br ${dept.color} grid place-items-center text-sm shadow-sm`}>{dept.icon}</div>
+                <div className={`w-8 h-8 rounded-lg bg-gradient-to-br ${dept.color} grid place-items-center text-white shadow-sm`}><dept.Icon size={16} strokeWidth={1.75} /></div>
                 <div className="flex-1">
                   <p className="text-sm font-bold text-gray-900">{dept.name}</p>
                   <p className="text-[10px] text-gray-400">{dept.skills.filter(s => s.status === 'active').length}/{dept.skills.length} ativas</p>
@@ -2927,7 +3283,7 @@ export function NotificationsView({ showToast }: { showToast: (t: string, tp?: '
   return (
     <div className="space-y-5">
       <div>
-        <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">Notificacoes</h2>
+        <h2 className="text-[26px] font-bold text-gray-900 tracking-tight">Notificacoes</h2>
         <p className="text-[13px] text-gray-400 mt-0.5">{notifications.length} notificacoes</p>
       </div>
       {notifications.length === 0 ? (
@@ -3017,8 +3373,19 @@ export function DomainView({ showToast }: { showToast: (t: string, tp?: 'ok' | '
       const r = await fetch(`/api/storefront/stores/${store.id}/domains/${domain}/verify`, { method: 'POST', headers: getHeaders() })
       const d = await r.json()
       setVerifyResult(d)
-      if (d.verified) { showToast('Dominio verificado!'); load() }
-      else showToast('Verificacao falhou — confira o DNS', 'err')
+      if (d.verified) {
+        /* Backend auto-provisiona quando o A record aponta correto. */
+        if (d.provisioned) {
+          showToast('Pronto! Domínio conectado com HTTPS ativo.')
+        } else if (d.checks?.a_points_to_server === false) {
+          showToast('Verificado! Falta apontar o registro A — confira abaixo.', 'err')
+        } else {
+          showToast('Verificado! Ativando HTTPS, aguarde 1 min…')
+        }
+        load()
+      } else {
+        showToast('Ainda não deu — confira o DNS abaixo', 'err')
+      }
     } catch (e: any) { showToast(e.message, 'err') }
     setVerifying(null)
   }
@@ -3049,13 +3416,13 @@ export function DomainView({ showToast }: { showToast: (t: string, tp?: 'ok' | '
   return (
     <div className="space-y-5">
       <div>
-        <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">Dominio Personalizado</h2>
+        <h2 className="text-[26px] font-bold text-gray-900 tracking-tight">Dominio Personalizado</h2>
         <p className="text-[13px] text-gray-400 mt-0.5">Conecte seu dominio ao catalogo</p>
       </div>
 
       {/* Current catalog URL */}
       {store?.slug && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-4 flex items-center justify-between">
+        <div className="bg-white rounded-2xl border border-border-light p-4 flex items-center justify-between">
           <div>
             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em]">URL gratuita do catalogo</p>
             <a href={`/catalogo/${store.slug}`} target="_blank" rel="noreferrer" className="text-sm font-semibold text-blue-600 hover:underline mt-1 block">
@@ -3101,7 +3468,7 @@ export function DomainView({ showToast }: { showToast: (t: string, tp?: 'ok' | '
       )}
 
       {/* Add domain */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-4 space-y-3">
+      <div className="bg-white rounded-2xl border border-border-light p-4 space-y-3">
         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em]">{hasDomains ? 'Adicionar outro dominio' : 'Adicionar dominio'}</p>
         <div className="flex gap-2">
           <div className="relative flex-1">
@@ -3109,10 +3476,10 @@ export function DomainView({ showToast }: { showToast: (t: string, tp?: 'ok' | '
             <input type="text" value={newDomain} onChange={e => setNewDomain(e.target.value)}
               placeholder="meusite.com.br"
               onKeyDown={e => e.key === 'Enter' && addDomain()}
-              className="w-full pl-9 pr-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 placeholder:text-gray-300" />
+              className="w-full pl-9 pr-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900 placeholder:text-gray-300" />
           </div>
           <button onClick={addDomain} disabled={adding || !newDomain.trim()}
-            className="px-5 py-2.5 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 disabled:opacity-50 transition shadow-sm">
+            className="px-5 py-2.5 rounded-xl bg-gray-900 text-white text-xs font-semibold hover:bg-gray-800 disabled:opacity-40 transition">
             {adding ? 'Adicionando...' : 'Adicionar'}
           </button>
         </div>
@@ -3136,8 +3503,8 @@ export function DomainView({ showToast }: { showToast: (t: string, tp?: 'ok' | '
                         <p className="text-sm font-bold text-gray-900">{d.domain}</p>
                         {isPrimary && <span className="text-[8px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded-full ring-1 ring-blue-200">PRINCIPAL</span>}
                       </div>
-                      <span className={`text-[10px] font-bold ${verified ? 'text-emerald-600' : 'text-amber-600'}`}>
-                        {verified ? '✓ Verificado' : '⏳ Pendente verificacao'}
+                      <span className={`inline-flex items-center gap-1 text-[10px] font-bold ${verified ? 'text-emerald-600' : 'text-amber-600'}`}>
+                        {verified ? <><CheckCircle2 size={10} strokeWidth={2.25} /> Verificado</> : <><Clock size={10} strokeWidth={2.25} /> Pendente verificacao</>}
                       </span>
                     </div>
                   </div>
@@ -3172,92 +3539,215 @@ export function DomainView({ showToast }: { showToast: (t: string, tp?: 'ok' | '
       )}
 
       {/* DNS Instructions */}
-      {instructions && (
-        <div className="bg-gray-950 rounded-2xl p-5 text-white space-y-4">
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-bold">Instrucoes de DNS para {instructions.domain}</p>
-            <button onClick={() => setInstructions(null)} className="p-1 rounded-lg hover:bg-white/10 transition"><X size={14} /></button>
+      {instructions && <DnsInstructionsCard instructions={instructions} onClose={() => setInstructions(null)} showToast={showToast} />}
+
+      {/* Verify result — friendly checklist */}
+      {verifyResult && !verifyResult.verified && verifyResult.checks && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 space-y-3">
+          <div className="flex items-start gap-2.5">
+            <Clock size={16} className="text-amber-600 shrink-0 mt-0.5" strokeWidth={2} />
+            <div>
+              <p className="text-[13px] font-bold text-amber-900">Ainda não detectamos o DNS</p>
+              <p className="text-[11px] text-amber-800 mt-0.5">
+                Confira abaixo o que está faltando. Se você acabou de salvar no provedor, aguarde 5–10 min e tente de novo.
+              </p>
+            </div>
           </div>
-
-          {/* Step 1: Verification TXT */}
-          {instructions.verification && (
-            <div className="bg-white/10 rounded-xl p-3.5 space-y-2">
-              <p className="text-[10px] font-bold text-white/50 uppercase tracking-wider">1. Registro TXT de verificacao</p>
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] text-white/50">Tipo</span>
-                  <span className="text-xs font-mono font-bold text-emerald-300">{instructions.verification.type}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] text-white/50">Host</span>
-                  <button onClick={() => { navigator.clipboard.writeText(instructions.verification.host); showToast('Copiado!') }}
-                    className="text-xs font-mono font-bold text-blue-300 hover:text-blue-200 transition cursor-pointer">{instructions.verification.host} 📋</button>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] text-white/50">Valor</span>
-                  <button onClick={() => { navigator.clipboard.writeText(instructions.verification.value); showToast('Copiado!') }}
-                    className="text-xs font-mono font-bold text-blue-300 hover:text-blue-200 transition cursor-pointer break-all text-right max-w-[250px]">{instructions.verification.value} 📋</button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Step 2: Connection */}
-          {instructions.connection && (
-            <div className="bg-white/10 rounded-xl p-3.5 space-y-2">
-              <p className="text-[10px] font-bold text-white/50 uppercase tracking-wider">2. Apontamento do dominio</p>
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] text-white/50">Tipo</span>
-                  <span className="text-xs font-mono font-bold text-emerald-300">{instructions.connection.type}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] text-white/50">Host</span>
-                  <span className="text-xs font-mono font-bold text-blue-300">{instructions.connection.host}</span>
-                </div>
-                {instructions.connection.target && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] text-white/50">Destino</span>
-                    <button onClick={() => { navigator.clipboard.writeText(instructions.connection.target); showToast('Copiado!') }}
-                      className="text-xs font-mono font-bold text-blue-300 hover:text-blue-200 cursor-pointer">{instructions.connection.target} 📋</button>
-                  </div>
-                )}
-              </div>
-              {instructions.connection.note && (
-                <p className="text-[10px] text-white/40 leading-relaxed mt-1">{instructions.connection.note}</p>
-              )}
-            </div>
-          )}
-
-          <p className="text-[9px] text-white/30 leading-relaxed">
-            Apos configurar o DNS, aguarde ate 24 horas para propagacao. Clique em "Verificar" para checar o status.
-          </p>
-        </div>
-      )}
-
-      {/* Verify result */}
-      {verifyResult && !verifyResult.verified && (
-        <div className="bg-red-50 border border-red-100 rounded-2xl p-4 space-y-2">
-          <p className="text-xs font-bold text-red-700">Verificacao falhou</p>
-          <p className="text-[10px] text-red-600">O DNS ainda nao aponta corretamente. Verifique as configuracoes no seu registrador e tente novamente em alguns minutos.</p>
-          {verifyResult.checks && (
-            <div className="grid grid-cols-3 gap-2 mt-2">
-              <div className={`rounded-lg p-2 text-center ${verifyResult.checks.txt_verified ? 'bg-emerald-50' : 'bg-red-100'}`}>
-                <p className="text-[9px] font-bold">{verifyResult.checks.txt_verified ? '✓' : '✗'} TXT</p>
-              </div>
-              <div className={`rounded-lg p-2 text-center ${verifyResult.checks.cname_verified ? 'bg-emerald-50' : 'bg-red-100'}`}>
-                <p className="text-[9px] font-bold">{verifyResult.checks.cname_verified ? '✓' : '✗'} CNAME</p>
-              </div>
-              <div className={`rounded-lg p-2 text-center ${verifyResult.checks.a_resolved ? 'bg-emerald-50' : 'bg-red-100'}`}>
-                <p className="text-[9px] font-bold">{verifyResult.checks.a_resolved ? '✓' : '✗'} A Record</p>
-              </div>
-            </div>
-          )}
+          <div className="space-y-1.5 ml-7">
+            <DnsCheckRow
+              ok={verifyResult.checks.txt_verified}
+              label="Registro TXT de verificação"
+              hint="Cria o TXT mostrado nas instruções acima."
+            />
+            <DnsCheckRow
+              ok={verifyResult.checks.a_points_to_server || verifyResult.checks.cname_verified}
+              label={`Apontamento do domínio${verifyResult.checks.expected_ip ? ` para ${verifyResult.checks.expected_ip}` : ''}`}
+              hint={
+                verifyResult.checks.a_records?.length && verifyResult.checks.expected_ip && !verifyResult.checks.a_points_to_server
+                  ? `Encontramos: ${verifyResult.checks.a_records.join(', ')} (deveria ser ${verifyResult.checks.expected_ip})`
+                  : 'Cria o registro A mostrado nas instruções acima.'
+              }
+            />
+          </div>
         </div>
       )}
     </div>
   )
 }
+
+/* ──────────────────────────────────────────────
+   DNS Instructions card — clean table, plain
+   language. No "ALIAS_OR_A" jargon, just a
+   row-by-row "what to type into your DNS panel".
+   ────────────────────────────────────────────── */
+function DnsInstructionsCard({
+  instructions,
+  onClose,
+  showToast,
+}: {
+  instructions: any
+  onClose: () => void
+  showToast: (t: string, tp?: 'ok' | 'err') => void
+}) {
+  const [copiedKey, setCopiedKey] = useState<string | null>(null)
+
+  function copy(value: string, key: string) {
+    try {
+      navigator.clipboard.writeText(value)
+      setCopiedKey(key)
+      showToast('Copiado!')
+      setTimeout(() => setCopiedKey(null), 1600)
+    } catch {
+      showToast('Falha ao copiar', 'err')
+    }
+  }
+
+  const txt = instructions.verification
+  const conn = instructions.connection
+  const isApex = conn?.host === '@'
+
+  /* Each row in the DNS table — Type / Name / Value */
+  const rows: { label: string; type: string; host: string; value: string; key: string }[] = []
+  if (txt) {
+    rows.push({
+      label: '1. Verificação',
+      type: 'TXT',
+      host: txt.host.replace(`.${instructions.domain}`, ''),
+      value: txt.value,
+      key: 'txt',
+    })
+  }
+  if (conn) {
+    rows.push({
+      label: '2. Apontamento',
+      type: conn.type,
+      host: conn.host,
+      value: conn.value,
+      key: 'conn',
+    })
+  }
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-200 p-5 sm:p-6 space-y-5">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-gray-400 mb-1">
+            DNS para {instructions.domain}
+          </p>
+          <p className="text-[13px] text-gray-700 leading-relaxed">
+            No painel do seu registrador (Hostinger, Registro.br, GoDaddy, Namecheap…), entre em{' '}
+            <strong>DNS / Zone Editor</strong> e crie estes <strong>2 registros</strong>:
+          </p>
+        </div>
+        <button
+          onClick={onClose}
+          aria-label="Fechar"
+          className="p-1.5 rounded-lg hover:bg-gray-100 transition shrink-0"
+        >
+          <X size={14} className="text-gray-500" />
+        </button>
+      </div>
+
+      {/* DNS records table */}
+      <div className="rounded-xl border border-gray-200 overflow-hidden">
+        <div className="hidden sm:grid grid-cols-[80px_120px_1fr_44px] gap-3 px-4 py-2.5 bg-gray-50 border-b border-gray-200 text-[10px] font-bold uppercase tracking-wider text-gray-500">
+          <span>Tipo</span>
+          <span>Nome / Host</span>
+          <span>Valor</span>
+          <span></span>
+        </div>
+        {rows.map(r => (
+          <div
+            key={r.key}
+            className="grid grid-cols-[1fr_auto] sm:grid-cols-[80px_120px_1fr_44px] gap-x-3 gap-y-1.5 px-4 py-3 border-b border-gray-100 last:border-b-0 items-center"
+          >
+            <div className="sm:col-auto col-span-2">
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider sm:hidden mb-1">
+                {r.label}
+              </p>
+              <span className="inline-flex items-center h-6 px-2 rounded-md bg-gray-900 text-white text-[11px] font-mono font-bold">
+                {r.type}
+              </span>
+            </div>
+            <div className="sm:col-auto">
+              <p className="text-[9px] font-bold text-gray-400 uppercase sm:hidden mb-0.5">Nome</p>
+              <button
+                onClick={() => copy(r.host, `${r.key}-host`)}
+                className="text-[12px] font-mono font-semibold text-gray-900 hover:text-blue-600 inline-flex items-center gap-1.5 group"
+              >
+                <span>{r.host}</span>
+                {copiedKey === `${r.key}-host` ? (
+                  <CheckCircle2 size={11} strokeWidth={2.5} className="text-emerald-500" />
+                ) : (
+                  <Copy size={11} strokeWidth={1.75} className="text-gray-300 group-hover:text-gray-500" />
+                )}
+              </button>
+            </div>
+            <div className="sm:col-auto col-span-2 min-w-0">
+              <p className="text-[9px] font-bold text-gray-400 uppercase sm:hidden mb-0.5">Valor</p>
+              <button
+                onClick={() => copy(r.value, `${r.key}-value`)}
+                className="text-[12px] font-mono font-semibold text-gray-900 hover:text-blue-600 inline-flex items-start gap-1.5 group break-all text-left"
+              >
+                <span>{r.value}</span>
+                {copiedKey === `${r.key}-value` ? (
+                  <CheckCircle2 size={11} strokeWidth={2.5} className="text-emerald-500 shrink-0 mt-0.5" />
+                ) : (
+                  <Copy size={11} strokeWidth={1.75} className="text-gray-300 group-hover:text-gray-500 shrink-0 mt-0.5" />
+                )}
+              </button>
+            </div>
+            <div className="hidden sm:block" />
+          </div>
+        ))}
+      </div>
+
+      {/* Plain-language tips */}
+      <div className="space-y-2">
+        {isApex && (
+          <div className="flex items-start gap-2.5 p-3 rounded-xl bg-blue-50 border border-blue-100">
+            <Info size={14} className="text-blue-600 shrink-0 mt-0.5" strokeWidth={2} />
+            <div className="text-[12px] text-blue-900 leading-relaxed">
+              <p className="font-semibold mb-0.5">Sobre o tipo "A"</p>
+              <p>
+                Se o painel do seu provedor mostrar também as opções <strong>ALIAS</strong> ou{' '}
+                <strong>ANAME</strong>, ainda assim escolha <strong>A</strong>. Funciona em todos os
+                registradores. No campo <strong>Nome</strong> use <code className="bg-white px-1 rounded">@</code>{' '}
+                (que significa "raiz do domínio") — alguns painéis aceitam deixar em branco também.
+              </p>
+            </div>
+          </div>
+        )}
+        <div className="flex items-start gap-2.5 p-3 rounded-xl bg-amber-50 border border-amber-100">
+          <Clock size={14} className="text-amber-600 shrink-0 mt-0.5" strokeWidth={2} />
+          <p className="text-[12px] text-amber-900 leading-relaxed">
+            Depois de salvar os registros, aguarde de <strong>5 a 30 minutos</strong> para o DNS
+            propagar e clique em <strong>Verificar</strong>. Em casos raros pode levar até 24h.
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function DnsCheckRow({ ok, label, hint }: { ok: boolean; label: string; hint?: string }) {
+  return (
+    <div className="flex items-start gap-2">
+      <span
+        className={`w-4 h-4 rounded-full grid place-items-center shrink-0 mt-0.5 ${
+          ok ? 'bg-emerald-500 text-white' : 'bg-amber-300 text-amber-900'
+        }`}
+      >
+        {ok ? <CheckCircle2 size={11} strokeWidth={2.5} /> : <X size={9} strokeWidth={2.5} />}
+      </span>
+      <div className="flex-1 min-w-0">
+        <p className={`text-[12px] font-semibold ${ok ? 'text-emerald-700' : 'text-amber-900'}`}>{label}</p>
+        {!ok && hint && <p className="text-[11px] text-amber-800 mt-0.5">{hint}</p>}
+      </div>
+    </div>
+  )
+}
+
 export function EstoqueAccessView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') => void }) {
   const [credentials, setCredentials] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -3330,7 +3820,7 @@ export function EstoqueAccessView({ showToast }: { showToast: (t: string, tp?: '
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">Acesso ao Estoque</h2>
+          <h2 className="text-[26px] font-bold text-gray-900 tracking-tight">Acesso ao Estoque</h2>
           <p className="text-[13px] text-gray-400 mt-0.5">Gerencie usuários e credenciais do app de estoque</p>
         </div>
         <button onClick={() => setShowForm(!showForm)}
@@ -3416,7 +3906,7 @@ export function EstoqueAccessView({ showToast }: { showToast: (t: string, tp?: '
           <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">{credentials.length} acesso{credentials.length !== 1 ? 's' : ''} registrado{credentials.length !== 1 ? 's' : ''}</p>
           {credentials.map((c: any) => (
             <button key={c.id} type="button" onClick={() => setManaging(c)}
-              className="w-full text-left bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-4 hover:shadow-md hover:border-brand transition-all active:scale-[0.99]">
+              className="w-full text-left bg-white rounded-2xl border border-border-light p-4 hover:shadow-md hover:border-brand transition-all active:scale-[0.99]">
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-3 min-w-0">
                   <div className={`w-11 h-11 rounded-xl grid place-items-center shrink-0 ${c.is_active ? '' : 'bg-gray-100'}`}
@@ -3797,7 +4287,7 @@ export function WhatsAppManagerView({ showToast }: { showToast: (t: string, tp?:
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">WhatsApp</h2>
+          <h2 className="text-[26px] font-bold text-gray-900 tracking-tight">WhatsApp</h2>
           <p className="text-[13px] text-gray-400 mt-0.5">{instances.length} sessoes · {connected} conectadas</p>
         </div>
       </div>
@@ -3808,18 +4298,18 @@ export function WhatsAppManagerView({ showToast }: { showToast: (t: string, tp?:
           <p className="text-[26px] font-extrabold">{connected}</p>
           <p className="text-[9px] font-bold text-white/50 uppercase tracking-wider">Conectadas</p>
         </div>
-        <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
+        <div className="bg-white rounded-2xl p-4 border border-border-light">
           <p className="text-[26px] font-extrabold text-amber-500">{instances.filter(i => i.status === 'disconnected').length}</p>
           <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">Desconectadas</p>
         </div>
-        <div className="bg-white rounded-2xl p-4 border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)]">
+        <div className="bg-white rounded-2xl p-4 border border-border-light">
           <p className="text-[26px] font-extrabold text-gray-900">{instances.length}</p>
           <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">Total</p>
         </div>
       </div>
 
       {/* Create new */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-4 space-y-3">
+      <div className="bg-white rounded-2xl border border-border-light p-4 space-y-3">
         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em]">Nova sessao</p>
         <div className="flex gap-2">
           <input type="text" value={newName} onChange={e => setNewName(e.target.value)} placeholder="Nome da sessao (ex: atendimento1)"
@@ -3969,33 +4459,35 @@ export function PaymentConfigView({ showToast }: { showToast: (t: string, tp?: '
 
   if (loading) return <Skeleton rows={6} />
 
-  const inputCls = 'w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-200'
+  const inputCls = 'w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900'
 
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">Pagamentos</h2>
+          <h2 className="text-[26px] font-bold text-gray-900 tracking-tight">Pagamentos</h2>
           <p className="text-[13px] text-gray-400 mt-0.5">Metodos de pagamento e chave PIX</p>
         </div>
         <button onClick={save} disabled={saving}
-          className="px-4 py-2.5 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 disabled:opacity-50 transition shadow-sm">
+          className="px-4 py-2.5 rounded-xl bg-gray-900 text-white text-xs font-semibold hover:bg-gray-800 disabled:opacity-40 transition">
           {saving ? 'Salvando...' : 'Salvar'}
         </button>
       </div>
 
       {/* Payment Methods */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-5 space-y-3">
+      <div className="bg-white rounded-2xl border border-border-light p-5 space-y-3">
         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em]">Metodos aceitos</p>
-        {[
-          { label: 'PIX', sub: 'Transferencia instantanea', value: allowPix, onChange: setAllowPix, icon: '💎' },
-          { label: 'Cartao de Credito/Debito', sub: 'Maquininha na entrega', value: allowCard, onChange: setAllowCard, icon: '💳' },
-          { label: 'Boleto Bancario', sub: 'Vencimento em 3 dias', value: allowBoleto, onChange: setAllowBoleto, icon: '📄' },
-          { label: 'Dinheiro', sub: 'Pagamento na entrega', value: allowCash, onChange: setAllowCash, icon: '💵' },
-        ].map(m => (
+        {([
+          { label: 'PIX', sub: 'Transferencia instantanea', value: allowPix, onChange: setAllowPix, Icon: QrCode },
+          { label: 'Cartao de Credito/Debito', sub: 'Maquininha na entrega', value: allowCard, onChange: setAllowCard, Icon: CreditCard },
+          { label: 'Boleto Bancario', sub: 'Vencimento em 3 dias', value: allowBoleto, onChange: setAllowBoleto, Icon: FileText },
+          { label: 'Dinheiro', sub: 'Pagamento na entrega', value: allowCash, onChange: setAllowCash, Icon: Banknote },
+        ] as { label: string; sub: string; value: boolean; onChange: (v: boolean) => void; Icon: LucideIcon }[]).map(m => (
           <div key={m.label} className="flex items-center justify-between py-3 border-b border-gray-100 last:border-0">
             <div className="flex items-center gap-3">
-              <span className="text-lg">{m.icon}</span>
+              <span className={`w-9 h-9 rounded-xl grid place-items-center shrink-0 ${m.value ? 'bg-emerald-50 text-emerald-600' : 'bg-gray-100 text-gray-500'}`}>
+                <m.Icon size={16} strokeWidth={1.75} />
+              </span>
               <div>
                 <p className="text-sm font-semibold text-gray-800">{m.label}</p>
                 <p className="text-[10px] text-gray-400">{m.sub}</p>
@@ -4008,9 +4500,11 @@ export function PaymentConfigView({ showToast }: { showToast: (t: string, tp?: '
 
       {/* PIX Settings */}
       {allowPix && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-5 space-y-4">
-          <div className="flex items-center gap-2">
-            <span className="text-lg">💎</span>
+        <div className="bg-white rounded-2xl border border-border-light p-5 space-y-4">
+          <div className="flex items-center gap-3">
+            <span className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 grid place-items-center shrink-0">
+              <QrCode size={16} strokeWidth={1.75} />
+            </span>
             <div>
               <p className="text-sm font-bold text-gray-900">Configuracao PIX</p>
               <p className="text-[10px] text-gray-400">Chave PIX para recebimento direto no checkout</p>
@@ -4112,7 +4606,7 @@ export function FreteView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'e
 
   if (loading) return <Skeleton rows={6} />
 
-  const inputCls = 'w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-200'
+  const inputCls = 'w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900'
   const labelCls = 'text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5 block'
 
   // Preview
@@ -4123,11 +4617,11 @@ export function FreteView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'e
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-extrabold text-gray-900 tracking-tight">Frete & Entrega</h2>
+          <h2 className="text-[26px] font-bold text-gray-900 tracking-tight">Frete & Entrega</h2>
           <p className="text-[13px] text-gray-400 mt-0.5">Configure entregas e politicas de frete</p>
         </div>
         <button onClick={save} disabled={saving}
-          className="px-5 py-2.5 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 disabled:opacity-50 transition shadow-sm">
+          className="px-5 py-2.5 rounded-xl bg-gray-900 text-white text-xs font-semibold hover:bg-gray-800 disabled:opacity-40 transition">
           {saving ? 'Salvando...' : 'Salvar'}
         </button>
       </div>
@@ -4139,7 +4633,7 @@ export function FreteView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'e
           <div className="flex items-center gap-3 flex-wrap">
             {hasFreeShipping && (
               <div className="flex items-center gap-1.5 bg-white/20 rounded-lg px-3 py-1.5">
-                <span className="text-sm">🚚</span>
+                <Truck size={14} strokeWidth={2} />
                 <span className="text-sm font-bold">Frete gratis acima de R$ {Number(freeAbove).toFixed(0)}</span>
               </div>
             )}
@@ -4150,7 +4644,8 @@ export function FreteView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'e
             )}
             {eta && (
               <div className="flex items-center gap-1.5 bg-white/10 rounded-lg px-3 py-1.5">
-                <span className="text-xs font-semibold">⏱ {eta} min</span>
+                <Clock size={12} strokeWidth={2} />
+                <span className="text-xs font-semibold">{eta} min</span>
               </div>
             )}
           </div>
@@ -4158,19 +4653,19 @@ export function FreteView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'e
       )}
 
       {/* Shipping mode */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-5 space-y-3">
+      <div className="bg-white rounded-2xl border border-border-light p-5 space-y-3">
         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em]">Modo de entrega</p>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          {[
-            { key: 'delivery', label: 'Entrega', desc: 'Entregamos no endereco', icon: '🚚' },
-            { key: 'pickup', label: 'Retirada', desc: 'Cliente retira na loja', icon: '🏪' },
-            { key: 'both', label: 'Ambos', desc: 'Entrega + Retirada', icon: '📦' },
-            { key: 'none', label: 'Sem frete', desc: 'Somente digital', icon: '💻' },
-          ].map(m => (
+          {([
+            { key: 'delivery', label: 'Entrega', desc: 'Entregamos no endereco', Icon: Truck },
+            { key: 'pickup', label: 'Retirada', desc: 'Cliente retira na loja', Icon: Store },
+            { key: 'both', label: 'Ambos', desc: 'Entrega + Retirada', Icon: Boxes },
+            { key: 'none', label: 'Sem frete', desc: 'Somente digital', Icon: Laptop },
+          ] as { key: string; label: string; desc: string; Icon: LucideIcon }[]).map(m => (
             <button key={m.key} type="button" onClick={() => setShippingMode(m.key)}
               className={`p-3 rounded-xl border text-left transition ${shippingMode === m.key ? 'border-blue-400 bg-blue-50 ring-1 ring-blue-200' : 'border-gray-200 hover:border-gray-300'}`}>
-              <span className="text-lg">{m.icon}</span>
-              <p className={`text-xs font-bold mt-1 ${shippingMode === m.key ? 'text-blue-700' : 'text-gray-700'}`}>{m.label}</p>
+              <m.Icon size={18} strokeWidth={1.75} className={shippingMode === m.key ? 'text-blue-600' : 'text-gray-500'} />
+              <p className={`text-xs font-bold mt-1.5 ${shippingMode === m.key ? 'text-blue-700' : 'text-gray-700'}`}>{m.label}</p>
               <p className="text-[9px] text-gray-400">{m.desc}</p>
             </button>
           ))}
@@ -4178,7 +4673,7 @@ export function FreteView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'e
       </div>
 
       {/* Pricing */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-5 space-y-4">
+      <div className="bg-white rounded-2xl border border-border-light p-5 space-y-4">
         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em]">Valores e politica</p>
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -4204,7 +4699,7 @@ export function FreteView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'e
       </div>
 
       {/* Texts */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-5 space-y-4">
+      <div className="bg-white rounded-2xl border border-border-light p-5 space-y-4">
         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em]">Textos e politica</p>
         <div>
           <label className={labelCls}>Texto de prazo (exibido no catalogo)</label>
@@ -4220,7 +4715,7 @@ export function FreteView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'e
       </div>
 
       {/* Expedition WhatsApp */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-5 space-y-3">
+      <div className="bg-white rounded-2xl border border-border-light p-5 space-y-3">
         <div className="flex items-center gap-2 mb-1">
           <div className="w-7 h-7 bg-emerald-50 rounded-lg grid place-items-center"><MessageSquare size={14} className="text-emerald-500" /></div>
           <div>
@@ -4360,7 +4855,7 @@ function BrandEditForm({ brand, onSave, onCancel, showToast }: any) {
         <button
           onClick={save}
           disabled={saving}
-          className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg font-semibold text-sm hover:bg-blue-700 transition disabled:opacity-50"
+          className="flex-1 bg-gray-900 text-white px-4 py-2 rounded-xl font-semibold text-sm hover:bg-gray-800 transition disabled:opacity-50"
         >
           {saving ? 'Salvando...' : 'Salvar'}
         </button>
@@ -4614,7 +5109,7 @@ export function SettingsView({ showToast }: { showToast: (t: string, tp?: 'ok' |
         </div>
         <button
           onClick={() => setShowNewBrand(true)}
-          className="bg-blue-600 text-white px-4 py-2 rounded-lg font-semibold text-sm hover:bg-blue-700 transition"
+          className="bg-gray-900 text-white px-4 py-2 rounded-xl font-semibold text-sm hover:bg-gray-800 transition"
         >
           + Novo Brand
         </button>
@@ -4637,7 +5132,7 @@ export function SettingsView({ showToast }: { showToast: (t: string, tp?: 'ok' |
             <button
               onClick={createNewBrand}
               disabled={creatingBrand}
-              className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg font-semibold text-sm hover:bg-blue-700 transition disabled:opacity-50"
+              className="flex-1 bg-gray-900 text-white px-4 py-2 rounded-xl font-semibold text-sm hover:bg-gray-800 transition disabled:opacity-50"
             >
               {creatingBrand ? 'Criando...' : 'Criar Brand'}
             </button>
@@ -4652,7 +5147,7 @@ export function SettingsView({ showToast }: { showToast: (t: string, tp?: 'ok' |
       )}
 
       {/* Brands List */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] overflow-hidden">
+      <div className="bg-white rounded-2xl border border-border-light overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-100">
           <h2 className="font-bold text-gray-900">Seus Brands ({brands.length})</h2>
         </div>
@@ -4743,7 +5238,7 @@ export function SettingsView({ showToast }: { showToast: (t: string, tp?: 'ok' |
       )}
 
       {/* Client Types Section */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-5">
+      <div className="bg-white rounded-2xl border border-border-light p-5">
         <ClientTypesSection showToast={showToast} />
       </div>
     </div>

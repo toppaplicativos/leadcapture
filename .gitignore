@@ -39,3 +39,13 @@ data/pg_data.sql
 data/pg_data_summary.json
 
 auth_whatsapp/
+
+# Local editor / harness state
+.claude/settings.local.json
+.claude/launch.json
+
+# Build cache
+frontend/tsconfig.tsbuildinfo
+
+# Deploy tarball artifacts (one-off snapshots, never source-of-truth)
+*.tar.gz

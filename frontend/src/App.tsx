@@ -1,31 +1,76 @@
-import { useState, useCallback, useEffect } from 'react'
-import { Routes, Route, useNavigate } from 'react-router-dom'
+import { useState, useCallback, useEffect, lazy, Suspense } from 'react'
+import { Routes, Route, useNavigate, Navigate } from 'react-router-dom'
 import type { StoreData } from '@/lib/api'
 import { storeSlug } from '@/lib/store-context'
 import { Topbar } from '@/components/Topbar'
 import { BottomNav } from '@/components/BottomNav'
 import { Toast } from '@/components/Toast'
+import { useToast } from '@/components/Toast'
 import { CatalogHome } from '@/pages/CatalogHome'
 import { OrdersTab } from '@/pages/OrdersTab'
 import { ProfileTab } from '@/pages/ProfileTab'
-import { CheckoutPage } from '@/pages/CheckoutPage'
-import { OrderPage } from '@/pages/OrderPage'
-import { HistoryPage } from '@/pages/HistoryPage'
-import { OnboardingPage } from '@/pages/OnboardingPage'
-import { StockLoginPage } from '@/pages/StockLoginPage'
-import { InventoryPage } from '@/pages/InventoryPage'
-import { ProductDetailPage } from '@/pages/ProductDetailPage'
 import { LoginPage } from '@/pages/LoginPage'
-import { AdminShell, DashboardView, CampaignsView, OrdersView, AutomationsView, ProductsView, AgentView, NotificationsView, DomainView, FreteView, EstoqueAccessView, PaymentConfigView, WhatsAppManagerView, ClientesView } from '@/pages/AdminDashboard'
-import { AgentPDVPage } from '@/pages/AgentPDVPage'
-import { MessagesPage } from '@/pages/MessagesPage'
-import { FlowBuilderPage } from '@/pages/FlowBuilderPage'
-import { LeadSearchPage } from '@/pages/LeadSearchPage'
-import { LeadsPage } from '@/pages/LeadsPage'
-import { SettingsView } from '@/pages/AdminDashboard'
-import { MessageSquare, Package, Zap, Bot, Palette, Truck, Globe, Settings } from 'lucide-react'
+import { Palette } from 'lucide-react'
 import { PWAInstallBanner } from '@/components/PWAInstallBanner'
-import { useToast } from '@/components/Toast'
+
+/* ──────────────────────────────────────────────
+   Lazy chunks — split per route to keep the
+   initial bundle small. Each named export from
+   AdminDashboard re-uses the same module chunk
+   (Vite/Rollup deduplicates dynamic imports).
+   ────────────────────────────────────────────── */
+const adminModule = () => import('@/pages/AdminDashboard')
+
+const AdminShell = lazy(() => adminModule().then(m => ({ default: m.AdminShell })))
+const DashboardView = lazy(() => adminModule().then(m => ({ default: m.DashboardView })))
+const ClientesView = lazy(() => adminModule().then(m => ({ default: m.ClientesView })))
+const CampaignsView = lazy(() => adminModule().then(m => ({ default: m.CampaignsView })))
+const OrdersView = lazy(() => adminModule().then(m => ({ default: m.OrdersView })))
+const ProductsView = lazy(() => adminModule().then(m => ({ default: m.ProductsView })))
+const AgentView = lazy(() => adminModule().then(m => ({ default: m.AgentView })))
+const NotificationsView = lazy(() => adminModule().then(m => ({ default: m.NotificationsView })))
+const DomainView = lazy(() => adminModule().then(m => ({ default: m.DomainView })))
+const FreteView = lazy(() => adminModule().then(m => ({ default: m.FreteView })))
+const EstoqueAccessView = lazy(() => adminModule().then(m => ({ default: m.EstoqueAccessView })))
+const PaymentConfigView = lazy(() => adminModule().then(m => ({ default: m.PaymentConfigView })))
+const WhatsAppManagerView = lazy(() => adminModule().then(m => ({ default: m.WhatsAppManagerView })))
+const SettingsView = lazy(() => adminModule().then(m => ({ default: m.SettingsView })))
+
+const CheckoutPage = lazy(() => import('@/pages/CheckoutPage').then(m => ({ default: m.CheckoutPage })))
+const OrderPage = lazy(() => import('@/pages/OrderPage').then(m => ({ default: m.OrderPage })))
+const HistoryPage = lazy(() => import('@/pages/HistoryPage').then(m => ({ default: m.HistoryPage })))
+const OnboardingPage = lazy(() => import('@/pages/OnboardingPage').then(m => ({ default: m.OnboardingPage })))
+const StockLoginPage = lazy(() => import('@/pages/StockLoginPage').then(m => ({ default: m.StockLoginPage })))
+const InventoryPage = lazy(() => import('@/pages/InventoryPage').then(m => ({ default: m.InventoryPage })))
+const ProductDetailPage = lazy(() => import('@/pages/ProductDetailPage').then(m => ({ default: m.ProductDetailPage })))
+const AgentPDVPage = lazy(() => import('@/pages/AgentPDVPage').then(m => ({ default: m.AgentPDVPage })))
+const AIProvidersPage = lazy(() => import('@/pages/AIProvidersPage').then(m => ({ default: m.AIProvidersPage })))
+const MessagesPage = lazy(() => import('@/pages/MessagesPage').then(m => ({ default: m.MessagesPage })))
+const FlowBuilderPage = lazy(() => import('@/pages/FlowBuilderPage').then(m => ({ default: m.FlowBuilderPage })))
+const LeadSearchPage = lazy(() => import('@/pages/LeadSearchPage').then(m => ({ default: m.LeadSearchPage })))
+const LeadsPage = lazy(() => import('@/pages/LeadsPage').then(m => ({ default: m.LeadsPage })))
+const DesignPage = lazy(() => import('@/pages/DesignPage').then(m => ({ default: m.DesignPage })))
+const LandingPage = lazy(() => import('@/pages/LandingPage').then(m => ({ default: m.LandingPage })))
+const MasterShell = lazy(() => import('@/pages/master/MasterShell').then(m => ({ default: m.MasterShell })))
+const MasterDashboard = lazy(() => import('@/pages/master/MasterDashboard').then(m => ({ default: m.MasterDashboard })))
+const MasterIntegracoes = lazy(() => import('@/pages/master/MasterIntegracoes').then(m => ({ default: m.MasterIntegracoes })))
+const MasterPlanos = lazy(() => import('@/pages/master/MasterPlanos').then(m => ({ default: m.MasterPlanos })))
+const MasterClientes = lazy(() => import('@/pages/master/MasterClientes').then(m => ({ default: m.MasterClientes })))
+const MasterConfiguracoes = lazy(() => import('@/pages/master/MasterConfiguracoes').then(m => ({ default: m.MasterConfiguracoes })))
+const MasterAuditLog = lazy(() => import('@/pages/master/MasterAuditLog').then(m => ({ default: m.MasterAuditLog })))
+const MasterEmails = lazy(() => import('@/pages/master/MasterEmails').then(m => ({ default: m.MasterEmails })))
+const CadastroPage = lazy(() => import('@/pages/CadastroPage').then(m => ({ default: m.CadastroPage })))
+const CadastroSucessoPage = lazy(() => import('@/pages/CadastroSucessoPage').then(m => ({ default: m.CadastroSucessoPage })))
+const AdminEmailsPage = lazy(() => import('@/pages/AdminEmailsPage').then(m => ({ default: m.AdminEmailsPage })))
+
+/* ── Fallback ── */
+function RouteFallback() {
+  return (
+    <div className="min-h-[40vh] grid place-items-center">
+      <div className="w-5 h-5 border-2 border-gray-300 border-t-gray-900 rounded-full animate-spin" />
+    </div>
+  )
+}
 
 function CatalogShell() {
   const [activeTab, setActiveTab] = useState('catalogo')
@@ -57,16 +102,53 @@ function CatalogShell() {
 }
 
 /**
- * Root index — decide where to send the user based on auth state.
+ * Hosts that serve the public marketing landing page (root domain & www).
+ * Everything else (e.g. app.leadcapture.online, custom catalog domains)
+ * keeps the original behavior.
+ */
+const LANDING_HOSTS = new Set([
+  'leadcapture.online',
+  'www.leadcapture.online',
+])
+
+/**
+ * Hosts that serve the super-admin master panel.
+ */
+const MASTER_HOSTS = new Set([
+  'adm.leadcapture.online',
+])
+
+function isLandingHost() {
+  if (typeof window === 'undefined') return false
+  return LANDING_HOSTS.has(window.location.hostname)
+}
+
+function isMasterHost() {
+  if (typeof window === 'undefined') return false
+  return MASTER_HOSTS.has(window.location.hostname)
+}
+
+/**
+ * Root index — decide what to render at "/":
  *
- * Order of precedence:
- *   1. If a custom-domain catalog slug is detected (storeSlug from store-context), render the catalog
- *   2. If admin is logged in → /admin
- *   3. If a stock manager is logged in → their stock app
- *   4. Otherwise → /login
+ *   1. Marketing root domain (leadcapture.online) → LandingPage
+ *   2. Custom-domain catalog slug detected → CatalogShell
+ *   3. Admin logged in → /admin
+ *   4. Stock manager logged in → their stock app
+ *   5. Otherwise → /login
  */
 function RootIndex() {
   const navigate = useNavigate()
+  const onLandingHost = isLandingHost()
+  const onMasterHost = isMasterHost()
+
+  // adm.leadcapture.online → redirect / to /master
+  if (onMasterHost) {
+    return <Navigate to="/master" replace />
+  }
+
+  // Marketing root: show the landing immediately, no auth redirect.
+  if (onLandingHost) return <LandingPage />
 
   // Custom-domain catalog: render the catalog directly
   if (storeSlug) return <CatalogShell />
@@ -86,11 +168,7 @@ function RootIndex() {
     navigate('/login', { replace: true })
   }, [navigate])
 
-  return (
-    <div className="flex items-center justify-center min-h-screen">
-      <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-    </div>
-  )
+  return <RouteFallback />
 }
 
 /* ── Placeholder for sections not yet built ── */
@@ -98,10 +176,10 @@ function ComingSoon({ title, icon: Icon }: { title: string; icon: any }) {
   return (
     <div className="flex flex-col items-center justify-center py-20 text-center">
       <div className="w-14 h-14 bg-gray-100 rounded-2xl grid place-items-center mb-3">
-        <Icon size={24} className="text-gray-300" />
+        <Icon size={22} className="text-gray-400" strokeWidth={1.5} />
       </div>
-      <h2 className="text-base font-bold text-gray-900 mb-1">{title}</h2>
-      <p className="text-xs text-gray-400">Em desenvolvimento</p>
+      <h2 className="text-[15px] font-semibold tracking-tight text-gray-900 mb-1">{title}</h2>
+      <p className="text-[12px] text-gray-500">Em desenvolvimento</p>
     </div>
   )
 }
@@ -111,87 +189,108 @@ function AdminPage({ children }: { children: React.ReactNode }) {
   return <AdminShell>{children}</AdminShell>
 }
 
+/* ── Inline wrappers ── */
+const noop = () => {}
+function DashboardInline() { return <DashboardView showToast={noop} /> }
+function CampaignsInline() {
+  const { showToast } = useToast()
+  return <CampaignsView showToast={(msg: string, tp?: 'ok' | 'err') => showToast(tp === 'err' ? `Erro: ${msg}` : msg)} />
+}
+function OrdersInline() { return <OrdersView showToast={noop} /> }
+
 export default function App() {
   return (
     <>
-      <Routes>
-        {/* ── Login ── */}
-        <Route path="/login" element={<LoginPage />} />
+      <Suspense fallback={<RouteFallback />}>
+        <Routes>
+          {/* ── Landing page (marketing) ── */}
+          <Route path="/inicio" element={<LandingPage />} />
+          <Route path="/lp" element={<LandingPage />} />
 
-        {/* ── Admin pages (all wrapped in AdminShell sidebar) ── */}
-        <Route path="/admin" element={<AdminPage><DashboardInline /></AdminPage>} />
-        <Route path="/dashboard" element={<AdminPage><DashboardInline /></AdminPage>} />
-        <Route path="/leads" element={<AdminPage><LeadsPage /></AdminPage>} />
-        <Route path="/clientes" element={<AdminPage><ClientesView showToast={() => {}} /></AdminPage>} />
-        <Route path="/busca" element={<AdminPage><LeadSearchPage /></AdminPage>} />
-        <Route path="/mensagens" element={<AdminPage><MessagesPage /></AdminPage>} />
-        <Route path="/notificacoes" element={<AdminPage><NotificationsView showToast={() => {}} /></AdminPage>} />
-        <Route path="/campanhas" element={<AdminPage><CampaignsInline /></AdminPage>} />
-        <Route path="/campanha" element={<AdminPage><CampaignsInline /></AdminPage>} />
-        <Route path="/automacoes" element={<AdminPage><FlowBuilderPage /></AdminPage>} />
-        <Route path="/criativos" element={<AdminPage><ComingSoon title="Estudio Criativo" icon={Palette} /></AdminPage>} />
-        <Route path="/creative" element={<AdminPage><ComingSoon title="Estudio Criativo" icon={Palette} /></AdminPage>} />
-        <Route path="/agente" element={<AdminPage><AgentView showToast={() => {}} /></AdminPage>} />
-        <Route path="/tirar-pedido" element={<AdminPage><AgentPDVPage /></AdminPage>} />
-        <Route path="/whatsapp" element={<AdminPage><WhatsAppManagerView showToast={() => {}} /></AdminPage>} />
-        <Route path="/produtos" element={<AdminPage><ProductsView showToast={() => {}} /></AdminPage>} />
-        <Route path="/pedidos" element={<AdminPage><OrdersInline /></AdminPage>} />
-        <Route path="/estoque" element={<AdminPage><EstoqueAccessView showToast={() => {}} /></AdminPage>} />
-        <Route path="/estoque/app" element={<InventoryPage />} />
-        <Route path="/inventario" element={<InventoryPage />} />
-        <Route path="/design" element={<AdminPage><ComingSoon title="Design" icon={Palette} /></AdminPage>} />
-        <Route path="/pagamentos" element={<AdminPage><PaymentConfigView showToast={() => {}} /></AdminPage>} />
-        <Route path="/frete" element={<AdminPage><FreteView showToast={() => {}} /></AdminPage>} />
-        <Route path="/dominio" element={<AdminPage><DomainView showToast={() => {}} /></AdminPage>} />
-        <Route path="/configuracoes" element={<AdminPage><SettingsView showToast={() => {}} /></AdminPage>} />
+          {/* ── Master / super-admin panel ── */}
+          <Route path="/master" element={<MasterShell><MasterDashboard /></MasterShell>} />
+          <Route path="/master/integracoes" element={<MasterShell><MasterIntegracoes /></MasterShell>} />
+          <Route path="/master/planos" element={<MasterShell><MasterPlanos /></MasterShell>} />
+          <Route path="/master/clientes" element={<MasterShell><MasterClientes /></MasterShell>} />
+          <Route path="/master/configuracoes" element={<MasterShell><MasterConfiguracoes /></MasterShell>} />
+          <Route path="/master/emails" element={<MasterShell><MasterEmails /></MasterShell>} />
+          <Route path="/master/audit-log" element={<MasterShell><MasterAuditLog /></MasterShell>} />
 
-        {/* ── App Estoque (stock managers — separate auth scope) ──
-            URL pattern: /app-estoque/{brand-slug} → branded login
-                         /app-estoque/{brand-slug}/painel → stock app
-            The InventoryPage detects /app-estoque/* and switches the API
-            to /api/stock-app/* using the stock manager token. */}
-        <Route path="/app-estoque" element={<StockLoginPage />} />
-        <Route path="/app-estoque/:slug" element={<StockLoginPage />} />
-        <Route path="/app-estoque/:slug/painel" element={<InventoryPage />} />
-        {/* Backwards-compat: old painel URL */}
-        <Route path="/app-estoque/painel" element={<InventoryPage />} />
+          {/* ── Public signup flow ── */}
+          <Route path="/cadastro" element={<CadastroPage />} />
+          <Route path="/cadastro/sucesso" element={<CadastroSucessoPage />} />
 
-        {/* ── Brand Onboarding ── */}
-        <Route path="/brand-onboarding" element={<OnboardingPage />} />
+          {/* ── Login ── */}
+          <Route path="/login" element={<LoginPage />} />
 
-        {/* ── Catálogo público ── */}
-        <Route path="/catalogo/:slug" element={<CatalogShell />} />
-        <Route path="/loja/:slug" element={<CatalogShell />} />
-        <Route path="/catalogo/:slug/checkout" element={<CheckoutPage />} />
-        <Route path="/loja/:slug/checkout" element={<CheckoutPage />} />
-        <Route path="/catalogo/:slug/pedido" element={<OrderPage />} />
-        <Route path="/loja/:slug/pedido" element={<OrderPage />} />
-        <Route path="/catalogo/:slug/historico" element={<HistoryPage />} />
-        <Route path="/loja/:slug/historico" element={<HistoryPage />} />
-        <Route path="/catalogo/:slug/produto/:productSlug" element={<ProductDetailPage />} />
-        <Route path="/loja/:slug/produto/:productSlug" element={<ProductDetailPage />} />
+          {/* ── Admin pages (all wrapped in AdminShell sidebar) ── */}
+          <Route path="/admin" element={<AdminPage><DashboardInline /></AdminPage>} />
+          <Route path="/dashboard" element={<AdminPage><DashboardInline /></AdminPage>} />
+          <Route path="/leads" element={<AdminPage><LeadsPage /></AdminPage>} />
+          <Route path="/clientes" element={<AdminPage><ClientesView showToast={noop} /></AdminPage>} />
+          <Route path="/busca" element={<AdminPage><LeadSearchPage /></AdminPage>} />
+          <Route path="/mensagens" element={<AdminPage><MessagesPage /></AdminPage>} />
+          <Route path="/notificacoes" element={<AdminPage><NotificationsView showToast={noop} /></AdminPage>} />
+          <Route path="/campanhas" element={<AdminPage><CampaignsInline /></AdminPage>} />
+          <Route path="/campanha" element={<AdminPage><CampaignsInline /></AdminPage>} />
+          <Route path="/automacoes" element={<AdminPage><FlowBuilderPage /></AdminPage>} />
+          <Route path="/criativos" element={<AdminPage><ComingSoon title="Estúdio Criativo" icon={Palette} /></AdminPage>} />
+          <Route path="/creative" element={<AdminPage><ComingSoon title="Estúdio Criativo" icon={Palette} /></AdminPage>} />
+          <Route path="/agente" element={<AdminPage><AgentView showToast={noop} /></AdminPage>} />
+          <Route path="/tirar-pedido" element={<AdminPage><AgentPDVPage /></AdminPage>} />
+          <Route path="/whatsapp" element={<AdminPage><WhatsAppManagerView showToast={noop} /></AdminPage>} />
+          <Route path="/produtos" element={<AdminPage><ProductsView showToast={noop} /></AdminPage>} />
+          <Route path="/pedidos" element={<AdminPage><OrdersInline /></AdminPage>} />
+          <Route path="/estoque" element={<AdminPage><EstoqueAccessView showToast={noop} /></AdminPage>} />
+          <Route path="/estoque/app" element={<InventoryPage />} />
+          <Route path="/inventario" element={<InventoryPage />} />
+          <Route path="/design" element={<AdminPage><DesignPage /></AdminPage>} />
+          <Route path="/pagamentos" element={<AdminPage><PaymentConfigView showToast={noop} /></AdminPage>} />
+          <Route path="/frete" element={<AdminPage><FreteView showToast={noop} /></AdminPage>} />
+          <Route path="/dominio" element={<AdminPage><DomainView showToast={noop} /></AdminPage>} />
+          <Route path="/configuracoes" element={<AdminPage><SettingsView showToast={noop} /></AdminPage>} />
+          <Route path="/provedores-ia" element={<AdminPage><AIProvidersPage /></AdminPage>} />
+          <Route path="/emails" element={<AdminPage><AdminEmailsPage /></AdminPage>} />
 
-        {/* ── Generic storefront routes ── */}
-        <Route path="/checkout" element={<CheckoutPage />} />
-        <Route path="/pedido" element={<OrderPage />} />
-        <Route path="/historico" element={<HistoryPage />} />
-        <Route path="/produto/:productSlug" element={<ProductDetailPage />} />
+          {/* ── App Estoque (stock managers — separate auth scope) ──
+              URL pattern: /app-estoque/{brand-slug} → branded login
+                           /app-estoque/{brand-slug}/painel → stock app
+              The InventoryPage detects /app-estoque/* and switches the API
+              to /api/stock-app/* using the stock manager token. */}
+          <Route path="/app-estoque" element={<StockLoginPage />} />
+          <Route path="/app-estoque/:slug" element={<StockLoginPage />} />
+          <Route path="/app-estoque/:slug/painel" element={<InventoryPage />} />
+          {/* Backwards-compat: old painel URL */}
+          <Route path="/app-estoque/painel" element={<InventoryPage />} />
 
-        {/* ── Root: smart redirect based on auth state ── */}
-        <Route path="/" element={<RootIndex />} />
-      </Routes>
+          {/* ── Brand Onboarding ── */}
+          <Route path="/brand-onboarding" element={<OnboardingPage />} />
+
+          {/* ── Catálogo público ── */}
+          <Route path="/catalogo/:slug" element={<CatalogShell />} />
+          <Route path="/loja/:slug" element={<CatalogShell />} />
+          <Route path="/catalogo/:slug/checkout" element={<CheckoutPage />} />
+          <Route path="/loja/:slug/checkout" element={<CheckoutPage />} />
+          <Route path="/catalogo/:slug/pedido" element={<OrderPage />} />
+          <Route path="/loja/:slug/pedido" element={<OrderPage />} />
+          <Route path="/catalogo/:slug/historico" element={<HistoryPage />} />
+          <Route path="/loja/:slug/historico" element={<HistoryPage />} />
+          <Route path="/catalogo/:slug/produto/:productSlug" element={<ProductDetailPage />} />
+          <Route path="/loja/:slug/produto/:productSlug" element={<ProductDetailPage />} />
+
+          {/* ── Generic storefront routes ── */}
+          <Route path="/checkout" element={<CheckoutPage />} />
+          <Route path="/pedido" element={<OrderPage />} />
+          <Route path="/historico" element={<HistoryPage />} />
+          <Route path="/produto/:productSlug" element={<ProductDetailPage />} />
+
+          {/* ── Root: smart redirect based on auth state ── */}
+          <Route path="/" element={<RootIndex />} />
+        </Routes>
+      </Suspense>
 
       <Toast />
       <PWAInstallBanner />
     </>
   )
 }
-
-/* ── Inline wrappers ── */
-const noop = () => {}
-function DashboardInline() { return <DashboardView showToast={noop} /> }
-function CampaignsInline() {
-  const { showToast } = useToast()
-  return <CampaignsView showToast={(msg, tp) => showToast(tp === 'err' ? `Erro: ${msg}` : msg)} />
-}
-function OrdersInline() { return <OrdersView showToast={noop} /> }

@@ -1,4 +1,5 @@
-import { ShoppingCart } from 'lucide-react'
+import { useState } from 'react'
+import { Plus, ImageOff } from 'lucide-react'
 import type { Product } from '@/lib/api'
 import { money } from '@/lib/store-context'
 
@@ -6,73 +7,87 @@ interface ProductCardProps {
   product: Product
   onOpen: (product: Product) => void
   onQuickAdd: (productId: string) => void
+  /** True for the first cards in the grid — eagerly load their images. */
+  priority?: boolean
 }
 
-export function ProductCard({ product, onOpen, onQuickAdd }: ProductCardProps) {
+export function ProductCard({ product, onOpen, onQuickAdd, priority = false }: ProductCardProps) {
   const imgSrc = product.image || product.images?.[0] || ''
-  const desc = (product.description || '').slice(0, 90)
+  const [imgState, setImgState] = useState<'loading' | 'loaded' | 'error'>(
+    imgSrc ? 'loading' : 'error',
+  )
   const hasCompare =
     product.compare_at_price && Number(product.compare_at_price) > Number(product.price)
+  const discount = hasCompare
+    ? Math.round((1 - Number(product.price) / Number(product.compare_at_price)) * 100)
+    : 0
 
   return (
     <article
-      className="bg-surface rounded-2xl overflow-hidden shadow-sm border border-border/50 hover:shadow-md transition-shadow cursor-pointer group"
       onClick={() => onOpen(product)}
+      className="group relative cursor-pointer flex flex-col"
     >
-      {imgSrc ? (
-        <div className="relative overflow-hidden aspect-square bg-gray-50">
+      <div className="relative aspect-square rounded-2xl overflow-hidden bg-gray-100">
+        {imgSrc && imgState !== 'error' && (
           <img
             src={imgSrc}
             alt={product.name}
-            loading="lazy"
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-            onError={(e) => {
-              e.currentTarget.style.display = 'none'
-            }}
+            loading={priority ? 'eager' : 'lazy'}
+            fetchPriority={priority ? 'high' : 'auto'}
+            decoding="async"
+            className={`w-full h-full object-cover transition-opacity duration-300 group-active:scale-[0.98] ${
+              imgState === 'loaded' ? 'opacity-100' : 'opacity-0'
+            }`}
+            onLoad={() => setImgState('loaded')}
+            onError={() => setImgState('error')}
           />
-        </div>
-      ) : (
-        <div className="aspect-square bg-gradient-to-br from-gray-100 to-gray-50 flex items-center justify-center">
-          <ShoppingCart className="w-8 h-8 text-gray-300" />
-        </div>
-      )}
-
-      <div className="p-3.5 space-y-2">
-        <h3 className="font-semibold text-sm leading-tight line-clamp-2">
-          {product.name || 'Produto'}
-        </h3>
-
-        {product.category && (
-          <span className="inline-block text-[10px] font-medium text-[var(--brand-secondary)] bg-[var(--brand-secondary-light)] px-2 py-0.5 rounded-full">
-            {product.category}
-          </span>
         )}
 
-        {desc && (
-          <p className="text-xs text-muted leading-relaxed line-clamp-2">{desc}</p>
+        {/* Loading shimmer */}
+        {imgState === 'loading' && (
+          <div className="absolute inset-0 skeleton" />
         )}
 
-        <div className="flex items-baseline gap-1.5">
-          <span className="text-base font-bold text-[var(--brand-secondary)]">
-            {money(product.price)}
+        {/* Error fallback */}
+        {imgState === 'error' && (
+          <div className="absolute inset-0 flex items-center justify-center bg-gray-100">
+            <ImageOff className="w-7 h-7 text-gray-300" strokeWidth={1.5} />
+          </div>
+        )}
+
+        {discount > 0 && (
+          <span className="absolute top-2 left-2 px-1.5 py-0.5 rounded-md bg-gray-900 text-white text-[10px] font-bold tracking-tight">
+            −{discount}%
           </span>
-          {hasCompare && (
-            <span className="text-xs text-muted line-through">
-              {money(product.compare_at_price)}
-            </span>
-          )}
-        </div>
+        )}
 
         <button
           onClick={(e) => {
             e.stopPropagation()
             onQuickAdd(product.id)
           }}
-          className="w-full flex items-center justify-center gap-1.5 bg-[var(--brand-secondary)] text-white text-xs font-semibold py-2.5 rounded-xl hover:opacity-90 active:scale-[0.98] transition-all"
+          aria-label={`Adicionar ${product.name}`}
+          className="absolute bottom-2 right-2 w-9 h-9 rounded-full bg-white text-gray-900 grid place-items-center shadow-[0_2px_8px_rgba(15,23,42,0.12)] active:scale-90 transition-transform"
         >
-          <ShoppingCart className="w-3.5 h-3.5" />
-          Adicionar
+          <Plus size={16} strokeWidth={2.25} />
         </button>
+      </div>
+
+      <div className="pt-2.5 px-0.5 space-y-1">
+        <h3 className="text-[13px] font-semibold text-gray-900 leading-snug line-clamp-2 tracking-tight">
+          {product.name || 'Produto'}
+        </h3>
+
+        <div className="flex items-baseline gap-1.5">
+          <span className="text-[15px] font-bold text-gray-900 tabular-nums tracking-tight">
+            {money(product.price)}
+          </span>
+          {hasCompare && (
+            <span className="text-[11px] font-medium text-gray-400 line-through tabular-nums">
+              {money(product.compare_at_price)}
+            </span>
+          )}
+        </div>
       </div>
     </article>
   )

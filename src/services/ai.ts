@@ -1,4 +1,5 @@
 import { GeminiService } from "./gemini";
+import { aiRouter } from "./aiRouter";
 import { logger } from "../utils/logger";
 
 interface AIMessageOptions {
@@ -13,6 +14,10 @@ interface AIMessageOptions {
   trainingNotes?: string;
   preferredTerms?: string[];
   forbiddenTerms?: string[];
+  /** userId do solicitante — quando presente, usa o provider configurado pelo usuario */
+  userId?: string;
+  /** brandId do solicitante */
+  brandId?: string;
 }
 
 interface AIAnalysisResult {
@@ -60,7 +65,12 @@ Regras:
 - Nao use markdown, apenas texto puro para WhatsApp`;
 
     try {
-      return await this.gemini.generatePlainText(`${systemPrompt}\n\nSolicitacao: ${prompt}`);
+      const fullPrompt = `${systemPrompt}\n\nSolicitacao: ${prompt}`;
+      if (options.userId) {
+        const result = await aiRouter.generateText(fullPrompt, { userId: options.userId, brandId: options.brandId });
+        return result.text;
+      }
+      return await this.gemini.generatePlainText(fullPrompt);
     } catch (error) {
       logger.error(error, "Erro ao gerar mensagem customizada");
       throw new Error("Falha ao gerar mensagem com IA");
@@ -79,6 +89,7 @@ Mensagem: "${message}"
 Retorne APENAS o JSON valido, sem markdown.`;
 
     try {
+      // analyzeMessage nao tem userId — usa Gemini direto (fallback)
       return await this.gemini.generateJson<AIAnalysisResult>(prompt);
     } catch (error) {
       logger.error(error, "Erro ao analisar mensagem");

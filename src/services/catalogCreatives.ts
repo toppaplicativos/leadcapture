@@ -158,6 +158,8 @@ interface ComposedCreative {
   studioParams: {
     productId: string;
     productAssetId?: string;
+    provider: "gemini" | "grok";
+    productDescription?: string;
     style: string;
     scene: string;
     lighting: string;
@@ -396,30 +398,48 @@ export function composeStudioParams(
     ? `${scene}. Render the following typography natively in the image, integrated into the design (no flat overlay): primary headline "${headline.replace(/\n/g, " — ")}", supporting line "${subheadline}", call-to-action button labeled "${cta}". Use ${textStyle} typography that matches the section mood.`
     : scene;
 
+  /* Build a rich text description of the product for Grok (which can't see
+   * the reference photo). Combines name, category, features and unit so the
+   * model has enough to render plausible packaging. */
+  const productDescription = [
+    product.name,
+    product.category ? `category: ${product.category}` : "",
+    product.unit ? `unit: ${product.unit}` : "",
+    features.length ? `features: ${features.join(", ")}` : "",
+    product.description ? `details: ${product.description.slice(0, 200)}` : "",
+  ].filter(Boolean).join(" — ");
+
+  /* Provider mapping: when the user asks the AI to render typography
+   * directly inside the image, route through Grok Imagine (better at
+   * legible in-image text). Otherwise stick to Gemini, which can see the
+   * actual product photo as a reference. */
+  const provider: "gemini" | "grok" = wantsEmbed ? "grok" : "gemini";
+
   return {
     productId: product.id,
+    provider,
+    productDescription,
     style,
-    scene: sceneWithText,
+    /* When using Grok we keep the text instruction inside the scene so the
+     * model paints typography natively. With Gemini, we let the textOverlay
+     * carry that — but ALSO ask Gemini to render text inside the image
+     * (no SVG layer is added downstream). */
+    scene: wantsEmbed ? sceneWithText : scene,
     lighting,
     targetAudience: audience,
     predominantColors: palette || undefined,
     aspectRatio: formats[0],
     formats,
-    textOverlay: wantsEmbed
-      ? {
-          headline: "",
-          subheadline: "",
-          cta: "",
-          position: textPosition,
-          style: textStyle,
-        }
-      : {
-          headline,
-          subheadline,
-          cta,
-          position: textPosition,
-          style: textStyle,
-        },
+    /* Pass headline/subheadline/cta to the studio prompt regardless of
+     * provider — both providers now render the typography natively, since
+     * the studio no longer paints an SVG overlay on top. */
+    textOverlay: {
+      headline,
+      subheadline,
+      cta,
+      position: textPosition,
+      style: textStyle,
+    },
     variations: Math.min(4, Math.max(1, options.variations || 2)),
     quality: options.quality || "high",
     withAndWithoutText: false,

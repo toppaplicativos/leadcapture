@@ -56,6 +56,60 @@ export class GrokProvider {
     }
   }
 
+  /**
+   * Generate an image via xAI's image API. Grok Imagine excels at rendering
+   * legible typography directly inside the image (no SVG overlay needed).
+   *
+   * Note: xAI's image API is text-to-image only — it does NOT accept a
+   * reference image like Gemini's vision model. Caller must put product
+   * details (packaging color, shape, text on label) in the prompt itself.
+   *
+   * Returns a base64 PNG string ready to write to disk.
+   */
+  async generateImage(prompt: string, options?: {
+    model?: string;
+    n?: number;
+    /** Aspect ratio hint — xAI generates square by default; we use prompt
+     *  hints + post-crop for non-square. */
+    aspectRatio?: "1:1" | "9:16" | "4:5" | "16:9";
+  }): Promise<{ base64: string; model: string; revisedPrompt?: string }> {
+    const model = options?.model || "grok-2-image-1212";
+    const aspectHint = options?.aspectRatio
+      ? `\n\nFINAL OUTPUT FORMAT: ${options.aspectRatio} aspect ratio.`
+      : "";
+
+    const response = await fetch("https://api.x.ai/v1/images/generations", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${this.apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        prompt: prompt + aspectHint,
+        n: Math.max(1, Math.min(4, options?.n || 1)),
+        response_format: "b64_json",
+      }),
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(`Grok Image API error ${response.status}: ${(err as any)?.error?.message || response.statusText}`);
+    }
+
+    const data = (await response.json()) as any;
+    const first = data.data?.[0];
+    const b64 = first?.b64_json;
+    if (!b64) {
+      throw new Error(`Grok Image API returned no image data`);
+    }
+    return {
+      base64: b64,
+      model,
+      revisedPrompt: first?.revised_prompt,
+    };
+  }
+
   static async testConnection(apiKey: string): Promise<{ ok: boolean; message: string; latency_ms: number }> {
     const start = Date.now();
     try {

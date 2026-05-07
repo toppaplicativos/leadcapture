@@ -5,7 +5,7 @@ import fs from "fs";
 import multer from "multer";
 import { AuthRequest } from "../middleware/auth";
 import { BrandRequest, requireBrandContext } from "../middleware/brandContext";
-import { queryOne } from "../config/database";
+import { queryOne, query } from "../config/database";
 import { AIService } from "../services/ai";
 import { AIAgentProfileService } from "../services/aiAgentProfile";
 import { KnowledgeBaseService } from "../services/knowledgeBase";
@@ -1126,6 +1126,50 @@ router.post("/creatives/auto-compose/preview", async (req: AuthRequest, res: Res
  * tunable field — when omitted, defaults from preview kick in (i.e. raw
  * /auto-compose still works for the proactive suggestion cards).
  */
+/**
+ * Rating: 👍/👎 on a generated creative. Persists into the asset's metadata
+ * so we can later filter the gallery, train improvements and surface good
+ * examples per section. The reason is optional free-text — when the user
+ * down-votes we ask "why?" so we have feedback signal.
+ */
+router.post("/creatives/asset/:assetId/rate", async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId as string | undefined;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const assetId = String(req.params.assetId || "");
+    const rating = String(req.body?.rating || "").toLowerCase();
+    if (rating !== "up" && rating !== "down" && rating !== "clear") {
+      return res.status(400).json({ error: "rating must be 'up', 'down' or 'clear'" });
+    }
+    const reason = req.body?.reason ? String(req.body.reason).slice(0, 500) : null;
+
+    const asset = await creativeStudio.getAssetById(userId, assetId, resolveBrandCompanyId(req as BrandRequest));
+    if (!asset) return res.status(404).json({ error: "Asset not found" });
+
+    const md = (asset.metadata || {}) as any;
+    if (rating === "clear") {
+      delete md.rating;
+    } else {
+      md.rating = {
+        value: rating,
+        reason,
+        ratedBy: userId,
+        ratedAt: new Date().toISOString(),
+      };
+    }
+    /* Direct UPDATE — creativeStudio doesn't expose a metadata-only setter,
+     * so we go raw. Same column shape used everywhere else. */
+    await query(
+      `UPDATE creative_assets SET metadata = ?, updated_at = NOW() WHERE id = ? AND user_id = ?`,
+      [JSON.stringify(md), assetId, userId]
+    );
+    res.json({ success: true, rating: md.rating || null });
+  } catch (error: any) {
+    logger.error(`Creative asset rating failed: ${error.message}`);
+    res.status(500).json({ error: error.message || "Failed to rate asset" });
+  }
+});
+
 router.post("/creatives/auto-compose", async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user?.userId as string | undefined;

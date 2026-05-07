@@ -34,8 +34,12 @@ export type ProductStudioTextOverlay = {
   subheadline?: string;
   cta?: string;
   position?: "top" | "center" | "bottom";
-  style?: "modern" | "elegant" | "bold" | "clean";
+  /** Includes the legacy values plus the new ones used by the catalog
+   *  composer (minimal/bold/elegant). */
+  style?: "modern" | "elegant" | "bold" | "clean" | "minimal";
 };
+
+export type StudioProvider = "gemini" | "grok";
 
 export type ProductStudioGenerateInput = {
   productId?: string;
@@ -55,6 +59,14 @@ export type ProductStudioGenerateInput = {
   withAndWithoutText?: boolean;
   transparentBackground?: boolean;
   tags?: string[];
+  /** Image generation backend. "gemini" (default) supports a product
+   *  reference image — best when fidelity matters. "grok" is text-to-image
+   *  only but renders typography natively, so the headline/CTA come out
+   *  integrated to the design instead of overlayed. */
+  provider?: StudioProvider;
+  /** Free-form description of the product look — used when provider="grok"
+   *  since it can't see the reference image. */
+  productDescription?: string;
 };
 
 export type ProductStudioEditInput = {
@@ -230,36 +242,87 @@ export class CreativeStudioService {
     ).slice(0, 24);
   }
 
+  /**
+   * Build the prompt fed to the image model. The shape is heavily different
+   * depending on which model we're calling:
+   *
+   *   - Gemini (vision input): can see the product photo, so we describe
+   *     the *creative* (layout, mood, light) and leave the product fidelity
+   *     to the reference image.
+   *
+   *   - Grok Imagine (text-only): can't see anything. We have to literally
+   *     describe the product packaging, then describe a layout that frames
+   *     it with the headline/CTA rendered as native typography.
+   *
+   * Both prompts now request editorial composition (not the chunky black
+   * banner that ad-tech tools tend to fall back to). Magazine-quality
+   * standards — hierarchy, whitespace, balance, premium typography.
+   */
   private buildProductStudioPrompt(input: ProductStudioGenerateInput, includeText = true): string {
     const text = input.textOverlay || {};
-    const pieces = [
-      "Create a professional commercial product photo using the uploaded product image as the main object.",
-      input.style ? `Style: ${input.style}.` : "Style: premium commercial.",
-      input.scene ? `Scene: ${input.scene}.` : "Scene: clean studio setup.",
-      input.lighting ? `Lighting: ${input.lighting}.` : "Lighting: soft daylight with realistic shadows.",
-      input.targetAudience ? `Audience: ${input.targetAudience}.` : "Audience: conversion-focused marketing.",
-      input.predominantColors ? `Predominant colors: ${input.predominantColors}.` : "",
-      "Use realistic materials, accurate product proportions, high detail and premium ad composition.",
-      input.transparentBackground
-        ? "Prefer transparent or isolated product-friendly background where feasible."
-        : "",
-      includeText && (text.headline || text.subheadline || text.cta)
-        ? [
-            "Integrate the following text in a clean commercial layout:",
-            "The text must be readable, correctly spelled in Brazilian Portuguese, with strong visual hierarchy.",
-            text.headline ? `Headline: \"${text.headline}\"` : "",
-            text.subheadline ? `Subheadline: \"${text.subheadline}\"` : "",
-            text.cta ? `CTA: \"${text.cta}\"` : "",
-            text.position ? `Text position: ${text.position}.` : "",
-            text.style ? `Text style: ${text.style}.` : ""
-          ]
-            .filter(Boolean)
-            .join("\n")
-        : "Do not add any textual overlay.",
-      "No watermark. Keep typography readable if text is included. Avoid random letters, fake brand marks, misspellings and tiny unreadable copy."
+    const provider: StudioProvider = input.provider || "gemini";
+    const aspect = input.aspectRatio || "1:1";
+
+    /* Shared design directives — what "professional" actually looks like. */
+    const designDirectives = [
+      `Output aspect ratio: ${aspect}.`,
+      "DESIGN STANDARDS — this is a campaign-grade ad, not a meme:",
+      "• Editorial magazine-quality composition with deliberate negative space.",
+      "• Clear visual hierarchy: hero product → headline → support copy → CTA.",
+      "• Typography: premium contemporary sans-serif, generous letter-spacing on headlines, tight on body. NO chunky single solid-color banner. NO Comic Sans. NO Impact.",
+      "• Color discipline: pull from the brand palette with one accent color, ample neutral / off-white space; avoid muddy gradients.",
+      "• Light and shadow give the product weight and presence; avoid flat unlit renders.",
+      "• Do NOT make it look like a 2010s Facebook ad — think Apple, Aesop, Glossier, Off-White, Erewhon.",
     ];
 
-    return pieces.filter(Boolean).join("\n");
+    const textBlock = includeText && (text.headline || text.subheadline || text.cta)
+      ? [
+          "TYPOGRAPHY (must be rendered legibly INSIDE the image, integrated to the layout — not on a black banner):",
+          "Spelling must be correct in Brazilian Portuguese. No fake brand-marks, no random letters, no tiny unreadable copy.",
+          text.headline ? `Headline: "${text.headline}"` : "",
+          text.subheadline ? `Subheadline: "${text.subheadline}"` : "",
+          text.cta ? `Call-to-action button label: "${text.cta}"` : "",
+          text.position ? `Place the text at the ${text.position} of the canvas, with safe margins.` : "",
+          text.style === "elegant" ? "Use a refined editorial serif/sans pairing." :
+            text.style === "minimal" ? "Use a tight monospaced or geometric sans, low-contrast palette." :
+            text.style === "bold" ? "Use a heavy display sans with confident scale; let the headline carry the layer." :
+            "",
+        ].filter(Boolean).join("\n")
+      : "Do not add any textual overlay.";
+
+    if (provider === "grok") {
+      /* Grok prompt: visual + product description, since it can't see the image. */
+      const productDesc = input.productDescription
+        ? `THE PRODUCT TO RENDER: ${input.productDescription}.`
+        : "THE PRODUCT: a real consumer-goods product (assume realistic packaging based on the brand context).";
+      return [
+        "Create a high-end commercial product advertisement, magazine cover quality.",
+        productDesc,
+        input.style ? `Visual style: ${input.style}.` : "",
+        input.scene ? `Scene: ${input.scene}.` : "",
+        input.lighting ? `Lighting: ${input.lighting}.` : "",
+        input.targetAudience ? `Target reader: ${input.targetAudience}.` : "",
+        input.predominantColors ? `Brand color palette (use sparingly as accents): ${input.predominantColors}.` : "",
+        ...designDirectives,
+        textBlock,
+        "FINAL: photorealistic where appropriate, premium feel, professional advertising quality.",
+      ].filter(Boolean).join("\n");
+    }
+
+    /* Gemini prompt: it has the reference photo, so describe the creative. */
+    return [
+      "Use the uploaded product photo as the literal hero of a high-end commercial advertisement, magazine cover quality.",
+      "PRESERVE the product's exact shape, packaging, label and proportions from the reference. Do NOT redesign or hallucinate the product.",
+      input.style ? `Visual style around it: ${input.style}.` : "",
+      input.scene ? `Scene: ${input.scene}.` : "",
+      input.lighting ? `Lighting: ${input.lighting}.` : "",
+      input.targetAudience ? `Target reader: ${input.targetAudience}.` : "",
+      input.predominantColors ? `Brand color palette (accents only — keep airy negative space): ${input.predominantColors}.` : "",
+      input.transparentBackground ? "Background may be transparent or near-isolated where it serves the layout." : "",
+      ...designDirectives,
+      textBlock,
+      "FINAL: photorealistic product with cinematic light, premium ad-grade composition.",
+    ].filter(Boolean).join("\n");
   }
 
   private async loadAssetAsInlineData(
@@ -278,6 +341,49 @@ export class CreativeStudioService {
       mimeType: this.getMimeTypeFromPath(absolute),
       data: buffer.toString("base64"),
       fileUrl: asset.fileUrl
+    };
+  }
+
+  /**
+   * Image generation via xAI's Grok Imagine. Text-to-image only, so the
+   * caller must encode product details directly in the prompt. Result is
+   * saved to disk and the relative URL returned, matching the Gemini path.
+   */
+  private async requestImageFromGrok(
+    userId: string,
+    prompt: string,
+    aspectRatio: StudioAspectRatio,
+    brandId?: string | null
+  ): Promise<{ imageUrl: string; caption: string; model: string }> {
+    /* Resolve API key: try the brand/user grok integration first, then env. */
+    let apiKey = "";
+    try {
+      const provider = await integrationService.getProvider("grok", {
+        userId,
+        brandId: String(brandId || "").trim() || undefined,
+      });
+      apiKey = String(provider.key || "").trim();
+    } catch {}
+    if (!apiKey) apiKey = String(process.env.GROK_API_KEY || process.env.XAI_API_KEY || "").trim();
+    if (!apiKey) {
+      throw new Error("GROK_API_KEY_NOT_CONFIGURED — configure a chave do xAI Grok em Master → Integrações ou tente o modo Gemini.");
+    }
+
+    const { GrokProvider } = await import("./providers/grok-provider");
+    const grok = new GrokProvider(apiKey);
+    const result = await grok.generateImage(prompt, { aspectRatio, n: 1 });
+
+    const safeUserId = this.sanitizePathPart(userId);
+    const fileName = `${Date.now()}-${randomUUID()}-studio-grok.png`;
+    const absoluteDir = path.resolve(process.cwd(), "uploads", "creatives", "images", safeUserId);
+    await this.ensureDir(absoluteDir);
+    const filePath = path.join(absoluteDir, fileName);
+    await fs.writeFile(filePath, Buffer.from(result.base64, "base64"));
+
+    return {
+      imageUrl: `/uploads/creatives/images/${safeUserId}/${fileName}`,
+      caption: result.revisedPrompt || "",
+      model: result.model,
     };
   }
 
@@ -1000,26 +1106,40 @@ export class CreativeStudioService {
     const createdAssets: CreativeAsset[] = [];
     const tags = this.normalizeTagList(input.tags);
 
+    /* Provider routing: "grok" = xAI Imagine (text-only, native typography),
+     * everything else (default) = Gemini with reference image. */
+    const provider: StudioProvider = input.provider === "grok" ? "grok" : "gemini";
+
     for (const format of formats) {
       const normalizedFormat = this.toFormatFromAspect(format);
       for (let i = 0; i < variations; i += 1) {
         for (const includeText of promptVersions) {
-          const prompt = this.buildProductStudioPrompt({ ...input, aspectRatio: format }, includeText);
+          const prompt = this.buildProductStudioPrompt({ ...input, aspectRatio: format, provider }, includeText);
 
-          const result = await this.requestImageFromParts(
-            userId,
-            model,
-            `${prompt}\n\nOutput ratio target: ${format}.`,
-            inlineRefs.map((item) => ({ mimeType: item.mimeType, data: item.data })),
-            brandId
-          );
+          let result: { imageUrl: string; caption: string; model?: string };
+          let modelUsed: string;
+          if (provider === "grok") {
+            const r = await this.requestImageFromGrok(userId, prompt, format, brandId);
+            result = { imageUrl: r.imageUrl, caption: r.caption };
+            modelUsed = r.model;
+          } else {
+            const r = await this.requestImageFromParts(
+              userId,
+              model,
+              `${prompt}\n\nOutput ratio target: ${format}.`,
+              inlineRefs.map((item) => ({ mimeType: item.mimeType, data: item.data })),
+              brandId
+            );
+            result = r;
+            modelUsed = model;
+          }
 
           const asset = await this.saveAsset({
             userId,
             brandId,
             type: "image",
             prompt,
-            model,
+            model: modelUsed,
             status: "completed",
             fileUrl: result.imageUrl,
             metadata: {
@@ -1033,6 +1153,7 @@ export class CreativeStudioService {
                 variationIndex: i + 1,
                 textIncluded: includeText,
                 quality: input.quality || "high",
+                provider,
                 tags,
                 usedInCampaign: false,
                 version: 1,

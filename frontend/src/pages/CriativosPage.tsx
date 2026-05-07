@@ -20,6 +20,7 @@ import {
   ImageIcon, ChevronLeft, Wrench, Tag, Star, Zap, Send, CheckCircle2,
   Images, LayoutGrid, Eye, Type as TypeIcon, Palette as PaletteIcon, Megaphone,
   ChevronDown, Wand2, Rocket, Quote, BookOpen, Gift, Heart, Award,
+  ThumbsUp, ThumbsDown, Shuffle,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -740,17 +741,63 @@ function ResultScreen({
       )}
 
       {!loading && !error && assets && assets.length > 0 && (
-        <div>
-          <p className="text-[11px] text-gray-500 mb-2 inline-flex items-center gap-1.5">
-            <CheckCircle2 size={12} strokeWidth={2.5} className="text-emerald-500" />
-            {assets.length} criativo{assets.length > 1 ? 's' : ''} gerado{assets.length > 1 ? 's' : ''} a partir do seu catálogo e marca
-          </p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {assets.map((a) => (
-              <AssetCard key={a.id} asset={a} />
-            ))}
-          </div>
-        </div>
+        <ResultGrid assets={assets} />
+      )}
+    </div>
+  )
+}
+
+/**
+ * Result grid + interactive preview / remix / rating. Owns its own state
+ * for the preview overlay so the user can click a card and see the asset
+ * without leaving for the gallery tab.
+ */
+function ResultGrid({ assets: initialAssets }: { assets: GeneratedAsset[] }) {
+  const [assets, setAssets] = useState<GeneratedAsset[]>(initialAssets)
+  const [previewing, setPreviewing] = useState<GeneratedAsset | null>(null)
+  const [remixing, setRemixing] = useState<GeneratedAsset | null>(null)
+
+  /* Update local state when parent regenerates. */
+  useEffect(() => {
+    setAssets(initialAssets)
+  }, [initialAssets])
+
+  function patchAsset(id: string, patch: Partial<GeneratedAsset>) {
+    setAssets((prev) => prev.map((a) => a.id === id ? { ...a, ...patch, metadata: { ...(a.metadata || {}), ...(patch.metadata || {}) } } : a))
+  }
+
+  return (
+    <div>
+      <p className="text-[11px] text-gray-500 mb-2 inline-flex items-center gap-1.5">
+        <CheckCircle2 size={12} strokeWidth={2.5} className="text-emerald-500" />
+        {assets.length} criativo{assets.length > 1 ? 's' : ''} gerado{assets.length > 1 ? 's' : ''} a partir do seu catálogo e marca
+      </p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {assets.map((a) => (
+          <AssetCard
+            key={a.id}
+            asset={a}
+            onPreview={() => setPreviewing(a)}
+            onRemix={() => setRemixing(a)}
+            onRated={(rating) => patchAsset(a.id, { metadata: { rating } })}
+          />
+        ))}
+      </div>
+
+      {previewing && (
+        <GalleryPreview asset={previewing as any} onClose={() => setPreviewing(null)} />
+      )}
+
+      {remixing && (
+        <RemixModal
+          asset={remixing}
+          onClose={() => setRemixing(null)}
+          onRemixed={(newAsset) => {
+            /* Insert the remixed result at the top of the grid. */
+            setAssets((prev) => [newAsset, ...prev])
+            setRemixing(null)
+          }}
+        />
       )}
     </div>
   )
@@ -1220,37 +1267,265 @@ function ChipBtn({ active, onClick, icon: Icon, children }: { active: boolean; o
   )
 }
 
-function AssetCard({ asset }: { asset: GeneratedAsset }) {
-  const url = asset.fileUrl ? (asset.fileUrl.startsWith('http') ? asset.fileUrl : asset.fileUrl) : ''
+/**
+ * AssetCard — single generated creative. Click on the image opens the
+ * full preview without leaving the screen. Footer has Download + Remix
+ * + Rating thumbs.
+ */
+function AssetCard({
+  asset, onPreview, onRemix, onRated,
+}: {
+  asset: GeneratedAsset
+  onPreview: () => void
+  onRemix: () => void
+  onRated: (rating: { value: 'up' | 'down' | null; reason?: string }) => void
+}) {
+  const url = asset.fileUrl || ''
+  const currentRating = (asset.metadata?.rating?.value as 'up' | 'down' | undefined) || null
+  const [busy, setBusy] = useState<'up' | 'down' | null>(null)
+  const [reasonOpen, setReasonOpen] = useState(false)
+  const [reason, setReason] = useState('')
+
+  async function rate(value: 'up' | 'down', maybeReason?: string) {
+    setBusy(value)
+    try {
+      const r = await fetch(`/api/ai/creatives/asset/${asset.id}/rate`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({
+          rating: currentRating === value ? 'clear' : value,
+          reason: maybeReason || undefined,
+        }),
+      })
+      const data = await r.json()
+      if (r.ok) {
+        onRated({
+          value: data.rating?.value || null,
+          reason: data.rating?.reason || undefined,
+        })
+      }
+    } finally {
+      setBusy(null)
+      setReasonOpen(false)
+      setReason('')
+    }
+  }
+
   return (
     <div className="rounded-2xl overflow-hidden bg-white border border-gray-200 group">
-      <div className="aspect-square bg-gray-100 grid place-items-center overflow-hidden">
+      <button
+        onClick={onPreview}
+        aria-label="Ver criativo em tamanho real"
+        className="block w-full aspect-square bg-gray-100 overflow-hidden relative cursor-zoom-in"
+      >
         {url ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={url} alt="criativo" className="w-full h-full object-cover" />
+          <img src={url} alt="criativo" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
         ) : (
-          <ImageIcon size={28} className="text-gray-300" />
+          <span className="w-full h-full grid place-items-center"><ImageIcon size={28} className="text-gray-300" /></span>
+        )}
+        <span className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors grid place-items-center">
+          <Eye size={20} className="text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+        </span>
+      </button>
+
+      <div className="p-2.5 space-y-2">
+        <div className="flex items-center gap-1.5">
+          <a
+            href={url}
+            download
+            target="_blank"
+            rel="noreferrer"
+            className="flex-1 inline-flex items-center justify-center gap-1.5 h-9 rounded-xl bg-gray-900 text-white text-[12px] font-semibold hover:bg-gray-800 active:scale-[0.98] transition"
+          >
+            <Download size={13} strokeWidth={2} />
+            Baixar
+          </a>
+          <button
+            onClick={onRemix}
+            aria-label="Remix"
+            title="Gerar variação a partir deste"
+            className="h-9 px-3 inline-flex items-center gap-1.5 rounded-xl bg-white text-gray-700 ring-1 ring-gray-200 hover:bg-gray-50 transition text-[12px] font-semibold"
+          >
+            <Shuffle size={13} strokeWidth={2} />
+            Remix
+          </button>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] text-gray-400">
+            {currentRating === 'up' ? 'Você curtiu' : currentRating === 'down' ? 'Você marcou problema' : 'O resultado tá bom?'}
+          </span>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => rate('up')}
+              aria-label="Curtir"
+              disabled={busy !== null}
+              className={`w-8 h-8 grid place-items-center rounded-full transition ${
+                currentRating === 'up' ? 'bg-emerald-500 text-white' : 'text-gray-500 hover:bg-gray-100'
+              }`}
+            >
+              {busy === 'up' ? <Loader2 size={13} className="animate-spin" /> : <ThumbsUp size={13} strokeWidth={2} />}
+            </button>
+            <button
+              onClick={() => setReasonOpen(true)}
+              aria-label="Não curtir"
+              disabled={busy !== null}
+              className={`w-8 h-8 grid place-items-center rounded-full transition ${
+                currentRating === 'down' ? 'bg-rose-500 text-white' : 'text-gray-500 hover:bg-gray-100'
+              }`}
+            >
+              {busy === 'down' ? <Loader2 size={13} className="animate-spin" /> : <ThumbsDown size={13} strokeWidth={2} />}
+            </button>
+          </div>
+        </div>
+        {reasonOpen && (
+          <div className="pt-2 border-t border-gray-100 space-y-1.5">
+            <p className="text-[10px] text-gray-500">
+              Conta rapidinho o que não funcionou — vai melhorar os próximos.
+            </p>
+            <textarea
+              autoFocus
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              rows={2}
+              placeholder="ex: texto cortado, produto irreconhecível, fundo poluído"
+              className="w-full px-2.5 py-1.5 rounded-lg border border-gray-200 text-[11px] resize-none focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-300"
+            />
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => { setReasonOpen(false); setReason('') }}
+                className="h-7 px-2.5 rounded-lg text-[11px] font-semibold text-gray-500 hover:bg-gray-100"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => rate('down', reason.trim() || undefined)}
+                disabled={busy !== null}
+                className="ml-auto h-7 px-3 rounded-lg bg-rose-500 text-white text-[11px] font-semibold hover:bg-rose-600 disabled:opacity-40"
+              >
+                Enviar
+              </button>
+            </div>
+          </div>
         )}
       </div>
-      <div className="p-2.5 flex items-center gap-1.5">
-        <a
-          href={url}
-          download
-          target="_blank"
-          rel="noreferrer"
-          className="flex-1 inline-flex items-center justify-center gap-1.5 h-9 rounded-xl bg-gray-900 text-white text-[12px] font-semibold hover:bg-gray-800 active:scale-[0.98] transition"
-        >
-          <Download size={13} strokeWidth={2} />
-          Baixar
-        </a>
-        <button
-          aria-label="Enviar"
-          className="h-9 w-9 grid place-items-center rounded-xl bg-white text-gray-600 ring-1 ring-gray-200 hover:bg-gray-50 transition"
-          title="Enviar para campanha (em breve)"
-          disabled
-        >
-          <Send size={13} strokeWidth={2} />
-        </button>
+    </div>
+  )
+}
+
+/**
+ * RemixModal — generate a variation of an existing asset using the
+ * /studio/edit endpoint. The user gives a free-form instruction
+ * ("change the background to gold", "remove the discount tag", etc).
+ */
+function RemixModal({
+  asset, onClose, onRemixed,
+}: {
+  asset: GeneratedAsset
+  onClose: () => void
+  onRemixed: (asset: GeneratedAsset) => void
+}) {
+  const [instruction, setInstruction] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const presets = [
+    'Trocar o fundo para um tom mais escuro com mais contraste',
+    'Aumentar o tamanho do botão e deixar a chamada mais visível',
+    'Remover qualquer texto duplicado e limpar a composição',
+    'Adicionar um leve brilho dourado no produto',
+  ]
+
+  async function submit() {
+    if (!instruction.trim()) return
+    setBusy(true)
+    setError(null)
+    try {
+      const r = await fetch('/api/ai/creatives/studio/edit', {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({
+          sourceAssetId: asset.id,
+          instruction: instruction.trim(),
+          preserveProduct: true,
+        }),
+      })
+      const data = await r.json()
+      if (!r.ok) throw new Error(data.error || 'Falha ao remixar')
+      onRemixed(data.asset || data)
+    } catch (err: any) {
+      setError(err?.message || 'Erro inesperado')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm grid place-items-center p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-3xl shadow-2xl w-full max-w-lg flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header className="flex items-start justify-between gap-3 px-5 py-4 border-b border-gray-100">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gray-900 grid place-items-center text-white">
+              <Shuffle size={16} strokeWidth={2} />
+            </div>
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-gray-400">Remix</p>
+              <h3 className="text-[15px] font-bold text-gray-900">Gerar variação deste criativo</h3>
+            </div>
+          </div>
+          <button onClick={onClose} aria-label="Fechar" className="w-8 h-8 grid place-items-center rounded-full hover:bg-gray-100">
+            <X size={15} strokeWidth={2} />
+          </button>
+        </header>
+        <div className="p-5 space-y-3">
+          {asset.fileUrl && (
+            <div className="aspect-video bg-gray-100 rounded-xl overflow-hidden">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={asset.fileUrl} alt="original" className="w-full h-full object-cover" />
+            </div>
+          )}
+          <p className="text-[11px] text-gray-500">O que você quer mudar?</p>
+          <div className="flex flex-wrap gap-1.5">
+            {presets.map((p) => (
+              <button
+                key={p}
+                onClick={() => setInstruction(p)}
+                className="text-left px-2.5 py-1 rounded-full bg-gray-100 text-gray-700 text-[10px] font-medium hover:bg-gray-200"
+              >
+                {p}
+              </button>
+            ))}
+          </div>
+          <textarea
+            value={instruction}
+            onChange={(e) => setInstruction(e.target.value)}
+            rows={3}
+            placeholder="Descreva a mudança em poucas palavras…"
+            className="w-full px-3 py-2 rounded-xl border border-gray-200 text-[13px] resize-none focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900/30"
+          />
+          {error && (
+            <div className="px-3 py-2 rounded-xl bg-red-50 text-red-700 text-[11px]">{error}</div>
+          )}
+        </div>
+        <footer className="px-5 py-3 border-t border-gray-100 flex items-center gap-2 justify-end">
+          <button onClick={onClose} className="h-10 px-3 rounded-xl text-[12px] font-semibold text-gray-500 hover:bg-gray-100">
+            Cancelar
+          </button>
+          <button
+            onClick={submit}
+            disabled={busy || !instruction.trim()}
+            className="inline-flex items-center gap-1.5 h-10 px-4 rounded-xl bg-gray-900 text-white text-[13px] font-semibold hover:bg-gray-800 disabled:opacity-40"
+          >
+            {busy ? <Loader2 size={14} className="animate-spin" /> : <Shuffle size={14} strokeWidth={2} />}
+            Gerar remix
+          </button>
+        </footer>
       </div>
     </div>
   )

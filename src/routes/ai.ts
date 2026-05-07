@@ -15,7 +15,9 @@ import {
   SECTION_INDEX,
   autoComposeAndGenerate,
   getProactiveSuggestions,
+  previewComposition,
   type SectionId,
+  type ComposeOverrides,
 } from "../services/catalogCreatives";
 import { ContextEnginePayload, ContextEngineService } from "../services/contextEngine";
 import { AgentWorkspaceService } from "../services/agentWorkspace";
@@ -1086,6 +1088,44 @@ router.get("/creatives/suggestions", async (req: AuthRequest, res: Response) => 
   }
 });
 
+/**
+ * Preview composition — populate the configuration modal without spending
+ * a generation credit. Returns the auto-suggested defaults plus alternative
+ * copy variants and the catalog of style/format options the UI can render.
+ */
+router.post("/creatives/auto-compose/preview", async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId as string | undefined;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+    const body = req.body || {};
+    const productId = body.productId ? String(body.productId) : "";
+    const sectionId = body.sectionId ? String(body.sectionId) as SectionId : "" as SectionId;
+    if (!productId) return res.status(400).json({ error: "productId required" });
+    if (!sectionId || !SECTION_INDEX[sectionId]) {
+      return res.status(400).json({ error: "valid sectionId required" });
+    }
+
+    const result = await previewComposition(userId, {
+      productId,
+      sectionId,
+      brandId: resolveBrandCompanyId(req as BrandRequest),
+    });
+
+    res.json({ success: true, ...result });
+  } catch (error: any) {
+    logger.error(`Auto-compose preview failed: ${error.message}`);
+    const msg = String(error.message || "");
+    const status = msg.includes("não encontrado") ? 404 : msg.includes("required") ? 400 : 500;
+    res.status(status).json({ error: error.message || "Failed to preview composition" });
+  }
+});
+
+/**
+ * Run the actual generation. Body accepts an `overrides` object with every
+ * tunable field — when omitted, defaults from preview kick in (i.e. raw
+ * /auto-compose still works for the proactive suggestion cards).
+ */
 router.post("/creatives/auto-compose", async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user?.userId as string | undefined;
@@ -1099,17 +1139,35 @@ router.post("/creatives/auto-compose", async (req: AuthRequest, res: Response) =
       return res.status(400).json({ error: "valid sectionId required" });
     }
 
-    const formats = parseStringArray(body.formats) as ("1:1" | "9:16" | "4:5" | "16:9")[];
-    const variations = body.variations ? Number(body.variations) : undefined;
-    const quality = body.quality === "fast" ? "fast" : "high";
+    /* Overrides may arrive at the top level (legacy shape: { variations, formats, quality })
+     * OR nested under `overrides` (new modal shape). Accept both. */
+    const raw = body.overrides && typeof body.overrides === "object" ? body.overrides : body;
+
+    const formats = parseStringArray(raw.formats) as ("1:1" | "9:16" | "4:5" | "16:9")[];
+    const overrides: ComposeOverrides = {
+      variations: raw.variations ? Number(raw.variations) : undefined,
+      quality: raw.quality === "fast" ? "fast" : raw.quality === "high" ? "high" : undefined,
+      formats: formats.length ? formats : undefined,
+      objective: raw.objective ? String(raw.objective) : undefined,
+      style: raw.style ? String(raw.style) : undefined,
+      scene: raw.scene ? String(raw.scene) : undefined,
+      lighting: raw.lighting ? String(raw.lighting) : undefined,
+      headline: raw.headline ? String(raw.headline) : undefined,
+      subheadline: raw.subheadline ? String(raw.subheadline) : undefined,
+      cta: raw.cta ? String(raw.cta) : undefined,
+      textPosition: raw.textPosition === "top" || raw.textPosition === "center" || raw.textPosition === "bottom" ? raw.textPosition : undefined,
+      textStyle: raw.textStyle === "bold" || raw.textStyle === "minimal" || raw.textStyle === "elegant" ? raw.textStyle : undefined,
+      tone: raw.tone ? String(raw.tone) : undefined,
+      targetAudience: raw.targetAudience ? String(raw.targetAudience) : undefined,
+      embedTextInImage: parseBoolean(raw.embedTextInImage),
+      predominantColors: raw.predominantColors ? String(raw.predominantColors) : undefined,
+    };
 
     const result = await autoComposeAndGenerate(creativeStudio, userId, {
       productId,
       sectionId,
       brandId: resolveBrandCompanyId(req as BrandRequest),
-      variations,
-      quality,
-      formats: formats.length ? formats : undefined,
+      overrides,
     });
 
     res.json({ success: true, ...result });

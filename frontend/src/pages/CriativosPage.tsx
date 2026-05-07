@@ -13,12 +13,13 @@
  * `/criativos/avancado` for power users.
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import {
   Sparkles, Loader2, Search, X, ArrowRight, Download, RefreshCw,
   ImageIcon, ChevronLeft, Wrench, Tag, Star, Zap, Send, CheckCircle2,
-  Images, LayoutGrid, Eye,
+  Images, LayoutGrid, Eye, Type as TypeIcon, Palette as PaletteIcon, Megaphone,
+  ChevronDown, Wand2,
 } from 'lucide-react'
 
 /* ── Auth helpers (matches the rest of the admin app) ─────────────── */
@@ -80,6 +81,92 @@ interface GeneratedAsset {
   metadata?: any
 }
 
+/** Returned by POST /api/ai/creatives/auto-compose/preview. The modal
+ *  uses this shape to render every editable field. */
+interface PreviewPayload {
+  product: {
+    id: string
+    name: string
+    description?: string | null
+    price?: number | null
+    promo_price?: number | null
+    image_url?: string | null
+    unit?: string | null
+  }
+  section: {
+    id: string
+    label: string
+    emoji: string
+    description: string
+    formats: string[]
+    style: string
+    scene: string
+    lighting: string
+    textPosition: 'top' | 'center' | 'bottom'
+    textStyle: 'bold' | 'minimal' | 'elegant'
+    ctaPool: string[]
+  }
+  brand: {
+    name: string | null
+    primary_color: string | null
+    secondary_color: string | null
+  } | null
+  defaults: {
+    style: string
+    scene: string
+    lighting: string
+    textOverlay: { headline: string; subheadline: string; cta: string; position: 'top' | 'center' | 'bottom'; style: 'bold' | 'minimal' | 'elegant' }
+    formats: ('1:1' | '9:16' | '4:5' | '16:9')[]
+    aspectRatio: '1:1' | '9:16' | '4:5' | '16:9'
+    variations: number
+    quality: 'fast' | 'high'
+    targetAudience?: string
+    predominantColors?: string
+  }
+  copySuggestions: Array<{ headline: string; subheadline: string }>
+  ctaSuggestions: string[]
+  styleOptions: Array<{ id: string; label: string; description: string }>
+  formatOptions: Array<{ id: '1:1' | '9:16' | '4:5' | '16:9'; label: string; description: string }>
+}
+
+/** State of the configuration modal — what the user has edited. */
+interface CreativeConfig {
+  objective: string
+  formats: ('1:1' | '9:16' | '4:5' | '16:9')[]
+  variations: number
+  quality: 'fast' | 'high'
+  style: string
+  headline: string
+  subheadline: string
+  cta: string
+  textPosition: 'top' | 'center' | 'bottom'
+  textStyle: 'bold' | 'minimal' | 'elegant'
+  tone: string
+  targetAudience: string
+  embedTextInImage: boolean
+}
+
+const OBJECTIVE_OPTIONS = [
+  'Vender agora',
+  'Gerar interesse',
+  'Lançar produto',
+  'Recuperar cliente',
+  'Anunciar desconto',
+  'Valorizar marca',
+]
+
+const TEXT_POSITION_OPTIONS: Array<{ id: 'top' | 'center' | 'bottom'; label: string }> = [
+  { id: 'top', label: 'Topo' },
+  { id: 'center', label: 'Centro' },
+  { id: 'bottom', label: 'Rodapé' },
+]
+
+const TEXT_STYLE_OPTIONS: Array<{ id: 'bold' | 'minimal' | 'elegant'; label: string }> = [
+  { id: 'bold', label: 'Bold' },
+  { id: 'minimal', label: 'Minimal' },
+  { id: 'elegant', label: 'Elegante' },
+]
+
 /* Map section id → accent color for the small chip / hero card. Kept
  * in the frontend so we don't need a /theme call. */
 const SECTION_TINT: Record<string, { bg: string; ring: string; text: string; icon: any }> = {
@@ -105,6 +192,17 @@ export function CriativosPage() {
 
   /* Active step state. Null = the home grid with sections + suggestions. */
   const [pickerOpen, setPickerOpen] = useState<{ sectionId: string } | null>(null)
+  /* After a product is picked, we fetch a preview and open the configuration
+   * modal. Only after the user confirms there do we trigger generation. */
+  const [configuring, setConfiguring] = useState<{
+    sectionId: string
+    sectionLabel: string
+    productId: string
+    productName: string
+    preview: PreviewPayload | null
+    loadingPreview: boolean
+    error: string | null
+  } | null>(null)
   const [generating, setGenerating] = useState<{
     sectionId: string
     productId: string
@@ -139,23 +237,45 @@ export function CriativosPage() {
     setPickerOpen({ sectionId })
   }
   function startFromSuggestion(s: Suggestion) {
-    runAutoCompose(s.sectionId, s.productId, s.productName, s.sectionLabel)
+    /* Suggestions also go through the modal — keeps a single flow and lets
+     * the user tweak before burning a generation. */
+    openConfigure(s.sectionId, s.sectionLabel, s.productId, s.productName)
   }
 
-  /* Product picker → kicks off generation. */
+  /* Product picker → opens the configuration modal (NOT direct generation). */
   function onProductPicked(p: Product) {
     if (!pickerOpen) return
     const section = sections.find((s) => s.id === pickerOpen.sectionId)
     setPickerOpen(null)
-    runAutoCompose(pickerOpen.sectionId, p.id, p.name, section?.label || '')
+    openConfigure(pickerOpen.sectionId, section?.label || '', p.id, p.name)
   }
 
-  async function runAutoCompose(
-    sectionId: string,
-    productId: string,
-    productName: string,
-    sectionLabel: string,
-  ) {
+  /* Open modal: kick off preview fetch + render the form skeleton instantly. */
+  async function openConfigure(sectionId: string, sectionLabel: string, productId: string, productName: string) {
+    setConfiguring({ sectionId, sectionLabel, productId, productName, preview: null, loadingPreview: true, error: null })
+    try {
+      const r = await fetch('/api/ai/creatives/auto-compose/preview', {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({ productId, sectionId }),
+      })
+      const data = await r.json()
+      if (!r.ok) throw new Error(data.error || 'Falha ao preparar configuração')
+      setConfiguring((prev) => prev ? { ...prev, preview: data, loadingPreview: false } : prev)
+    } catch (err: any) {
+      setConfiguring((prev) => prev ? { ...prev, error: err?.message || 'Erro', loadingPreview: false } : prev)
+    }
+  }
+
+  function closeConfigure() {
+    setConfiguring(null)
+  }
+
+  /** Called when the user clicks "Gerar criativos" inside the modal. */
+  async function runConfiguredGenerate(config: CreativeConfig) {
+    if (!configuring) return
+    const { sectionId, productId, productName, sectionLabel } = configuring
+    setConfiguring(null)
     setGenerating({ sectionId, productId, productName, sectionLabel })
     setGeneratedAssets(null)
     setGenerationError(null)
@@ -163,12 +283,15 @@ export function CriativosPage() {
       const r = await fetch('/api/ai/creatives/auto-compose', {
         method: 'POST',
         headers: getHeaders(),
-        body: JSON.stringify({ productId, sectionId, variations: 2 }),
+        body: JSON.stringify({
+          productId,
+          sectionId,
+          overrides: config,
+        }),
       })
       const data = await r.json()
       if (!r.ok) throw new Error(data.error || 'Falha ao gerar criativo')
       setGeneratedAssets(data.assets || [])
-      /* Make sure the gallery picks up new assets next time it's opened. */
       setGalleryRefreshKey((k) => k + 1)
     } catch (err: any) {
       setGenerationError(err?.message || 'Erro inesperado')
@@ -181,9 +304,15 @@ export function CriativosPage() {
     setGenerationError(null)
   }
 
+  /** "Gerar novas variações" reabre o modal com o mesmo produto+seção
+   *  pra o usuário poder ajustar copy/estilo antes de regenerar. */
   function regenerate() {
     if (!generating) return
-    runAutoCompose(generating.sectionId, generating.productId, generating.productName, generating.sectionLabel)
+    const { sectionId, sectionLabel, productId, productName } = generating
+    setGenerating(null)
+    setGeneratedAssets(null)
+    setGenerationError(null)
+    openConfigure(sectionId, sectionLabel, productId, productName)
   }
 
   /* ── Render: result screen ────────────────────────────────────── */
@@ -272,6 +401,19 @@ export function CriativosPage() {
           sectionLabel={sections.find((s) => s.id === pickerOpen.sectionId)?.label || ''}
           onClose={() => setPickerOpen(null)}
           onPick={onProductPicked}
+        />
+      )}
+
+      {/* ── Configure creative modal — opens after product is picked ─ */}
+      {configuring && (
+        <ConfigureCreativeModal
+          sectionLabel={configuring.sectionLabel}
+          productName={configuring.productName}
+          preview={configuring.preview}
+          loading={configuring.loadingPreview}
+          error={configuring.error}
+          onClose={closeConfigure}
+          onGenerate={runConfiguredGenerate}
         />
       )}
     </div>
@@ -602,6 +744,451 @@ function GeneratingState() {
         <Loader2 size={20} className="animate-spin text-gray-400" />
       </div>
     </div>
+  )
+}
+
+/* ══════════════════════════════════════════════════════════════════
+ * ConfigureCreativeModal — pre-flight settings before image generation
+ *
+ * Pre-populated by GET /auto-compose/preview, every field editable.
+ * The user reviews objective/format/copy/style/voice and can switch
+ * between SVG-overlay text (Gemini) and embedded-text mode (Grok
+ * Imagine) before kicking off the actual run.
+ * ══════════════════════════════════════════════════════════════════ */
+
+function ConfigureCreativeModal({
+  sectionLabel, productName, preview, loading, error, onClose, onGenerate,
+}: {
+  sectionLabel: string
+  productName: string
+  preview: PreviewPayload | null
+  loading: boolean
+  error: string | null
+  onClose: () => void
+  onGenerate: (config: CreativeConfig) => void
+}) {
+  /* Form state. Initialised from `preview.defaults` once it arrives.
+   * We use a separate state object instead of editing preview directly
+   * so cancelling the modal doesn't mutate the cached preview. */
+  const [config, setConfig] = useState<CreativeConfig | null>(null)
+  const [showAdvanced, setShowAdvanced] = useState(false)
+
+  /* Hydrate form when preview lands. */
+  useEffect(() => {
+    if (!preview || config) return
+    const d = preview.defaults
+    setConfig({
+      objective: '',
+      formats: d.formats?.length ? d.formats : [d.aspectRatio],
+      variations: d.variations || 2,
+      quality: d.quality || 'high',
+      style: d.style || preview.section.style,
+      headline: d.textOverlay.headline || '',
+      subheadline: d.textOverlay.subheadline || '',
+      cta: d.textOverlay.cta || preview.ctaSuggestions[0] || '',
+      textPosition: d.textOverlay.position || preview.section.textPosition,
+      textStyle: d.textOverlay.style || preview.section.textStyle,
+      tone: '',
+      targetAudience: d.targetAudience || '',
+      embedTextInImage: false,
+    })
+  }, [preview, config])
+
+  /* Compute the cost estimate live as user toggles formats / variations. */
+  const estimate = useMemo(() => {
+    if (!config) return { jobs: 0, seconds: 0 }
+    const jobs = Math.max(1, config.formats.length) * Math.max(1, config.variations)
+    const perJob = config.quality === 'fast' ? 4 : 7
+    return { jobs, seconds: jobs * perJob }
+  }, [config])
+
+  function update<K extends keyof CreativeConfig>(key: K, value: CreativeConfig[K]) {
+    setConfig((c) => c ? { ...c, [key]: value } : c)
+  }
+
+  function toggleFormat(id: '1:1' | '9:16' | '4:5' | '16:9') {
+    if (!config) return
+    const has = config.formats.includes(id)
+    /* Always keep at least one format selected. */
+    if (has && config.formats.length <= 1) return
+    update('formats', has ? config.formats.filter((f) => f !== id) : [...config.formats, id])
+  }
+
+  function applyCopySuggestion(s: { headline: string; subheadline: string }) {
+    if (!config) return
+    setConfig({ ...config, headline: s.headline, subheadline: s.subheadline })
+  }
+
+  function submit() {
+    if (!config || !preview) return
+    onGenerate(config)
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm grid place-items-end sm:place-items-center p-0 sm:p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white w-full sm:max-w-2xl max-h-[95vh] sm:rounded-3xl rounded-t-3xl shadow-2xl flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <header className="flex items-start justify-between gap-3 px-5 py-4 border-b border-gray-100 shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-xl bg-gray-900 grid place-items-center text-white shrink-0">
+              <Wand2 size={16} strokeWidth={2} />
+            </div>
+            <div className="min-w-0">
+              <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-gray-400">
+                Configurar · {sectionLabel}
+              </p>
+              <h2 className="text-[16px] font-bold text-gray-900 truncate">{productName}</h2>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            aria-label="Fechar"
+            className="w-8 h-8 grid place-items-center rounded-full hover:bg-gray-100 transition shrink-0"
+          >
+            <X size={15} strokeWidth={2} />
+          </button>
+        </header>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto">
+          {loading && !preview ? (
+            <div className="grid place-items-center py-16">
+              <Loader2 size={20} className="animate-spin text-gray-400" />
+              <p className="text-[12px] text-gray-500 mt-3">Carregando sugestões da marca…</p>
+            </div>
+          ) : error ? (
+            <div className="p-6">
+              <div className="rounded-2xl bg-red-50 border border-red-200 p-4">
+                <p className="text-[13px] font-semibold text-red-700">Não foi possível preparar</p>
+                <p className="text-[11px] text-red-600 mt-1">{error}</p>
+              </div>
+            </div>
+          ) : config && preview ? (
+            <div className="p-5 space-y-5">
+              {/* Objective */}
+              <Field
+                label="Objetivo"
+                hint="O que você quer que esse criativo provoque no cliente."
+                icon={Megaphone}
+              >
+                <div className="flex flex-wrap gap-1.5">
+                  {OBJECTIVE_OPTIONS.map((o) => (
+                    <ChipBtn key={o} active={config.objective === o} onClick={() => update('objective', config.objective === o ? '' : o)}>
+                      {o}
+                    </ChipBtn>
+                  ))}
+                </div>
+                <input
+                  type="text"
+                  value={config.objective}
+                  onChange={(e) => update('objective', e.target.value)}
+                  placeholder="Ou descreva em poucas palavras…"
+                  className="mt-2 w-full h-10 px-3.5 rounded-xl border border-gray-200 bg-white text-[13px] text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-300"
+                />
+              </Field>
+
+              {/* Formats */}
+              <Field
+                label="Formatos"
+                hint="Selecione um ou mais. Cada formato gera as variações configuradas abaixo."
+                icon={LayoutGrid}
+              >
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {preview.formatOptions.map((f) => {
+                    const active = config.formats.includes(f.id)
+                    return (
+                      <button
+                        key={f.id}
+                        onClick={() => toggleFormat(f.id)}
+                        aria-pressed={active}
+                        className={`p-3 rounded-2xl border text-left transition ${
+                          active ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 bg-white text-gray-700 hover:border-gray-400'
+                        }`}
+                      >
+                        <p className="text-[10px] font-mono font-bold tracking-wider opacity-70">{f.id}</p>
+                        <p className="text-[13px] font-bold mt-0.5">{f.label}</p>
+                        <p className={`text-[10px] mt-1 leading-tight ${active ? 'text-white/70' : 'text-gray-500'}`}>
+                          {f.description}
+                        </p>
+                      </button>
+                    )
+                  })}
+                </div>
+              </Field>
+
+              {/* Variations */}
+              <Field
+                label="Variações por formato"
+                hint={`Cada variação é uma imagem diferente. Total: ${estimate.jobs} imagem${estimate.jobs !== 1 ? 's' : ''}.`}
+                icon={Sparkles}
+              >
+                <div className="flex items-center gap-3">
+                  <input
+                    type="range"
+                    min={1}
+                    max={4}
+                    value={config.variations}
+                    onChange={(e) => update('variations', Number(e.target.value))}
+                    className="flex-1 accent-gray-900"
+                  />
+                  <span className="w-8 text-center text-[14px] font-bold tabular-nums">{config.variations}</span>
+                </div>
+                <div className="flex items-center gap-1.5 mt-2">
+                  {(['fast', 'high'] as const).map((q) => (
+                    <ChipBtn key={q} active={config.quality === q} onClick={() => update('quality', q)}>
+                      {q === 'fast' ? '⚡ Rápido' : '✨ Alta qualidade'}
+                    </ChipBtn>
+                  ))}
+                </div>
+              </Field>
+
+              {/* Copy section */}
+              <div className="pt-3 border-t border-gray-100 space-y-4">
+                <div className="flex items-center gap-2">
+                  <TypeIcon size={14} className="text-gray-500" />
+                  <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-gray-500">Texto do criativo</p>
+                </div>
+
+                {/* Copy suggestions */}
+                {preview.copySuggestions.length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-1.5">
+                      Sugestões prontas (clique para usar)
+                    </p>
+                    <div className="grid gap-1.5">
+                      {preview.copySuggestions.map((s, i) => {
+                        const isActive = config.headline === s.headline && config.subheadline === s.subheadline
+                        return (
+                          <button
+                            key={i}
+                            onClick={() => applyCopySuggestion(s)}
+                            className={`text-left p-3 rounded-xl border transition ${
+                              isActive ? 'border-gray-900 bg-gray-50' : 'border-gray-200 bg-white hover:border-gray-400'
+                            }`}
+                          >
+                            <p className="text-[12px] font-bold text-gray-900 whitespace-pre-line">{s.headline}</p>
+                            {s.subheadline && (
+                              <p className="text-[11px] text-gray-500 mt-0.5">{s.subheadline}</p>
+                            )}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                <Field label="Headline">
+                  <textarea
+                    value={config.headline}
+                    onChange={(e) => update('headline', e.target.value)}
+                    rows={2}
+                    placeholder="Frase principal do criativo"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 bg-white text-[13px] text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-300 resize-none"
+                  />
+                </Field>
+
+                <Field label="Sub-headline">
+                  <input
+                    type="text"
+                    value={config.subheadline}
+                    onChange={(e) => update('subheadline', e.target.value)}
+                    placeholder="Linha de apoio"
+                    className="w-full h-10 px-3.5 rounded-xl border border-gray-200 bg-white text-[13px] text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-300"
+                  />
+                </Field>
+
+                <Field label="Botão (CTA)">
+                  <div className="flex flex-wrap gap-1.5 mb-1.5">
+                    {preview.ctaSuggestions.map((c) => (
+                      <ChipBtn key={c} active={config.cta === c} onClick={() => update('cta', c)}>
+                        {c}
+                      </ChipBtn>
+                    ))}
+                  </div>
+                  <input
+                    type="text"
+                    value={config.cta}
+                    onChange={(e) => update('cta', e.target.value)}
+                    placeholder="Ou digite o seu"
+                    className="w-full h-10 px-3.5 rounded-xl border border-gray-200 bg-white text-[13px] text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-300"
+                  />
+                </Field>
+
+                {/* Embed text in image toggle */}
+                <Field
+                  label="Como o texto aparece"
+                  hint="Como o texto vai parar na imagem."
+                >
+                  <div className="grid sm:grid-cols-2 gap-2">
+                    <button
+                      onClick={() => update('embedTextInImage', false)}
+                      aria-pressed={!config.embedTextInImage}
+                      className={`text-left p-3 rounded-2xl border transition ${
+                        !config.embedTextInImage ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 bg-white text-gray-700 hover:border-gray-400'
+                      }`}
+                    >
+                      <p className="text-[12px] font-bold">Sobreposto (SVG)</p>
+                      <p className={`text-[10px] mt-1 leading-tight ${!config.embedTextInImage ? 'text-white/70' : 'text-gray-500'}`}>
+                        IA gera o cenário, texto desenhado por cima. Sempre legível, ideal pra Gemini.
+                      </p>
+                    </button>
+                    <button
+                      onClick={() => update('embedTextInImage', true)}
+                      aria-pressed={config.embedTextInImage}
+                      className={`text-left p-3 rounded-2xl border transition ${
+                        config.embedTextInImage ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 bg-white text-gray-700 hover:border-gray-400'
+                      }`}
+                    >
+                      <p className="text-[12px] font-bold">IA desenha na imagem</p>
+                      <p className={`text-[10px] mt-1 leading-tight ${config.embedTextInImage ? 'text-white/70' : 'text-gray-500'}`}>
+                        Tipografia integrada à cena. Melhor com Grok Imagine, mais rica visualmente.
+                      </p>
+                    </button>
+                  </div>
+                </Field>
+              </div>
+
+              {/* Advanced */}
+              <div className="pt-3 border-t border-gray-100">
+                <button
+                  onClick={() => setShowAdvanced((s) => !s)}
+                  className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-gray-700 hover:text-gray-900"
+                >
+                  <ChevronDown size={14} className={`transition-transform ${showAdvanced ? 'rotate-180' : ''}`} />
+                  Configurações avançadas
+                </button>
+
+                {showAdvanced && (
+                  <div className="mt-4 space-y-4">
+                    {/* Style */}
+                    <Field label="Estilo visual" icon={PaletteIcon}>
+                      <div className="grid sm:grid-cols-2 gap-2">
+                        {preview.styleOptions.map((s) => (
+                          <button
+                            key={s.id}
+                            onClick={() => update('style', s.id)}
+                            aria-pressed={config.style === s.id}
+                            className={`text-left p-3 rounded-2xl border transition ${
+                              config.style === s.id ? 'border-gray-900 bg-gray-50' : 'border-gray-200 bg-white hover:border-gray-400'
+                            }`}
+                          >
+                            <p className="text-[13px] font-bold text-gray-900">{s.label}</p>
+                            <p className="text-[10px] text-gray-500 mt-0.5 leading-tight">{s.description}</p>
+                          </button>
+                        ))}
+                      </div>
+                    </Field>
+
+                    {/* Text position + style */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field label="Posição do texto">
+                        <div className="flex flex-wrap gap-1.5">
+                          {TEXT_POSITION_OPTIONS.map((p) => (
+                            <ChipBtn key={p.id} active={config.textPosition === p.id} onClick={() => update('textPosition', p.id)}>
+                              {p.label}
+                            </ChipBtn>
+                          ))}
+                        </div>
+                      </Field>
+
+                      <Field label="Estilo do texto">
+                        <div className="flex flex-wrap gap-1.5">
+                          {TEXT_STYLE_OPTIONS.map((p) => (
+                            <ChipBtn key={p.id} active={config.textStyle === p.id} onClick={() => update('textStyle', p.id)}>
+                              {p.label}
+                            </ChipBtn>
+                          ))}
+                        </div>
+                      </Field>
+                    </div>
+
+                    <Field label="Tom de voz">
+                      <input
+                        type="text"
+                        value={config.tone}
+                        onChange={(e) => update('tone', e.target.value)}
+                        placeholder="ex: premium e direto, divertido, popular"
+                        className="w-full h-10 px-3.5 rounded-xl border border-gray-200 bg-white text-[13px] text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-300"
+                      />
+                    </Field>
+
+                    <Field label="Audiência alvo">
+                      <input
+                        type="text"
+                        value={config.targetAudience}
+                        onChange={(e) => update('targetAudience', e.target.value)}
+                        placeholder="ex: donas de casa do bairro, restaurantes pequenos"
+                        className="w-full h-10 px-3.5 rounded-xl border border-gray-200 bg-white text-[13px] text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-300"
+                      />
+                    </Field>
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : null}
+        </div>
+
+        {/* Footer */}
+        <footer className="border-t border-gray-100 px-5 py-3 flex items-center gap-3 shrink-0 bg-white">
+          <div className="flex-1 min-w-0">
+            {config && (
+              <p className="text-[11px] text-gray-500">
+                Vai gerar <strong className="text-gray-900">{estimate.jobs}</strong> imagem{estimate.jobs !== 1 ? 's' : ''}
+                {' '}·{' '}~{estimate.seconds}s
+              </p>
+            )}
+          </div>
+          <button
+            onClick={onClose}
+            className="h-10 px-3.5 rounded-xl text-[12px] font-semibold text-gray-600 hover:bg-gray-100 transition"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={submit}
+            disabled={!config || loading}
+            className="inline-flex items-center gap-1.5 h-10 px-4 rounded-xl bg-gray-900 text-white text-[13px] font-semibold hover:bg-gray-800 active:scale-[0.98] transition disabled:opacity-40"
+          >
+            <Wand2 size={14} strokeWidth={2} />
+            Gerar criativos
+          </button>
+        </footer>
+      </div>
+    </div>
+  )
+}
+
+function Field({ label, hint, icon: Icon, children }: { label: string; hint?: string; icon?: any; children: ReactNode }) {
+  return (
+    <div>
+      <div className="flex items-center gap-1.5 mb-1.5">
+        {Icon && <Icon size={13} className="text-gray-500" />}
+        <label className="text-[10px] font-bold uppercase tracking-[0.08em] text-gray-500">{label}</label>
+      </div>
+      {hint && <p className="text-[11px] text-gray-500 mb-2 leading-relaxed">{hint}</p>}
+      {children}
+    </div>
+  )
+}
+
+function ChipBtn({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`h-7 px-3 rounded-full text-[11px] font-semibold transition ${
+        active ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+      }`}
+    >
+      {children}
+    </button>
   )
 }
 

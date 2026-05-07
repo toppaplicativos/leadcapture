@@ -1038,6 +1038,8 @@ app.post("/api/leads/search", authMiddleware, async (req: any, res) => {
       providerPreference: "rapid_first",
       includeDetails: true,
       fieldProfile: "full",
+      userId,
+      brandId: brandId || undefined,
     });
 
     // Persist to MySQL customers table (deduplicates by google_place_id + phone)
@@ -1343,6 +1345,8 @@ app.post("/api/leads/radar-search", authMiddleware, async (req: any, res) => {
       providerPreference: "official_first",
       includeDetails: false,
       fieldProfile: "radar",
+      userId,
+      brandId: brandId || undefined,
     });
 
     // Check which places are already captured across schema variants.

@@ -80,6 +80,7 @@ const NAV_ITEMS: { key: string; path: string; icon: any; label: string; group: s
   { key: 'mensagens', path: '/mensagens', icon: MessageSquare, label: 'Mensagens', group: 'main' },
   { key: 'campanhas', path: '/campanhas', icon: Megaphone, label: 'Campanhas', group: 'main' },
   { key: 'automacoes', path: '/automacoes', icon: Zap, label: 'Automacoes', group: 'main' },
+  { key: 'criativos', path: '/criativos', icon: Palette, label: 'Criativos IA', group: 'main' },
   { key: 'agente', path: '/agente', icon: Bot, label: 'Agente IA', group: 'main' },
   { key: 'whatsapp', path: '/whatsapp', icon: Phone, label: 'WhatsApp', group: 'main' },
   { key: 'produtos', path: '/produtos', icon: Package, label: 'Produtos', group: 'loja' },

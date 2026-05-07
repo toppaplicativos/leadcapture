@@ -43,6 +43,27 @@ function dismissInitialSplash() {
   }, remaining)
 }
 
+if (import.meta.env.DEV && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    const cleanupKey = 'lead-system-dev-sw-cleaned'
+    Promise.all([
+      navigator.serviceWorker.getRegistrations()
+        .then((registrations) => Promise.all(registrations.map((registration) => registration.unregister())))
+        .catch(() => undefined),
+      'caches' in window
+        ? caches.keys()
+          .then((keys) => Promise.all(keys.filter((key) => key.startsWith('lead-system-')).map((key) => caches.delete(key))))
+          .catch(() => undefined)
+        : Promise.resolve(),
+    ]).then(() => {
+      if (!sessionStorage.getItem(cleanupKey) && navigator.serviceWorker.controller) {
+        sessionStorage.setItem(cleanupKey, '1')
+        window.location.reload()
+      }
+    }).catch(() => undefined)
+  })
+}
+
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {
   /**
    * Resolve the right scope for each app surface so each PWA install

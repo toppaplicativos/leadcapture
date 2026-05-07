@@ -74,12 +74,18 @@ export function LeadSearchPage() {
   const mapRef = useRef<HTMLDivElement>(null)
   const mapInstance = useRef<L.Map | null>(null)
   const moveTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const leadsRef = useRef<Lead[]>(persisted.leads || [])
+
+  useEffect(() => {
+    leadsRef.current = leads
+  }, [leads])
 
   // ── Standard search ──
   async function handleSearch(e: FormEvent) {
     e.preventDefault()
     if (!query.trim() || !location.trim()) return
     setLoading(true); setError(''); setSearched(true)
+    setRadarCount(0); setCapturedLive(0); setStatusFilter('all')
     try {
       const body: Record<string, any> = { query: query.trim(), location: location.trim(), maxResults, executeAutomation: automate }
       if (radius && Number(radius) > 0) body.radius = Number(radius) * 1000
@@ -88,6 +94,7 @@ export function LeadSearchPage() {
       if (!r.ok) throw new Error(d.error || `Erro ${r.status}`)
       const resultLeads = d.leads || []
       const resultStats = { total: d.total || 0, created: d.persisted?.created || 0, skipped: d.persisted?.skipped || 0, automationQueued: d.automation?.queued_jobs || 0 }
+      leadsRef.current = resultLeads
       setLeads(resultLeads)
       setCapturedPoints(d.capturedPoints || [])
       setStats(resultStats)
@@ -111,26 +118,28 @@ export function LeadSearchPage() {
       const radarLeads: Lead[] = d.leads || []
 
       // Merge with existing (deduplicate by id)
-      let newFoundCount = 0
+      const existingIds = new Set(leadsRef.current.map(l => l.id))
+      const newOnes = radarLeads.filter(l => !existingIds.has(l.id))
       setLeads(prev => {
         const ids = new Set(prev.map(l => l.id))
-        const newOnes = radarLeads.filter(l => !ids.has(l.id))
-        newFoundCount = newOnes.length
-        setRadarCount(c => c + newOnes.length)
-        return [...prev, ...newOnes]
+        const nextNewOnes = newOnes.filter(l => !ids.has(l.id))
+        const next = [...prev, ...nextNewOnes]
+        leadsRef.current = next
+        return next
       })
+      setRadarCount(c => c + newOnes.length)
 
       // Update stats in real-time
       setStats(prev => prev ? {
         ...prev,
-        total: prev.total + newFoundCount,
+        total: prev.total + newOnes.length,
       } : { total: radarLeads.length, created: 0, skipped: 0, automationQueued: 0 })
 
       // Auto-capture: persist each new lead individually via capture-manual
-      if (autoCapture && radarLeads.length > 0) {
+      const captureCandidates = newOnes.filter(lead => lead.captureStatus !== 'captured')
+      if (autoCapture && captureCandidates.length > 0) {
         let capturedThisRound = 0
-        for (const lead of radarLeads) {
-          if (lead.captureStatus === 'captured') continue
+        for (const lead of captureCandidates) {
           try {
             const captureBody = {
               lead: {
@@ -146,12 +155,21 @@ export function LeadSearchPage() {
             }
             const cr = await fetch('/api/leads/capture-manual', { method: 'POST', headers: getHeaders(), body: JSON.stringify(captureBody) })
             const cd = await cr.json()
-            if (cd.success && cd.persisted?.created > 0) {
+            const created = cd.success && (cd.capture?.status === 'created' || Number(cd.capture?.persisted?.created || 0) > 0)
+            const captured = cd.success && ['created', 'existing', 'captured'].includes(String(cd.capture?.status || ''))
+            if (captured) {
+              setLeads(prev => {
+                const next = prev.map(l => l.id === lead.id ? { ...l, captureStatus: 'captured' as const } : l)
+                leadsRef.current = next
+                return next
+              })
+            }
+            if (created) {
               capturedThisRound++
               setCapturedLive(c => c + 1)
               // Update pin status immediately — new → captured
-              setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, captureStatus: 'captured' as const } : l))
             }
+            if (Array.isArray(cd.capturedPoints)) setCapturedPoints(cd.capturedPoints)
           } catch {}
         }
         if (capturedThisRound > 0) {

@@ -1,4 +1,32 @@
 /* eslint-disable no-restricted-globals */
+const IS_LOCAL_DEV =
+  self.location.hostname === "localhost" ||
+  self.location.hostname === "127.0.0.1" ||
+  self.location.hostname === "::1";
+
+if (IS_LOCAL_DEV) {
+  self.addEventListener("install", (event) => {
+    event.waitUntil(self.skipWaiting());
+  });
+
+  self.addEventListener("activate", (event) => {
+    event.waitUntil(
+      Promise.all([
+        self.registration.unregister(),
+        caches.keys().then((cacheNames) =>
+          Promise.all(
+            cacheNames
+              .filter((cacheName) => cacheName.startsWith("lead-system-"))
+              .map((cacheName) => caches.delete(cacheName))
+          )
+        ),
+        self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) =>
+          Promise.all(clients.map((client) => client.navigate(client.url)))
+        )
+      ])
+    );
+  });
+} else {
 const SHELL_CACHE_NAME = "lead-system-shell-v13-20260425";
 const RUNTIME_CACHE_NAME = "lead-system-runtime-v13-20260425";
 
@@ -261,4 +289,4 @@ async function markMessageAsSent(db, messageId) {
     request.onsuccess = () => resolve(null);
   });
 }
-
+}

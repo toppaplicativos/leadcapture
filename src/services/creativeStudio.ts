@@ -178,6 +178,23 @@ export class CreativeStudioService {
     return textPart?.text?.trim() || "";
   }
 
+  private formatUpstreamError(error: any, fallback: string): Error {
+    const status = error?.response?.status;
+    const upstream = error?.response?.data;
+    const upstreamMessage =
+      upstream?.error?.message ||
+      upstream?.message ||
+      (typeof upstream === "string" ? upstream : "");
+    const message = [
+      fallback,
+      status ? `HTTP ${status}` : "",
+      upstreamMessage ? String(upstreamMessage).slice(0, 800) : error?.message || "",
+    ]
+      .filter(Boolean)
+      .join(": ");
+    return new Error(message);
+  }
+
   private parseJsonSafely(value: any): Record<string, any> | undefined {
     if (!value) return undefined;
     if (typeof value === "object") return value;
@@ -229,6 +246,7 @@ export class CreativeStudioService {
       includeText && (text.headline || text.subheadline || text.cta)
         ? [
             "Integrate the following text in a clean commercial layout:",
+            "The text must be readable, correctly spelled in Brazilian Portuguese, with strong visual hierarchy.",
             text.headline ? `Headline: \"${text.headline}\"` : "",
             text.subheadline ? `Subheadline: \"${text.subheadline}\"` : "",
             text.cta ? `CTA: \"${text.cta}\"` : "",
@@ -238,14 +256,18 @@ export class CreativeStudioService {
             .filter(Boolean)
             .join("\n")
         : "Do not add any textual overlay.",
-      "No watermark. Keep typography readable if text is included."
+      "No watermark. Keep typography readable if text is included. Avoid random letters, fake brand marks, misspellings and tiny unreadable copy."
     ];
 
     return pieces.filter(Boolean).join("\n");
   }
 
-  private async loadAssetAsInlineData(userId: string, assetId: string): Promise<{ mimeType: string; data: string; fileUrl: string }> {
-    const asset = await this.getAssetById(userId, assetId);
+  private async loadAssetAsInlineData(
+    userId: string,
+    assetId: string,
+    brandId?: string | null
+  ): Promise<{ mimeType: string; data: string; fileUrl: string }> {
+    const asset = await this.getAssetById(userId, assetId, brandId);
     if (!asset || asset.type !== "image" || !asset.fileUrl) {
       throw new Error(`Image asset not found: ${assetId}`);
     }
@@ -267,28 +289,37 @@ export class CreativeStudioService {
     brandId?: string | null
   ) {
     const apiKey = await this.getApiKey(userId, brandId);
-    const response = await axios.post(
-      `${this.baseUrl}/models/${model}:generateContent`,
-      {
-        contents: [
-          {
-            parts: [
-              { text: prompt },
-              ...imageInlineParts.map((part) => ({
-                inlineData: {
-                  mimeType: part.mimeType,
-                  data: part.data
-                }
-              }))
-            ]
+    let response;
+    try {
+      response = await axios.post(
+        `${this.baseUrl}/models/${model}:generateContent`,
+        {
+          contents: [
+            {
+              role: "user",
+              parts: [
+                { text: prompt },
+                ...imageInlineParts.map((part) => ({
+                  inlineData: {
+                    mimeType: part.mimeType,
+                    data: part.data
+                  }
+                }))
+              ]
+            }
+          ],
+          generationConfig: {
+            responseModalities: ["TEXT", "IMAGE"]
           }
-        ]
-      },
-      {
-        params: { key: apiKey },
-        timeout: 120000
-      }
-    );
+        },
+        {
+          params: { key: apiKey },
+          timeout: 120000
+        }
+      );
+    } catch (error: any) {
+      throw this.formatUpstreamError(error, "Gemini image generation failed");
+    }
 
     const candidate = response.data?.candidates?.[0];
     const parts: any[] = candidate?.content?.parts || [];
@@ -297,7 +328,7 @@ export class CreativeStudioService {
     const base64Image = imagePart?.inlineData?.data || imagePart?.inline_data?.data;
 
     if (!base64Image) {
-      throw new Error("Image generation returned no inline image data");
+      throw new Error(`Image generation returned no inline image data${caption ? `: ${caption.slice(0, 500)}` : ""}`);
     }
 
     const safeUserId = this.sanitizePathPart(userId);
@@ -785,18 +816,28 @@ export class CreativeStudioService {
       .filter(Boolean)
       .join("\n");
 
-    const response = await axios.post(
-      `${this.baseUrl}/models/${model}:generateContent`,
-      { contents: [{ parts: [{ text: prompt }] }] },
-      { params: { key: apiKey }, timeout: 60000 }
-    );
+    let response;
+    try {
+      response = await axios.post(
+        `${this.baseUrl}/models/${model}:generateContent`,
+        {
+          contents: [{ role: "user", parts: [{ text: prompt }] }],
+          generationConfig: {
+            responseModalities: ["TEXT", "IMAGE"]
+          }
+        },
+        { params: { key: apiKey }, timeout: 60000 }
+      );
+    } catch (error: any) {
+      throw this.formatUpstreamError(error, "Gemini image generation failed");
+    }
 
     const candidate = response.data?.candidates?.[0];
     const parts: any[] = candidate?.content?.parts || [];
     const imagePart = parts.find((part) => part?.inlineData?.data || part?.inline_data?.data);
     const caption = this.extractTextFromCandidate(candidate);
     const base64Image = imagePart?.inlineData?.data || imagePart?.inline_data?.data;
-    if (!base64Image) throw new Error("Image generation returned no inline image data");
+    if (!base64Image) throw new Error(`Image generation returned no inline image data${caption ? `: ${caption.slice(0, 500)}` : ""}`);
 
     const safeUserId = this.sanitizePathPart(userId);
     const fileName = `${Date.now()}-${randomUUID()}.png`;
@@ -871,20 +912,29 @@ export class CreativeStudioService {
       .filter(Boolean)
       .join("\n");
 
-    const response = await axios.post(
-      `${this.baseUrl}/models/${model}:generateContent`,
-      {
-        contents: [
-          {
-            parts: [
-              { text: prompt },
-              { inlineData: { mimeType, data: sourceBase64 } },
-            ],
-          },
-        ],
-      },
-      { params: { key: apiKey }, timeout: 90000 }
-    );
+    let response;
+    try {
+      response = await axios.post(
+        `${this.baseUrl}/models/${model}:generateContent`,
+        {
+          contents: [
+            {
+              role: "user",
+              parts: [
+                { text: prompt },
+                { inlineData: { mimeType, data: sourceBase64 } },
+              ],
+            },
+          ],
+          generationConfig: {
+            responseModalities: ["TEXT", "IMAGE"]
+          }
+        },
+        { params: { key: apiKey }, timeout: 90000 }
+      );
+    } catch (error: any) {
+      throw this.formatUpstreamError(error, "Gemini image remix failed");
+    }
 
     const candidate = response.data?.candidates?.[0];
     const parts: any[] = candidate?.content?.parts || [];
@@ -892,7 +942,7 @@ export class CreativeStudioService {
     const caption = this.extractTextFromCandidate(candidate);
     const base64Image = imagePart?.inlineData?.data || imagePart?.inline_data?.data;
 
-    if (!base64Image) throw new Error("Image remix returned no inline image data");
+    if (!base64Image) throw new Error(`Image remix returned no inline image data${caption ? `: ${caption.slice(0, 500)}` : ""}`);
 
     const safeUserId = this.sanitizePathPart(userId);
     const fileName = `${Date.now()}-${randomUUID()}-remix.png`;
@@ -945,7 +995,7 @@ export class CreativeStudioService {
     if (Array.isArray(input.referenceAssetIds)) sourceAssetIds.push(...input.referenceAssetIds.filter(Boolean));
 
     const uniqueSourceIds = Array.from(new Set(sourceAssetIds)).slice(0, 6);
-    const inlineRefs = await Promise.all(uniqueSourceIds.map(async (assetId) => this.loadAssetAsInlineData(userId, assetId)));
+    const inlineRefs = await Promise.all(uniqueSourceIds.map(async (assetId) => this.loadAssetAsInlineData(userId, assetId, brandId)));
 
     const createdAssets: CreativeAsset[] = [];
     const tags = this.normalizeTagList(input.tags);
@@ -1011,7 +1061,7 @@ export class CreativeStudioService {
 
     await this.consumeProductStudioCredits(userId, 1, brandId);
 
-    const sourceInline = await this.loadAssetAsInlineData(userId, input.sourceAssetId);
+    const sourceInline = await this.loadAssetAsInlineData(userId, input.sourceAssetId, brandId);
     const model = config.creatives.imageModel;
     const prompt = [
       "Modify the existing image according to the instruction while preserving commercial realism.",

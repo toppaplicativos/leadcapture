@@ -50,6 +50,8 @@ const FlowBuilderPage = lazy(() => import('@/pages/FlowBuilderPage').then(m => (
 const LeadSearchPage = lazy(() => import('@/pages/LeadSearchPage').then(m => ({ default: m.LeadSearchPage })))
 const LeadsPage = lazy(() => import('@/pages/LeadsPage').then(m => ({ default: m.LeadsPage })))
 const DesignPage = lazy(() => import('@/pages/DesignPage').then(m => ({ default: m.DesignPage })))
+const BrandImageGeneratorPage = lazy(() => import('@/pages/BrandImageGeneratorPage').then(m => ({ default: m.BrandImageGeneratorPage })))
+const CriativosPage = lazy(() => import('@/pages/CriativosPage').then(m => ({ default: m.CriativosPage })))
 const LandingPage = lazy(() => import('@/pages/LandingPage').then(m => ({ default: m.LandingPage })))
 const MasterShell = lazy(() => import('@/pages/master/MasterShell').then(m => ({ default: m.MasterShell })))
 const MasterDashboard = lazy(() => import('@/pages/master/MasterDashboard').then(m => ({ default: m.MasterDashboard })))
@@ -234,8 +236,9 @@ export default function App() {
           <Route path="/campanhas" element={<AdminPage><CampaignsInline /></AdminPage>} />
           <Route path="/campanha" element={<AdminPage><CampaignsInline /></AdminPage>} />
           <Route path="/automacoes" element={<AdminPage><FlowBuilderPage /></AdminPage>} />
-          <Route path="/criativos" element={<AdminPage><ComingSoon title="Estúdio Criativo" icon={Palette} /></AdminPage>} />
-          <Route path="/creative" element={<AdminPage><ComingSoon title="Estúdio Criativo" icon={Palette} /></AdminPage>} />
+          <Route path="/criativos" element={<AdminPage><CriativosPage /></AdminPage>} />
+          <Route path="/criativos/avancado" element={<AdminPage><BrandImageGeneratorPage /></AdminPage>} />
+          <Route path="/creative" element={<AdminPage><CriativosPage /></AdminPage>} />
           <Route path="/agente" element={<AdminPage><AgentView showToast={noop} /></AdminPage>} />
           <Route path="/tirar-pedido" element={<AdminPage><AgentPDVPage /></AdminPage>} />
           <Route path="/whatsapp" element={<AdminPage><WhatsAppManagerView showToast={noop} /></AdminPage>} />

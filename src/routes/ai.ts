@@ -10,6 +10,13 @@ import { AIService } from "../services/ai";
 import { AIAgentProfileService } from "../services/aiAgentProfile";
 import { KnowledgeBaseService } from "../services/knowledgeBase";
 import { CreativeStudioService } from "../services/creativeStudio";
+import {
+  SECTIONS,
+  SECTION_INDEX,
+  autoComposeAndGenerate,
+  getProactiveSuggestions,
+  type SectionId,
+} from "../services/catalogCreatives";
 import { ContextEnginePayload, ContextEngineService } from "../services/contextEngine";
 import { AgentWorkspaceService } from "../services/agentWorkspace";
 import { logger } from "../utils/logger";
@@ -152,6 +159,10 @@ function parseStringArray(value: unknown): string[] {
   }
 
   return [];
+}
+
+function getIndexedString(values: string[], index: number, fallback?: string): string | undefined {
+  return String(values[index] || fallback || "").trim() || undefined;
 }
 
 function resolveSuggestionPrompt(
@@ -593,26 +604,31 @@ router.post(
         return res.status(400).json({ error: "At least one image file is required" });
       }
 
-      const imageTypeRaw = String(req.body?.imageType || "product").trim().toLowerCase();
-      const imageType =
-        imageTypeRaw === "reference" || imageTypeRaw === "background" || imageTypeRaw === "product"
-          ? imageTypeRaw
+      const imageTypes = parseStringArray(req.body?.imageTypes);
+      const captions = parseStringArray(req.body?.captions);
+      const fallbackImageTypeRaw = String(req.body?.imageType || "product").trim().toLowerCase();
+      const normalizeImageType = (raw: string | undefined) => {
+        const normalized = String(raw || "").trim().toLowerCase();
+        return normalized === "reference" || normalized === "background" || normalized === "product"
+          ? normalized
           : "product";
+      };
 
       const productId = String(req.body?.productId || "").trim() || undefined;
       const tags = parseStringArray(req.body?.tags);
-      const caption = String(req.body?.caption || "").trim() || undefined;
+      const fallbackCaption = String(req.body?.caption || "").trim() || undefined;
 
       const safeUserId = sanitizePathPart(userId);
       const assets = await Promise.all(
-        files.map(async (file) => {
+        files.map(async (file, index) => {
           const imageUrl = `/uploads/creatives/images/${safeUserId}/${file.filename}`;
+          const imageType = normalizeImageType(getIndexedString(imageTypes, index, fallbackImageTypeRaw));
           return creativeStudio.registerStudioImage(userId, {
             fileUrl: imageUrl,
             imageType: imageType as any,
             productId,
             originalName: file.originalname,
-            caption,
+            caption: getIndexedString(captions, index, fallbackCaption),
             tags
           }, resolveBrandCompanyId(req as BrandRequest));
         })
@@ -680,7 +696,14 @@ router.post("/creatives/studio/generate", async (req: AuthRequest, res: Response
     res.json({ success: true, ...result });
   } catch (error: any) {
     logger.error(`Creative studio generation failed: ${error.message}`);
-    const status = String(error.message || "").includes("Insufficient credits") ? 402 : 500;
+    const message = String(error.message || "");
+    const status = message.includes("Insufficient credits")
+      ? 402
+      : message.includes("HTTP 400")
+        ? 400
+        : message.includes("HTTP 401") || message.includes("API_KEY")
+          ? 401
+          : 500;
     res.status(status).json({ error: error.message || "Failed to generate studio images" });
   }
 });
@@ -1022,6 +1045,85 @@ router.get("/creatives/video/:jobId", async (req: AuthRequest, res: Response) =>
   } catch (error: any) {
     logger.error(`Creative video status check failed: ${error.message}`);
     res.status(500).json({ error: error.message || "Failed to check creative video status" });
+  }
+});
+
+/* ──────────────────────────────────────────────────────────────────────
+ * Catalog-aware creatives: the "no-prompt" assistant
+ *
+ * Three endpoints that translate marketing intent (which product +
+ * which kind of post) into ready-to-fire studio params. The user never
+ * touches scene/lighting/style/CTA — the section + product carry that.
+ *
+ * /sections    → list the 7 supported sections (UI grid)
+ * /suggestions → 3 proactive "post this today" picks based on catalog
+ * /auto-compose → run the full pipeline: product+section → images
+ * ────────────────────────────────────────────────────────────────────── */
+
+router.get("/creatives/sections", async (_req: AuthRequest, res: Response) => {
+  res.json({
+    success: true,
+    sections: SECTIONS.map((s) => ({
+      id: s.id,
+      label: s.label,
+      emoji: s.emoji,
+      description: s.description,
+      formats: s.formats,
+    })),
+  });
+});
+
+router.get("/creatives/suggestions", async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId as string | undefined;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const max = Math.min(6, Math.max(1, parseInt(String(req.query.max || "3"), 10) || 3));
+    const suggestions = await getProactiveSuggestions(userId, resolveBrandCompanyId(req as BrandRequest), max);
+    res.json({ success: true, suggestions });
+  } catch (error: any) {
+    logger.error(`Creative suggestions failed: ${error.message}`);
+    res.status(500).json({ error: error.message || "Failed to fetch suggestions" });
+  }
+});
+
+router.post("/creatives/auto-compose", async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId as string | undefined;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+    const body = req.body || {};
+    const productId = body.productId ? String(body.productId) : "";
+    const sectionId = body.sectionId ? String(body.sectionId) as SectionId : "" as SectionId;
+    if (!productId) return res.status(400).json({ error: "productId required" });
+    if (!sectionId || !SECTION_INDEX[sectionId]) {
+      return res.status(400).json({ error: "valid sectionId required" });
+    }
+
+    const formats = parseStringArray(body.formats) as ("1:1" | "9:16" | "4:5" | "16:9")[];
+    const variations = body.variations ? Number(body.variations) : undefined;
+    const quality = body.quality === "fast" ? "fast" : "high";
+
+    const result = await autoComposeAndGenerate(creativeStudio, userId, {
+      productId,
+      sectionId,
+      brandId: resolveBrandCompanyId(req as BrandRequest),
+      variations,
+      quality,
+      formats: formats.length ? formats : undefined,
+    });
+
+    res.json({ success: true, ...result });
+  } catch (error: any) {
+    logger.error(`Auto-compose creative failed: ${error.message}`);
+    const msg = String(error.message || "");
+    const status = msg.includes("Insufficient credits")
+      ? 402
+      : msg.includes("não encontrado") || msg.includes("not found")
+        ? 404
+        : msg.includes("Unknown section") || msg.includes("required")
+          ? 400
+          : 500;
+    res.status(status).json({ error: error.message || "Failed to auto-compose creative" });
   }
 });
 

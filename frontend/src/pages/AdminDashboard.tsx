@@ -7,7 +7,7 @@ import {
   ChevronLeft, ChevronRight, Send, Pause, Ban, Bot, Bell, Trash2,
   Wand2, Truck, Globe, Settings, Volume2, FileText, Link2, Receipt, Sparkles,
   CreditCard, QrCode, Banknote, User, BadgeCheck, Headphones, Brain,
-  Boxes, Store, Laptop, CheckCircle2, Copy, Info,
+  Boxes, Store, Laptop, CheckCircle2, Copy, Info, AlertTriangle, Star,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { adminApi, inventoryApi } from '@/lib/api-admin'
@@ -1686,7 +1686,13 @@ function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
                 previewCount === 0 ? 'bg-amber-50 text-amber-700 border border-amber-200' :
                 'bg-green-50 text-green-700 border border-green-200'
               }`}>
-                <span className="text-base">{previewCount === null ? '...' : previewCount === 0 ? '⚠' : '✓'}</span>
+                <span className="grid place-items-center w-4 h-4 shrink-0">
+                  {previewCount === null
+                    ? <Loader2 size={12} className="animate-spin" />
+                    : previewCount === 0
+                      ? <AlertTriangle size={13} strokeWidth={2} />
+                      : <CheckCircle2 size={13} strokeWidth={2} />}
+                </span>
                 {previewCount === null
                   ? 'Calculando alcance...'
                   : previewCount === 0
@@ -1758,12 +1764,18 @@ function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
                 <div className="flex flex-wrap gap-1.5">
                   {([undefined, 3, 4, 4.5] as (number | undefined)[]).map(v => {
                     const active = filterMinRating === v
-                    const label = v == null ? 'Qualquer' : `★${v}+`
                     return (
                       <button key={String(v)} type="button"
                         onClick={() => setFilterMinRating(v)}
-                        className={`px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition ${active ? chipActive : chipInactive}`}>
-                        {label}
+                        className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition ${active ? chipActive : chipInactive}`}>
+                        {v == null ? (
+                          'Qualquer'
+                        ) : (
+                          <>
+                            <Star size={10} strokeWidth={2} className="fill-current" />
+                            {v}+
+                          </>
+                        )}
                       </button>
                     )
                   })}
@@ -4113,7 +4125,10 @@ function StockAccessManageModal({ credential, onClose, onChanged, showToast }: {
           {tab === 'senha' && (
             <div className="space-y-3.5">
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-800">
-                <p className="font-bold">⚠ Alteração de senha</p>
+                <p className="font-bold inline-flex items-center gap-1.5">
+                  <AlertTriangle size={13} strokeWidth={2} />
+                  Alteração de senha
+                </p>
                 <p className="mt-1">Ao trocar a senha, o gerente precisará usar a nova senha para entrar no app.</p>
               </div>
               <div>
@@ -4161,7 +4176,10 @@ function StockAccessManageModal({ credential, onClose, onChanged, showToast }: {
               {/* Delete permanently */}
               <div className="bg-red-50 border border-red-200 rounded-2xl p-4">
                 <div className="mb-3">
-                  <p className="font-bold text-sm text-red-900">⚠ Excluir permanentemente</p>
+                  <p className="font-bold text-sm text-red-900 inline-flex items-center gap-1.5">
+                    <AlertTriangle size={14} strokeWidth={2} />
+                    Excluir permanentemente
+                  </p>
                   <p className="text-xs text-red-700 mt-0.5">
                     Esta ação removerá o acesso definitivamente do sistema. O usuário não poderá ser recuperado.
                   </p>
@@ -5016,7 +5034,7 @@ function ClientTypesSection({ showToast }: { showToast: (t: string, tp?: 'ok' | 
                 disabled={deleting === type.id}
                 className="p-1 text-red-600 hover:bg-red-50 rounded transition text-xs disabled:opacity-50"
               >
-                {deleting === type.id ? '...' : '✕'}
+                {deleting === type.id ? <Loader2 size={12} className="animate-spin" /> : <X size={12} strokeWidth={2} />}
               </button>
             </div>
           ))

@@ -1068,7 +1068,7 @@ router.get("/creatives/sections", async (_req: AuthRequest, res: Response) => {
     sections: SECTIONS.map((s) => ({
       id: s.id,
       label: s.label,
-      emoji: s.emoji,
+      iconName: s.iconName,
       description: s.description,
       formats: s.formats,
     })),

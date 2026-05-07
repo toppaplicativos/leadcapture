@@ -31,7 +31,9 @@ export type SectionId =
 export interface SectionDef {
   id: SectionId;
   label: string;
-  emoji: string;
+  /** lucide-react component name. UI must NEVER render emojis — always
+   *  render the matching <Icon /> from lucide. */
+  iconName: string;
   description: string;
   /** Aspect ratios this section feels best in. */
   formats: ("1:1" | "9:16" | "4:5" | "16:9")[];
@@ -50,7 +52,7 @@ export const SECTIONS: SectionDef[] = [
   {
     id: "promo",
     label: "Promoção",
-    emoji: "🎯",
+    iconName: "Tag",
     description: "Oferta com desconto, urgência, condição especial.",
     formats: ["1:1", "9:16"],
     style: "bold promotional retail product ad, energetic composition, conversion focused",
@@ -63,7 +65,7 @@ export const SECTIONS: SectionDef[] = [
   {
     id: "launch",
     label: "Lançamento",
-    emoji: "🚀",
+    iconName: "Rocket",
     description: "Novidade que acabou de entrar no catálogo.",
     formats: ["1:1", "9:16", "4:5"],
     style: "premium commercial product ad, editorial lighting, sophisticated reveal feel",
@@ -76,7 +78,7 @@ export const SECTIONS: SectionDef[] = [
   {
     id: "social-proof",
     label: "Prova social",
-    emoji: "💬",
+    iconName: "Quote",
     description: "Depoimento, avaliação ou conquista para gerar confiança.",
     formats: ["1:1", "9:16"],
     style: "warm authentic lifestyle product ad, real moment feel, trustworthy",
@@ -89,7 +91,7 @@ export const SECTIONS: SectionDef[] = [
   {
     id: "educational",
     label: "Educacional",
-    emoji: "📚",
+    iconName: "BookOpen",
     description: "Explica como usar, benefícios, comparativo.",
     formats: ["1:1", "4:5"],
     style: "clean informative product ad, infographic-friendly composition, educational",
@@ -102,7 +104,7 @@ export const SECTIONS: SectionDef[] = [
   {
     id: "date",
     label: "Datas comemorativas",
-    emoji: "🎉",
+    iconName: "Gift",
     description: "Mães, Pais, Natal, Black Friday, aniversário da marca.",
     formats: ["1:1", "9:16"],
     style: "celebratory festive product ad, themed seasonal decor, joyful",
@@ -115,7 +117,7 @@ export const SECTIONS: SectionDef[] = [
   {
     id: "winback",
     label: "Recuperação",
-    emoji: "🔁",
+    iconName: "Heart",
     description: "Trazer cliente inativo de volta, lembrar de carrinho.",
     formats: ["1:1", "9:16"],
     style: "inviting reminder product ad, warm welcoming feel, gentle urgency",
@@ -128,7 +130,7 @@ export const SECTIONS: SectionDef[] = [
   {
     id: "featured",
     label: "Destaque",
-    emoji: "⭐",
+    iconName: "Award",
     description: "Showcase premium do produto, vitrine elegante.",
     formats: ["1:1", "4:5", "9:16"],
     style: "premium luxury product showcase, magazine quality, aspirational",

@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Minus, Plus, Trash2, ShoppingBag, ArrowLeft, ArrowRight, CreditCard, ImageOff, User, MapPin, CheckCircle2, MessageCircle, QrCode, FileText, Banknote, Truck, Clock } from 'lucide-react'
+import { Minus, Plus, Trash2, ShoppingBag, ArrowLeft, ArrowRight, CreditCard, ImageOff, User, MapPin, CheckCircle2, MessageCircle, QrCode, FileText, Banknote, Truck, Clock, PartyPopper } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { fetchCatalog, createOrder, type Product } from '@/lib/api'
 import { useCartStore } from '@/lib/store'
@@ -190,7 +190,7 @@ export function CheckoutPage() {
                   <div className="space-y-2 pt-2">
                     {isFreeShipping ? (
                       <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-100 rounded-xl px-3 py-2.5">
-                        <span className="text-lg">🎉</span>
+                        <PartyPopper size={18} className="text-emerald-600 shrink-0" strokeWidth={1.75} />
                         <div>
                           <p className="text-xs font-bold text-emerald-700">Frete gratis!</p>
                           <p className="text-[10px] text-emerald-600">Voce atingiu R$ {freeAbove.toFixed(0)} — entrega sem custo</p>

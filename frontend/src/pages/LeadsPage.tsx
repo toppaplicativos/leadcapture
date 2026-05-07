@@ -72,9 +72,9 @@ interface Lead {
 
 /* ── Filter chip component ── */
 function Chip({
-  label, count, active, onClick,
+  label, count, active, onClick, icon,
 }: {
-  label: string; count?: number; active: boolean; onClick: () => void
+  label: string; count?: number; active: boolean; onClick: () => void; icon?: React.ReactNode
 }) {
   return (
     <button
@@ -85,6 +85,7 @@ function Chip({
           : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
       }`}
     >
+      {icon}
       {label}
       {count !== undefined && (
         <span className={`text-[10px] tabular-nums ${active ? 'text-white/60' : 'text-gray-400'}`}>
@@ -422,7 +423,8 @@ export function LeadsPage() {
               {([3, 4, 4.5] as number[]).map(r => (
                 <Chip
                   key={r}
-                  label={`★${r}+`}
+                  label={`${r}+`}
+                  icon={<Star size={10} strokeWidth={2} className="fill-current" />}
                   active={minRating === r}
                   onClick={() => { setMinRating(minRating === r ? null : r); setPage(1) }}
                 />
@@ -472,7 +474,8 @@ export function LeadsPage() {
                 ))}
                 {minRating && (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 text-[10px] font-medium">
-                    ★ {minRating}+
+                    <Star size={10} strokeWidth={2} className="fill-current" />
+                    {minRating}+
                     <button onClick={() => { setMinRating(null); setPage(1) }} aria-label="Remover rating"><X size={10} strokeWidth={2.25} /></button>
                   </span>
                 )}

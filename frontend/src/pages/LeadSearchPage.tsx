@@ -546,10 +546,13 @@ function PanfleteiroMap({ leads, capturedPoints, mapRef, mapInstance, panfleteir
         weight: isNew ? 3 : 2,
       })
         .addTo(map).bindPopup(
+          /* Leaflet popups are HTML strings, not JSX. Inline an SVG star
+           * instead of the unicode star char, to keep parity with the rest
+           * of the lucide-based UI. Same path used by lucide Star. */
           `<div style="min-width:140px"><b style="font-size:12px">${l.name}</b>` +
-          (l.rating > 0 ? `<br><span style="font-size:10px;color:#d97706">★ ${l.rating.toFixed(1)}</span>` : '') +
+          (l.rating > 0 ? `<br><span style="display:inline-flex;align-items:center;gap:3px;font-size:10px;color:#d97706"><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>${l.rating.toFixed(1)}</span>` : '') +
           (l.phone ? `<br><span style="font-size:10px">${l.phone}</span>` : '') +
-          `<br><span style="font-size:9px;font-weight:600;color:${isNew ? '#10b981' : '#6b7280'}">${isNew ? '● NOVO' : '● EXISTENTE'}</span></div>`
+          `<br><span style="display:inline-block;font-size:9px;font-weight:600;color:${isNew ? '#10b981' : '#6b7280'}"><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:currentColor;margin-right:4px;vertical-align:middle"></span>${isNew ? 'NOVO' : 'EXISTENTE'}</span></div>`
         )
     })
 

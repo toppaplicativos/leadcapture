@@ -875,8 +875,9 @@ export function AgentPDVPage() {
                       : <><Send size={18} /> Confirmar Pedido · {money(total)}</>}
                   </button>
                   {!custName && (
-                    <p className="text-[11px] text-amber-600 text-center mt-2 font-semibold">
-                      ⚠ Identifique o cliente antes de confirmar
+                    <p className="text-[11px] text-amber-600 text-center mt-2 font-semibold inline-flex items-center justify-center gap-1.5 w-full">
+                      <AlertCircle size={12} strokeWidth={2} />
+                      Identifique o cliente antes de confirmar
                     </p>
                   )}
                   {/* Attribution reminder */}

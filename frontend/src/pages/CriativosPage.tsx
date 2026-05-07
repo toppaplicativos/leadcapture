@@ -19,7 +19,8 @@ import {
   Sparkles, Loader2, Search, X, ArrowRight, Download, RefreshCw,
   ImageIcon, ChevronLeft, Wrench, Tag, Star, Zap, Send, CheckCircle2,
   Images, LayoutGrid, Eye, Type as TypeIcon, Palette as PaletteIcon, Megaphone,
-  ChevronDown, Wand2,
+  ChevronDown, Wand2, Rocket, Quote, BookOpen, Gift, Heart, Award,
+  type LucideIcon,
 } from 'lucide-react'
 
 /* ── Auth helpers (matches the rest of the admin app) ─────────────── */
@@ -44,9 +45,30 @@ function brl(value: number | string | null | undefined): string {
 interface Section {
   id: string
   label: string
-  emoji: string
+  /** lucide-react component name. Looked up in SECTION_ICON_MAP. */
+  iconName: string
   description: string
   formats: string[]
+}
+
+/**
+ * Map of lucide icon names → components for everything we render.
+ * Keep this small and explicit — never `import * as Icons` from lucide.
+ */
+const SECTION_ICON_MAP: Record<string, LucideIcon> = {
+  Tag,
+  Rocket,
+  Quote,
+  BookOpen,
+  Gift,
+  Heart,
+  Award,
+  Star,
+  Sparkles,
+}
+
+function sectionIcon(iconName?: string): LucideIcon {
+  return (iconName && SECTION_ICON_MAP[iconName]) || Sparkles
 }
 
 interface Product {
@@ -96,7 +118,7 @@ interface PreviewPayload {
   section: {
     id: string
     label: string
-    emoji: string
+    iconName: string
     description: string
     formats: string[]
     style: string
@@ -360,8 +382,9 @@ export function CriativosPage() {
           {/* ── Suggestions row ─ */}
           {suggestions.length > 0 && (
             <section>
-              <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-gray-400 mb-2">
-                ⚡ Sugestões pra hoje
+              <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-gray-400 mb-2 inline-flex items-center gap-1.5">
+                <Sparkles size={11} strokeWidth={2.5} />
+                Sugestões pra hoje
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 {suggestions.map((s) => (
@@ -373,8 +396,9 @@ export function CriativosPage() {
 
           {/* ── Sections grid ─ */}
           <section>
-            <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-gray-400 mb-2">
-              🎨 Tipo de criativo
+            <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-gray-400 mb-2 inline-flex items-center gap-1.5">
+              <PaletteIcon size={11} strokeWidth={2.5} />
+              Tipo de criativo
             </p>
             {loadingMeta ? (
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
@@ -441,13 +465,16 @@ function TabButton({ active, onClick, icon: Icon, label }: { active: boolean; on
  * ══════════════════════════════════════════════════════════════════ */
 function SectionCard({ section, onClick }: { section: Section; onClick: () => void }) {
   const tint = SECTION_TINT[section.id] || SECTION_TINT.featured
+  const Icon = sectionIcon(section.iconName)
   return (
     <button
       onClick={onClick}
       className={`group text-left p-5 rounded-2xl ring-1 ${tint.ring} ${tint.bg} hover:shadow-sm hover:scale-[1.01] active:scale-[0.99] transition-all`}
     >
       <div className="flex items-start justify-between gap-2 mb-3">
-        <span className="text-[24px] leading-none">{section.emoji}</span>
+        <span className={`w-9 h-9 grid place-items-center rounded-xl bg-white ring-1 ${tint.ring} ${tint.text}`}>
+          <Icon size={18} strokeWidth={1.75} />
+        </span>
         <span className={`text-[10px] font-mono font-semibold ${tint.text} opacity-50`}>
           {section.formats.length} formato{section.formats.length > 1 ? 's' : ''}
         </span>
@@ -941,8 +968,8 @@ function ConfigureCreativeModal({
                 </div>
                 <div className="flex items-center gap-1.5 mt-2">
                   {(['fast', 'high'] as const).map((q) => (
-                    <ChipBtn key={q} active={config.quality === q} onClick={() => update('quality', q)}>
-                      {q === 'fast' ? '⚡ Rápido' : '✨ Alta qualidade'}
+                    <ChipBtn key={q} active={config.quality === q} onClick={() => update('quality', q)} icon={q === 'fast' ? Zap : Sparkles}>
+                      {q === 'fast' ? 'Rápido' : 'Alta qualidade'}
                     </ChipBtn>
                   ))}
                 </div>
@@ -1177,16 +1204,17 @@ function Field({ label, hint, icon: Icon, children }: { label: string; hint?: st
   )
 }
 
-function ChipBtn({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
+function ChipBtn({ active, onClick, icon: Icon, children }: { active: boolean; onClick: () => void; icon?: LucideIcon; children: ReactNode }) {
   return (
     <button
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      className={`h-7 px-3 rounded-full text-[11px] font-semibold transition ${
+      className={`inline-flex items-center gap-1 h-7 px-3 rounded-full text-[11px] font-semibold transition ${
         active ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
       }`}
     >
+      {Icon && <Icon size={11} strokeWidth={2} />}
       {children}
     </button>
   )
@@ -1297,18 +1325,21 @@ function GalleryView({ refreshKey, sections }: { refreshKey: number; sections: S
         >
           Todos
         </button>
-        {sections.map((s) => (
-          <button
-            key={s.id}
-            onClick={() => setActiveSection(s.id)}
-            className={`inline-flex items-center gap-1 h-8 px-3 rounded-full text-[11px] font-semibold transition ${
-              activeSection === s.id ? 'bg-gray-900 text-white' : 'bg-white text-gray-600 ring-1 ring-gray-200 hover:bg-gray-50'
-            }`}
-          >
-            <span>{s.emoji}</span>
-            {s.label}
-          </button>
-        ))}
+        {sections.map((s) => {
+          const Icon = sectionIcon(s.iconName)
+          return (
+            <button
+              key={s.id}
+              onClick={() => setActiveSection(s.id)}
+              className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-full text-[11px] font-semibold transition ${
+                activeSection === s.id ? 'bg-gray-900 text-white' : 'bg-white text-gray-600 ring-1 ring-gray-200 hover:bg-gray-50'
+              }`}
+            >
+              <Icon size={11} strokeWidth={2} />
+              {s.label}
+            </button>
+          )
+        })}
         <span className="ml-auto inline-flex items-center gap-1.5">
           <button
             onClick={() => setLayoutDense(false)}
@@ -1374,11 +1405,14 @@ function GalleryThumb({ asset, onOpen }: { asset: GalleryAsset; onOpen: () => vo
       ) : (
         <div className="w-full h-full grid place-items-center"><ImageIcon size={24} className="text-gray-300" /></div>
       )}
-      {tint && (
-        <span className={`absolute top-1.5 left-1.5 inline-flex items-center px-1.5 h-5 rounded-full ${tint.bg} ring-1 ${tint.ring} ${tint.text} text-[9px] font-bold uppercase tracking-wider`}>
-          {sections_emoji_for(sectionTag!)}
-        </span>
-      )}
+      {tint && sectionTag && (() => {
+        const TagIcon = sectionIconForId(sectionTag)
+        return (
+          <span className={`absolute top-1.5 left-1.5 inline-flex items-center justify-center w-6 h-6 rounded-full ${tint.bg} ring-1 ${tint.ring} ${tint.text}`}>
+            <TagIcon size={11} strokeWidth={2} />
+          </span>
+        )
+      })()}
       <span className="absolute inset-0 grid place-items-center bg-black/0 group-hover:bg-black/30 transition-colors">
         <Eye size={20} className="text-white opacity-0 group-hover:opacity-100 transition-opacity" />
       </span>
@@ -1386,13 +1420,21 @@ function GalleryThumb({ asset, onOpen }: { asset: GalleryAsset; onOpen: () => vo
   )
 }
 
-/* Tiny inline lookup — avoids re-importing the SECTION_INDEX from backend. */
-function sections_emoji_for(id: string): string {
-  const map: Record<string, string> = {
-    'promo': '🎯', 'launch': '🚀', 'social-proof': '💬',
-    'educational': '📚', 'date': '🎉', 'winback': '🔁', 'featured': '⭐',
-  }
-  return map[id] || '✨'
+/** Lookup table: section id → lucide icon component. Mirrors the
+ *  iconName field returned by the /sections endpoint, but we keep it
+ *  client-side too because gallery thumbs cache the section tag from
+ *  asset metadata and may render before the sections list arrives. */
+const SECTION_ID_ICON: Record<string, LucideIcon> = {
+  'promo': Tag,
+  'launch': Rocket,
+  'social-proof': Quote,
+  'educational': BookOpen,
+  'date': Gift,
+  'winback': Heart,
+  'featured': Award,
+}
+function sectionIconForId(id: string): LucideIcon {
+  return SECTION_ID_ICON[id] || Sparkles
 }
 
 function GalleryEmpty({ hasAny }: { hasAny: boolean }) {
@@ -1418,7 +1460,7 @@ function GalleryPreview({ asset, onClose }: { asset: GalleryAsset; onClose: () =
   const tags: string[] = Array.isArray(asset.metadata?.studio?.tags) ? asset.metadata.studio.tags : []
   const productTag = tags.find((t) => t.startsWith('product:'))?.split(':')[1]
   const sectionTag = tags.find((t) => t.startsWith('section:'))?.split(':')[1]
-  const sectionEmoji = sectionTag ? sections_emoji_for(sectionTag) : ''
+  const SectionTagIcon = sectionTag ? sectionIconForId(sectionTag) : Sparkles
   const created = asset.createdAt ? new Date(asset.createdAt).toLocaleString('pt-BR') : ''
 
   return (
@@ -1442,8 +1484,9 @@ function GalleryPreview({ asset, onClose }: { asset: GalleryAsset; onClose: () =
           <header className="px-5 py-4 border-b border-gray-100 flex items-start justify-between gap-2">
             <div>
               <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-gray-400">Criativo</p>
-              <p className="text-[14px] font-bold text-gray-900 mt-0.5">
-                {sectionEmoji} {sectionTag || 'Sem seção'}
+              <p className="text-[14px] font-bold text-gray-900 mt-0.5 inline-flex items-center gap-1.5">
+                <SectionTagIcon size={13} strokeWidth={2} className="text-gray-700" />
+                {sectionTag || 'Sem seção'}
               </p>
             </div>
             <button onClick={onClose} aria-label="Fechar" className="w-8 h-8 grid place-items-center rounded-full hover:bg-gray-100 transition">

@@ -315,7 +315,10 @@ export function composeStudioParams(
         subheadline = `De ${formatBRL(price)} por ${formatBRL(promo)} · ${pct}% off`;
       } else {
         headline = product.name;
-        subheadline = `Por apenas ${formatBRL(price)}${product.unit ? ` / ${product.unit}` : ""}`;
+        /* Short copy ("R$ 15,00 / kg") survives the image generator's
+         * typography rendering better than long phrases. Gemini in
+         * particular truncates words like "apenas" mid-render. */
+        subheadline = `${formatBRL(price)}${product.unit ? ` / ${product.unit}` : ""}`;
       }
       break;
     case "launch":
@@ -370,10 +373,15 @@ export function composeStudioParams(
   if (!formats.length) formats = section.formats;
   formats = formats.slice(0, 4);
 
-  /* Tag the asset so the gallery can filter by section + product later. */
+  /* Tag the asset so the gallery can filter by section + product later.
+   * We embed the product name as a tag too (e.g. "productName:Alho 500g")
+   * so the gallery preview can render a friendly label without an extra
+   * lookup. The studio's tag normalizer strips weird chars but keeps it
+   * mostly intact. */
   const tags = [
     `section:${section.id}`,
     `product:${product.id}`,
+    `productName:${(product.name || "").slice(0, 80)}`,
     brand?.id ? `brand:${brand.id}` : "",
     options.embedTextInImage ? "text:embedded" : "text:overlay",
     options.objective ? `objective:${options.objective.replace(/\s+/g, "-").toLowerCase().slice(0, 24)}` : "",

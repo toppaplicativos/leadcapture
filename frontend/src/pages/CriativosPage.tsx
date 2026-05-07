@@ -1437,6 +1437,18 @@ function sectionIconForId(id: string): LucideIcon {
   return SECTION_ID_ICON[id] || Sparkles
 }
 
+/** Friendly section labels for tag-based UI like the gallery preview, where
+ *  we don't have the section list at hand (just the id from asset tags). */
+const SECTION_LABEL_BY_ID: Record<string, string> = {
+  'promo': 'Promoção',
+  'launch': 'Lançamento',
+  'social-proof': 'Prova social',
+  'educational': 'Educacional',
+  'date': 'Datas comemorativas',
+  'winback': 'Recuperação',
+  'featured': 'Destaque',
+}
+
 function GalleryEmpty({ hasAny }: { hasAny: boolean }) {
   return (
     <div className="rounded-3xl border border-dashed border-gray-200 bg-white p-12 text-center">
@@ -1458,9 +1470,18 @@ function GalleryEmpty({ hasAny }: { hasAny: boolean }) {
 function GalleryPreview({ asset, onClose }: { asset: GalleryAsset; onClose: () => void }) {
   const url = asset.fileUrl || ''
   const tags: string[] = Array.isArray(asset.metadata?.studio?.tags) ? asset.metadata.studio.tags : []
-  const productTag = tags.find((t) => t.startsWith('product:'))?.split(':')[1]
+  /* The product name was added as a tag (`productName:Alho 500g`) starting
+   * from this version — older assets only have `product:<id>`. The studio
+   * normalizer lower-cases tags before storing, so we match case-insensitive.
+   * Show the friendly name when present, fall back to the raw id otherwise. */
+  const productNameTag = tags.find((t) => t.toLowerCase().startsWith('productname:'))?.slice('productname:'.length)
+  const productIdTag = tags.find((t) => t.toLowerCase().startsWith('product:'))?.split(':')[1]
+  const productLabel = productNameTag || productIdTag || ''
+  /* Section name from id — same idea, but section ids are stable so a tiny
+   * lookup table works. */
   const sectionTag = tags.find((t) => t.startsWith('section:'))?.split(':')[1]
   const SectionTagIcon = sectionTag ? sectionIconForId(sectionTag) : Sparkles
+  const sectionLabel = sectionTag ? SECTION_LABEL_BY_ID[sectionTag] || sectionTag : 'Sem seção'
   const created = asset.createdAt ? new Date(asset.createdAt).toLocaleString('pt-BR') : ''
 
   return (
@@ -1486,7 +1507,7 @@ function GalleryPreview({ asset, onClose }: { asset: GalleryAsset; onClose: () =
               <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-gray-400">Criativo</p>
               <p className="text-[14px] font-bold text-gray-900 mt-0.5 inline-flex items-center gap-1.5">
                 <SectionTagIcon size={13} strokeWidth={2} className="text-gray-700" />
-                {sectionTag || 'Sem seção'}
+                {sectionLabel}
               </p>
             </div>
             <button onClick={onClose} aria-label="Fechar" className="w-8 h-8 grid place-items-center rounded-full hover:bg-gray-100 transition">
@@ -1494,10 +1515,10 @@ function GalleryPreview({ asset, onClose }: { asset: GalleryAsset; onClose: () =
             </button>
           </header>
           <div className="flex-1 overflow-y-auto p-5 space-y-3 text-[12px]">
-            {productTag && (
+            {productLabel && (
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">Produto</p>
-                <p className="text-gray-700 font-mono break-all">{productTag}</p>
+                <p className="text-gray-700 break-words">{productLabel}</p>
               </div>
             )}
             {created && (

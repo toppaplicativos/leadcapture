@@ -71,8 +71,10 @@ function resolveSection(pathname: string): string {
   return ROUTE_MAP[pathname] || 'dashboard'
 }
 
-/* ── Nav config ── */
-const NAV_ITEMS: { key: string; path: string; icon: any; label: string; group: string }[] = [
+/* ── Nav config ──
+ *   `badge` (optional) renders a small pill next to the label — we use it
+ *   to flag new features without redesigning the sidebar. */
+const NAV_ITEMS: { key: string; path: string; icon: any; label: string; group: string; badge?: string }[] = [
   { key: 'dashboard', path: '/admin', icon: LayoutDashboard, label: 'Painel', group: 'main' },
   { key: 'leads', path: '/leads', icon: Users, label: 'Leads', group: 'main' },
   { key: 'clientes', path: '/clientes', icon: Users, label: 'Clientes', group: 'main' },
@@ -80,7 +82,7 @@ const NAV_ITEMS: { key: string; path: string; icon: any; label: string; group: s
   { key: 'mensagens', path: '/mensagens', icon: MessageSquare, label: 'Mensagens', group: 'main' },
   { key: 'campanhas', path: '/campanhas', icon: Megaphone, label: 'Campanhas', group: 'main' },
   { key: 'automacoes', path: '/automacoes', icon: Zap, label: 'Automacoes', group: 'main' },
-  { key: 'criativos', path: '/criativos', icon: Palette, label: 'Criativos IA', group: 'main' },
+  { key: 'criativos', path: '/criativos', icon: Palette, label: 'Criativos IA', group: 'main', badge: 'Novo' },
   { key: 'agente', path: '/agente', icon: Bot, label: 'Agente IA', group: 'main' },
   { key: 'whatsapp', path: '/whatsapp', icon: Phone, label: 'WhatsApp', group: 'main' },
   { key: 'produtos', path: '/produtos', icon: Package, label: 'Produtos', group: 'loja' },
@@ -215,7 +217,15 @@ export function AdminShell({ children }: { children?: ReactNode }) {
           strokeWidth={active ? 2 : 1.75}
           className={active ? 'text-gray-900' : 'text-gray-400'}
         />
-        <span className="truncate">{item.label}</span>
+        <span className="truncate flex-1 text-left">{item.label}</span>
+        {item.badge && (
+          <span
+            aria-label={`${item.label} é uma novidade`}
+            className="ml-auto inline-flex items-center px-1.5 h-[18px] rounded-full bg-violet-600 text-white text-[9px] font-bold tracking-wider uppercase shrink-0"
+          >
+            {item.badge}
+          </span>
+        )}
       </button>
     )
   }

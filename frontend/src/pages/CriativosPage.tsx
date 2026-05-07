@@ -18,6 +18,7 @@ import { Link } from 'react-router-dom'
 import {
   Sparkles, Loader2, Search, X, ArrowRight, Download, RefreshCw,
   ImageIcon, ChevronLeft, Wrench, Tag, Star, Zap, Send, CheckCircle2,
+  Images, LayoutGrid, Eye,
 } from 'lucide-react'
 
 /* ── Auth helpers (matches the rest of the admin app) ─────────────── */
@@ -94,7 +95,10 @@ const SECTION_TINT: Record<string, { bg: string; ring: string; text: string; ico
 /* ══════════════════════════════════════════════════════════════════
  * Page
  * ══════════════════════════════════════════════════════════════════ */
+type Tab = 'create' | 'gallery'
+
 export function CriativosPage() {
+  const [tab, setTab] = useState<Tab>('create')
   const [sections, setSections] = useState<Section[]>([])
   const [suggestions, setSuggestions] = useState<Suggestion[]>([])
   const [loadingMeta, setLoadingMeta] = useState(true)
@@ -109,6 +113,9 @@ export function CriativosPage() {
   } | null>(null)
   const [generatedAssets, setGeneratedAssets] = useState<GeneratedAsset[] | null>(null)
   const [generationError, setGenerationError] = useState<string | null>(null)
+  /* Bumped each time a generation completes so the Gallery tab refetches
+   * when the user switches over. */
+  const [galleryRefreshKey, setGalleryRefreshKey] = useState(0)
 
   /* Initial fetch: sections + suggestions in parallel. */
   useEffect(() => {
@@ -161,6 +168,8 @@ export function CriativosPage() {
       const data = await r.json()
       if (!r.ok) throw new Error(data.error || 'Falha ao gerar criativo')
       setGeneratedAssets(data.assets || [])
+      /* Make sure the gallery picks up new assets next time it's opened. */
+      setGalleryRefreshKey((k) => k + 1)
     } catch (err: any) {
       setGenerationError(err?.message || 'Erro inesperado')
     }
@@ -192,9 +201,9 @@ export function CriativosPage() {
     )
   }
 
-  /* ── Render: home grid ────────────────────────────────────────── */
+  /* ── Render: home (with tabs) ─────────────────────────────────── */
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <header className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h2 className="text-[26px] font-bold text-gray-900 tracking-tight">Criativos</h2>
@@ -211,39 +220,51 @@ export function CriativosPage() {
         </Link>
       </header>
 
-      {/* ── Suggestions row ─ */}
-      {suggestions.length > 0 && (
-        <section>
-          <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-gray-400 mb-2">
-            ⚡ Sugestões pra hoje
-          </p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {suggestions.map((s) => (
-              <SuggestionCard key={`${s.productId}-${s.sectionId}`} suggestion={s} onClick={() => startFromSuggestion(s)} />
-            ))}
-          </div>
-        </section>
-      )}
+      {/* Tab switcher */}
+      <div role="tablist" aria-label="Modo da página" className="inline-flex p-1 rounded-full bg-gray-100">
+        <TabButton active={tab === 'create'} onClick={() => setTab('create')} icon={Sparkles} label="Criar" />
+        <TabButton active={tab === 'gallery'} onClick={() => setTab('gallery')} icon={Images} label="Galeria" />
+      </div>
 
-      {/* ── Sections grid ─ */}
-      <section>
-        <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-gray-400 mb-2">
-          🎨 Tipo de criativo
-        </p>
-        {loadingMeta ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-            {Array.from({ length: 7 }).map((_, i) => (
-              <div key={i} className="h-32 rounded-2xl skeleton" />
-            ))}
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-            {sections.map((s) => (
-              <SectionCard key={s.id} section={s} onClick={() => startFromSection(s.id)} />
-            ))}
-          </div>
-        )}
-      </section>
+      {tab === 'create' ? (
+        <>
+          {/* ── Suggestions row ─ */}
+          {suggestions.length > 0 && (
+            <section>
+              <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-gray-400 mb-2">
+                ⚡ Sugestões pra hoje
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {suggestions.map((s) => (
+                  <SuggestionCard key={`${s.productId}-${s.sectionId}`} suggestion={s} onClick={() => startFromSuggestion(s)} />
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* ── Sections grid ─ */}
+          <section>
+            <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-gray-400 mb-2">
+              🎨 Tipo de criativo
+            </p>
+            {loadingMeta ? (
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                {Array.from({ length: 7 }).map((_, i) => (
+                  <div key={i} className="h-32 rounded-2xl skeleton" />
+                ))}
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                {sections.map((s) => (
+                  <SectionCard key={s.id} section={s} onClick={() => startFromSection(s.id)} />
+                ))}
+              </div>
+            )}
+          </section>
+        </>
+      ) : (
+        <GalleryView refreshKey={galleryRefreshKey} sections={sections} />
+      )}
 
       {/* ── Product picker modal ─ */}
       {pickerOpen && (
@@ -254,6 +275,22 @@ export function CriativosPage() {
         />
       )}
     </div>
+  )
+}
+
+function TabButton({ active, onClick, icon: Icon, label }: { active: boolean; onClick: () => void; icon: any; label: string }) {
+  return (
+    <button
+      role="tab"
+      aria-selected={active}
+      onClick={onClick}
+      className={`inline-flex items-center gap-1.5 h-8 px-3.5 rounded-full text-[12px] font-semibold transition ${
+        active ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-900'
+      }`}
+    >
+      <Icon size={13} strokeWidth={2} />
+      {label}
+    </button>
   )
 }
 
@@ -599,6 +636,274 @@ function AssetCard({ asset }: { asset: GeneratedAsset }) {
         >
           <Send size={13} strokeWidth={2} />
         </button>
+      </div>
+    </div>
+  )
+}
+
+/* ══════════════════════════════════════════════════════════════════
+ * GalleryView — every asset generated for this brand, with filters
+ *
+ * Reuses /api/ai/creatives/studio/gallery (existing endpoint). The
+ * endpoint already scopes by brand via x-brand-id header. We do extra
+ * client-side filtering by section tag (`section:promo`, etc) since
+ * the auto-compose tags assets that way.
+ * ══════════════════════════════════════════════════════════════════ */
+
+interface GalleryAsset {
+  id: string
+  fileUrl?: string
+  prompt?: string
+  createdAt?: string
+  metadata?: any
+}
+
+function GalleryView({ refreshKey, sections }: { refreshKey: number; sections: Section[] }) {
+  const [assets, setAssets] = useState<GalleryAsset[]>([])
+  const [loading, setLoading] = useState(true)
+  const [activeSection, setActiveSection] = useState<string>('all')
+  const [previewAsset, setPreviewAsset] = useState<GalleryAsset | null>(null)
+  const [layoutDense, setLayoutDense] = useState(false)
+
+  useEffect(() => {
+    setLoading(true)
+    fetch('/api/ai/creatives/studio/gallery?limit=200', { headers: getHeaders() })
+      .then((r) => r.json())
+      .then((d) => {
+        const list: GalleryAsset[] = d.assets || d.data || []
+        /* Sort newest first — backend usually does this but be defensive. */
+        list.sort((a, b) => {
+          const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0
+          const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0
+          return tb - ta
+        })
+        setAssets(list)
+      })
+      .catch(() => setAssets([]))
+      .finally(() => setLoading(false))
+  }, [refreshKey])
+
+  /* Tag-based filter. Uploads (source != gemini) and references aren't shown
+   * — only generated outputs. */
+  const filtered = useMemo(() => {
+    return assets.filter((a) => {
+      const md = a.metadata || {}
+      const studio = md.studio || {}
+      const tags: string[] = Array.isArray(studio.tags) ? studio.tags : []
+      /* Skip uploads — they're sources, not outputs. */
+      const isUpload = String(md.source || '').includes('upload') || studio.imageType === 'product' || studio.imageType === 'reference' || studio.imageType === 'background'
+      if (isUpload) return false
+      if (activeSection === 'all') return true
+      return tags.includes(`section:${activeSection}`)
+    })
+  }, [assets, activeSection])
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2 flex-wrap">
+        {/* Section filter chips */}
+        <button
+          onClick={() => setActiveSection('all')}
+          className={`h-8 px-3 rounded-full text-[11px] font-semibold transition ${
+            activeSection === 'all' ? 'bg-gray-900 text-white' : 'bg-white text-gray-600 ring-1 ring-gray-200 hover:bg-gray-50'
+          }`}
+        >
+          Todos
+        </button>
+        {sections.map((s) => (
+          <button
+            key={s.id}
+            onClick={() => setActiveSection(s.id)}
+            className={`inline-flex items-center gap-1 h-8 px-3 rounded-full text-[11px] font-semibold transition ${
+              activeSection === s.id ? 'bg-gray-900 text-white' : 'bg-white text-gray-600 ring-1 ring-gray-200 hover:bg-gray-50'
+            }`}
+          >
+            <span>{s.emoji}</span>
+            {s.label}
+          </button>
+        ))}
+        <span className="ml-auto inline-flex items-center gap-1.5">
+          <button
+            onClick={() => setLayoutDense(false)}
+            className={`w-8 h-8 grid place-items-center rounded-full transition ${
+              !layoutDense ? 'bg-gray-900 text-white' : 'bg-white text-gray-500 ring-1 ring-gray-200'
+            }`}
+            aria-label="Grade confortável"
+            title="Confortável"
+          >
+            <LayoutGrid size={13} />
+          </button>
+          <button
+            onClick={() => setLayoutDense(true)}
+            className={`w-8 h-8 grid place-items-center rounded-full transition ${
+              layoutDense ? 'bg-gray-900 text-white' : 'bg-white text-gray-500 ring-1 ring-gray-200'
+            }`}
+            aria-label="Grade densa"
+            title="Densa"
+          >
+            <Images size={13} />
+          </button>
+        </span>
+      </div>
+
+      {loading ? (
+        <div className={`grid gap-2 ${layoutDense ? 'grid-cols-3 sm:grid-cols-4 lg:grid-cols-6' : 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4'}`}>
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="aspect-square rounded-2xl skeleton" />
+          ))}
+        </div>
+      ) : filtered.length === 0 ? (
+        <GalleryEmpty hasAny={assets.length > 0} />
+      ) : (
+        <>
+          <p className="text-[11px] text-gray-500 tabular-nums">
+            {filtered.length} criativo{filtered.length > 1 ? 's' : ''} {activeSection !== 'all' ? `em ${sections.find((s) => s.id === activeSection)?.label}` : 'no total'}
+          </p>
+          <div className={`grid gap-2 ${layoutDense ? 'grid-cols-3 sm:grid-cols-4 lg:grid-cols-6' : 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4'}`}>
+            {filtered.map((a) => (
+              <GalleryThumb key={a.id} asset={a} onOpen={() => setPreviewAsset(a)} />
+            ))}
+          </div>
+        </>
+      )}
+
+      {previewAsset && <GalleryPreview asset={previewAsset} onClose={() => setPreviewAsset(null)} />}
+    </div>
+  )
+}
+
+function GalleryThumb({ asset, onOpen }: { asset: GalleryAsset; onOpen: () => void }) {
+  const tags: string[] = Array.isArray(asset.metadata?.studio?.tags) ? asset.metadata.studio.tags : []
+  const sectionTag = tags.find((t) => t.startsWith('section:'))?.split(':')[1]
+  const tint = sectionTag ? SECTION_TINT[sectionTag] : null
+  return (
+    <button
+      onClick={onOpen}
+      className="group relative rounded-2xl overflow-hidden bg-gray-100 aspect-square hover:ring-2 hover:ring-gray-900 transition"
+    >
+      {asset.fileUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={asset.fileUrl} alt="criativo" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+      ) : (
+        <div className="w-full h-full grid place-items-center"><ImageIcon size={24} className="text-gray-300" /></div>
+      )}
+      {tint && (
+        <span className={`absolute top-1.5 left-1.5 inline-flex items-center px-1.5 h-5 rounded-full ${tint.bg} ring-1 ${tint.ring} ${tint.text} text-[9px] font-bold uppercase tracking-wider`}>
+          {sections_emoji_for(sectionTag!)}
+        </span>
+      )}
+      <span className="absolute inset-0 grid place-items-center bg-black/0 group-hover:bg-black/30 transition-colors">
+        <Eye size={20} className="text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+      </span>
+    </button>
+  )
+}
+
+/* Tiny inline lookup — avoids re-importing the SECTION_INDEX from backend. */
+function sections_emoji_for(id: string): string {
+  const map: Record<string, string> = {
+    'promo': '🎯', 'launch': '🚀', 'social-proof': '💬',
+    'educational': '📚', 'date': '🎉', 'winback': '🔁', 'featured': '⭐',
+  }
+  return map[id] || '✨'
+}
+
+function GalleryEmpty({ hasAny }: { hasAny: boolean }) {
+  return (
+    <div className="rounded-3xl border border-dashed border-gray-200 bg-white p-12 text-center">
+      <div className="w-14 h-14 rounded-2xl bg-gray-100 grid place-items-center mx-auto mb-3">
+        <Images size={22} className="text-gray-400" strokeWidth={1.5} />
+      </div>
+      <p className="text-[14px] font-semibold text-gray-900">
+        {hasAny ? 'Nenhum criativo nessa seção ainda' : 'Sua galeria está vazia'}
+      </p>
+      <p className="text-[12px] text-gray-500 mt-1 max-w-sm mx-auto">
+        {hasAny
+          ? 'Tente outro filtro ou volte pra Criar e gere um novo criativo dessa seção.'
+          : 'Volte pra aba Criar, escolha uma seção e selecione um produto. As imagens geradas vão aparecer aqui.'}
+      </p>
+    </div>
+  )
+}
+
+function GalleryPreview({ asset, onClose }: { asset: GalleryAsset; onClose: () => void }) {
+  const url = asset.fileUrl || ''
+  const tags: string[] = Array.isArray(asset.metadata?.studio?.tags) ? asset.metadata.studio.tags : []
+  const productTag = tags.find((t) => t.startsWith('product:'))?.split(':')[1]
+  const sectionTag = tags.find((t) => t.startsWith('section:'))?.split(':')[1]
+  const sectionEmoji = sectionTag ? sections_emoji_for(sectionTag) : ''
+  const created = asset.createdAt ? new Date(asset.createdAt).toLocaleString('pt-BR') : ''
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm grid place-items-center p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col sm:flex-row overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex-1 bg-gray-100 grid place-items-center min-h-[300px] sm:min-h-0">
+          {url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={url} alt="criativo" className="max-w-full max-h-[80vh] object-contain" />
+          ) : (
+            <ImageIcon size={48} className="text-gray-300" />
+          )}
+        </div>
+        <aside className="sm:w-[280px] sm:shrink-0 flex flex-col">
+          <header className="px-5 py-4 border-b border-gray-100 flex items-start justify-between gap-2">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-gray-400">Criativo</p>
+              <p className="text-[14px] font-bold text-gray-900 mt-0.5">
+                {sectionEmoji} {sectionTag || 'Sem seção'}
+              </p>
+            </div>
+            <button onClick={onClose} aria-label="Fechar" className="w-8 h-8 grid place-items-center rounded-full hover:bg-gray-100 transition">
+              <X size={15} strokeWidth={2} />
+            </button>
+          </header>
+          <div className="flex-1 overflow-y-auto p-5 space-y-3 text-[12px]">
+            {productTag && (
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">Produto</p>
+                <p className="text-gray-700 font-mono break-all">{productTag}</p>
+              </div>
+            )}
+            {created && (
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">Gerado em</p>
+                <p className="text-gray-700">{created}</p>
+              </div>
+            )}
+            {asset.prompt && (
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">Prompt</p>
+                <p className="text-gray-600 leading-relaxed line-clamp-6">{asset.prompt}</p>
+              </div>
+            )}
+          </div>
+          <footer className="px-5 py-4 border-t border-gray-100 flex items-center gap-2">
+            <a
+              href={url}
+              download
+              target="_blank"
+              rel="noreferrer"
+              className="flex-1 inline-flex items-center justify-center gap-1.5 h-10 rounded-xl bg-gray-900 text-white text-[13px] font-semibold hover:bg-gray-800 active:scale-[0.98] transition"
+            >
+              <Download size={14} strokeWidth={2} />
+              Baixar PNG
+            </a>
+            <button
+              aria-label="Enviar"
+              disabled
+              className="h-10 w-10 grid place-items-center rounded-xl bg-white text-gray-600 ring-1 ring-gray-200 hover:bg-gray-50 transition disabled:opacity-50"
+              title="Enviar para campanha (em breve)"
+            >
+              <Send size={14} strokeWidth={2} />
+            </button>
+          </footer>
+        </aside>
       </div>
     </div>
   )

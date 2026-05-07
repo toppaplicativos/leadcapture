@@ -7,6 +7,47 @@ import { query, queryOne, update } from "../config/database";
 import { logger } from "../utils/logger";
 import { integrationService } from "./integrations";
 
+/* `sharp` is required as a runtime dep but loaded lazily — keeps the
+ * cold-start cheap for environments that never call image generation. */
+async function getSharp(): Promise<any> {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const mod = await import("sharp" as any);
+  return (mod as any).default || mod;
+}
+
+/**
+ * Force the buffer to the exact aspect ratio. Models lie about respecting
+ * "1:1" in the prompt — they often return 1248x832 or similar — so we
+ * normalize on disk by cropping the center. `cover` fit means the output
+ * fully covers the target box and we trim the excess; nothing is letter-
+ * boxed. Output is always PNG, max edge 1600px to keep files reasonable.
+ */
+async function cropToAspectRatio(
+  inputBuffer: Buffer,
+  aspectRatio: "1:1" | "9:16" | "4:5" | "16:9"
+): Promise<Buffer> {
+  const sharp = await getSharp();
+  const meta = await sharp(inputBuffer).metadata();
+  const w = meta.width || 0;
+  const h = meta.height || 0;
+  if (!w || !h) return inputBuffer;
+
+  const [arW, arH] = aspectRatio.split(":").map((n) => parseInt(n, 10));
+  if (!arW || !arH) return inputBuffer;
+
+  /* Target longest edge — 1080 for square/4:5, 1080 wide for 16:9 (so the
+   * height ends up 607), 1080 tall for 9:16. Keeps file sizes sane and
+   * social-media-ready. */
+  const baseLong = 1080;
+  const targetW = arW >= arH ? baseLong : Math.round(baseLong * (arW / arH));
+  const targetH = arH >= arW ? baseLong : Math.round(baseLong * (arH / arW));
+
+  return await sharp(inputBuffer)
+    .resize(targetW, targetH, { fit: "cover", position: "centre" })
+    .png({ quality: 92, compressionLevel: 8 })
+    .toBuffer();
+}
+
 type VideoJobStatus = "processing" | "completed" | "failed";
 
 export type VideoJob = {
@@ -347,7 +388,9 @@ export class CreativeStudioService {
   /**
    * Image generation via xAI's Grok Imagine. Text-to-image only, so the
    * caller must encode product details directly in the prompt. Result is
-   * saved to disk and the relative URL returned, matching the Gemini path.
+   * cropped to the exact target aspect ratio (Grok ignores aspectRatio
+   * hints in the prompt and always returns 1024x768 — so we crop) and
+   * saved to disk. Returns the relative URL, matching the Gemini path.
    */
   private async requestImageFromGrok(
     userId: string,
@@ -373,12 +416,18 @@ export class CreativeStudioService {
     const grok = new GrokProvider(apiKey);
     const result = await grok.generateImage(prompt, { aspectRatio, n: 1 });
 
+    /* Force the exact aspect ratio via center-crop. Grok always renders
+     * 1024x768 regardless of the prompt — the user asked for 1:1, they
+     * get 1:1, no exceptions. */
+    const rawBuffer = Buffer.from(result.base64, "base64");
+    const cropped = await cropToAspectRatio(rawBuffer, aspectRatio);
+
     const safeUserId = this.sanitizePathPart(userId);
     const fileName = `${Date.now()}-${randomUUID()}-studio-grok.png`;
     const absoluteDir = path.resolve(process.cwd(), "uploads", "creatives", "images", safeUserId);
     await this.ensureDir(absoluteDir);
     const filePath = path.join(absoluteDir, fileName);
-    await fs.writeFile(filePath, Buffer.from(result.base64, "base64"));
+    await fs.writeFile(filePath, cropped);
 
     return {
       imageUrl: `/uploads/creatives/images/${safeUserId}/${fileName}`,
@@ -392,7 +441,8 @@ export class CreativeStudioService {
     model: string,
     prompt: string,
     imageInlineParts: Array<{ mimeType: string; data: string }>,
-    brandId?: string | null
+    brandId?: string | null,
+    aspectRatio: StudioAspectRatio = "1:1"
   ) {
     const apiKey = await this.getApiKey(userId, brandId);
     let response;
@@ -415,7 +465,13 @@ export class CreativeStudioService {
             }
           ],
           generationConfig: {
-            responseModalities: ["TEXT", "IMAGE"]
+            responseModalities: ["TEXT", "IMAGE"],
+            /* Gemini 2.5 Flash Image accepts an explicit aspect ratio hint
+             * — without this the model returns whatever ratio it feels like
+             * (typically 3:2 with a square subimage drawn inside). With
+             * imageConfig set the output frame matches; we still post-crop
+             * to enforce exact pixels. */
+            imageConfig: { aspectRatio }
           }
         },
         {
@@ -437,12 +493,18 @@ export class CreativeStudioService {
       throw new Error(`Image generation returned no inline image data${caption ? `: ${caption.slice(0, 500)}` : ""}`);
     }
 
+    /* Belt-and-suspenders: even with imageConfig set, Gemini sometimes
+     * still ships a non-conforming canvas. Crop to the exact ratio so
+     * what gets saved matches what the user asked for. */
+    const rawBuffer = Buffer.from(base64Image, "base64");
+    const cropped = await cropToAspectRatio(rawBuffer, aspectRatio);
+
     const safeUserId = this.sanitizePathPart(userId);
     const fileName = `${Date.now()}-${randomUUID()}-studio.png`;
     const absoluteDir = path.resolve(process.cwd(), "uploads", "creatives", "images", safeUserId);
     await this.ensureDir(absoluteDir);
     const filePath = path.join(absoluteDir, fileName);
-    await fs.writeFile(filePath, Buffer.from(base64Image, "base64"));
+    await fs.writeFile(filePath, cropped);
 
     return {
       imageUrl: `/uploads/creatives/images/${safeUserId}/${fileName}`,
@@ -1128,7 +1190,8 @@ export class CreativeStudioService {
               model,
               `${prompt}\n\nOutput ratio target: ${format}.`,
               inlineRefs.map((item) => ({ mimeType: item.mimeType, data: item.data })),
-              brandId
+              brandId,
+              format
             );
             result = r;
             modelUsed = model;
@@ -1200,7 +1263,8 @@ export class CreativeStudioService {
       model,
       prompt,
       [{ mimeType: sourceInline.mimeType, data: sourceInline.data }],
-      brandId
+      brandId,
+      (input.aspectRatio as StudioAspectRatio) || "1:1"
     );
 
     const tags = this.normalizeTagList(input.tags);

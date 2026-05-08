@@ -8,7 +8,7 @@ import {
   Wand2, Truck, Globe, Settings, Volume2, FileText, Link2, Receipt, Sparkles,
   CreditCard, QrCode, Banknote, User, BadgeCheck, Headphones, Brain,
   Boxes, Store, Laptop, CheckCircle2, Copy, Info, AlertTriangle, Star,
-  Instagram,
+  Camera,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { adminApi, inventoryApi } from '@/lib/api-admin'
@@ -87,7 +87,7 @@ const NAV_ITEMS: { key: string; path: string; icon: any; label: string; group: s
   { key: 'criativos', path: '/criativos', icon: Palette, label: 'Criativos IA', group: 'main', badge: 'Novo' },
   { key: 'agente', path: '/agente', icon: Bot, label: 'Agente IA', group: 'main' },
   { key: 'whatsapp', path: '/whatsapp', icon: Phone, label: 'WhatsApp', group: 'main' },
-  { key: 'instagram', path: '/instagram', icon: Instagram, label: 'Instagram', group: 'main', badge: 'Beta' },
+  { key: 'instagram', path: '/instagram', icon: Camera, label: 'Instagram', group: 'main', badge: 'Beta' },
   { key: 'produtos', path: '/produtos', icon: Package, label: 'Produtos', group: 'loja' },
   { key: 'pedidos', path: '/pedidos', icon: ShoppingCart, label: 'Pedidos', group: 'loja' },
   { key: 'tirar-pedido', path: '/tirar-pedido', icon: Receipt, label: 'Tirar Pedido', group: 'loja' },

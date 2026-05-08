@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {
-  Instagram, Home, Sparkles, LayoutGrid, BarChart3, Zap, Bot, CalendarDays, MessageCircle,
+  Camera, Home, Sparkles, LayoutGrid, BarChart3, Zap, Bot, CalendarDays, MessageCircle,
   RefreshCw, Plus, Eye, TrendingUp, Users, Heart, MessageSquare, Bookmark, Image,
   Video, Film, Play, Pause, Square, ChevronLeft, ChevronRight, Send, Clock, FileText,
   Upload, Search, List, Grid3X3, Loader2, CheckCircle2, AlertCircle, ExternalLink,
-  Trash2, Settings, Globe, Camera, X, MoreHorizontal,
+  Trash2, Settings, Globe, X, MoreHorizontal,
 } from 'lucide-react'
 
 const API = '/api/instagram'
@@ -80,7 +80,7 @@ export function InstagramPage() {
       <div className="flex items-center justify-between px-1 pb-4 border-b border-gray-100">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 via-pink-500 to-orange-400 grid place-items-center">
-            <Instagram size={20} className="text-white" />
+            <Camera size={20} className="text-white" />
           </div>
           <div>
             <h1 className="text-lg font-bold text-gray-900 tracking-tight">Instagram</h1>
@@ -168,7 +168,7 @@ function SetupView({ onSaved }: { onSaved: () => void }) {
     <div className="max-w-lg mx-auto py-12">
       <div className="text-center mb-8">
         <div className="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-br from-purple-500 via-pink-500 to-orange-400 grid place-items-center mb-4">
-          <Instagram size={28} className="text-white" />
+          <Camera size={28} className="text-white" />
         </div>
         <h1 className="text-xl font-bold text-gray-900 mb-1">Conectar Instagram</h1>
         <p className="text-sm text-gray-500">Configure o token da Meta para conectar sua conta</p>
@@ -196,7 +196,7 @@ function SetupView({ onSaved }: { onSaved: () => void }) {
         </div>
         {error && <p className="text-xs text-red-500">{error}</p>}
         <button onClick={save} disabled={saving} className="w-full py-2.5 rounded-lg bg-gradient-to-r from-purple-500 to-pink-500 text-white text-sm font-semibold hover:opacity-90 transition disabled:opacity-50 flex items-center justify-center gap-2">
-          {saving ? <Loader2 size={14} className="animate-spin" /> : <Instagram size={14} />}
+          {saving ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} />}
           {saving ? 'Conectando...' : 'Conectar Instagram'}
         </button>
       </div>
@@ -821,7 +821,7 @@ function AITab() {
 
       <div className="flex gap-1 mb-4 bg-gray-50 rounded-lg p-0.5 w-fit">
         {[
-          { key: 'marca' as const, label: 'Marca', icon: Instagram },
+          { key: 'marca' as const, label: 'Marca', icon: Camera },
           { key: 'faq' as const, label: 'FAQ', icon: FileText },
           { key: 'regras' as const, label: 'Regras', icon: Settings },
           { key: 'skills' as const, label: 'Skills', icon: Sparkles },

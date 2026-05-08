@@ -18,6 +18,7 @@
 import { CreativeStudioService } from "./creativeStudio";
 import { query, queryOne } from "../config/database";
 import { logger } from "../utils/logger";
+import { generateCompositionDirections } from "./compositionDirector";
 
 export type SectionId =
   | "promo"
@@ -68,9 +69,9 @@ export const SECTIONS: SectionDef[] = [
     iconName: "Rocket",
     description: "Novidade que acabou de entrar no catálogo.",
     formats: ["1:1", "9:16", "4:5"],
-    style: "premium commercial product ad, editorial lighting, sophisticated reveal feel",
-    scene: "minimal hero stage with soft gradient backdrop, product as centerpiece",
-    lighting: "soft directional studio light with subtle rim highlight",
+    style: "high-end editorial product reveal, Apple keynote sophistication, dramatic unveiling with generous negative space, magazine cover quality, restrained luxury",
+    scene: "theatrical hero stage with subtle gradient backdrop, product floating as absolute protagonist, cinematic depth-of-field separating subject from background, premium material textures visible",
+    lighting: "dramatic directional studio light with pronounced rim highlight separating product from background, soft key light revealing surface detail, subtle gradient shadow creating depth",
     textPosition: "top",
     textStyle: "elegant",
     ctaPool: ["Conhecer agora", "Ver detalhes", "Ser dos primeiros", "Quero conhecer"],
@@ -81,9 +82,9 @@ export const SECTIONS: SectionDef[] = [
     iconName: "Quote",
     description: "Depoimento, avaliação ou conquista para gerar confiança.",
     formats: ["1:1", "9:16"],
-    style: "warm authentic lifestyle product ad, real moment feel, trustworthy",
-    scene: "natural everyday environment matching product use, with depth blur",
-    lighting: "warm golden hour natural light",
+    style: "warm testimonial-driven product ad with human authenticity, decorative quotation marks as graphic element, star rating prominent, trust-building composition with real-world warmth, D2C brand storytelling quality",
+    scene: "warm lifestyle context with natural textures (wood, linen, marble), product present but secondary to the human voice, subtle depth blur creating intimacy, rating stars or quote marks as bold graphic anchors",
+    lighting: "warm golden hour directional light with soft fill, subtle orange/amber cast for authenticity, gentle shadows creating depth without harshness",
     textPosition: "center",
     textStyle: "minimal",
     ctaPool: ["Ver mais avaliações", "Quero também", "Provar agora", "Junte-se aos clientes"],
@@ -94,9 +95,9 @@ export const SECTIONS: SectionDef[] = [
     iconName: "BookOpen",
     description: "Explica como usar, benefícios, comparativo.",
     formats: ["1:1", "4:5"],
-    style: "clean informative product ad, infographic-friendly composition, educational",
-    scene: "clean studio surface with negative space for callouts and bullet points",
-    lighting: "even soft diffused light, balanced exposure",
+    style: "premium infographic-style product ad, Apple manual meets National Geographic clarity, structured visual hierarchy with numbered callouts, modern linear icons, organized benefit zones, clean but not boring",
+    scene: "clean premium studio surface with structured negative space for callouts and annotations, subtle grid lines or connector elements guiding the eye, product as reference anchor with information radiating outward",
+    lighting: "even soft diffused studio light with balanced exposure, subtle directional shadow under product for grounding, clean and clinical but premium — not flat",
     textPosition: "center",
     textStyle: "minimal",
     ctaPool: ["Saiba mais", "Como funciona", "Veja os detalhes", "Tirar dúvidas"],
@@ -107,9 +108,9 @@ export const SECTIONS: SectionDef[] = [
     iconName: "Gift",
     description: "Mães, Pais, Natal, Black Friday, aniversário da marca.",
     formats: ["1:1", "9:16"],
-    style: "celebratory festive product ad, themed seasonal decor, joyful",
-    scene: "themed seasonal scene matching the date, warm color palette",
-    lighting: "warm party lighting with bokeh highlights",
+    style: "refined celebratory product ad with tasteful seasonal elements, Tiffany-level festive elegance, themed decor as subtle texture not spectacle, gift-giving emotion, product as the perfect present, premium seasonal campaign quality",
+    scene: "sophisticated seasonal environment with curated thematic elements (ribbons, ornaments, florals, seasonal colors) as refined FRAMING around the product, not overwhelming it — the product is the gift, the decoration is the wrapping",
+    lighting: "warm celebratory lighting with soft bokeh highlights suggesting festivity, gentle color cast matching the season (warm gold for Christmas, soft pink for Mothers Day, dramatic red/black for Black Friday), depth creating atmosphere",
     textPosition: "bottom",
     textStyle: "bold",
     ctaPool: ["Comprar para presentear", "Aproveitar a data", "Garantir o seu", "Pedir agora"],
@@ -120,9 +121,9 @@ export const SECTIONS: SectionDef[] = [
     iconName: "Heart",
     description: "Trazer cliente inativo de volta, lembrar de carrinho.",
     formats: ["1:1", "9:16"],
-    style: "inviting reminder product ad, warm welcoming feel, gentle urgency",
-    scene: "cozy familiar environment, soft inviting backdrop",
-    lighting: "warm amber soft light",
+    style: "emotionally warm product ad with welcoming invitation, voucher/coupon as visual gift element, personal letter quality, gentle emotional pull with tangible incentive, comfort-brand storytelling",
+    scene: "cozy inviting environment with warm textures (wood, warm fabrics, soft surfaces), product presented as a familiar friend waiting, coupon/voucher badge as a highlighted gift element, atmosphere of homecoming warmth",
+    lighting: "warm amber golden hour light with soft diffusion, gentle lens flare or warm color cast, intimate directional light creating cozy shadows — evening at home feeling",
     textPosition: "center",
     textStyle: "minimal",
     ctaPool: ["Voltar a comprar", "Retomar pedido", "Sentimos sua falta", "Recuperar carrinho"],
@@ -133,9 +134,9 @@ export const SECTIONS: SectionDef[] = [
     iconName: "Award",
     description: "Showcase premium do produto, vitrine elegante.",
     formats: ["1:1", "4:5", "9:16"],
-    style: "premium luxury product showcase, magazine quality, aspirational",
-    scene: "elegant minimal stage, premium materials, deliberate composition",
-    lighting: "studio key light with controlled shadows, high-end product photography",
+    style: "luxury still-life product showcase with generous negative space, Hermès editorial quality, magazine cover reverence, product sovereignty with minimal typography intervention, material texture emphasis, quiet confidence",
+    scene: "elegant curated stage with premium surface materials (marble, dark wood, brushed metal, matte fabric), product as sovereign centerpiece with deliberate surrounding objects for context, gallery-like negative space declaring luxury",
+    lighting: "cinematic studio key light with sculpted controlled shadows, subtle rim light separating product from background, reflections on premium surfaces, high-end product photography with visible material quality",
     textPosition: "bottom",
     textStyle: "elegant",
     ctaPool: ["Conhecer o produto", "Ver no catálogo", "Quero esse", "Comprar agora"],
@@ -196,7 +197,7 @@ export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
     id: "launch-editorial",
     label: "Lançamento Editorial",
     description: "Tom de revelação — capa de revista, sofisticação, novidade.",
-    vibe: `TOM DA PEÇA: lançamento sofisticado, sensação de "acabou de chegar". Vibe editorial estilo capa de revista premium — minimalismo intencional, foco absoluto no produto, headline curta de impacto. Inspiração: Apple Keynote slides, Aesop product launches, editoriais de moda.`,
+    vibe: `TOM DA PEÇA: lançamento sofisticado, sensação de REVELAÇÃO TEATRAL. O produto está sendo desvelado ao mundo pela primeira vez — cada elemento da composição existe para servi-lo. Minimalismo INTENCIONAL (não vazio): negative space generoso é declaração de confiança, não falta de ideia. Tipografia editorial com personalidade — mix de pesos cria sofisticação. Iluminação como narrativa (rim light, spotlight, gradient sutil). Menos elementos = mais impacto. Inspiração: Apple Keynote slides, Aesop product reveals, capas da Kinfolk, editoriais Hermès.`,
     compositionHints: [
       "Hero do produto centralizado e dominante sobre stage minimalista, headline ultra-bold curta abaixo em uma linha, sem distrações.",
       "Hero ligeiramente off-center à esquerda com headline alinhada à direita em peso light grande, espaçamento generoso, tag NOVIDADE pequena no canto.",
@@ -211,7 +212,7 @@ export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
     id: "social-proof-testimonial",
     label: "Prova Social",
     description: "Tom de confiança — depoimento, avaliação, prova humana.",
-    vibe: `TOM DA PEÇA: prova social humana e quente. Confiança através de testemunho real ou avaliação. Tom acolhedor, vibração de "outras pessoas amaram, você também vai amar". Inspiração: campanhas de marcas D2C que usam clientes reais (Glossier, Nubank).`,
+    vibe: `TOM DA PEÇA: CONFIANÇA HUMANA transferida ao produto. A voz de quem já comprou é mais poderosa que qualquer copy da marca. O depoimento/avaliação é a ÂNCORA VISUAL — aspas decorativas gigantes ou estrelas oversize como elemento gráfico principal (não apenas informação). O produto aparece mas não domina: está ali como prova do que o cliente elogia. Tom quente, autêntico, acolhedor — como recomendação de amigo. Inspiração: campanhas Glossier com clientes reais, Nubank storytelling, reviews estilo editorial.`,
     compositionHints: [
       "5 estrelas em ouro centralizadas no topo, quote em itálico grande no centro, atribuição em peso bold abaixo, produto pequeno discreto no canto.",
       "Aspas decorativas gigantes em accent color como elemento gráfico, quote integrado às aspas, produto à direita em escala média.",
@@ -226,7 +227,7 @@ export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
     id: "educational-infographic",
     label: "Educacional Infográfico",
     description: "Tom didático — explicação clara, callouts, benefícios.",
-    vibe: `TOM DA PEÇA: educativo e clarificador. A peça deve ENSINAR algo sobre o produto (como usar, o que tem, por que escolher). Tom de manual premium estilo Apple/IKEA — geométrico, organizado, claro. Sem ser entediante.`,
+    vibe: `TOM DA PEÇA: o AHA MOMENT — a peça ENSINA algo que o cliente não sabia sobre o produto. Clareza é rainha: cada informação tem seu espaço definido num grid implícito. Callouts numerados, ícones lineares modernos, linhas conectoras finas guiando o olho. O produto é referência visual (apontam para ele) mas os benefícios são o conteúdo. Tipografia com clara distinção hierárquica entre título, corpo e callouts. Tom de manual premium Apple meets infográfico National Geographic — organizado, bonito, iluminador. NUNCA entediante.`,
     compositionHints: [
       "Produto central com 3-4 callouts numerados ao redor, linhas finas conectando os números ao produto, descrições curtas.",
       "Lista vertical de benefícios numerados à esquerda (1. 2. 3. 4.), produto à direita como referência visual.",
@@ -241,7 +242,7 @@ export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
     id: "date-festive",
     label: "Datas Festivas",
     description: "Tom comemorativo — celebrar uma data, edição especial.",
-    vibe: `TOM DA PEÇA: festivo e celebrativo, mas refinado. Peça sazonal pra uma data específica (Mães, Pais, Natal, Black Friday, Páscoa, aniversário da marca). Decoração temática SUTIL — sem cair no kitsch. Sensação de presente bem embrulhado.`,
+    vibe: `TOM DA PEÇA: CELEBRAÇÃO COM CLASSE. O produto está embrulhado em emoção sazonal — é um presente, uma experiência, um gesto de carinho. Elementos temáticos como TEXTURA refinada (fitas, ornamentos, flores sazonais), NUNCA como fantasia kitsch. A emoção da data (amor, gratidão, celebração) é SENTIDA no tom da peça. Tipografia pode ser mais expressiva/decorativa — a data permite personalidade. Ornamentos EMOLDURAM o produto, não competem com ele. Sensação de presente Tiffany bem embrulhado, não loja de variedades. Inspiração: campanhas sazonais Lancôme, Jo Malone Christmas, Lindt premium.`,
     compositionHints: [
       "Ornamentos temáticos delicados nos cantos superiores (folhas/corações/balões adaptado), hero centralizado, badge da data como tag rotacionada.",
       "Peça toda como cartão de presente: laço/fita decorativa cruzando a composição, produto como 'presente', headline emocional.",
@@ -256,7 +257,7 @@ export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
     id: "winback-warm",
     label: "Recuperação Acolhedora",
     description: "Tom emocional convidativo — sentimos sua falta + cupom.",
-    vibe: `TOM DA PEÇA: acolhedor e emocional. Convite de volta pra cliente inativo. Tons quentes (âmbar, coral) misturados com a cor da marca. Luz golden hour, vibe carta de boas-vindas. Cupom em destaque visível como gesto de carinho.`,
+    vibe: `TOM DA PEÇA: BEM-VINDO DE VOLTA — abraço quente em forma de anúncio. O cliente sumiu e a marca estende a mão com carinho genuíno + incentivo tangível (cupom/desconto como PRESENTE visual, não como promoção gritante). Headline emocional em tipografia expressiva que transmite calor. Paleta quente (âmbar, coral, dourado) misturada com cores da marca. Menos urgência, mais convite — a pressão é emocional, não temporal. Produto como 'velho amigo esperando'. Luz golden hour/amber criando sensação de fim de tarde acolhedor. Inspiração: campanhas de fidelidade Nespresso, cartas pessoais estilizadas.`,
     compositionHints: [
       "Headline emocional grande à esquerda ('Sentimos sua falta'), produto à direita flutuando, cupom como badge circular destacado.",
       "Composição centralizada: headline emocional no topo, cupom enorme no meio (tipo voucher), produto pequeno na base como teaser.",
@@ -271,7 +272,7 @@ export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
     id: "showcase-vitrine",
     label: "Showcase Vitrine",
     description: "Tom de vitrine luxury — produto soberano, mínima distração.",
-    vibe: `TOM DA PEÇA: vitrine luxury, foco TOTAL no produto. Mínima distração — bastante negative space, paleta sóbria, tipografia elegante. Inspiração: editoriais Hermès, campanhas Aesop, capas de revista de luxo. Produto soberano.`,
+    vibe: `TOM DA PEÇA: PEDESTAL DE LUXO — o produto é soberano e a composição existe para reverenciá-lo. Negative space GENEROSO como declaração de confiança e luxo silencioso. Produto em escala dominante com detalhes de textura e material visíveis. Iluminação cinematográfica como segundo protagonista (luz E sombra contam a história). Tipografia elegante e MÍNIMA — poucas palavras, cada uma com peso. Composição still-life com intenção de curadoria de galeria. A marca é assinatura discreta, não grito. Inspiração: editoriais Hermès, campanhas Aesop, capas Kinfolk, vitrines Celine.`,
     compositionHints: [
       "Produto absolutamente centralizado em hero shot, nome do produto em tipografia editorial elegante na base, espaçamento generoso ao redor.",
       "Produto off-center sobre fundo gradiente luxury, copy minimal alinhada ao canto oposto em peso light.",
@@ -1023,6 +1024,33 @@ export async function autoComposeAndGenerate(
   const brand = input.brandId ? await loadBrand(input.brandId) : null;
 
   const studioParams = composeStudioParams(product, section, brand, input.overrides || {});
+
+  /* Dynamic composition: replace static rotation hints with LLM-generated
+   * directions so every generation has a unique layout. Falls back to the
+   * static hints silently if the LLM call fails or times out. */
+  try {
+    const dynamicDirections = await generateCompositionDirections({
+      sectionId: section.id,
+      layoutVibe: (studioParams as any).layoutVibe || "",
+      productName: product.name,
+      productCategory: product.category,
+      brandName: brand?.name || null,
+      brandPalette: [brand?.primary_color, brand?.secondary_color].filter(Boolean).join(", ") || null,
+      formats: studioParams.formats,
+      variations: studioParams.variations,
+      scope: { userId, brandId: input.brandId || undefined },
+    });
+
+    if (dynamicDirections.length > 0) {
+      (studioParams as any).layoutCompositionHints = dynamicDirections.map((d) => d.compositionHint);
+      if (dynamicDirections[0].vibeEnhancement) {
+        (studioParams as any).layoutVibe = dynamicDirections[0].vibeEnhancement;
+      }
+      logger.info(`auto-compose: using ${dynamicDirections.length} dynamic composition directions`);
+    }
+  } catch (err: any) {
+    logger.warn(`auto-compose: dynamic composition skipped (${err?.message || err}), using static hints`);
+  }
 
   /* Asset hookup: register the product image (or reuse) so Gemini receives
    * the actual product photo as visual reference. */

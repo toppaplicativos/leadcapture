@@ -8,6 +8,7 @@ import {
   Wand2, Truck, Globe, Settings, Volume2, FileText, Link2, Receipt, Sparkles,
   CreditCard, QrCode, Banknote, User, BadgeCheck, Headphones, Brain,
   Boxes, Store, Laptop, CheckCircle2, Copy, Info, AlertTriangle, Star,
+  Instagram,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { adminApi, inventoryApi } from '@/lib/api-admin'
@@ -58,6 +59,7 @@ const ROUTE_MAP: Record<string, string> = {
   '/estoque': 'estoque',
   '/design': 'design',
   '/whatsapp': 'whatsapp',
+  '/instagram': 'instagram',
   '/pagamentos': 'pagamentos',
   '/frete': 'frete',
   '/dominio': 'dominio',
@@ -85,6 +87,7 @@ const NAV_ITEMS: { key: string; path: string; icon: any; label: string; group: s
   { key: 'criativos', path: '/criativos', icon: Palette, label: 'Criativos IA', group: 'main', badge: 'Novo' },
   { key: 'agente', path: '/agente', icon: Bot, label: 'Agente IA', group: 'main' },
   { key: 'whatsapp', path: '/whatsapp', icon: Phone, label: 'WhatsApp', group: 'main' },
+  { key: 'instagram', path: '/instagram', icon: Instagram, label: 'Instagram', group: 'main' },
   { key: 'produtos', path: '/produtos', icon: Package, label: 'Produtos', group: 'loja' },
   { key: 'pedidos', path: '/pedidos', icon: ShoppingCart, label: 'Pedidos', group: 'loja' },
   { key: 'tirar-pedido', path: '/tirar-pedido', icon: Receipt, label: 'Tirar Pedido', group: 'loja' },
@@ -2539,6 +2542,11 @@ export function ProductsView({ showToast }: { showToast: (t: string, tp?: 'ok' |
                 {p.active === false && (
                   <div className="absolute top-2 left-2 bg-red-500 text-white text-[8px] font-bold px-1.5 py-0.5 rounded">INATIVO</div>
                 )}
+                <button onClick={e => { e.stopPropagation(); deleteProduct(p.id) }}
+                  className="absolute top-2 right-2 p-1.5 rounded-lg bg-white/80 backdrop-blur-sm opacity-0 group-hover:opacity-100 hover:bg-red-50 transition-all shadow-sm"
+                  title="Excluir produto">
+                  <Trash2 size={13} className="text-gray-400 hover:text-red-500" />
+                </button>
               </div>
               <div className="p-3">
                 <p className="text-xs font-bold text-gray-900 truncate">{p.name}</p>
@@ -2612,6 +2620,7 @@ export function ProductsView({ showToast }: { showToast: (t: string, tp?: 'ok' |
           categories={categories}
           onClose={() => { setShowCreate(false); setEditProduct(null) }}
           onSaved={() => { setShowCreate(false); setEditProduct(null); load() }}
+          onDelete={async (id: string) => { await deleteProduct(id); setShowCreate(false); setEditProduct(null) }}
           showToast={showToast}
         />
       )}
@@ -2620,8 +2629,8 @@ export function ProductsView({ showToast }: { showToast: (t: string, tp?: 'ok' |
 }
 
 /* ── Product Editor Modal ── */
-function ProductEditorModal({ product, categories, onClose, onSaved, showToast }: {
-  product: any; categories: any[]; onClose: () => void; onSaved: () => void; showToast: (t: string, tp?: 'ok' | 'err') => void
+function ProductEditorModal({ product, categories, onClose, onSaved, onDelete, showToast }: {
+  product: any; categories: any[]; onClose: () => void; onSaved: () => void; onDelete?: (id: string) => void; showToast: (t: string, tp?: 'ok' | 'err') => void
 }) {
   const isEdit = !!product?.id
   const [saving, setSaving] = useState(false)
@@ -2791,7 +2800,15 @@ function ProductEditorModal({ product, categories, onClose, onSaved, showToast }
         </div>
 
         <div className="px-5 py-4 border-t border-gray-100 flex items-center justify-between shrink-0">
-          <button onClick={onClose} className="px-4 py-2.5 rounded-xl bg-gray-100 text-gray-600 text-xs font-semibold hover:bg-gray-200 transition">Cancelar</button>
+          <div className="flex items-center gap-2">
+            <button onClick={onClose} className="px-4 py-2.5 rounded-xl bg-gray-100 text-gray-600 text-xs font-semibold hover:bg-gray-200 transition">Cancelar</button>
+            {isEdit && onDelete && (
+              <button onClick={() => { if (confirm('Excluir este produto permanentemente?')) onDelete(product.id) }}
+                className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-red-500 text-xs font-semibold hover:bg-red-50 transition">
+                <Trash2 size={13} /> Excluir
+              </button>
+            )}
+          </div>
           <button onClick={save} disabled={saving}
             className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-blue-500 to-indigo-600 text-white text-xs font-bold hover:from-blue-600 hover:to-indigo-700 disabled:opacity-50 transition-all shadow-md">
             {saving ? 'Salvando...' : isEdit ? 'Salvar' : 'Criar Produto'}

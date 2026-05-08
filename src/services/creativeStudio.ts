@@ -1350,19 +1350,19 @@ export class CreativeStudioService {
       }
     }
 
+    let globalVariationIdx = 0;
     for (const format of formats) {
       const normalizedFormat = this.toFormatFromAspect(format);
       for (let i = 0; i < variations; i += 1) {
         for (const includeText of promptVersions) {
-          /* `i` is the variation index — passed into the prompt builder
-           * so each variation receives a DIFFERENT composition hint from
-           * the layout's pool (rotating). Without this, every variation
-           * gets the same prompt and the model returns near-identical
-           * outputs. */
+          /* globalVariationIdx ensures each format×variation combination
+           * picks a UNIQUE composition hint from the pool (static or
+           * dynamic). Without this, format[1] variation 0 would reuse
+           * the same hint as format[0] variation 0. */
           const prompt = this.buildProductStudioPrompt(
             { ...input, aspectRatio: format, provider },
             includeText,
-            i
+            globalVariationIdx
           );
 
           let result: { imageUrl: string; caption: string; model?: string };
@@ -1419,6 +1419,7 @@ export class CreativeStudioService {
 
           createdAssets.push(asset);
         }
+        globalVariationIdx += 1;
       }
     }
 

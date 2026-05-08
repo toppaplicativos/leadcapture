@@ -4,7 +4,7 @@ import {
   RefreshCw, Plus, Eye, TrendingUp, Users, Heart, MessageSquare, Bookmark, Image,
   Video, Film, Play, Pause, Square, ChevronLeft, ChevronRight, Send, Clock, FileText,
   Upload, Search, List, Grid3X3, Loader2, CheckCircle2, AlertCircle, ExternalLink,
-  Trash2, Settings, Globe, X, MoreHorizontal, ChevronDown, ChevronUp, Save, KeyRound,
+  Trash2, Settings, Globe, X, MoreHorizontal,
 } from 'lucide-react'
 
 const API = '/api/instagram'
@@ -41,7 +41,7 @@ export function InstagramPage() {
   const [profile, setProfile] = useState<any>(null)
   const [connection, setConnection] = useState<any>(null)
   const [loading, setLoading] = useState(true)
-  const [oauthMsg, setOauthMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [showConnectModal, setShowConnectModal] = useState(false)
 
   const loadProfile = useCallback(async () => {
     setLoading(true)
@@ -53,24 +53,7 @@ export function InstagramPage() {
     setLoading(false)
   }, [])
 
-  useEffect(() => {
-    // Handle OAuth redirect params
-    const params = new URLSearchParams(window.location.search)
-    const oauthSuccess = params.get('oauth_success')
-    const oauthError = params.get('oauth_error')
-    const username = params.get('username')
-
-    if (oauthSuccess) {
-      setOauthMsg({ type: 'success', text: username ? `Conectado com sucesso a @${username}` : 'Instagram conectado com sucesso!' })
-      // Clean URL
-      window.history.replaceState({}, '', window.location.pathname)
-    } else if (oauthError) {
-      setOauthMsg({ type: 'error', text: decodeURIComponent(oauthError) })
-      window.history.replaceState({}, '', window.location.pathname)
-    }
-
-    loadProfile()
-  }, [loadProfile])
+  useEffect(() => { loadProfile() }, [loadProfile])
 
   const isConnected = profile?.is_connected
 
@@ -84,18 +67,12 @@ export function InstagramPage() {
 
   if (!connection) {
     return (
-      <div>
-        {oauthMsg && (
-          <div className={`mx-4 mt-4 p-3 rounded-lg flex items-center gap-2 text-sm ${
-            oauthMsg.type === 'success' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200'
-          }`}>
-            {oauthMsg.type === 'success' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
-            {oauthMsg.text}
-            <button onClick={() => setOauthMsg(null)} className="ml-auto"><X size={14} /></button>
-          </div>
+      <>
+        <NotConnectedView onConnect={() => setShowConnectModal(true)} />
+        {showConnectModal && (
+          <ConnectModal onClose={() => setShowConnectModal(false)} onConnected={() => { setShowConnectModal(false); loadProfile() }} />
         )}
-        <SetupView onSaved={loadProfile} />
-      </div>
+      </>
     )
   }
 
@@ -105,168 +82,129 @@ export function InstagramPage() {
     drafts: 0,
   }
 
+  const handleReconnect = async () => {
+    if (!confirm('Desconectar a conta atual e reconectar?')) return
+    await api('/connection', { method: 'DELETE' })
+    setConnection(null)
+    setProfile(null)
+    setShowConnectModal(true)
+  }
+
   return (
-    <div className="space-y-0">
-      {/* Header */}
-      <div className="flex items-center justify-between px-1 pb-4 border-b border-gray-100">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 via-pink-500 to-orange-400 grid place-items-center">
-            <Camera size={20} className="text-white" />
-          </div>
-          <div>
-            <h1 className="text-lg font-bold text-gray-900 tracking-tight">Instagram</h1>
-            <div className="flex items-center gap-2 text-xs text-gray-500">
-              {isConnected && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />}
-              <span>@{profile?.username || '—'}</span>
-              <span className="text-gray-300">·</span>
-              <span>{profile?.followers_count || 0} seguidores</span>
+    <>
+      <div className="space-y-0">
+        {/* Header */}
+        <div className="flex items-center justify-between px-1 pb-4 border-b border-gray-100">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 via-pink-500 to-orange-400 grid place-items-center">
+              <Camera size={20} className="text-white" />
+            </div>
+            <div>
+              <h1 className="text-lg font-bold text-gray-900 tracking-tight">Instagram</h1>
+              <div className="flex items-center gap-2 text-xs text-gray-500">
+                {isConnected && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />}
+                <span>@{profile?.username || '—'}</span>
+                <span className="text-gray-300">·</span>
+                <span>{profile?.followers_count || 0} seguidores</span>
+              </div>
             </div>
           </div>
+          <div className="flex items-center gap-4 text-xs">
+            <div className="text-center"><p className="text-base font-bold text-gray-900">{stats.published}</p><p className="text-gray-400 uppercase tracking-wider text-[10px]">Publicados</p></div>
+            <div className="text-center"><p className="text-base font-bold text-gray-900">{stats.scheduled}</p><p className="text-gray-400 uppercase tracking-wider text-[10px]">Agendados</p></div>
+            <div className="text-center"><p className="text-base font-bold text-gray-900">{stats.drafts}</p><p className="text-gray-400 uppercase tracking-wider text-[10px]">Rascunhos</p></div>
+            <button onClick={handleReconnect} title="Reconectar conta" className="p-2 rounded-lg hover:bg-gray-100 transition text-gray-400 hover:text-gray-600">
+              <RefreshCw size={14} />
+            </button>
+          </div>
         </div>
-        <div className="flex items-center gap-4 text-xs">
-          <div className="text-center"><p className="text-base font-bold text-gray-900">{stats.published}</p><p className="text-gray-400 uppercase tracking-wider text-[10px]">Publicados</p></div>
-          <div className="text-center"><p className="text-base font-bold text-gray-900">{stats.scheduled}</p><p className="text-gray-400 uppercase tracking-wider text-[10px]">Agendados</p></div>
-          <div className="text-center"><p className="text-base font-bold text-gray-900">{stats.drafts}</p><p className="text-gray-400 uppercase tracking-wider text-[10px]">Rascunhos</p></div>
+
+        {/* Tabs */}
+        <div className="flex gap-1 overflow-x-auto border-b border-gray-100 -mx-1 px-1 scrollbar-none">
+          {TABS.map(t => (
+            <button
+              key={t.key}
+              onClick={() => setTab(t.key)}
+              className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium whitespace-nowrap border-b-2 transition-colors ${
+                tab === t.key
+                  ? 'border-purple-500 text-purple-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              <t.icon size={14} />
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Tab Content */}
+        <div className="pt-4">
+          {tab === 'overview' && <OverviewTab profile={profile} onRefresh={loadProfile} />}
+          {tab === 'create' && <CreateTab />}
+          {tab === 'posts' && <PostsTab />}
+          {tab === 'performance' && <PerformanceTab />}
+          {tab === 'automations' && <AutomationsTab />}
+          {tab === 'ai' && <AITab />}
+          {tab === 'calendar' && <CalendarTab />}
+          {tab === 'messages' && <MessagesTab />}
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-1 overflow-x-auto border-b border-gray-100 -mx-1 px-1 scrollbar-none">
-        {TABS.map(t => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium whitespace-nowrap border-b-2 transition-colors ${
-              tab === t.key
-                ? 'border-purple-500 text-purple-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            <t.icon size={14} />
-            {t.label}
-          </button>
-        ))}
-      </div>
+      {showConnectModal && (
+        <ConnectModal onClose={() => setShowConnectModal(false)} onConnected={() => { setShowConnectModal(false); loadProfile() }} />
+      )}
+    </>
+  )
+}
 
-      {/* Tab Content */}
-      <div className="pt-4">
-        {tab === 'overview' && <OverviewTab profile={profile} onRefresh={loadProfile} />}
-        {tab === 'create' && <CreateTab />}
-        {tab === 'posts' && <PostsTab />}
-        {tab === 'performance' && <PerformanceTab />}
-        {tab === 'automations' && <AutomationsTab />}
-        {tab === 'ai' && <AITab />}
-        {tab === 'calendar' && <CalendarTab />}
-        {tab === 'messages' && <MessagesTab />}
+/* ═══════════════════════════════════════════
+   NOT CONNECTED VIEW — clean empty state
+   ═══════════════════════════════════════════ */
+function NotConnectedView({ onConnect }: { onConnect: () => void }) {
+  return (
+    <div className="max-w-md mx-auto py-16 text-center">
+      <div className="w-20 h-20 mx-auto rounded-2xl bg-gradient-to-br from-purple-500 via-pink-500 to-orange-400 grid place-items-center mb-6 shadow-lg shadow-purple-200/50">
+        <Camera size={32} className="text-white" />
       </div>
+      <h1 className="text-xl font-bold text-gray-900 mb-2">Instagram</h1>
+      <p className="text-sm text-gray-500 mb-8 leading-relaxed">
+        Conecte uma conta Instagram Business para gerenciar posts, mensagens, metricas e automacoes em um so lugar.
+      </p>
+      <button
+        onClick={onConnect}
+        className="inline-flex items-center gap-2.5 px-8 py-3 rounded-xl bg-gradient-to-r from-purple-600 via-pink-500 to-orange-400 text-white text-sm font-semibold hover:opacity-90 transition shadow-sm"
+      >
+        <Camera size={18} />
+        Conectar Instagram
+      </button>
     </div>
   )
 }
 
 /* ═══════════════════════════════════════════
-   SETUP VIEW — shown when no connection
+   CONNECT MODAL — paste token to connect
    ═══════════════════════════════════════════ */
-function SetupView({ onSaved }: { onSaved: () => void }) {
-  const [showManual, setShowManual] = useState(false)
+function ConnectModal({ onClose, onConnected }: { onClose: () => void; onConnected: () => void }) {
   const [token, setToken] = useState('')
-  const [accountId, setAccountId] = useState('')
-  const [appId, setAppId] = useState('')
-  const [appSecret, setAppSecret] = useState('')
   const [saving, setSaving] = useState(false)
-  const [loadingOAuth, setLoadingOAuth] = useState(false)
   const [error, setError] = useState('')
+  const [result, setResult] = useState<any>(null)
 
-  // ─── Meta App Settings state ───
-  const [metaSettingsOpen, setMetaSettingsOpen] = useState(false)
-  const [metaAppId, setMetaAppId] = useState('')
-  const [metaAppSecret, setMetaAppSecret] = useState('')
-  const [metaWebhookToken, setMetaWebhookToken] = useState('')
-  const [metaRedirectUri, setMetaRedirectUri] = useState('')
-  const [metaHasAppId, setMetaHasAppId] = useState(false)
-  const [metaSettingsLoading, setMetaSettingsLoading] = useState(true)
-  const [metaSettingsSaving, setMetaSettingsSaving] = useState(false)
-  const [metaSettingsMsg, setMetaSettingsMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-
-  // Load Meta settings on mount
-  useEffect(() => {
-    setMetaSettingsLoading(true)
-    api('/settings')
-      .then((r: any) => {
-        if (r.success && r.settings) {
-          setMetaHasAppId(!!r.settings.has_app_id)
-          setMetaWebhookToken(r.settings.meta_webhook_verify_token || '')
-          setMetaRedirectUri(r.settings.redirect_uri || '')
-          // Don't pre-fill masked values into editable fields — keep empty
-          // User only sees masked preview + can type new values
-          if (!r.settings.has_app_id) {
-            setMetaSettingsOpen(true)
-          }
-        }
-      })
-      .catch(() => {})
-      .finally(() => setMetaSettingsLoading(false))
-  }, [])
-
-  const saveMetaSettings = async () => {
-    setMetaSettingsSaving(true)
-    setMetaSettingsMsg(null)
-    try {
-      const body: Record<string, string> = {}
-      if (metaAppId.trim()) body.meta_app_id = metaAppId.trim()
-      if (metaAppSecret.trim()) body.meta_app_secret = metaAppSecret.trim()
-      body.meta_webhook_verify_token = metaWebhookToken.trim()
-
-      const res = await api('/settings', {
-        method: 'POST',
-        body: JSON.stringify(body),
-      })
-      if (res.success) {
-        setMetaSettingsMsg({ type: 'success', text: 'Configuracoes salvas com sucesso' })
-        setMetaHasAppId(true)
-        // Clear sensitive fields after save
-        setMetaAppId('')
-        setMetaAppSecret('')
-      } else {
-        setMetaSettingsMsg({ type: 'error', text: res.error || 'Erro ao salvar' })
-      }
-    } catch (e: any) {
-      setMetaSettingsMsg({ type: 'error', text: e.message })
-    }
-    setMetaSettingsSaving(false)
-  }
-
-  const startOAuth = async () => {
-    setLoadingOAuth(true)
-    setError('')
-    try {
-      const res = await fetch('/api/meta/oauth/start', { headers: getHeaders() })
-      const data = await res.json()
-      if (data.success && data.url) {
-        window.location.href = data.url
-      } else {
-        setError(data.error || 'Erro ao iniciar login')
-        setLoadingOAuth(false)
-      }
-    } catch (e: any) {
-      setError(e.message)
-      setLoadingOAuth(false)
-    }
-  }
-
-  const save = async () => {
-    if (!token) return setError('Access Token obrigatorio')
+  const connect = async () => {
+    if (!token.trim()) return setError('Cole o Access Token para continuar')
     setSaving(true)
     setError('')
+    setResult(null)
     try {
       const res = await api('/connection', {
         method: 'POST',
-        body: JSON.stringify({ access_token: token, account_id: accountId, app_id: appId, app_secret: appSecret }),
+        body: JSON.stringify({ access_token: token.trim() }),
       })
       if (res.success) {
-        await api('/test', { method: 'POST' })
-        onSaved()
+        setResult(res.profile)
+        setTimeout(() => onConnected(), 1200)
       } else {
-        setError(res.error || 'Erro ao salvar')
+        setError(res.error || 'Erro ao conectar')
       }
     } catch (e: any) {
       setError(e.message)
@@ -275,183 +213,84 @@ function SetupView({ onSaved }: { onSaved: () => void }) {
   }
 
   return (
-    <div className="max-w-lg mx-auto py-12">
-      <div className="text-center mb-8">
-        <div className="w-16 h-16 mx-auto rounded-2xl bg-gradient-to-br from-purple-500 via-pink-500 to-orange-400 grid place-items-center mb-4">
-          <Camera size={28} className="text-white" />
-        </div>
-        <h1 className="text-xl font-bold text-gray-900 mb-1">Conectar Instagram</h1>
-        <p className="text-sm text-gray-500">Conecte sua conta Instagram Business para gerenciar tudo em um so lugar</p>
-      </div>
-
-      {/* ─── Meta App Settings (collapsible) ─── */}
-      <div className="mb-6 border border-gray-200 rounded-xl overflow-hidden bg-white">
-        <button
-          onClick={() => setMetaSettingsOpen(!metaSettingsOpen)}
-          className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-50 transition"
-        >
-          <div className="flex items-center gap-2">
-            <KeyRound size={16} className="text-gray-500" />
-            <span className="text-sm font-semibold text-gray-700">Configuracoes do App Meta</span>
-            {metaHasAppId && (
-              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-600">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> Configurado
-              </span>
-            )}
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden" onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-purple-500 via-pink-500 to-orange-400 grid place-items-center">
+              <Camera size={16} className="text-white" />
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-gray-900">Conectar Instagram</h2>
+              <p className="text-[11px] text-gray-400">Cole o token de acesso da conta</p>
+            </div>
           </div>
-          {metaSettingsOpen ? <ChevronUp size={16} className="text-gray-400" /> : <ChevronDown size={16} className="text-gray-400" />}
-        </button>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 transition text-gray-400">
+            <X size={16} />
+          </button>
+        </div>
 
-        {metaSettingsOpen && (
-          <div className="px-4 pb-4 space-y-3 border-t border-gray-100 pt-3">
-            <p className="text-[11px] text-gray-500">
-              Configure o App ID e Secret do Meta for Developers antes de conectar.
-            </p>
-
-            {metaSettingsLoading ? (
-              <div className="py-4 grid place-items-center">
-                <Loader2 size={16} className="animate-spin text-gray-300" />
+        {/* Body */}
+        <div className="px-6 py-5 space-y-4">
+          {result ? (
+            <div className="text-center py-4">
+              <CheckCircle2 size={40} className="mx-auto text-emerald-500 mb-3" />
+              <p className="text-sm font-semibold text-gray-900">
+                @{result.username} conectado!
+              </p>
+              <p className="text-xs text-gray-500 mt-1">
+                {result.followers_count || 0} seguidores · {result.media_count || 0} posts
+              </p>
+            </div>
+          ) : (
+            <>
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1.5 uppercase tracking-wider">
+                  Access Token
+                </label>
+                <textarea
+                  value={token}
+                  onChange={e => setToken(e.target.value)}
+                  placeholder="Cole aqui o token de acesso do Instagram Business"
+                  rows={4}
+                  className="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:border-purple-400 resize-none font-mono text-xs"
+                />
+                <p className="text-[10px] text-gray-400 mt-1.5">
+                  Obtido na plataforma Meta for Developers, na secao de tokens de acesso.
+                </p>
               </div>
-            ) : (
-              <>
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1 uppercase tracking-wider">
-                    Meta App ID
-                  </label>
-                  <input
-                    value={metaAppId}
-                    onChange={e => setMetaAppId(e.target.value)}
-                    placeholder={metaHasAppId ? 'Valor salvo (digite para alterar)' : 'ID do App Meta'}
-                    className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:border-purple-400"
-                  />
+
+              {error && (
+                <div className="p-3 rounded-lg bg-red-50 border border-red-100 flex items-start gap-2">
+                  <AlertCircle size={14} className="text-red-500 mt-0.5 shrink-0" />
+                  <p className="text-xs text-red-600">{error}</p>
                 </div>
+              )}
+            </>
+          )}
+        </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1 uppercase tracking-wider">
-                    Meta App Secret
-                  </label>
-                  <input
-                    type="password"
-                    value={metaAppSecret}
-                    onChange={e => setMetaAppSecret(e.target.value)}
-                    placeholder={metaHasAppId ? 'Valor salvo (digite para alterar)' : 'Secret do App Meta'}
-                    className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:border-purple-400"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1 uppercase tracking-wider">
-                    Webhook Verify Token
-                  </label>
-                  <input
-                    value={metaWebhookToken}
-                    onChange={e => setMetaWebhookToken(e.target.value)}
-                    placeholder="Token de verificacao do webhook"
-                    className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:border-purple-400"
-                  />
-                </div>
-
-                {metaRedirectUri && (
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-700 mb-1 uppercase tracking-wider">
-                      Redirect URI (somente leitura)
-                    </label>
-                    <input
-                      value={metaRedirectUri}
-                      readOnly
-                      className="w-full px-3 py-2 rounded-lg border border-gray-100 bg-gray-50 text-sm text-gray-500 cursor-default"
-                    />
-                    <p className="text-[10px] text-gray-400 mt-1">Use esta URL no Meta App Dashboard como Valid OAuth Redirect URI</p>
-                  </div>
-                )}
-
-                {metaSettingsMsg && (
-                  <div className={`p-2 rounded-lg flex items-center gap-2 text-xs ${
-                    metaSettingsMsg.type === 'success' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
-                  }`}>
-                    {metaSettingsMsg.type === 'success' ? <CheckCircle2 size={14} /> : <AlertCircle size={14} />}
-                    {metaSettingsMsg.text}
-                  </div>
-                )}
-
-                <button
-                  onClick={saveMetaSettings}
-                  disabled={metaSettingsSaving}
-                  className="w-full py-2.5 rounded-lg border border-gray-200 text-gray-700 text-sm font-semibold hover:bg-gray-50 transition disabled:opacity-50 flex items-center justify-center gap-2"
-                >
-                  {metaSettingsSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-                  {metaSettingsSaving ? 'Salvando...' : 'Salvar Configuracoes'}
-                </button>
-              </>
-            )}
+        {/* Footer */}
+        {!result && (
+          <div className="px-6 pb-5 flex gap-3">
+            <button
+              onClick={onClose}
+              className="flex-1 py-2.5 rounded-lg border border-gray-200 text-gray-600 text-sm font-medium hover:bg-gray-50 transition"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={connect}
+              disabled={saving || !token.trim()}
+              className="flex-1 py-2.5 rounded-lg bg-gradient-to-r from-purple-600 via-pink-500 to-orange-400 text-white text-sm font-semibold hover:opacity-90 transition disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {saving ? <Loader2 size={14} className="animate-spin" /> : <ExternalLink size={14} />}
+              {saving ? 'Validando...' : 'Conectar'}
+            </button>
           </div>
         )}
       </div>
-
-      {/* OAuth Login Button */}
-      <div className="space-y-3 mb-6">
-        <button
-          onClick={startOAuth}
-          disabled={loadingOAuth}
-          className="w-full py-3 rounded-xl bg-gradient-to-r from-purple-600 via-pink-500 to-orange-400 text-white text-sm font-semibold hover:opacity-90 transition disabled:opacity-50 flex items-center justify-center gap-2.5 shadow-sm"
-        >
-          {loadingOAuth ? (
-            <Loader2 size={16} className="animate-spin" />
-          ) : (
-            <Camera size={18} />
-          )}
-          {loadingOAuth ? 'Redirecionando...' : 'Continuar com Instagram'}
-        </button>
-        <p className="text-[10px] text-gray-400 text-center">
-          Voce sera redirecionado para o Instagram para autorizar o acesso a sua conta Business
-        </p>
-      </div>
-
-      {/* Divider */}
-      <div className="flex items-center gap-3 mb-6">
-        <div className="flex-1 h-px bg-gray-200" />
-        <span className="text-xs text-gray-400">ou configure manualmente</span>
-        <div className="flex-1 h-px bg-gray-200" />
-      </div>
-
-      {/* Manual Token Setup */}
-      {!showManual ? (
-        <button
-          onClick={() => setShowManual(true)}
-          className="w-full py-2.5 rounded-xl border border-gray-200 text-gray-600 text-sm font-medium hover:bg-gray-50 transition flex items-center justify-center gap-2"
-        >
-          <Settings size={14} />
-          Configurar com token manualmente
-        </button>
-      ) : (
-        <div className="space-y-4 bg-white border border-gray-100 rounded-xl p-5">
-          <div>
-            <label className="block text-xs font-semibold text-gray-700 mb-1 uppercase tracking-wider">Access Token</label>
-            <input value={token} onChange={e => setToken(e.target.value)} placeholder="Token de acesso do Meta for Developers" className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:border-purple-400" />
-            <p className="text-[10px] text-gray-400 mt-1">Obtido em developers.facebook.com</p>
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-gray-700 mb-1 uppercase tracking-wider">Account ID</label>
-            <input value={accountId} onChange={e => setAccountId(e.target.value)} placeholder="ID da conta Instagram Business" className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:border-purple-400" />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1 uppercase tracking-wider">App ID</label>
-              <input value={appId} onChange={e => setAppId(e.target.value)} placeholder="ID do App Meta" className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:border-purple-400" />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1 uppercase tracking-wider">App Secret</label>
-              <input value={appSecret} onChange={e => setAppSecret(e.target.value)} placeholder="Secret do App" className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:border-purple-400" />
-            </div>
-          </div>
-          <button onClick={save} disabled={saving} className="w-full py-2.5 rounded-lg bg-gradient-to-r from-purple-500 to-pink-500 text-white text-sm font-semibold hover:opacity-90 transition disabled:opacity-50 flex items-center justify-center gap-2">
-            {saving ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} />}
-            {saving ? 'Conectando...' : 'Conectar Instagram'}
-          </button>
-        </div>
-      )}
-
-      {error && <p className="text-xs text-red-500 text-center mt-3">{error}</p>}
     </div>
   )
 }

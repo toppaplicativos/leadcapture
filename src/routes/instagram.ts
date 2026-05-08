@@ -49,17 +49,58 @@ router.post("/connection", async (req: BrandRequest, res: Response) => {
   const userId = requireUser(req, res);
   if (!userId) return;
 
-  const { access_token, account_id, app_id, app_secret } = req.body;
+  const { access_token } = req.body;
   if (!access_token) return res.status(400).json({ error: "Access token obrigatorio" });
 
   try {
-    const conn = await instagramService.saveConnection(brandId, userId, {
+    // Step 1: Validate token by fetching profile from Instagram API
+    const profileResp = await fetch(
+      `https://graph.instagram.com/v21.0/me?fields=user_id,username,name,profile_picture_url,followers_count,follows_count,media_count,biography,website&access_token=${encodeURIComponent(access_token)}`
+    );
+
+    if (!profileResp.ok) {
+      const err: any = await profileResp.json().catch(() => ({}));
+      return res.status(400).json({ error: err?.error?.message || "Token invalido ou expirado" });
+    }
+
+    const profile: any = await profileResp.json();
+    const igUserId = profile.user_id || profile.id || "";
+
+    // Step 2: Get global app settings
+    const appId = (await settingsService.getSetting("meta_app_id")) || "";
+    const appSecret = (await settingsService.getSetting("meta_app_secret")) || "";
+
+    // Step 3: Save connection
+    await instagramService.saveConnection(brandId, userId, {
       access_token,
-      account_id: account_id || "",
-      app_id: app_id || "",
-      app_secret: app_secret || "",
+      account_id: igUserId,
+      app_id: appId,
+      app_secret: appSecret,
     });
-    res.json({ success: true, connection: conn });
+
+    // Step 4: Update profile info
+    await instagramService.updateConnectionProfile(brandId, {
+      ig_user_id: igUserId,
+      username: profile.username || "",
+      name: profile.name || "",
+      profile_picture_url: profile.profile_picture_url || "",
+      followers_count: profile.followers_count || 0,
+      follows_count: profile.follows_count || 0,
+      media_count: profile.media_count || 0,
+      biography: profile.biography || "",
+      website: profile.website || "",
+    });
+
+    res.json({
+      success: true,
+      profile: {
+        username: profile.username,
+        name: profile.name,
+        profile_picture_url: profile.profile_picture_url,
+        followers_count: profile.followers_count || 0,
+        media_count: profile.media_count || 0,
+      },
+    });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

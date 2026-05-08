@@ -60,7 +60,7 @@ export type InstagramMetrics = {
   created_at?: string;
 };
 
-const META_GRAPH_URL = "https://graph.facebook.com/v21.0";
+const IG_GRAPH_URL = "https://graph.instagram.com/v21.0";
 
 async function ensureTables() {
   await query(`
@@ -212,14 +212,16 @@ class InstagramService {
     }
 
     try {
+      // Instagram Business Login API uses graph.instagram.com and "me" endpoint
       const resp = await fetch(
-        `${META_GRAPH_URL}/${conn.account_id}?fields=id,username,name,profile_picture_url,followers_count,follows_count,media_count,biography,website&access_token=${conn.access_token}`
+        `${IG_GRAPH_URL}/me?fields=user_id,username,name,profile_picture_url,followers_count,follows_count,media_count,biography,website&access_token=${conn.access_token}`
       );
       if (!resp.ok) {
         const err: any = await resp.json().catch(() => ({}));
         return { ok: false, message: err?.error?.message || `HTTP ${resp.status}` };
       }
       const profile: any = await resp.json();
+      const igUserId = profile.user_id || profile.id || conn.account_id;
 
       await update(
         `UPDATE instagram_connections
@@ -228,13 +230,13 @@ class InstagramService {
              biography = ?, website = ?, is_active = true, updated_at = NOW()
          WHERE brand_id = ?`,
         [
-          profile.id, profile.username, profile.name, profile.profile_picture_url,
+          igUserId, profile.username, profile.name, profile.profile_picture_url,
           profile.followers_count || 0, profile.follows_count || 0, profile.media_count || 0,
           profile.biography || "", profile.website || "", brandId,
         ]
       );
 
-      return { ok: true, message: "Conectado com sucesso", profile };
+      return { ok: true, message: "Conectado com sucesso", profile: { ...profile, id: igUserId } };
     } catch (err: any) {
       return { ok: false, message: err.message || "Erro ao conectar" };
     }
@@ -271,7 +273,7 @@ class InstagramService {
 
     try {
       const resp = await fetch(
-        `${META_GRAPH_URL}/${conn.account_id}/media?fields=id,caption,media_type,media_url,thumbnail_url,permalink,timestamp,like_count,comments_count&limit=${limit}&access_token=${conn.access_token}`
+        `${IG_GRAPH_URL}/me/media?fields=id,caption,media_type,media_url,thumbnail_url,permalink,timestamp,like_count,comments_count&limit=${limit}&access_token=${conn.access_token}`
       );
       if (!resp.ok) return [];
       const data: any = await resp.json();
@@ -288,7 +290,7 @@ class InstagramService {
     try {
       const metrics = "impressions,reach,profile_views,accounts_engaged";
       const resp = await fetch(
-        `${META_GRAPH_URL}/${conn.account_id}/insights?metric=${metrics}&period=${period}&access_token=${conn.access_token}`
+        `${IG_GRAPH_URL}/me/insights?metric=${metrics}&period=${period}&access_token=${conn.access_token}`
       );
       if (!resp.ok) return null;
       return await resp.json();
@@ -412,7 +414,7 @@ class InstagramService {
 
       let containerId: string;
       if (post.media_type === "VIDEO" || post.media_type === "REELS") {
-        const resp = await fetch(`${META_GRAPH_URL}/${conn.account_id}/media`, {
+        const resp = await fetch(`${IG_GRAPH_URL}/me/media`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -425,7 +427,7 @@ class InstagramService {
         const d: any = await resp.json();
         containerId = d.id;
       } else {
-        const resp = await fetch(`${META_GRAPH_URL}/${conn.account_id}/media`, {
+        const resp = await fetch(`${IG_GRAPH_URL}/me/media`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -443,7 +445,7 @@ class InstagramService {
         return { ok: false, message: "Falha ao criar container de midia" };
       }
 
-      const pubResp = await fetch(`${META_GRAPH_URL}/${conn.account_id}/media_publish`, {
+      const pubResp = await fetch(`${IG_GRAPH_URL}/me/media_publish`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ creation_id: containerId, access_token: conn.access_token }),
@@ -473,7 +475,7 @@ class InstagramService {
 
     try {
       const resp = await fetch(
-        `${META_GRAPH_URL}/${conn.account_id}/conversations?fields=participants,messages{message,from,created_time}&platform=instagram&access_token=${conn.access_token}`
+        `${IG_GRAPH_URL}/me/conversations?fields=participants,messages{message,from,created_time}&platform=instagram&access_token=${conn.access_token}`
       );
       if (!resp.ok) return [];
       const data: any = await resp.json();

@@ -67,6 +67,7 @@ const AdminEmailsPage = lazy(() => import('@/pages/AdminEmailsPage').then(m => (
 const InstagramPage = lazy(() => import('@/pages/InstagramPage').then(m => ({ default: m.InstagramPage })))
 const PrivacyPolicyPage = lazy(() => import('@/pages/PrivacyPolicyPage').then(m => ({ default: m.PrivacyPolicyPage })))
 const DataDeletionPage = lazy(() => import('@/pages/DataDeletionPage').then(m => ({ default: m.DataDeletionPage })))
+const TermsOfServicePage = lazy(() => import('@/pages/TermsOfServicePage').then(m => ({ default: m.TermsOfServicePage })))
 
 /* ── Fallback ── */
 function RouteFallback() {
@@ -226,6 +227,8 @@ export default function App() {
           <Route path="/privacy/policy" element={<PrivacyPolicyPage />} />
           <Route path="/privacy/data-deletion" element={<DataDeletionPage />} />
           <Route path="/privacy/deletion-status" element={<DataDeletionPage />} />
+          <Route path="/terms" element={<TermsOfServicePage />} />
+          <Route path="/terms-of-service" element={<TermsOfServicePage />} />
 
           {/* ── Public signup flow ── */}
           <Route path="/cadastro" element={<CadastroPage />} />

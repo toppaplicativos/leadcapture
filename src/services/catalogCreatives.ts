@@ -164,8 +164,14 @@ export interface LayoutTemplate {
   id: string;
   label: string;
   description: string;
-  /** Detailed pt-BR anatomy used inside the prompt. */
-  anatomy: string;
+  /** Tom narrativo do criativo — o "vibe" da peça. Curto e descritivo,
+   *  NÃO um roteiro de zonas. Deixa o modelo livre pra compor. */
+  vibe: string;
+  /** Pool rotativo de hints composicionais. Cada variação que o usuário
+   *  pede pega UM hint diferente desse pool, garantindo que 3 variações
+   *  saiam com layouts realmente distintos (em vez de 3 cópias do
+   *  mesmo molde). */
+  compositionHints: string[];
   recommendedFormats: ("1:1" | "9:16" | "4:5" | "16:9")[];
   bestForSections: SectionId[];
 }
@@ -174,107 +180,105 @@ export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
   {
     id: "promo-premium",
     label: "Promo Premium",
-    description: "Composição publicitária completa: produto destaque, headline grande, preço gigante, CTA, features e selos de confiança.",
-    anatomy: `ANATOMIA DA PEÇA (siga rigorosamente):
-- TOPO CENTRAL: a logomarca da marca em peso forte sobre o fundo escuro, perfeitamente integrada (use a logo enviada como referência).
-- DECORAÇÃO TOPO: pequena ilustração relacionada ao produto saindo do canto superior direito, levemente desfocada, criando profundidade.
-- COLUNA ESQUERDA (45-50% da largura): headline em tipografia bold ULTRA-grande, em branco, quebrada em 2-3 linhas. Logo abaixo, sub-headline em peso menor (1-2 linhas). Logo abaixo, uma linha decorativa fina horizontal na cor accent. Logo abaixo, o preço em destaque ENORME (número gigante "R$ X,XX") com a unidade pequena à direita ("/ XXg"). Logo abaixo, botão CTA em formato pill arredondado com ícone de carrinho integrado e texto em peso semibold. Logo abaixo, 3 linhas de features cada uma com:
-  • um ícone circular branco (gota d'água, polegar pra cima, folha)
-  • título em peso bold
-  • descrição curta de 2-3 palavras em peso light
-- COLUNA DIREITA (45-50% da largura): hero do produto fotografado em alta qualidade hiper-realista, levemente flutuante com sombra projetada suave. PRESERVE a embalagem e label exatamente como na foto de referência.
-- FAIXA INFERIOR: onda branca ou creme curva atravessando toda a largura.
-- RODAPÉ DENTRO DA FAIXA BRANCA: 3 selos de confiança em linha, cada um com:
-  • ícone fino linear (caminhão, floco de gelo, medalha)
-  • título em caps em peso bold
-  • descrição curta em duas linhas em peso light
-- DECORAÇÃO RODAPÉ: pequena ilustração outline de produto no canto inferior direito da peça, levemente apagada.
-- ATMOSFERA: fundo na cor primária da marca com gradiente sutil, iluminação cinematográfica editorial premium, sensação de campanha de produto gourmet.`,
+    description: "Tom promocional premium — valor em destaque, urgência elegante, CTA forte.",
+    vibe: `TOM DA PEÇA: promoção PREMIUM com urgência elegante. A peça deve GRITAR valor (preço em destaque visível, oferta clara, CTA confiante) sem parecer barata. Tipografia bold confiante, contraste alto, accent color saliente. Sensação de "vale muito a pena agora". Inspiração: campanhas Apple Black Friday, anúncios premium de supermercado gourmet.`,
+    compositionHints: [
+      "Hero do produto à direita ocupando 50% da largura, copy alinhada à esquerda, preço em destaque ENORME embaixo da headline, CTA pill abaixo, 3 ícones de feature em coluna na base.",
+      "Hero centralizado e dominante, copy embaixo em uma linha forte, preço gigante na lateral em destaque vertical, CTA discreto na base com selos de confiança alinhados.",
+      "Layout assimétrico: hero diagonal saindo do canto inferior direito, headline alinhada ao topo esquerdo, preço como badge circular destacado, CTA pill na base esquerda.",
+      "Composição vertical em camadas: logomarca topo central, hero no terço médio, copy + preço grande + CTA empilhados na base com bastante respiro.",
+      "Split clássico: copy + preço + CTA alinhados à esquerda, hero do produto à direita com pequena rotação dramática, faixa de selos minimalista no rodapé.",
+    ],
     recommendedFormats: ["4:5", "1:1"],
     bestForSections: ["promo", "featured", "winback"],
   },
   {
     id: "launch-editorial",
     label: "Lançamento Editorial",
-    description: "Hero centrado em stage minimalista, revelação dramática estilo capa de revista.",
-    anatomy: `ANATOMIA DA PEÇA:
-- TOPO ESQUERDO: tag pequena retangular "NOVIDADE" em caps com peso bold, ao lado da logomarca compacta da marca.
-- CENTRO (hero zone): produto fotografado em destaque sobre stage minimalista. Fundo gradiente neutro premium. Sombra suave abaixo do produto. Foco absoluto no produto, sem distrações.
-- ABAIXO DO PRODUTO: headline em peso ULTRA-bold em uma linha curta destacando o nome do produto.
-- LOGO ABAIXO: subhead em peso light "Disponível agora" ou "Novidade no catálogo".
-- RODAPÉ: 1 botão CTA pill com label limpo. Espaçamento generoso.
-- DECORAÇÃO: ingrediente ou elemento relacionado fotografado de forma desfocada saindo de um dos cantos superiores.
-- ATMOSFERA: estilo editorial Apple/Aesop, luz suave de revelação, sensação de capa de revista premium.`,
+    description: "Tom de revelação — capa de revista, sofisticação, novidade.",
+    vibe: `TOM DA PEÇA: lançamento sofisticado, sensação de "acabou de chegar". Vibe editorial estilo capa de revista premium — minimalismo intencional, foco absoluto no produto, headline curta de impacto. Inspiração: Apple Keynote slides, Aesop product launches, editoriais de moda.`,
+    compositionHints: [
+      "Hero do produto centralizado e dominante sobre stage minimalista, headline ultra-bold curta abaixo em uma linha, sem distrações.",
+      "Hero ligeiramente off-center à esquerda com headline alinhada à direita em peso light grande, espaçamento generoso, tag NOVIDADE pequena no canto.",
+      "Composição vertical: tag NOVIDADE no topo, hero no centro flutuando, nome em tipografia mista (serif + sans) abaixo, CTA discreto no rodapé.",
+      "Hero saindo do topo da peça (cropped), nome enorme do produto ocupando a metade inferior em peso editorial heavy.",
+      "Split horizontal: cor sólida da marca à esquerda com headline grande em branco, foto do produto à direita sobre fundo neutro.",
+    ],
     recommendedFormats: ["1:1", "4:5", "9:16"],
     bestForSections: ["launch", "featured"],
   },
   {
     id: "social-proof-testimonial",
     label: "Prova Social",
-    description: "Depoimento em destaque com produto secundário, gera confiança.",
-    anatomy: `ANATOMIA DA PEÇA:
-- TOPO CENTRAL: 5 estrelas em ouro/accent color centralizadas. Tag "AVALIAÇÃO REAL" abaixo em caps peso bold.
-- BLOCO PRINCIPAL ESQUERDA: aspas grandes decorativas em peso ultra-bold (cor accent), seguidas de quote curto em itálico peso medium ("Produto excelente, qualidade impecável") em 2-3 linhas. Abaixo: nome em peso bold ("— Maria, São Paulo"), profissão pequena em peso light.
-- BLOCO PRINCIPAL DIREITA: produto fotografado, escala média, sombra projetada premium, integrado à composição.
-- RODAPÉ: texto sutil "+ de 10 mil clientes satisfeitos" em peso light, e logomarca compacta da marca.
-- ATMOSFERA: fundo claro/cremoso com gradiente warm, luz natural, vibe de confiança e calor humano.`,
+    description: "Tom de confiança — depoimento, avaliação, prova humana.",
+    vibe: `TOM DA PEÇA: prova social humana e quente. Confiança através de testemunho real ou avaliação. Tom acolhedor, vibração de "outras pessoas amaram, você também vai amar". Inspiração: campanhas de marcas D2C que usam clientes reais (Glossier, Nubank).`,
+    compositionHints: [
+      "5 estrelas em ouro centralizadas no topo, quote em itálico grande no centro, atribuição em peso bold abaixo, produto pequeno discreto no canto.",
+      "Aspas decorativas gigantes em accent color como elemento gráfico, quote integrado às aspas, produto à direita em escala média.",
+      "Layout split: foto/avatar circular do cliente à esquerda + quote curto, produto à direita com sombra premium.",
+      "Quote dominando a metade superior, badge '+10mil clientes' em accent, produto na base como assinatura visual.",
+      "Card de avaliação flutuante (estrelas + quote + nome) sobre composição lifestyle do produto em uso.",
+    ],
     recommendedFormats: ["1:1", "4:5"],
     bestForSections: ["social-proof"],
   },
   {
     id: "educational-infographic",
     label: "Educacional Infográfico",
-    description: "Produto central com callouts numerados explicando características.",
-    anatomy: `ANATOMIA DA PEÇA:
-- TOPO: título didático "Conheça [produto]" em peso semibold com tracking generoso.
-- CENTRO: produto fotografado central com fundo limpo, espaço generoso ao redor.
-- AO REDOR DO PRODUTO: 3-4 callouts numerados (1, 2, 3, 4) cada um com:
-  • número grande dentro de círculo accent color
-  • linha fina conectando até o produto
-  • label curto em peso bold + descrição em peso light
-- RODAPÉ: tag "Saiba mais" como CTA discreto, e logomarca compacta.
-- DECORAÇÃO: pontilhado fino guiando o olhar entre os callouts.
-- ATMOSFERA: fundo claro estilo página de manual premium, tipografia geometric sans, vibe Apple/IKEA editorial.`,
+    description: "Tom didático — explicação clara, callouts, benefícios.",
+    vibe: `TOM DA PEÇA: educativo e clarificador. A peça deve ENSINAR algo sobre o produto (como usar, o que tem, por que escolher). Tom de manual premium estilo Apple/IKEA — geométrico, organizado, claro. Sem ser entediante.`,
+    compositionHints: [
+      "Produto central com 3-4 callouts numerados ao redor, linhas finas conectando os números ao produto, descrições curtas.",
+      "Lista vertical de benefícios numerados à esquerda (1. 2. 3. 4.), produto à direita como referência visual.",
+      "Diagrama tipo 'antes e depois' ou 'comparativo': produto destaque + 2-3 benefícios em cards minimalistas embaixo.",
+      "Headline 'Conheça [produto]' no topo, produto no centro, ícones de característica em linha horizontal na base com labels curtas.",
+      "Layout estilo manual: produto em hero shot, 3 colunas embaixo cada uma com ícone + título + descrição.",
+    ],
     recommendedFormats: ["1:1", "4:5"],
     bestForSections: ["educational"],
   },
   {
     id: "date-festive",
     label: "Datas Festivas",
-    description: "Composição sazonal com decoração temática.",
-    anatomy: `ANATOMIA DA PEÇA:
-- TOPO: ornamento temático sutil (folhas, corações, balões — adaptado à data) decorando os cantos superiores.
-- CENTRO: hero do produto + nome em tipografia mista (display serif decorativo + sans bold).
-- DESTAQUE LATERAL: chamada da data ("Especial Dia X", "Edição Y") em peso decorativo, em badge ou tag.
-- RODAPÉ: CTA arredondado em accent color + tagline emocional curta + logomarca.
-- ATMOSFERA: paleta sazonal harmonizada com a marca (sem trocar a identidade), acabamento luxuoso tipo cartão de presente premium.`,
+    description: "Tom comemorativo — celebrar uma data, edição especial.",
+    vibe: `TOM DA PEÇA: festivo e celebrativo, mas refinado. Peça sazonal pra uma data específica (Mães, Pais, Natal, Black Friday, Páscoa, aniversário da marca). Decoração temática SUTIL — sem cair no kitsch. Sensação de presente bem embrulhado.`,
+    compositionHints: [
+      "Ornamentos temáticos delicados nos cantos superiores (folhas/corações/balões adaptado), hero centralizado, badge da data como tag rotacionada.",
+      "Peça toda como cartão de presente: laço/fita decorativa cruzando a composição, produto como 'presente', headline emocional.",
+      "Composição split: badge grande da data à esquerda em tipografia decorativa, produto à direita com luz quente festiva.",
+      "Padrão decorativo de fundo (papel de presente sutil), produto em destaque centralizado, tagline emocional curta.",
+      "Hero do produto + ornamento sazonal abraçando ele (ramos, flores, etc), CTA pill em accent color contrastante.",
+    ],
     recommendedFormats: ["1:1", "4:5", "9:16"],
     bestForSections: ["date"],
   },
   {
     id: "winback-warm",
     label: "Recuperação Acolhedora",
-    description: "Tom emocional convidativo, com cupom em destaque.",
-    anatomy: `ANATOMIA DA PEÇA:
-- TOPO ESQUERDO: logomarca compacta.
-- CENTRO ESQUERDA: headline em peso ultra-bold quebrada com sentimento ("Sentimos sua falta") + subhead curto convidativo.
-- CENTRO DIREITA: produto destaque, flutuando com sombra premium.
-- BADGE FLUTUANTE: cupom em badge circular ou tag rotacionada (ex: "VOLTA10 = 10% off") em accent color.
-- RODAPÉ: CTA pill convidativo ("Voltar a comprar") + tagline emocional, e logomarca pequena.
-- ATMOSFERA: tons quentes (âmbar/coral suaves) misturados com cor da marca, luz golden hour, vibe carta de boas-vindas.`,
+    description: "Tom emocional convidativo — sentimos sua falta + cupom.",
+    vibe: `TOM DA PEÇA: acolhedor e emocional. Convite de volta pra cliente inativo. Tons quentes (âmbar, coral) misturados com a cor da marca. Luz golden hour, vibe carta de boas-vindas. Cupom em destaque visível como gesto de carinho.`,
+    compositionHints: [
+      "Headline emocional grande à esquerda ('Sentimos sua falta'), produto à direita flutuando, cupom como badge circular destacado.",
+      "Composição centralizada: headline emocional no topo, cupom enorme no meio (tipo voucher), produto pequeno na base como teaser.",
+      "Layout warm: produto à esquerda em ambiente lifestyle, mensagem emocional + cupom à direita em card cremoso.",
+      "Cupom rotacionado dramaticamente como elemento principal, produto secundário ao fundo desfocado, CTA pill convidativo.",
+      "Vertical: logomarca topo, headline 'Volta pra gente', produto centro, cupom em badge brilhante na base, CTA pill embaixo.",
+    ],
     recommendedFormats: ["1:1", "4:5"],
     bestForSections: ["winback"],
   },
   {
     id: "showcase-vitrine",
     label: "Showcase Vitrine",
-    description: "Vitrine premium do produto, mínima distração, foco total.",
-    anatomy: `ANATOMIA DA PEÇA:
-- TOPO: logomarca elegante centralizada.
-- CENTRO TOTAL: produto em destaque absoluto, fotografado em hero shot estilo magazine cover, com luz cinematográfica de estúdio. Sombra projetada sutil.
-- RODAPÉ: nome do produto em peso elegante (mistura serif/sans), preço discreto em peso light ao lado, e CTA pill discreto.
-- DECORAÇÃO: ingrediente ou elemento decorativo desfocado em UM canto apenas (jamais nos quatro), criando profundidade sem competir com o produto.
-- ATMOSFERA: paleta luxury com bastante negative space, tipo campanha editorial de marca de luxo (Hermès, Aesop).`,
+    description: "Tom de vitrine luxury — produto soberano, mínima distração.",
+    vibe: `TOM DA PEÇA: vitrine luxury, foco TOTAL no produto. Mínima distração — bastante negative space, paleta sóbria, tipografia elegante. Inspiração: editoriais Hermès, campanhas Aesop, capas de revista de luxo. Produto soberano.`,
+    compositionHints: [
+      "Produto absolutamente centralizado em hero shot, nome do produto em tipografia editorial elegante na base, espaçamento generoso ao redor.",
+      "Produto off-center sobre fundo gradiente luxury, copy minimal alinhada ao canto oposto em peso light.",
+      "Composição still-life: produto + 1-2 elementos relacionados (ingrediente, utensílio) em arranjo intencional, luz cinematográfica.",
+      "Hero do produto cropado dramaticamente (close detalhes), nome em peso heavy ocupando metade da peça.",
+      "Layout vertical clean: nome da marca topo, produto hero centro com bastante respiro, preço sutil + CTA pill discreto na base.",
+    ],
     recommendedFormats: ["1:1", "4:5"],
     bestForSections: ["featured", "launch"],
   },
@@ -622,10 +626,12 @@ export function composeStudioParams(
     quality: options.quality || "high",
     withAndWithoutText: false,
     tags,
-    /* New: anatomy + brand identity bundle. Both flow into the prompt
-     * builder (creativeStudio.buildProductStudioPrompt) where they shape
-     * the multi-zone composition request. */
-    layoutAnatomy: layout.anatomy,
+    /* Layout vibe + composition hint pool. The studio's prompt builder
+     * picks ONE hint per variation (rotating through the pool) so multiple
+     * variations come out with different layouts instead of identical
+     * copies of a rigid template. */
+    layoutVibe: layout.vibe,
+    layoutCompositionHints: layout.compositionHints,
     layoutLabel: layout.label,
     brandIdentity,
   } as any;

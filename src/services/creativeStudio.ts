@@ -122,9 +122,11 @@ export type ProductStudioGenerateInput = {
   /** Free-form description of the product look — used when provider="grok"
    *  since it can't see the reference image. */
   productDescription?: string;
-  /** Pre-baked anatomy of the layout (from catalogCreatives.LAYOUT_TEMPLATES).
-   *  Lands verbatim in the prompt to push multi-zone composition. */
-  layoutAnatomy?: string;
+  /** Layout vibe (narrative tone) + composition hint pool. The prompt
+   *  builder picks ONE hint per variation (rotating) so multiple variations
+   *  end up with genuinely different layouts. */
+  layoutVibe?: string;
+  layoutCompositionHints?: string[];
   layoutLabel?: string;
   /** Brand kit bundle — name, slogan, palette, voice. */
   brandIdentity?: StudioBrandIdentity;
@@ -320,7 +322,11 @@ export class CreativeStudioService {
    * image too), and Grok Imagine (text-only — we add a "produto descrito"
    * block for it).
    */
-  private buildProductStudioPrompt(input: ProductStudioGenerateInput, includeText = true): string {
+  private buildProductStudioPrompt(
+    input: ProductStudioGenerateInput,
+    includeText = true,
+    variationIndex = 0
+  ): string {
     const text = input.textOverlay || {};
     const provider: StudioProvider = input.provider || "gemini";
     const aspect = input.aspectRatio || "1:1";
@@ -329,8 +335,15 @@ export class CreativeStudioService {
     const sectionMood = input.style || "";
     const scene = input.scene || "";
     const brand = input.brandIdentity || {} as StudioBrandIdentity;
-    const layoutAnatomy = input.layoutAnatomy || "";
+    const layoutVibe = input.layoutVibe || "";
     const layoutLabel = input.layoutLabel || "";
+    /* Pick a composition hint for THIS variation. Rotates through the
+     * pool so 3 variations get 3 different layout suggestions, instead
+     * of all looking identical. */
+    const hints = input.layoutCompositionHints || [];
+    const compositionHint = hints.length > 0
+      ? hints[variationIndex % hints.length]
+      : "";
 
     /* Format spec the user invariably wants exact. */
     const formatHint =
@@ -378,8 +391,11 @@ export class CreativeStudioService {
       "",
       ...brandBlock,
       "",
-      layoutLabel ? `MODELO DE LAYOUT: ${layoutLabel}.` : "",
-      layoutAnatomy ? layoutAnatomy : "",
+      layoutLabel ? `ESTILO DE COMPOSIÇÃO: ${layoutLabel}.` : "",
+      layoutVibe ? layoutVibe : "",
+      compositionHint
+        ? `\nDIREÇÃO COMPOSICIONAL PARA ESTA VARIAÇÃO (use como inspiração — não literal): ${compositionHint}\nVocê tem liberdade pra adaptar a composição mantendo o tom e a marca. Não precisa seguir os elementos ao pé da letra; o importante é variedade visual entre variações.`
+        : "",
       "",
       sectionMood ? `Direção visual: ${sectionMood}.` : "",
       scene ? `Atmosfera adicional: ${scene}.` : "",
@@ -1338,7 +1354,16 @@ export class CreativeStudioService {
       const normalizedFormat = this.toFormatFromAspect(format);
       for (let i = 0; i < variations; i += 1) {
         for (const includeText of promptVersions) {
-          const prompt = this.buildProductStudioPrompt({ ...input, aspectRatio: format, provider }, includeText);
+          /* `i` is the variation index — passed into the prompt builder
+           * so each variation receives a DIFFERENT composition hint from
+           * the layout's pool (rotating). Without this, every variation
+           * gets the same prompt and the model returns near-identical
+           * outputs. */
+          const prompt = this.buildProductStudioPrompt(
+            { ...input, aspectRatio: format, provider },
+            includeText,
+            i
+          );
 
           let result: { imageUrl: string; caption: string; model?: string };
           let modelUsed: string;

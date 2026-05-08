@@ -409,10 +409,9 @@ export function composeStudioParams(
     product.description ? `details: ${product.description.slice(0, 200)}` : "",
   ].filter(Boolean).join(" — ");
 
-  /* Provider mapping: when the user asks the AI to render typography
-   * directly inside the image, route through Grok Imagine (better at
-   * legible in-image text). Otherwise stick to Gemini, which can see the
-   * actual product photo as a reference. */
+  /* Provider mapping. Default = Gemini (with reference image of the
+   * actual product packaging). When the user opts for "IA desenha texto",
+   * route through Grok Imagine which renders typography natively. */
   const provider: "gemini" | "grok" = wantsEmbed ? "grok" : "gemini";
 
   return {

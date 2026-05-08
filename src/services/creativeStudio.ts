@@ -284,86 +284,112 @@ export class CreativeStudioService {
   }
 
   /**
-   * Build the prompt fed to the image model. The shape is heavily different
-   * depending on which model we're calling:
+   * Build the prompt fed to the image model.
    *
-   *   - Gemini (vision input): can see the product photo, so we describe
-   *     the *creative* (layout, mood, light) and leave the product fidelity
-   *     to the reference image.
+   * Format follows the briefing-publicitário-pt-BR pattern that produces
+   * the best results from gpt-image-1 and Gemini 2.5 Flash Image:
+   * — Portuguese narrative briefing (not English bullets)
+   * — Specific creative direction (gourmet food advertising language)
+   * — Explicit listing of every text element with EXACT copy in quotes
+   * — Vertical list of qualitative directives (hierarquia, iluminação,
+   *   espaçamento, etc) at the end
+   * — Final "estilo visual" with English keywords the model is trained on
    *
-   *   - Grok Imagine (text-only): can't see anything. We have to literally
-   *     describe the product packaging, then describe a layout that frames
-   *     it with the headline/CTA rendered as native typography.
-   *
-   * Both prompts now request editorial composition (not the chunky black
-   * banner that ad-tech tools tend to fall back to). Magazine-quality
-   * standards — hierarchy, whitespace, balance, premium typography.
+   * The same body works for OpenAI gpt-image-1 (best with reference
+   * images), Gemini 2.5 Flash Image (best as fallback with reference
+   * image too), and Grok Imagine (text-only — we add a "produto descrito"
+   * block for it).
    */
   private buildProductStudioPrompt(input: ProductStudioGenerateInput, includeText = true): string {
     const text = input.textOverlay || {};
     const provider: StudioProvider = input.provider || "gemini";
     const aspect = input.aspectRatio || "1:1";
 
-    /* Shared design directives — what "professional" actually looks like. */
-    const designDirectives = [
-      `Output aspect ratio: ${aspect}.`,
-      "DESIGN STANDARDS — this is a campaign-grade ad, not a meme:",
-      "• Editorial magazine-quality composition with deliberate negative space.",
-      "• Clear visual hierarchy: hero product → headline → support copy → CTA.",
-      "• Typography: premium contemporary sans-serif, generous letter-spacing on headlines, tight on body. NO chunky single solid-color banner. NO Comic Sans. NO Impact.",
-      "• Color discipline: pull from the brand palette with one accent color, ample neutral / off-white space; avoid muddy gradients.",
-      "• Light and shadow give the product weight and presence; avoid flat unlit renders.",
-      "• Do NOT make it look like a 2010s Facebook ad — think Apple, Aesop, Glossier, Off-White, Erewhon.",
-    ];
+    const brandName = (input as any).brandName || "";
+    const brandColors = input.predominantColors || "";
+    const audience = input.targetAudience || "";
+    const sectionMood = input.style || "";
+    const scene = input.scene || "";
 
-    const textBlock = includeText && (text.headline || text.subheadline || text.cta)
-      ? [
-          "TYPOGRAPHY (must be rendered legibly INSIDE the image, integrated to the layout — not on a black banner):",
-          "Spelling must be correct in Brazilian Portuguese. No fake brand-marks, no random letters, no tiny unreadable copy.",
-          text.headline ? `Headline: "${text.headline}"` : "",
-          text.subheadline ? `Subheadline: "${text.subheadline}"` : "",
-          text.cta ? `Call-to-action button label: "${text.cta}"` : "",
-          text.position ? `Place the text at the ${text.position} of the canvas, with safe margins.` : "",
-          text.style === "elegant" ? "Use a refined editorial serif/sans pairing." :
-            text.style === "minimal" ? "Use a tight monospaced or geometric sans, low-contrast palette." :
-            text.style === "bold" ? "Use a heavy display sans with confident scale; let the headline carry the layer." :
-            "",
-        ].filter(Boolean).join("\n")
-      : "Do not add any textual overlay.";
+    /* Format spec the user invariably wants exact. */
+    const formatHint =
+      aspect === "1:1" ? "formato quadrado 1:1 (Instagram Feed)" :
+      aspect === "9:16" ? "formato vertical 9:16 (Stories e Reels)" :
+      aspect === "4:5" ? "formato vertical 4:5 (Feed alto)" :
+      "formato horizontal 16:9 (banner/anúncio)";
 
-    if (provider === "grok") {
-      /* Grok prompt: visual + product description, since it can't see the image. */
-      const productDesc = input.productDescription
-        ? `THE PRODUCT TO RENDER: ${input.productDescription}.`
-        : "THE PRODUCT: a real consumer-goods product (assume realistic packaging based on the brand context).";
-      return [
-        "Create a high-end commercial product advertisement, magazine cover quality.",
-        productDesc,
-        input.style ? `Visual style: ${input.style}.` : "",
-        input.scene ? `Scene: ${input.scene}.` : "",
-        input.lighting ? `Lighting: ${input.lighting}.` : "",
-        input.targetAudience ? `Target reader: ${input.targetAudience}.` : "",
-        input.predominantColors ? `Brand color palette (use sparingly as accents): ${input.predominantColors}.` : "",
-        ...designDirectives,
-        textBlock,
-        "FINAL: photorealistic where appropriate, premium feel, professional advertising quality.",
-      ].filter(Boolean).join("\n");
+    /* Explicit text elements — the model needs EXACT copy listed in
+     * quotes, otherwise it invents words ("APENAS" → "APEN" etc). */
+    const textElements: string[] = [];
+    if (includeText) {
+      if (text.headline) {
+        textElements.push(`Texto principal em tipografia moderna premium, branca, extremamente legível:\n"${text.headline}"`);
+      }
+      if (text.subheadline) {
+        textElements.push(`Texto de apoio em peso menor:\n"${text.subheadline}"`);
+      }
+      if (text.cta) {
+        textElements.push(`Inserir botão moderno e refinado:\n"${text.cta}"`);
+      }
     }
 
-    /* Gemini prompt: it has the reference photo, so describe the creative. */
-    return [
-      "Use the uploaded product photo as the literal hero of a high-end commercial advertisement, magazine cover quality.",
-      "PRESERVE the product's exact shape, packaging, label and proportions from the reference. Do NOT redesign or hallucinate the product.",
-      input.style ? `Visual style around it: ${input.style}.` : "",
-      input.scene ? `Scene: ${input.scene}.` : "",
-      input.lighting ? `Lighting: ${input.lighting}.` : "",
-      input.targetAudience ? `Target reader: ${input.targetAudience}.` : "",
-      input.predominantColors ? `Brand color palette (accents only — keep airy negative space): ${input.predominantColors}.` : "",
-      input.transparentBackground ? "Background may be transparent or near-isolated where it serves the layout." : "",
-      ...designDirectives,
-      textBlock,
-      "FINAL: photorealistic product with cinematic light, premium ad-grade composition.",
+    /* Brazilian briefing body — same shape as the user's reference prompt. */
+    const briefing = [
+      `Crie uma peça publicitária premium ultra-realista para redes sociais no ${formatHint}, com estética sofisticada, moderna e comercial de alto padrão${brandName ? ` para a marca "${brandName}"` : ""}.`,
+      "A composição deve transmitir qualidade premium, praticidade e frescor, com direção de arte inspirada em campanhas de produtos gourmet e branding profissional de marcas premium.",
+      sectionMood ? `Direção visual: ${sectionMood}.` : "",
+      scene ? `Atmosfera: ${scene}.` : "",
+      brandColors
+        ? `Utilize a paleta da marca: ${brandColors}. Mantenha toda a identidade visual harmoniosa, com gradientes suaves e iluminação cinematográfica elegante.`
+        : "Utilize fundo elegante com gradientes suaves e iluminação cinematográfica.",
+      "O ambiente deve ter aparência clean, refinada e harmoniosa.",
+      input.productDescription
+        ? `O produto principal é: ${input.productDescription}. Fotografado de forma hiper-realista, com textura extremamente detalhada, sombras naturais e sensação de produto fresco e premium. Deve ocupar grande destaque visual na composição, posicionado de forma estratégica e equilibrada.`
+        : "O produto principal deve aparecer fotografado de forma hiper-realista, em destaque, com sombras naturais e sensação premium.",
+      brandName
+        ? `Adicionar o logo "${brandName}" de forma elegante e perfeitamente integrada ao layout, com ótima distribuição visual e hierarquia profissional.`
+        : "",
+      ...textElements,
+      audience ? `Público-alvo da peça: ${audience}.` : "",
+      "Adicionar pequenos elementos gráficos sofisticados e minimalistas relacionados ao produto (praticidade, qualidade, frescor, conservação). Utilizar ícones finos e modernos integrados ao design.",
+      "",
+      "A composição deve possuir:",
+      "• excelente hierarquia visual",
+      "• espaçamento profissional",
+      "• design editorial sofisticado",
+      "• iluminação publicitária premium",
+      "• sensação de marca forte",
+      "• acabamento luxuoso",
+      "• profundidade cinematográfica",
+      "• reflexos suaves",
+      "• sombras realistas",
+      "• fundo harmônico",
+      "• composição rica e equilibrada",
+      "",
+      "Adicionar leves elementos desfocados relacionados ao produto ao fundo para criar profundidade e atmosfera premium.",
+      "",
+      "REGRAS DE TEXTO:",
+      "• Toda a tipografia deve ser perfeitamente legível, em português correto.",
+      "• NÃO inventar palavras, NÃO cortar palavras na metade, NÃO adicionar textos aleatórios.",
+      "• Manter spelling EXATO dos textos listados acima entre aspas.",
+      "• NÃO criar marcas falsas ou logos extras.",
+      "",
+      "O resultado final deve parecer uma campanha criada por uma agência de branding de alto nível para um produto premium.",
+      "",
+      "Estilo visual: luxury product advertising, premium branding, cinematic lighting, modern typography, elegant composition, realistic product photography, sophisticated commercial design, ultra detailed, premium campaign, high-end advertising, editorial product design, photorealistic packaging ad.",
     ].filter(Boolean).join("\n");
+
+    /* Provider-specific addendum. */
+    if (provider === "grok") {
+      /* Grok is text-only — needs the product description verbatim. */
+      return briefing;
+    }
+    /* OpenAI / Gemini have the reference image, so reinforce fidelity. */
+    return [
+      briefing,
+      "",
+      "IMPORTANTE: PRESERVE a forma exata, embalagem, rótulo e proporções do produto da imagem de referência. NÃO redesenhe ou alucine o produto.",
+    ].join("\n");
   }
 
   private async loadAssetAsInlineData(

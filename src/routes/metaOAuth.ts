@@ -15,11 +15,16 @@ const router = Router();
 
 const IG_GRAPH_URL = "https://graph.instagram.com";
 
+// ── Credenciais fixas (fase de teste — Alho Pronto) ──
+// Em producao, migrar para leitura dinamica por brand via system_settings
+const DEFAULT_APP_ID = "26184618481216809";
+const DEFAULT_APP_SECRET = "38bd68799820b91337e88fd367b68386";
+
 async function getAppId(): Promise<string> {
-  return process.env.META_APP_ID || (await settingsService.getSetting("meta_app_id")) || "";
+  return process.env.META_APP_ID || (await settingsService.getSetting("meta_app_id")) || DEFAULT_APP_ID;
 }
 async function getAppSecret(): Promise<string> {
-  return process.env.META_APP_SECRET || (await settingsService.getSetting("meta_app_secret")) || "";
+  return process.env.META_APP_SECRET || (await settingsService.getSetting("meta_app_secret")) || DEFAULT_APP_SECRET;
 }
 function getRedirectUri(): string {
   return process.env.META_OAUTH_REDIRECT_URI || "https://app.leadcapture.online/api/meta/oauth/callback";

@@ -1,23 +1,32 @@
 import { Router, Request, Response } from "express";
 import { logger } from "../utils/logger";
 import { query, queryOne, update } from "../config/database";
+import { settingsService } from "../services/settings";
 
 const router = Router();
 
 /**
  * Meta Webhook Verify Token.
- * Set META_WEBHOOK_VERIFY_TOKEN env var on the server.
- * Must match the token you enter in the Meta App Dashboard → Webhooks → Edit Subscription.
+ * Reads from system_settings (meta_webhook_verify_token) with env var fallback.
+ * Must match the token you enter in the Meta App Dashboard -> Webhooks -> Edit Subscription.
  */
-const VERIFY_TOKEN = process.env.META_WEBHOOK_VERIFY_TOKEN || "leadcapture_meta_verify_2026";
+const DEFAULT_VERIFY_TOKEN = "leadcapture_meta_verify_2026";
+
+async function getVerifyToken(): Promise<string> {
+  return process.env.META_WEBHOOK_VERIFY_TOKEN
+    || (await settingsService.getSetting("meta_webhook_verify_token"))
+    || DEFAULT_VERIFY_TOKEN;
+}
 
 // ─── GET  /api/meta/webhook ── Verification challenge ───────────────
-router.get("/", (req: Request, res: Response) => {
+router.get("/", async (req: Request, res: Response) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
 
-  if (mode === "subscribe" && token === VERIFY_TOKEN) {
+  const verifyToken = await getVerifyToken();
+
+  if (mode === "subscribe" && token === verifyToken) {
     logger.info("[Meta Webhook] Verification OK");
     return res.status(200).send(challenge);
   }

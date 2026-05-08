@@ -4,7 +4,7 @@ import {
   RefreshCw, Plus, Eye, TrendingUp, Users, Heart, MessageSquare, Bookmark, Image,
   Video, Film, Play, Pause, Square, ChevronLeft, ChevronRight, Send, Clock, FileText,
   Upload, Search, List, Grid3X3, Loader2, CheckCircle2, AlertCircle, ExternalLink,
-  Trash2, Settings, Globe, X, MoreHorizontal,
+  Trash2, Settings, Globe, X, MoreHorizontal, ChevronDown, ChevronUp, Save, KeyRound,
 } from 'lucide-react'
 
 const API = '/api/instagram'
@@ -176,6 +176,65 @@ function SetupView({ onSaved }: { onSaved: () => void }) {
   const [loadingOAuth, setLoadingOAuth] = useState(false)
   const [error, setError] = useState('')
 
+  // ─── Meta App Settings state ───
+  const [metaSettingsOpen, setMetaSettingsOpen] = useState(false)
+  const [metaAppId, setMetaAppId] = useState('')
+  const [metaAppSecret, setMetaAppSecret] = useState('')
+  const [metaWebhookToken, setMetaWebhookToken] = useState('')
+  const [metaRedirectUri, setMetaRedirectUri] = useState('')
+  const [metaHasAppId, setMetaHasAppId] = useState(false)
+  const [metaSettingsLoading, setMetaSettingsLoading] = useState(true)
+  const [metaSettingsSaving, setMetaSettingsSaving] = useState(false)
+  const [metaSettingsMsg, setMetaSettingsMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+  // Load Meta settings on mount
+  useEffect(() => {
+    setMetaSettingsLoading(true)
+    api('/settings')
+      .then((r: any) => {
+        if (r.success && r.settings) {
+          setMetaHasAppId(!!r.settings.has_app_id)
+          setMetaWebhookToken(r.settings.meta_webhook_verify_token || '')
+          setMetaRedirectUri(r.settings.redirect_uri || '')
+          // Don't pre-fill masked values into editable fields — keep empty
+          // User only sees masked preview + can type new values
+          if (!r.settings.has_app_id) {
+            setMetaSettingsOpen(true)
+          }
+        }
+      })
+      .catch(() => {})
+      .finally(() => setMetaSettingsLoading(false))
+  }, [])
+
+  const saveMetaSettings = async () => {
+    setMetaSettingsSaving(true)
+    setMetaSettingsMsg(null)
+    try {
+      const body: Record<string, string> = {}
+      if (metaAppId.trim()) body.meta_app_id = metaAppId.trim()
+      if (metaAppSecret.trim()) body.meta_app_secret = metaAppSecret.trim()
+      body.meta_webhook_verify_token = metaWebhookToken.trim()
+
+      const res = await api('/settings', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      })
+      if (res.success) {
+        setMetaSettingsMsg({ type: 'success', text: 'Configuracoes salvas com sucesso' })
+        setMetaHasAppId(true)
+        // Clear sensitive fields after save
+        setMetaAppId('')
+        setMetaAppSecret('')
+      } else {
+        setMetaSettingsMsg({ type: 'error', text: res.error || 'Erro ao salvar' })
+      }
+    } catch (e: any) {
+      setMetaSettingsMsg({ type: 'error', text: e.message })
+    }
+    setMetaSettingsSaving(false)
+  }
+
   const startOAuth = async () => {
     setLoadingOAuth(true)
     setError('')
@@ -223,6 +282,110 @@ function SetupView({ onSaved }: { onSaved: () => void }) {
         </div>
         <h1 className="text-xl font-bold text-gray-900 mb-1">Conectar Instagram</h1>
         <p className="text-sm text-gray-500">Conecte sua conta Instagram Business para gerenciar tudo em um so lugar</p>
+      </div>
+
+      {/* ─── Meta App Settings (collapsible) ─── */}
+      <div className="mb-6 border border-gray-200 rounded-xl overflow-hidden bg-white">
+        <button
+          onClick={() => setMetaSettingsOpen(!metaSettingsOpen)}
+          className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-50 transition"
+        >
+          <div className="flex items-center gap-2">
+            <KeyRound size={16} className="text-gray-500" />
+            <span className="text-sm font-semibold text-gray-700">Configuracoes do App Meta</span>
+            {metaHasAppId && (
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-50 text-emerald-600">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> Configurado
+              </span>
+            )}
+          </div>
+          {metaSettingsOpen ? <ChevronUp size={16} className="text-gray-400" /> : <ChevronDown size={16} className="text-gray-400" />}
+        </button>
+
+        {metaSettingsOpen && (
+          <div className="px-4 pb-4 space-y-3 border-t border-gray-100 pt-3">
+            <p className="text-[11px] text-gray-500">
+              Configure o App ID e Secret do Meta for Developers antes de conectar.
+            </p>
+
+            {metaSettingsLoading ? (
+              <div className="py-4 grid place-items-center">
+                <Loader2 size={16} className="animate-spin text-gray-300" />
+              </div>
+            ) : (
+              <>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1 uppercase tracking-wider">
+                    Meta App ID
+                  </label>
+                  <input
+                    value={metaAppId}
+                    onChange={e => setMetaAppId(e.target.value)}
+                    placeholder={metaHasAppId ? 'Valor salvo (digite para alterar)' : 'ID do App Meta'}
+                    className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:border-purple-400"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1 uppercase tracking-wider">
+                    Meta App Secret
+                  </label>
+                  <input
+                    type="password"
+                    value={metaAppSecret}
+                    onChange={e => setMetaAppSecret(e.target.value)}
+                    placeholder={metaHasAppId ? 'Valor salvo (digite para alterar)' : 'Secret do App Meta'}
+                    className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:border-purple-400"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1 uppercase tracking-wider">
+                    Webhook Verify Token
+                  </label>
+                  <input
+                    value={metaWebhookToken}
+                    onChange={e => setMetaWebhookToken(e.target.value)}
+                    placeholder="Token de verificacao do webhook"
+                    className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:border-purple-400"
+                  />
+                </div>
+
+                {metaRedirectUri && (
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1 uppercase tracking-wider">
+                      Redirect URI (somente leitura)
+                    </label>
+                    <input
+                      value={metaRedirectUri}
+                      readOnly
+                      className="w-full px-3 py-2 rounded-lg border border-gray-100 bg-gray-50 text-sm text-gray-500 cursor-default"
+                    />
+                    <p className="text-[10px] text-gray-400 mt-1">Use esta URL no Meta App Dashboard como Valid OAuth Redirect URI</p>
+                  </div>
+                )}
+
+                {metaSettingsMsg && (
+                  <div className={`p-2 rounded-lg flex items-center gap-2 text-xs ${
+                    metaSettingsMsg.type === 'success' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
+                  }`}>
+                    {metaSettingsMsg.type === 'success' ? <CheckCircle2 size={14} /> : <AlertCircle size={14} />}
+                    {metaSettingsMsg.text}
+                  </div>
+                )}
+
+                <button
+                  onClick={saveMetaSettings}
+                  disabled={metaSettingsSaving}
+                  className="w-full py-2.5 rounded-lg border border-gray-200 text-gray-700 text-sm font-semibold hover:bg-gray-50 transition disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {metaSettingsSaving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                  {metaSettingsSaving ? 'Salvando...' : 'Salvar Configuracoes'}
+                </button>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {/* OAuth Login Button */}

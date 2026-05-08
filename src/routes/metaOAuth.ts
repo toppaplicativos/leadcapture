@@ -3,6 +3,7 @@ import { logger } from "../utils/logger";
 import { authMiddleware, AuthRequest } from "../middleware/auth";
 import { attachBrandContext, BrandRequest } from "../middleware/brandContext";
 import { instagramService } from "../services/instagram";
+import { settingsService } from "../services/settings";
 import crypto from "crypto";
 
 const router = Router();
@@ -14,11 +15,11 @@ const router = Router();
 
 const IG_GRAPH_URL = "https://graph.instagram.com";
 
-function getAppId(): string {
-  return process.env.META_APP_ID || "";
+async function getAppId(): Promise<string> {
+  return process.env.META_APP_ID || (await settingsService.getSetting("meta_app_id")) || "";
 }
-function getAppSecret(): string {
-  return process.env.META_APP_SECRET || "";
+async function getAppSecret(): Promise<string> {
+  return process.env.META_APP_SECRET || (await settingsService.getSetting("meta_app_secret")) || "";
 }
 function getRedirectUri(): string {
   return process.env.META_OAUTH_REDIRECT_URI || "https://app.leadcapture.online/api/meta/oauth/callback";
@@ -52,10 +53,10 @@ setInterval(() => {
 }, 300_000);
 
 // ─── GET /api/meta/oauth/start ── Generate Instagram OAuth URL (authenticated) ───
-router.get("/start", authMiddleware, attachBrandContext, (req: BrandRequest, res: Response) => {
-  const appId = getAppId();
+router.get("/start", authMiddleware, attachBrandContext, async (req: BrandRequest, res: Response) => {
+  const appId = await getAppId();
   if (!appId) {
-    return res.status(500).json({ error: "META_APP_ID nao configurado no servidor" });
+    return res.status(500).json({ error: "META_APP_ID nao configurado. Vá em Configuracoes do App Meta para definir." });
   }
 
   const brandId = String(req.brandId || "").trim();
@@ -122,11 +123,11 @@ router.get("/callback", async (req: Request, res: Response) => {
     return res.redirect("/instagram?oauth_error=State+invalido.+Tente+novamente.");
   }
 
-  const appId = getAppId();
-  const appSecret = getAppSecret();
+  const appId = await getAppId();
+  const appSecret = await getAppSecret();
 
   if (!appId || !appSecret) {
-    return res.redirect("/instagram?oauth_error=Configuracao+Meta+incompleta+no+servidor");
+    return res.redirect("/instagram?oauth_error=Configuracao+Meta+incompleta.+Defina+App+ID+e+Secret+nas+configuracoes.");
   }
 
   try {

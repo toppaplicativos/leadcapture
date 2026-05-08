@@ -1,6 +1,7 @@
 import { Router, Response } from "express";
 import { attachBrandContext, BrandRequest } from "../middleware/brandContext";
 import { instagramService } from "../services/instagram";
+import { settingsService } from "../services/settings";
 
 const router = Router();
 router.use(attachBrandContext);
@@ -204,6 +205,64 @@ router.get("/conversations", async (req: BrandRequest, res: Response) => {
   try {
     const conversations = await instagramService.getConversations(brandId);
     res.json({ success: true, conversations });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Meta App Settings (system_settings table) ────────────────────
+
+function maskValue(val: string | null, visibleChars: number = 6): string {
+  if (!val) return "";
+  if (val.length <= visibleChars) return val;
+  return val.slice(0, visibleChars) + "••••••••";
+}
+
+router.get("/settings", async (req: BrandRequest, res: Response) => {
+  try {
+    const keys = ["meta_app_id", "meta_app_secret", "meta_webhook_verify_token"];
+    const settings = await settingsService.getSettings(keys);
+    const redirectUri =
+      process.env.META_OAUTH_REDIRECT_URI || "https://app.leadcapture.online/api/meta/oauth/callback";
+
+    res.json({
+      success: true,
+      settings: {
+        meta_app_id: maskValue(settings.meta_app_id),
+        meta_app_secret: maskValue(settings.meta_app_secret),
+        meta_webhook_verify_token: settings.meta_webhook_verify_token || "",
+        redirect_uri: redirectUri,
+        has_app_id: !!settings.meta_app_id,
+        has_app_secret: !!settings.meta_app_secret,
+      },
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post("/settings", async (req: BrandRequest, res: Response) => {
+  try {
+    const { meta_app_id, meta_app_secret, meta_webhook_verify_token } = req.body as {
+      meta_app_id?: string;
+      meta_app_secret?: string;
+      meta_webhook_verify_token?: string;
+    };
+
+    if (meta_app_id !== undefined && meta_app_id !== "") {
+      await settingsService.setSetting("meta_app_id", meta_app_id.trim());
+    }
+    if (meta_app_secret !== undefined && meta_app_secret !== "") {
+      await settingsService.setSetting("meta_app_secret", meta_app_secret.trim());
+    }
+    if (meta_webhook_verify_token !== undefined) {
+      await settingsService.setSetting(
+        "meta_webhook_verify_token",
+        meta_webhook_verify_token.trim(),
+      );
+    }
+
+    res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

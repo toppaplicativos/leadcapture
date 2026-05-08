@@ -69,11 +69,14 @@ export class GrokProvider {
   async generateImage(prompt: string, options?: {
     model?: string;
     n?: number;
-    /** Aspect ratio hint — xAI generates square by default; we use prompt
-     *  hints + post-crop for non-square. */
+    /** Aspect ratio hint — xAI Imagine returns 1024×768 by default and we
+     *  post-crop to the exact target downstream. */
     aspectRatio?: "1:1" | "9:16" | "4:5" | "16:9";
   }): Promise<{ base64: string; model: string; revisedPrompt?: string }> {
-    const model = options?.model || "grok-2-image-1212";
+    /* Available xAI image models (verified against /v1/models on a live
+     * key): grok-imagine-image, grok-imagine-image-pro,
+     * grok-imagine-image-quality. Default to "pro" for ad-grade output. */
+    const model = options?.model || "grok-imagine-image-pro";
     const aspectHint = options?.aspectRatio
       ? `\n\nFINAL OUTPUT FORMAT: ${options.aspectRatio} aspect ratio.`
       : "";

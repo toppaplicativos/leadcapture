@@ -84,6 +84,34 @@ export class AIRouter {
     }
   }
 
+  /**
+   * Resolve the user/brand's preferred image provider + model + key in
+   * a single call. This is THE source of truth for image-generation
+   * routing — every action that produces images (creative studio, edit,
+   * remix, future video frames) MUST go through this method.
+   *
+   * Returns:
+   *   provider — "openai" | "gemini" | "grok"
+   *   model    — the user-picked model id (gpt-image-1, gemini-2.5-flash-image, grok-imagine-image-pro, etc)
+   *   key      — the API key for that provider, or null if not configured
+   *
+   * Callers should refuse to fall back silently to a different provider
+   * — the user picked one, respect it. If key is null, throw a clear
+   * error pointing to Provedores IA.
+   */
+  async getImageProvider(scope: AIRouterScope): Promise<{
+    provider: "openai" | "gemini" | "grok";
+    model: string;
+    key: string | null;
+  }> {
+    const prefs = await this.getPreferences(scope);
+    const pref = prefs.image || DEFAULT_PREFERENCES.image;
+    const provider = (pref.provider as "openai" | "gemini" | "grok") || "gemini";
+    const model = pref.model || DEFAULT_PREFERENCES.image.model;
+    const key = await this.resolveProviderKey(provider, scope);
+    return { provider, model, key };
+  }
+
   async generateText(prompt: string, scope: AIRouterScope, options?: { model?: string; temperature?: number; category?: AICategory }): Promise<TextGenerationResult> {
     const prefs = await this.getPreferences(scope);
     const category = options?.category || "text";

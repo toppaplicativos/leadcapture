@@ -152,6 +152,11 @@ interface PreviewPayload {
   formatOptions: Array<{ id: '1:1' | '9:16' | '4:5' | '16:9'; label: string; description: string }>
   layoutOptions?: Array<{ id: string; label: string; description: string; recommended: boolean }>
   includeBrandLogoDefault?: boolean
+  imageProvider?: {
+    provider: 'openai' | 'gemini' | 'grok'
+    model: string
+    keyConfigured: boolean
+  }
 }
 
 /** State of the configuration modal — what the user has edited. */
@@ -956,6 +961,44 @@ function ConfigureCreativeModal({
             </div>
           ) : config && preview ? (
             <div className="p-5 space-y-5">
+              {/* Active provider banner — read-only feedback so the user
+               *  knows which engine will run the generation. To change it,
+               *  go to Provedores IA. */}
+              {preview.imageProvider && (
+                <div className={`flex items-start gap-3 p-3 rounded-2xl ${
+                  preview.imageProvider.keyConfigured
+                    ? 'bg-gray-50 border border-gray-200'
+                    : 'bg-amber-50 border border-amber-200'
+                }`}>
+                  <div className={`w-8 h-8 rounded-xl grid place-items-center shrink-0 ${
+                    preview.imageProvider.keyConfigured ? 'bg-gray-900 text-white' : 'bg-amber-500 text-white'
+                  }`}>
+                    <Sparkles size={14} strokeWidth={2} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-gray-500">Provedor de imagem</p>
+                    <p className="text-[13px] font-semibold text-gray-900 mt-0.5">
+                      {preview.imageProvider.provider === 'openai' && 'OpenAI'}
+                      {preview.imageProvider.provider === 'gemini' && 'Google Gemini'}
+                      {preview.imageProvider.provider === 'grok' && 'xAI Grok'}
+                      <span className="ml-1.5 text-[11px] font-mono font-normal text-gray-500">
+                        {preview.imageProvider.model}
+                      </span>
+                    </p>
+                    {!preview.imageProvider.keyConfigured && (
+                      <p className="text-[11px] text-amber-700 mt-1">
+                        Chave não configurada. <Link to="/provedores-ia" className="underline font-semibold">Configurar agora</Link>.
+                      </p>
+                    )}
+                    {preview.imageProvider.keyConfigured && (
+                      <p className="text-[11px] text-gray-500 mt-0.5">
+                        Pra trocar o provedor padrão, vá em <Link to="/provedores-ia" className="underline">Provedores IA</Link>.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* Objective */}
               <Field
                 label="Objetivo"

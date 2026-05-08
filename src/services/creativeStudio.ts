@@ -6,6 +6,7 @@ import { config } from "../config";
 import { query, queryOne, update } from "../config/database";
 import { logger } from "../utils/logger";
 import { integrationService } from "./integrations";
+import { aiRouter } from "./aiRouter";
 
 /* `sharp` is required as a runtime dep but loaded lazily — keeps the
  * cold-start cheap for environments that never call image generation. */
@@ -80,7 +81,7 @@ export type ProductStudioTextOverlay = {
   style?: "modern" | "elegant" | "bold" | "clean" | "minimal";
 };
 
-export type StudioProvider = "gemini" | "grok";
+export type StudioProvider = "gemini" | "grok" | "openai";
 
 /** Brand identity bundle injected into the prompt so the model can match
  *  the brand's name/slogan/palette/voice consistently. Comes from the
@@ -461,7 +462,8 @@ export class CreativeStudioService {
     userId: string,
     prompt: string,
     aspectRatio: StudioAspectRatio,
-    brandId?: string | null
+    brandId?: string | null,
+    model?: string
   ): Promise<{ imageUrl: string; caption: string; model: string }> {
     /* Resolve API key: try the brand/user grok integration first, then env. */
     let apiKey = "";
@@ -474,12 +476,12 @@ export class CreativeStudioService {
     } catch {}
     if (!apiKey) apiKey = String(process.env.GROK_API_KEY || process.env.XAI_API_KEY || "").trim();
     if (!apiKey) {
-      throw new Error("GROK_API_KEY_NOT_CONFIGURED — configure a chave do xAI Grok em Master → Integrações ou tente o modo Gemini.");
+      throw new Error("Chave do xAI Grok não configurada. Vá em Provedores IA e cadastre a chave.");
     }
 
     const { GrokProvider } = await import("./providers/grok-provider");
     const grok = new GrokProvider(apiKey);
-    const result = await grok.generateImage(prompt, { aspectRatio, n: 1 });
+    const result = await grok.generateImage(prompt, { aspectRatio, n: 1, model });
 
     /* Force the exact aspect ratio via center-crop. Grok always renders
      * 1024x768 regardless of the prompt — the user asked for 1:1, they
@@ -489,6 +491,67 @@ export class CreativeStudioService {
 
     const safeUserId = this.sanitizePathPart(userId);
     const fileName = `${Date.now()}-${randomUUID()}-studio-grok.png`;
+    const absoluteDir = path.resolve(process.cwd(), "uploads", "creatives", "images", safeUserId);
+    await this.ensureDir(absoluteDir);
+    const filePath = path.join(absoluteDir, fileName);
+    await fs.writeFile(filePath, cropped);
+
+    return {
+      imageUrl: `/uploads/creatives/images/${safeUserId}/${fileName}`,
+      caption: result.revisedPrompt || "",
+      model: result.model,
+    };
+  }
+
+  /**
+   * Image generation via OpenAI gpt-image-1 (or whichever image model the
+   * user picked in Provedores IA → Image). Sends product photo + brand
+   * logo (when present in `references`) as visual references via
+   * /v1/images/edits — model paints them faithfully.
+   */
+  private async requestImageFromOpenAI(
+    userId: string,
+    prompt: string,
+    aspectRatio: StudioAspectRatio,
+    references: Array<{ name: string; buffer: Buffer; mimeType?: string }>,
+    brandId?: string | null,
+    model?: string
+  ): Promise<{ imageUrl: string; caption: string; model: string }> {
+    /* Resolve API key from the brand/user integration. */
+    let apiKey = "";
+    try {
+      const provider = await integrationService.getProvider("openai", {
+        userId,
+        brandId: String(brandId || "").trim() || undefined,
+      });
+      apiKey = String(provider.key || "").trim();
+    } catch {}
+    if (!apiKey) apiKey = String(process.env.OPENAI_API_KEY || "").trim();
+    if (!apiKey) {
+      throw new Error("Chave da OpenAI não configurada. Vá em Provedores IA e cadastre a chave.");
+    }
+
+    /* Map our aspect ratio to gpt-image-1's supported sizes. We post-crop
+     * downstream so the final pixels match exactly. */
+    const size: "1024x1024" | "1024x1536" | "1536x1024" =
+      aspectRatio === "1:1" ? "1024x1024" :
+      aspectRatio === "16:9" ? "1536x1024" :
+      "1024x1536";
+
+    const { OpenAIProvider } = await import("./providers/openai-provider");
+    const oa = new OpenAIProvider(apiKey);
+    const result = await oa.generateImage(prompt, {
+      model,
+      references,
+      size,
+      quality: "high",
+    });
+
+    const rawBuffer = Buffer.from(result.base64, "base64");
+    const cropped = await cropToAspectRatio(rawBuffer, aspectRatio);
+
+    const safeUserId = this.sanitizePathPart(userId);
+    const fileName = `${Date.now()}-${randomUUID()}-studio-openai.png`;
     const absoluteDir = path.resolve(process.cwd(), "uploads", "creatives", "images", safeUserId);
     await this.ensureDir(absoluteDir);
     const filePath = path.join(absoluteDir, fileName);
@@ -1233,9 +1296,43 @@ export class CreativeStudioService {
     const createdAssets: CreativeAsset[] = [];
     const tags = this.normalizeTagList(input.tags);
 
-    /* Provider routing: "grok" = xAI Imagine (text-only, native typography),
-     * everything else (default) = Gemini with reference image. */
-    const provider: StudioProvider = input.provider === "grok" ? "grok" : "gemini";
+    /* Provider routing — STRICT respect for user preferences.
+     *
+     * Resolution order:
+     *   1. Explicit override on input.provider (only set when caller passes
+     *      it deliberately — typically NEVER from the auto-compose flow).
+     *   2. User/brand preference from Provedores IA → Image (aiRouter).
+     *   3. Hard fallback to Gemini if preference is somehow unresolvable.
+     *
+     * If the chosen provider has no API key configured, we throw with a
+     * clear message pointing to Provedores IA. We DO NOT silently fall
+     * back to a different provider — the user picked it, we respect it. */
+    let provider: StudioProvider;
+    let chosenImageModel: string | undefined;
+    if (input.provider) {
+      provider = input.provider;
+    } else {
+      const resolved = await aiRouter.getImageProvider({
+        userId,
+        brandId: String(brandId || "").trim() || undefined,
+      });
+      provider = resolved.provider;
+      chosenImageModel = resolved.model;
+    }
+
+    /* Pre-build OpenAI references (Buffer with name+mime) when chosen. */
+    const openaiRefs: Array<{ name: string; buffer: Buffer; mimeType: string }> = [];
+    if (provider === "openai") {
+      for (let idx = 0; idx < uniqueSourceIds.length; idx += 1) {
+        const ref = inlineRefs[idx];
+        const ext = ref.mimeType.includes("jpeg") ? "jpg" : ref.mimeType.includes("webp") ? "webp" : "png";
+        openaiRefs.push({
+          name: `ref-${idx}.${ext}`,
+          buffer: Buffer.from(ref.data, "base64"),
+          mimeType: ref.mimeType,
+        });
+      }
+    }
 
     for (const format of formats) {
       const normalizedFormat = this.toFormatFromAspect(format);
@@ -1246,20 +1343,25 @@ export class CreativeStudioService {
           let result: { imageUrl: string; caption: string; model?: string };
           let modelUsed: string;
           if (provider === "grok") {
-            const r = await this.requestImageFromGrok(userId, prompt, format, brandId);
+            const r = await this.requestImageFromGrok(userId, prompt, format, brandId, chosenImageModel);
+            result = { imageUrl: r.imageUrl, caption: r.caption };
+            modelUsed = r.model;
+          } else if (provider === "openai") {
+            const r = await this.requestImageFromOpenAI(userId, prompt, format, openaiRefs, brandId, chosenImageModel);
             result = { imageUrl: r.imageUrl, caption: r.caption };
             modelUsed = r.model;
           } else {
+            const geminiModel = chosenImageModel || model;
             const r = await this.requestImageFromParts(
               userId,
-              model,
+              geminiModel,
               `${prompt}\n\nOutput ratio target: ${format}.`,
               inlineRefs.map((item) => ({ mimeType: item.mimeType, data: item.data })),
               brandId,
               format
             );
             result = r;
-            modelUsed = model;
+            modelUsed = geminiModel;
           }
 
           const asset = await this.saveAsset({
@@ -1282,6 +1384,7 @@ export class CreativeStudioService {
                 textIncluded: includeText,
                 quality: input.quality || "high",
                 provider,
+                providerModel: chosenImageModel || null,
                 tags,
                 usedInCampaign: false,
                 version: 1,

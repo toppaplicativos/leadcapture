@@ -307,7 +307,7 @@ interface ComposedCreative {
   studioParams: {
     productId: string;
     productAssetId?: string;
-    provider: "gemini" | "grok";
+    provider?: "gemini" | "grok" | "openai";
     productDescription?: string;
     style: string;
     scene: string;
@@ -583,10 +583,15 @@ export function composeStudioParams(
     includeLogo: includeBrandLogo && !!brand?.logo_url,
   };
 
-  /* Provider mapping. Default = Gemini (with reference image of the
-   * actual product packaging). When the user opts for "IA desenha texto",
-   * route through Grok Imagine which renders typography natively. */
-  const provider: "gemini" | "grok" = wantsEmbed ? "grok" : "gemini";
+  /* Provider routing is NOT decided here. The studio service consults
+   * aiRouter.getImageProvider() at generation time so that whatever the
+   * user selected in "Provedores IA → Image" is the source of truth.
+   * We leave `provider` undefined so the studio reads it from prefs.
+   *
+   * The `embedTextInImage` flag still exists, but it now only changes
+   * the prompt structure (whether the typography description goes into
+   * the scene block or the textOverlay block), NOT the provider. */
+  const provider: "gemini" | "grok" | "openai" | undefined = undefined;
 
   return {
     productId: product.id,
@@ -875,6 +880,16 @@ export interface PreviewResult {
   }>;
   /** Default flag — true means "include brand logo as reference image". */
   includeBrandLogoDefault: boolean;
+  /** Current image provider preference resolved from "Provedores IA".
+   *  The modal shows this as read-only — to change it, the user goes to
+   *  /provedores-ia. */
+  imageProvider: {
+    provider: "openai" | "gemini" | "grok";
+    model: string;
+    /** Whether the chosen provider has an API key configured. When false,
+     *  the modal shows a warning and a link to Provedores IA. */
+    keyConfigured: boolean;
+  };
 }
 
 const STYLE_OPTIONS = [
@@ -913,6 +928,14 @@ export async function previewComposition(
   const brand = input.brandId ? await loadBrand(input.brandId) : null;
   const defaults = composeStudioParams(product, section, brand);
   const copySuggestions = templateHeadlineVariations(product, section, brand);
+
+  /* Resolve the current image provider from user preferences so the modal
+   * can show which engine will run the generation. */
+  const { aiRouter } = await import("./aiRouter");
+  const imagePref = await aiRouter.getImageProvider({
+    userId,
+    brandId: input.brandId || undefined,
+  });
 
   /* Make the default CTA the first option so the modal pre-selects it. */
   const defaultCta = defaults.textOverlay.cta;
@@ -959,6 +982,11 @@ export async function previewComposition(
       }));
     })(),
     includeBrandLogoDefault: !!brand?.logo_url,
+    imageProvider: {
+      provider: imagePref.provider,
+      model: imagePref.model,
+      keyConfigured: !!imagePref.key,
+    },
   };
 }
 

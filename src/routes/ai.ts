@@ -1205,6 +1205,10 @@ router.post("/creatives/auto-compose", async (req: AuthRequest, res: Response) =
       targetAudience: raw.targetAudience ? String(raw.targetAudience) : undefined,
       embedTextInImage: parseBoolean(raw.embedTextInImage),
       predominantColors: raw.predominantColors ? String(raw.predominantColors) : undefined,
+      layoutId: raw.layoutId ? String(raw.layoutId) : undefined,
+      /* Default true — only false when the user explicitly unchecked the
+       * "Incluir logo da marca" toggle in the modal. */
+      includeBrandLogo: raw.includeBrandLogo === false ? false : true,
     };
 
     const result = await autoComposeAndGenerate(creativeStudio, userId, {

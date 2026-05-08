@@ -142,6 +142,155 @@ export const SECTIONS: SectionDef[] = [
   },
 ];
 
+/* ──────────────────────────────────────────────────────────
+ *  LAYOUT TEMPLATES
+ *
+ *  A "section" tells you the marketing intent (promo, launch, social-proof…)
+ *  while a "layout" tells the model HOW to compose the visual: anatomy of
+ *  the canvas, where the logo sits, how the product is staged, what
+ *  decorative elements live in which corner.
+ *
+ *  The anatomy text lands verbatim in the prompt — that's what stops the
+ *  model from defaulting to "headline + black banner" and pushes it toward
+ *  multi-zone editorial composition. Every template is in pt-BR because
+ *  Gemini and Grok render Portuguese cleanly when the briefing is also
+ *  in Portuguese (English briefings end up with mistranslated micro-copy).
+ *
+ *  Pick a layout per section by default; let the user override via the
+ *  configure modal (dropdown).
+ * ────────────────────────────────────────────────────────── */
+
+export interface LayoutTemplate {
+  id: string;
+  label: string;
+  description: string;
+  /** Detailed pt-BR anatomy used inside the prompt. */
+  anatomy: string;
+  recommendedFormats: ("1:1" | "9:16" | "4:5" | "16:9")[];
+  bestForSections: SectionId[];
+}
+
+export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
+  {
+    id: "promo-premium",
+    label: "Promo Premium",
+    description: "Composição publicitária completa: produto destaque, headline grande, preço gigante, CTA, features e selos de confiança.",
+    anatomy: `ANATOMIA DA PEÇA (siga rigorosamente):
+- TOPO CENTRAL: a logomarca da marca em peso forte sobre o fundo escuro, perfeitamente integrada (use a logo enviada como referência).
+- DECORAÇÃO TOPO: pequena ilustração relacionada ao produto saindo do canto superior direito, levemente desfocada, criando profundidade.
+- COLUNA ESQUERDA (45-50% da largura): headline em tipografia bold ULTRA-grande, em branco, quebrada em 2-3 linhas. Logo abaixo, sub-headline em peso menor (1-2 linhas). Logo abaixo, uma linha decorativa fina horizontal na cor accent. Logo abaixo, o preço em destaque ENORME (número gigante "R$ X,XX") com a unidade pequena à direita ("/ XXg"). Logo abaixo, botão CTA em formato pill arredondado com ícone de carrinho integrado e texto em peso semibold. Logo abaixo, 3 linhas de features cada uma com:
+  • um ícone circular branco (gota d'água, polegar pra cima, folha)
+  • título em peso bold
+  • descrição curta de 2-3 palavras em peso light
+- COLUNA DIREITA (45-50% da largura): hero do produto fotografado em alta qualidade hiper-realista, levemente flutuante com sombra projetada suave. PRESERVE a embalagem e label exatamente como na foto de referência.
+- FAIXA INFERIOR: onda branca ou creme curva atravessando toda a largura.
+- RODAPÉ DENTRO DA FAIXA BRANCA: 3 selos de confiança em linha, cada um com:
+  • ícone fino linear (caminhão, floco de gelo, medalha)
+  • título em caps em peso bold
+  • descrição curta em duas linhas em peso light
+- DECORAÇÃO RODAPÉ: pequena ilustração outline de produto no canto inferior direito da peça, levemente apagada.
+- ATMOSFERA: fundo na cor primária da marca com gradiente sutil, iluminação cinematográfica editorial premium, sensação de campanha de produto gourmet.`,
+    recommendedFormats: ["4:5", "1:1"],
+    bestForSections: ["promo", "featured", "winback"],
+  },
+  {
+    id: "launch-editorial",
+    label: "Lançamento Editorial",
+    description: "Hero centrado em stage minimalista, revelação dramática estilo capa de revista.",
+    anatomy: `ANATOMIA DA PEÇA:
+- TOPO ESQUERDO: tag pequena retangular "NOVIDADE" em caps com peso bold, ao lado da logomarca compacta da marca.
+- CENTRO (hero zone): produto fotografado em destaque sobre stage minimalista. Fundo gradiente neutro premium. Sombra suave abaixo do produto. Foco absoluto no produto, sem distrações.
+- ABAIXO DO PRODUTO: headline em peso ULTRA-bold em uma linha curta destacando o nome do produto.
+- LOGO ABAIXO: subhead em peso light "Disponível agora" ou "Novidade no catálogo".
+- RODAPÉ: 1 botão CTA pill com label limpo. Espaçamento generoso.
+- DECORAÇÃO: ingrediente ou elemento relacionado fotografado de forma desfocada saindo de um dos cantos superiores.
+- ATMOSFERA: estilo editorial Apple/Aesop, luz suave de revelação, sensação de capa de revista premium.`,
+    recommendedFormats: ["1:1", "4:5", "9:16"],
+    bestForSections: ["launch", "featured"],
+  },
+  {
+    id: "social-proof-testimonial",
+    label: "Prova Social",
+    description: "Depoimento em destaque com produto secundário, gera confiança.",
+    anatomy: `ANATOMIA DA PEÇA:
+- TOPO CENTRAL: 5 estrelas em ouro/accent color centralizadas. Tag "AVALIAÇÃO REAL" abaixo em caps peso bold.
+- BLOCO PRINCIPAL ESQUERDA: aspas grandes decorativas em peso ultra-bold (cor accent), seguidas de quote curto em itálico peso medium ("Produto excelente, qualidade impecável") em 2-3 linhas. Abaixo: nome em peso bold ("— Maria, São Paulo"), profissão pequena em peso light.
+- BLOCO PRINCIPAL DIREITA: produto fotografado, escala média, sombra projetada premium, integrado à composição.
+- RODAPÉ: texto sutil "+ de 10 mil clientes satisfeitos" em peso light, e logomarca compacta da marca.
+- ATMOSFERA: fundo claro/cremoso com gradiente warm, luz natural, vibe de confiança e calor humano.`,
+    recommendedFormats: ["1:1", "4:5"],
+    bestForSections: ["social-proof"],
+  },
+  {
+    id: "educational-infographic",
+    label: "Educacional Infográfico",
+    description: "Produto central com callouts numerados explicando características.",
+    anatomy: `ANATOMIA DA PEÇA:
+- TOPO: título didático "Conheça [produto]" em peso semibold com tracking generoso.
+- CENTRO: produto fotografado central com fundo limpo, espaço generoso ao redor.
+- AO REDOR DO PRODUTO: 3-4 callouts numerados (1, 2, 3, 4) cada um com:
+  • número grande dentro de círculo accent color
+  • linha fina conectando até o produto
+  • label curto em peso bold + descrição em peso light
+- RODAPÉ: tag "Saiba mais" como CTA discreto, e logomarca compacta.
+- DECORAÇÃO: pontilhado fino guiando o olhar entre os callouts.
+- ATMOSFERA: fundo claro estilo página de manual premium, tipografia geometric sans, vibe Apple/IKEA editorial.`,
+    recommendedFormats: ["1:1", "4:5"],
+    bestForSections: ["educational"],
+  },
+  {
+    id: "date-festive",
+    label: "Datas Festivas",
+    description: "Composição sazonal com decoração temática.",
+    anatomy: `ANATOMIA DA PEÇA:
+- TOPO: ornamento temático sutil (folhas, corações, balões — adaptado à data) decorando os cantos superiores.
+- CENTRO: hero do produto + nome em tipografia mista (display serif decorativo + sans bold).
+- DESTAQUE LATERAL: chamada da data ("Especial Dia X", "Edição Y") em peso decorativo, em badge ou tag.
+- RODAPÉ: CTA arredondado em accent color + tagline emocional curta + logomarca.
+- ATMOSFERA: paleta sazonal harmonizada com a marca (sem trocar a identidade), acabamento luxuoso tipo cartão de presente premium.`,
+    recommendedFormats: ["1:1", "4:5", "9:16"],
+    bestForSections: ["date"],
+  },
+  {
+    id: "winback-warm",
+    label: "Recuperação Acolhedora",
+    description: "Tom emocional convidativo, com cupom em destaque.",
+    anatomy: `ANATOMIA DA PEÇA:
+- TOPO ESQUERDO: logomarca compacta.
+- CENTRO ESQUERDA: headline em peso ultra-bold quebrada com sentimento ("Sentimos sua falta") + subhead curto convidativo.
+- CENTRO DIREITA: produto destaque, flutuando com sombra premium.
+- BADGE FLUTUANTE: cupom em badge circular ou tag rotacionada (ex: "VOLTA10 = 10% off") em accent color.
+- RODAPÉ: CTA pill convidativo ("Voltar a comprar") + tagline emocional, e logomarca pequena.
+- ATMOSFERA: tons quentes (âmbar/coral suaves) misturados com cor da marca, luz golden hour, vibe carta de boas-vindas.`,
+    recommendedFormats: ["1:1", "4:5"],
+    bestForSections: ["winback"],
+  },
+  {
+    id: "showcase-vitrine",
+    label: "Showcase Vitrine",
+    description: "Vitrine premium do produto, mínima distração, foco total.",
+    anatomy: `ANATOMIA DA PEÇA:
+- TOPO: logomarca elegante centralizada.
+- CENTRO TOTAL: produto em destaque absoluto, fotografado em hero shot estilo magazine cover, com luz cinematográfica de estúdio. Sombra projetada sutil.
+- RODAPÉ: nome do produto em peso elegante (mistura serif/sans), preço discreto em peso light ao lado, e CTA pill discreto.
+- DECORAÇÃO: ingrediente ou elemento decorativo desfocado em UM canto apenas (jamais nos quatro), criando profundidade sem competir com o produto.
+- ATMOSFERA: paleta luxury com bastante negative space, tipo campanha editorial de marca de luxo (Hermès, Aesop).`,
+    recommendedFormats: ["1:1", "4:5"],
+    bestForSections: ["featured", "launch"],
+  },
+];
+
+export const LAYOUT_INDEX: Record<string, LayoutTemplate> = LAYOUT_TEMPLATES.reduce((acc, l) => {
+  acc[l.id] = l;
+  return acc;
+}, {} as Record<string, LayoutTemplate>);
+
+/** Pick the best layout for a section when the caller doesn't specify one. */
+export function defaultLayoutForSection(sectionId: SectionId): LayoutTemplate {
+  const match = LAYOUT_TEMPLATES.find((t) => t.bestForSections.includes(sectionId));
+  return match || LAYOUT_TEMPLATES[0];
+}
+
 export const SECTION_INDEX: Record<SectionId, SectionDef> = SECTIONS.reduce((acc, s) => {
   acc[s.id] = s;
   return acc;
@@ -280,6 +429,12 @@ export interface ComposeOverrides {
   embedTextInImage?: boolean;
   /** Pinned palette hint (hex csv). Overrides brand kit. */
   predominantColors?: string;
+  /** Anatomical layout to apply (ID from LAYOUT_TEMPLATES). When omitted,
+   *  defaultLayoutForSection() picks one based on the section. */
+  layoutId?: string;
+  /** Whether to inject the brand logo as a reference image AND mention it
+   *  in the prompt anatomy. Default true — uncheck for unbranded compositions. */
+  includeBrandLogo?: boolean;
 }
 
 /**
@@ -409,6 +564,25 @@ export function composeStudioParams(
     product.description ? `details: ${product.description.slice(0, 200)}` : "",
   ].filter(Boolean).join(" — ");
 
+  /* Resolve the layout (anatomy) — caller's pick wins, otherwise we suggest
+   * one based on the section. The anatomy text gets baked into the prompt
+   * downstream to push the model toward multi-zone composition. */
+  const layout = options.layoutId && LAYOUT_INDEX[options.layoutId]
+    ? LAYOUT_INDEX[options.layoutId]
+    : defaultLayoutForSection(section.id);
+
+  /* Brand identity bundle — every aspect of the brand kit that the prompt
+   * should know about (name, slogan, palette, voice, logo presence). */
+  const includeBrandLogo = options.includeBrandLogo !== false; /* default true */
+  const brandIdentity = {
+    name: brand?.name || "",
+    slogan: brand?.slogan || "",
+    primaryColor: brand?.primary_color || "",
+    secondaryColor: brand?.secondary_color || "",
+    voiceTone: String((parseJsonish(brand?.voice_json, {}))?.tone || options.tone || ""),
+    includeLogo: includeBrandLogo && !!brand?.logo_url,
+  };
+
   /* Provider mapping. Default = Gemini (with reference image of the
    * actual product packaging). When the user opts for "IA desenha texto",
    * route through Grok Imagine which renders typography natively. */
@@ -443,7 +617,13 @@ export function composeStudioParams(
     quality: options.quality || "high",
     withAndWithoutText: false,
     tags,
-  };
+    /* New: anatomy + brand identity bundle. Both flow into the prompt
+     * builder (creativeStudio.buildProductStudioPrompt) where they shape
+     * the multi-zone composition request. */
+    layoutAnatomy: layout.anatomy,
+    layoutLabel: layout.label,
+    brandIdentity,
+  } as any;
 }
 
 /**
@@ -581,6 +761,57 @@ async function findExistingProductAssetId(
   }
 }
 
+/**
+ * Idempotent registration of the brand logo as a studio asset. Looked up
+ * via tag `brand-logo:<brandId>` — if there's an existing asset for this
+ * brand, reuse it instead of re-uploading. The asset is then passed as
+ * a reference image alongside the product, so the model paints the actual
+ * logo (no hallucinated brand-marks).
+ */
+async function ensureBrandLogoAsset(
+  studio: CreativeStudioService,
+  userId: string,
+  brand: BrandRow,
+  brandId: string
+): Promise<string | null> {
+  /* Look for cached logo asset. Same JSONB syntax as findExistingProductAssetId. */
+  try {
+    const row = await queryOne<{ id: string }>(
+      `SELECT id FROM creative_assets
+        WHERE user_id = ?
+          AND asset_type = 'image'
+          AND model = 'upload-manual'
+          AND metadata->'studio'->>'imageType' = 'reference'
+          AND metadata->'studio'->'tags' @> ?::jsonb
+        ORDER BY created_at DESC
+        LIMIT 1`,
+      [userId, JSON.stringify([`brand-logo:${brandId}`])]
+    );
+    if (row?.id) return row.id;
+  } catch {
+    /* Postgres-only syntax. On other engines just skip the cache. */
+  }
+  /* Not cached — register fresh. */
+  const normalized = normalizeProductImageUrl(brand.logo_url);
+  if (!normalized) return null;
+  try {
+    const asset = await studio.registerStudioImage(
+      userId,
+      {
+        fileUrl: normalized,
+        imageType: "reference",
+        originalName: `${brand.name || "brand"}-logo.png`,
+        caption: `${brand.name || "Brand"} logomark`,
+        tags: [`brand-logo:${brandId}`, "type:logo"],
+      },
+      brandId
+    );
+    return asset.id;
+  } catch {
+    return null;
+  }
+}
+
 /* Convert any URL form ("https://app.../uploads/x.png", "/uploads/x.png",
  * "uploads/x.png") into the relative form CreativeStudioService expects. */
 function normalizeProductImageUrl(raw: string | null): string | null {
@@ -635,6 +866,15 @@ export interface PreviewResult {
   styleOptions: Array<{ id: string; label: string; description: string }>;
   /** Format catalog so the modal can render checkboxes with friendly labels. */
   formatOptions: Array<{ id: "1:1" | "9:16" | "4:5" | "16:9"; label: string; description: string }>;
+  /** Layouts available for this section (the suggested one is first). */
+  layoutOptions: Array<{
+    id: string;
+    label: string;
+    description: string;
+    recommended: boolean;
+  }>;
+  /** Default flag — true means "include brand logo as reference image". */
+  includeBrandLogoDefault: boolean;
 }
 
 const STYLE_OPTIONS = [
@@ -703,6 +943,22 @@ export async function previewComposition(
     ctaSuggestions,
     styleOptions: STYLE_OPTIONS,
     formatOptions: FORMAT_OPTIONS,
+    /* Layouts the user can pick. The recommended one for this section is
+     * surfaced first so the dropdown opens with the right default. */
+    layoutOptions: (() => {
+      const recommended = defaultLayoutForSection(section.id);
+      const sorted = [
+        recommended,
+        ...LAYOUT_TEMPLATES.filter((l) => l.id !== recommended.id),
+      ];
+      return sorted.map((l) => ({
+        id: l.id,
+        label: l.label,
+        description: l.description,
+        recommended: l.id === recommended.id,
+      }));
+    })(),
+    includeBrandLogoDefault: !!brand?.logo_url,
   };
 }
 
@@ -765,7 +1021,25 @@ export async function autoComposeAndGenerate(
     logger.info(`auto-compose: reusing existing product asset ${productAssetId} for product=${product.id}`);
   }
   if (productAssetId) studioParams.productAssetId = productAssetId;
-  logger.info(`auto-compose: invoking generateProductStudioImages userId=${userId} brandId=${input.brandId || 'none'} productAssetId=${productAssetId || 'none'}`);
+
+  /* Register the brand logo as a reference image too, so the model gets
+   * the actual logo (no fake brand-marks). Cached as a creative_asset
+   * tagged `brand-logo:<brandId>` to avoid re-uploading every gen. */
+  const includeLogo = input.overrides?.includeBrandLogo !== false;
+  if (includeLogo && brand?.logo_url && input.brandId) {
+    try {
+      const logoAssetId = await ensureBrandLogoAsset(studio, userId, brand, input.brandId);
+      if (logoAssetId) {
+        const refs = (studioParams as any).referenceAssetIds || [];
+        (studioParams as any).referenceAssetIds = [...refs, logoAssetId];
+        logger.info(`auto-compose: attached brand logo asset ${logoAssetId} as reference`);
+      }
+    } catch (err: any) {
+      logger.warn(`auto-compose: skipped brand logo (${err?.message || err})`);
+    }
+  }
+
+  logger.info(`auto-compose: invoking generateProductStudioImages userId=${userId} brandId=${input.brandId || 'none'} productAssetId=${productAssetId || 'none'} layout=${(studioParams as any).layoutLabel || '-'}`);
 
   const result = await studio.generateProductStudioImages(
     userId,

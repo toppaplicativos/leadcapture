@@ -150,6 +150,8 @@ interface PreviewPayload {
   ctaSuggestions: string[]
   styleOptions: Array<{ id: string; label: string; description: string }>
   formatOptions: Array<{ id: '1:1' | '9:16' | '4:5' | '16:9'; label: string; description: string }>
+  layoutOptions?: Array<{ id: string; label: string; description: string; recommended: boolean }>
+  includeBrandLogoDefault?: boolean
 }
 
 /** State of the configuration modal — what the user has edited. */
@@ -167,6 +169,11 @@ interface CreativeConfig {
   tone: string
   targetAudience: string
   embedTextInImage: boolean
+  /** Anatomical layout id (LAYOUT_TEMPLATES). When unset the backend
+   *  picks the recommended one for the section. */
+  layoutId: string
+  /** Inject the brand logo as a reference image. Default true. */
+  includeBrandLogo: boolean
 }
 
 const OBJECTIVE_OPTIONS = [
@@ -851,6 +858,8 @@ function ConfigureCreativeModal({
   useEffect(() => {
     if (!preview || config) return
     const d = preview.defaults
+    /* Pick the recommended layout (first entry, marked recommended=true). */
+    const recommendedLayout = preview.layoutOptions?.find((l) => l.recommended) || preview.layoutOptions?.[0]
     setConfig({
       objective: '',
       formats: d.formats?.length ? d.formats : [d.aspectRatio],
@@ -865,6 +874,8 @@ function ConfigureCreativeModal({
       tone: '',
       targetAudience: d.targetAudience || '',
       embedTextInImage: false,
+      layoutId: recommendedLayout?.id || '',
+      includeBrandLogo: preview.includeBrandLogoDefault !== false,
     })
   }, [preview, config])
 
@@ -994,6 +1005,52 @@ function ConfigureCreativeModal({
                     )
                   })}
                 </div>
+              </Field>
+
+              {/* Layout (anatomical composition template) */}
+              {preview.layoutOptions && preview.layoutOptions.length > 0 && (
+                <Field
+                  label="Estilo de composição"
+                  hint="Define a anatomia da peça — onde fica o produto, headline, preço, features, selos."
+                  icon={LayoutGrid}
+                >
+                  <select
+                    value={config.layoutId}
+                    onChange={(e) => update('layoutId', e.target.value)}
+                    className="w-full h-11 px-3.5 rounded-xl border border-gray-200 bg-white text-[13px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-300"
+                  >
+                    {preview.layoutOptions.map((l) => (
+                      <option key={l.id} value={l.id}>
+                        {l.label}{l.recommended ? ' · recomendado' : ''}
+                      </option>
+                    ))}
+                  </select>
+                  {(() => {
+                    const sel = preview.layoutOptions?.find((l) => l.id === config.layoutId)
+                    return sel ? (
+                      <p className="text-[11px] text-gray-500 mt-1.5 leading-relaxed">{sel.description}</p>
+                    ) : null
+                  })()}
+                </Field>
+              )}
+
+              {/* Brand logo toggle */}
+              <Field
+                label="Logomarca"
+                hint="Insere a logo da marca como referência visual e mantém ela fiel na peça."
+                icon={Star}
+              >
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={config.includeBrandLogo}
+                    onChange={(e) => update('includeBrandLogo', e.target.checked)}
+                    className="w-4 h-4 accent-gray-900"
+                  />
+                  <span className="text-[13px] text-gray-700">
+                    Incluir logo da marca na composição
+                  </span>
+                </label>
               </Field>
 
               {/* Variations */}

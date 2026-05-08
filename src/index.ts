@@ -67,6 +67,7 @@ import integrationsRoutes from "./routes/integrations";
 import instagramRoutes from "./routes/instagram";
 import metaPrivacyRoutes from "./routes/metaPrivacy";
 import metaWebhookRoutes from "./routes/metaWebhook";
+import metaOAuthRoutes from "./routes/metaOAuth";
 import { getNotificationService } from "./services/notifications";
 import { socketManager } from "./core/socketManager";
 
@@ -327,6 +328,7 @@ app.use("/api/integrations", authMiddleware, integrationsRoutes);
 app.use("/api/instagram", authMiddleware, instagramRoutes);
 app.use("/api/meta/privacy", metaPrivacyRoutes);
 app.use("/api/meta/webhook", metaWebhookRoutes);
+app.use("/api/meta/oauth", metaOAuthRoutes);
 
 // Services
 const instanceManager = new InstanceManager();

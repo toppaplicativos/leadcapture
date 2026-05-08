@@ -181,6 +181,30 @@ class InstagramService {
     await update(`DELETE FROM instagram_connections WHERE brand_id = ?`, [brandId]);
   }
 
+  async updateConnectionProfile(brandId: string, data: {
+    ig_user_id?: string; username?: string; name?: string;
+    profile_picture_url?: string; followers_count?: number;
+    follows_count?: number; media_count?: number;
+    biography?: string; website?: string; token_expires_at?: string;
+  }): Promise<void> {
+    await init();
+    await update(
+      `UPDATE instagram_connections
+       SET ig_user_id = ?, username = ?, name = ?, profile_picture_url = ?,
+           followers_count = ?, follows_count = ?, media_count = ?,
+           biography = ?, website = ?, token_expires_at = ?,
+           is_active = true, updated_at = NOW()
+       WHERE brand_id = ?`,
+      [
+        data.ig_user_id || "", data.username || "", data.name || "",
+        data.profile_picture_url || "", data.followers_count || 0,
+        data.follows_count || 0, data.media_count || 0,
+        data.biography || "", data.website || "",
+        data.token_expires_at || null, brandId,
+      ]
+    );
+  }
+
   async testConnection(brandId: string): Promise<{ ok: boolean; message: string; profile?: any }> {
     const conn = await this.getConnection(brandId);
     if (!conn || !conn.access_token) {

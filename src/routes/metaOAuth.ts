@@ -7,7 +7,12 @@ import crypto from "crypto";
 
 const router = Router();
 
-const META_GRAPH_URL = "https://graph.facebook.com/v21.0";
+/**
+ * Instagram Business Login API (new API — uses instagram.com/oauth/authorize)
+ * Docs: https://developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login
+ */
+
+const IG_GRAPH_URL = "https://graph.instagram.com";
 
 function getAppId(): string {
   return process.env.META_APP_ID || "";
@@ -20,25 +25,19 @@ function getRedirectUri(): string {
 }
 
 /**
- * Scopes required for Instagram Business:
- * - instagram_basic: read profile, media
- * - instagram_content_publish: publish posts
- * - instagram_manage_comments: manage comments
- * - instagram_manage_insights: read insights/metrics
- * - instagram_manage_messages: read/send DMs
- * - pages_show_list: list Facebook Pages
- * - pages_read_engagement: read page engagement
- * - business_management: access business assets
+ * Instagram Business Login scopes (new API):
+ * - instagram_business_basic: profile, media
+ * - instagram_business_content_publish: publish posts
+ * - instagram_business_manage_comments: manage comments
+ * - instagram_business_manage_insights: insights/metrics
+ * - instagram_business_manage_messages: DMs
  */
 const SCOPES = [
-  "instagram_basic",
-  "instagram_content_publish",
-  "instagram_manage_comments",
-  "instagram_manage_insights",
-  "instagram_manage_messages",
-  "pages_show_list",
-  "pages_read_engagement",
-  "business_management",
+  "instagram_business_basic",
+  "instagram_business_manage_messages",
+  "instagram_business_manage_comments",
+  "instagram_business_content_publish",
+  "instagram_business_manage_insights",
 ].join(",");
 
 // In-memory state store (short-lived, 10 min TTL)
@@ -52,7 +51,7 @@ setInterval(() => {
   }
 }, 300_000);
 
-// ─── GET /api/meta/oauth/start ── Generate OAuth URL (authenticated) ────
+// ─── GET /api/meta/oauth/start ── Generate Instagram OAuth URL (authenticated) ───
 router.get("/start", authMiddleware, attachBrandContext, (req: BrandRequest, res: Response) => {
   const appId = getAppId();
   if (!appId) {
@@ -74,43 +73,55 @@ router.get("/start", authMiddleware, attachBrandContext, (req: BrandRequest, res
   });
 
   const redirectUri = getRedirectUri();
+
+  // Instagram Business Login URL
   const oauthUrl =
-    `https://www.facebook.com/v21.0/dialog/oauth` +
-    `?client_id=${encodeURIComponent(appId)}` +
+    `https://www.instagram.com/oauth/authorize` +
+    `?enable_fb_login=0` +
+    `&force_authentication=1` +
+    `&client_id=${encodeURIComponent(appId)}` +
     `&redirect_uri=${encodeURIComponent(redirectUri)}` +
-    `&scope=${encodeURIComponent(SCOPES)}` +
     `&response_type=code` +
+    `&scope=${encodeURIComponent(SCOPES)}` +
     `&state=${encodeURIComponent(state)}`;
 
   res.json({ success: true, url: oauthUrl });
 });
 
-// ─── GET /api/meta/oauth/callback ── Handle redirect from Meta (public) ──
+// ─── GET /api/meta/oauth/callback ── Handle redirect from Instagram (public) ──
 router.get("/callback", async (req: Request, res: Response) => {
   const code = req.query.code as string;
   const state = req.query.state as string;
   const error = req.query.error as string;
-  const errorDesc = req.query.error_description as string;
+  const errorDesc = (req.query.error_description || req.query.error_reason || "") as string;
 
   // User denied permission
   if (error) {
-    logger.warn(`[Meta OAuth] User denied: ${error} — ${errorDesc}`);
+    logger.warn(`[IG OAuth] User denied: ${error} — ${errorDesc}`);
     return res.redirect(`/instagram?oauth_error=${encodeURIComponent(errorDesc || error)}`);
   }
 
-  if (!code || !state) {
-    return res.redirect("/instagram?oauth_error=Parametros+invalidos");
+  if (!code) {
+    return res.redirect("/instagram?oauth_error=Codigo+de+autorizacao+nao+recebido");
   }
 
-  // Validate state
-  const stored = stateStore.get(state);
-  if (!stored || stored.expires < Date.now()) {
+  // Validate state (if present — Instagram may not always return it)
+  let brandId = "";
+  let userId = "";
+
+  if (state) {
+    const stored = stateStore.get(state);
+    if (!stored || stored.expires < Date.now()) {
+      stateStore.delete(state);
+      return res.redirect("/instagram?oauth_error=Sessao+expirada.+Tente+novamente.");
+    }
     stateStore.delete(state);
-    return res.redirect("/instagram?oauth_error=Sessao+expirada.+Tente+novamente.");
+    brandId = stored.brandId;
+    userId = stored.userId;
+  } else {
+    return res.redirect("/instagram?oauth_error=State+invalido.+Tente+novamente.");
   }
-  stateStore.delete(state);
 
-  const { brandId, userId } = stored;
   const appId = getAppId();
   const appSecret = getAppSecret();
 
@@ -119,84 +130,76 @@ router.get("/callback", async (req: Request, res: Response) => {
   }
 
   try {
-    // 1. Exchange code for short-lived access token
-    const tokenUrl =
-      `${META_GRAPH_URL}/oauth/access_token` +
-      `?client_id=${appId}` +
-      `&redirect_uri=${encodeURIComponent(getRedirectUri())}` +
-      `&client_secret=${appSecret}` +
-      `&code=${encodeURIComponent(code)}`;
-
-    const tokenResp = await fetch(tokenUrl);
+    // ── Step 1: Exchange code for short-lived token ──
+    // Instagram API uses POST with form body (NOT URL params like Facebook)
+    const tokenResp = await fetch("https://api.instagram.com/oauth/access_token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: appId,
+        client_secret: appSecret,
+        grant_type: "authorization_code",
+        redirect_uri: getRedirectUri(),
+        code,
+      }).toString(),
+    });
     const tokenData: any = await tokenResp.json();
 
-    if (tokenData.error) {
-      logger.error("[Meta OAuth] Token exchange failed:", tokenData.error.message);
-      return res.redirect(`/instagram?oauth_error=${encodeURIComponent(tokenData.error.message)}`);
+    if (tokenData.error_type || tokenData.error_message || tokenData.error) {
+      const errMsg = tokenData.error_message || tokenData.error?.message || "Token exchange failed";
+      logger.error("[IG OAuth] Token exchange failed:", errMsg);
+      return res.redirect(`/instagram?oauth_error=${encodeURIComponent(errMsg)}`);
     }
 
     const shortToken = tokenData.access_token;
+    const igUserId = String(tokenData.user_id || "");
 
-    // 2. Exchange for long-lived token (60 days)
-    const longUrl =
-      `${META_GRAPH_URL}/oauth/access_token` +
-      `?grant_type=fb_exchange_token` +
-      `&client_id=${appId}` +
-      `&client_secret=${appSecret}` +
-      `&fb_exchange_token=${encodeURIComponent(shortToken)}`;
+    if (!shortToken) {
+      return res.redirect("/instagram?oauth_error=Nao+foi+possivel+obter+o+token+de+acesso");
+    }
 
-    const longResp = await fetch(longUrl);
+    logger.info(`[IG OAuth] Got short-lived token for IG user ${igUserId}`);
+
+    // ── Step 2: Exchange for long-lived token (60 days) ──
+    const longResp = await fetch(
+      `${IG_GRAPH_URL}/access_token` +
+      `?grant_type=ig_exchange_token` +
+      `&client_secret=${encodeURIComponent(appSecret)}` +
+      `&access_token=${encodeURIComponent(shortToken)}`
+    );
     const longData: any = await longResp.json();
     const longToken = longData.access_token || shortToken;
     const expiresIn = longData.expires_in || 5184000; // default 60 days
 
-    // 3. Get user's Facebook Pages
-    const pagesResp = await fetch(
-      `${META_GRAPH_URL}/me/accounts?fields=id,name,access_token,instagram_business_account&access_token=${encodeURIComponent(longToken)}`
+    logger.info(`[IG OAuth] Got long-lived token, expires in ${expiresIn}s`);
+
+    // ── Step 3: Get Instagram profile info ──
+    const profileResp = await fetch(
+      `${IG_GRAPH_URL}/v21.0/me?fields=user_id,username,name,profile_picture_url,followers_count,follows_count,media_count,biography,website&access_token=${encodeURIComponent(longToken)}`
     );
-    const pagesData: any = await pagesResp.json();
+    const igProfile: any = await profileResp.json();
 
-    if (!pagesData.data || pagesData.data.length === 0) {
-      return res.redirect("/instagram?oauth_error=Nenhuma+pagina+Facebook+encontrada.+Certifique-se+que+sua+conta+tem+uma+Page+vinculada.");
+    if (igProfile.error) {
+      logger.error("[IG OAuth] Profile fetch failed:", igProfile.error.message);
+      // Still save the connection even if profile fails
     }
 
-    // 4. Find first page with Instagram Business Account
-    let igAccountId = "";
-    let pageAccessToken = longToken;
-    let pageName = "";
+    const username = igProfile.username || "";
+    const profileIgUserId = igProfile.user_id || igUserId;
 
-    for (const page of pagesData.data) {
-      if (page.instagram_business_account?.id) {
-        igAccountId = page.instagram_business_account.id;
-        pageAccessToken = page.access_token || longToken;
-        pageName = page.name || "";
-        break;
-      }
-    }
-
-    if (!igAccountId) {
-      return res.redirect("/instagram?oauth_error=Nenhuma+conta+Instagram+Business+vinculada+as+suas+Pages.+Converta+para+conta+profissional+primeiro.");
-    }
-
-    // 5. Get Instagram profile info
-    const igProfileResp = await fetch(
-      `${META_GRAPH_URL}/${igAccountId}?fields=id,username,name,profile_picture_url,followers_count,follows_count,media_count,biography,website&access_token=${encodeURIComponent(pageAccessToken)}`
-    );
-    const igProfile: any = await igProfileResp.json();
-
-    // 6. Save connection
+    // ── Step 4: Save connection ──
     await instagramService.saveConnection(brandId, userId, {
-      access_token: pageAccessToken,
-      account_id: igAccountId,
+      access_token: longToken,
+      account_id: profileIgUserId,
       app_id: appId,
       app_secret: appSecret,
     });
 
-    // 7. Update profile info in the connection
+    // ── Step 5: Update profile info ──
     await instagramService.updateConnectionProfile(brandId, {
-      ig_user_id: igProfile.id || igAccountId,
-      username: igProfile.username || "",
-      name: igProfile.name || pageName,
+      ig_user_id: profileIgUserId,
+      username: username,
+      name: igProfile.name || "",
       profile_picture_url: igProfile.profile_picture_url || "",
       followers_count: igProfile.followers_count || 0,
       follows_count: igProfile.follows_count || 0,
@@ -206,12 +209,12 @@ router.get("/callback", async (req: Request, res: Response) => {
       token_expires_at: new Date(Date.now() + expiresIn * 1000).toISOString(),
     });
 
-    logger.info(`[Meta OAuth] Connected IG @${igProfile.username || igAccountId} to brand ${brandId}`);
+    logger.info(`[IG OAuth] Connected @${username || profileIgUserId} to brand ${brandId}`);
 
-    // 8. Redirect back to frontend
-    return res.redirect(`/instagram?oauth_success=true&username=${encodeURIComponent(igProfile.username || "")}`);
+    // ── Step 6: Redirect back to frontend ──
+    return res.redirect(`/instagram?oauth_success=true&username=${encodeURIComponent(username)}`);
   } catch (err: any) {
-    logger.error("[Meta OAuth] Callback error:", err.message);
+    logger.error("[IG OAuth] Callback error:", err.message);
     return res.redirect(`/instagram?oauth_error=${encodeURIComponent("Erro interno: " + err.message)}`);
   }
 });

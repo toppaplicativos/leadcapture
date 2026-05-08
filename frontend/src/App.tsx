@@ -65,6 +65,8 @@ const CadastroPage = lazy(() => import('@/pages/CadastroPage').then(m => ({ defa
 const CadastroSucessoPage = lazy(() => import('@/pages/CadastroSucessoPage').then(m => ({ default: m.CadastroSucessoPage })))
 const AdminEmailsPage = lazy(() => import('@/pages/AdminEmailsPage').then(m => ({ default: m.AdminEmailsPage })))
 const InstagramPage = lazy(() => import('@/pages/InstagramPage').then(m => ({ default: m.InstagramPage })))
+const PrivacyPolicyPage = lazy(() => import('@/pages/PrivacyPolicyPage').then(m => ({ default: m.PrivacyPolicyPage })))
+const DataDeletionPage = lazy(() => import('@/pages/DataDeletionPage').then(m => ({ default: m.DataDeletionPage })))
 
 /* ── Fallback ── */
 function RouteFallback() {
@@ -218,6 +220,12 @@ export default function App() {
           <Route path="/master/configuracoes" element={<MasterShell><MasterConfiguracoes /></MasterShell>} />
           <Route path="/master/emails" element={<MasterShell><MasterEmails /></MasterShell>} />
           <Route path="/master/audit-log" element={<MasterShell><MasterAuditLog /></MasterShell>} />
+
+          {/* ── Public: Privacy & Data Deletion (Meta compliance) ── */}
+          <Route path="/privacy" element={<PrivacyPolicyPage />} />
+          <Route path="/privacy/policy" element={<PrivacyPolicyPage />} />
+          <Route path="/privacy/data-deletion" element={<DataDeletionPage />} />
+          <Route path="/privacy/deletion-status" element={<DataDeletionPage />} />
 
           {/* ── Public signup flow ── */}
           <Route path="/cadastro" element={<CadastroPage />} />

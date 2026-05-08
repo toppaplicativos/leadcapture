@@ -65,6 +65,7 @@ import notificationsRoutes from "./routes/notifications";
 import supportRoutes from "./routes/support";
 import integrationsRoutes from "./routes/integrations";
 import instagramRoutes from "./routes/instagram";
+import metaPrivacyRoutes from "./routes/metaPrivacy";
 import { getNotificationService } from "./services/notifications";
 import { socketManager } from "./core/socketManager";
 
@@ -323,6 +324,7 @@ app.use("/api/notifications", notificationsRoutes);
 app.use("/api/support", supportRoutes);
 app.use("/api/integrations", authMiddleware, integrationsRoutes);
 app.use("/api/instagram", authMiddleware, instagramRoutes);
+app.use("/api/meta/privacy", metaPrivacyRoutes);
 
 // Services
 const instanceManager = new InstanceManager();

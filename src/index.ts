@@ -64,6 +64,7 @@ import { FlowExecutorService } from "./services/flowExecutor";
 import notificationsRoutes from "./routes/notifications";
 import supportRoutes from "./routes/support";
 import integrationsRoutes from "./routes/integrations";
+import instagramRoutes from "./routes/instagram";
 import { getNotificationService } from "./services/notifications";
 import { socketManager } from "./core/socketManager";
 
@@ -321,6 +322,7 @@ app.use("/api/flows", flowBuilderRoutes);
 app.use("/api/notifications", notificationsRoutes);
 app.use("/api/support", supportRoutes);
 app.use("/api/integrations", authMiddleware, integrationsRoutes);
+app.use("/api/instagram", authMiddleware, instagramRoutes);
 
 // Services
 const instanceManager = new InstanceManager();

@@ -64,6 +64,7 @@ const MasterEmails = lazy(() => import('@/pages/master/MasterEmails').then(m => 
 const CadastroPage = lazy(() => import('@/pages/CadastroPage').then(m => ({ default: m.CadastroPage })))
 const CadastroSucessoPage = lazy(() => import('@/pages/CadastroSucessoPage').then(m => ({ default: m.CadastroSucessoPage })))
 const AdminEmailsPage = lazy(() => import('@/pages/AdminEmailsPage').then(m => ({ default: m.AdminEmailsPage })))
+const InstagramPage = lazy(() => import('@/pages/InstagramPage').then(m => ({ default: m.InstagramPage })))
 
 /* ── Fallback ── */
 function RouteFallback() {
@@ -242,6 +243,7 @@ export default function App() {
           <Route path="/agente" element={<AdminPage><AgentView showToast={noop} /></AdminPage>} />
           <Route path="/tirar-pedido" element={<AdminPage><AgentPDVPage /></AdminPage>} />
           <Route path="/whatsapp" element={<AdminPage><WhatsAppManagerView showToast={noop} /></AdminPage>} />
+          <Route path="/instagram" element={<AdminPage><InstagramPage /></AdminPage>} />
           <Route path="/produtos" element={<AdminPage><ProductsView showToast={noop} /></AdminPage>} />
           <Route path="/pedidos" element={<AdminPage><OrdersInline /></AdminPage>} />
           <Route path="/estoque" element={<AdminPage><EstoqueAccessView showToast={noop} /></AdminPage>} />

@@ -119,7 +119,7 @@ function signStockToken(input: {
 // POST /api/auth/register
 router.post("/register", async (req: Request, res: Response) => {
   try {
-    const { email, password, name, phone, role } = req.body;
+    const { email, password, name, phone, role, brand_name } = req.body;
 
     if (!email || !password || !name) {
       return res.status(400).json({ error: "Email, password and name are required" });
@@ -129,8 +129,26 @@ router.post("/register", async (req: Request, res: Response) => {
       return res.status(400).json({ error: "Password must be at least 6 characters" });
     }
 
-    const user = await usersService.create({ email, password, name, phone, role });
-    const token = usersService.signToken(user);
+    const user = await usersService.create({ email, password, name, phone, role: role || "admin" });
+    const token = usersService.signToken({ ...user, role: role || "admin" });
+
+    // Create a default brand for the new user
+    const brandNameFinal = String(brand_name || name || "").trim();
+    if (brandNameFinal) {
+      const brandId = randomUUID();
+      const slug = brandNameFinal
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[̀-ͯ]/g, "")
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "");
+      await query(
+        `INSERT INTO brand_units (id, user_id, name, slug, status, is_default)
+         VALUES (?, ?, ?, ?, 'active', TRUE)`,
+        [brandId, user.id, brandNameFinal, slug]
+      );
+      logger.info(`Brand created for new user: ${brandNameFinal} (ID: ${brandId})`);
+    }
 
     res.status(201).json({
       success: true,

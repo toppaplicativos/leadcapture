@@ -2,6 +2,10 @@ import { Router, Response } from "express";
 import { attachBrandContext, BrandRequest } from "../middleware/brandContext";
 import { instagramService } from "../services/instagram";
 import { settingsService } from "../services/settings";
+import { CreativeStudioService } from "../services/creativeStudio";
+import { logger } from "../utils/logger";
+
+const creativeStudio = new CreativeStudioService();
 
 const router = Router();
 router.use(attachBrandContext);
@@ -246,6 +250,111 @@ router.get("/conversations", async (req: BrandRequest, res: Response) => {
   try {
     const conversations = await instagramService.getConversations(brandId);
     res.json({ success: true, conversations });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Direct Publish (from image generator) ─────────────────────────
+
+router.post("/publish-image", async (req: BrandRequest, res: Response) => {
+  const brandId = requireBrand(req, res);
+  if (!brandId) return;
+  try {
+    const { imageUrl, caption, mediaType, locationId, altText, userTags } = req.body;
+    if (!imageUrl) return res.status(400).json({ error: "imageUrl obrigatorio" });
+
+    const result = await instagramService.publishImageDirect(brandId, {
+      imageUrl,
+      caption,
+      mediaType: mediaType || "IMAGE",
+      locationId,
+      altText,
+      userTags,
+    });
+    res.json({ success: result.ok, ...result });
+  } catch (err: any) {
+    logger.error(`[Instagram] publish-image error: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post("/caption-generate", async (req: BrandRequest, res: Response) => {
+  const brandId = requireBrand(req, res);
+  if (!brandId) return;
+  const userId = requireUser(req, res);
+  if (!userId) return;
+  try {
+    const { context, tone, objective } = req.body || {};
+
+    const prompt = [
+      "Gere uma legenda profissional e envolvente para um post no Instagram.",
+      "A legenda deve ter no maximo 2000 caracteres.",
+      "Inclua uma chamada para acao sutil.",
+      "Ao final, sugira de 5 a 10 hashtags relevantes em portugues, separadas por espaco.",
+      "Formato da resposta: primeiro a legenda, depois uma linha em branco, depois as hashtags.",
+      context ? `Contexto: ${context}` : "",
+      tone ? `Tom de voz: ${tone}` : "",
+      objective ? `Objetivo: ${objective}` : "",
+    ].filter(Boolean).join("\n");
+
+    const result = await creativeStudio.generateText(userId, {
+      prompt,
+      tone: tone || undefined,
+      objective: objective || undefined,
+      maxCharacters: 2200,
+    }, brandId);
+
+    // Parse caption and hashtags from response
+    const text = String(result?.text || "");
+    const parts = text.split(/\n\s*\n/);
+    let caption = parts[0] || text;
+    const hashtagLine = parts[1] || "";
+    const hashtagMatches = hashtagLine.match(/#[\wÀ-ɏà-ÿ]+/g) || [];
+
+    // If hashtags are inline in caption, extract them
+    if (hashtagMatches.length === 0) {
+      const inlineHashtags = caption.match(/#[\wÀ-ɏà-ÿ]+/g) || [];
+      if (inlineHashtags.length > 0) {
+        caption = caption.replace(/#[\wÀ-ɏà-ÿ]+/g, "").trim();
+        res.json({ success: true, caption, hashtags: inlineHashtags });
+        return;
+      }
+    }
+
+    res.json({ success: true, caption, hashtags: hashtagMatches });
+  } catch (err: any) {
+    logger.error(`[Instagram] caption-generate error: ${err.message}`);
+    res.status(500).json({ error: err.message || "Falha ao gerar legenda" });
+  }
+});
+
+router.get("/location-search", async (req: BrandRequest, res: Response) => {
+  const brandId = requireBrand(req, res);
+  if (!brandId) return;
+  try {
+    const q = String(req.query.q || "").trim();
+    if (!q || q.length < 2) return res.json({ success: true, locations: [] });
+
+    const locations = await instagramService.searchLocations(brandId, q);
+    res.json({ success: true, locations });
+  } catch (err: any) {
+    logger.error(`[Instagram] location-search error: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get("/connection-status", async (req: BrandRequest, res: Response) => {
+  const brandId = requireBrand(req, res);
+  if (!brandId) return;
+  try {
+    const conn = await instagramService.getConnection(brandId);
+    res.json({
+      success: true,
+      connected: !!(conn?.access_token && conn?.is_active),
+      username: conn?.username || null,
+      profilePicture: conn?.profile_picture_url || null,
+    });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

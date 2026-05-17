@@ -469,6 +469,135 @@ class InstagramService {
     }
   }
 
+  /**
+   * Publish an image directly to Instagram (feed post or story).
+   * Creates the draft, publishes, and returns the result in one call.
+   */
+  async publishImageDirect(brandId: string, input: {
+    imageUrl: string;
+    caption?: string;
+    mediaType?: "IMAGE" | "STORIES";
+    locationId?: string;
+    altText?: string;
+    userTags?: { username: string; x: number; y: number }[];
+  }): Promise<{ ok: boolean; message: string; postId?: string; igMediaId?: string }> {
+    const conn = await this.getConnection(brandId);
+    if (!conn?.access_token) return { ok: false, message: "Instagram nao conectado. Conecte sua conta na aba Instagram." };
+
+    const mediaType = input.mediaType || "IMAGE";
+    const isStory = mediaType === "STORIES";
+
+    // Save as draft first
+    const post = await this.createPost(brandId, {
+      media_type: isStory ? "IMAGE" : "IMAGE",
+      media_url: input.imageUrl,
+      caption: isStory ? undefined : input.caption,
+      status: "publishing",
+    });
+
+    try {
+      // Build container payload
+      const containerPayload: Record<string, any> = {
+        access_token: conn.access_token,
+      };
+
+      if (isStory) {
+        containerPayload.media_type = "STORIES";
+        containerPayload.image_url = input.imageUrl;
+        if (input.userTags?.length) {
+          containerPayload.user_tags = input.userTags;
+        }
+      } else {
+        containerPayload.image_url = input.imageUrl;
+        containerPayload.caption = input.caption || "";
+        if (input.locationId) containerPayload.location_id = input.locationId;
+        if (input.altText) containerPayload.alt_text = input.altText;
+        if (input.userTags?.length) {
+          containerPayload.user_tags = input.userTags;
+        }
+      }
+
+      logger.info(`[Instagram] Creating container for ${mediaType}: ${JSON.stringify({ ...containerPayload, access_token: "***" })}`);
+
+      const containerResp = await fetch(`${IG_GRAPH_URL}/me/media`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(containerPayload),
+      });
+      const containerData: any = await containerResp.json();
+
+      if (!containerData.id) {
+        await this.updatePost(post.id, { status: "failed" });
+        const errMsg = containerData?.error?.message || "Falha ao criar container de midia no Instagram";
+        logger.error(`[Instagram] Container creation failed: ${errMsg}`);
+        return { ok: false, message: errMsg, postId: post.id };
+      }
+
+      // Publish the container
+      const pubResp = await fetch(`${IG_GRAPH_URL}/me/media_publish`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ creation_id: containerData.id, access_token: conn.access_token }),
+      });
+      const pubData: any = await pubResp.json();
+
+      if (pubData.id) {
+        await this.updatePost(post.id, {
+          status: "published",
+          ig_media_id: pubData.id,
+          published_at: new Date().toISOString(),
+        });
+        logger.info(`[Instagram] Published successfully: ${pubData.id}`);
+        return { ok: true, message: isStory ? "Story publicado com sucesso" : "Post publicado com sucesso", postId: post.id, igMediaId: pubData.id };
+      } else {
+        await this.updatePost(post.id, { status: "failed" });
+        const errMsg = pubData?.error?.message || "Falha ao publicar no Instagram";
+        logger.error(`[Instagram] Publish failed: ${errMsg}`);
+        return { ok: false, message: errMsg, postId: post.id };
+      }
+    } catch (err: any) {
+      await this.updatePost(post.id, { status: "failed" });
+      logger.error(`[Instagram] publishImageDirect error: ${err.message}`);
+      return { ok: false, message: err.message, postId: post.id };
+    }
+  }
+
+  /**
+   * Search for locations using Facebook Pages Search API.
+   */
+  async searchLocations(brandId: string, searchQuery: string): Promise<{ id: string; name: string; address?: string }[]> {
+    const conn = await this.getConnection(brandId);
+    if (!conn?.access_token) return [];
+
+    try {
+      const params = new URLSearchParams({
+        q: searchQuery,
+        fields: "id,name,location",
+        type: "place",
+        limit: "10",
+        access_token: conn.access_token,
+      });
+      // Location search uses the Facebook Graph API (not Instagram)
+      const resp = await fetch(`https://graph.facebook.com/v21.0/pages/search?${params}`);
+      if (!resp.ok) {
+        const err: any = await resp.json().catch(() => ({}));
+        logger.warn(`[Instagram] Location search failed: ${err?.error?.message || resp.status}`);
+        return [];
+      }
+      const data: any = await resp.json();
+      return (data.data || []).map((p: any) => ({
+        id: p.id,
+        name: p.name,
+        address: p.location
+          ? [p.location.street, p.location.city, p.location.state, p.location.country].filter(Boolean).join(", ")
+          : undefined,
+      }));
+    } catch (err: any) {
+      logger.error(`[Instagram] Location search error: ${err.message}`);
+      return [];
+    }
+  }
+
   async getConversations(brandId: string): Promise<any[]> {
     const conn = await this.getConnection(brandId);
     if (!conn?.access_token || !conn?.account_id) return [];

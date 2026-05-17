@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   BadgeCheck, Download, ImagePlus, Layers, Loader2, Megaphone, Move, Palette,
-  RefreshCw, Save, SlidersHorizontal, Sparkles, Type, Upload, Wand2, X,
+  RefreshCw, Save, Share2, SlidersHorizontal, Sparkles, Type, Upload, Wand2, X,
 } from 'lucide-react'
 import { Button, Input } from '@/components/ui'
 import { cn } from '@/lib/cn'
+import { PublishModal } from '@/components/PublishModal'
 
 type ImageRole = 'product' | 'reference' | 'background'
 
@@ -231,6 +232,7 @@ export function BrandImageGeneratorPage() {
   const [generatedAsset, setGeneratedAsset] = useState<CreativeAsset | null>(null)
   const [credits, setCredits] = useState<{ creditsRemaining?: number; monthlyLimit?: number } | null>(null)
   const [gallery, setGallery] = useState<CreativeAsset[]>([])
+  const [publishModalOpen, setPublishModalOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [booting, setBooting] = useState(true)
   const [message, setMessage] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
@@ -946,7 +948,12 @@ export function BrandImageGeneratorPage() {
                 <h3 className="text-[15px] font-bold tracking-tight text-gray-900">Imagem final</h3>
                 <p className="text-[11px] text-gray-500 mt-0.5">{generatedImageUrl ? 'Base gerada pela IA + camadas editaveis.' : 'Gere uma imagem nova para substituir o preview.'}</p>
               </div>
-              <Button variant="secondary" onClick={downloadCreative} iconLeft={<Download size={15} />}>Download</Button>
+              <div className="flex gap-2">
+                {generatedImageUrl && (
+                  <Button variant="secondary" onClick={() => setPublishModalOpen(true)} iconLeft={<Share2 size={15} />}>Publicar</Button>
+                )}
+                <Button variant="secondary" onClick={downloadCreative} iconLeft={<Download size={15} />}>Download</Button>
+              </div>
             </div>
 
             <div className="w-full rounded-2xl bg-gray-100 p-3">
@@ -1071,6 +1078,13 @@ export function BrandImageGeneratorPage() {
           )}
         </div>
       </div>
+
+      <PublishModal
+        open={publishModalOpen}
+        onClose={() => setPublishModalOpen(false)}
+        imageUrl={generatedImageUrl}
+        captionContext={[headline, subheadline, cta, brandName].filter(Boolean).join(' - ')}
+      />
     </div>
   )
 }

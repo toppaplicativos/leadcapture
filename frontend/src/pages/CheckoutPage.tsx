@@ -51,16 +51,37 @@ export function CheckoutPage() {
       .finally(() => setLoading(false))
   }, [])
 
-  const cartIds = Object.keys(items).filter((k) => items[k] > 0)
-  const total = cartIds.reduce((sum, id) => {
-    const p = products.get(id)
-    return sum + (p ? Number(p.price) * items[id] : 0)
+  const cartKeys = Object.keys(items).filter((k) => (items[k]?.quantity || 0) > 0)
+  /** Effective unit price: prefer item.unitPrice (set when a variant is selected) over product base price. */
+  function priceFor(key: string): number {
+    const it = items[key]
+    if (!it) return 0
+    if (typeof it.unitPrice === 'number' && it.unitPrice > 0) return it.unitPrice
+    const p = products.get(it.productId)
+    return p ? Number(p.price) : 0
+  }
+  const total = cartKeys.reduce((sum, key) => {
+    const it = items[key]
+    return sum + priceFor(key) * (it?.quantity || 0)
   }, 0)
 
   async function handleSubmit() {
     if (!email || !responsibleName) { setError('Preencha nome e email'); return }
     setCustomer({ email, responsible_name: responsibleName, establishment_name: establishmentName, phone, name: responsibleName, establishment: establishmentName, address })
-    const orderItems = cartIds.filter(id => items[id] > 0).map(id => ({ product_id: id, quantity: items[id] }))
+    const orderItems = cartKeys
+      .map((key) => {
+        const it = items[key]
+        if (!it || it.quantity <= 0) return null
+        return {
+          product_id: it.productId,
+          quantity: it.quantity,
+          variant_id: it.variantId || undefined,
+          variant_name: it.variantName || undefined,
+          variant_attributes: it.variantAttributes || undefined,
+          configurator_selections: Array.isArray(it.configuratorSelections) ? it.configuratorSelections : undefined,
+        }
+      })
+      .filter((x): x is NonNullable<typeof x> => x !== null)
     if (orderItems.length === 0) { setError('Carrinho vazio'); return }
     setSubmitting(true); setError('')
     try {
@@ -86,7 +107,7 @@ export function CheckoutPage() {
   const stepIdx = steps.findIndex(s => s.key === step)
 
   function canAdvance(): boolean {
-    if (step === 'cart') return cartIds.length > 0
+    if (step === 'cart') return cartKeys.length > 0
     if (step === 'customer') return !!email.trim() && !!responsibleName.trim()
     if (step === 'delivery') return true
     return !!paymentMethod
@@ -115,7 +136,7 @@ export function CheckoutPage() {
         </div>
       </header>
 
-      {cartIds.length === 0 && step === 'cart' ? (
+      {cartKeys.length === 0 && step === 'cart' ? (
         <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 px-4">
           <div className="w-20 h-20 rounded-full bg-gray-100 flex items-center justify-center">
             <ShoppingBag className="w-8 h-8 text-gray-400" />
@@ -150,27 +171,35 @@ export function CheckoutPage() {
           {step === 'cart' && (
             <section className="space-y-3">
               <h2 className="text-lg font-bold text-gray-900">Confira seus produtos</h2>
-              {cartIds.map((id) => {
-                const p = products.get(id)
+              {cartKeys.map((key) => {
+                const it = items[key]
+                const p = products.get(it.productId)
                 if (!p) return null
-                const qty = items[id]
+                const qty = it.quantity
+                const unitPrice = priceFor(key)
                 const img = p.image || p.images?.[0] || ''
                 return (
-                  <div key={id} className="flex gap-3 bg-white border border-gray-200 rounded-2xl p-3">
+                  <div key={key} className="flex gap-3 bg-white border border-gray-200 rounded-2xl p-3">
                     {img ? <img src={img} alt={p.name} className="w-16 h-16 rounded-xl object-cover shrink-0" onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
                       : <div className="w-16 h-16 rounded-xl bg-gray-100 flex items-center justify-center shrink-0"><ImageOff className="w-5 h-5 text-gray-300" /></div>}
                     <div className="flex-1 min-w-0">
                       <h4 className="text-sm font-semibold truncate">{p.name}</h4>
-                      <p className="text-xs text-gray-400">{money(p.price)} /{p.unit || 'un'}</p>
+                      {it.variantName && (
+                        <p className="text-[11px] font-medium text-gray-600 mt-0.5">{it.variantName}</p>
+                      )}
+                      {it.configuratorSummary && (
+                        <p className="text-[11px] text-gray-500 mt-0.5 leading-snug">{it.configuratorSummary}</p>
+                      )}
+                      <p className="text-xs text-gray-400">{money(unitPrice)} /{p.unit || 'un'}</p>
                     </div>
                     <div className="flex flex-col items-end gap-1.5">
                       <div className="flex items-center bg-gray-100 rounded-lg overflow-hidden">
-                        <button onClick={() => updateQty(id, -1)} className="w-8 h-8 flex items-center justify-center hover:bg-gray-200 transition"><Minus className="w-3 h-3" /></button>
+                        <button onClick={() => updateQty(key, -1)} className="w-8 h-8 flex items-center justify-center hover:bg-gray-200 transition"><Minus className="w-3 h-3" /></button>
                         <span className="w-7 text-center text-xs font-bold">{qty}</span>
-                        <button onClick={() => updateQty(id, 1)} className="w-8 h-8 flex items-center justify-center hover:bg-gray-200 transition"><Plus className="w-3 h-3" /></button>
+                        <button onClick={() => updateQty(key, 1)} className="w-8 h-8 flex items-center justify-center hover:bg-gray-200 transition"><Plus className="w-3 h-3" /></button>
                       </div>
-                      <span className="text-sm font-bold">{money(Number(p.price) * qty)}</span>
-                      <button onClick={() => { removeItem(id); showToast('Removido') }} className="text-gray-400 hover:text-red-500 transition"><Trash2 className="w-4 h-4" /></button>
+                      <span className="text-sm font-bold">{money(unitPrice * qty)}</span>
+                      <button onClick={() => { removeItem(key); showToast('Removido') }} className="text-gray-400 hover:text-red-500 transition"><Trash2 className="w-4 h-4" /></button>
                     </div>
                   </div>
                 )
@@ -286,7 +315,7 @@ export function CheckoutPage() {
                 <p className="text-[10px] font-bold text-gray-400 uppercase">Resumo</p>
                 <p className="text-xs text-gray-600">{responsibleName} {establishmentName ? `· ${establishmentName}` : ''}</p>
                 <p className="text-xs text-gray-600">{email} {phone ? `· ${phone}` : ''}</p>
-                <p className="text-sm font-bold text-gray-900">{cartIds.length} item(ns) · {money(total)}</p>
+                <p className="text-sm font-bold text-gray-900">{cartKeys.length} item(ns) · {money(total)}</p>
               </div>
             </section>
           )}
@@ -324,13 +353,15 @@ export function CheckoutPage() {
               {/* Order summary */}
               <div className="bg-gray-50 rounded-xl p-4 space-y-2">
                 <p className="text-[10px] font-bold text-gray-400 uppercase">Resumo do pedido</p>
-                {cartIds.map(id => {
-                  const p = products.get(id)
+                {cartKeys.map(key => {
+                  const it = items[key]
+                  const p = products.get(it.productId)
                   if (!p) return null
+                  const label = it.variantName ? `${p.name} (${it.variantName})` : p.name
                   return (
-                    <div key={id} className="flex justify-between text-xs">
-                      <span className="text-gray-600">{items[id]}x {p.name}</span>
-                      <span className="font-semibold">{money(Number(p.price) * items[id])}</span>
+                    <div key={key} className="flex justify-between text-xs">
+                      <span className="text-gray-600">{it.quantity}x {label}</span>
+                      <span className="font-semibold">{money(priceFor(key) * it.quantity)}</span>
                     </div>
                   )
                 })}

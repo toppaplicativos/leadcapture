@@ -2,6 +2,7 @@ import { Response, Router } from "express";
 import { AuthRequest } from "../middleware/auth";
 import { BrandUnitsService } from "../services/brandUnits";
 import { StorefrontService } from "../services/storefront";
+import { invalidateCatalogCacheByBrand } from "../services/storefrontCache";
 
 const router = Router();
 const brandUnitsService = new BrandUnitsService();
@@ -66,6 +67,7 @@ const updateBrandHandler = async (req: AuthRequest, res: Response) => {
     if (!brand) return res.status(404).json({ error: "Brand not found" });
 
     await storefrontService.synchronizeBrandStructure(userId, String(brand.id), { syncProducts: true });
+    await invalidateCatalogCacheByBrand(String(brand.id));
 
     const activeBrandId = await brandUnitsService.getActiveBrandId(userId);
     res.json({ success: true, brand, active_brand_id: activeBrandId });
@@ -87,6 +89,7 @@ router.post("/:id/activate", async (req: AuthRequest, res: Response) => {
     if (!ok) return res.status(404).json({ error: "Brand not found" });
 
     await storefrontService.synchronizeBrandStructure(userId, String(req.params.id), { syncProducts: true });
+    await invalidateCatalogCacheByBrand(String(req.params.id));
 
     res.json({ success: true, active_brand_id: String(req.params.id) });
   } catch (error: any) {

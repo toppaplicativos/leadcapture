@@ -134,7 +134,12 @@ export class AIRouter {
     }
 
     // Default: Gemini
-    const text = await this.gemini.generatePlainText(prompt, { model, temperature: options?.temperature, userId: scope.userId });
+    const text = await this.gemini.generatePlainText(prompt, {
+      model,
+      temperature: options?.temperature,
+      userId: scope.userId,
+      brandId: scope.brandId,
+    });
     return { text, model, provider: "gemini" };
   }
 
@@ -155,7 +160,12 @@ export class AIRouter {
       return new GrokProvider(key, model).generateJson<T>(prompt, { model, temperature: options?.temperature });
     }
 
-    return this.gemini.generateJson<T>(prompt, { model, temperature: options?.temperature, userId: scope.userId });
+    return this.gemini.generateJson<T>(prompt, {
+      model,
+      temperature: options?.temperature,
+      userId: scope.userId,
+      brandId: scope.brandId,
+    });
   }
 }
 

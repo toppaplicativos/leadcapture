@@ -103,6 +103,8 @@ export interface CustomerCreateDTO {
   status?: string;
   source?: string;
   assigned_to?: string | number;
+  /** Extra structured data to merge into source_details (eg. catalog product context). */
+  extra_source_details?: Record<string, any>;
 }
 
 // ============ KNOWLEDGE BASE ============
@@ -229,9 +231,40 @@ export interface CampaignConfig {
 }
 
 // ============ PRODUCTS ============
+/**
+ * OfferEntity-style product (Fase 0 da arquitetura universal).
+ * Campos novos têm defaults — instâncias antigas continuam funcionando.
+ */
+export type OfferType =
+  | "physical_product"
+  | "digital_product"
+  | "service"
+  | "vehicle"
+  | "real_estate"
+  | "subscription"
+  | "consortium"
+  | "food"
+  | "custom_quote"
+  | "appointment"
+  | "course"
+  | "event"
+  | "bundle"
+  | "physical"; /* legacy alias for physical_product */
+
+export type OfferCtaType =
+  | "buy"           /* adiciona ao carrinho */
+  | "quote"         /* abre formulário de orçamento */
+  | "whatsapp"      /* abre deeplink WhatsApp */
+  | "schedule"      /* abre agendamento */
+  | "simulate"      /* simulador (consórcio, financiamento) */
+  | "visit"         /* solicitar visita (imóvel) */
+  | "subscribe"     /* assinar */
+  | "custom";       /* CTA livre configurado via metadata */
+
 export interface Product {
   id: string;
   name: string;
+  subtitle?: string;
   description: string;
   category: string;
   price: number;
@@ -247,6 +280,80 @@ export interface Product {
   active?: boolean;
   createdAt: Date;
   updatedAt: Date;
+  /* OfferEntity fields (Fase 0) */
+  type?: OfferType;
+  cta_type?: OfferCtaType;
+  pipeline_id?: string | null;
+  attributes?: Record<string, any>;
+  seo?: Record<string, any>;
+  media?: Record<string, any>;
+  /* Service config (Fase 5) — populated when type ∈ {service, appointment} */
+  service_config?: ServiceConfig;
+  /* Configurator (Fase 4) — populated when product has configurable groups */
+  configurator?: ConfiguratorConfig;
+  /* Bundle items (Fase 11) — populated when type = bundle */
+  bundle_items?: BundleItem[];
+  /* Inventory (Fase 12)
+   *   stock_quantity: null = unlimited (default for services, configurators, digital)
+   *                   >= 0 = tracked, decremented atomically on order via productStockService
+   *   stock_status: denormalized for fast catalog filtering — kept in sync by service layer
+   *   stock_threshold_low: when qty <= threshold, status flips to low_stock (default 5) */
+  stock_quantity?: number | null;
+  stock_status?: "in_stock" | "low_stock" | "out_of_stock" | "unlimited";
+  stock_threshold_low?: number;
+}
+
+export interface ServiceWeekdayHours {
+  /** 0=Sun, 1=Mon … 6=Sat */
+  weekday: number;
+  /** "HH:MM" (24h) */
+  start: string;
+  /** "HH:MM" (24h, exclusive) */
+  end: string;
+}
+
+export interface ServiceConfig {
+  duration_minutes?: number;        /* default 60 */
+  buffer_minutes?: number;          /* gap after each booking, default 0 */
+  max_per_slot?: number;            /* parallel capacity, default 1 */
+  weekday_hours?: ServiceWeekdayHours[];
+  requires_address?: boolean;       /* home service vs in-shop */
+  advance_notice_hours?: number;    /* min hours from now until earliest bookable slot, default 1 */
+  max_advance_days?: number;        /* how far in the future a customer can book, default 30 */
+}
+
+/* ── Configurator (Fase 4) ── */
+export interface ConfiguratorOption {
+  id: string;                        /* short stable id, eg. "small" */
+  name: string;                      /* "Pequena" */
+  price_delta?: number;              /* additive to base price; default 0; can be negative */
+  description?: string;
+  image_url?: string;
+  is_active?: boolean;
+  position?: number;
+}
+
+export interface ConfiguratorGroup {
+  id: string;                        /* short stable id, eg. "size" */
+  name: string;                      /* "Tamanho" */
+  required?: boolean;
+  min_select?: number;               /* default 0 (or 1 if required) */
+  max_select?: number;               /* default 1 */
+  position?: number;
+  options: ConfiguratorOption[];
+}
+
+export interface ConfiguratorConfig {
+  enabled?: boolean;                 /* allow toggle without dropping the data */
+  groups?: ConfiguratorGroup[];
+}
+
+/* ── Bundle (Fase 11) — products grouped together at a fixed price ── */
+export interface BundleItem {
+  product_id: string;                /* source-catalog product id */
+  quantity: number;                  /* how many of this product the bundle contains */
+  optional?: boolean;                /* reserved for future "pick X of N" bundles */
+  note?: string;                     /* free-form note shown to the customer */
 }
 
 export interface ProductCategory {

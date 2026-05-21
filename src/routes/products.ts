@@ -5,6 +5,8 @@ import path from "path";
 import { authMiddleware, AuthRequest } from "../middleware/auth";
 import { BrandRequest, requireBrandContext } from "../middleware/brandContext";
 import { ProductsService } from "../services/products";
+import { offerCatalogService, productRelationsService } from "../services/offerCatalog";
+import { invalidateCatalogCacheByBrand } from "../services/storefrontCache";
 import { logger } from "../utils/logger";
 import { GeminiService } from "../services/gemini";
 import { query, queryOne, update } from "../config/database";
@@ -469,31 +471,42 @@ router.post("/", async (req: BrandRequest, res: Response) => {
     const userId = req.user?.userId as string | undefined;
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
-    const { name, description, category, price, promoPrice, unit, features, active } = req.body || {};
-    
+    const body = req.body || {};
+    const { name, category, price } = body;
+
     if (!name || String(name).trim().length === 0) {
       return res.status(400).json({ error: "Name is required" });
     }
-
     if (!category || String(category).trim().length === 0) {
       return res.status(400).json({ error: "Category is required" });
     }
-
-    if (!price || isNaN(parseFloat(price))) {
+    if (price == null || isNaN(parseFloat(price))) {
       return res.status(400).json({ error: "Valid price is required" });
     }
 
+    /* Pass through all OfferEntity fields (Fase 0+) — service guards by column existence. */
     const product = await productsService.createProduct({
       name: String(name).trim(),
-      description: description ? String(description).trim() : "",
+      description: body.description ? String(body.description).trim() : "",
       category: String(category).trim(),
       price: parseFloat(price),
-      promoPrice: promoPrice ? parseFloat(promoPrice) : undefined,
-      unit: unit ? String(unit).trim() : "unidade",
-      features: Array.isArray(features) ? features : [],
-      is_active: active !== false,
-      active: active !== false,
-    }, userId, req.brandId);
+      promoPrice: body.promoPrice ? parseFloat(body.promoPrice) : undefined,
+      unit: body.unit ? String(body.unit).trim() : "unidade",
+      features: Array.isArray(body.features) ? body.features : [],
+      is_active: body.active !== false,
+      active: body.active !== false,
+      /* OfferEntity */
+      ...(body.type !== undefined ? { type: body.type } : {}),
+      ...(body.subtitle !== undefined ? { subtitle: body.subtitle } : {}),
+      ...(body.cta_type !== undefined ? { cta_type: body.cta_type } : {}),
+      ...(body.pipeline_id !== undefined ? { pipeline_id: body.pipeline_id } : {}),
+      ...(body.attributes !== undefined ? { attributes: body.attributes } : {}),
+      ...(body.seo !== undefined ? { seo: body.seo } : {}),
+      ...(body.media !== undefined ? { media: body.media } : {}),
+      ...(body.service_config !== undefined ? { service_config: body.service_config } : {}),
+      ...(body.configurator !== undefined ? { configurator: body.configurator } : {}),
+      ...(body.bundle_items !== undefined ? { bundle_items: body.bundle_items } : {}),
+    } as any, userId, req.brandId);
 
     res.json({ success: true, product });
   } catch (error: any) {
@@ -508,20 +521,39 @@ router.put("/:id", async (req: BrandRequest, res: Response) => {
     const userId = req.user?.userId as string | undefined;
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
     const id = String(req.params.id);
-    const { name, description, category, price, promoPrice, unit, features, active, imageUrl } = req.body || {};
+    const body = req.body || {};
 
-    const updated = await productsService.updateProduct(id, {
-      name: name !== undefined ? String(name).trim() : undefined,
-      description: description !== undefined ? String(description).trim() : undefined,
-      category: category !== undefined ? String(category).trim() : undefined,
-      price: price !== undefined ? parseFloat(price) : undefined,
-      promoPrice: promoPrice !== undefined ? parseFloat(promoPrice) : undefined,
-      unit: unit !== undefined ? String(unit).trim() : undefined,
-      features: features !== undefined ? (Array.isArray(features) ? features : []) : undefined,
-      is_active: active !== undefined ? active : undefined,
-      active: active !== undefined ? active : undefined,
-      imageUrl: imageUrl !== undefined ? String(imageUrl) : undefined,
-    }, userId, req.brandId);
+    /* Build a clean payload: legacy fields with type coercion + ALL OfferEntity fields
+     * (Fase 0+) forwarded verbatim. The service itself guards each field by checking
+     * column existence, so passing extras is safe. The OLD whitelist destructuring
+     * silently dropped type/cta_type/configurator/seo/attributes/subtitle/service_config/bundle_items
+     * → save via API never persisted these. */
+    const payload: any = {
+      /* Legacy / typed */
+      name: body.name !== undefined ? String(body.name).trim() : undefined,
+      description: body.description !== undefined ? String(body.description).trim() : undefined,
+      category: body.category !== undefined ? String(body.category).trim() : undefined,
+      price: body.price !== undefined ? parseFloat(body.price) : undefined,
+      promoPrice: body.promoPrice !== undefined ? (body.promoPrice === null ? null : parseFloat(body.promoPrice)) : undefined,
+      unit: body.unit !== undefined ? String(body.unit).trim() : undefined,
+      features: body.features !== undefined ? (Array.isArray(body.features) ? body.features : []) : undefined,
+      is_active: body.active !== undefined ? body.active : undefined,
+      active: body.active !== undefined ? body.active : undefined,
+      imageUrl: body.imageUrl !== undefined ? String(body.imageUrl) : undefined,
+      /* OfferEntity (Fase 0+) */
+      type: body.type !== undefined ? body.type : undefined,
+      subtitle: body.subtitle !== undefined ? body.subtitle : undefined,
+      cta_type: body.cta_type !== undefined ? body.cta_type : undefined,
+      pipeline_id: body.pipeline_id !== undefined ? body.pipeline_id : undefined,
+      attributes: body.attributes !== undefined ? body.attributes : undefined,
+      seo: body.seo !== undefined ? body.seo : undefined,
+      media: body.media !== undefined ? body.media : undefined,
+      service_config: body.service_config !== undefined ? body.service_config : undefined,
+      configurator: body.configurator !== undefined ? body.configurator : undefined,
+      bundle_items: body.bundle_items !== undefined ? body.bundle_items : undefined,
+    };
+
+    const updated = await productsService.updateProduct(id, payload, userId, req.brandId);
 
     if (!updated) return res.status(404).json({ error: "Product not found" });
     res.json({ success: true, product: updated });
@@ -541,6 +573,69 @@ router.delete("/:id", async (req: BrandRequest, res: Response) => {
     res.json({ success: true });
   } catch (error: any) {
     logger.error(error, "Error deleting product");
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/* ── Variants (Fase 1) ── */
+router.get("/:id/variants", async (req: BrandRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId as string | undefined;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const product = await productsService.getProduct(String(req.params.id), userId, req.brandId);
+    if (!product) return res.status(404).json({ error: "Product not found" });
+    const variants = await offerCatalogService.getVariantsByProduct(String(req.params.id));
+    res.json({ success: true, variants });
+  } catch (error: any) {
+    logger.error(error, "Error listing variants");
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/* ── Product Relations (Fase 6) ── */
+router.get("/:id/relations", async (req: BrandRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId as string | undefined;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const product = await productsService.getProduct(String(req.params.id), userId, req.brandId);
+    if (!product) return res.status(404).json({ error: "Product not found" });
+    const relations = await productRelationsService.listForProduct(String(req.params.id));
+    res.json({ success: true, relations });
+  } catch (error: any) {
+    logger.error(error, "Error listing product relations");
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.put("/:id/relations", async (req: BrandRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId as string | undefined;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const product = await productsService.getProduct(String(req.params.id), userId, req.brandId);
+    if (!product) return res.status(404).json({ error: "Product not found" });
+    const relations = Array.isArray(req.body?.relations) ? req.body.relations : [];
+    const saved = await productRelationsService.replaceRelations(String(req.params.id), relations);
+    if (req.brandId) await invalidateCatalogCacheByBrand(String(req.brandId));
+    res.json({ success: true, relations: saved });
+  } catch (error: any) {
+    logger.error(error, "Error replacing relations");
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/** Replace the full variant set for a product (idempotent). */
+router.put("/:id/variants", async (req: BrandRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId as string | undefined;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const product = await productsService.getProduct(String(req.params.id), userId, req.brandId);
+    if (!product) return res.status(404).json({ error: "Product not found" });
+    const variants = Array.isArray(req.body?.variants) ? req.body.variants : [];
+    const saved = await offerCatalogService.replaceVariants(String(req.params.id), variants);
+    if (req.brandId) await invalidateCatalogCacheByBrand(String(req.brandId));
+    res.json({ success: true, variants: saved });
+  } catch (error: any) {
+    logger.error(error, "Error replacing variants");
     res.status(500).json({ error: error.message });
   }
 });

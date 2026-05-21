@@ -55,7 +55,7 @@ export class GeminiService {
       String(integration.config.model || "").trim() ||
       process.env.GEMINI_CAMPAIGN_MODEL ||
       process.env.GEMINI_TEXT_MODEL ||
-      "gemini-2.0-flash";
+      "gemini-2.5-flash"; /* gemini-2.0-flash retornou 404 em 2026-05; 2.5-flash é o stable fastest */
 
     const cacheKey = `${this.scopeCacheKey(scope)}::${modelName}::${apiKey.slice(-8)}`;
     const cached = this.clientCache.get(cacheKey);

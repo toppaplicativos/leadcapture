@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Plus, ImageOff } from 'lucide-react'
 import type { Product } from '@/lib/api'
 import { money } from '@/lib/store-context'
+import { optimizedImage, optimizedSrcset } from '@/lib/image'
 
 interface ProductCardProps {
   product: Product
@@ -12,7 +13,9 @@ interface ProductCardProps {
 }
 
 export function ProductCard({ product, onOpen, onQuickAdd, priority = false }: ProductCardProps) {
-  const imgSrc = product.image || product.images?.[0] || ''
+  const rawSrc = product.image || product.images?.[0] || ''
+  const imgSrc = optimizedImage(rawSrc, 320)
+  const imgSrcset = optimizedSrcset(rawSrc, [240, 320, 480, 640])
   const [imgState, setImgState] = useState<'loading' | 'loaded' | 'error'>(
     imgSrc ? 'loading' : 'error',
   )
@@ -21,6 +24,11 @@ export function ProductCard({ product, onOpen, onQuickAdd, priority = false }: P
   const discount = hasCompare
     ? Math.round((1 - Number(product.price) / Number(product.compare_at_price)) * 100)
     : 0
+  /* Inventory (Fase 12) — only show badge / gate CTA when product actively tracks stock */
+  const stockStatus = product.stock_status || 'unlimited'
+  const stockQty = product.stock_quantity == null ? null : Number(product.stock_quantity)
+  const isOutOfStock = stockStatus === 'out_of_stock' || (stockQty !== null && stockQty <= 0)
+  const isLowStock = stockStatus === 'low_stock' && stockQty !== null && stockQty > 0
 
   return (
     <article
@@ -31,6 +39,8 @@ export function ProductCard({ product, onOpen, onQuickAdd, priority = false }: P
         {imgSrc && imgState !== 'error' && (
           <img
             src={imgSrc}
+            srcSet={imgSrcset || undefined}
+            sizes="(min-width:1024px) 25vw, (min-width:640px) 33vw, 50vw"
             alt={product.name}
             loading={priority ? 'eager' : 'lazy'}
             fetchPriority={priority ? 'high' : 'auto'}
@@ -55,22 +65,42 @@ export function ProductCard({ product, onOpen, onQuickAdd, priority = false }: P
           </div>
         )}
 
-        {discount > 0 && (
+        {discount > 0 && !isOutOfStock && (
           <span className="absolute top-2 left-2 px-1.5 py-0.5 rounded-md bg-gray-900 text-white text-[10px] font-bold tracking-tight">
             −{discount}%
           </span>
         )}
 
-        <button
-          onClick={(e) => {
-            e.stopPropagation()
-            onQuickAdd(product.id)
-          }}
-          aria-label={`Adicionar ${product.name}`}
-          className="absolute bottom-2 right-2 w-9 h-9 rounded-full bg-white text-gray-900 grid place-items-center shadow-[0_2px_8px_rgba(15,23,42,0.12)] active:scale-90 transition-transform"
-        >
-          <Plus size={16} strokeWidth={2.25} />
-        </button>
+        {/* Stock badges (Fase 12) — esgotado wins over qualquer outra etiqueta */}
+        {isOutOfStock && (
+          <span className="absolute top-2 left-2 px-1.5 py-0.5 rounded-md bg-red-600 text-white text-[10px] font-bold tracking-tight uppercase">
+            Esgotado
+          </span>
+        )}
+        {!isOutOfStock && isLowStock && (
+          <span className="absolute top-2 left-2 px-1.5 py-0.5 rounded-md bg-amber-500 text-white text-[10px] font-bold tracking-tight">
+            Últimas {stockQty}
+          </span>
+        )}
+
+        {/* Out-of-stock greys the image so the gating is unmistakable */}
+        {isOutOfStock && (
+          <div className="absolute inset-0 bg-white/40 pointer-events-none" />
+        )}
+
+        {/* Quick-add only makes sense for "buy" CTA; gated when out of stock */}
+        {(!product.cta_type || product.cta_type === 'buy') && !isOutOfStock && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              onQuickAdd(product.id)
+            }}
+            aria-label={`Adicionar ${product.name}`}
+            className="absolute bottom-2 right-2 w-9 h-9 rounded-full bg-white text-gray-900 grid place-items-center shadow-[0_2px_8px_rgba(15,23,42,0.12)] active:scale-90 transition-transform"
+          >
+            <Plus size={16} strokeWidth={2.25} />
+          </button>
+        )}
       </div>
 
       <div className="pt-2.5 px-0.5 space-y-1">

@@ -1455,11 +1455,19 @@ router.post("/conversations/:id/ai-respond", async (req: BrandRequest, res: Resp
       .slice(-12)
       .map((item) => `${parseFromMeFlag(item.from_me) ? "Atendente" : "Lead"}: ${String(item.body || "")}`);
 
+    /* Last 3 agent-side messages — used by the cognitive composer to avoid repeating itself */
+    const lastOutgoingMessages = recent
+      .filter((item) => parseFromMeFlag(item.from_me) && String(item.body || "").trim())
+      .slice(-3)
+      .map((item) => String(item.body || "").trim());
+
     const reply = await whatsappAgentService.generateReply({
       userId,
       brandId: req.brandId,
+      conversationId: String(conv.id),
       incomingMessage: String(latestIncoming.body || ""),
       conversationHistory: context,
+      lastOutgoingMessages,
       maxHistoryLines: 12,
     });
 
@@ -1482,14 +1490,17 @@ router.post("/conversations/:id/ai-respond", async (req: BrandRequest, res: Resp
       [msgId, conv.id, conv.instance_id, conv.remote_jid, finalText, now]
     );
 
-    const decisionPayload = {
+    const decisionPayload: Record<string, any> = {
       event: "autonomous_reply",
       mode,
       incoming_message_id: String(latestIncoming.id),
       outgoing_message_id: msgId,
-      model: "gemini-2.0-flash",
+      model: "gemini-2.5-flash",
       at: new Date().toISOString(),
     };
+    if (reply.cognitive) {
+      decisionPayload.cognitive = reply.cognitive;
+    }
 
     await pool.execute(
       `UPDATE whatsapp_conversations

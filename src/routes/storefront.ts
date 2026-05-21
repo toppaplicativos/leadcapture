@@ -8,6 +8,17 @@ import { GeminiService } from "../services/gemini";
 import { InventoryService } from "../services/inventory";
 import { OrderManagementService } from "../services/orderManagement";
 import { StorefrontService } from "../services/storefront";
+import { couponsService } from "../services/coupons";
+import {
+  getCatalogCacheEntry,
+  setCatalogCacheEntry,
+  invalidateCatalogCacheBySlug,
+} from "../services/storefrontCache";
+import { CustomersService } from "../services/customers";
+import { offerCatalogService, attributeDefinitionService, productRelationsService } from "../services/offerCatalog";
+import { generateSlotsForDay, loadBookedSlotsCount } from "../services/serviceBooking";
+import { resolveConfigurator, ConfiguratorValidationError } from "../services/configuratorEngine";
+import { ProductsService } from "../services/products";
 import { PaymentConfigService } from "../services/paymentConfig";
 import { ProspectionMatchService } from "../services/prospectionMatch";
 import { query, queryOne } from "../config/database";
@@ -28,6 +39,8 @@ const inventoryService = new InventoryService();
 const omsService = new OrderManagementService();
 const prospectionMatch = new ProspectionMatchService();
 const paymentConfig = new PaymentConfigService();
+const customersService = new CustomersService();
+const productsService = new ProductsService();
 router.use(attachBrandContext);
 
 type ManagedBusinessStatus =
@@ -1066,6 +1079,7 @@ router.patch("/stores/:storeId", async (req: BrandRequest, res) => {
     const userId = requireUserId(req);
     const store = await storefront.updateStore(userId, String(req.params.storeId), req.body || {}, req.brandId);
     if (!store) return res.status(404).json({ error: "Store not found" });
+    if (store?.slug) invalidateCatalogCacheBySlug(String(store.slug));
     res.json({ success: true, store });
   } catch (error: any) {
     const badRequest = String(error.message || "").includes("required") || String(error.message || "").includes("invalid") || String(error.message || "").includes("in use") || String(error.message || "").includes("not found");
@@ -1943,17 +1957,15 @@ publicRouter.get("/stores/:slug", async (req, res) => {
   }
 });
 
-/* ── In-memory catalog cache (avoids heavy sync + ranking queries on every page view) ── */
-const _catalogCache = new Map<string, { data: any; expires: number }>();
-const CATALOG_CACHE_TTL = 300_000; // 5 minutes
+/* Catalog cache moved to ./services/storefrontCache so other routes/services can invalidate it. */
 
 publicRouter.get("/stores/:slug/catalog", async (req, res) => {
   try {
     const slug = String(req.params.slug || "").trim();
 
     /* Return cached response if still fresh */
-    const cached = _catalogCache.get(slug);
-    if (cached && cached.expires > Date.now()) {
+    const cached = getCatalogCacheEntry(slug);
+    if (cached) {
       res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
       return res.json(cached.data);
     }
@@ -1980,14 +1992,68 @@ publicRouter.get("/stores/:slug/catalog", async (req, res) => {
       }
     }
 
+    /* Build source_id → storefront_id map (and reverse) to translate relations across the two ID schemes */
+    const sourceToStorefrontId = new Map<string, string>();
+    for (const item of productsRaw) {
+      const md = (() => {
+        try { return typeof item?.metadata_json === "string" ? JSON.parse(item.metadata_json) : (item?.metadata_json || {}); }
+        catch { return {}; }
+      })();
+      [md?.source_product_id, md?.source_product_id_legacy, md?.commerce_product_id].forEach((c) => {
+        const norm = String(c || "").trim();
+        if (norm) sourceToStorefrontId.set(norm, String(item.id));
+      });
+    }
+
+    /* Batch load relations for all source products (Fase 6) */
+    const sourceProductIds = productsRaw
+      .map((item: any) => {
+        const md = (() => {
+          try { return typeof item?.metadata_json === "string" ? JSON.parse(item.metadata_json) : (item?.metadata_json || {}); }
+          catch { return {}; }
+        })();
+        return String(md?.source_product_id || md?.source_product_id_legacy || "").trim();
+      })
+      .filter(Boolean);
+    const relationsBySourceId = await productRelationsService.listForProducts(sourceProductIds).catch(() => new Map());
+
     const products = productsRaw.map((item: any) => {
       const images = parseImageList(item?.images_json);
       const catId = String(item?.category || "").trim();
       const catName = categoryNameMap.get(catId) || catId || "Outros";
+      const md = (() => {
+        try { return typeof item?.metadata_json === "string" ? JSON.parse(item.metadata_json) : (item?.metadata_json || {}); }
+        catch { return {}; }
+      })();
+      const variants = (() => {
+        try { return typeof item?.variants_json === "string" ? JSON.parse(item.variants_json) : (item?.variants_json || []); }
+        catch { return []; }
+      })();
+      const ownSourceId = String(md?.source_product_id || md?.source_product_id_legacy || "").trim();
+      const rawRelations = ownSourceId ? (relationsBySourceId.get(ownSourceId) || []) : [];
+      const relatedStorefrontIds = rawRelations
+        .map((r: any) => sourceToStorefrontId.get(String(r.related_product_id)))
+        .filter((x: string | undefined): x is string => !!x);
+
+      /* Bundle items (Fase 11) — translate source IDs to storefront IDs the frontend can resolve */
+      const rawBundleItems = Array.isArray(md?.bundle_items) ? md.bundle_items : [];
+      const bundleItems = rawBundleItems
+        .map((bi: any) => {
+          const storefrontId = sourceToStorefrontId.get(String(bi?.product_id || "").trim());
+          if (!storefrontId) return null;
+          return {
+            product_id: storefrontId,
+            quantity: Math.max(1, Number(bi?.quantity || 1)),
+            optional: Boolean(bi?.optional),
+            note: String(bi?.note || "").trim() || undefined,
+          };
+        })
+        .filter((x: any) => x !== null);
       return {
         id: String(item?.id || ""),
         slug: String(item?.slug || ""),
         name: String(item?.name || "Produto"),
+        subtitle: md.subtitle || null,
         description: String(item?.description || "").trim() || null,
         category: catName,
         category_id: catId,
@@ -1998,6 +2064,27 @@ publicRouter.get("/stores/:slug/catalog", async (req, res) => {
         image: images[0] || null,
         images,
         position: Number(item?.position || 0),
+        /* OfferEntity foundation (Fase 0) — defaults preserve current behavior */
+        type: md.offer_type || "physical_product",
+        cta_type: md.cta_type || "buy",
+        attributes: md.attributes || {},
+        seo: md.seo || {},
+        media: md.media || {},
+        pipeline_id: md.pipeline_id || null,
+        /* Service config (Fase 5) — only meaningful when type ∈ {service, appointment} */
+        service_config: md.service_config || {},
+        /* Configurator (Fase 4) — groups + options when configurable */
+        configurator: md.configurator || {},
+        /* Variants (Fase 1) — empty array if product has no variants configured */
+        variants: Array.isArray(variants) ? variants : [],
+        /* Related products (Fase 6) — storefront IDs ready to be looked up in all_products */
+        related_product_ids: relatedStorefrontIds,
+        /* Bundle items (Fase 11) — empty unless type=bundle */
+        bundle_items: bundleItems,
+        /* Inventory (Fase 12) — null stock_quantity = unlimited (badge hidden in UI) */
+        stock_quantity: md.stock_quantity === null || md.stock_quantity === undefined ? null : Number(md.stock_quantity),
+        stock_status: md.stock_status || (md.stock_quantity === null || md.stock_quantity === undefined ? "unlimited" : "in_stock"),
+        stock_threshold_low: Number(md.stock_threshold_low ?? 5),
       };
     });
 
@@ -2161,6 +2248,63 @@ publicRouter.get("/stores/:slug/catalog", async (req, res) => {
       best_sellers: fallbackBest,
       other_products: others,
       all_products: ranked,
+      /* Attribute definitions for client-side filters (Fase 2). Only is_filter=TRUE. */
+      attribute_definitions: await attributeDefinitionService
+        .listForPublic(normalizeBrandId(bundle.store.brand_id))
+        .catch(() => []),
+      /* Collections (Fase 1) — resolved against current catalog.
+       * IMPORTANT: collection.product_ids stores source-catalog product IDs (products.id),
+       * but `ranked` items use storefront_products.id. We map via metadata.source_product_id. */
+      collections: await (async () => {
+        try {
+          const brandId = normalizeBrandId(bundle.store.brand_id);
+          const cols = await offerCatalogService.listActiveCollectionsByBrand(brandId);
+          /* Build source_id → storefront_id lookup. Different code paths historically used
+           * different ID schemes (UUID, prod-XXX legacy, commerce_product_id), so index all of them. */
+          const sourceToStorefront = new Map<string, string>();
+          for (const item of productsRaw) {
+            const md = parseJson<Record<string, any>>(item?.metadata_json, {});
+            const storefrontId = String(item.id);
+            const candidates = [
+              md?.source_product_id,
+              md?.source_product_id_legacy,
+              md?.commerce_product_id,
+            ];
+            for (const c of candidates) {
+              const norm = String(c || "").trim();
+              if (norm) sourceToStorefront.set(norm, storefrontId);
+            }
+          }
+          const productsForRules = ranked.map((p: any) => ({
+            id: p.id,
+            price: Number(p.price || 0),
+            promoPrice: p.compare_at_price ? Number(p.price) : 0,
+            category: p.category_id || p.category,
+            type: p.type,
+            cta_type: p.cta_type,
+          }));
+          return cols.map((c) => {
+            /* For manual: translate source IDs to storefront IDs. For auto: rules already work on storefront items. */
+            const isManual = c.type !== "auto";
+            const resolvedIds = isManual
+              ? c.product_ids.map((id) => sourceToStorefront.get(String(id))).filter((x): x is string => !!x)
+              : offerCatalogService.resolveProductIds(c, productsForRules);
+            const validIds = resolvedIds.filter((id) => ranked.some((p: any) => p.id === id));
+            return {
+              id: c.id,
+              slug: c.slug,
+              name: c.name,
+              description: c.description,
+              image_url: c.image_url,
+              position: c.position,
+              product_ids: validIds,
+            };
+          }).filter((c) => c.product_ids.length > 0);
+        } catch (e: any) {
+          logger.warn(`Failed to resolve collections: ${e?.message || e}`);
+          return [];
+        }
+      })(),
       stats: {
         total_products: ranked.length,
         total_orders: Number((managedSales || []).length) + Number((legacySalesRows || []).length),
@@ -2168,12 +2312,58 @@ publicRouter.get("/stores/:slug/catalog", async (req, res) => {
     };
 
     /* Persist in cache */
-    _catalogCache.set(slug, { data: catalogResponse, expires: Date.now() + CATALOG_CACHE_TTL });
+    setCatalogCacheEntry(slug, catalogResponse);
 
     res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
     res.json(catalogResponse);
   } catch (error: any) {
     res.status(500).json({ error: error.message || "Failed to load catalog" });
+  }
+});
+
+/* ═══════════════════════════════════════════════════════
+   Coupons (Fase 13) — validate a code against the cart BEFORE the user submits.
+   POST /stores/:slug/coupons/validate
+   Body: { code, subtotal, productIds?, categoryIds?, customerId? }
+   Returns: { valid, discount_amount, final_total, reason?, coupon? }
+   No-auth — public lookup; rate-limit at gateway if abuse becomes a concern.
+   ═══════════════════════════════════════════════════════ */
+publicRouter.post("/stores/:slug/coupons/validate", async (req, res) => {
+  try {
+    const slug = String(req.params.slug || "").trim();
+    const bundle = await storefront.resolvePublicStore({ slug });
+    if (!bundle) return res.status(404).json({ error: "Store not found" });
+    const brandId = (bundle.store as any).brand_id || null;
+
+    const body = req.body || {};
+    const result = await couponsService.validate({
+      code: String(body.code || "").trim(),
+      brandId,
+      subtotal: Number(body.subtotal || 0),
+      customerId: body.customerId ? String(body.customerId) : null,
+      productIds: Array.isArray(body.productIds) ? body.productIds.map(String) : [],
+      categoryIds: Array.isArray(body.categoryIds) ? body.categoryIds.map(String) : [],
+    });
+
+    /* Don't 4xx on invalid — the frontend always wants the structured result so
+     * it can show "cupom expirado" inline without throwing. */
+    res.json({
+      valid: result.valid,
+      reason: result.reason || null,
+      reason_code: result.reason_code || null,
+      discount_amount: result.discount_amount,
+      final_total: result.final_total,
+      coupon: result.coupon ? {
+        id: result.coupon.id,
+        code: result.coupon.code,
+        description: result.coupon.description,
+        discount_type: result.coupon.discount_type,
+        discount_value: result.coupon.discount_value,
+        expires_at: result.coupon.expires_at,
+      } : null,
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || "Failed to validate coupon" });
   }
 });
 
@@ -2385,17 +2575,61 @@ publicRouter.post("/stores/:slug/orders", async (req, res) => {
       const sourceProductId = String(metadata?.source_product_id || product.id || "").trim();
       const quantity = Math.max(1, Math.min(99, Number(rawItem?.quantity || 1)));
       const images = parseImageList(product.images_json);
-      const unitPrice = Number(product.price || 0);
+
+      /* Variant-aware pricing (Fase 3.5): when a variant_id was selected, look it up and apply its price */
+      const variantsRaw = parseJson<any[]>(product.variants_json, []);
+      const variantId = String(rawItem?.variant_id || "").trim();
+      const selectedVariant = variantId ? variantsRaw.find((v) => String(v.id) === variantId) : null;
+      const variantName = String(rawItem?.variant_name || selectedVariant?.name || "").trim() || null;
+      const variantAttributes = rawItem?.variant_attributes || selectedVariant?.attributes || null;
+      const variantPrice = selectedVariant && Number(selectedVariant.price) > 0 ? Number(selectedVariant.price) : null;
+      const variantPromo = selectedVariant && Number(selectedVariant.promo_price) > 0 ? Number(selectedVariant.promo_price) : null;
+      const effectiveVariantPrice = variantPromo && variantPrice && variantPromo < variantPrice
+        ? variantPromo
+        : variantPrice;
+      const basePrice = effectiveVariantPrice != null ? effectiveVariantPrice : Number(product.price || 0);
+
+      /* Configurator (Fase 4) — resolve selections + apply price delta */
+      const productMd = parseJson<Record<string, any>>(product.metadata_json, {});
+      const configurator = (productMd?.configurator || {}) as any;
+      const configuratorSelections = Array.isArray(rawItem?.configurator_selections)
+        ? rawItem.configurator_selections
+        : [];
+      let configResolution: ReturnType<typeof resolveConfigurator>;
+      try {
+        configResolution = resolveConfigurator(configurator, configuratorSelections);
+      } catch (e) {
+        if (e instanceof ConfiguratorValidationError) {
+          throw new Error(`${product.name}: ${e.message}`);
+        }
+        throw e;
+      }
+      const unitPrice = Math.max(0, basePrice + configResolution.price_delta_total);
+
+      /* Display name includes variant + configurator summary so the merchant sees it in the order details */
+      const baseName = String(product.name || "Produto").trim() || "Produto";
+      const nameParts = [baseName];
+      if (variantName) nameParts.push(`(${variantName})`);
+      if (configResolution.summary) nameParts.push(`— ${configResolution.summary}`);
+      const displayName = nameParts.join(" ");
 
       return {
         product_id: sourceProductId || undefined,
-        nome: String(product.name || "Produto").trim() || "Produto",
+        nome: displayName,
         quantidade: quantity,
         valor_unitario: unitPrice,
         imagem: images[0] || null,
         imagens: images,
         descricao: String(product.description || "").trim() || null,
         categoria: String(product.category || "").trim() || null,
+        /* Variant context (preserved through to the order item metadata) */
+        variant_id: variantId || null,
+        variant_name: variantName,
+        variant_attributes: variantAttributes,
+        /* Configurator context */
+        configurator_selections: configResolution.selections,
+        configurator_summary: configResolution.summary || null,
+        configurator_price_delta: configResolution.price_delta_total,
       };
     });
 
@@ -2530,6 +2764,239 @@ publicRouter.post("/stores/:slug/orders", async (req, res) => {
       message.includes("Estoque insuficiente");
     const status = message === "Store not found" ? 404 : badRequest ? 400 : 500;
     res.status(status).json({ error: message || "Failed to create order" });
+  }
+});
+
+/* ── Public lead capture (used by catalog CTAs: quote, schedule, visit, simulate, subscribe) ── */
+publicRouter.post("/stores/:slug/leads", async (req, res) => {
+  try {
+    const slug = String(req.params.slug || "").trim();
+    const bundle = await storefront.resolvePublicStore({ slug });
+    if (!bundle) return res.status(404).json({ error: "Store not found" });
+
+    const ownerUserId = String(bundle.store.owner_user_id || "").trim();
+    const brandId = normalizeBrandId(bundle.store.brand_id);
+    if (!ownerUserId) {
+      return res.status(500).json({ error: "Store owner not resolved" });
+    }
+
+    const name = String(req.body?.name || "").trim();
+    const phone = String(req.body?.phone || "").trim();
+    const email = String(req.body?.email || "").trim();
+    const message = String(req.body?.message || "").trim();
+    const productId = String(req.body?.product_id || "").trim();
+    const ctaType = String(req.body?.cta_type || "quote").trim().toLowerCase();
+    const productName = String(req.body?.product_name || "").trim();
+
+    if (!name || name.length < 2) {
+      return res.status(400).json({ error: "Nome é obrigatório" });
+    }
+    if (!phone && !email) {
+      return res.status(400).json({ error: "Informe telefone ou e-mail para retorno" });
+    }
+
+    const allowedCtas = new Set(["quote", "schedule", "visit", "simulate", "subscribe", "custom", "whatsapp"]);
+    const safeCta = allowedCtas.has(ctaType) ? ctaType : "quote";
+
+    /* Compose notes so the team sees the context immediately on the lead detail */
+    const notesLines: string[] = [];
+    notesLines.push(`Captura: catálogo público (${slug})`);
+    notesLines.push(`Ação solicitada: ${safeCta}`);
+    if (productName) notesLines.push(`Produto: ${productName}`);
+    if (message) notesLines.push(`Mensagem do cliente: ${message}`);
+
+    const customer = await customersService.create(
+      {
+        name,
+        phone: phone || undefined,
+        email: email || undefined,
+        source: "website",
+        status: "new",
+        notes: notesLines.join("\n"),
+        extra_source_details: {
+          catalog: true,
+          store_slug: slug,
+          cta_type: safeCta,
+          product_id: productId || null,
+          product_name: productName || null,
+          message: message || null,
+          captured_at: new Date().toISOString(),
+        },
+      } as any,
+      ownerUserId,
+      brandId
+    );
+
+    res.status(201).json({
+      success: true,
+      lead: {
+        id: customer.id,
+        status: customer.status,
+        cta_type: safeCta,
+      },
+    });
+  } catch (error: any) {
+    const message = String(error?.message || "Failed to capture lead");
+    logger.error(`Public lead capture failed: ${message}`);
+    const badRequest = message.toLowerCase().includes("required") || message.toLowerCase().includes("obrigat");
+    res.status(badRequest ? 400 : 500).json({ error: message });
+  }
+});
+
+/* ── Service availability (Fase 5) ──
+ * GET /stores/:slug/availability?product_id=...&date=YYYY-MM-DD
+ * Returns list of bookable slots based on service_config and existing bookings. */
+publicRouter.get("/stores/:slug/availability", async (req, res) => {
+  try {
+    const slug = String(req.params.slug || "").trim();
+    const bundle = await storefront.resolvePublicStore({ slug });
+    if (!bundle) return res.status(404).json({ error: "Store not found" });
+
+    const storefrontProductId = String(req.query.product_id || "").trim();
+    const dateStr = String(req.query.date || "").trim();
+    if (!storefrontProductId || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      return res.status(400).json({ error: "product_id and date=YYYY-MM-DD are required" });
+    }
+
+    /* Map storefront → source product to read service_config from products catalog */
+    const sfProduct = (Array.isArray(bundle.products) ? bundle.products : []).find(
+      (p: any) => String(p.id) === storefrontProductId
+    );
+    if (!sfProduct) return res.status(404).json({ error: "Product not found" });
+    const md = parseJson<Record<string, any>>(sfProduct.metadata_json, {});
+    const sourceProductId = String(md.source_product_id || md.source_product_id_legacy || "").trim();
+    if (!sourceProductId) return res.json({ success: true, date: dateStr, slots: [] });
+
+    const ownerUserId = String(bundle.store.owner_user_id || "").trim();
+    const brandId = normalizeBrandId(bundle.store.brand_id);
+    const product = await productsService.getProduct(sourceProductId, ownerUserId, brandId);
+    const config: any = (product as any)?.service_config || {};
+    if (!config.weekday_hours || !Array.isArray(config.weekday_hours) || config.weekday_hours.length === 0) {
+      return res.json({ success: true, date: dateStr, slots: [], reason: "service_not_configured" });
+    }
+
+    /* Reject past dates and dates beyond max_advance_days */
+    const date = new Date(dateStr + "T00:00:00");
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (date < today) return res.json({ success: true, date: dateStr, slots: [], reason: "past_date" });
+    const maxAdvance = Math.max(1, Number(config.max_advance_days || 30));
+    const maxDate = new Date(today);
+    maxDate.setDate(maxDate.getDate() + maxAdvance);
+    if (date > maxDate) return res.json({ success: true, date: dateStr, slots: [], reason: "beyond_max_advance" });
+
+    const takenCounts = await loadBookedSlotsCount(sourceProductId, dateStr);
+    const slots = generateSlotsForDay(date, config, takenCounts);
+
+    res.json({ success: true, date: dateStr, product_id: sourceProductId, slots });
+  } catch (error: any) {
+    logger.error(error, "availability error");
+    res.status(500).json({ error: error.message || "Failed to load availability" });
+  }
+});
+
+/* ── Booking creation (Fase 5) ──
+ * POST /stores/:slug/bookings — creates a lead/customer with slot metadata so the merchant confirms.
+ * For MVP this does NOT charge or persist to a calendar table; the next step is to promote bookings
+ * to a dedicated table when needed. */
+publicRouter.post("/stores/:slug/bookings", async (req, res) => {
+  try {
+    const slug = String(req.params.slug || "").trim();
+    const bundle = await storefront.resolvePublicStore({ slug });
+    if (!bundle) return res.status(404).json({ error: "Store not found" });
+
+    const name = String(req.body?.name || "").trim();
+    const phone = String(req.body?.phone || "").trim();
+    const email = String(req.body?.email || "").trim();
+    const message = String(req.body?.message || "").trim();
+    const storefrontProductId = String(req.body?.product_id || "").trim();
+    const startAtIso = String(req.body?.start_at || "").trim();
+    const endAtIso = String(req.body?.end_at || "").trim();
+    const address = String(req.body?.address || "").trim();
+
+    if (!name) return res.status(400).json({ error: "Nome é obrigatório" });
+    if (!phone && !email) return res.status(400).json({ error: "Informe telefone ou e-mail" });
+    if (!storefrontProductId) return res.status(400).json({ error: "Produto obrigatório" });
+    if (!startAtIso || !endAtIso) return res.status(400).json({ error: "Slot inválido" });
+
+    const sfProduct = (Array.isArray(bundle.products) ? bundle.products : []).find(
+      (p: any) => String(p.id) === storefrontProductId
+    );
+    if (!sfProduct) return res.status(404).json({ error: "Produto não encontrado" });
+    const md = parseJson<Record<string, any>>(sfProduct.metadata_json, {});
+    const sourceProductId = String(md.source_product_id || md.source_product_id_legacy || "").trim();
+    const productName = String(sfProduct.name || "Serviço").trim();
+
+    const ownerUserId = String(bundle.store.owner_user_id || "").trim();
+    const brandId = normalizeBrandId(bundle.store.brand_id);
+    if (!ownerUserId) return res.status(500).json({ error: "Loja sem dono configurado" });
+
+    /* Capacity re-check (avoid race conditions) */
+    const dateYYYYMMDD = startAtIso.slice(0, 10);
+    const product = sourceProductId ? await productsService.getProduct(sourceProductId, ownerUserId, brandId) : null;
+    const config: any = (product as any)?.service_config || {};
+    if (config.weekday_hours && Array.isArray(config.weekday_hours)) {
+      const taken = await loadBookedSlotsCount(sourceProductId, dateYYYYMMDD);
+      const slots = generateSlotsForDay(new Date(dateYYYYMMDD + "T00:00:00"), config, taken);
+      const matching = slots.find((s) => s.start === startAtIso);
+      if (!matching) return res.status(409).json({ error: "Slot não está mais disponível" });
+      if (matching.available <= 0) return res.status(409).json({ error: "Slot lotado" });
+    }
+
+    const notesLines = [
+      `Captura: agendamento via catálogo (${slug})`,
+      `Produto: ${productName}`,
+      `Slot solicitado: ${startAtIso} – ${endAtIso}`,
+    ];
+    if (message) notesLines.push(`Mensagem do cliente: ${message}`);
+    if (address) notesLines.push(`Endereço: ${address}`);
+
+    const customer = await customersService.create(
+      {
+        name,
+        phone: phone || undefined,
+        email: email || undefined,
+        source: "website",
+        status: "new",
+        notes: notesLines.join("\n"),
+        address: address || undefined,
+        extra_source_details: {
+          catalog: true,
+          store_slug: slug,
+          cta_type: "schedule",
+          product_id: sourceProductId,
+          product_name: productName,
+          message: message || null,
+          captured_at: new Date().toISOString(),
+          booking: {
+            product_id: sourceProductId,
+            product_name: productName,
+            start_at: startAtIso,
+            end_at: endAtIso,
+            address: address || null,
+            status: "pending_confirmation",
+          },
+        },
+      } as any,
+      ownerUserId,
+      brandId
+    );
+
+    res.status(201).json({
+      success: true,
+      booking: {
+        customer_id: customer.id,
+        product_id: sourceProductId,
+        start_at: startAtIso,
+        end_at: endAtIso,
+        status: "pending_confirmation",
+      },
+    });
+  } catch (error: any) {
+    const message = String(error?.message || "Failed to create booking");
+    logger.error(`Booking creation failed: ${message}`);
+    const bad = message.toLowerCase().includes("obrigat") || message.toLowerCase().includes("inválido");
+    res.status(bad ? 400 : 500).json({ error: message });
   }
 });
 

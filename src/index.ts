@@ -16,6 +16,7 @@ import customersRoutes from "./routes/customers";
 import knowledgeBaseRoutes from "./routes/knowledgeBase";
 import aiRoutes from "./routes/ai";
 import mediaRoutes from "./routes/media";
+import imageProxyRoutes from "./routes/imageProxy";
 import messagesRoutes from "./routes/messages";
 import companiesRoutes from "./routes/companies";
 import clientsRoutes from "./routes/clients";
@@ -32,6 +33,10 @@ import { authMiddleware, AuthRequest, requireRole } from "./middleware/auth";
 import inboxRoutes from "./routes/inbox";
 import categoriesRoutes from "./routes/categories";
 import productsRoutes from "./routes/products";
+import collectionsRoutes from "./routes/collections";
+import attributeDefinitionsRoutes from "./routes/attributeDefinitions";
+import bookingsRoutes from "./routes/bookings";
+import couponsRoutes from "./routes/coupons";
 import priceTablesRoutes from "./routes/pricetables";
 import expeditionRoutes from "./routes/expedition";
 import ordersRoutes from "./routes/orders";
@@ -200,7 +205,17 @@ app.get("/service-worker.js", (_req, res) => {
   res.sendFile(path.join(__dirname, "../public/service-worker.js"));
 });
 app.use(express.static(path.join(__dirname, "../public")));
-app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
+app.use(
+  "/uploads",
+  express.static(path.join(__dirname, "../uploads"), {
+    maxAge: "60d",
+    immutable: true,
+    etag: true,
+    lastModified: true,
+  })
+);
+/* Public on-the-fly image resizer (/api/img?src=/uploads/...&w=...&fm=webp) */
+app.use("/api/img", imageProxyRoutes);
 
 // ==================== PUBLIC ROUTES ====================
 app.use("/api/auth", authRoutes);
@@ -312,6 +327,10 @@ app.use("/api/inbox", authMiddleware, inboxRoutes);
 app.use("/api/messages", authMiddleware, messagesRoutes);
 app.use("/api/categories", authMiddleware, categoriesRoutes);
 app.use("/api/products", authMiddleware, productsRoutes);
+app.use("/api/collections", collectionsRoutes);
+app.use("/api/attribute-definitions", attributeDefinitionsRoutes);
+app.use("/api/bookings", bookingsRoutes);
+app.use("/api/coupons", couponsRoutes);
 app.use("/api/pricetables", authMiddleware, priceTablesRoutes);
 app.use("/api/expedition", authMiddleware, expeditionRoutes);
 app.use("/api/orders", authMiddleware, ordersRoutes);

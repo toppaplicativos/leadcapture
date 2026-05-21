@@ -63,6 +63,7 @@ export function DesignPage() {
   const [primaryColor, setPrimaryColor] = useState('#111827')
   const [secondaryColor, setSecondaryColor] = useState('#3b82f6')
   const [coverImage, setCoverImage] = useState('')
+  const [whatsappPhone, setWhatsappPhone] = useState('')
 
   // Checkout
   const [collectEmail, setCollectEmail] = useState(true)
@@ -110,6 +111,7 @@ export function DesignPage() {
         setPrimaryColor(brand.primary_color || s.theme?.primary_color || '#111827')
         setSecondaryColor(brand.secondary_color || s.theme?.secondary_color || '#3b82f6')
         setCoverImage(brand.cover_image || s.theme?.cover_image || '')
+        setWhatsappPhone(String(brand.whatsapp_phone || '').replace(/\D/g, ''))
         setCollectEmail(checkout.collect_email !== false)
         setCollectAddress(checkout.collect_address !== false)
         setStoreStatus(brand.status === 'fechado' ? 'fechado' : 'aberto')
@@ -149,8 +151,10 @@ export function DesignPage() {
             name: brandName,
             slogan,
             logo_url: logoUrl,
+            cover_image: coverImage,
             primary_color: primaryColor,
             secondary_color: secondaryColor,
+            whatsapp_phone: whatsappPhone.replace(/\D/g, ''),
           }),
         })
         if (!br.ok) {
@@ -307,6 +311,16 @@ export function DesignPage() {
             placeholder="Ex: Qualidade que você pode confiar"
           />
         </div>
+
+        <Input
+          label="WhatsApp da loja (com DDD)"
+          type="tel"
+          inputMode="tel"
+          value={whatsappPhone}
+          onChange={e => setWhatsappPhone(e.target.value.replace(/\D/g, ''))}
+          placeholder="11999999999"
+          hint="Usado para abrir conversa quando um produto tem CTA 'Conversar no WhatsApp'. Apenas números, com DDD."
+        />
 
         <div>
           <label className="block text-[11px] font-semibold text-gray-600 mb-1.5 tracking-wide">

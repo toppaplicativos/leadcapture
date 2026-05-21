@@ -428,6 +428,22 @@ router.post("/orders", async (req: AuthRequest, res: Response) => {
     });
   } catch (error: any) {
     const message = String(error?.message || "");
+    /* Fase 12 — insufficient stock is a client error, not a server bug */
+    if (error?.code === "INSUFFICIENT_STOCK") {
+      return res.status(409).json({
+        error: message,
+        code: "INSUFFICIENT_STOCK",
+        shortages: error.shortages || [],
+      });
+    }
+    /* Fase 13 — invalid coupon */
+    if (error?.code === "COUPON_INVALID") {
+      return res.status(400).json({
+        error: message,
+        code: "COUPON_INVALID",
+        reason_code: error.reason_code || null,
+      });
+    }
     if (message.includes("inválido") || message.includes("obrigatório") || message.includes("carrinho")) {
       return res.status(400).json({ error: message });
     }

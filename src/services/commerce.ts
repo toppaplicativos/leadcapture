@@ -1,5 +1,8 @@
 import { randomUUID } from "crypto";
 import { query, queryOne, update } from "../config/database";
+import { productStockService, reserveStockForOrder, releaseStockForOrder } from "./productStock";
+import { couponsService } from "./coupons";
+import { logger } from "../utils/logger";
 
 export type CommerceProductType = "fisico" | "digital" | "servico";
 export type CommerceOrderStatus =
@@ -721,8 +724,52 @@ export class CommerceService {
     const subtotal = Number(
       itensResolved.reduce((acc, item) => acc + item.valor_total, 0).toFixed(2)
     );
-    const desconto = Number(Math.max(0, this.parseNumber(input.desconto, 0)).toFixed(2));
+    let desconto = Number(Math.max(0, this.parseNumber(input.desconto, 0)).toFixed(2));
+    let cupomCodigoFinal: string | null = input.cupom_codigo ? String(input.cupom_codigo).trim() : null;
+    let appliedCouponId: string | null = null;
+
+    /* Fase 13 — coupon validation. Trumps any manually-passed `desconto` value so the
+     * server is the source of truth. Failure throws COUPON_INVALID → route maps to 400. */
+    if (cupomCodigoFinal) {
+      const productIdsInCart = itensResolved.map((it) => String(it.product_id || "")).filter(Boolean);
+      const categoryIds: string[] = []; /* TODO: derive from itens metadata if targeting=category becomes critical */
+      const validation = await couponsService.validate({
+        code: cupomCodigoFinal,
+        brandId: normalizedBrandId,
+        subtotal,
+        customerId: input.customer_phone ? String(input.customer_phone).trim() : (input.lead_id ? String(input.lead_id) : null),
+        productIds: productIdsInCart,
+        categoryIds,
+      });
+      if (!validation.valid) {
+        const err: any = new Error(validation.reason || "Cupom inválido");
+        err.code = "COUPON_INVALID";
+        err.reason_code = validation.reason_code;
+        throw err;
+      }
+      desconto = validation.discount_amount;
+      cupomCodigoFinal = validation.coupon!.code;
+      appliedCouponId = validation.coupon!.id;
+    }
     const valorTotal = Number(Math.max(0, subtotal - desconto).toFixed(2));
+
+    /* Fase 12 — stock pre-check. Fail loud (409) before writing the order if any
+     * tracked product would oversell. Untracked products (stock_quantity = NULL) skip. */
+    const stockItems = itensResolved
+      .filter((it) => it.product_id)
+      .map((it) => ({ product_id: String(it.product_id), quantity: it.quantidade }));
+    if (stockItems.length > 0) {
+      const availability = await productStockService.checkAvailability(stockItems);
+      if (!availability.ok) {
+        const msg = availability.shortages
+          .map((s) => `${s.product_name || s.product_id}: solicitou ${s.requested}, disponível ${s.available}`)
+          .join("; ");
+        const err: any = new Error(`Estoque insuficiente: ${msg}`);
+        err.code = "INSUFFICIENT_STOCK";
+        err.shortages = availability.shortages;
+        throw err;
+      }
+    }
 
     const orderId = randomUUID();
     const checkoutToken = this.makeCheckoutToken();
@@ -748,7 +795,7 @@ export class CommerceService {
         valorTotal,
         subtotal,
         desconto,
-        input.cupom_codigo ? String(input.cupom_codigo).trim() : null,
+        cupomCodigoFinal,
         this.normalizePaymentMethod(input.forma_pagamento),
         input.origem === "checkout_web" ? "checkout_web" : "whatsapp",
         input.customer_name ? String(input.customer_name).trim() : null,
@@ -783,6 +830,52 @@ export class CommerceService {
       itens: itensResolved.length,
       origem: input.origem || "whatsapp",
     });
+
+    /* Fase 12 — reserve stock atomically. Pre-check above already validated availability;
+     * this just performs the FOR UPDATE locked decrement + writes a stock_movement per item.
+     * If a race-condition concurrent order managed to slip through between the check and here,
+     * adjust() throws and we roll back the order. */
+    if (stockItems.length > 0) {
+      try {
+        await reserveStockForOrder(stockItems, orderId, userId);
+      } catch (e: any) {
+        /* Compensating action: mark order cancelled — don't leave a paid-looking order
+         * with no stock reserved. The items are already inserted; we transition to abandoned. */
+        await query(
+          `UPDATE commerce_orders SET status_pedido = 'cancelado', data_atualizacao = NOW() WHERE id = ?`,
+          [orderId]
+        ).catch(() => {});
+        await this.appendOrderEvent(orderId, "estoque_indisponivel", {
+          message: e?.message || "stock reservation failed",
+          shortages: e?.shortages || null,
+        }).catch(() => {});
+        throw e;
+      }
+    }
+
+    /* Fase 13 — record coupon redemption after order + stock are committed.
+     * apply() also re-validates limits inside its own transaction (race-safe).
+     * If it fails, we still keep the order — but log and drop the coupon code so
+     * the customer doesn't see a fake discount. */
+    if (appliedCouponId) {
+      try {
+        await couponsService.apply({
+          couponId: appliedCouponId,
+          orderId,
+          customerId: input.customer_phone ? String(input.customer_phone).trim() : (input.lead_id ? String(input.lead_id) : null),
+          subtotal,
+          discount: desconto,
+        });
+      } catch (e: any) {
+        logger.warn(`coupon apply failed for order ${orderId}: ${e?.message || e}`);
+        /* Compensating: clear the discount + cupom_codigo so the recorded total matches reality */
+        await query(
+          `UPDATE commerce_orders SET cupom_codigo = NULL, desconto = 0, valor_total = subtotal WHERE id = ?`,
+          [orderId]
+        ).catch(() => {});
+        await this.appendOrderEvent(orderId, "cupom_falhou", { message: e?.message || "" }).catch(() => {});
+      }
+    }
 
     if (input.lead_id) {
       await this.updateLeadLifecycle(userId, String(input.lead_id), normalizedBrandId, {
@@ -833,6 +926,29 @@ export class CommerceService {
       payment_method: paymentMethod,
       data_pagamento: paidAt,
     });
+
+    /* Fase 12 — release stock when an order goes to cancelado/abandonado/estornado.
+     * Idempotent: checks if we already released for this order to avoid double-release. */
+    const releaseStatuses = new Set(["cancelado", "abandonado", "estornado"]);
+    if (releaseStatuses.has(status) && !releaseStatuses.has(found.order.status_pedido)) {
+      const already = await queryOne<any>(
+        `SELECT 1 FROM stock_movements
+          WHERE order_id = ? AND reason IN ('order:cancelled','order:refunded') LIMIT 1`,
+        [orderId]
+      ).catch(() => null);
+      if (!already) {
+        const releaseItems = (found.items || [])
+          .filter((it: any) => it.product_id)
+          .map((it: any) => ({ product_id: String(it.product_id), quantity: Number(it.quantidade) || 0 }))
+          .filter((it: any) => it.quantity > 0);
+        if (releaseItems.length > 0) {
+          const reason = status === "estornado" ? "order:refunded" : "order:cancelled";
+          await releaseStockForOrder(releaseItems, orderId, reason, userId).catch((e) =>
+            logger.warn(`releaseStock on ${status} failed for order ${orderId}: ${e?.message || e}`)
+          );
+        }
+      }
+    }
 
     if (found.order.lead_id) {
       if (status === "pago") {

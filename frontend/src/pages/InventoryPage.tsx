@@ -1425,7 +1425,7 @@ function EditProductModal({ product, categories, onClose, onDone, showToast }: {
         description: description.trim(),
         unit,
         price: Number(price) || 0,
-        promoPrice: Number(promoPrice) || 0,
+        promoPrice: Number(promoPrice) > 0 ? Number(promoPrice) : null,
         category,
         active,
         features: features.split(',').map(f => f.trim()).filter(Boolean),

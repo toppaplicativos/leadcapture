@@ -8,6 +8,7 @@ import { InstanceManager } from "../core/instanceManager";
 import { InstanceRotationService } from "../services/instanceRotation";
 import { logger } from "../utils/logger";
 import { attachBrandContext, BrandRequest } from "../middleware/brandContext";
+import { createFollowupRulerForBrand } from "../services/followupRuler";
 
 type AuthRequest = { user?: { userId: string; email: string; role: string } };
 
@@ -530,6 +531,36 @@ export function createCampaignRoutes(
       res.json({ success: true, result });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ─── Follow-up Ruler ───────────────────────────────────────────
+  // Cria 8 campanhas (FU0..FU7) em status='draft' a partir do contexto do brand.
+  // IA infere campos narrativos (dores, ganhos, casos, prova social).
+  router.post("/followup-ruler", async (req: BrandRequest, res) => {
+    try {
+      const userId = (req as AuthRequest).user?.userId;
+      if (!userId) return res.status(401).json({ error: "Unauthorized" });
+      if (!req.brandId) return res.status(400).json({ error: "brand_id is required. Create a Brand Unit first." });
+
+      const result = await createFollowupRulerForBrand(userId, req.brandId);
+
+      const allExisted = result.created.length === 0 && result.skipped.length === 8;
+      res.json({
+        success: true,
+        created: result.created,
+        skipped: result.skipped,
+        errors: result.errors,
+        message: allExisted
+          ? "Regua de follow-up ja existe para este brand."
+          : `Regua de follow-up criada com ${result.created.length} campanhas em rascunho.`,
+      });
+    } catch (error: any) {
+      logger.error(`[followup-ruler] FATAL userId=${(req as AuthRequest).user?.userId} brandId=${req.brandId}: ${error?.message}\n${error?.stack || ""}`);
+      res.status(500).json({
+        error: error?.message || "Falha ao gerar regua de follow-up",
+        hint: "Verifique se ha uma chave de IA (Gemini/OpenAI/Grok) cadastrada em Provedores IA e se o brand selecionado tem produtos cadastrados.",
+      });
     }
   });
 

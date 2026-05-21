@@ -4,6 +4,8 @@ import { ArrowLeft, ShoppingCart, Minus, Plus, ChevronLeft, ChevronRight, Packag
 import { fetchProduct, type Product } from '@/lib/api'
 import { storeSlug, storeUrl, money, isCustomDomain } from '@/lib/store-context'
 import { useCartStore } from '@/lib/store'
+import { optimizedImage, optimizedSrcset } from '@/lib/image'
+import { applySeo, truncate } from '@/lib/seo'
 
 function resolveProductSlug(): string {
   const parts = window.location.pathname.split('/').filter(Boolean)
@@ -55,7 +57,21 @@ export function ProductDetailPage() {
     if (!productSlug) { setError('Produto não encontrado'); setLoading(false); return }
     setLoading(true)
     fetchProduct(productSlug)
-      .then((d) => setProduct(d.product))
+      .then((d) => {
+        setProduct(d.product)
+        /* SEO (Fase 6) */
+        const seo = (d.product as any)?.seo || {}
+        const title = String(seo.meta_title || d.product?.name || 'Produto').slice(0, 70)
+        const description = String(
+          seo.meta_description || d.product?.description || ''
+        )
+        applySeo({
+          title,
+          description: truncate(description, 160),
+          image: d.product?.image || d.product?.images?.[0] || null,
+          url: typeof window !== 'undefined' ? window.location.href : null,
+        })
+      })
       .catch(() => setError('Não foi possível carregar o produto.'))
       .finally(() => setLoading(false))
   }, [productSlug])
@@ -117,8 +133,13 @@ export function ProductDetailPage() {
       {images.length > 0 ? (
         <div className="relative bg-white">
           <img
-            src={images[imgIdx]}
+            src={optimizedImage(images[imgIdx], 1024, 85)}
+            srcSet={optimizedSrcset(images[imgIdx], [640, 800, 1024, 1280], 85) || undefined}
+            sizes="(min-width:640px) 640px, 100vw"
             alt={product.name}
+            loading="eager"
+            fetchPriority="high"
+            decoding="async"
             className="w-full aspect-square object-contain"
           />
 
@@ -169,7 +190,13 @@ export function ProductDetailPage() {
                 i === imgIdx ? 'border-primary' : 'border-transparent'
               }`}
             >
-              <img src={src} alt="" className="w-full h-full object-cover" />
+              <img
+                src={optimizedImage(src, 160, 75)}
+                alt=""
+                loading="lazy"
+                decoding="async"
+                className="w-full h-full object-cover"
+              />
             </button>
           ))}
         </div>

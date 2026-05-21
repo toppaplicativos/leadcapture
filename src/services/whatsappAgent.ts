@@ -4,12 +4,15 @@ import { AIAgentProfileService } from "./aiAgentProfile";
 import { KnowledgeBaseService } from "./knowledgeBase";
 import { ProductsService } from "./products";
 import { logger } from "../utils/logger";
+import { cognitiveAgent } from "./cognitive";
 
 type GenerateWhatsAppReplyInput = {
   userId: string;
   brandId?: string | null;
+  conversationId?: string | null;
   incomingMessage: string;
   conversationHistory?: string[];
+  lastOutgoingMessages?: string[];
   maxHistoryLines?: number;
 };
 
@@ -20,6 +23,17 @@ type GenerateWhatsAppReplyResult = {
   catalogApplied: boolean;
   shouldEscalate?: boolean;
   escalationReason?: string;
+  cognitive?: {
+    used: boolean;
+    funnel_stage?: string;
+    emotional_state?: string;
+    confidence?: number;
+    retries?: number;
+    reasoner_ms?: number;
+    composer_ms?: number;
+    total_ms?: number;
+    fallback_reason?: string;
+  };
 };
 
 export class WhatsAppAgentService {
@@ -214,12 +228,63 @@ export class WhatsAppAgentService {
       };
     }
 
-    // 3. Qualify conversation context
-    const isGreeting = /^(oi|ola|olá|bom dia|boa tarde|boa noite|hey|eai|e ai)\b/i.test(incomingMessage.trim());
-    const isShort = incomingMessage.trim().length < 5;
-    const conversationLength = historyLines.length;
+    // 3. COGNITIVE PIPELINE — primary path. Falls back to legacy single-pass on failure.
+    try {
+      const cognitive = await cognitiveAgent.respond({
+        userId,
+        brandId,
+        conversationId: input.conversationId || null,
+        incomingMessage,
+        conversationHistory: recentHistory,
+        lastOutgoingMessages: Array.isArray(input.lastOutgoingMessages)
+          ? input.lastOutgoingMessages.map((m) => String(m || "").trim()).filter(Boolean)
+          : [],
+      });
 
-    // Fetch context with error resilience
+      if (cognitive.shouldEscalate) {
+        return {
+          text: "",
+          profile,
+          knowledgeApplied: cognitive.knowledgeApplied,
+          catalogApplied: cognitive.catalogApplied,
+          shouldEscalate: true,
+          escalationReason: cognitive.escalationReason || "cognitive_escalation",
+          cognitive: {
+            used: true,
+            funnel_stage: cognitive.reasoning?.funnel_stage,
+            emotional_state: cognitive.reasoning?.emotional_state,
+            confidence: cognitive.reasoning?.confidence,
+            reasoner_ms: cognitive.latencyMs.reasoner,
+            composer_ms: cognitive.latencyMs.composer,
+            total_ms: cognitive.latencyMs.total,
+          },
+        };
+      }
+
+      const text = String(cognitive.text || "").trim();
+      if (text) {
+        return {
+          text,
+          profile,
+          knowledgeApplied: cognitive.knowledgeApplied,
+          catalogApplied: cognitive.catalogApplied,
+          cognitive: {
+            used: true,
+            funnel_stage: cognitive.reasoning?.funnel_stage,
+            emotional_state: cognitive.reasoning?.emotional_state,
+            confidence: cognitive.reasoning?.confidence,
+            reasoner_ms: cognitive.latencyMs.reasoner,
+            composer_ms: cognitive.latencyMs.composer,
+            total_ms: cognitive.latencyMs.total,
+          },
+        };
+      }
+      logger.warn("Cognitive pipeline returned empty text — falling back to legacy path");
+    } catch (e: any) {
+      logger.warn(`Cognitive pipeline failed (${e?.message || e}) — falling back to legacy path`);
+    }
+
+    /* LEGACY FALLBACK — preserves prior behavior if cognitive path fails */
     const results = await Promise.allSettled([
       this.knowledgeBaseService.searchForContext(incomingMessage, userId, brandId || profile.company_id),
       Promise.resolve(this.aiAgentProfileService.buildBehaviorBlock(profile)),
@@ -258,6 +323,8 @@ export class WhatsAppAgentService {
       ]
         .filter(Boolean)
         .join("\n"),
+      userId,
+      brandId: brandId || undefined,
     });
 
     return {
@@ -265,6 +332,7 @@ export class WhatsAppAgentService {
       profile,
       knowledgeApplied: Boolean(kbContext),
       catalogApplied: Boolean(catalogContext),
+      cognitive: { used: false, fallback_reason: "legacy_path" },
     };
   }
 }

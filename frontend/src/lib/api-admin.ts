@@ -432,6 +432,17 @@ export const adminApi = {
       method: 'POST',
     }),
 
+  createFollowupRuler: () =>
+    authFetch<{
+      success: boolean
+      created: Array<{ id: string; name: string; framework: string; delayDays: number }>
+      skipped: Array<{ id: string; name: string; framework: string; delayDays: number }>
+      errors: Array<{ name: string; error: string }>
+      message: string
+    }>('/api/campaigns-v2/followup-ruler', getAdminHeaders(), {
+      method: 'POST',
+    }),
+
   realClients: async (page = 1, limit = 50, search = '') => {
     const q = new URLSearchParams({ page: String(page), limit: String(limit) })
     if (search.trim()) q.set('search', search.trim())

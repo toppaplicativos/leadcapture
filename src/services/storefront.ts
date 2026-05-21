@@ -6,6 +6,7 @@ import { getPool, query, queryOne, update } from "../config/database";
 import { logger } from "../utils/logger";
 import { InventoryService } from "./inventory";
 import { ProductsService } from "./products";
+import { offerCatalogService } from "./offerCatalog";
 
 type StoreStatus = "draft" | "active" | "archived";
 type OrderStatus =
@@ -316,7 +317,7 @@ export class StorefrontService {
 
     const brandUnit = await queryOne<any>(
       `SELECT id, name, slug, logo_url, cover_image, slogan, primary_color, secondary_color, site_url, sales_page_url,
-              instagram_url, facebook_url, twitter_url, tiktok_url, domain, status, theme_json
+              instagram_url, facebook_url, twitter_url, tiktok_url, whatsapp_phone, domain, status, theme_json
        FROM brand_units
        WHERE id = ? AND user_id = ?
        LIMIT 1`,
@@ -341,6 +342,11 @@ export class StorefrontService {
           brandThemeData.cover_image ||
           brandThemeData.cover_image_url ||
           brandThemeData.hero_image ||
+          currentBrand.cover_image ||
+          currentBrand.cover_image_url ||
+          currentTheme.cover_image ||
+          currentTheme.cover_image_url ||
+          currentTheme.hero_image ||
           ""
       ).trim() || null;
     const brandDescription =
@@ -369,6 +375,7 @@ export class StorefrontService {
       facebook_url: String(brandUnit.facebook_url || "").trim() || currentBrand.facebook_url || null,
       twitter_url: String(brandUnit.twitter_url || "").trim() || currentBrand.twitter_url || null,
       tiktok_url: String(brandUnit.tiktok_url || "").trim() || currentBrand.tiktok_url || null,
+      whatsapp_phone: String(brandUnit.whatsapp_phone || "").replace(/\D/g, "") || currentBrand.whatsapp_phone || null,
       domain: String(brandUnit.domain || "").trim() || currentBrand.domain || null,
       status: String(brandUnit.status || currentBrand.status || "active").trim() || "active",
       synced_at: this.toIsoNow(),
@@ -443,6 +450,11 @@ export class StorefrontService {
       }
     };
 
+    /* Batch-fetch variants for all active products (Fase 1) */
+    const variantsByProduct = await offerCatalogService.getVariantsByProductIds(
+      catalogProducts.map((p) => String(p.id || "")).filter(Boolean)
+    );
+
     for (let index = 0; index < catalogProducts.length; index += 1) {
       const product = catalogProducts[index];
       const sourceProductId = String(product.id || "").trim();
@@ -454,24 +466,70 @@ export class StorefrontService {
         ? product.images.map((item) => String(item || "").trim()).filter(Boolean)
         : [];
       const imageUrl = String(images[0] || product.imageUrl || product.image || "").trim();
+      const productVariants = variantsByProduct.get(sourceProductId) || [];
+      /* Forward OfferEntity foundation fields into storefront so frontend + public catalog can use them */
+      const offerType = String((product as any).type || "physical_product");
+      const ctaType = String((product as any).cta_type || "buy");
+      const subtitle = String((product as any).subtitle || "").trim();
+      const offerAttributes = (product as any).attributes || {};
+      const offerSeo = (product as any).seo || {};
+      const offerMedia = (product as any).media || {};
+      const offerServiceConfig = (product as any).service_config || {};
+      const offerConfigurator = (product as any).configurator || {};
+      const offerBundleItems = Array.isArray((product as any).bundle_items) ? (product as any).bundle_items : [];
+      const sourceMetadata = (product as any).metadata || {};
+      const pipelineId = String((product as any).pipeline_id || "").trim() || null;
+      /* Inventory (Fase 12) — null = unlimited (default); the public catalog reads
+       * stock_status to render Esgotado/Restam X badges without recomputing. */
+      const stockQuantity = (product as any).stock_quantity === null || (product as any).stock_quantity === undefined
+        ? null
+        : Number((product as any).stock_quantity);
+      const stockStatus = String((product as any).stock_status || (stockQuantity === null ? "unlimited" : "in_stock"));
+      const stockThresholdLow = Number((product as any).stock_threshold_low ?? 5);
+
       const mergedMetadata = {
         ...(mapped?.metadata || {}),
+        ...sourceMetadata,
         source: "products_catalog",
         source_product_id: sourceProductId,
         source_brand_id: brandId,
         source_synced_at: this.toIsoNow(),
+        /* OfferEntity foundation (Fase 0) */
+        offer_type: offerType,
+        cta_type: ctaType,
+        subtitle: subtitle || undefined,
+        attributes: offerAttributes,
+        seo: offerSeo,
+        media: offerMedia,
+        pipeline_id: pipelineId,
+        /* Service config (Fase 5) */
+        service_config: offerServiceConfig,
+        /* Configurator (Fase 4) */
+        configurator: offerConfigurator,
+        /* Bundle items (Fase 11) — stored with source-catalog product IDs */
+        bundle_items: offerBundleItems,
+        /* Inventory (Fase 12) */
+        stock_quantity: stockQuantity,
+        stock_status: stockStatus,
+        stock_threshold_low: stockThresholdLow,
       };
 
       const targetSlug = resolveUniqueSlug(String(product.name || sourceProductId), mapped?.id);
       const targetName = String(product.name || "").trim() || `Produto ${sourceProductId.slice(0, 6)}`;
       const targetDescription = String(product.description || "").trim() || null;
       const targetCategory = String(product.category || "").trim() || null;
-      const targetPrice = toNumber((product as any).promoPrice ?? product.price, 0);
-      const targetComparePrice = Number.isFinite(Number(product.price)) ? Number(product.price) : null;
+      const regularPrice = toNumber(product.price, 0);
+      const promoRaw = Number((product as any).promoPrice);
+      const hasPromo = Number.isFinite(promoRaw) && promoRaw > 0 && promoRaw < regularPrice;
+      const targetPrice = hasPromo ? promoRaw : regularPrice;
+      const targetComparePrice = hasPromo ? regularPrice : null;
+
+      const variantsJson = JSON.stringify(productVariants);
 
       if (mapped) {
         const currentImages = parseJson<string[]>(mapped.images_json, []);
         const currentMetadata = this.parseObjectJson(mapped.metadata_json);
+        const currentVariants = parseJson<any[]>(mapped.variants_json, []);
         const hasChanged =
           String(mapped.slug || "") !== targetSlug ||
           String(mapped.name || "") !== targetName ||
@@ -481,6 +539,7 @@ export class StorefrontService {
           Number(mapped.compare_at_price || 0) !== Number(targetComparePrice || 0) ||
           JSON.stringify(currentImages) !== JSON.stringify(images) ||
           JSON.stringify(currentMetadata) !== JSON.stringify(mergedMetadata) ||
+          JSON.stringify(currentVariants) !== variantsJson ||
           Number(mapped.is_active || 0) !== 1 ||
           Number(mapped.position || 0) !== index;
 
@@ -488,7 +547,7 @@ export class StorefrontService {
           await update(
             `UPDATE storefront_products
              SET slug = ?, name = ?, description = ?, category = ?, price = ?, compare_at_price = ?,
-                 currency = 'BRL', images_json = ?, metadata_json = ?, is_active = 1, position = ?, updated_at = NOW()
+                 currency = 'BRL', images_json = ?, variants_json = ?, metadata_json = ?, is_active = 1, position = ?, updated_at = NOW()
              WHERE id = ?`,
             [
               targetSlug,
@@ -498,6 +557,7 @@ export class StorefrontService {
               targetPrice,
               targetComparePrice,
               JSON.stringify(images),
+              variantsJson,
               JSON.stringify(mergedMetadata),
               index,
               mapped.id,
@@ -508,7 +568,7 @@ export class StorefrontService {
         await query(
           `INSERT INTO storefront_products
            (id, store_id, slug, name, description, category, price, compare_at_price, currency, images_json, variants_json, metadata_json, is_active, position)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'BRL', ?, '[]', ?, TRUE, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'BRL', ?, ?, ?, TRUE, ?)`,
           [
             randomUUID(),
             store.id,
@@ -519,6 +579,7 @@ export class StorefrontService {
             targetPrice,
             targetComparePrice,
             JSON.stringify(images),
+            variantsJson,
             JSON.stringify(mergedMetadata),
             index,
           ]

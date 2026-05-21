@@ -6,6 +6,7 @@ import { Topbar } from '@/components/Topbar'
 import { BottomNav } from '@/components/BottomNav'
 import { Toast } from '@/components/Toast'
 import { useToast } from '@/components/Toast'
+import { ConfirmModal } from '@/components/ConfirmModal'
 import { CatalogHome } from '@/pages/CatalogHome'
 import { OrdersTab } from '@/pages/OrdersTab'
 import { ProfileTab } from '@/pages/ProfileTab'
@@ -308,6 +309,7 @@ export default function App() {
       </Suspense>
 
       <Toast />
+      <ConfirmModal />
       <PWAInstallBanner />
     </>
   )

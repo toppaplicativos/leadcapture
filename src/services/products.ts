@@ -157,9 +157,136 @@ export class ProductsService {
       await this.ensureColumnIfMissing("categories", "brand_id", "VARCHAR(36) NULL");
       await this.ensureColumnIfMissing("price_tables", "brand_id", "VARCHAR(36) NULL");
 
+      /* ── OfferEntity foundation (Fase 0) ──
+       * Backwards-compatible: all new columns have defaults, no existing row needs migration.
+       * Future phases (variants, collections, configurator) build on top of these. */
+      await this.ensureColumnIfMissing("products", "type", "VARCHAR(40) NOT NULL DEFAULT 'physical'");
+      await this.ensureColumnIfMissing("products", "subtitle", "VARCHAR(255) NULL");
+      await this.ensureColumnIfMissing("products", "attributes_json", "JSONB NULL DEFAULT '{}'");
+      await this.ensureColumnIfMissing("products", "metadata_json", "JSONB NULL DEFAULT '{}'");
+      await this.ensureColumnIfMissing("products", "cta_type", "VARCHAR(40) NOT NULL DEFAULT 'buy'");
+      await this.ensureColumnIfMissing("products", "pipeline_id", "VARCHAR(36) NULL");
+      await this.ensureColumnIfMissing("products", "seo_json", "JSONB NULL DEFAULT '{}'");
+      await this.ensureColumnIfMissing("products", "media_json", "JSONB NULL DEFAULT '{}'");
+      /* Service config (Fase 5) — only used when type ∈ {service, appointment} */
+      await this.ensureColumnIfMissing("products", "service_config_json", "JSONB NULL DEFAULT '{}'");
+      /* Configurator (Fase 4) — groups + options + pricing rules */
+      await this.ensureColumnIfMissing("products", "configurator_json", "JSONB NULL DEFAULT '{}'");
+      /* Bundle items (Fase 11) — only used when type = bundle */
+      await this.ensureColumnIfMissing("products", "bundle_items_json", "JSONB NULL DEFAULT '[]'");
+
+      /* ── Inventory (Fase 12) ──
+       * stock_quantity NULL  → unlimited (default for services, digital goods, configurators)
+       * stock_quantity >= 0  → tracked
+       * stock_status is denormalized for fast filtering ("in_stock"/"low_stock"/"out_of_stock"/"unlimited")
+       * stock_threshold_low → when qty <= threshold, status flips to low_stock */
+      await this.ensureColumnIfMissing("products", "stock_quantity", "INTEGER NULL");
+      await this.ensureColumnIfMissing("products", "stock_status", "VARCHAR(20) NOT NULL DEFAULT 'unlimited'");
+      await this.ensureColumnIfMissing("products", "stock_threshold_low", "INTEGER NOT NULL DEFAULT 5");
+
+      /* stock_movements — append-only audit of every change.
+       * delta < 0 = sale/reservation, delta > 0 = restock/return, delta = 0 = recount note */
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS stock_movements (
+          id BIGSERIAL PRIMARY KEY,
+          product_id VARCHAR(36) NOT NULL,
+          variant_id VARCHAR(36) NULL,
+          delta INTEGER NOT NULL,
+          reason VARCHAR(60) NOT NULL,
+          balance_after INTEGER NULL,
+          order_id VARCHAR(64) NULL,
+          user_id VARCHAR(36) NULL,
+          meta_json JSONB NULL DEFAULT '{}',
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_stock_movements_product_created
+                        ON stock_movements (product_id, created_at DESC)`).catch(() => {});
+      await pool.query(`CREATE INDEX IF NOT EXISTS idx_stock_movements_order
+                        ON stock_movements (order_id) WHERE order_id IS NOT NULL`).catch(() => {});
+
+      await this.ensureColumnIfMissing("categories", "parent_id", "VARCHAR(36) NULL");
+
+      /* ── Variants (Fase 1) ── */
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS product_variants (
+          id VARCHAR(36) PRIMARY KEY,
+          product_id VARCHAR(36) NOT NULL,
+          sku VARCHAR(120) NULL,
+          barcode VARCHAR(120) NULL,
+          name VARCHAR(180) NULL,
+          attributes_json JSONB NOT NULL DEFAULT '{}',
+          price DECIMAL(12,2) NULL,
+          promo_price DECIMAL(12,2) NULL,
+          stock_quantity INTEGER NULL,
+          image_url TEXT NULL,
+          position INTEGER NOT NULL DEFAULT 0,
+          is_active BOOLEAN NOT NULL DEFAULT TRUE,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      /* ── Attribute Definitions (Fase 2) — schema-driven product attributes per brand.
+       * NOTE: `key` is double-quoted because it's a reserved word in some SQL dialects. */
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS attribute_definitions (
+          id VARCHAR(36) PRIMARY KEY,
+          brand_id VARCHAR(36) NULL,
+          user_id VARCHAR(36) NULL,
+          "key" VARCHAR(80) NOT NULL,
+          label VARCHAR(140) NOT NULL,
+          type VARCHAR(40) NOT NULL DEFAULT 'text',
+          options JSONB NOT NULL DEFAULT '[]',
+          required BOOLEAN NOT NULL DEFAULT FALSE,
+          is_filter BOOLEAN NOT NULL DEFAULT TRUE,
+          position INTEGER NOT NULL DEFAULT 0,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      /* ── Product relations (Fase 6) — related/upsell/cross_sell/bundle ── */
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS product_relations (
+          id VARCHAR(36) PRIMARY KEY,
+          product_id VARCHAR(36) NOT NULL,
+          related_product_id VARCHAR(36) NOT NULL,
+          type VARCHAR(40) NOT NULL DEFAULT 'related',
+          position INTEGER NOT NULL DEFAULT 0,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      /* ── Collections (Fase 1) ── */
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS collections (
+          id VARCHAR(36) PRIMARY KEY,
+          brand_id VARCHAR(36) NULL,
+          user_id VARCHAR(36) NULL,
+          slug VARCHAR(160) NOT NULL,
+          name VARCHAR(180) NOT NULL,
+          description TEXT NULL,
+          type VARCHAR(20) NOT NULL DEFAULT 'manual',
+          product_ids JSONB NOT NULL DEFAULT '[]',
+          filter_rules JSONB NOT NULL DEFAULT '{}',
+          image_url TEXT NULL,
+          position INTEGER NOT NULL DEFAULT 0,
+          is_active BOOLEAN NOT NULL DEFAULT TRUE,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
       await this.ensureIndexIfMissing("products", "idx_products_brand", "brand_id");
       await this.ensureIndexIfMissing("categories", "idx_categories_brand", "brand_id");
       await this.ensureIndexIfMissing("price_tables", "idx_price_tables_brand", "brand_id");
+      await this.ensureIndexIfMissing("products", "idx_products_type", "type");
+      await this.ensureIndexIfMissing("categories", "idx_categories_parent", "parent_id");
+      await this.ensureIndexIfMissing("product_variants", "idx_variants_product", "product_id");
+      await this.ensureIndexIfMissing("collections", "idx_collections_brand", "brand_id");
+      await this.ensureIndexIfMissing("attribute_definitions", "idx_attr_def_brand", "brand_id");
+      await this.ensureIndexIfMissing("product_relations", "idx_rel_product", "product_id");
 
       this.tableColumnsCache = {};
       this.ownershipSchemaReady = true;
@@ -780,7 +907,7 @@ export class ProductsService {
       data.description || "",
       categoryId,
       data.price || 0,
-      data.promoPrice || null,
+      data.promoPrice && Number(data.promoPrice) > 0 ? data.promoPrice : null,
       data.unit || "unidade",
       features,
       data.active !== false,
@@ -798,6 +925,35 @@ export class ProductsService {
     if (productColumns.has("brand_id")) {
       insertColumns.push("brand_id");
       insertValues.push(this.normalizeBrandId(brandId));
+    }
+
+    /* OfferEntity foundation fields — optional, only persisted if columns exist (gracefully degrade) */
+    const pushIfCol = (col: string, val: any) => {
+      if (productColumns.has(col)) {
+        insertColumns.push(col);
+        insertValues.push(val);
+      }
+    };
+    const anyData = data as any;
+    pushIfCol("type", String(anyData.type || "physical_product"));
+    pushIfCol("subtitle", anyData.subtitle || null);
+    pushIfCol("cta_type", String(anyData.cta_type || "buy"));
+    pushIfCol("pipeline_id", anyData.pipeline_id || null);
+    pushIfCol("attributes_json", JSON.stringify(anyData.attributes || {}));
+    pushIfCol("seo_json", JSON.stringify(anyData.seo || {}));
+    pushIfCol("media_json", JSON.stringify(anyData.media || {}));
+    pushIfCol("service_config_json", JSON.stringify(anyData.service_config || {}));
+    pushIfCol("configurator_json", JSON.stringify(anyData.configurator || {}));
+    pushIfCol("bundle_items_json", JSON.stringify(Array.isArray(anyData.bundle_items) ? anyData.bundle_items : []));
+    /* Inventory (Fase 12) — null = unlimited (default), number = tracked */
+    if (anyData.stock_quantity !== undefined) {
+      const qty = anyData.stock_quantity === null ? null : Math.max(0, parseInt(String(anyData.stock_quantity), 10) || 0);
+      pushIfCol("stock_quantity", qty);
+      const threshold = Math.max(0, parseInt(String(anyData.stock_threshold_low ?? 5), 10) || 5);
+      pushIfCol("stock_threshold_low", threshold);
+      pushIfCol("stock_status", qty === null ? "unlimited" : qty <= 0 ? "out_of_stock" : qty <= threshold ? "low_stock" : "in_stock");
+    } else if (anyData.stock_threshold_low !== undefined) {
+      pushIfCol("stock_threshold_low", Math.max(0, parseInt(String(anyData.stock_threshold_low), 10) || 5));
     }
 
     await pool.query(
@@ -822,7 +978,10 @@ export class ProductsService {
       values.push(categoryId);
     }
     if (data.price !== undefined) { fields.push("price = ?"); values.push(data.price); }
-    if (data.promoPrice !== undefined) { fields.push("promo_price = ?"); values.push(data.promoPrice); }
+    if (data.promoPrice !== undefined) {
+      fields.push("promo_price = ?");
+      values.push(data.promoPrice && Number(data.promoPrice) > 0 ? data.promoPrice : null);
+    }
     if (data.unit !== undefined) { fields.push("unit = ?"); values.push(data.unit); }
     if (data.features !== undefined) { fields.push("features = ?"); values.push(JSON.stringify(data.features)); }
     if (data.active !== undefined) { fields.push("active = ?"); values.push(data.active); }
@@ -834,6 +993,41 @@ export class ProductsService {
         values.push(imageUrl || null);
       }
     }
+    /* OfferEntity foundation fields — guarded by column existence */
+    const productColumnsForFoundation = await this.getTableColumns("products");
+    const anyData = data as any;
+    const setIfCol = (col: string, val: any) => {
+      if (productColumnsForFoundation.has(col)) {
+        fields.push(`${col} = ?`);
+        values.push(val);
+      }
+    };
+    if (anyData.type !== undefined) setIfCol("type", String(anyData.type));
+    if (anyData.subtitle !== undefined) setIfCol("subtitle", anyData.subtitle || null);
+    if (anyData.cta_type !== undefined) setIfCol("cta_type", String(anyData.cta_type));
+    if (anyData.pipeline_id !== undefined) setIfCol("pipeline_id", anyData.pipeline_id || null);
+    if (anyData.attributes !== undefined) setIfCol("attributes_json", JSON.stringify(anyData.attributes || {}));
+    if (anyData.seo !== undefined) setIfCol("seo_json", JSON.stringify(anyData.seo || {}));
+    if (anyData.media !== undefined) setIfCol("media_json", JSON.stringify(anyData.media || {}));
+    if (anyData.service_config !== undefined) setIfCol("service_config_json", JSON.stringify(anyData.service_config || {}));
+    if (anyData.configurator !== undefined) setIfCol("configurator_json", JSON.stringify(anyData.configurator || {}));
+    if (anyData.bundle_items !== undefined) setIfCol("bundle_items_json", JSON.stringify(Array.isArray(anyData.bundle_items) ? anyData.bundle_items : []));
+    /* Inventory (Fase 12). Note: when stock_quantity changes here without going through productStockService,
+     * we recompute status inline so badges/filters stay consistent. The atomic decrement on orders still
+     * goes through productStockService.adjust() which uses FOR UPDATE locks. */
+    if (anyData.stock_quantity !== undefined) {
+      const qty = anyData.stock_quantity === null ? null : Math.max(0, parseInt(String(anyData.stock_quantity), 10) || 0);
+      setIfCol("stock_quantity", qty);
+      const thrRaw = anyData.stock_threshold_low !== undefined
+        ? parseInt(String(anyData.stock_threshold_low), 10)
+        : (existing as any)?.stock_threshold_low ?? 5;
+      const threshold = Math.max(0, Number.isFinite(thrRaw) ? thrRaw : 5);
+      if (anyData.stock_threshold_low !== undefined) setIfCol("stock_threshold_low", threshold);
+      setIfCol("stock_status", qty === null ? "unlimited" : qty <= 0 ? "out_of_stock" : qty <= threshold ? "low_stock" : "in_stock");
+    } else if (anyData.stock_threshold_low !== undefined) {
+      setIfCol("stock_threshold_low", Math.max(0, parseInt(String(anyData.stock_threshold_low), 10) || 5));
+    }
+
     if (fields.length === 0) return existing;
     const productColumns = await this.getTableColumns("products");
     const scope = this.appendOwnershipWhere(productColumns, userId, brandId);
@@ -858,16 +1052,23 @@ export class ProductsService {
 
   private mapProduct(row: any): Product {
     const metadata = this.parseJsonValue<Record<string, any>>(row.metadata_json, {});
+    const attributes = this.parseJsonValue<Record<string, any>>(row.attributes_json, {});
+    const seo = this.parseJsonValue<Record<string, any>>(row.seo_json, {});
+    const media = this.parseJsonValue<Record<string, any>>(row.media_json, {});
+    const serviceConfig = this.parseJsonValue<Record<string, any>>(row.service_config_json, {});
+    const configurator = this.parseJsonValue<Record<string, any>>(row.configurator_json, {});
+    const bundleItems = this.parseJsonValue<any[]>(row.bundle_items_json, []);
     const galleryImages = this.extractGalleryImages(metadata);
     const imageUrl = row.image_url || row.image || galleryImages[0] || undefined;
     const images = this.normalizeImageList([imageUrl, ...galleryImages]);
     return {
       id: row.id,
       name: row.name,
+      subtitle: row.subtitle || undefined,
       description: row.description || "",
       category: row.category_name || row.category || "",
       price: parseFloat(row.price) || 0,
-      promoPrice: row.promo_price ? parseFloat(row.promo_price) : undefined,
+      promoPrice: row.promo_price != null && parseFloat(row.promo_price) > 0 ? parseFloat(row.promo_price) : undefined,
       unit: row.unit || "unidade",
       features: typeof row.features === "string" ? JSON.parse(row.features) : (row.features || []),
       imageUrl,
@@ -879,7 +1080,20 @@ export class ProductsService {
       is_active: Boolean(row.active),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
-    };
+      type: (row.type as any) || "physical_product",
+      cta_type: (row.cta_type as any) || "buy",
+      pipeline_id: row.pipeline_id || null,
+      attributes,
+      seo,
+      media,
+      service_config: serviceConfig as any,
+      configurator: configurator as any,
+      bundle_items: Array.isArray(bundleItems) ? (bundleItems as any) : [],
+      /* Inventory (Fase 12) */
+      stock_quantity: row.stock_quantity === null || row.stock_quantity === undefined ? null : Number(row.stock_quantity),
+      stock_status: (row.stock_status as any) || (row.stock_quantity === null || row.stock_quantity === undefined ? "unlimited" : "in_stock"),
+      stock_threshold_low: row.stock_threshold_low === null || row.stock_threshold_low === undefined ? 5 : Number(row.stock_threshold_low),
+    } as any;
   }
 
   // ==================== CATEGORIES ====================

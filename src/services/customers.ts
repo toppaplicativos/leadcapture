@@ -596,7 +596,7 @@ export class CustomersService {
       throw new Error("Missing owner user context for customer creation");
     }
     const brandColumn = this.resolveBrandColumn(columns);
-    const sourceDetails = {
+    const sourceDetails: Record<string, any> = {
       google_place_id: dto.google_place_id || null,
       website: dto.website || null,
       rating: dto.google_rating || null,
@@ -606,6 +606,9 @@ export class CustomersService {
       category: dto.category || null,
       subcategory: dto.subcategory || null,
       address: dto.address || null,
+      ...((dto as any).extra_source_details && typeof (dto as any).extra_source_details === "object"
+        ? (dto as any).extra_source_details
+        : {}),
     };
 
     const record: Record<string, any> = {

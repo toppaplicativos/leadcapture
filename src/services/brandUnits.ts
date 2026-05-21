@@ -18,6 +18,7 @@ export type BrandUnit = {
   slogan?: string | null;
   primary_color?: string | null;
   secondary_color?: string | null;
+  whatsapp_phone?: string | null;
   theme_json?: any;
   voice_json?: any;
   domain?: string | null;
@@ -180,6 +181,7 @@ export class BrandUnitsService {
         await this.ensureTableColumn("brand_units", "slogan", "VARCHAR(255) NULL");
         await this.ensureTableColumn("brand_units", "primary_color", "VARCHAR(24) NULL");
         await this.ensureTableColumn("brand_units", "secondary_color", "VARCHAR(24) NULL");
+        await this.ensureTableColumn("brand_units", "whatsapp_phone", "VARCHAR(40) NULL");
 
         this.schemaReady = true;
       })().finally(() => {
@@ -402,6 +404,7 @@ export class BrandUnitsService {
       slogan: string;
       primary_color: string;
       secondary_color: string;
+      whatsapp_phone: string;
       theme_json: any;
       voice_json: any;
       domain: string;
@@ -468,6 +471,11 @@ export class BrandUnitsService {
     if (payload.secondary_color !== undefined) {
       fields.push("secondary_color = ?");
       values.push(payload.secondary_color || null);
+    }
+    if ((payload as any).whatsapp_phone !== undefined) {
+      fields.push("whatsapp_phone = ?");
+      const wpp = String((payload as any).whatsapp_phone || "").replace(/\D/g, "");
+      values.push(wpp || null);
     }
     if (payload.theme_json !== undefined) {
       fields.push("theme_json = ?");

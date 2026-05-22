@@ -37,6 +37,7 @@ export type ConnectedDestinationTarget = {
 export class InstanceManager {
   private instances: Map<string, WhatsAppInstance> = new Map();
   private instanceOwners: Map<string, string | null> = new Map();
+  private instanceBrands: Map<string, string | null> = new Map();
   private sockets: Map<string, WASocket> = new Map();
   private connectPromises: Map<string, Promise<string | null>> = new Map();
   private messageHandlers: Map<string, (msg: any) => void> = new Map();
@@ -240,24 +241,28 @@ export class InstanceManager {
     try {
       const pool = getPool();
       const ownerUserId = this.instanceOwners.get(instance.id) || null;
+      const brandId = this.instanceBrands.get(instance.id) || null;
       const [existing] = await pool.execute<any[]>(
         "SELECT id FROM whatsapp_instances WHERE id = ?",
         [instance.id]
       );
 
       if (existing.length > 0) {
+        /* COALESCE preserva brand_id antigo se o novo for null — nao apaga
+           atribuicao previa por engano numa reconexao sem contexto. */
         await pool.execute(
-          `UPDATE whatsapp_instances SET name = ?, phone = ?, status = ?, 
+          `UPDATE whatsapp_instances SET name = ?, phone = ?, status = ?,
            created_by = COALESCE(created_by, ?),
+           brand_id = COALESCE(brand_id, ?),
            last_connected_at = CASE WHEN ? = 'connected' THEN NOW() ELSE last_connected_at END,
            updated_at = NOW() WHERE id = ?`,
-          [instance.name, instance.phone || null, instance.status, ownerUserId, instance.status, instance.id]
+          [instance.name, instance.phone || null, instance.status, ownerUserId, brandId, instance.status, instance.id]
         );
       } else {
         await pool.execute(
-          `INSERT INTO whatsapp_instances (id, name, phone, status, created_by, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, NOW(), NOW())`,
-          [instance.id, instance.name, instance.phone || null, instance.status, ownerUserId]
+          `INSERT INTO whatsapp_instances (id, name, phone, status, created_by, brand_id, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+          [instance.id, instance.name, instance.phone || null, instance.status, ownerUserId, brandId]
         );
       }
     } catch (err: any) {
@@ -266,7 +271,7 @@ export class InstanceManager {
   }
 
   // ==================== INSTANCE LIFECYCLE ====================
-  async createInstance(name: string, ownerUserId?: string): Promise<WhatsAppInstance> {
+  async createInstance(name: string, ownerUserId?: string, brandId?: string | null): Promise<WhatsAppInstance> {
     const id = uuidv4();
     const instance: WhatsAppInstance = {
       id,
@@ -277,9 +282,10 @@ export class InstanceManager {
       messagesReceived: 0,
     };
     this.instanceOwners.set(id, ownerUserId || null);
+    this.instanceBrands.set(id, brandId || null);
     this.instances.set(id, instance);
     await this.syncInstanceToDB(instance);
-    logger.info(`Instance created: ${name} (${id})`);
+    logger.info(`Instance created: ${name} (${id}) ownerUserId=${ownerUserId || "(none)"} brandId=${brandId || "(none)"}`);
     return instance;
   }
 

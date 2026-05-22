@@ -3,9 +3,10 @@ import {
   Search, Filter, Star, Phone, MapPin, Tag, X,
   ChevronLeft, ChevronRight, Users, Loader2,
   MessageSquare, Mail, Globe, ExternalLink, Trash2, Send,
-  CheckCircle2, Edit3, CheckSquare, Square,
+  CheckCircle2, Edit3, CheckSquare, Square, Sparkles,
 } from 'lucide-react'
 import { Button } from '@/components/ui'
+import { SmartImportModal } from '@/components/SmartImportModal'
 
 /* ── Auth helpers ── */
 function getHeaders(): Record<string, string> {
@@ -115,6 +116,7 @@ export function LeadsPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bulkEditOpen, setBulkEditOpen] = useState(false)
   const [bulkBusy, setBulkBusy] = useState(false)
+  const [smartImportOpen, setSmartImportOpen] = useState(false)
   const [flash, setFlash] = useState<{ msg: string; tone: 'ok' | 'err' } | null>(null)
   function toast(msg: string, tone: 'ok' | 'err' = 'ok') {
     setFlash({ msg, tone })
@@ -310,6 +312,15 @@ export function LeadsPage() {
               </button>
             )}
           </div>
+          <button
+            onClick={() => setSmartImportOpen(true)}
+            title="Importar leads via IA — texto, CSV/XLS, imagem ou foto"
+            className="h-10 flex items-center gap-1.5 px-4 rounded-full bg-gradient-to-r from-violet-500 to-purple-600 text-white text-[12px] font-bold hover:from-violet-600 hover:to-purple-700 transition shadow-sm"
+          >
+            <Sparkles size={14} strokeWidth={2} />
+            <span className="hidden sm:inline">Importar leads</span>
+            <span className="sm:hidden">Importar</span>
+          </button>
           <Button
             variant={showFilters ? 'primary' : 'secondary'}
             size="md"
@@ -842,6 +853,15 @@ export function LeadsPage() {
           categories={filterOptions?.categories || []}
         />
       )}
+
+      <SmartImportModal
+        open={smartImportOpen}
+        onClose={() => setSmartImportOpen(false)}
+        onImported={(count) => {
+          toast(`${count} ${count === 1 ? 'lead importado' : 'leads importados'}.`, 'ok')
+          loadLeads()
+        }}
+      />
     </div>
   )
 }

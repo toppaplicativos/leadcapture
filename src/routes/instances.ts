@@ -5,9 +5,15 @@
 import { Router, Request, Response } from 'express';
 import { logger } from '../core/logger';
 import { AuthRequest } from '../middleware/auth';
+import { attachBrandContext, BrandRequest } from '../middleware/brandContext';
 import { getPool } from '../config/database';
 
 const router = Router();
+
+/* Brand context: instancias herdam o brand_id de quem cria.
+   Igual campanhas — req.brandId vem do header x-brand-id que o frontend
+   ja envia em toda chamada autenticada via adminApi.getAdminHeaders(). */
+router.use(attachBrandContext);
 
 function getInstanceManager(req: Request) {
   return req.app.get('instanceManager');
@@ -70,7 +76,10 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     const instanceManager = getInstanceManager(req);
     if (!instanceManager) return res.status(500).json({ error: 'InstanceManager não disponível' });
 
-    const instance = await instanceManager.createInstance(name, userId);
+    /* Herda brand_id do contexto. Mesma logica das campanhas:
+       quem cria, dita o brand. Sem chute. */
+    const brandId = (req as BrandRequest).brandId || null;
+    const instance = await instanceManager.createInstance(name, userId, brandId);
     const qrCode = await instanceManager.connectInstance(instance.id);
 
     res.status(201).json({

@@ -62,6 +62,9 @@ export interface RawProduct {
   stock_quantity?: number | null;
   stock_status?: "in_stock" | "low_stock" | "out_of_stock" | "unlimited";
   stock_threshold_low?: number;
+  /* Reviews (Fase 14) — denormalized; agent uses as social proof when relevant */
+  reviews_avg?: number;
+  reviews_count?: number;
   /* Configurator (Fase 4) */
   configurator?: {
     enabled?: boolean;
@@ -218,6 +221,18 @@ function formatProduct(product: RawProduct, index: number): FormattedProduct | n
     lines.push(`  ESTOQUE: ${stockQty} unid. disponíveis.`);
   }
   /* else: unlimited / untracked → omit (no useful signal for the agent) */
+
+  /* Reviews (Fase 14) — social proof. Only show when there's at least 1 review;
+   * the agent must NEVER invent ratings, so we keep the signal explicit and concise. */
+  const reviewsCount = Number(product.reviews_count || 0);
+  const reviewsAvg = Number(product.reviews_avg || 0);
+  if (reviewsCount > 0 && reviewsAvg > 0) {
+    const stars = "★".repeat(Math.round(reviewsAvg)) + "☆".repeat(5 - Math.round(reviewsAvg));
+    lines.push(`  AVALIAÇÕES: ${stars} ${reviewsAvg.toFixed(1)} de 5 (${reviewsCount} ${reviewsCount === 1 ? "avaliação" : "avaliações"})`);
+    if (reviewsAvg >= 4.5 && reviewsCount >= 5) {
+      lines.push(`    → use como social proof: "${reviewsCount} clientes deram nota ${reviewsAvg.toFixed(1)} de 5 a esse produto".`);
+    }
+  }
 
   if (flags.length) lines.push(`  status: ${flags.join(" · ")}`);
   if (imageCount > 0) lines.push(`  fotos disponíveis: ${imageCount} (você PODE oferecer enviar foto se o cliente pedir)`);
@@ -401,6 +416,7 @@ export function buildProductIntelligenceBlock(products: RawProduct[]): string {
     "- Se o cliente pedir algo que NÃO está no catálogo, diga que vai confirmar — NUNCA invente.",
     "- Se um produto tem fotos disponíveis e o cliente demonstrar interesse visual, pode oferecer mandar.",
     "- ESTOQUE: quando um produto estiver marcado ESGOTADO, NÃO prometa entrega; ofereça transparentemente uma alternativa da mesma categoria/segmento que esteja disponível, ou colete o contato para avisar quando voltar. Quando estiver com estoque baixo (\"restam X\"), use isso para gerar urgência genuína sem exagerar.",
+    "- AVALIAÇÕES: só cite estrelas/notas quando o bloco AVALIAÇÕES estiver presente no produto. NUNCA invente nota, NUNCA arredonde pra cima. Use exatamente o número mostrado (ex: 4.7, 23 avaliações).",
   ].filter(Boolean).join("\n");
 }
 

@@ -3,6 +3,17 @@
 /* Inter — distinctive, dense, premium (used by GitHub, Stripe, Linear, Vercel) */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
+/* ── Leaflet z-index containment ──
+ * Leaflet's default CSS sets .leaflet-pane to z-index 200-700 (above almost everything).
+ * That made the map punch through modals/drawers on mobile. We cap Leaflet inside its own
+ * stacking context by giving the container `isolation:isolate`. Once inside, the high
+ * z-indexes only matter relative to other leaflet layers, not the page chrome. */
+.leaflet-container {
+  isolation: isolate;
+  position: relative;
+  z-index: 0;
+}
+
 @theme {
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif;
   --color-brand-primary: #111827;

@@ -384,6 +384,41 @@ export interface AdminIntegrationLogEntry {
 }
 
 /* ══════════════════════════════════════════════
+   SMART LEAD IMPORT — shared DTOs
+   ══════════════════════════════════════════════ */
+
+export interface ParsedLeadDTO {
+  index: number
+  name: string
+  phone: string | null
+  email: string | null
+  company?: string | null
+  city?: string | null
+  state?: string | null
+  interest?: string | null
+  notes?: string | null
+  temperature?: 'frio' | 'morno' | 'quente' | null
+  tags: string[]
+  warnings: string[]
+  duplicateOf?: { id: string; name: string; phone?: string | null } | null
+  raw?: Record<string, any>
+}
+
+export interface ImportPreviewDTO {
+  mode: string
+  leads: ParsedLeadDTO[]
+  stats: {
+    total: number
+    newLeads: number
+    duplicates: number
+    withoutPhone: number
+    withInterest: number
+  }
+  pipelineWarnings: string[]
+  sourceTag: string
+}
+
+/* ══════════════════════════════════════════════
    ADMIN API (dashboard/admin shell)
    ══════════════════════════════════════════════ */
 
@@ -442,6 +477,43 @@ export const adminApi = {
     }>('/api/campaigns-v2/followup-ruler', getAdminHeaders(), {
       method: 'POST',
     }),
+
+  /* ── Smart Lead Import ── */
+  smartImportParse: (body: {
+    mode: 'text' | 'file' | 'image'
+    payload: string
+    mimeType?: string
+    fileName?: string
+  }) =>
+    authFetch<{ success: boolean; preview: ImportPreviewDTO }>('/api/lead-import/parse', getAdminHeaders(), {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  smartImportConfirm: (leads: ParsedLeadDTO[], skipDuplicates = true) =>
+    authFetch<{
+      success: boolean
+      imported: number
+      total: number
+      skipped: number
+      errors: Array<{ name: string; error: string }>
+    }>('/api/lead-import/confirm', getAdminHeaders(), {
+      method: 'POST',
+      body: JSON.stringify({ leads, skipDuplicates }),
+    }),
+
+  /* ── AI auto-reply diagnostics ── */
+  aiDiagnostics: (conversationId?: string) => {
+    const qs = conversationId ? `?conversationId=${encodeURIComponent(conversationId)}` : ''
+    return authFetch<{
+      success: boolean
+      brand_id: string
+      verdict: { ok: boolean; summary: string }
+      gates: Array<{ name: string; status: 'ok' | 'warn' | 'fail'; detail: string; fix?: string }>
+      conversation: any
+      global_state: any
+    }>(`/api/inbox/ai-diagnostics${qs}`, getAdminHeaders())
+  },
 
   realClients: async (page = 1, limit = 50, search = '') => {
     const q = new URLSearchParams({ page: String(page), limit: String(limit) })

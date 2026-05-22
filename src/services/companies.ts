@@ -55,6 +55,17 @@ export class CompaniesService {
   }
 
   async create(userId: string, data: CompanyCreateDTO, brandId?: string | null): Promise<Company> {
+    /* LGPD opt-out gate (Fase 15.6) */
+    if (data.phone || data.email) {
+      const { lgpdOptoutService } = await import("./lgpdOptout");
+      const blocked = await lgpdOptoutService.isOptedOut(data.phone, data.email);
+      if (blocked) {
+        const err: any = new Error("Este contato solicitou opt-out (LGPD) e não pode ser recapturado.");
+        err.code = "LGPD_OPTED_OUT";
+        throw err;
+      }
+    }
+
     await this.ensureBrandColumn();
     const pool = getPool();
     const id = uuidv4();

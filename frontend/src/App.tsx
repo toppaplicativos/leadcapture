@@ -33,6 +33,8 @@ const NotificationsView = lazy(() => adminModule().then(m => ({ default: m.Notif
 const DomainView = lazy(() => adminModule().then(m => ({ default: m.DomainView })))
 const FreteView = lazy(() => adminModule().then(m => ({ default: m.FreteView })))
 const EstoqueAccessView = lazy(() => adminModule().then(m => ({ default: m.EstoqueAccessView })))
+const CouponsView = lazy(() => adminModule().then(m => ({ default: m.CouponsView })))
+const ReviewsView = lazy(() => adminModule().then(m => ({ default: m.ReviewsView })))
 const PaymentConfigView = lazy(() => adminModule().then(m => ({ default: m.PaymentConfigView })))
 const WhatsAppManagerView = lazy(() => adminModule().then(m => ({ default: m.WhatsAppManagerView })))
 const SettingsView = lazy(() => adminModule().then(m => ({ default: m.SettingsView })))
@@ -206,6 +208,43 @@ function CampaignsInline() {
 }
 function OrdersInline() { return <OrdersView showToast={noop} /> }
 
+/* ──────────────────────────────────────────────────────────────────────────────
+ * ChunkLoadError defensive reload (PWA stability fix)
+ *
+ * Vite splits routes into chunks like AdminDashboard-{hash}.js. Each build
+ * generates new hashes. When the service worker cycles to a new version and
+ * the user has the old tab open, dynamic import() (React.lazy) requests the
+ * OLD chunk name — which the server no longer has → 404 → React throws
+ * ChunkLoadError → blank screen ("o app apagou"). User has to close and reopen.
+ *
+ * Standard SPA mitigation: catch the error globally and reload once. We track
+ * the reload in sessionStorage so we don't loop if reload itself fails.
+ * ────────────────────────────────────────────────────────────────────────────── */
+const CHUNK_RELOAD_KEY = 'lead-system:chunk-reload-at'
+function installChunkErrorRecovery() {
+  if (typeof window === 'undefined') return
+  const handler = (event: ErrorEvent | PromiseRejectionEvent) => {
+    const error: any = (event as any).reason || (event as any).error
+    const message = String(error?.message || error || '')
+    const name = String(error?.name || '')
+    const isChunkError =
+      name === 'ChunkLoadError' ||
+      /Loading chunk \S+ failed/i.test(message) ||
+      /Failed to fetch dynamically imported module/i.test(message) ||
+      /Importing a module script failed/i.test(message)
+    if (!isChunkError) return
+    /* Prevent infinite reload loop: only auto-reload if last reload was >10s ago */
+    const lastReload = Number(sessionStorage.getItem(CHUNK_RELOAD_KEY) || 0)
+    if (Date.now() - lastReload < 10_000) return
+    sessionStorage.setItem(CHUNK_RELOAD_KEY, String(Date.now()))
+    console.warn('[App] ChunkLoadError detected, reloading…', message)
+    window.location.reload()
+  }
+  window.addEventListener('error', handler as any)
+  window.addEventListener('unhandledrejection', handler as any)
+}
+installChunkErrorRecovery()
+
 export default function App() {
   return (
     <>
@@ -261,6 +300,8 @@ export default function App() {
           <Route path="/produtos" element={<AdminPage><ProductsView showToast={noop} /></AdminPage>} />
           <Route path="/pedidos" element={<AdminPage><OrdersInline /></AdminPage>} />
           <Route path="/estoque" element={<AdminPage><EstoqueAccessView showToast={noop} /></AdminPage>} />
+          <Route path="/cupons" element={<AdminPage><CouponsView showToast={noop} /></AdminPage>} />
+          <Route path="/avaliacoes" element={<AdminPage><ReviewsView showToast={noop} /></AdminPage>} />
           <Route path="/estoque/app" element={<InventoryPage />} />
           <Route path="/inventario" element={<InventoryPage />} />
           <Route path="/design" element={<AdminPage><DesignPage /></AdminPage>} />

@@ -2416,9 +2416,13 @@ export class CampaignEngineService {
     await this.ensureSchema();
 
     const normalizedPhone = normalizePhone(phone);
-    if (!normalizedPhone) return null;
+    if (!normalizedPhone) {
+      logger.warn(`[CampaignReply] phone vazio/invalido recebido. raw="${phone}" userId=${userId} brandId=${normalizedBrandId || "(null)"}`);
+      return null;
+    }
 
     const phoneCandidates = buildPhoneCandidates(normalizedPhone);
+    const ctx = `[CampaignReply phone=${normalizedPhone} userId=${userId.slice(0, 8)} brandId=${normalizedBrandId.slice(0, 8) || "(null)"}]`;
 
     let campaignLead = await this.findLatestReplyCandidate(
       userId,
@@ -2427,7 +2431,13 @@ export class CampaignEngineService {
       normalizedBrandId,
       false
     );
-    if (!campaignLead && normalizedBrandId) {
+    let crossBrand = false;
+    /* Fallback cross-brand: roda SEMPRE quando o primeiro lookup falha.
+       Antes exigia normalizedBrandId nao-vazio, o que impedia o fallback quando a
+       instancia estava sem brand_id (caso comum em instancias criadas antes do
+       contexto de brand existir). Agora pega a resposta independente do brand
+       da instancia — a campanha de origem manda no escopo. */
+    if (!campaignLead) {
       campaignLead = await this.findLatestReplyCandidate(
         userId,
         phoneCandidates,
@@ -2435,9 +2445,44 @@ export class CampaignEngineService {
         normalizedBrandId,
         true
       );
+      if (campaignLead) crossBrand = true;
     }
 
-    if (!campaignLead) return null;
+    if (!campaignLead) {
+      /* Diagnostico: lead pode existir mas em status pending/failed, ou ter brand_id divergente.
+         Logamos counters globais para ajudar diagnostico. */
+      let pendingCount = 0;
+      let totalCount = 0;
+      try {
+        const stats = await queryOne<{ total: number | string; pending: number | string }>(
+          `SELECT COUNT(*) AS total,
+                  SUM(CASE WHEN status IN ('pending','validating','failed','skipped') THEN 1 ELSE 0 END) AS pending
+           FROM campaign_leads
+           WHERE user_id = ?
+             AND (phone IN (${phoneCandidates.map(() => "?").join(", ")}))`,
+          [userId, ...phoneCandidates]
+        );
+        totalCount = Number(stats?.total) || 0;
+        pendingCount = Number(stats?.pending) || 0;
+      } catch {
+        /* schema antigo — ignora */
+      }
+
+      if (totalCount > 0) {
+        logger.warn(
+          `${ctx} nao achou campaign_lead "matchavel" mas ${totalCount} row(s) existe(m) em campaign_leads (${pendingCount} em status pending/failed/skipped). Possivel causa: brand_id divergente entre campanha e instancia, ou status do lead exclui pelo filtro.`
+        );
+      } else {
+        logger.info(`${ctx} sem campaign_lead correspondente — esse numero nao recebeu mensagem de campanha ainda (ou recebeu antes do tracking estar ativo).`);
+      }
+      return null;
+    }
+
+    if (crossBrand) {
+      logger.warn(
+        `${ctx} match encontrado APENAS via fallback cross-brand. Campanha foi criada em outro brand (brand_id=${String(campaignLead.brand_id || "").slice(0, 8) || "(null)"}) e a mensagem entrou em instancia de brand ${normalizedBrandId.slice(0, 8) || "(null)"}. Veja se sua instancia WhatsApp tem o brand_id correto.`
+      );
+    }
 
     // Classify the response
     const classification = this.classifyResponse(messageText);
@@ -2528,6 +2573,10 @@ export class CampaignEngineService {
 
     // Update lead tags and score
     await this.updateLeadAfterReply(userId, campaignLead.lead_id, classification, scoreDelta);
+
+    logger.info(
+      `${ctx} resposta registrada — campaign=${String(campaignLead.campaign_id || "").slice(0, 8)} classification=${classification} scoreDelta=${scoreDelta} repliedDelta=${repliedDelta} (was=${previousStatus || "(novo)"}).`
+    );
 
     return {
       campaignId: campaignLead.campaign_id,

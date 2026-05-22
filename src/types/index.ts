@@ -301,6 +301,9 @@ export interface Product {
   stock_quantity?: number | null;
   stock_status?: "in_stock" | "low_stock" | "out_of_stock" | "unlimited";
   stock_threshold_low?: number;
+  /* Reviews (Fase 14) — denormalized aggregates so catalog/agent reads stay 1 SELECT */
+  reviews_avg?: number;       // 0 when no reviews
+  reviews_count?: number;     // 0 when no reviews
 }
 
 export interface ServiceWeekdayHours {

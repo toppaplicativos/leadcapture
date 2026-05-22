@@ -486,6 +486,10 @@ export class StorefrontService {
         : Number((product as any).stock_quantity);
       const stockStatus = String((product as any).stock_status || (stockQuantity === null ? "unlimited" : "in_stock"));
       const stockThresholdLow = Number((product as any).stock_threshold_low ?? 5);
+      /* Reviews (Fase 14) — denormalized aggregates so public catalog renders
+       * stars without a JOIN. Source of truth is reviewsService.recomputeProductAggregates. */
+      const reviewsAvg = Number((product as any).reviews_avg ?? 0);
+      const reviewsCount = Number((product as any).reviews_count ?? 0);
 
       const mergedMetadata = {
         ...(mapped?.metadata || {}),
@@ -512,6 +516,9 @@ export class StorefrontService {
         stock_quantity: stockQuantity,
         stock_status: stockStatus,
         stock_threshold_low: stockThresholdLow,
+        /* Reviews (Fase 14) */
+        reviews_avg: reviewsAvg,
+        reviews_count: reviewsCount,
       };
 
       const targetSlug = resolveUniqueSlug(String(product.name || sourceProductId), mapped?.id);

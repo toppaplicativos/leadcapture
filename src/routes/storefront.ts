@@ -9,6 +9,7 @@ import { InventoryService } from "../services/inventory";
 import { OrderManagementService } from "../services/orderManagement";
 import { StorefrontService } from "../services/storefront";
 import { couponsService } from "../services/coupons";
+import { reviewsService } from "../services/reviews";
 import {
   getCatalogCacheEntry,
   setCatalogCacheEntry,
@@ -2085,6 +2086,9 @@ publicRouter.get("/stores/:slug/catalog", async (req, res) => {
         stock_quantity: md.stock_quantity === null || md.stock_quantity === undefined ? null : Number(md.stock_quantity),
         stock_status: md.stock_status || (md.stock_quantity === null || md.stock_quantity === undefined ? "unlimited" : "in_stock"),
         stock_threshold_low: Number(md.stock_threshold_low ?? 5),
+        /* Reviews (Fase 14) — 0 means "no reviews yet" → UI hides badge */
+        reviews_avg: Number(md.reviews_avg ?? 0),
+        reviews_count: Number(md.reviews_count ?? 0),
       };
     });
 
@@ -2364,6 +2368,82 @@ publicRouter.post("/stores/:slug/coupons/validate", async (req, res) => {
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message || "Failed to validate coupon" });
+  }
+});
+
+/* ═══════════════════════════════════════════════════════
+   Reviews (Fase 14) — public submission + listing per product.
+   Reviews submetidas via this endpoint sempre nascem `pending`;
+   admin precisa aprovar antes de aparecerem no catálogo.
+   ═══════════════════════════════════════════════════════ */
+publicRouter.get("/stores/:slug/products/:productId/reviews", async (req, res) => {
+  try {
+    const slug = String(req.params.slug || "").trim();
+    const bundle = await storefront.resolvePublicStore({ slug });
+    if (!bundle) return res.status(404).json({ error: "Store not found" });
+
+    /* Resolve storefront product → source catalog product id (reviews are stored
+     * against the source product so they survive storefront re-syncs). */
+    const storefrontProduct = (bundle.products as any[]).find((p) => String(p.id) === String(req.params.productId));
+    if (!storefrontProduct) return res.status(404).json({ error: "Product not found" });
+    const metadata = parseJson<Record<string, any>>(storefrontProduct.metadata_json, {});
+    const sourceProductId = String(metadata?.source_product_id || storefrontProduct.id);
+
+    const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 20));
+    const [list, aggregates] = await Promise.all([
+      reviewsService.listForProductPublic(sourceProductId, limit),
+      reviewsService.getAggregates(sourceProductId),
+    ]);
+
+    res.json({
+      success: true,
+      reviews: list.map((r) => ({
+        id: r.id,
+        customer_name: r.customer_name,
+        rating: r.rating,
+        comment: r.comment,
+        verified_purchase: r.verified_purchase,
+        created_at: r.created_at,
+      })),
+      aggregates,
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || "Failed to load reviews" });
+  }
+});
+
+publicRouter.post("/stores/:slug/products/:productId/reviews", async (req, res) => {
+  try {
+    const slug = String(req.params.slug || "").trim();
+    const bundle = await storefront.resolvePublicStore({ slug });
+    if (!bundle) return res.status(404).json({ error: "Store not found" });
+    const brandId = (bundle.store as any).brand_id || null;
+
+    const storefrontProduct = (bundle.products as any[]).find((p) => String(p.id) === String(req.params.productId));
+    if (!storefrontProduct) return res.status(404).json({ error: "Product not found" });
+    const metadata = parseJson<Record<string, any>>(storefrontProduct.metadata_json, {});
+    const sourceProductId = String(metadata?.source_product_id || storefrontProduct.id);
+
+    const body = req.body || {};
+    const review = await reviewsService.createPublic({
+      productId: sourceProductId,
+      brandId,
+      customerName: String(body.name || body.customer_name || "").trim(),
+      customerPhone: body.phone || body.customer_phone || null,
+      rating: Number(body.rating),
+      comment: body.comment || null,
+      orderId: body.order_id || null,
+    });
+
+    res.status(201).json({
+      success: true,
+      review: { id: review.id, status: review.status, verified_purchase: review.verified_purchase },
+      message: "Obrigado pela avaliação! Ela aparecerá no catálogo após análise.",
+    });
+  } catch (error: any) {
+    const msg = String(error.message || "");
+    const status = msg.includes("obrigatório") || msg.includes("entre 1 e 5") ? 400 : 500;
+    res.status(status).json({ error: msg || "Failed to submit review" });
   }
 });
 
@@ -2659,6 +2739,9 @@ publicRouter.post("/stores/:slug/orders", async (req, res) => {
       customer_phone: customerPhone,
       checkout_base_url: checkoutBaseUrl(req),
       itens: normalizedItems,
+      /* Fase 13 — forward coupon from the public cart. Validation happens inside
+       * commerceService.createOrder and throws COUPON_INVALID on failure (caught below). */
+      cupom_codigo: req.body?.cupom_codigo ? String(req.body.cupom_codigo).trim() : undefined,
     });
 
     const reservableItems = normalizedItems
@@ -2756,6 +2839,14 @@ publicRouter.post("/stores/:slug/orders", async (req, res) => {
     res.status(201).json({ success: true, ...created });
   } catch (error: any) {
     const message = String(error.message || "");
+    /* Fase 13 — bubble up coupon errors with the same shape used by /api/commerce/orders
+     * so the public CheckoutPage can render them inline. */
+    if (error?.code === "COUPON_INVALID") {
+      return res.status(400).json({ error: message, code: "COUPON_INVALID", reason_code: error.reason_code || null });
+    }
+    if (error?.code === "INSUFFICIENT_STOCK") {
+      return res.status(409).json({ error: message, code: "INSUFFICIENT_STOCK", shortages: error.shortages || [] });
+    }
     const badRequest =
       message.includes("required") ||
       message.includes("invalid") ||

@@ -27,8 +27,8 @@ if (IS_LOCAL_DEV) {
     );
   });
 } else {
-const SHELL_CACHE_NAME = "lead-system-shell-v19-20260521";
-const RUNTIME_CACHE_NAME = "lead-system-runtime-v15-20260507";
+const SHELL_CACHE_NAME = "lead-system-shell-v23-20260521";
+const RUNTIME_CACHE_NAME = "lead-system-runtime-v16-20260521";
 
 function getBasePath() {
   try {
@@ -82,25 +82,30 @@ self.addEventListener("install", (event) => {
 });
 
 // Ativacao do Service Worker
+//
+// PWA stability note (Bug-5 fix): we KEEP old runtime caches alive even when
+// the shell cache name bumps. Reason: Vite generates hashed chunk filenames
+// like AdminDashboard-{hash}.js. When a tab is open with an old bundle and we
+// purge the old runtime cache, that tab's React.lazy() calls fail with 404 →
+// blank screen. The frontend has a ChunkLoadError handler that triggers a
+// reload, but we also keep up to 2 runtime caches around so the transition
+// is smooth even before the reload fires.
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     Promise.all([
-      caches.keys().then((cacheNames) =>
-        Promise.all(
-          cacheNames.map((cacheName) => {
-            const isLeadSystemCache =
-              cacheName.startsWith("lead-system-v") ||
-              cacheName.startsWith("lead-system-shell-") ||
-              cacheName.startsWith("lead-system-runtime-");
-
-            if (!isLeadSystemCache) return Promise.resolve();
-            if (cacheName === SHELL_CACHE_NAME || cacheName === RUNTIME_CACHE_NAME) {
-              return Promise.resolve();
-            }
-            return caches.delete(cacheName);
-          })
-        )
-      ),
+      caches.keys().then((cacheNames) => {
+        /* Keep only the active shell + active runtime + the SINGLE most recent old runtime.
+         * Older shells get cleaned, but old runtime caches can serve hash-stamped chunks
+         * for already-open tabs while they're still alive. */
+        const shellCaches = cacheNames.filter((n) => n.startsWith("lead-system-shell-") && n !== SHELL_CACHE_NAME);
+        const runtimeCaches = cacheNames
+          .filter((n) => n.startsWith("lead-system-runtime-") && n !== RUNTIME_CACHE_NAME)
+          .sort()
+          .reverse(); // most recent old first
+        /* Delete: all old shells (we always have shellCacheKey as the latest) + runtime older than the most recent old */
+        const toDelete = [...shellCaches, ...runtimeCaches.slice(1)];
+        return Promise.all(toDelete.map((cacheName) => caches.delete(cacheName)));
+      }),
       self.registration.navigationPreload
         ? self.registration.navigationPreload.enable().catch(() => Promise.resolve())
         : Promise.resolve(),

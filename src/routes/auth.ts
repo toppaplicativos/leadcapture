@@ -251,7 +251,7 @@ router.delete("/users/:id", authMiddleware, requireRole(["admin"]), async (req: 
   }
 });
 
-router.get("/stock-access", authMiddleware, requireRole(["admin"]), async (req: AuthRequest, res: Response) => {
+router.get("/stock-access", authMiddleware, requireRole(["admin", "operator"]), async (req: AuthRequest, res: Response) => {
   try {
     await ensureStockCredentialSchema();
     const ownerUserId = String(req.user?.userId || "").trim();
@@ -299,7 +299,7 @@ router.get("/stock-access", authMiddleware, requireRole(["admin"]), async (req: 
   }
 });
 
-router.post("/stock-access", authMiddleware, requireRole(["admin"]), async (req: AuthRequest, res: Response) => {
+router.post("/stock-access", authMiddleware, requireRole(["admin", "operator"]), async (req: AuthRequest, res: Response) => {
   try {
     await ensureStockCredentialSchema();
     const ownerUserId = String(req.user?.userId || "").trim();
@@ -397,7 +397,7 @@ router.post("/stock-access", authMiddleware, requireRole(["admin"]), async (req:
   }
 });
 
-router.patch("/stock-access/:id/deactivate", authMiddleware, requireRole(["admin"]), async (req: AuthRequest, res: Response) => {
+router.patch("/stock-access/:id/deactivate", authMiddleware, requireRole(["admin", "operator"]), async (req: AuthRequest, res: Response) => {
   try {
     await ensureStockCredentialSchema();
     const ownerUserId = String(req.user?.userId || "").trim();
@@ -419,7 +419,7 @@ router.patch("/stock-access/:id/deactivate", authMiddleware, requireRole(["admin
   }
 });
 
-router.patch("/stock-access/:id/reactivate", authMiddleware, requireRole(["admin"]), async (req: AuthRequest, res: Response) => {
+router.patch("/stock-access/:id/reactivate", authMiddleware, requireRole(["admin", "operator"]), async (req: AuthRequest, res: Response) => {
   try {
     await ensureStockCredentialSchema();
     const ownerUserId = String(req.user?.userId || "").trim();
@@ -437,7 +437,7 @@ router.patch("/stock-access/:id/reactivate", authMiddleware, requireRole(["admin
   }
 });
 
-router.patch("/stock-access/:id", authMiddleware, requireRole(["admin"]), async (req: AuthRequest, res: Response) => {
+router.patch("/stock-access/:id", authMiddleware, requireRole(["admin", "operator"]), async (req: AuthRequest, res: Response) => {
   try {
     await ensureStockCredentialSchema();
     const ownerUserId = String(req.user?.userId || "").trim();
@@ -489,7 +489,7 @@ router.patch("/stock-access/:id", authMiddleware, requireRole(["admin"]), async 
   }
 });
 
-router.patch("/stock-access/:id/password", authMiddleware, requireRole(["admin"]), async (req: AuthRequest, res: Response) => {
+router.patch("/stock-access/:id/password", authMiddleware, requireRole(["admin", "operator"]), async (req: AuthRequest, res: Response) => {
   try {
     await ensureStockCredentialSchema();
     const ownerUserId = String(req.user?.userId || "").trim();
@@ -515,7 +515,7 @@ router.patch("/stock-access/:id/password", authMiddleware, requireRole(["admin"]
   }
 });
 
-router.delete("/stock-access/:id", authMiddleware, requireRole(["admin"]), async (req: AuthRequest, res: Response) => {
+router.delete("/stock-access/:id", authMiddleware, requireRole(["admin", "operator"]), async (req: AuthRequest, res: Response) => {
   try {
     await ensureStockCredentialSchema();
     const ownerUserId = String(req.user?.userId || "").trim();

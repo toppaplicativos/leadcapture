@@ -41,6 +41,11 @@ function toSlug(value: string): string {
 function normalizeLogoUrl(value: unknown): string | null {
   const normalized = String(value ?? "").trim();
   if (!normalized) return null;
+  /* Force https:// — the app is served exclusively over HTTPS, so any saved
+   * http:// URL would trigger Mixed Content in the browser. localhost stays http. */
+  if (normalized.startsWith("http://") && !/^http:\/\/(localhost|127\.0\.0\.1)/i.test(normalized)) {
+    return "https://" + normalized.slice("http://".length);
+  }
   return normalized;
 }
 

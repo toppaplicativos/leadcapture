@@ -1093,6 +1093,9 @@ export class ProductsService {
       stock_quantity: row.stock_quantity === null || row.stock_quantity === undefined ? null : Number(row.stock_quantity),
       stock_status: (row.stock_status as any) || (row.stock_quantity === null || row.stock_quantity === undefined ? "unlimited" : "in_stock"),
       stock_threshold_low: row.stock_threshold_low === null || row.stock_threshold_low === undefined ? 5 : Number(row.stock_threshold_low),
+      /* Reviews (Fase 14) — denormalized aggregates kept in sync by reviewsService */
+      reviews_avg: row.reviews_avg === null || row.reviews_avg === undefined ? 0 : Number(row.reviews_avg),
+      reviews_count: row.reviews_count === null || row.reviews_count === undefined ? 0 : Number(row.reviews_count),
     } as any;
   }
 

@@ -135,6 +135,18 @@ export class ClientsService {
   }
 
   async create(userId: string, data: ClientCreateDTO, brandId?: string | null): Promise<Client> {
+    /* LGPD opt-out gate (Fase 15.6) — block re-capture of anyone who asked
+     * to be removed. Done BEFORE the INSERT so we never write the row. */
+    if (data.phone || data.email) {
+      const { lgpdOptoutService } = await import("./lgpdOptout");
+      const blocked = await lgpdOptoutService.isOptedOut(data.phone, data.email);
+      if (blocked) {
+        const err: any = new Error("Este contato solicitou opt-out (LGPD) e não pode ser recapturado.");
+        err.code = "LGPD_OPTED_OUT";
+        throw err;
+      }
+    }
+
     const pool = getPool();
     const id = uuidv4();
     const cols = await this.getClientColumns();

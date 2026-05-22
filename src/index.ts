@@ -20,6 +20,9 @@ import imageProxyRoutes from "./routes/imageProxy";
 import messagesRoutes from "./routes/messages";
 import companiesRoutes from "./routes/companies";
 import clientsRoutes from "./routes/clients";
+import { rateLimit } from "./middleware/rateLimit";
+import { lgpdPublicRoutes, lgpdAdminRoutes } from "./routes/lgpd";
+import leadImportRoutes from "./routes/leadImport";
 import clientTypesRoutes from "./routes/clientTypes";
 import sessionsRoutes from "./routes/sessions";
 import automationsRoutes from "./routes/automations";
@@ -37,6 +40,7 @@ import collectionsRoutes from "./routes/collections";
 import attributeDefinitionsRoutes from "./routes/attributeDefinitions";
 import bookingsRoutes from "./routes/bookings";
 import couponsRoutes from "./routes/coupons";
+import reviewsRoutes from "./routes/reviews";
 import priceTablesRoutes from "./routes/pricetables";
 import expeditionRoutes from "./routes/expedition";
 import ordersRoutes from "./routes/orders";
@@ -87,6 +91,10 @@ app.use("/api/stripe/webhook", stripeWebhookRoutes);
 
 app.use(
   express.json({
+    /* Limite global elevado para 15MB — necessario para Smart Lead Import
+       (CSV/XLS/imagem/PDF em base64 ate ~10MB → ~13.3MB JSON). Stripe webhook
+       continua usando rawBody propio (mounted antes desse middleware). */
+    limit: "15mb",
     verify: (req: any, _res, buf) => {
       req.rawBody = buf;
     },
@@ -318,7 +326,8 @@ app.use("/api/knowledge-base", authMiddleware, knowledgeBaseRoutes);
 app.use("/api/ai", authMiddleware, aiRoutes);
 app.use("/api/media", authMiddleware, mediaRoutes);
 app.use("/api/companies", authMiddleware, companiesRoutes);
-app.use("/api/clients", authMiddleware, clientsRoutes);
+app.use("/api/clients", authMiddleware, rateLimit({ name: "clients", max: 200, windowMs: 60_000 }), clientsRoutes);
+app.use("/api/lead-import", authMiddleware, leadImportRoutes);
 app.use("/api/client-types", authMiddleware, clientTypesRoutes);
 app.use("/api/sessions", authMiddleware, sessionsRoutes);
 app.use("/api/automations", authMiddleware, automationsRoutes);
@@ -331,6 +340,10 @@ app.use("/api/collections", collectionsRoutes);
 app.use("/api/attribute-definitions", attributeDefinitionsRoutes);
 app.use("/api/bookings", bookingsRoutes);
 app.use("/api/coupons", couponsRoutes);
+app.use("/api/reviews", reviewsRoutes);
+/* LGPD (Fase 15) — public opt-out is NO-AUTH on purpose. Admin views require auth. */
+app.use("/api/lgpd", lgpdPublicRoutes);
+app.use("/api/lgpd", lgpdAdminRoutes);
 app.use("/api/pricetables", authMiddleware, priceTablesRoutes);
 app.use("/api/expedition", authMiddleware, expeditionRoutes);
 app.use("/api/orders", authMiddleware, ordersRoutes);
@@ -339,7 +352,7 @@ app.use("/api/payments", authMiddleware, paymentsRoutes);
 app.use("/api/storefront", authMiddleware, storefrontRoutes);
 app.use("/api/stock-app", authMiddleware, stockAppRoutes);
 app.use("/api/inventory", authMiddleware, inventoryRoutes);
-app.use("/api/leads", authMiddleware, leadsRoutes);
+app.use("/api/leads", authMiddleware, rateLimit({ name: "leads", max: 200, windowMs: 60_000 }), leadsRoutes);
 app.use("/api/lead-categories", leadCategoriesRoutes);
 app.use("/api/flows", flowBuilderRoutes);
 app.use("/api/notifications", notificationsRoutes);
@@ -359,7 +372,7 @@ const instanceRotation = new InstanceRotationService(instanceManager);
 app.set("instanceRotation", instanceRotation);
 const automationRuntime = new AutomationRuntimeService(instanceManager, instanceRotation);
 app.set("automationRuntime", automationRuntime);
-const campaignEngine = new CampaignEngineService(instanceManager, instanceRotation);
+export const campaignEngine = new CampaignEngineService(instanceManager, instanceRotation);
 app.set("campaignEngine", campaignEngine);
 app.use("/api/campaigns-v2", authMiddleware, createCampaignRoutes(instanceManager, instanceRotation, campaignEngine));
 const inboxService = new InboxService();
@@ -378,7 +391,39 @@ instanceManager.onGlobalMessage(async (instanceId, msg) => {
     });
 
     // Campaign Engine — process incoming reply for active campaigns
-    const phone = String(msg?.key?.remoteJid || "").replace(/@.*$/, "");
+    /* WhatsApp multidevice: mensagens recebidas vêm com remoteJid = X@lid
+       (LinkedID interno, não é o número real). Baileys 6.7+ expõe o número
+       de telefone real em `msg.key.senderPn`. Preferimos esse quando existe;
+       fallback para o número extraído do JID se for um @s.whatsapp.net. */
+    const rawRemoteJid = String(msg?.key?.remoteJid || "");
+    const keyAny = (msg?.key as any) || {};
+    const senderPn = String(keyAny.senderPn || "").trim();
+    const participantPn = String(keyAny.participantPn || "").trim();
+    /* Em multidevice, Baileys também pode popular esses campos que tentamos: */
+    const senderLid = String(keyAny.senderLid || "").trim();
+    const participantLid = String(keyAny.participantLid || "").trim();
+    const participantField = String(msg?.key?.participant || "").trim();
+    /* Quando a mensagem vem de @lid, o número real pode estar em:
+       - key.senderPn (preferido em Baileys 6.7+)
+       - key.participantPn (mensagens em grupo)
+       - key.participant (alguns casos legados)
+       Pegamos a primeira que parecer @s.whatsapp.net ou puramente numérica. */
+    const candidates = [senderPn, participantPn, participantField].filter(Boolean);
+    const resolvedPn = candidates.find((c) => /^\d+@s\.whatsapp\.net$/.test(c) || /^\d{10,15}$/.test(c)) || "";
+    const isLid = rawRemoteJid.endsWith("@lid");
+    const phone = resolvedPn
+      ? resolvedPn.replace(/@.*$/, "")
+      : isLid
+      ? "" /* sem PN resolvido e veio @lid → não temos número real, melhor abortar */
+      : rawRemoteJid.replace(/@.*$/, "");
+
+    if (isLid && !resolvedPn) {
+      /* Log diagnóstico — mostra a estrutura inteira do key uma vez só por instância pra debug */
+      logger.warn(
+        `[CampaignReply] @lid sem PN resolvido. instance=${instanceId} jid=${rawRemoteJid} key.senderPn=${senderPn || "(empty)"} key.participantPn=${participantPn || "(empty)"} key.senderLid=${senderLid || "(empty)"} key.participantLid=${participantLid || "(empty)"} key.participant=${participantField || "(empty)"} keys=${Object.keys(keyAny).join(",")}`
+      );
+    }
+
     if (phone && parsed.body) {
       const ownerRow = await queryOne<{ created_by?: string; brand_id?: string | null }>(
         "SELECT created_by, brand_id FROM whatsapp_instances WHERE id = ? LIMIT 1",
@@ -386,6 +431,12 @@ instanceManager.onGlobalMessage(async (instanceId, msg) => {
       );
       const ownerUserId = String(ownerRow?.created_by || "");
       const ownerBrandId = String(ownerRow?.brand_id || "").trim() || null;
+      if (!ownerUserId) {
+        logger.warn(`[CampaignReply] whatsapp_instance ${instanceId} sem created_by — impossivel rastrear resposta para campanhas. Reconecte/recadastre a instancia.`);
+      }
+      if (ownerUserId && !ownerBrandId) {
+        logger.warn(`[CampaignReply] whatsapp_instance ${instanceId} sem brand_id — tracking de respostas vai precisar de fallback cross-brand. Associe a instancia a um Brand Unit.`);
+      }
       if (ownerUserId) {
         campaignEngine
           .processIncomingReply(
@@ -805,10 +856,8 @@ app.post("/api/instances", authMiddleware, async (req: any, res) => {
     const brandId = await brandUnitsService.resolveActiveBrandId(userId, getRequestedBrandId(req));
     const { name } = req.body;
     if (!name) return res.status(400).json({ error: "Name is required" });
-    const instance = await instanceManager.createInstance(name, userId);
-    if (brandId) {
-      await query("UPDATE whatsapp_instances SET brand_id = ? WHERE id = ?", [brandId, instance.id]);
-    }
+    /* Passa brandId direto — instanceManager.createInstance ja persiste no INSERT */
+    const instance = await instanceManager.createInstance(name, userId, brandId);
     res.json({ success: true, instance });
   } catch (error: any) {
     res.status(500).json({ error: error.message });

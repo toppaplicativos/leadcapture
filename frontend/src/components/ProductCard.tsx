@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Plus, ImageOff } from 'lucide-react'
+import { Plus, ImageOff, Star } from 'lucide-react'
 import type { Product } from '@/lib/api'
 import { money } from '@/lib/store-context'
 import { optimizedImage, optimizedSrcset } from '@/lib/image'
@@ -118,6 +118,15 @@ export function ProductCard({ product, onOpen, onQuickAdd, priority = false }: P
             </span>
           )}
         </div>
+
+        {/* Reviews badge (Fase 14) — só mostra se houver pelo menos 1 review aprovada */}
+        {Number(product.reviews_count || 0) > 0 && Number(product.reviews_avg || 0) > 0 && (
+          <div className="flex items-center gap-1 text-[11px] text-gray-500">
+            <Star size={11} className="text-amber-400 fill-amber-400" strokeWidth={2} />
+            <span className="font-semibold text-gray-700 tabular-nums">{Number(product.reviews_avg).toFixed(1)}</span>
+            <span className="text-gray-400">({Number(product.reviews_count)})</span>
+          </div>
+        )}
       </div>
     </article>
   )

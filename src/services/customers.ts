@@ -590,6 +590,18 @@ export class CustomersService {
   }
 
   async create(dto: CustomerCreateDTO, ownerUserId?: string, brandId?: string | null): Promise<Customer> {
+    /* LGPD opt-out gate (Fase 15.6) — block re-capture of opted-out contacts.
+     * This is the main scrape destination (Google Maps results land here). */
+    if ((dto as any).phone || (dto as any).email) {
+      const { lgpdOptoutService } = await import("./lgpdOptout");
+      const blocked = await lgpdOptoutService.isOptedOut((dto as any).phone, (dto as any).email);
+      if (blocked) {
+        const err: any = new Error("Este contato solicitou opt-out (LGPD) e não pode ser recapturado.");
+        err.code = "LGPD_OPTED_OUT";
+        throw err;
+      }
+    }
+
     const columns = await this.getColumns();
     const ownerColumn = this.requireOwnerColumn(columns);
     if (!ownerUserId) {

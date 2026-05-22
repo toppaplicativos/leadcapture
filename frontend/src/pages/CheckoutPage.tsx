@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Minus, Plus, Trash2, ShoppingBag, ArrowLeft, ArrowRight, CreditCard, ImageOff, User, MapPin, CheckCircle2, MessageCircle, QrCode, FileText, Banknote, Truck, Clock, PartyPopper } from 'lucide-react'
+import { Minus, Plus, Trash2, ShoppingBag, ArrowLeft, ArrowRight, CreditCard, ImageOff, User, MapPin, CheckCircle2, MessageCircle, QrCode, FileText, Banknote, Truck, Clock, PartyPopper, Ticket, X as XIcon, Loader2 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import { fetchCatalog, createOrder, type Product } from '@/lib/api'
+import { fetchCatalog, createOrder, validateCoupon, type Product } from '@/lib/api'
 import { useCartStore } from '@/lib/store'
 import { getCustomer, setCustomer } from '@/lib/store'
 import { money, storeUrl, normalizePhone } from '@/lib/store-context'
@@ -31,6 +31,17 @@ export function CheckoutPage() {
   const [notes, setNotes] = useState('')
   const [whatsappNotify, setWhatsappNotify] = useState(true)
   const [storeProfile, setStoreProfile] = useState<any>({})
+
+  /* Fase 13 — coupon state. `applied` lives until the user clears it explicitly
+   * or the cart subtotal moves below the min and we re-validate. */
+  const [couponInput, setCouponInput] = useState('')
+  const [couponApplying, setCouponApplying] = useState(false)
+  const [couponError, setCouponError] = useState('')
+  const [couponApplied, setCouponApplied] = useState<{
+    code: string
+    discount_amount: number
+    description: string | null
+  } | null>(null)
 
   useEffect(() => {
     fetchCatalog()
@@ -64,6 +75,66 @@ export function CheckoutPage() {
     const it = items[key]
     return sum + priceFor(key) * (it?.quantity || 0)
   }, 0)
+  /* Fase 13 — final figures with coupon */
+  const discount = couponApplied ? Math.min(couponApplied.discount_amount, total) : 0
+  const finalTotal = Math.max(0, total - discount)
+
+  /* If the cart subtotal drops below what the applied coupon needs, the server
+   * will reject the order. Re-validate when total changes to clear stale state. */
+  useEffect(() => {
+    if (!couponApplied) return
+    let cancelled = false
+    validateCoupon({ code: couponApplied.code, subtotal: total, productIds: cartKeys.map(k => items[k]?.productId).filter(Boolean) as string[] })
+      .then(res => {
+        if (cancelled) return
+        if (!res.valid) {
+          setCouponApplied(null)
+          setCouponError(res.reason || 'Cupom não vale mais para esse pedido.')
+        } else if (Math.abs(res.discount_amount - couponApplied.discount_amount) > 0.01) {
+          setCouponApplied({ ...couponApplied, discount_amount: res.discount_amount })
+        }
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [total])
+
+  async function applyCoupon() {
+    const code = couponInput.trim().toUpperCase()
+    if (!code) return
+    setCouponApplying(true); setCouponError('')
+    try {
+      const res = await validateCoupon({
+        code,
+        subtotal: total,
+        productIds: cartKeys.map(k => items[k]?.productId).filter(Boolean) as string[],
+        customerId: phone || undefined,
+      })
+      if (res.valid && res.coupon) {
+        setCouponApplied({
+          code: res.coupon.code,
+          discount_amount: res.discount_amount,
+          description: res.coupon.description,
+        })
+        setCouponInput('')
+        setCouponError('')
+        showToast(`Cupom ${res.coupon.code} aplicado · ${money(res.discount_amount)} off`)
+      } else {
+        setCouponApplied(null)
+        setCouponError(res.reason || 'Cupom inválido.')
+      }
+    } catch (e: any) {
+      setCouponError(e.message || 'Erro ao validar cupom')
+    } finally {
+      setCouponApplying(false)
+    }
+  }
+
+  function clearCoupon() {
+    setCouponApplied(null)
+    setCouponInput('')
+    setCouponError('')
+  }
 
   async function handleSubmit() {
     if (!email || !responsibleName) { setError('Preencha nome e email'); return }
@@ -90,6 +161,8 @@ export function CheckoutPage() {
         customer: { name: responsibleName || establishmentName, phone, email, address: { text: address || undefined, establishment_name: establishmentName || undefined } },
         payment_method: paymentMethod,
         notes: [establishmentName ? `Estabelecimento: ${establishmentName}` : '', whatsappNotify && phone ? `WhatsApp: ${phone}` : '', notes].filter(Boolean).join(' | '),
+        /* Fase 13 — forward the validated coupon code; server re-validates */
+        cupom_codigo: couponApplied?.code || undefined,
       })
       clear()
       if (result.checkout_url) { window.location.href = result.checkout_url; return }
@@ -206,8 +279,61 @@ export function CheckoutPage() {
               })}
               <div className="flex justify-between items-center pt-3 border-t border-gray-200">
                 <span className="text-sm text-gray-500">Subtotal</span>
-                <span className="text-xl font-extrabold text-gray-900">{money(total)}</span>
+                <span className="text-base font-bold text-gray-900 tabular-nums">{money(total)}</span>
               </div>
+
+              {/* ── Cupom (Fase 13) ── */}
+              <div className="pt-3 border-t border-gray-100">
+                {couponApplied ? (
+                  <div className="flex items-center justify-between bg-emerald-50 border border-emerald-100 rounded-xl px-3 py-2.5">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Ticket size={16} className="text-emerald-600 shrink-0" strokeWidth={2} />
+                      <div className="min-w-0">
+                        <p className="text-[12px] font-bold text-emerald-700 truncate">Cupom {couponApplied.code}</p>
+                        <p className="text-[10px] text-emerald-600">−{money(couponApplied.discount_amount)}{couponApplied.description ? ` · ${couponApplied.description}` : ''}</p>
+                      </div>
+                    </div>
+                    <button onClick={clearCoupon} aria-label="Remover cupom"
+                      className="p-1 text-emerald-700 hover:text-emerald-900 transition shrink-0">
+                      <XIcon size={14} strokeWidth={2.25} />
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5 block">
+                      Cupom de desconto
+                    </label>
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <Ticket size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" strokeWidth={2} />
+                        <input
+                          type="text"
+                          value={couponInput}
+                          onChange={e => { setCouponInput(e.target.value.toUpperCase()); setCouponError('') }}
+                          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); applyCoupon() } }}
+                          placeholder="Insira o código"
+                          disabled={couponApplying}
+                          className="w-full pl-9 pr-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-mono uppercase focus:outline-none focus:ring-2 focus:ring-[var(--brand-secondary)]/30 focus:border-[var(--brand-secondary)] transition disabled:opacity-50"
+                        />
+                      </div>
+                      <button onClick={applyCoupon} disabled={!couponInput.trim() || couponApplying}
+                        className="px-4 py-2.5 rounded-xl bg-gray-900 text-white text-[12px] font-bold hover:bg-gray-700 disabled:opacity-40 disabled:hover:bg-gray-900 transition flex items-center gap-1.5">
+                        {couponApplying ? <Loader2 size={14} className="animate-spin" /> : 'Aplicar'}
+                      </button>
+                    </div>
+                    {couponError && (
+                      <p className="text-[11px] text-red-600 mt-1.5 font-medium">{couponError}</p>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {couponApplied && (
+                <div className="flex justify-between items-center pt-3 border-t border-gray-100">
+                  <span className="text-sm font-semibold text-gray-700">Total com desconto</span>
+                  <span className="text-xl font-extrabold text-emerald-700 tabular-nums">{money(finalTotal)}</span>
+                </div>
+              )}
 
               {/* Shipping info */}
               {(() => {
@@ -315,7 +441,7 @@ export function CheckoutPage() {
                 <p className="text-[10px] font-bold text-gray-400 uppercase">Resumo</p>
                 <p className="text-xs text-gray-600">{responsibleName} {establishmentName ? `· ${establishmentName}` : ''}</p>
                 <p className="text-xs text-gray-600">{email} {phone ? `· ${phone}` : ''}</p>
-                <p className="text-sm font-bold text-gray-900">{cartKeys.length} item(ns) · {money(total)}</p>
+                <p className="text-sm font-bold text-gray-900">{cartKeys.length} item(ns) · {money(finalTotal)}</p>
               </div>
             </section>
           )}
@@ -365,9 +491,15 @@ export function CheckoutPage() {
                     </div>
                   )
                 })}
-                <div className="flex justify-between pt-2 border-t border-gray-200">
+                {couponApplied && (
+                  <div className="flex justify-between text-xs pt-2 border-t border-gray-200">
+                    <span className="text-emerald-700 font-semibold">Cupom {couponApplied.code}</span>
+                    <span className="text-emerald-700 font-semibold tabular-nums">−{money(discount)}</span>
+                  </div>
+                )}
+                <div className={`flex justify-between ${couponApplied ? 'pt-1' : 'pt-2 border-t border-gray-200'}`}>
                   <span className="font-bold text-gray-900">Total</span>
-                  <span className="text-lg font-extrabold text-gray-900">{money(total)}</span>
+                  <span className="text-lg font-extrabold text-gray-900 tabular-nums">{money(finalTotal)}</span>
                 </div>
               </div>
             </section>
@@ -390,7 +522,7 @@ export function CheckoutPage() {
               <button onClick={handleSubmit} disabled={submitting || !paymentMethod}
                 className="flex-1 flex items-center justify-center gap-2 py-3.5 rounded-xl bg-[var(--brand-secondary)] text-white font-bold text-base hover:opacity-90 active:scale-[0.98] transition-all disabled:opacity-40 shadow-sm">
                 <CreditCard size={18} />
-                {submitting ? 'Processando...' : `Finalizar • ${money(total)}`}
+                {submitting ? 'Processando...' : `Finalizar • ${money(finalTotal)}`}
               </button>
             )}
           </div>

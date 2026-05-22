@@ -74,6 +74,43 @@ export interface Product {
   stock_quantity?: number | null
   stock_status?: 'in_stock' | 'low_stock' | 'out_of_stock' | 'unlimited'
   stock_threshold_low?: number
+  /* Reviews (Fase 14) — denormalized; 0 means "no reviews yet" */
+  reviews_avg?: number
+  reviews_count?: number
+}
+
+/* Fase 14 — fetch reviews for a product (public) */
+export function fetchProductReviews(productId: string, limit = 20): Promise<{
+  success: boolean
+  reviews: Array<{
+    id: string
+    customer_name: string
+    rating: number
+    comment: string | null
+    verified_purchase: boolean
+    created_at: string
+  }>
+  aggregates: {
+    count: number
+    avg: number
+    distribution: Record<'1' | '2' | '3' | '4' | '5', number>
+  }
+}> {
+  return apiFetch(`${API_BASE}/products/${encodeURIComponent(productId)}/reviews?limit=${limit}`)
+}
+
+export function submitProductReview(productId: string, payload: {
+  name: string
+  phone?: string
+  rating: number
+  comment?: string
+  order_id?: string
+}): Promise<{ success: boolean; review: { id: string; status: string; verified_purchase: boolean }; message: string }> {
+  return apiFetch(`${API_BASE}/products/${encodeURIComponent(productId)}/reviews`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
 }
 
 export interface ConfiguratorSelection {
@@ -167,8 +204,40 @@ export function createOrder(payload: {
   }
   payment_method: string
   notes?: string
+  /* Fase 13 — optional coupon code; validated server-side */
+  cupom_codigo?: string
 }): Promise<{ success: boolean; order: Order; checkout_url?: string }> {
   return apiFetch(`${API_BASE}/orders`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
+/* Fase 13 — validate a coupon against the cart BEFORE submit, so we can show
+ * "Cupom aplicado: -R$ X" inline. Doesn't reserve anything. */
+export function validateCoupon(payload: {
+  code: string
+  subtotal: number
+  productIds?: string[]
+  categoryIds?: string[]
+  customerId?: string
+}): Promise<{
+  valid: boolean
+  reason: string | null
+  reason_code: string | null
+  discount_amount: number
+  final_total: number
+  coupon: {
+    id: string
+    code: string
+    description: string | null
+    discount_type: 'percentage' | 'fixed'
+    discount_value: number
+    expires_at: string | null
+  } | null
+}> {
+  return apiFetch(`${API_BASE}/coupons/validate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),

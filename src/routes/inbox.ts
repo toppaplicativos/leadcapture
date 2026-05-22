@@ -9,6 +9,7 @@ import { logger } from "../utils/logger";
 import { RowDataPacket } from "mysql2";
 import { ProductsService } from "../services/products";
 import { WhatsAppAgentService } from "../services/whatsappAgent";
+import { CampaignEngineService } from "../services/campaignEngine";
 
 const router = Router();
 router.use(authMiddleware, requireBrandContext);
@@ -1144,6 +1145,292 @@ router.patch("/ai-global-state", async (req: BrandRequest, res: Response) => {
     });
   } catch (error: any) {
     logger.error(error, "Error updating global inbox ai state");
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/inbox/ai-diagnostics
+ *
+ * Diagnostico end-to-end da resposta automatica para o brand ativo (opcional
+ * ?conversationId=X para checar uma conversa especifica). Retorna o estado de
+ * cada gate que a IA atravessa antes de responder, com um veredicto final.
+ */
+router.get("/ai-diagnostics", async (req: BrandRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId as string | undefined;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    if (!req.brandId) return res.status(400).json({ error: "brand_id is required" });
+
+    const pool = getPool();
+    const conversationId = String(req.query.conversationId || "").trim() || null;
+
+    type GateStatus = "ok" | "warn" | "fail";
+    interface Gate {
+      name: string;
+      status: GateStatus;
+      detail: string;
+      fix?: string;
+    }
+    const gates: Gate[] = [];
+
+    /* GATE 1: instancias do brand + brand_id preenchido */
+    let instances: any[] = [];
+    try {
+      const [rows] = await pool.query(
+        `SELECT id, name, phone, status, created_by, brand_id
+         FROM whatsapp_instances
+         WHERE created_by = ?`,
+        [userId]
+      );
+      instances = (rows as any[]) || [];
+    } catch (err: any) {
+      gates.push({
+        name: "Carregar instancias WhatsApp",
+        status: "fail",
+        detail: `Erro lendo whatsapp_instances: ${err.message}`,
+      });
+    }
+
+    const brandInstances = instances.filter((i) => String(i.brand_id || "").trim() === String(req.brandId));
+    const orphanInstances = instances.filter((i) => !String(i.brand_id || "").trim());
+
+    gates.push({
+      name: "Instancias com brand_id",
+      status: brandInstances.length > 0 ? "ok" : orphanInstances.length > 0 ? "fail" : "warn",
+      detail:
+        brandInstances.length > 0
+          ? `${brandInstances.length} instancia(s) associada(s) a esse brand`
+          : orphanInstances.length > 0
+          ? `${orphanInstances.length} instancia(s) SEM brand_id — IA escala para humano automaticamente.`
+          : "Nenhuma instancia WhatsApp encontrada para o seu usuario.",
+      fix:
+        orphanInstances.length > 0
+          ? "Associe cada instancia a um Brand Unit. Pelo banco: UPDATE whatsapp_instances SET brand_id='<brand-uuid>' WHERE id IN (...);"
+          : undefined,
+    });
+
+    const connectedInstances = brandInstances.filter((i) => String(i.status || "").toLowerCase() === "connected");
+    gates.push({
+      name: "Instancia conectada",
+      status: connectedInstances.length > 0 ? "ok" : "fail",
+      detail:
+        connectedInstances.length > 0
+          ? `${connectedInstances.length} instancia(s) com status='connected'`
+          : `Nenhuma instancia desse brand esta com status='connected'. Status encontrados: ${brandInstances.map((i) => i.status).join(", ") || "nenhum"}.`,
+      fix: connectedInstances.length === 0 ? "Reconecte a instancia em Configuracoes > WhatsApp (escaneie o QR code novamente)." : undefined,
+    });
+
+    /* GATE 2: ai_global_settings.auto_reply_enabled */
+    const globalState = await getGlobalAIState(pool, req.brandId);
+    gates.push({
+      name: "IA global ativada",
+      status: globalState.enabled ? "ok" : "fail",
+      detail: globalState.enabled
+        ? "auto_reply_enabled=TRUE para esse brand"
+        : `auto_reply_enabled=FALSE (motivo: ${globalState.reason || "nao informado"})`,
+      fix: !globalState.enabled
+        ? "Ative a toggle 'IA Ativa' no painel ou chame PATCH /api/inbox/ai-global-state com { enabled: true }."
+        : undefined,
+    });
+
+    /* GATE 3: agent profile presente */
+    try {
+      const [profileRows] = await pool.query(
+        `SELECT agent_name, objective, business_context, communication_rules
+         FROM ai_agent_profiles
+         WHERE user_id = ? AND (brand_id = ? OR brand_id IS NULL)
+         ORDER BY (brand_id = ?) DESC, updated_at DESC
+         LIMIT 1`,
+        [userId, req.brandId, req.brandId]
+      );
+      const profile = (profileRows as any[])?.[0];
+      const hasMeaningfulProfile =
+        profile &&
+        (String(profile.objective || "").trim() ||
+          String(profile.business_context || "").trim() ||
+          String(profile.communication_rules || "").trim());
+
+      gates.push({
+        name: "Perfil do agente IA",
+        status: hasMeaningfulProfile ? "ok" : "warn",
+        detail: hasMeaningfulProfile
+          ? `Agente "${profile.agent_name || "sem nome"}" configurado.`
+          : profile
+          ? "Profile existe mas sem objective/business_context/communication_rules — IA pode gerar respostas genericas ou vazias."
+          : "Nenhum profile de agente IA encontrado.",
+        fix: !hasMeaningfulProfile ? "Configure o agente em /agente preenchendo objetivo, contexto do negocio e regras de comunicacao." : undefined,
+      });
+    } catch (err: any) {
+      gates.push({
+        name: "Perfil do agente IA",
+        status: "warn",
+        detail: `Falha ao ler ai_agent_profiles: ${err.message}`,
+      });
+    }
+
+    /* GATE 4: chave de IA configurada */
+    try {
+      const [keyRows] = await pool.query(
+        `SELECT provider, is_active
+         FROM integrations
+         WHERE account_id = ? AND key_encrypted IS NOT NULL AND key_encrypted <> ''`,
+        [userId]
+      );
+      const keys = (keyRows as any[]) || [];
+      const activeKeys = keys.filter((k) => parseBooleanInput(k.is_active, true));
+      gates.push({
+        name: "Chave de IA configurada",
+        status: activeKeys.length > 0 ? "ok" : "fail",
+        detail:
+          activeKeys.length > 0
+            ? `Providers ativos: ${activeKeys.map((k) => k.provider).join(", ")}`
+            : "Nenhum provider de IA com chave ativa para esse usuario.",
+        fix: activeKeys.length === 0 ? "Cadastre uma chave em /provedores-ia (Gemini, OpenAI ou Grok)." : undefined,
+      });
+    } catch (err: any) {
+      gates.push({
+        name: "Chave de IA configurada",
+        status: "warn",
+        detail: `Falha ao ler integrations: ${err.message}`,
+      });
+    }
+
+    /* GATE 5 (opcional): estado da conversa especifica */
+    let conversation: any = null;
+    if (conversationId) {
+      try {
+        const conv = await getOwnedConversation(pool, conversationId, userId, req.brandId);
+        if (!conv) {
+          gates.push({
+            name: "Conversa especifica",
+            status: "fail",
+            detail: `Conversa ${conversationId} nao encontrada para esse usuario/brand.`,
+          });
+        } else {
+          const mode = normalizeAIMode(conv.ai_mode);
+          conversation = {
+            id: conv.id,
+            ai_mode: mode,
+            ai_lock_human: parseBooleanInput(conv.ai_lock_human, false),
+            last_decision: safeParseJson(conv.ai_last_decision_json),
+          };
+          gates.push({
+            name: `Conversa ${conversationId.slice(0, 8)} — ai_mode`,
+            status: mode === "manual" ? "fail" : "ok",
+            detail: `ai_mode='${mode}'${mode === "manual" ? " — IA nao vai responder essa conversa." : ""}`,
+            fix:
+              mode === "manual"
+                ? "Volte a conversa para autonomous via PATCH /api/inbox/conversations/:id/ai-mode com { mode: 'autonomous' }."
+                : undefined,
+          });
+        }
+      } catch (err: any) {
+        gates.push({
+          name: "Conversa especifica",
+          status: "warn",
+          detail: `Erro lendo conversa: ${err.message}`,
+        });
+      }
+    }
+
+    /* GATE 6: tracker de respostas de campanhas */
+    try {
+      const [rows] = await pool.query(
+        `SELECT
+           COUNT(*) AS total_leads,
+           SUM(CASE WHEN status = 'replied' THEN 1 ELSE 0 END) AS leads_replied,
+           SUM(CASE WHEN status IN ('sent','delivered','read') THEN 1 ELSE 0 END) AS leads_sent,
+           SUM(CASE WHEN status IN ('pending','validating') THEN 1 ELSE 0 END) AS leads_pending
+         FROM campaign_leads
+         WHERE user_id = ? AND brand_id = ?`,
+        [userId, req.brandId]
+      );
+      const stats = (rows as any[])?.[0] || {};
+      const totalLeads = Number(stats.total_leads) || 0;
+      const sent = Number(stats.leads_sent) || 0;
+      const replied = Number(stats.leads_replied) || 0;
+      const pending = Number(stats.leads_pending) || 0;
+
+      gates.push({
+        name: "Tracker de respostas das campanhas",
+        status: totalLeads === 0 ? "warn" : "ok",
+        detail:
+          totalLeads === 0
+            ? "Nenhum campaign_lead encontrado para esse brand. Crie/inicie uma campanha para comecar o tracking."
+            : `${totalLeads} leads no total — ${sent} enviados, ${replied} responderam, ${pending} pendentes.`,
+      });
+
+      /* GATE 6b: instancias do user com brand_id diferente do brand atual */
+      const orphanInst = instances.filter((i) => !String(i.brand_id || "").trim()).length;
+      const otherBrandInst = instances.filter((i) => {
+        const b = String(i.brand_id || "").trim();
+        return b && b !== String(req.brandId);
+      }).length;
+      if (orphanInst > 0 || otherBrandInst > 0) {
+        gates.push({
+          name: "Sincronia brand_id (campanha ⨯ instancia)",
+          status: orphanInst > 0 ? "fail" : "warn",
+          detail: `${orphanInst} instancia(s) sem brand_id, ${otherBrandInst} em OUTRO brand. Mensagens entrando por instancias erradas nao vao incrementar replied_count desse brand.`,
+          fix: "Garanta que cada instancia WhatsApp tem o brand_id correto: UPDATE whatsapp_instances SET brand_id='<brand-uuid>' WHERE id IN (...);",
+        });
+      }
+    } catch (err: any) {
+      gates.push({
+        name: "Tracker de respostas das campanhas",
+        status: "warn",
+        detail: `Falha consultando campaign_leads: ${err.message}`,
+      });
+    }
+
+    /* GATE 7: conversas escaladas recentemente — sinal de problema sistemico */
+    try {
+      const [escRows] = await pool.query(
+        `SELECT COUNT(*) AS total
+         FROM ai_conversation_decisions
+         WHERE brand_id = ?
+           AND decision_type IN ('auto_escalation', 'global_disabled_skip')
+           AND created_at >= NOW() - INTERVAL '24 hours'`,
+        [req.brandId]
+      );
+      const total = Number(((escRows as any[])?.[0] || {}).total || 0);
+      gates.push({
+        name: "Escalacoes/skips nas ultimas 24h",
+        status: total === 0 ? "ok" : total < 5 ? "warn" : "fail",
+        detail: `${total} decisao(oes) onde a IA NAO respondeu autonomamente.`,
+        fix:
+          total > 0
+            ? "Consulte SELECT * FROM ai_conversation_decisions WHERE brand_id='<id>' ORDER BY created_at DESC LIMIT 20; para ver os motivos."
+            : undefined,
+      });
+    } catch (err: any) {
+      gates.push({
+        name: "Escalacoes recentes",
+        status: "warn",
+        detail: `Falha consultando ai_conversation_decisions: ${err.message}`,
+      });
+    }
+
+    /* Veredicto */
+    const fails = gates.filter((g) => g.status === "fail");
+    const warns = gates.filter((g) => g.status === "warn");
+    const verdict =
+      fails.length > 0
+        ? { ok: false, summary: `${fails.length} bloqueio(s) impedindo a IA de responder.` }
+        : warns.length > 0
+        ? { ok: true, summary: `Funcional, mas ${warns.length} aviso(s) que merecem atencao.` }
+        : { ok: true, summary: "Tudo OK. IA deveria responder normalmente." };
+
+    return res.json({
+      success: true,
+      brand_id: req.brandId,
+      verdict,
+      gates,
+      conversation,
+      global_state: globalState,
+    });
+  } catch (error: any) {
+    logger.error(error, "Error running AI diagnostics");
     res.status(500).json({ error: error.message });
   }
 });

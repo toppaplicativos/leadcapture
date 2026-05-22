@@ -5,6 +5,7 @@ import fs from "fs";
 import path from "path";
 import { extractIncomingMessageData } from "../utils/whatsappMessage";
 import { WhatsAppAgentService } from "./whatsappAgent";
+import { validateReplyCandidate } from "./inboxReplyGuard";
 
 type MediaDownloadResult = {
   buffer: Buffer;
@@ -293,8 +294,16 @@ export class InboxService {
     incomingBody: string;
     aiMode: "manual" | "autonomous" | "supervised";
   }): Promise<void> {
-    if (!this.messageSender) return;
-    if (input.aiMode === "manual") return;
+    const ctx = `[AI-AUTO conv=${input.conversationId.slice(0, 8)} inst=${input.instanceId.slice(0, 8)} jid=${input.remoteJid}]`;
+
+    if (!this.messageSender) {
+      logger.warn(`${ctx} GATE: messageSender nao registrado — verifique inboxService.setMessageSender no startup.`);
+      return;
+    }
+    if (input.aiMode === "manual") {
+      logger.info(`${ctx} GATE: conversa em ai_mode='manual' (recebida) — pulando IA.`);
+      return;
+    }
 
     const [convRows] = await input.pool.execute(
       `SELECT ai_mode, ai_lock_human, ai_last_incoming_message_id
@@ -303,8 +312,14 @@ export class InboxService {
     );
     const conv = convRows?.[0];
     const mode = this.normalizeAIMode(conv?.ai_mode);
-    if (mode === "manual") return;
-    if (String(conv?.ai_last_incoming_message_id || "") === String(input.incomingMessageId)) return;
+    if (mode === "manual") {
+      logger.info(`${ctx} GATE: conversa em ai_mode='manual' (DB) — IA pausada para essa conversa. Para reativar, troque para 'autonomous' nas configs da conversa.`);
+      return;
+    }
+    if (String(conv?.ai_last_incoming_message_id || "") === String(input.incomingMessageId)) {
+      logger.info(`${ctx} GATE: mensagem ${input.incomingMessageId} ja processada (dedup).`);
+      return;
+    }
 
     const escalation = this.shouldEscalateToHuman(input.incomingBody);
     const [ownerRows] = await input.pool.execute(
@@ -316,6 +331,7 @@ export class InboxService {
     const brandId = String(owner.brand_id || "").trim() || null;
 
     if (!brandId) {
+      logger.warn(`${ctx} GATE: whatsapp_instance ${input.instanceId} sem brand_id — escalando conversa para 'manual' (isolamento). Solucao: associar essa instancia a um Brand Unit em Configuracoes > WhatsApp.`);
       const payload = {
         event: "auto_escalation",
         reason: "brand_scope_missing",
@@ -350,6 +366,7 @@ export class InboxService {
 
     const globalAIEnabled = await this.isGlobalAIEnabled(input.pool, brandId);
     if (!globalAIEnabled) {
+      logger.warn(`${ctx} GATE: ai_global_settings.auto_reply_enabled=FALSE para brand=${brandId}. Solucao: ligar a toggle "IA Ativa" no painel ou ativar pelo endpoint PATCH /api/inbox/ai-global-state.`);
       const payload = {
         event: "global_ai_disabled_skip",
         incoming_message_id: input.incomingMessageId,
@@ -370,6 +387,7 @@ export class InboxService {
     }
 
     if (escalation.shouldEscalate) {
+      logger.info(`${ctx} GATE: escalando para humano — motivo=${escalation.reason}. Conversa vira ai_mode='manual'. Mensagem detectada: "${input.incomingBody.slice(0, 80)}"`);
       const payload = {
         event: "auto_escalation",
         reason: escalation.reason,
@@ -408,36 +426,122 @@ export class InboxService {
       return;
     }
 
+    /* Histórico ampliado: pega ate 25 mensagens recentes para a IA ter contexto rico,
+       e separa as ultimas 5 saidas nossas para anti-duplicacao.
+       Filtra body vazio / mensagens muito curtas que sao midia sem caption. */
     const [messagesRows] = await input.pool.query(
-      `SELECT body, from_me
+      `SELECT body, from_me, message_timestamp
        FROM whatsapp_messages
        WHERE conversation_id = ?
+         AND COALESCE(body, '') <> ''
        ORDER BY message_timestamp DESC, created_at DESC, id DESC
-       LIMIT 12`,
+       LIMIT 25`,
       [input.conversationId]
     );
-    const context = [...(messagesRows || [])]
-      .reverse()
-      .map((item: any) => `${this.parseFromMeFlag(item.from_me) ? "Atendente" : "Lead"}: ${String(item.body || "")}`)
-      .join("\n");
+    const historyAscending = [...(messagesRows || [])].reverse();
+    const historyLines = historyAscending.map((item: any) =>
+      `${this.parseFromMeFlag(item.from_me) ? "Atendente" : "Lead"}: ${String(item.body || "").trim()}`
+    );
+    /* Ultimas saidas nossas (mais recente primeiro) — para dedup do candidato */
+    const lastOutgoing: string[] = [];
+    let lastOutgoingAtUnix: number | null = null;
+    for (let i = historyAscending.length - 1; i >= 0 && lastOutgoing.length < 5; i--) {
+      const row = historyAscending[i] as any;
+      if (this.parseFromMeFlag(row.from_me)) {
+        lastOutgoing.push(String(row.body || "").trim());
+        if (lastOutgoingAtUnix === null) {
+          lastOutgoingAtUnix = Number(row.message_timestamp) || null;
+        }
+      }
+    }
 
     let finalText = "";
-    if (userId) {
+    let cognitiveConfidence: number | null = null;
+    if (!userId) {
+      logger.warn(`${ctx} GATE: whatsapp_instance sem created_by — sem userId nao da pra resolver chave de IA. Verifique o owner da instancia.`);
+      return;
+    }
+
+    logger.info(`${ctx} contexto: ${historyLines.length} msgs no historico, ${lastOutgoing.length} respostas nossas anteriores.`);
+
+    try {
       const reply = await this.whatsappAgentService.generateReply({
         userId,
         brandId,
+        conversationId: input.conversationId,
         incomingMessage: input.incomingBody,
-        conversationHistory: context ? context.split("\n") : [],
-        maxHistoryLines: 12,
+        conversationHistory: historyLines,
+        lastOutgoingMessages: lastOutgoing,
+        maxHistoryLines: 20,
       });
-      finalText = reply.text;
+      finalText = String(reply.text || "").trim();
+      cognitiveConfidence = typeof reply.cognitive?.confidence === "number" ? reply.cognitive.confidence : null;
+    } catch (err: any) {
+      logger.error(`${ctx} GATE: whatsappAgentService.generateReply jogou erro: ${err?.message}. Stack: ${err?.stack || "(sem stack)"}`);
+      return;
     }
 
-    finalText = String(finalText || "").trim();
-    if (!finalText) return;
+    if (!finalText) {
+      logger.warn(`${ctx} GATE: generateReply retornou texto vazio. Causas comuns: agent profile sem prompt/objective, chave de IA do provider preferido sem credito, ou prompt rejeitado pelo modelo.`);
+      return;
+    }
 
-    const sent = await this.messageSender(input.instanceId, input.remoteJid, finalText);
-    if (!sent) return;
+    /* ─── ANTI-DUPLICACAO / ANTI-ALUCINACAO ─── */
+    /* Últimas mensagens do lead (para detectar contradição com histórico) */
+    const recentIncomingFromLead = historyAscending
+      .filter((m: any) => !this.parseFromMeFlag(m.from_me))
+      .map((m: any) => String(m.body || "").trim())
+      .filter(Boolean)
+      .slice(-6); // últimas 6 do lead
+
+    const guard = validateReplyCandidate({
+      candidate: finalText,
+      incomingMessage: input.incomingBody,
+      lastOutgoingMessages: lastOutgoing,
+      lastOutgoingAtUnix,
+      nowUnix: Math.floor(Date.now() / 1000),
+      conversationDepth: historyLines.length,
+      cognitiveConfidence,
+      recentIncomingFromLead,
+    });
+    if (!guard.ok) {
+      logger.warn(
+        `${ctx} GATE: resposta REJEITADA pelo guard — reason=${guard.reason}${guard.detail ? `, ${guard.detail}` : ""}. Texto: "${finalText.slice(0, 80).replace(/\n/g, " ")}${finalText.length > 80 ? "..." : ""}"`
+      );
+      await this.logAIDecision(input.pool, {
+        conversationId: input.conversationId,
+        userId,
+        brandId,
+        decisionType: "reply_rejected",
+        mode,
+        summary: `Resposta da IA bloqueada: ${guard.reason}.`,
+        payload: {
+          event: "reply_rejected",
+          reason: guard.reason,
+          detail: guard.detail,
+          generated_text: finalText.slice(0, 500),
+          incoming_message_id: input.incomingMessageId,
+          at: new Date().toISOString(),
+        },
+      });
+      return;
+    }
+
+    logger.info(`${ctx} resposta gerada (${finalText.length} chars): "${finalText.slice(0, 120).replace(/\n/g, " ")}${finalText.length > 120 ? "..." : ""}"`);
+
+    let sent = false;
+    try {
+      sent = await this.messageSender(input.instanceId, input.remoteJid, finalText);
+    } catch (err: any) {
+      logger.error(`${ctx} GATE: messageSender jogou erro ao enviar para ${input.remoteJid}: ${err?.message}. Stack: ${err?.stack || "(sem stack)"}`);
+      return;
+    }
+    if (!sent) {
+      logger.error(`${ctx} GATE: messageSender retornou false para ${input.remoteJid}. Verifique se a instancia esta conectada (status='connected') e se o JID e valido.`);
+      return;
+    }
+
+    logger.info(`${ctx} IA respondeu com sucesso para ${input.remoteJid}.`);
 
     const msgId = `ai_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
     const now = Math.floor(Date.now() / 1000);
@@ -731,7 +835,7 @@ export class InboxService {
           "last_message_from_me = ?",
           "updated_at = NOW()",
         ];
-        const updateParams: any[] = [previewText, fromMe ? 1 : 0];
+        const updateParams: any[] = [previewText, fromMe ? true : false];
 
         if (!fromMe) {
           updateFields.push("unread_count = ?");
@@ -801,7 +905,7 @@ export class InboxService {
         conversationId,
         instanceId,
         remoteJid,
-        fromMe ? 1 : 0,
+        fromMe ? true : false,
         senderJid,
       ];
 

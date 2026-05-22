@@ -25,6 +25,12 @@ export interface ComposerInput {
   includeEmojis: boolean;
   communicationRules: string;
   trainingNotes?: string;
+  /* Fase 16.5 — tone hint from ResponseGate based on lead's recent register.
+   *   "conciso"   = lead is being curt / dry → keep replies SHORTER than usual
+   *   "amigavel"  = lead is warm → mirror warmth (but don't overdo it)
+   *   "respeitoso" = lead is frustrated → no fluff, no emojis, acknowledge first
+   *   "normal"    = no signal → default behavior */
+  suggestedTone?: "normal" | "conciso" | "amigavel" | "respeitoso";
 }
 
 export interface ComposerOutput {
@@ -126,11 +132,28 @@ export class Composer {
       ? "Pode usar até 2 emojis se realmente agregarem — não use só por usar."
       : "Não use emojis.";
 
+    /* Fase 16.5 — tone hint from ResponseGate. The lead's recent register tells
+     * us how to write back. Each tone shifts the system prompt at the very top,
+     * before the brand identity, so it overrides default brand chattiness when
+     * the situation calls for it (e.g., lead is frustrated → no emojis, no fluff). */
+    const toneInstructions = (() => {
+      switch (input.suggestedTone) {
+        case "conciso":
+          return "TOM DESTE TURN: o cliente está respondendo SECO/CURTO. Sua resposta deve ser MAIS BREVE que o normal — máximo 1-2 frases. Direto ao ponto. SEM saudações longas, SEM repetir o que ele já sabe.";
+        case "respeitoso":
+          return "TOM DESTE TURN: o cliente parece FRUSTRADO. Reconheça o problema na PRIMEIRA frase ('Entendo, vou te ajudar com isso'). Zero emojis. Zero entusiasmo performático. Resolva.";
+        case "amigavel":
+          return "TOM DESTE TURN: o cliente está EM TOM CALOROSO/POSITIVO. Pode espelhar o calor — mas com elegância, sem forçar.";
+        case "normal":
+        default:
+          return ""; // no extra instruction
+      }
+    })();
+
     const prompt = [
       input.brandIdentityBlock,
-      "",
+      toneInstructions,
       HUMANIZATION_INSTRUCTIONS,
-      "",
       input.communicationRules ? `REGRAS DE COMUNICAÇÃO DA MARCA:\n${input.communicationRules}` : "",
       input.trainingNotes ? `TREINAMENTO INTERNO:\n${input.trainingNotes}` : "",
       "",

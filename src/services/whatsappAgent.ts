@@ -14,6 +14,8 @@ type GenerateWhatsAppReplyInput = {
   conversationHistory?: string[];
   lastOutgoingMessages?: string[];
   maxHistoryLines?: number;
+  /** Fase 16 — Baileys event type so ResponseGate can detect reactions/stickers. */
+  incomingMessageType?: string;
 };
 
 type GenerateWhatsAppReplyResult = {
@@ -23,6 +25,9 @@ type GenerateWhatsAppReplyResult = {
   catalogApplied: boolean;
   shouldEscalate?: boolean;
   escalationReason?: string;
+  /** Fase 16 — when the agent silenced (no text to send), this carries why. */
+  silenced?: boolean;
+  silenceReason?: string;
   cognitive?: {
     used: boolean;
     funnel_stage?: string;
@@ -235,11 +240,29 @@ export class WhatsAppAgentService {
         brandId,
         conversationId: input.conversationId || null,
         incomingMessage,
+        incomingMessageType: input.incomingMessageType || "text",
         conversationHistory: recentHistory,
         lastOutgoingMessages: Array.isArray(input.lastOutgoingMessages)
           ? input.lastOutgoingMessages.map((m) => String(m || "").trim()).filter(Boolean)
           : [],
       });
+
+      /* Fase 16 — agent decided not to respond (reaction / ack / silence). Return
+       * a clearly-marked empty reply so the inbox layer doesn't queue or send anything. */
+      if ((cognitive as any).silenced) {
+        return {
+          text: "",
+          profile,
+          knowledgeApplied: false,
+          catalogApplied: false,
+          silenced: true,
+          silenceReason: (cognitive as any).silenceReason || "gate",
+          cognitive: {
+            used: true,
+            total_ms: cognitive.latencyMs.total,
+          } as any,
+        };
+      }
 
       if (cognitive.shouldEscalate) {
         return {

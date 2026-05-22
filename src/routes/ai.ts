@@ -4,6 +4,7 @@ import { randomUUID } from "crypto";
 import fs from "fs";
 import multer from "multer";
 import { AuthRequest } from "../middleware/auth";
+import { safeErrorPayload } from "../utils/safeError";
 import { BrandRequest, requireBrandContext } from "../middleware/brandContext";
 import { queryOne, query } from "../config/database";
 import { AIService } from "../services/ai";
@@ -450,8 +451,8 @@ router.post("/creatives/rewrite", async (req: AuthRequest, res: Response) => {
       contextScore: contextPayload?.score || null
     });
   } catch (error: any) {
-    logger.error(`Creative rewrite failed: ${error.message}`);
-    res.status(500).json({ error: error.message || "Failed to rewrite creative text" });
+    logger.error({ err: error }, "Creative rewrite failed");
+    res.status(500).json(safeErrorPayload(error));
   }
 });
 
@@ -501,8 +502,8 @@ router.post("/creatives/text", async (req: AuthRequest, res: Response) => {
       suggestionKey: suggestionKey ? String(suggestionKey) : null
     });
   } catch (error: any) {
-    logger.error(`Creative text generation failed: ${error.message}`);
-    res.status(500).json({ error: error.message || "Failed to generate creative text" });
+    logger.error({ err: error }, "Creative text generation failed");
+    res.status(500).json(safeErrorPayload(error));
   }
 });
 
@@ -552,8 +553,8 @@ router.post("/creatives/image", async (req: AuthRequest, res: Response) => {
       suggestionKey: suggestionKey ? String(suggestionKey) : null
     });
   } catch (error: any) {
-    logger.error(`Creative image generation failed: ${error.message}`);
-    res.status(500).json({ error: error.message || "Failed to generate creative image" });
+    logger.error({ err: error }, "Creative image generation failed");
+    res.status(500).json(safeErrorPayload(error));
   }
 });
 
@@ -697,16 +698,14 @@ router.post("/creatives/studio/generate", async (req: AuthRequest, res: Response
 
     res.json({ success: true, ...result });
   } catch (error: any) {
-    logger.error(`Creative studio generation failed: ${error.message}`);
+    logger.error({ err: error }, "Creative studio generation failed");
     const message = String(error.message || "");
-    const status = message.includes("Insufficient credits")
-      ? 402
-      : message.includes("HTTP 400")
-        ? 400
-        : message.includes("HTTP 401") || message.includes("API_KEY")
-          ? 401
-          : 500;
-    res.status(status).json({ error: error.message || "Failed to generate studio images" });
+    /* Special-case credit/auth errors which are safe to surface verbatim
+     * (no provider payload — own throws). Everything else goes through safeErrorPayload. */
+    if (message.includes("Insufficient credits")) {
+      return res.status(402).json({ error: "Créditos insuficientes para gerar imagens.", code: "INSUFFICIENT_CREDITS" });
+    }
+    res.status(500).json(safeErrorPayload(error));
   }
 });
 
@@ -731,9 +730,11 @@ router.post("/creatives/studio/edit", async (req: AuthRequest, res: Response) =>
 
     res.json({ success: true, ...result });
   } catch (error: any) {
-    logger.error(`Creative studio edit failed: ${error.message}`);
-    const status = String(error.message || "").includes("Insufficient credits") ? 402 : 500;
-    res.status(status).json({ error: error.message || "Failed to edit studio image" });
+    logger.error({ err: error }, "Creative studio edit failed");
+    if (String(error.message || "").includes("Insufficient credits")) {
+      return res.status(402).json({ error: "Créditos insuficientes para editar imagens.", code: "INSUFFICIENT_CREDITS" });
+    }
+    res.status(500).json(safeErrorPayload(error));
   }
 });
 

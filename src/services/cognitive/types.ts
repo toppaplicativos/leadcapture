@@ -93,6 +93,9 @@ export interface CognitiveInput {
   brandId?: string | null;
   conversationId?: string | null;     /* Para persistir memória; opcional para evitar quebrar callers antigos */
   incomingMessage: string;
+  /* Fase 16 — Baileys event type ("text"|"reaction"|"sticker"|"image"|...).
+   * Passed to ResponseGate so it can silence on reactions/stickers. */
+  incomingMessageType?: string;
   conversationHistory: string[];      /* Linhas "Atendente|Lead: <texto>" */
   lastOutgoingMessages?: string[];    /* Últimas 3 respostas que o agente deu, para evitar repetição */
 }
@@ -105,6 +108,11 @@ export interface CognitiveOutput {
   escalationReason: string | null;
   knowledgeApplied: boolean;
   catalogApplied: boolean;
+  /* Fase 16 — when true, the agent deliberately chose NOT to respond.
+   * Caller must NOT send `text` (which will be empty) and should not retry. */
+  silenced?: boolean;
+  silenceReason?: string;
+  silenceReasonCode?: string;
   latencyMs: {
     reasoner: number;
     composer: number;

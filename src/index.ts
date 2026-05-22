@@ -22,6 +22,7 @@ import companiesRoutes from "./routes/companies";
 import clientsRoutes from "./routes/clients";
 import { rateLimit } from "./middleware/rateLimit";
 import { lgpdPublicRoutes, lgpdAdminRoutes } from "./routes/lgpd";
+import agentSilencesRoutes from "./routes/agentSilences";
 import leadImportRoutes from "./routes/leadImport";
 import clientTypesRoutes from "./routes/clientTypes";
 import sessionsRoutes from "./routes/sessions";
@@ -344,6 +345,8 @@ app.use("/api/reviews", reviewsRoutes);
 /* LGPD (Fase 15) — public opt-out is NO-AUTH on purpose. Admin views require auth. */
 app.use("/api/lgpd", lgpdPublicRoutes);
 app.use("/api/lgpd", lgpdAdminRoutes);
+/* Fase 16 — agent silence log (visibility into ResponseGate decisions) */
+app.use("/api/agent", agentSilencesRoutes);
 app.use("/api/pricetables", authMiddleware, priceTablesRoutes);
 app.use("/api/expedition", authMiddleware, expeditionRoutes);
 app.use("/api/orders", authMiddleware, ordersRoutes);

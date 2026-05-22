@@ -11,6 +11,8 @@ import { conversationMemoryService } from "./conversationMemory";
 import { buildBrandProtectionBlock, BrandGuardConfig } from "./skills/brandProtection";
 import { buildProductIntelligenceBlock } from "./skills/productIntelligence";
 import { buildCouponIntelligenceBlock } from "./skills/couponIntelligence";
+import { decideResponse, SuggestedTone } from "./skills/responseGate";
+import { silenceLogService } from "./silenceLog";
 import { CognitiveInput, CognitiveOutput, EMPTY_MEMORY } from "./types";
 
 /**
@@ -52,11 +54,54 @@ export class CognitiveAgent {
     if (!userId) throw new Error("userId is required");
     const brandId = this.normalizeBrandId(input.brandId);
     const incomingMessage = String(input.incomingMessage || "").trim();
-    if (!incomingMessage) throw new Error("incomingMessage is required");
+    /* Note: incomingMessage CAN be empty (sticker/reaction with no text);
+     * the gate handles those. We only fail when both message AND type are absent. */
+    const messageType = String(input.incomingMessageType || "text");
+    if (!incomingMessage && messageType === "text") throw new Error("incomingMessage is required");
 
     const conversationId = String(input.conversationId || "").trim();
     const history = Array.isArray(input.conversationHistory) ? input.conversationHistory.filter(Boolean) : [];
     const lastOutgoingMessages = (Array.isArray(input.lastOutgoingMessages) ? input.lastOutgoingMessages : []).slice(-3);
+
+    /* ── PASS 0: ResponseGate (Fase 16) ──
+     * Cheap deterministic check BEFORE we spend tokens on Reasoner. Catches:
+     * reactions, ack-only messages, single emojis, duplicate sends, echo of our own text.
+     * When silenced, we return immediately — no LLM calls, no memory write. */
+    const gate = decideResponse({
+      incomingMessage,
+      messageType: messageType as any,
+      conversationHistory: history.filter((h) => !h.startsWith("Atendente:")).map((h) => h.replace(/^Lead:\s*/, "")),
+      lastOutgoingMessages,
+    });
+    if (!gate.shouldRespond) {
+      silenceLogService.record({
+        conversationId,
+        brandId,
+        messageType,
+        incomingMessage,
+        reasonCode: gate.reasonCode,
+        reasonHuman: gate.reasonHuman,
+        confidence: gate.confidence,
+      }).catch(() => { /* best-effort */ });
+      logger.info(
+        `[CognitiveAgent] SILENCED conv=${conversationId.slice(0,8) || "-"} type=${messageType} reason=${gate.reasonCode} (${gate.reasonHuman})`
+      );
+      return {
+        text: "",
+        reasoning: null,
+        memory: null,
+        shouldEscalate: false,
+        escalationReason: null,
+        knowledgeApplied: false,
+        catalogApplied: false,
+        silenced: true,
+        silenceReason: gate.reasonHuman,
+        silenceReasonCode: gate.reasonCode,
+        latencyMs: { reasoner: 0, composer: 0, total: Date.now() - t0 },
+      };
+    }
+    /* Tone hint flows into the Composer below for emotional adjustment. */
+    const suggestedTone: SuggestedTone = gate.suggestedTone;
 
     /* Parallel load all context */
     const profile = await this.profileService.getByUserId(userId, brandId || undefined);
@@ -136,6 +181,9 @@ export class CognitiveAgent {
       includeEmojis: Boolean(profile.include_emojis),
       communicationRules: String(profile.communication_rules || "").trim(),
       trainingNotes: String(profile.training_notes || "").trim() || undefined,
+      /* Fase 16.5 — emotional intelligence: gate detected the lead's tone
+       * (seco/amigavel/respeitoso) so the Composer can match register. */
+      suggestedTone,
     });
     const composerMs = Date.now() - tComposer;
 

@@ -10,6 +10,7 @@
 import { aiRouter } from "../aiRouter";
 import { GeminiService } from "../gemini";
 import { logger } from "../../utils/logger";
+import { wrapProviderError } from "../../utils/safeError";
 
 const geminiService = new GeminiService();
 
@@ -99,8 +100,12 @@ export async function extractLeadsFromText(
     });
     return Array.isArray(response?.leads) ? response.leads : [];
   } catch (err: any) {
-    logger.error(`[smartLeadImport] extracao falhou: ${err?.message}`);
-    throw new Error(`Falha na extracao por IA: ${err?.message}`);
+    /* IMPORTANT (Bug-6): the provider error message often contains our full
+     * request body — including the EXTRACTION_PROMPT and the user content.
+     * We log it intact (server-only) but wrap with a safe error before
+     * letting it propagate to the HTTP layer. */
+    logger.error({ err, prompt_len: fullPrompt.length, source: "text" }, "[smartLeadImport] text extraction failed");
+    throw wrapProviderError(err, "lead-extraction:text");
   }
 }
 
@@ -131,7 +136,8 @@ export async function extractLeadsFromImage(
     const parsed = JSON.parse(candidate) as ExtractionResponse;
     return Array.isArray(parsed?.leads) ? parsed.leads : [];
   } catch (err: any) {
-    logger.error(`[smartLeadImport] extracao de imagem falhou: ${err?.message}`);
-    throw new Error(`Falha ao ler imagem: ${err?.message}`);
+    /* See note on text branch above — never propagate raw provider message. */
+    logger.error({ err, mime: mimeType, source: "image" }, "[smartLeadImport] image extraction failed");
+    throw wrapProviderError(err, "lead-extraction:image");
   }
 }

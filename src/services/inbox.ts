@@ -292,6 +292,9 @@ export class InboxService {
     remoteJid: string;
     incomingMessageId: string;
     incomingBody: string;
+    /** Fase 16 — original Baileys message type so the ResponseGate can detect
+     * reactions, stickers, etc and decide not to respond. */
+    incomingMessageType?: string;
     aiMode: "manual" | "autonomous" | "supervised";
   }): Promise<void> {
     const ctx = `[AI-AUTO conv=${input.conversationId.slice(0, 8)} inst=${input.instanceId.slice(0, 8)} jid=${input.remoteJid}]`;
@@ -470,10 +473,17 @@ export class InboxService {
         brandId,
         conversationId: input.conversationId,
         incomingMessage: input.incomingBody,
+        incomingMessageType: input.incomingMessageType || "text",
         conversationHistory: historyLines,
         lastOutgoingMessages: lastOutgoing,
         maxHistoryLines: 20,
       });
+      /* Fase 16 — agent decided not to respond (reaction / ack / etc).
+       * No need to validate, persist or send anything. */
+      if (reply.silenced) {
+        logger.info(`${ctx} silenced by gate: ${reply.silenceReason}`);
+        return;
+      }
       finalText = String(reply.text || "").trim();
       cognitiveConfidence = typeof reply.cognitive?.confidence === "number" ? reply.cognitive.confidence : null;
     } catch (err: any) {
@@ -953,6 +963,7 @@ export class InboxService {
           remoteJid: String(remoteJid),
           incomingMessageId: msgId,
           incomingBody: String(body || ""),
+          incomingMessageType: String(messageType || "text"),
           aiMode: conversationAIMode,
         });
       }

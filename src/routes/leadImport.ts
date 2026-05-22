@@ -3,6 +3,7 @@ import { attachBrandContext, BrandRequest } from "../middleware/brandContext";
 import { CustomersService } from "../services/customers";
 import { generateImportPreview, SmartImportPayload } from "../services/smartLeadImport";
 import { logger } from "../utils/logger";
+import { safeErrorPayload } from "../utils/safeError";
 
 const router = Router();
 const customersService = new CustomersService();
@@ -38,11 +39,27 @@ router.post("/parse", async (req: BrandRequest, res: Response) => {
 
     res.json({ success: true, preview });
   } catch (error: any) {
-    logger.error(`[lead-import] parse falhou userId=${req.user?.userId} brandId=${req.brandId}: ${error?.message}\n${error?.stack || ""}`);
-    res.status(500).json({
-      error: error?.message || "Falha ao processar import",
-      hint: "Verifique se ha chave de IA configurada (Gemini/OpenAI) em Provedores IA e se o arquivo tem ate 10MB.",
+    /* Bug-6: never echo provider errors to the client — they contain our prompts.
+     * Log the FULL error server-side (logger sanitizer masks PII; prompt content
+     * is fine in logs since they're SSH-restricted) but return only a classified,
+     * non-leaky payload. */
+    logger.error(
+      { err: error, userId: req.user?.userId, brandId: req.brandId, mode: req.body?.mode },
+      "[lead-import] parse failed"
+    );
+    const payload = safeErrorPayload(error, {
+      hint: "Verifique se há chave de IA configurada em Provedores IA e se o arquivo tem até 10MB.",
     });
+    /* Map error code to appropriate HTTP status */
+    const status =
+      payload.code === "AI_AUTH" ? 401 :
+      payload.code === "AI_QUOTA" ? 429 :
+      payload.code === "FILE_TOO_LARGE" ? 413 :
+      payload.code === "FILE_UNSUPPORTED" ? 415 :
+      payload.code === "AI_MODEL_UNAVAILABLE" ? 503 :
+      payload.code === "AI_TIMEOUT" ? 504 :
+      500;
+    res.status(status).json(payload);
   }
 });
 
@@ -125,8 +142,8 @@ router.post("/confirm", async (req: BrandRequest, res: Response) => {
       errors,
     });
   } catch (error: any) {
-    logger.error(`[lead-import] confirm falhou: ${error?.message}`);
-    res.status(500).json({ error: error?.message || "Falha ao importar" });
+    logger.error({ err: error, userId: req.user?.userId, brandId: req.brandId }, "[lead-import] confirm failed");
+    res.status(500).json(safeErrorPayload(error));
   }
 });
 

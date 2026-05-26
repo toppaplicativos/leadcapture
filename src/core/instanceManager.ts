@@ -46,6 +46,17 @@ export class InstanceManager {
   private reconnectTimers: Map<string, NodeJS.Timeout> = new Map();
   private connectedSince: Map<string, number> = new Map();
   private preconditionCloseCount: Map<string, number> = new Map();
+
+  /* PendingAcks: chave = messageId (key.id retornado pelo sendMessage),
+     valor = {resolver, timer, instanceId, sentAt}. Quando o messages.update
+     do Baileys chega com status >= SERVER_ACK (2), resolvemos true. Se timeout
+     (default 5s) ou a instance desconectar antes, resolvemos false.
+     Isso permite que sendMessage() so retorne true quando o WhatsApp REALMENTE
+     confirmou recebimento — fim do "painel mente sent". */
+  private pendingAcks: Map<string, { resolve: (ok: boolean) => void; timer: NodeJS.Timeout; instanceId: string; sentAt: number }> = new Map();
+  /* Default 15s pra esperar ack. Configurável via env. 5s era muito curto em redes lentas
+     (SERVER_ACK pode demorar 8-12s em alta carga do WA), causando drops silenciosos. */
+  private static readonly DEFAULT_ACK_TIMEOUT_MS = Math.max(1000, Math.min(60000, Number(process.env.WHATSAPP_ACK_TIMEOUT_MS) || 15000));
   private intentionalDisconnects: Set<string> = new Set();
   private mediaLogger = pino({ level: "silent" }) as any;
   private static MAX_RETRIES = 5;
@@ -114,13 +125,12 @@ export class InstanceManager {
     if (normalized.endsWith("@g.us")) return normalized;
 
     const digits = normalized.split("@")[0];
-    try {
-      const exists = await sock.onWhatsApp(digits);
-      const first = exists?.[0];
-      if (first?.exists && first?.jid) return first.jid;
-    } catch {
-      // fallback to normalized jid
-    }
+    /* Bug-19: same BR 9-digit gotcha applies here. resolveSendTargetJid is the
+     * path used by sendMessageByJid + sendMediaByJid — that's how campaign
+     * replies and media broadcasts hit Baileys. Use the variant-probe so we
+     * don't end up sending media to a 10-digit ghost JID. */
+    const resolved = await this.resolveWhatsAppTarget(sock, digits);
+    if (resolved.exists && resolved.jid) return resolved.jid;
     return normalized;
   }
 
@@ -399,6 +409,11 @@ export class InstanceManager {
           this.instances.set(id, instance);
           await this.syncInstanceToDB(instance);
 
+          /* Mata pendingAcks dessa instance — msgs em voo no momento do disconnect
+             nao terao mais chance de ack. Quem chamou sendMessage recebe false e
+             pode marcar como failed_dropped. */
+          this.rejectPendingAcksForInstance(id, `disconnect status=${statusCode}`);
+
           if (this.intentionalDisconnects.has(id)) {
             logger.info(`Intentional disconnect for ${instance.name}. Skipping reconnect.`);
             this.retryCount.delete(id);
@@ -519,7 +534,71 @@ export class InstanceManager {
           logger.info(`Message received on ${instance.name} from ${msg.key.remoteJid}`);
         }
       });
+
+      /* Ack do Baileys — eventos com update.status indicam progresso:
+           0 = ERROR, 1 = PENDING (server), 2 = SERVER_ACK, 3 = DELIVERY_ACK, 4 = READ
+         Consideramos status >= 2 como "WhatsApp confirmou recebimento no servidor".
+         Resolvemos pendingAcks aqui (true se ack ok, false se erro). */
+      sock.ev.on("messages.update", (updates: any[]) => {
+        try {
+          for (const u of updates || []) {
+            const messageId = u?.key?.id;
+            if (!messageId) continue;
+            const pending = this.pendingAcks.get(messageId);
+            if (!pending) continue;
+            const status = Number(u?.update?.status);
+            if (status === 0) {
+              /* Server rejeitou */
+              clearTimeout(pending.timer);
+              this.pendingAcks.delete(messageId);
+              pending.resolve(false);
+            } else if (status >= 2) {
+              /* Server confirmou recebimento (>= SERVER_ACK) */
+              clearTimeout(pending.timer);
+              this.pendingAcks.delete(messageId);
+              pending.resolve(true);
+            }
+          }
+        } catch (e: any) {
+          logger.warn(`messages.update handler error: ${e?.message}`);
+        }
+      });
     });
+  }
+
+  /* waitForAck — espera o messages.update com status >= 2 chegar pra esse messageId.
+     Timeout default 5s (configuravel via WHATSAPP_ACK_TIMEOUT_MS env).
+     Resolve true se ack ok, false se timeout, erro ou disconnect.
+     Usado por sendMessage/sendMessageByJid pra so retornar true quando WhatsApp
+     REALMENTE confirmou recebimento. Fim do bug "painel mente sent". */
+  private waitForAck(messageId: string, instanceId: string, timeoutMs?: number): Promise<boolean> {
+    return new Promise<boolean>((resolve) => {
+      const timeout = timeoutMs ?? InstanceManager.DEFAULT_ACK_TIMEOUT_MS;
+      const timer = setTimeout(() => {
+        if (this.pendingAcks.has(messageId)) {
+          this.pendingAcks.delete(messageId);
+          resolve(false); // timeout - assume drop
+        }
+      }, timeout);
+      this.pendingAcks.set(messageId, { resolve, timer, instanceId, sentAt: Date.now() });
+    });
+  }
+
+  /* Quando uma instance desconecta, rejeitar todos pendingAcks dela como false
+     (mensagens em voo nesse momento sao consideradas perdidas). */
+  private rejectPendingAcksForInstance(instanceId: string, reason: string): void {
+    let rejected = 0;
+    for (const [messageId, pending] of this.pendingAcks.entries()) {
+      if (pending.instanceId === instanceId) {
+        clearTimeout(pending.timer);
+        this.pendingAcks.delete(messageId);
+        pending.resolve(false);
+        rejected++;
+      }
+    }
+    if (rejected > 0) {
+      logger.warn(`Rejected ${rejected} pending acks for instance ${instanceId} (${reason})`);
+    }
   }
 
   // Clean up socket before reconnecting
@@ -530,6 +609,7 @@ export class InstanceManager {
         existingSock.ev.removeAllListeners("connection.update");
         existingSock.ev.removeAllListeners("creds.update");
         existingSock.ev.removeAllListeners("messages.upsert");
+        existingSock.ev.removeAllListeners("messages.update");
         existingSock.ws.close();
       } catch (e) {
         // Socket might already be closed
@@ -547,6 +627,80 @@ export class InstanceManager {
     this.connectedSince.delete(id);
   }
 
+  /**
+   * Bug-19: Brazilian 9th-digit gotcha.
+   *
+   * Mobile numbers in BR since 2012 are 11 digits (DDD + 9 + 8). But Baileys'
+   * onWhatsApp() — and the historical WhatsApp internal canonical JID format —
+   * frequently returns the OLD 10-digit form (DDD + 8, no leading 9) even for
+   * accounts that are actually reachable only via the 11-digit JID. Trusting
+   * that response and sending to the 10-digit JID has two failure modes:
+   *
+   *   1. JID belongs to nobody → sock.sendMessage() succeeds locally (the
+   *      protobuf went out on the socket) but no SERVER_ACK ever comes back,
+   *      no messages.upsert event, no row in whatsapp_messages, no error in
+   *      our logs. Operator sees "sent" but recipient gets nothing.
+   *   2. JID belongs to a legacy landline / different account that registered
+   *      WhatsApp with the 10-digit format → message goes to the WRONG person.
+   *
+   * Fix: enumerate both variants for any BR mobile number, probe each with
+   * onWhatsApp, prefer the one that returns exists:true. If both exist, prefer
+   * the one Baileys returns the JID for unchanged (it's the canonical one for
+   * THAT specific account). If neither exists → genuinely off WhatsApp.
+   */
+  private brazilianVariants(digits: string): string[] {
+    const m = digits.match(/^55(\d{2})(\d{8,9})$/);
+    if (!m) return [digits];
+    const [, ddd, rest] = m;
+    const dddNum = Number(ddd);
+    // Only DDDs 11-99 had the 9 added. DDDs outside that range are landlines/special.
+    if (dddNum < 11 || dddNum > 99) return [digits];
+    if (rest.length === 9 && rest.startsWith("9")) {
+      // Came with 9 → test WITH first, then WITHOUT as fallback.
+      return [`55${ddd}${rest}`, `55${ddd}${rest.slice(1)}`];
+    }
+    if (rest.length === 8) {
+      // Came without 9 → test the 11-digit modern form first, then legacy as fallback.
+      return [`55${ddd}9${rest}`, `55${ddd}${rest}`];
+    }
+    return [digits];
+  }
+
+  /**
+   * Probes onWhatsApp with each BR variant and returns the first that exists.
+   *
+   * IMPORTANT: We deliberately DO NOT use `hit.jid` from Baileys' response.
+   * Baileys' onWhatsApp() frequently returns a "canonical" jid that strips the
+   * 9th digit from BR mobiles even when we queried the 11-digit modern form
+   * (e.g. query "5585986818511" → returns "558586818511@s.whatsapp.net"). That
+   * stripped JID is what's been silently dropping our campaign messages. The
+   * modern 11-digit JID is the actually-reachable one on current accounts, so
+   * we construct the target JID from the *variant we asked about* rather than
+   * trusting the canonical form Baileys returns.
+   */
+  private async resolveWhatsAppTarget(
+    sock: WASocket,
+    digits: string
+  ): Promise<{ exists: boolean; jid?: string; triedVariants: string[] }> {
+    const variants = this.brazilianVariants(digits);
+    for (const variant of variants) {
+      try {
+        const results = await sock.onWhatsApp(variant);
+        const hit = results && results[0];
+        if (hit?.exists) {
+          return {
+            exists: true,
+            jid: `${variant}@s.whatsapp.net`,
+            triedVariants: variants,
+          };
+        }
+      } catch (err: any) {
+        logger.warn(`onWhatsApp probe failed for ${variant}: ${err?.message || err}`);
+      }
+    }
+    return { exists: false, triedVariants: variants };
+  }
+
   async sendMessage(instanceId: string, phone: string, message: string): Promise<boolean> {
     const sock = this.sockets.get(instanceId);
     const instance = this.instances.get(instanceId);
@@ -554,20 +708,36 @@ export class InstanceManager {
       throw new Error("Instance not connected");
     }
     try {
-      let jid = phone.replace(/\D/g, "");
-      if (!jid.endsWith("@s.whatsapp.net")) {
-        jid = jid + "@s.whatsapp.net";
-      }
-      const results = await sock.onWhatsApp(jid.split("@")[0]);
-      const result = results && results[0];
-      if (!result?.exists) {
-        logger.warn(`Number ${phone} not on WhatsApp`);
+      const digits = phone.replace(/\D/g, "");
+      if (!digits) {
+        logger.warn(`Empty phone digits for ${phone}`);
         return false;
       }
-      await sock.sendMessage(result.jid, { text: message });
+      const resolved = await this.resolveWhatsAppTarget(sock, digits);
+      if (!resolved.exists || !resolved.jid) {
+        logger.warn(`Number ${phone} not on WhatsApp (tried: ${resolved.triedVariants.join(", ")})`);
+        return false;
+      }
+      const result: any = await sock.sendMessage(resolved.jid, { text: message });
+      const messageId: string | undefined = result?.key?.id;
+
+      /* HONESTIDADE: so retorna true se o WhatsApp confirmar SERVER_ACK em ate 5s.
+         Se nao tem messageId (raro - Baileys nao retornou key) ou nao recebe ack,
+         consideramos a msg perdida e retornamos false pra quem chamou marcar como failed. */
+      let ackOk = true;
+      if (messageId) {
+        ackOk = await this.waitForAck(messageId, instanceId);
+        if (!ackOk) {
+          logger.warn(`Message to ${phone} sent locally but NO WhatsApp ack in ${InstanceManager.DEFAULT_ACK_TIMEOUT_MS}ms (instance=${instance.name}, mid=${messageId})`);
+          return false;
+        }
+      } else {
+        logger.warn(`Message to ${phone} sent but Baileys did not return messageId — cannot confirm ack`);
+      }
+
       instance.messagessSent++;
       this.instances.set(instanceId, instance);
-      logger.info(`Message sent from ${instance.name} to ${phone}`);
+      logger.info(`Message sent from ${instance.name} to ${phone} (jid=${resolved.jid})${messageId ? ` mid=${messageId}` : ''}`);
       return true;
     } catch (error: any) {
       logger.error(`Error sending message: ${error.message}`);
@@ -591,21 +761,11 @@ export class InstanceManager {
     }
 
     try {
-      const results = await sock.onWhatsApp(normalizedPhone);
-      const result = results && results[0];
-
-      if (!result?.exists) {
-        return {
-          exists: false,
-          normalizedPhone,
-        };
+      const resolved = await this.resolveWhatsAppTarget(sock, normalizedPhone);
+      if (!resolved.exists || !resolved.jid) {
+        return { exists: false, normalizedPhone };
       }
-
-      return {
-        exists: true,
-        jid: result.jid,
-        normalizedPhone,
-      };
+      return { exists: true, jid: resolved.jid, normalizedPhone };
     } catch (error: any) {
       logger.error(`Error validating WhatsApp number: ${error.message}`);
       throw new Error("Failed to validate WhatsApp number");
@@ -621,10 +781,23 @@ export class InstanceManager {
     }
     try {
       const targetJid = await this.resolveSendTargetJid(sock, jid);
-      await sock.sendMessage(targetJid, { text: message });
+      const result: any = await sock.sendMessage(targetJid, { text: message });
+      const messageId: string | undefined = result?.key?.id;
+
+      let ackOk = true;
+      if (messageId) {
+        ackOk = await this.waitForAck(messageId, instanceId);
+        if (!ackOk) {
+          logger.warn(`Message to ${targetJid} sent locally but NO WhatsApp ack in ${InstanceManager.DEFAULT_ACK_TIMEOUT_MS}ms (instance=${instance.name}, mid=${messageId})`);
+          return false;
+        }
+      } else {
+        logger.warn(`Message to ${targetJid} sent but Baileys did not return messageId — cannot confirm ack`);
+      }
+
       instance.messagessSent++;
       this.instances.set(instanceId, instance);
-      logger.info(`Message sent from ${instance.name} to ${targetJid}`);
+      logger.info(`Message sent from ${instance.name} to ${targetJid}${messageId ? ` mid=${messageId}` : ''}`);
       return true;
     } catch (error: any) {
       logger.error(`Error sending message by JID: ${error.message}`);

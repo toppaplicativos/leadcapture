@@ -109,11 +109,11 @@ export class Reasoner {
       response_strategy: "Responder de forma clara, direta e humana. Reasoner indisponível — operar conservadoramente.",
       tone_adjustment: "Manter tom natural padrão da marca.",
       must_acknowledge: [],
-      must_avoid: ["respostas robóticas ou genéricas"],
+      must_avoid: ["respostas robóticas ou genéricas", "saudação de abertura se houver histórico"],
       risks: ["reasoner_offline"],
       should_escalate: false,
       escalation_reason: null,
-      confidence: 0.3,
+      confidence: 0.6,
     };
   }
 

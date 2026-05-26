@@ -547,7 +547,22 @@ export class InboxService {
       return;
     }
     if (!sent) {
-      logger.error(`${ctx} GATE: messageSender retornou false para ${input.remoteJid}. Verifique se a instancia esta conectada (status='connected') e se o JID e valido.`);
+      logger.error(`${ctx} GATE: messageSender retornou false para ${input.remoteJid}. Causas: (1) instancia desconectada, (2) JID invalido, (3) ACK do WhatsApp nao chegou no timeout (WHATSAPP_ACK_TIMEOUT_MS). Mensagem gerada mas NAO enviada: "${finalText.slice(0, 80)}"`);
+      await this.logAIDecision(input.pool, {
+        conversationId: input.conversationId,
+        userId,
+        brandId,
+        decisionType: "send_failed",
+        mode,
+        summary: `IA gerou resposta mas envio falhou (messageSender=false). JID: ${input.remoteJid}`,
+        payload: {
+          event: "send_failed",
+          incoming_message_id: input.incomingMessageId,
+          generated_text: finalText.slice(0, 500),
+          jid: input.remoteJid,
+          at: new Date().toISOString(),
+        },
+      });
       return;
     }
 

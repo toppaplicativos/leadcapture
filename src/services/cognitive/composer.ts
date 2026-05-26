@@ -128,6 +128,13 @@ export class Composer {
       ? `\n\nESTA É UMA REESCRITA. A versão anterior tinha estes problemas que VOCÊ DEVE EVITAR agora:\n${retryNotes.map((n) => `- ${n}`).join("\n")}\n`
       : "";
 
+    /* Bloco anti-saudação: conversas com histórico NÃO podem abrir com cumprimento.
+     * O guard (inboxReplyGuard) rejeita respostas com GREETING_OPENERS em conversas >= 4 msgs.
+     * Tornar isso explícito no prompt previne o loop "gera → guard rejeita → nunca responde". */
+    const antiGreetingBlock = input.conversationHistory.length >= 4
+      ? `CONTEXTO CRÍTICO: Esta conversa já tem ${input.conversationHistory.length} mensagens. NÃO abra com saudação ("Oi", "Olá", "Bom dia", "Boa tarde" etc). Vá DIRETO ao ponto — responda ao que o cliente perguntou/disse sem preamble.`
+      : "";
+
     const emojiRule = input.includeEmojis
       ? "Pode usar até 2 emojis se realmente agregarem — não use só por usar."
       : "Não use emojis.";
@@ -153,6 +160,7 @@ export class Composer {
     const prompt = [
       input.brandIdentityBlock,
       toneInstructions,
+      antiGreetingBlock,
       HUMANIZATION_INSTRUCTIONS,
       input.communicationRules ? `REGRAS DE COMUNICAÇÃO DA MARCA:\n${input.communicationRules}` : "",
       input.trainingNotes ? `TREINAMENTO INTERNO:\n${input.trainingNotes}` : "",

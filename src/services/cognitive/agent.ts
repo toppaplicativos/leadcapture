@@ -1,6 +1,7 @@
 import { logger } from "../../utils/logger";
 import { AIAgentProfileService } from "../aiAgentProfile";
 import { KnowledgeBaseService } from "../knowledgeBase";
+import { getActiveSkillsBlock } from "../brandSkillsRuntime";
 import { ProductsService } from "../products";
 import { offerCatalogService } from "../offerCatalog";
 import { couponsService } from "../coupons";
@@ -62,6 +63,8 @@ export class CognitiveAgent {
     const conversationId = String(input.conversationId || "").trim();
     const history = Array.isArray(input.conversationHistory) ? input.conversationHistory.filter(Boolean) : [];
     const lastOutgoingMessages = (Array.isArray(input.lastOutgoingMessages) ? input.lastOutgoingMessages : []).slice(-3);
+    /* Detecta primeiro contato: history vazio = lead nunca recebeu resposta do agente */
+    const isFirstMessage = history.length === 0;
 
     /* ── PASS 0: ResponseGate (Fase 16) ──
      * Cheap deterministic check BEFORE we spend tokens on Reasoner. Catches:
@@ -117,7 +120,20 @@ export class CognitiveAgent {
     /* Catalog and coupons are presented as a single "commercial offer surface" to the LLM —
      * less prompt fragmentation, fewer chances for the agent to forget either. */
     const catalogBlock = [catalogCore, couponBlock].filter(Boolean).join("\n\n");
-    const knowledgeBlock = kbContext ? `BASE DE CONHECIMENTO RELEVANTE:\n${kbContext}` : "";
+    const knowledgeBlockBase = kbContext ? `BASE DE CONHECIMENTO RELEVANTE:\n${kbContext}` : "";
+    /* Skills treinaveis do brand (brand_skills) — matching por keyword/exemplo
+       contra a msg do lead, executores opcionais. Resultado vai junto com
+       knowledgeBlock no prompt do reasoner e composer. Falha eh silenciosa. */
+    const skillsBlock = await getActiveSkillsBlock({
+      userId,
+      brandId: brandId || "",
+      messageText: incomingMessage,
+      maxSkills: 5,
+    }).catch((e: any) => { logger.warn(`brand-skills runtime falhou: ${e?.message}`); return ""; });
+    /* knowledgeBlock = apenas KB textual. skillsBlock fica separado pra ser
+       posicionado no fim do prompt do Composer (maior peso de atenção do LLM)
+       com instrução imperativa de execução — não passivo como contexto. */
+    const knowledgeBlock = knowledgeBlockBase;
     const memoryBlock = conversationMemoryService.toPromptBlock(memory);
 
     const brandGuard: BrandGuardConfig = {
@@ -138,6 +154,7 @@ export class CognitiveAgent {
       conversationHistory: history,
       catalogBlock,
       knowledgeBlock,
+      skillsBlock,
       brandIdentityBlock,
       memoryBlock,
       lastOutgoingMessages,
@@ -172,6 +189,7 @@ export class CognitiveAgent {
       conversationHistory: history,
       catalogBlock,
       knowledgeBlock,
+      skillsBlock,
       brandIdentityBlock,
       memoryBlock,
       lastOutgoingMessages,
@@ -184,6 +202,9 @@ export class CognitiveAgent {
       /* Fase 16.5 — emotional intelligence: gate detected the lead's tone
        * (seco/amigavel/respeitoso) so the Composer can match register. */
       suggestedTone,
+      /* Abordagem inicial — guia humanizacao na primeira mensagem */
+      isFirstMessage,
+      firstContactScript: String(profile.first_contact_script || "").trim() || undefined,
     });
     const composerMs = Date.now() - tComposer;
 

@@ -14,10 +14,9 @@ export const BANNED_PHRASES: string[] = [
   "estarei à disposição",
   "qualquer dúvida estou aqui",
   "qualquer dúvida estou à disposição",
-  "como posso ajudar?",
-  "em que posso ajudar?",
-  "em que posso ser útil?",
-  "como posso te ajudar?",
+  /* NÃO incluir "como posso ajudar?" aqui — é natural no primeiro contato.
+     Bloquear aqui causa retry e a segunda tentativa sai mais robótica ainda.
+     O controle de repetição cobre os turnos subsequentes via REPETITIVE_OPENERS. */
   "agradeço o contato",
   "agradecemos seu contato",
   "agradeço o seu contato",
@@ -109,7 +108,6 @@ PROTOCOLO DE NATURALIDADE HUMANA (regras absolutas para a resposta final):
 
 PROIBIDO ESCREVER (frases clichê de SAC):
 - "fico à disposição" / "estou à disposição" / "ficamos à disposição"
-- "como posso ajudar?" / "em que posso ajudar?"
 - "agradeço o contato" / "obrigado por entrar em contato"
 - "qualquer dúvida é só chamar"
 

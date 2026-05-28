@@ -16,6 +16,7 @@ export interface ComposerInput {
   conversationHistory: string[];
   catalogBlock: string;
   knowledgeBlock: string;
+  skillsBlock?: string;
   brandIdentityBlock: string;
   memoryBlock: string;
   lastOutgoingMessages: string[];
@@ -31,6 +32,10 @@ export interface ComposerInput {
    *   "respeitoso" = lead is frustrated → no fluff, no emojis, acknowledge first
    *   "normal"    = no signal → default behavior */
   suggestedTone?: "normal" | "conciso" | "amigavel" | "respeitoso";
+  /* Primeira mensagem desta conversa? → instrucoes de abordagem inicial */
+  isFirstMessage?: boolean;
+  /* Roteiro de abordagem inicial configurado pelo usuario (campo first_contact_script do profile) */
+  firstContactScript?: string;
 }
 
 export interface ComposerOutput {
@@ -128,6 +133,22 @@ export class Composer {
       ? `\n\nESTA É UMA REESCRITA. A versão anterior tinha estes problemas que VOCÊ DEVE EVITAR agora:\n${retryNotes.map((n) => `- ${n}`).join("\n")}\n`
       : "";
 
+    /* Bloco para primeira mensagem: guia a abordagem inicial natural.
+     * Quando history está vazio, o lead acabou de entrar em contato. Instruímos
+     * o LLM a responder de forma simples e natural, sem apresentação formal longa. */
+    const firstContactBlock = input.isFirstMessage
+      ? [
+          "PRIMEIRA MENSAGEM DESTA CONVERSA — ABORDAGEM INICIAL:",
+          "Este é o PRIMEIRO contato do lead. Responda de forma SIMPLES e NATURAL.",
+          "CORRETO: responda curto, cumprimente brevemente e mostre disponibilidade. Ex: 'Oi, como posso ajudar?' ou 'Oi! Em que posso te ajudar?'",
+          "ERRADO: apresentação longa com nome + empresa + slogan + pergunta toda elaborada na primeira fala.",
+          "REGRA: NÃO force apresentação completa agora. Após o lead dizer o que precisa, você se apresenta naturalmente.",
+          ...(input.firstContactScript?.trim()
+            ? [`SCRIPT DE ABORDAGEM INICIAL CONFIGURADO:\n${input.firstContactScript.trim()}\n(Use este script como base para estruturar a resposta inicial.)`]
+            : []),
+        ].join("\n")
+      : "";
+
     /* Bloco anti-saudação: conversas com histórico NÃO podem abrir com cumprimento.
      * O guard (inboxReplyGuard) rejeita respostas com GREETING_OPENERS em conversas >= 4 msgs.
      * Tornar isso explícito no prompt previne o loop "gera → guard rejeita → nunca responde". */
@@ -160,6 +181,7 @@ export class Composer {
     const prompt = [
       input.brandIdentityBlock,
       toneInstructions,
+      firstContactBlock,
       antiGreetingBlock,
       HUMANIZATION_INSTRUCTIONS,
       input.communicationRules ? `REGRAS DE COMUNICAÇÃO DA MARCA:\n${input.communicationRules}` : "",
@@ -178,6 +200,17 @@ export class Composer {
       reasoningBlock,
       "",
       playbookBlock,
+      "",
+      /* Skills block: posicionado aqui — logo antes da mensagem — pra ter maior
+         peso de atenção do LLM. Instrução imperativa: não sugestão, não contexto. */
+      input.skillsBlock
+        ? [
+            "=== HABILIDADE CADASTRADA — APLICAR NESTA RESPOSTA ===",
+            input.skillsBlock,
+            "INSTRUÇÃO: A habilidade acima foi ativada pela mensagem do cliente. Se ela se aplica, EXECUTE e entregue o resultado NESTA mensagem. PROIBIDO responder com 'vou verificar', 'vou calcular', 'deixa eu ver', 'um momento' ou similares. Se há RESULTADO_PRE_COMPUTADO acima, use-o diretamente formatado no tom do brand.",
+            "=== FIM DA HABILIDADE ===",
+          ].join("\n")
+        : "",
       "",
       `MENSAGEM DO CLIENTE: "${input.incomingMessage}"`,
       "",

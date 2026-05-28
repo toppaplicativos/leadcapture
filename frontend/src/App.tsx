@@ -24,7 +24,9 @@ const adminModule = () => import('@/pages/AdminDashboard')
 
 const AdminShell = lazy(() => adminModule().then(m => ({ default: m.AdminShell })))
 const DashboardView = lazy(() => adminModule().then(m => ({ default: m.DashboardView })))
-const ClientesView = lazy(() => adminModule().then(m => ({ default: m.ClientesView })))
+/* ClientesView antigo (do AdminDashboard) substituído pela ClientesPage nova
+   com mesma estrutura da LeadsPage (KPIs, filter popovers, tags, SmartImport). */
+const ClientesPage = lazy(() => import('./pages/ClientesPage').then(m => ({ default: m.ClientesPage })))
 const CampaignsView = lazy(() => adminModule().then(m => ({ default: m.CampaignsView })))
 const OrdersView = lazy(() => adminModule().then(m => ({ default: m.OrdersView })))
 const ProductsView = lazy(() => adminModule().then(m => ({ default: m.ProductsView })))
@@ -52,9 +54,16 @@ const MessagesPage = lazy(() => import('@/pages/MessagesPage').then(m => ({ defa
 const FlowBuilderPage = lazy(() => import('@/pages/FlowBuilderPage').then(m => ({ default: m.FlowBuilderPage })))
 const LeadSearchPage = lazy(() => import('@/pages/LeadSearchPage').then(m => ({ default: m.LeadSearchPage })))
 const LeadsPage = lazy(() => import('@/pages/LeadsPage').then(m => ({ default: m.LeadsPage })))
+/* Nova página de Automações - 14 templates pré-configurados por brand (inspirada no Topp App) */
+const AutomationsPage = lazy(() => import('@/pages/AutomationsPage').then(m => ({ default: m.AutomationsPage })))
+/* Habilidades treinaveis por brand (squad-IA multimodal) */
+const BrandSkillsPage = lazy(() => import('@/pages/BrandSkillsPage').then(m => ({ default: m.BrandSkillsPage })))
+/* Configuracao completa do atendente IA */
+const AgentConfigPage = lazy(() => import('@/pages/AgentConfigPage').then(m => ({ default: m.AgentConfigPage })))
 const DesignPage = lazy(() => import('@/pages/DesignPage').then(m => ({ default: m.DesignPage })))
 const BrandImageGeneratorPage = lazy(() => import('@/pages/BrandImageGeneratorPage').then(m => ({ default: m.BrandImageGeneratorPage })))
 const CriativosPage = lazy(() => import('@/pages/CriativosPage').then(m => ({ default: m.CriativosPage })))
+const VideoStudioPage = lazy(() => import('@/pages/VideoStudioPage').then(m => ({ default: m.VideoStudioPage })))
 const LandingPage = lazy(() => import('@/pages/LandingPage').then(m => ({ default: m.LandingPage })))
 const MasterShell = lazy(() => import('@/pages/master/MasterShell').then(m => ({ default: m.MasterShell })))
 const MasterDashboard = lazy(() => import('@/pages/master/MasterDashboard').then(m => ({ default: m.MasterDashboard })))
@@ -282,17 +291,24 @@ export default function App() {
           <Route path="/admin" element={<AdminPage><DashboardInline /></AdminPage>} />
           <Route path="/dashboard" element={<AdminPage><DashboardInline /></AdminPage>} />
           <Route path="/leads" element={<AdminPage><LeadsPage /></AdminPage>} />
-          <Route path="/clientes" element={<AdminPage><ClientesView showToast={noop} /></AdminPage>} />
+          <Route path="/clientes" element={<AdminPage><ClientesPage /></AdminPage>} />
           <Route path="/busca" element={<AdminPage><LeadSearchPage /></AdminPage>} />
           <Route path="/mensagens" element={<AdminPage><MessagesPage /></AdminPage>} />
           <Route path="/notificacoes" element={<AdminPage><NotificationsView showToast={noop} /></AdminPage>} />
           <Route path="/campanhas" element={<AdminPage><CampaignsInline /></AdminPage>} />
           <Route path="/campanha" element={<AdminPage><CampaignsInline /></AdminPage>} />
+          {/* /automacoes — 14 templates pre-configurados de automacao por brand */}
+          <Route path="/automacoes" element={<AdminPage><AutomationsPage /></AdminPage>} />
+          {/* /habilidades — skills treinaveis por brand (multimodal) */}
+          <Route path="/habilidades" element={<AdminPage><BrandSkillsPage /></AdminPage>} />
+          <Route path="/skills" element={<AdminPage><BrandSkillsPage /></AdminPage>} />
           <Route path="/automacoes" element={<AdminPage><FlowBuilderPage /></AdminPage>} />
           <Route path="/criativos" element={<AdminPage><CriativosPage /></AdminPage>} />
+          <Route path="/video-studio" element={<AdminPage><VideoStudioPage /></AdminPage>} />
           <Route path="/criativos/avancado" element={<AdminPage><BrandImageGeneratorPage /></AdminPage>} />
           <Route path="/creative" element={<AdminPage><CriativosPage /></AdminPage>} />
           <Route path="/agente" element={<AdminPage><AgentView showToast={noop} /></AdminPage>} />
+          <Route path="/atendente" element={<AdminPage><AgentConfigPage /></AdminPage>} />
           <Route path="/tirar-pedido" element={<AdminPage><AgentPDVPage /></AdminPage>} />
           <Route path="/whatsapp" element={<AdminPage><WhatsAppManagerView showToast={noop} /></AdminPage>} />
           <Route path="/instagram" element={<AdminPage><InstagramPage /></AdminPage>} />

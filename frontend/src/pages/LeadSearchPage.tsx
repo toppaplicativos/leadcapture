@@ -1,12 +1,53 @@
-import { useState, useEffect, useRef, useCallback, FormEvent } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo, FormEvent } from 'react'
+
+/* Haversine distance em km — usado pra saber se um pin esta dentro do raio
+   atual do radar (pra esmaecer pins fora). */
+function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371
+  const toRad = (d: number) => d * Math.PI / 180
+  const dLat = toRad(lat2 - lat1)
+  const dLon = toRad(lon2 - lon1)
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2
+  return 2 * R * Math.asin(Math.sqrt(a))
+}
 import {
   Search, MapPin, Loader2, Star, Phone, Globe,
   Sparkles, ChevronDown, ChevronUp,
   Building2, Navigation, Users, Filter, Map as MapIcon, List,
-  Crosshair, Zap, Pause, Play,
+  Zap, Pause, Maximize2, Minimize2,
+  Smile, UtensilsCrossed, Dumbbell, Scissors, Home, Scale,
+  PawPrint, Wrench, Shirt, Pill, Camera, Activity, X, Send,
 } from 'lucide-react'
+import { WhatsAppSendModal } from '@/components/WhatsAppSendModal'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
+import { PanfleteiroMapMapbox, type PanfleteiroPlace } from '@/components/PanfleteiroMapMapbox'
+import { IdeaGeneratorModal } from '@/components/IdeaGeneratorModal'
+
+/* Sugestões de segmento (substituem emojis por lucide icons — regra UI no_emojis_in_ui) */
+const SUGGESTIONS: Array<{ icon: typeof Smile; label: string; query: string }> = [
+  { icon: Smile, label: 'Dentista', query: 'dentista' },
+  { icon: UtensilsCrossed, label: 'Restaurante', query: 'restaurante' },
+  { icon: Dumbbell, label: 'Academia', query: 'academia' },
+  { icon: Scissors, label: 'Salão', query: 'salão de beleza' },
+  { icon: Home, label: 'Imobiliária', query: 'imobiliária' },
+  { icon: Scale, label: 'Advogado', query: 'advogado' },
+  { icon: PawPrint, label: 'Pet Shop', query: 'pet shop' },
+  { icon: Wrench, label: 'Mecânica', query: 'mecânica' },
+  { icon: Shirt, label: 'Loja Roupa', query: 'loja de roupas' },
+  { icon: Pill, label: 'Farmácia', query: 'farmácia' },
+  { icon: Camera, label: 'Fotógrafo', query: 'fotógrafo' },
+  { icon: Activity, label: 'Crossfit', query: 'crossfit' },
+]
+
+/* Pipeline (legenda de cores do mapa) — espelha statusColor do PanfleteiroMapMapbox */
+const PIPELINE: Array<{ label: string; color: string; key: string }> = [
+  { label: 'Novo', color: '#ef4444', key: 'new' },
+  { label: 'Captado', color: '#3b82f6', key: 'captured' },
+  { label: 'Contactado', color: '#eab308', key: 'contacted' },
+  { label: 'Avançado', color: '#a855f7', key: 'advanced' },
+  { label: 'Ganho', color: '#22c55e', key: 'won' },
+]
 
 /* ── Helpers ── */
 function getHeaders(): Record<string, string> {
@@ -26,59 +67,228 @@ interface Lead {
   location?: { latitude: number; longitude: number } | null
 }
 
-/* ── Persistence ── */
-const PERSIST_KEY = 'leadcapture:search-state'
-const MAP_POS_KEY = 'leadcapture:map-position'
-function loadPersisted() { try { return JSON.parse(localStorage.getItem(PERSIST_KEY) || '{}') } catch { return {} } }
-function savePersisted(d: Record<string, any>) { try { localStorage.setItem(PERSIST_KEY, JSON.stringify(d)) } catch {} }
-function loadMapPos() { try { return JSON.parse(localStorage.getItem(MAP_POS_KEY) || 'null') } catch { return null } }
-function saveMapPos(lat: number, lng: number, zoom: number) { try { localStorage.setItem(MAP_POS_KEY, JSON.stringify({ lat, lng, zoom, ts: Date.now() })) } catch {} }
+/* ── Persistência por BRAND (resolve vazamento entre operacoes) ──
+   Estado é gravado em brand_units.last_search_state via /api/brands/:id/search-state.
+   Mantemos fallback para localStorage por compatibilidade na migracao. */
+function getActiveBrandId(): string | null {
+  return localStorage.getItem('lead-system:active-brand-id') || null
+}
+async function fetchBrandSearchState(brandId: string): Promise<Record<string, any> | null> {
+  try {
+    const r = await fetch(`/api/brands/${encodeURIComponent(brandId)}/search-state`, { headers: getHeaders() })
+    if (!r.ok) return null
+    const d = await r.json()
+    return d?.state || null
+  } catch { return null }
+}
+async function persistBrandSearchState(brandId: string, state: Record<string, any>): Promise<void> {
+  try {
+    await fetch(`/api/brands/${encodeURIComponent(brandId)}/search-state`, {
+      method: 'PATCH',
+      headers: getHeaders(),
+      body: JSON.stringify({ state }),
+    })
+  } catch { /* nao bloqueia UX */ }
+}
 
 /* ══════════════════════════════════════════════
    LEAD SEARCH PAGE — with Panfleteiro Mode
    ══════════════════════════════════════════════ */
 export function LeadSearchPage() {
-  const persisted = loadPersisted()
-  const savedPos = loadMapPos()
+  /* Brand ativo — usado em todo state persistido. Quando muda, recarrega. */
+  const [activeBrandId, setActiveBrandId] = useState<string | null>(getActiveBrandId())
 
-  // Form
-  const [query, setQuery] = useState(persisted.query || '')
-  const [location, setLocation] = useState(persisted.location || '')
-  const [maxResults, setMaxResults] = useState(persisted.maxResults || 20)
-  const [automate, setAutomate] = useState(persisted.automate || false)
+  /* Form */
+  const [query, setQuery] = useState('')
+  const [location, setLocation] = useState('')
+  const [maxResults, setMaxResults] = useState(20)
+  const [automate, setAutomate] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
-  const [radius, setRadius] = useState(persisted.radius || '')
+  /* Raio padrao: 3km (string vazia = "auto"). Otimizacao do Panfleteiro V2. */
+  const [radius, setRadius] = useState<string>('3')
 
-  // Results
-  const [leads, setLeads] = useState<Lead[]>(persisted.leads || [])
+  /* Filtros server-side (Panfleteiro V2) */
+  const [minRating, setMinRating] = useState<number>(0)
+  const [minReviews, setMinReviews] = useState<number>(0)
+  const [onlyUncaptured, setOnlyUncaptured] = useState<boolean>(false)
+  const [hasPhoneFilter, setHasPhoneFilter] = useState<boolean>(false)
+  const [hasWebsiteFilter, setHasWebsiteFilter] = useState<boolean>(false)
+
+  /* Resultados */
+  const [leads, setLeads] = useState<Lead[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [stats, setStats] = useState<{ total: number; created: number; skipped: number; automationQueued: number } | null>(persisted.stats || null)
-  const [searched, setSearched] = useState(!!(persisted.leads?.length))
+  const [stats, setStats] = useState<{ total: number; created: number; skipped: number; automationQueued: number } | null>(null)
+  const [searched, setSearched] = useState(false)
 
-  // Filter + View
+  /* Filter + View */
   const [statusFilter, setStatusFilter] = useState<'all' | 'new' | 'captured'>('all')
   const [searchFilter, setSearchFilter] = useState('')
   const [viewMode, setViewMode] = useState<'list' | 'map'>('map')
   const [capturedPoints, setCapturedPoints] = useState<any[]>([])
 
-  // Panfleteiro mode
-  const [panfleteiro, setPanfleteiro] = useState(false)
+  /* Radar (arrastar mapa sempre busca novo centro — sem toggle) */
   const [autoCapture, setAutoCapture] = useState(false)
   const [radarLoading, setRadarLoading] = useState(false)
   const [radarCount, setRadarCount] = useState(0)
-  const [capturedLive, setCapturedLive] = useState(0)
+  const [capturedLive, setCapturedLive] = useState(0) // captados nessa sessão
   const [prospecting, setProspecting] = useState(false)
+  const [batchCapturing, setBatchCapturing] = useState(false)
+  /* Lead selecionado para o painel direito (clique no pin) */
+  const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
+  /* Modal Gerar Ideias IA — aceita texto humanizado e sugere segmento+cidade+raio */
+  const [ideasModalOpen, setIdeasModalOpen] = useState(false)
 
-  // Map refs
+  /* Mapa Mapbox (substitui Leaflet) */
+  const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number; zoom: number }>({ lat: -19.9167, lng: -43.9345, zoom: 13 })
+  /* Centro INICIAL definido pela busca por cidade — usado pra mostrar "voltar"
+     e diferenciar do ponto atual onde o usuario arrastou o mapa. */
+  const [initialCenter, setInitialCenter] = useState<{ lat: number; lng: number; zoom: number; label: string } | null>(null)
+  /* Ultimo resultado do radar — pra mostrar feedback "0 encontrados aqui" quando
+     o user move pra area sem leads do segmento atual. */
+  const [lastRadarResult, setLastRadarResult] = useState<{ count: number; at: number } | null>(null)
+  /* flyToCenter — quando muda, o componente faz map.flyTo(). Distinto de mapCenter
+     (que é o center "vivo" do mapa). Atualizado SOMENTE após uma busca text-based
+     que retorna leads em outra cidade. */
+  const [flyToCenter, setFlyToCenter] = useState<{ lat: number; lng: number; zoom?: number } | null>(null)
+  const [recentlyCaptured, setRecentlyCaptured] = useState<string[]>([])
+  const [immersive, setImmersive] = useState(false)
+  const [pulseTimer] = useState<{ id: ReturnType<typeof setTimeout> | null }>({ id: null })
+
+  /* Metricas globais do brand */
+  const [todayCount, setTodayCount] = useState<number>(0)
+  const [totalCount, setTotalCount] = useState<number>(0)
+
+  /* Refs */
   const mapRef = useRef<HTMLDivElement>(null)
   const mapInstance = useRef<L.Map | null>(null)
   const moveTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
-  const leadsRef = useRef<Lead[]>(persisted.leads || [])
+  const leadsRef = useRef<Lead[]>([])
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /* Refs pra restaurar última ação ao trocar de brand (evita stale closure) */
+  const radarSearchRef = useRef<((lat: number, lng: number) => void) | null>(null)
+  const restoreLastSearchRef = useRef<(() => void) | null>(null)
+  /* Guarda contra race: save só dispara DEPOIS que o restore terminou (ou falhou).
+     Sem isso, o debounce 1.2s pode sobrescrever query/location do BD com "". */
+  const stateLoadedForBrand = useRef<string | null>(null)
+  /* Ref do autoCapture — usado no radarSearch para SEMPRE ler valor atual, mesmo
+     quando o closure foi capturado com valor antigo (restore async). */
+  const autoCaptureRef = useRef(false)
 
+  useEffect(() => { leadsRef.current = leads }, [leads])
+
+  /* ── Detecta troca de brand pela aba/localStorage ── */
   useEffect(() => {
-    leadsRef.current = leads
-  }, [leads])
+    const i = setInterval(() => {
+      const cur = getActiveBrandId()
+      if (cur !== activeBrandId) setActiveBrandId(cur)
+    }, 800)
+    return () => clearInterval(i)
+  }, [activeBrandId])
+
+  /* ── Ao mudar brand, carrega state desse brand e RESETA sessao ── */
+  useEffect(() => {
+    if (!activeBrandId) return
+    let alive = true
+    setLeads([]); setStats(null); setSearched(false)
+    setRadarCount(0); setCapturedLive(0); setRecentlyCaptured([])
+    /* Reset do gate de save — ele só será liberado QUANDO o fetch terminar.
+       Sem isso, o debouncedSave dispara com query="" e sobrescreve o BD. */
+    stateLoadedForBrand.current = null
+    fetchBrandSearchState(activeBrandId).then((state) => {
+      if (!alive) return
+      if (state) {
+        if (typeof state.query === 'string') setQuery(state.query)
+        if (typeof state.location === 'string') setLocation(state.location)
+        if (typeof state.maxResults === 'number') setMaxResults(state.maxResults)
+        if (typeof state.automate === 'boolean') setAutomate(state.automate)
+        if (state.radius !== undefined && state.radius !== null) setRadius(String(state.radius))
+        if (typeof state.minRating === 'number') setMinRating(state.minRating)
+        if (typeof state.minReviews === 'number') setMinReviews(state.minReviews)
+        if (typeof state.onlyUncaptured === 'boolean') setOnlyUncaptured(state.onlyUncaptured)
+        if (typeof state.hasPhoneFilter === 'boolean') setHasPhoneFilter(state.hasPhoneFilter)
+        if (typeof state.hasWebsiteFilter === 'boolean') setHasWebsiteFilter(state.hasWebsiteFilter)
+        if (typeof state.autoCapture === 'boolean') setAutoCapture(state.autoCapture)
+        if (state.mapCenter && typeof state.mapCenter.lat === 'number' && typeof state.mapCenter.lng === 'number') {
+          setMapCenter({ lat: state.mapCenter.lat, lng: state.mapCenter.lng, zoom: state.mapCenter.zoom || 13 })
+        }
+        /* Restaura ultima acao: se tem query+location salvos, auto-disparar busca
+           silenciosa pra repovoar os leads e manter o mapa exatamente como estava.
+           Prefere radar (usa coords exatas salvas) sempre que tiver mapCenter. */
+        const q = (state.query || '').toString().trim()
+        const loc = (state.location || '').toString().trim()
+        const c = state.mapCenter
+        if (q && loc) {
+          setSearched(true)
+          /* 600ms — tempo seguro pros setStates do restore (incl. autoCapture)
+             refletirem em todos os refs antes da busca rodar. */
+          if (c && Number.isFinite(c.lat) && Number.isFinite(c.lng)) {
+            setTimeout(() => { if (alive) radarSearchRef.current?.(c.lat, c.lng) }, 600)
+          } else {
+            setTimeout(() => { if (alive) restoreLastSearchRef.current?.() }, 600)
+          }
+        }
+      }
+      /* Libera o gate APENAS depois do restore completo (com ou sem state). */
+      stateLoadedForBrand.current = activeBrandId
+    }).catch(() => {
+      /* Mesmo em erro, libera o gate pra usuario poder começar do zero */
+      if (alive) stateLoadedForBrand.current = activeBrandId
+    })
+    /* Metricas do brand: response é { success, stats: { today_count, total, ... } }
+       Recurso `today_count` é calculado no BD via DATE(created_at) = CURRENT_DATE.
+       Bug anterior: lia d.today_count em vez de d.stats.today_count → sempre 0. */
+    fetch('/api/leads/stats', { headers: getHeaders() })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (!alive || !d) return
+        const s = d?.stats ?? d /* fallback se backend antigo retornar achatado */
+        setTodayCount(Number(s?.today_count ?? s?.todayCount ?? 0))
+        setTotalCount(Number(s?.total ?? s?.total_count ?? 0))
+      })
+      .catch(() => {})
+    return () => { alive = false }
+  }, [activeBrandId])
+
+  /* Helper pra recarregar contadores do BD — chamado após captureBatch e radarSearch
+     com captura, e periodicamente. Garante numero correto mesmo apos reload. */
+  const refreshBrandStats = useCallback(() => {
+    fetch('/api/leads/stats', { headers: getHeaders() })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (!d) return
+        const s = d?.stats ?? d
+        setTodayCount(Number(s?.today_count ?? s?.todayCount ?? 0))
+        setTotalCount(Number(s?.total ?? s?.total_count ?? 0))
+      })
+      .catch(() => {})
+  }, [])
+
+  /* ESC sai do modo imersivo */
+  useEffect(() => {
+    if (!immersive) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setImmersive(false) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [immersive])
+
+  /* ── Debounced save por brand ──
+     GATE: só salva DEPOIS que o restore terminou pra esse brand. Sem isso, ao
+     trocar de brand ou recarregar a pagina, o save dispara com state vazio
+     (query="", etc) ANTES do fetch terminar e sobrescreve o BD. */
+  useEffect(() => {
+    if (!activeBrandId) return
+    if (stateLoadedForBrand.current !== activeBrandId) return // gate
+    if (saveTimer.current) clearTimeout(saveTimer.current)
+    saveTimer.current = setTimeout(() => {
+      persistBrandSearchState(activeBrandId, {
+        query, location, maxResults, automate, radius,
+        minRating, minReviews, onlyUncaptured, hasPhoneFilter, hasWebsiteFilter,
+        mapCenter, autoCapture,
+      })
+    }, 1200)
+    return () => { if (saveTimer.current) clearTimeout(saveTimer.current) }
+  }, [activeBrandId, query, location, maxResults, automate, radius, minRating, minReviews, onlyUncaptured, hasPhoneFilter, hasWebsiteFilter, mapCenter, autoCapture])
 
   // ── Standard search ──
   async function handleSearch(e: FormEvent) {
@@ -98,8 +308,27 @@ export function LeadSearchPage() {
       setLeads(resultLeads)
       setCapturedPoints(d.capturedPoints || [])
       setStats(resultStats)
-      savePersisted({ query: query.trim(), location: location.trim(), maxResults, automate, radius, leads: resultLeads, stats: resultStats })
       setViewMode('map')
+      /* CENTRALIZA O MAPA na localizacao buscada — usa center do backend OU
+         primeiro lead com location valida. Corrige bug "buscou Fortaleza, mapa
+         continua em BH". */
+      const c = d.center && Number.isFinite(d.center?.latitude) && Number.isFinite(d.center?.longitude)
+        ? { lat: Number(d.center.latitude), lng: Number(d.center.longitude), zoom: 13 }
+        : (() => {
+            const first = resultLeads.find((l: any) =>
+              Number.isFinite(Number(l?.location?.latitude)) &&
+              Number.isFinite(Number(l?.location?.longitude)) &&
+              !(Number(l.location.latitude) === 0 && Number(l.location.longitude) === 0)
+            )
+            return first ? { lat: Number(first.location.latitude), lng: Number(first.location.longitude), zoom: 13 } : null
+          })()
+      if (c) {
+        setFlyToCenter(c)
+        setMapCenter({ lat: c.lat, lng: c.lng, zoom: c.zoom ?? 13 })
+        /* Marca este como o ponto INICIAL — usado pra mostrar "Voltar" no card
+           e diferenciar visualmente quando o user arrastou o mapa pra outro lugar. */
+        setInitialCenter({ lat: c.lat, lng: c.lng, zoom: c.zoom ?? 13, label: location.trim() })
+      }
     } catch (err: any) { setError(err.message || 'Erro na busca') }
     finally { setLoading(false) }
   }
@@ -111,11 +340,22 @@ export function LeadSearchPage() {
     setProspecting(true)
     try {
       const searchRadius = Number(radius || 3) * 1000
-      const body = { query: query.trim(), latitude: lat, longitude: lng, radius: searchRadius, maxResults: Math.min(maxResults, 40) }
+      const body: Record<string, any> = {
+        query: query.trim(),
+        latitude: lat,
+        longitude: lng,
+        radius: searchRadius,
+        maxResults: Math.min(maxResults, 40),
+        /* Filtros server-side (Panfleteiro V2) */
+        minRating, minReviews,
+        onlyUncaptured, hasPhone: hasPhoneFilter, hasWebsite: hasWebsiteFilter,
+      }
       const r = await fetch('/api/leads/radar-search', { method: 'POST', headers: getHeaders(), body: JSON.stringify(body) })
       const d = await r.json()
       if (!r.ok) throw new Error(d.error)
       const radarLeads: Lead[] = d.leads || []
+      /* Marca o ultimo resultado do radar — usado pra feedback "0 aqui" no card */
+      setLastRadarResult({ count: radarLeads.length, at: Date.now() })
 
       // Merge with existing (deduplicate by id)
       const existingIds = new Set(leadsRef.current.map(l => l.id))
@@ -135,9 +375,10 @@ export function LeadSearchPage() {
         total: prev.total + newOnes.length,
       } : { total: radarLeads.length, created: 0, skipped: 0, automationQueued: 0 })
 
-      // Auto-capture: persist each new lead individually via capture-manual
+      // Auto-capture: persist each new lead individually via capture-manual.
+      // Usa autoCaptureRef em vez de closure pra evitar stale value no auto-restore.
       const captureCandidates = newOnes.filter(lead => lead.captureStatus !== 'captured')
-      if (autoCapture && captureCandidates.length > 0) {
+      if (autoCaptureRef.current && captureCandidates.length > 0) {
         let capturedThisRound = 0
         for (const lead of captureCandidates) {
           try {
@@ -167,23 +408,106 @@ export function LeadSearchPage() {
             if (created) {
               capturedThisRound++
               setCapturedLive(c => c + 1)
-              // Update pin status immediately — new → captured
+              /* Anima pulse no pin recém-captado */
+              setRecentlyCaptured((prev) => [...new Set([...prev, lead.id])])
+              /* Remove do "recém" depois de 1.6s pra parar a animação */
+              setTimeout(() => {
+                setRecentlyCaptured((prev) => prev.filter((id) => id !== lead.id))
+              }, 1600)
             }
             if (Array.isArray(cd.capturedPoints)) setCapturedPoints(cd.capturedPoints)
           } catch {}
         }
         if (capturedThisRound > 0) {
           setStats(prev => prev ? { ...prev, created: prev.created + capturedThisRound } : prev)
+          /* Refresh autoritativo do BD em vez de incremento otimista */
+          refreshBrandStats()
         }
       }
 
-      // Save map position
-      const map = mapInstance.current
-      if (map) saveMapPos(lat, lng, map.getZoom())
     } catch {}
     setRadarLoading(false)
     setTimeout(() => setProspecting(false), 500)
-  }, [query, radius, maxResults, autoCapture, automate])
+    /* autoCapture intencionalmente fora das deps — usa autoCaptureRef pra ler valor atual. */
+  }, [query, radius, maxResults, automate, minRating, minReviews, onlyUncaptured, hasPhoneFilter, hasWebsiteFilter, refreshBrandStats])
+
+  /* Captura em lote: pega todos os leads "new" visiveis e dispara captureManual
+     em sequencia. Atualiza state em tempo real (cada captura empurra um pulse). */
+  const captureBatch = useCallback(async () => {
+    if (batchCapturing) return
+    const targets = leadsRef.current.filter(l => l.captureStatus === 'new')
+    if (!targets.length) return
+    setBatchCapturing(true)
+    setProspecting(true)
+    let captured = 0
+    for (const lead of targets) {
+      try {
+        const captureBody = {
+          lead: {
+            placeId: lead.id, name: lead.name, phone: lead.phone,
+            address: lead.address, rating: lead.rating, reviews: lead.reviews,
+            category: lead.category, website: lead.website,
+            googleMapsUri: lead.googleMapsUri, businessStatus: lead.businessStatus,
+            location: lead.location,
+          },
+          query: query.trim(),
+          location: location.trim() || `${mapCenter.lat.toFixed(4)},${mapCenter.lng.toFixed(4)}`,
+          executeAutomation: automate,
+        }
+        const cr = await fetch('/api/leads/capture-manual', { method: 'POST', headers: getHeaders(), body: JSON.stringify(captureBody) })
+        const cd = await cr.json()
+        const ok = cd.success && ['created', 'existing', 'captured'].includes(String(cd.capture?.status || ''))
+        if (ok) {
+          captured++
+          setLeads(prev => {
+            const next = prev.map(l => l.id === lead.id ? { ...l, captureStatus: 'captured' as const } : l)
+            leadsRef.current = next
+            return next
+          })
+          setCapturedLive(c => c + 1)
+          setRecentlyCaptured(prev => [...new Set([...prev, lead.id])])
+          setTimeout(() => setRecentlyCaptured(prev => prev.filter(id => id !== lead.id)), 1600)
+        }
+        if (Array.isArray(cd.capturedPoints)) setCapturedPoints(cd.capturedPoints)
+      } catch { /* segue */ }
+    }
+    setStats(prev => prev ? { ...prev, created: prev.created + captured } : prev)
+    setBatchCapturing(false)
+    setTimeout(() => setProspecting(false), 500)
+    /* Refresh autoritativo do BD — substitui o increment otimista pra garantir
+        o numero exato (BD pode rejeitar duplicates, etc). */
+    if (captured > 0) refreshBrandStats()
+  }, [batchCapturing, query, location, automate, mapCenter, refreshBrandStats])
+
+  /* Mantém ref atualizada pra restaurar última ação ao trocar de brand */
+  useEffect(() => { radarSearchRef.current = radarSearch }, [radarSearch])
+  /* Sync autoCaptureRef com o state — usado em closures de radarSearch */
+  useEffect(() => { autoCaptureRef.current = autoCapture }, [autoCapture])
+
+  /* ── AUTO-CAPTURA reativa ──
+     Sempre que ha leads NEW no state E auto-captura esta ON, dispara captureBatch.
+     Cobre 3 cenarios que o auto-capture inline do radarSearch nao cobria:
+       1) Usuario LIGA auto-captura DEPOIS de ja ter leads NEW visiveis
+       2) Auto-capture do radarSearch falhou parcialmente — sobraram NEW orfaos
+       3) State foi restaurado do BD com leads NEW e auto ON
+     Guard: nao re-dispara enquanto ja esta capturando (batchCapturing). */
+  useEffect(() => {
+    if (!autoCapture) return
+    if (batchCapturing) return
+    const hasNew = leads.some(l => l.captureStatus === 'new')
+    if (!hasNew) return
+    /* Debounce 400ms — espera assentar caso novos leads cheguem em rajada */
+    const t = setTimeout(() => { captureBatch() }, 400)
+    return () => clearTimeout(t)
+  }, [autoCapture, leads, batchCapturing, captureBatch])
+  useEffect(() => {
+    restoreLastSearchRef.current = () => {
+      if (!query.trim() || !location.trim()) return
+      const fakeEvent = { preventDefault: () => {} } as FormEvent
+      handleSearch(fakeEvent)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, location])
 
   const filtered = leads.filter(l => {
     if (statusFilter === 'new' && l.captureStatus !== 'new') return false
@@ -198,8 +522,29 @@ export function LeadSearchPage() {
   const newCount = leads.filter(l => l.captureStatus === 'new').length
   const capturedCount = leads.filter(l => l.captureStatus === 'captured').length
 
+  /* Pins DENTRO do raio atual (haversine simples).
+     Usado pra esmaecer pins fora e mostrar contador "no raio" vs "total sessao". */
+  const radiusKmCurrent = Math.max(0.1, Number(radius || 3))
+  const inRangeIds = useMemo(() => {
+    const set = new Set<string>()
+    for (const l of leads) {
+      const la = Number(l.location?.latitude)
+      const ln = Number(l.location?.longitude)
+      if (!Number.isFinite(la) || !Number.isFinite(ln)) continue
+      const dKm = haversineKm(mapCenter.lat, mapCenter.lng, la, ln)
+      if (dKm <= radiusKmCurrent) set.add(l.id)
+    }
+    return set
+  }, [leads, mapCenter.lat, mapCenter.lng, radiusKmCurrent])
+  const inRangeCount = inRangeIds.size
+  const newInRange = leads.filter(l => l.captureStatus === 'new' && inRangeIds.has(l.id)).length
+
+  /* UI compacta quando ja tem mapa ativo — esconde chips e os 6 cards de stats
+     (todos duplicados pelo RadarCard no canto do mapa). Form fica condensado. */
+  const isCompact = searched || leads.length > 0
+
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       {/* ── Header ── */}
       <header className="flex items-start justify-between gap-3 flex-wrap">
         <div>
@@ -226,84 +571,197 @@ export function LeadSearchPage() {
               +{radarCount} radar
             </span>
           )}
+          {/* Botao Gerar ideias com IA — abre modal humanizado, IA sugere
+              segmento + cidade + raio em 1 clique. */}
+          <button
+            type="button"
+            onClick={() => setIdeasModalOpen(true)}
+            title="Descreva seu negócio e a IA sugere segmentos e cidades pra prospectar"
+            className="ai-shimmer inline-flex items-center gap-1.5 h-9 px-3 rounded-lg bg-gray-900 hover:bg-black text-white text-[12px] font-semibold transition-all hover:shadow-[0_4px_12px_rgba(0,0,0,0.2)]"
+          >
+            <Sparkles size={13} strokeWidth={2.25} />
+            <span className="hidden sm:inline">Gerar ideias</span>
+          </button>
         </div>
       </header>
 
-      {/* ── Search Form ── */}
+      {/* ── Search Form ──
+          Duas variantes:
+          - Expansivo (primeira busca): inputs grandes empilhados + chips + botao full-width
+          - Compacto (mapa ja ativo): tudo em UMA linha — inputs + raio + botao "Atualizar". */}
       <form onSubmit={handleSearch} className="bg-white rounded-2xl border border-border-light overflow-hidden">
-        <div className="p-4 space-y-3">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-[12px] font-semibold text-gray-700 mb-1.5">Segmento</label>
+        {isCompact ? (
+          /* COMPACTO — uma linha so. Mudar segmento/cidade muda a rota; arrasto do mapa
+             continua a busca dinamica. */
+          <div className="p-3 flex items-end gap-2 flex-wrap">
+            <div className="flex-1 min-w-[140px]">
+              <label className="block text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Segmento</label>
               <div className="relative">
-                <Building2 size={15} strokeWidth={1.75} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                <Building2 size={13} strokeWidth={1.75} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
                 <input
                   type="text"
                   value={query}
                   onChange={e => setQuery(e.target.value)}
-                  placeholder="pizzaria, hortifruti…"
+                  placeholder="pizzaria…"
                   required
-                  autoFocus
-                  className="w-full h-11 pl-10 pr-3 rounded-xl border border-border bg-white text-sm font-medium text-gray-900 placeholder:text-gray-400 placeholder:font-normal focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900 transition"
+                  className="w-full h-9 pl-8 pr-2 rounded-lg border border-border bg-white text-[13px] font-medium text-gray-900 placeholder:text-gray-400 placeholder:font-normal focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-900 transition"
                 />
               </div>
             </div>
-            <div>
-              <label className="block text-[12px] font-semibold text-gray-700 mb-1.5">Cidade</label>
+            <div className="flex-1 min-w-[140px]">
+              <label className="block text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Cidade</label>
               <div className="relative">
-                <MapPin size={15} strokeWidth={1.75} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                <MapPin size={13} strokeWidth={1.75} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
                 <input
                   type="text"
                   value={location}
                   onChange={e => setLocation(e.target.value)}
-                  placeholder="São Paulo, BH…"
+                  placeholder="São Paulo…"
                   required
-                  className="w-full h-11 pl-10 pr-3 rounded-xl border border-border bg-white text-sm font-medium text-gray-900 placeholder:text-gray-400 placeholder:font-normal focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900 transition"
+                  className="w-full h-9 pl-8 pr-2 rounded-lg border border-border bg-white text-[13px] font-medium text-gray-900 placeholder:text-gray-400 placeholder:font-normal focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-900 transition"
                 />
               </div>
             </div>
+            <div className="flex-[1.2] min-w-[180px]">
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Raio</label>
+                <span className="text-[10px] font-semibold text-gray-700 tabular-nums">
+                  {(() => { const n = Number(radius || 3); return n < 1 ? `${Math.round(n * 1000)}m` : `${n.toFixed(n < 10 ? 1 : 0)}km` })()}
+                </span>
+              </div>
+              <input
+                type="range"
+                min={0.5}
+                max={30}
+                step={0.5}
+                value={Number(radius || 3)}
+                onChange={e => setRadius(e.target.value)}
+                className="w-full h-1.5 rounded-full appearance-none cursor-pointer accent-gray-900 mt-2"
+                style={{
+                  background: `linear-gradient(to right, #111827 0%, #111827 ${((Number(radius || 3) - 0.5) / 29.5) * 100}%, #e5e7eb ${((Number(radius || 3) - 0.5) / 29.5) * 100}%, #e5e7eb 100%)`,
+                }}
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={loading}
+              title="Mudar de rota / cidade — re-centraliza o mapa"
+              className="h-9 px-4 inline-flex items-center justify-center gap-1.5 rounded-lg bg-gray-900 text-white font-semibold text-[12px] tracking-tight hover:bg-gray-800 disabled:opacity-40 active:scale-[0.99] transition"
+            >
+              {loading ? <Loader2 size={13} className="animate-spin" /> : <Search size={13} strokeWidth={2.25} />}
+              {loading ? 'Buscando…' : 'Mudar rota'}
+            </button>
           </div>
+        ) : (
+          /* EXPANSIVO — primeira busca, conteudo amplo + chips */
+          <div className="p-4 space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[12px] font-semibold text-gray-700 mb-1.5">Segmento</label>
+                <div className="relative">
+                  <Building2 size={15} strokeWidth={1.75} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={query}
+                    onChange={e => setQuery(e.target.value)}
+                    placeholder="pizzaria, hortifruti…"
+                    required
+                    autoFocus
+                    className="w-full h-11 pl-10 pr-3 rounded-xl border border-border bg-white text-sm font-medium text-gray-900 placeholder:text-gray-400 placeholder:font-normal focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900 transition"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-[12px] font-semibold text-gray-700 mb-1.5">Cidade</label>
+                <div className="relative">
+                  <MapPin size={15} strokeWidth={1.75} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={location}
+                    onChange={e => setLocation(e.target.value)}
+                    placeholder="São Paulo, BH…"
+                    required
+                    className="w-full h-11 pl-10 pr-3 rounded-xl border border-border bg-white text-sm font-medium text-gray-900 placeholder:text-gray-400 placeholder:font-normal focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900 transition"
+                  />
+                </div>
+              </div>
+            </div>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full h-12 inline-flex items-center justify-center gap-2 rounded-xl bg-gray-900 text-white font-semibold text-[14px] tracking-tight hover:bg-gray-800 disabled:opacity-40 active:scale-[0.99] transition"
-          >
-            {loading ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} strokeWidth={2.25} />}
-            {loading ? 'Buscando…' : 'Buscar leads'}
-          </button>
-        </div>
+            {/* Slider de raio */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-[12px] font-semibold text-gray-700">Raio</label>
+                <span className="text-[11px] font-semibold text-gray-500 tabular-nums">
+                  {(() => { const n = Number(radius || 3); return n < 1 ? `${Math.round(n * 1000)}m` : `${n.toFixed(n < 10 ? 1 : 0)}km` })()}
+                </span>
+              </div>
+              <input
+                type="range"
+                min={0.5}
+                max={30}
+                step={0.5}
+                value={Number(radius || 3)}
+                onChange={e => setRadius(e.target.value)}
+                className="w-full h-1.5 rounded-full appearance-none cursor-pointer accent-gray-900"
+                style={{
+                  background: `linear-gradient(to right, #111827 0%, #111827 ${((Number(radius || 3) - 0.5) / 29.5) * 100}%, #e5e7eb ${((Number(radius || 3) - 0.5) / 29.5) * 100}%, #e5e7eb 100%)`,
+                }}
+              />
+              <div className="flex justify-between text-[9px] font-medium text-gray-400 mt-0.5 tabular-nums">
+                <span>500m</span>
+                <span>30km</span>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full h-12 inline-flex items-center justify-center gap-2 rounded-xl bg-gray-900 text-white font-semibold text-[14px] tracking-tight hover:bg-gray-800 disabled:opacity-40 active:scale-[0.99] transition"
+            >
+              {loading ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} strokeWidth={2.25} />}
+              {loading ? 'Buscando…' : 'Buscar leads'}
+            </button>
+
+            {/* Chips de sugestões — só na primeira busca */}
+            <div className="flex flex-wrap gap-1.5 pt-1">
+              {SUGGESTIONS.map(({ icon: Icon, label, query: q }) => (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => setQuery(q)}
+                  className={`inline-flex items-center gap-1.5 h-7 px-2.5 rounded-full text-[11px] font-semibold transition ${
+                    query.toLowerCase() === q.toLowerCase()
+                      ? 'bg-gray-900 text-white'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  <Icon size={11} strokeWidth={2} />
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Options bar */}
+        {/* Toolbar do form: Auto-captura, Avançado, Automação.
+            O modo "radar" é implicito — o arrasto do mapa SEMPRE busca novo centro. */}
         <div className="border-t border-border-light px-4 py-2.5 flex items-center justify-between gap-2 flex-wrap">
           <div className="flex items-center gap-1.5 flex-wrap">
             <button
               type="button"
-              onClick={() => setPanfleteiro(!panfleteiro)}
-              aria-pressed={panfleteiro}
+              onClick={() => setAutoCapture(!autoCapture)}
+              aria-pressed={autoCapture}
+              title="Captura automaticamente novos leads ao mover o mapa"
               className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-full text-[11px] font-semibold transition ${
-                panfleteiro
-                  ? 'bg-gray-900 text-white'
+                autoCapture
+                  ? 'bg-emerald-600 text-white'
                   : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
               }`}
             >
-              <Crosshair size={11} strokeWidth={2.25} /> Panfleteiro
+              {autoCapture ? <Zap size={11} strokeWidth={2.25} /> : <Pause size={11} strokeWidth={2.25} />}
+              Auto-captura
             </button>
-            {panfleteiro && (
-              <button
-                type="button"
-                onClick={() => setAutoCapture(!autoCapture)}
-                aria-pressed={autoCapture}
-                className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-full text-[11px] font-semibold transition ${
-                  autoCapture
-                    ? 'bg-emerald-600 text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                {autoCapture ? <Zap size={11} strokeWidth={2.25} /> : <Pause size={11} strokeWidth={2.25} />}
-                Auto-captura
-              </button>
-            )}
             <button
               type="button"
               onClick={() => setShowAdvanced(!showAdvanced)}
@@ -329,31 +787,49 @@ export function LeadSearchPage() {
         </div>
 
         {showAdvanced && (
-          <div className="border-t border-border-light px-4 py-3 grid grid-cols-1 sm:grid-cols-3 gap-3 bg-gray-50/60">
-            <div>
-              <label className="block text-[12px] font-semibold text-gray-700 mb-1.5">Máx. resultados</label>
-              <select
-                value={maxResults}
-                onChange={e => setMaxResults(Number(e.target.value))}
-                className="w-full h-10 px-3 rounded-xl border border-border bg-white text-sm font-medium text-gray-900 focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900 transition"
-              >
-                {[10, 20, 30, 50, 80, 100].map(n => <option key={n} value={n}>{n}</option>)}
-              </select>
+          <div className="border-t border-border-light px-4 py-3 bg-gray-50/60 space-y-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-[11px] font-semibold text-gray-600 uppercase tracking-wide mb-1.5">Máx. resultados</label>
+                <select
+                  value={maxResults}
+                  onChange={e => setMaxResults(Number(e.target.value))}
+                  className="w-full h-10 px-3 rounded-xl border border-border bg-white text-sm font-medium text-gray-900 focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900 transition"
+                >
+                  {[10, 20, 30, 50, 80, 100].map(n => <option key={n} value={n}>{n}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold text-gray-600 uppercase tracking-wide mb-1.5">Rating min.</label>
+                <select value={minRating} onChange={e => setMinRating(Number(e.target.value))}
+                  className="w-full h-10 px-3 rounded-xl border border-border bg-white text-sm font-medium text-gray-900 focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900 transition">
+                  {[0, 3, 3.5, 4, 4.5].map(n => <option key={n} value={n}>{n === 0 ? 'qualquer' : `${n} ★`}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold text-gray-600 uppercase tracking-wide mb-1.5">Reviews min.</label>
+                <select value={minReviews} onChange={e => setMinReviews(Number(e.target.value))}
+                  className="w-full h-10 px-3 rounded-xl border border-border bg-white text-sm font-medium text-gray-900 focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900 transition">
+                  {[0, 5, 10, 25, 50, 100].map(n => <option key={n} value={n}>{n === 0 ? 'qualquer' : `${n}+`}</option>)}
+                </select>
+              </div>
             </div>
-            <div>
-              <label className="block text-[12px] font-semibold text-gray-700 mb-1.5">Raio (km)</label>
-              <input
-                type="number"
-                value={radius}
-                onChange={e => setRadius(e.target.value)}
-                placeholder="auto"
-                min={1}
-                max={50}
-                className="w-full h-10 px-3 rounded-xl border border-border bg-white text-sm font-medium text-gray-900 placeholder:text-gray-400 placeholder:font-normal focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900 transition"
-              />
-            </div>
-            <div className="flex items-end">
-              <p className="text-[11px] text-gray-500 leading-relaxed">Vazio = Google decide automaticamente.</p>
+            <div className="flex flex-wrap gap-3 pt-1 border-t border-gray-200/60">
+              <label className="inline-flex items-center gap-2 cursor-pointer text-[12px] font-semibold text-gray-700 pt-2">
+                <input type="checkbox" checked={onlyUncaptured} onChange={e => setOnlyUncaptured(e.target.checked)}
+                  className="w-4 h-4 rounded border-gray-300 text-gray-900 focus:ring-gray-400" />
+                Só novos (não captados)
+              </label>
+              <label className="inline-flex items-center gap-2 cursor-pointer text-[12px] font-semibold text-gray-700 pt-2">
+                <input type="checkbox" checked={hasPhoneFilter} onChange={e => setHasPhoneFilter(e.target.checked)}
+                  className="w-4 h-4 rounded border-gray-300 text-gray-900 focus:ring-gray-400" />
+                Com telefone
+              </label>
+              <label className="inline-flex items-center gap-2 cursor-pointer text-[12px] font-semibold text-gray-700 pt-2">
+                <input type="checkbox" checked={hasWebsiteFilter} onChange={e => setHasWebsiteFilter(e.target.checked)}
+                  className="w-4 h-4 rounded border-gray-300 text-gray-900 focus:ring-gray-400" />
+                Com site
+              </label>
             </div>
           </div>
         )}
@@ -365,14 +841,17 @@ export function LeadSearchPage() {
         )}
       </form>
 
-      {/* ── Stats ── */}
-      {(leads.length > 0 || stats) && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+      {/* ── Stats — só na PRIMEIRA busca. Depois disso fica duplicado com o RadarCard
+           no canto do mapa (mesmas metricas), entao escondemos pra liberar espaco. */}
+      {!isCompact && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2">
           {([
             { v: leads.length, l: 'Encontrados', accent: 'text-gray-900' },
             { v: newCount, l: 'Novos', accent: 'text-emerald-700' },
             { v: capturedCount, l: 'Existentes', accent: 'text-amber-700' },
-            { v: capturedLive + (stats?.automationQueued || 0), l: 'Captados', accent: 'text-gray-900' },
+            { v: capturedLive, l: 'Nessa ação', accent: 'text-gray-900' },
+            { v: todayCount, l: 'Hoje', accent: 'text-gray-900' },
+            { v: totalCount, l: 'Total', accent: 'text-gray-900' },
           ] as const).map(s => (
             <div key={s.l} className="bg-white border border-border-light rounded-2xl p-3.5">
               <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">{s.l}</p>
@@ -382,8 +861,9 @@ export function LeadSearchPage() {
         </div>
       )}
 
-      {/* ── Results ── */}
-      {searched && !loading && leads.length > 0 && (
+      {/* ── Results ── Mapa fica visível sempre que o usuário já buscou.
+           O arrasto do mapa SEMPRE dispara nova busca (radar implicito). */}
+      {(searched || leads.length > 0) && !loading && (
         <div className="space-y-3">
           {/* Controls */}
           <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -447,18 +927,161 @@ export function LeadSearchPage() {
             </div>
           </div>
 
-          {/* Map */}
+          {/* Map (Panfleteiro V2 — Mapbox GL JS)
+              Em modo imersivo: outer fixed inset-0 SEM padding (p-3 quebra height interno).
+              O componente PanfleteiroMapMapbox preenche 100% do outer.
+              NOTA: mapa sempre full-width — o painel de detalhes é overlay absolute pra
+              nao redimensionar o mapa (Mapbox nao re-render markers em resize de flex). */}
           {viewMode === 'map' && (
-            <PanfleteiroMap
-              leads={filtered}
-              capturedPoints={capturedPoints}
-              mapRef={mapRef}
-              mapInstance={mapInstance}
-              panfleteiro={panfleteiro}
-              radarSearch={radarSearch}
-              moveTimer={moveTimer}
-              savedPos={savedPos}
-            />
+            <div
+              className={immersive ? 'fixed inset-0 z-[200] bg-black' : 'relative w-full'}
+              /* isolation: isolate cria um stacking context proprio — sem isso, os
+                 z-index dos overlays internos (RadarCard, legend, etc) competem com
+                 sidebar (z-30) e bottomnav (z-40) e vazam por cima da UI ao scrollar. */
+              style={immersive ? undefined : { height: '560px', isolation: 'isolate' }}
+            >
+              <PanfleteiroMapMapbox
+                initialCenter={mapCenter}
+                radius={Math.max(100, Number(radius || 3) * 1000)}
+                places={filtered.map<PanfleteiroPlace>((l) => ({
+                  id: l.id, name: l.name, phone: l.phone, address: l.address,
+                  rating: l.rating, reviews: l.reviews, category: l.category,
+                  website: l.website, googleMapsUri: l.googleMapsUri,
+                  location: l.location || null,
+                  captureStatus: l.captureStatus,
+                  prospectStatus: l.captureStatus === 'captured' ? 'new' : null,
+                  /* Marca pins fora do raio atual pra esmaecer visualmente */
+                  outOfRange: !inRangeIds.has(l.id),
+                }))}
+                recentlyCapturedIds={recentlyCaptured}
+                flyToCenter={flyToCenter}
+                immersive={immersive}
+                height="100%"
+                statusBadge={{
+                  label: radarLoading ? 'Buscando…' : prospecting ? 'Prospectando' : 'Radar ativo',
+                  /* Radar ativo idle = verde pulsando (done). Searching = amber pulsing. */
+                  tone: radarLoading ? 'searching' : prospecting ? 'searching' : 'done',
+                }}
+                onCenterChanged={(c) => {
+                  setMapCenter(c)
+                  /* Arrasto do mapa SEMPRE busca novo centro (sem toggle). */
+                  if (query.trim()) radarSearch(c.lat, c.lng)
+                }}
+                onPlaceClick={(p) => {
+                  const lead = leadsRef.current.find(l => l.id === p.id)
+                  if (lead) setSelectedLead(lead)
+                }}
+              />
+              {/* Botao "Modo imersivo" — so aparece QUANDO NAO esta imersivo.
+                  Em modo imersivo, a saida é via bottom bar "Sair" + tecla ESC
+                  (evita botoes duplicados fazendo a mesma coisa). */}
+              {!immersive && (
+                <button
+                  type="button"
+                  onClick={() => setImmersive(true)}
+                  title="Modo imersivo (tela cheia)"
+                  className="absolute bottom-3 left-3 z-20 w-9 h-9 grid place-items-center rounded-lg bg-black/75 hover:bg-black/90 text-white backdrop-blur-sm border border-white/10"
+                >
+                  <Maximize2 size={16} />
+                </button>
+              )}
+
+              {/* Pipeline legend — canto inferior direito, longe da bottom bar imersiva
+                  (que fica em bottom-6 centralizada). Some no imersivo pra evitar
+                  competicao visual. */}
+              {!immersive && (
+                <div className="absolute bottom-3 right-3 z-20 flex items-center gap-2 sm:gap-3 px-3 py-1.5 rounded-full bg-black/75 backdrop-blur-sm border border-white/10 whitespace-nowrap">
+                  {PIPELINE.map(s => (
+                    <span key={s.key} className="flex items-center gap-1 text-[10px] font-semibold text-white/90">
+                      <span className="w-2 h-2 rounded-full" style={{ backgroundColor: s.color }} />
+                      {s.label}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* RADAR CARD — canto superior esquerdo. Metricas + acoes em lote.
+                  Sempre ativo: o radar reage ao arrasto do mapa por padrao. */}
+              <RadarCard
+                active={true}
+                searching={radarLoading || prospecting}
+                found={leads.length}
+                inRange={inRangeCount}
+                newCount={newCount}
+                newInRange={newInRange}
+                captured={capturedCount}
+                capturedLive={capturedLive}
+                today={todayCount}
+                total={totalCount}
+                center={mapCenter}
+                initialCenter={initialCenter}
+                radius={Math.max(0.1, Number(radius || 3))}
+                location={location}
+                autoCapture={autoCapture}
+                batchCapturing={batchCapturing}
+                lastRadarResult={lastRadarResult}
+                onCaptureBatch={captureBatch}
+                onShowAll={() => { setStatusFilter('all'); setSelectedLead(null); }}
+                onResetCenter={() => {
+                  if (!initialCenter) return
+                  /* Volta o mapa pro ponto inicial — flyTo dispara moveend que
+                     vai re-buscar radar nesse centro. */
+                  setFlyToCenter({ lat: initialCenter.lat, lng: initialCenter.lng, zoom: initialCenter.zoom })
+                  setMapCenter({ lat: initialCenter.lat, lng: initialCenter.lng, zoom: initialCenter.zoom })
+                }}
+              />
+
+              {/* Painel de detalhe — overlay flutuante no canto direito, NAO compete pelo
+                  espaco do mapa (preserva markers/centro). Oculto em modo imersivo. */}
+              {selectedLead && !immersive && (
+                <div className="absolute top-14 right-3 z-40 w-72 max-w-[calc(100%-1.5rem)] max-h-[calc(100%-5rem)] overflow-y-auto shadow-xl rounded-2xl">
+                  <LeadDetailPanel lead={selectedLead} onClose={() => setSelectedLead(null)} />
+                </div>
+              )}
+
+              {/* Modo imersivo: bottom bar tecnologica com atalhos */}
+              {immersive && (
+                <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-[#0a0a14]/95 backdrop-blur-xl border border-white/[0.08] shadow-2xl">
+                  <button
+                    type="button"
+                    onClick={() => setAutoCapture(v => !v)}
+                    className={`px-3 py-1.5 rounded-xl text-[11px] font-bold transition flex items-center gap-1.5 ${
+                      autoCapture
+                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 shadow-[0_0_12px_rgba(52,211,153,0.4)]'
+                        : 'bg-white/[0.05] text-white/60 border border-white/10 hover:text-white'
+                    }`}
+                  >
+                    {autoCapture ? <Zap size={12} strokeWidth={2.5} /> : <Pause size={12} strokeWidth={2.5} />}
+                    {autoCapture ? 'Auto-captura ON' : 'Auto-captura'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={captureBatch}
+                    disabled={batchCapturing || newCount === 0}
+                    title={newCount === 0 ? 'Nenhum lead novo' : `Capturar ${newCount} leads novos`}
+                    className="px-3 py-1.5 rounded-xl text-[11px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-400/30 hover:bg-emerald-500/25 transition flex items-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {batchCapturing ? <Loader2 size={12} className="animate-spin" /> : <Zap size={12} strokeWidth={2.5} />}
+                    Captar ({newCount})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('list')}
+                    className="px-3 py-1.5 rounded-xl text-[11px] font-bold bg-white/[0.05] text-white/60 border border-white/10 hover:text-white transition flex items-center gap-1.5"
+                  >
+                    <List size={12} strokeWidth={2.5} /> Lista
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setImmersive(false)}
+                    className="px-3 py-1.5 rounded-xl text-[11px] font-bold bg-white/[0.05] text-white/60 border border-white/10 hover:text-white transition flex items-center gap-1.5"
+                  >
+                    <Minimize2 size={12} strokeWidth={2.5} /> Sair
+                  </button>
+                  <span className="text-[9px] text-white/30 font-mono px-2 border-l border-white/10 ml-1">ESC</span>
+                </div>
+              )}
+            </div>
           )}
 
           {/* List */}
@@ -487,143 +1110,296 @@ export function LeadSearchPage() {
           </div>
           <h2 className="text-[18px] font-bold text-gray-900 tracking-tight mb-1.5">Encontre novos clientes</h2>
           <p className="text-[13px] text-gray-500 max-w-sm leading-relaxed">
-            Busque por segmento e cidade. Ative o modo <span className="font-semibold text-gray-700">Panfleteiro</span> para buscar automaticamente ao mover o mapa.
+            Defina <span className="font-semibold text-gray-700">segmento</span> e <span className="font-semibold text-gray-700">cidade</span> e clique em Buscar.
+            Depois <span className="font-semibold text-gray-700">arraste o mapa</span> — o radar busca o novo centro automaticamente.
           </p>
         </div>
       )}
+
+      {/* Modal Gerar Ideias com IA — aplica direto no form ao escolher uma combinacao */}
+      <IdeaGeneratorModal
+        open={ideasModalOpen}
+        onClose={() => setIdeasModalOpen(false)}
+        onApply={({ segment, city, radiusKm }) => {
+          setQuery(segment)
+          setLocation(city)
+          setRadius(String(radiusKm))
+        }}
+      />
     </div>
   )
 }
 
-/* ── Panfleteiro Map ── */
-function PanfleteiroMap({ leads, capturedPoints, mapRef, mapInstance, panfleteiro, radarSearch, moveTimer, savedPos }: {
-  leads: Lead[]; capturedPoints: any[]
-  mapRef: React.RefObject<HTMLDivElement | null>; mapInstance: React.MutableRefObject<L.Map | null>
-  panfleteiro: boolean; radarSearch: (lat: number, lng: number) => void
-  moveTimer: React.MutableRefObject<ReturnType<typeof setTimeout> | undefined>
-  savedPos: { lat: number; lng: number; zoom: number } | null
+
+/* ── RADAR CARD (overlay no canto do mapa) ──
+   Estilo dark futurista com glow verde. Mostra metricas live + acoes. */
+function RadarCard({
+  active,
+  searching,
+  found,
+  inRange,
+  newCount,
+  newInRange,
+  captured,
+  capturedLive,
+  today,
+  total,
+  center,
+  initialCenter,
+  radius,
+  location,
+  autoCapture,
+  batchCapturing,
+  lastRadarResult,
+  onCaptureBatch,
+  onShowAll,
+  onResetCenter,
+}: {
+  active: boolean
+  searching: boolean
+  found: number
+  inRange: number
+  newCount: number
+  newInRange: number
+  captured: number
+  capturedLive: number
+  today: number
+  total: number
+  center: { lat: number; lng: number; zoom: number }
+  initialCenter: { lat: number; lng: number; zoom: number; label: string } | null
+  radius: number
+  location: string
+  autoCapture: boolean
+  batchCapturing: boolean
+  lastRadarResult: { count: number; at: number } | null
+  onCaptureBatch: () => void
+  onShowAll: () => void
+  onResetCenter: () => void
 }) {
-  useEffect(() => {
-    if (!mapRef.current) return
-    if (mapInstance.current) { mapInstance.current.remove(); mapInstance.current = null }
-
-    // Determine initial center
-    const allPts: [number, number][] = []
-    leads.forEach(l => { if (l.location?.latitude) allPts.push([l.location.latitude, l.location.longitude]) })
-    capturedPoints.forEach(p => { if (p.latitude) allPts.push([p.latitude, p.longitude]) })
-
-    let center: [number, number] = savedPos ? [savedPos.lat, savedPos.lng] : allPts.length > 0
-      ? allPts.reduce((acc, pt) => [acc[0] + pt[0] / allPts.length, acc[1] + pt[1] / allPts.length], [0, 0]) as [number, number]
-      : [-19.92, -43.94] // BH default
-    let zoom = savedPos?.zoom || 13
-
-    const map = L.map(mapRef.current, { zoomControl: false }).setView(center, zoom)
-    L.control.zoom({ position: 'bottomright' }).addTo(map)
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OSM', maxZoom: 18 }).addTo(map)
-
-    // Captured history (gray)
-    capturedPoints.forEach(p => {
-      if (!p.latitude) return
-      if (leads.some(l => l.location?.latitude === p.latitude && l.location?.longitude === p.longitude)) return
-      L.circleMarker([p.latitude, p.longitude], { radius: 3, color: '#9ca3af', fillColor: '#d1d5db', fillOpacity: 0.5, weight: 1 })
-        .addTo(map).bindPopup(`<b style="font-size:11px">${p.name}</b>`)
-    })
-
-    // Current results
-    const bounds: [number, number][] = []
-    leads.forEach(l => {
-      if (!l.location?.latitude) return
-      const pos: [number, number] = [l.location.latitude, l.location.longitude]
-      bounds.push(pos)
-      const isNew = l.captureStatus === 'new'
-      // Get brand color: CSS var (set by AdminShell) or fallback
-      const brandSecondary = getComputedStyle(document.documentElement).getPropertyValue('--brand-secondary').trim() || '#933bce'
-      L.circleMarker(pos, {
-        radius: isNew ? 8 : 6,
-        color: isNew ? '#10b981' : brandSecondary,
-        fillColor: isNew ? '#34d399' : brandSecondary,
-        fillOpacity: isNew ? 0.9 : 0.7,
-        weight: isNew ? 3 : 2,
-      })
-        .addTo(map).bindPopup(
-          /* Leaflet popups are HTML strings, not JSX. Inline an SVG star
-           * instead of the unicode star char, to keep parity with the rest
-           * of the lucide-based UI. Same path used by lucide Star. */
-          `<div style="min-width:140px"><b style="font-size:12px">${l.name}</b>` +
-          (l.rating > 0 ? `<br><span style="display:inline-flex;align-items:center;gap:3px;font-size:10px;color:#d97706"><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>${l.rating.toFixed(1)}</span>` : '') +
-          (l.phone ? `<br><span style="font-size:10px">${l.phone}</span>` : '') +
-          `<br><span style="display:inline-block;font-size:9px;font-weight:600;color:${isNew ? '#10b981' : '#6b7280'}"><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:currentColor;margin-right:4px;vertical-align:middle"></span>${isNew ? 'NOVO' : 'EXISTENTE'}</span></div>`
-        )
-    })
-
-    if (!savedPos && bounds.length > 1) map.fitBounds(bounds, { padding: [40, 40] })
-
-    // Panfleteiro: pulsing radar crosshair + radius circle + moveend search
-    let radiusCircle: L.Circle | null = null
-    if (panfleteiro) {
-      // Animated radar pulse (uses .radar-pulse from index.css — same look
-      // as the live PanfleteiroPreview on the landing page).
-      const radar = L.DomUtil.create('div', 'panf-radar-overlay', map.getContainer())
-      radar.innerHTML = `<div class="radar-pulse"><span></span></div>`
-      // Position absolutely at center of map container
-      radar.style.position = 'absolute'
-      radar.style.top = '50%'
-      radar.style.left = '50%'
-      radar.style.transform = 'translate(-50%, -50%)'
-      radar.style.pointerEvents = 'none'
-      radar.style.zIndex = '999'
-
-      // Radius heatmap circle (updates on move)
-      const searchRadiusM = (Number(localStorage.getItem('leadcapture:search-state') ? JSON.parse(localStorage.getItem('leadcapture:search-state')!).radius : 3) || 3) * 1000
-      radiusCircle = L.circle(map.getCenter(), {
-        radius: searchRadiusM,
-        color: '#6366f1',
-        fillColor: '#6366f1',
-        fillOpacity: 0.06,
-        weight: 1.5,
-        dashArray: '6,4',
-        interactive: false,
-      }).addTo(map)
-
-      // Move: update circle + trigger search
-      map.on('moveend', () => {
-        const c = map.getCenter()
-        if (radiusCircle) radiusCircle.setLatLng(c)
-        clearTimeout(moveTimer.current)
-        moveTimer.current = setTimeout(() => {
-          saveMapPos(c.lat, c.lng, map.getZoom())
-          radarSearch(c.lat, c.lng)
-        }, 1200)
-      })
-    }
-
-    // Save position on any move (even without panfleteiro)
-    map.on('moveend', () => {
-      const c = map.getCenter()
-      saveMapPos(c.lat, c.lng, map.getZoom())
-    })
-
-    mapInstance.current = map
-    return () => { clearTimeout(moveTimer.current); if (mapInstance.current) { mapInstance.current.remove(); mapInstance.current = null } }
-  }, [leads, capturedPoints, panfleteiro])
-
+  const radiusLabel = radius < 1 ? `${Math.round(radius * 1000)}m` : `${radius.toFixed(radius < 10 ? 1 : 0)}km`
+  /* Detecta se o user moveu o mapa pra fora do centro inicial (tolerancia ~50m). */
+  const movedFromInitial = !!initialCenter && (
+    Math.abs(center.lat - initialCenter.lat) > 0.0005 ||
+    Math.abs(center.lng - initialCenter.lng) > 0.0005
+  )
   return (
-    <div className="bg-white rounded-2xl border border-border-light overflow-hidden">
-      <div ref={mapRef} className="w-full" style={{ height: '420px' }} />
-      <div className="px-4 py-2.5 border-t border-border-light flex items-center gap-4 text-[11px] text-gray-500 flex-wrap font-medium">
-        <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-emerald-500" /> Novos</span>
-        <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-brand" /> Existentes</span>
-        <span className="inline-flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-gray-300" /> Histórico</span>
-        {panfleteiro && (
-          <span className="ml-auto inline-flex items-center gap-1.5 text-gray-900 font-semibold">
-            <span className="relative flex w-2 h-2">
-              <span className="absolute inset-0 rounded-full bg-indigo-500 animate-ping opacity-75" />
-              <span className="relative inline-flex rounded-full w-2 h-2 bg-indigo-500" />
+    <div
+      className="absolute top-3 left-3 z-30 w-[230px] rounded-2xl bg-[#0a0a14]/92 backdrop-blur-xl border border-white/10 shadow-2xl overflow-hidden"
+      style={{ boxShadow: active ? '0 0 0 1px rgba(52,211,153,0.25), 0 20px 40px -10px rgba(0,0,0,0.6)' : undefined }}
+    >
+      {/* Header */}
+      <div className="flex items-center gap-2 px-3.5 pt-3 pb-2">
+        <span className="relative flex w-2.5 h-2.5 shrink-0">
+          {active && (
+            <span className={`absolute inset-0 rounded-full animate-ping opacity-75 ${searching ? 'bg-amber-400' : 'bg-emerald-400'}`} />
+          )}
+          <span className={`relative inline-flex w-2.5 h-2.5 rounded-full ${
+            active ? (searching ? 'bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.9)]' : 'bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.9)]')
+                   : 'bg-gray-500'
+          }`} />
+        </span>
+        <span className={`text-[11px] font-bold tracking-wider uppercase ${active ? 'text-emerald-300' : 'text-gray-400'}`}>
+          {active ? (searching ? 'Buscando' : 'Radar ativo') : 'Radar off'}
+        </span>
+      </div>
+
+      {/* Metricas — destaque para "no raio" (numero grande). O numero apos a barra
+          eh o acumulado da sessao (todos os pins ja mapeados, mesmo fora do raio
+          atual). Isso resolve a confusao "tem 18 leads mas nenhum aqui no raio". */}
+      <div className="grid grid-cols-3 gap-1 px-3.5 pb-2.5">
+        <div className="text-center">
+          <div className="text-[18px] font-bold text-white tabular-nums leading-none">
+            {inRange}
+            {found > inRange && <span className="text-[11px] font-semibold text-white/30"> /{found}</span>}
+          </div>
+          <div className="text-[9px] text-white/40 uppercase tracking-wide mt-0.5">No raio</div>
+        </div>
+        <div className="text-center">
+          <div className={`text-[18px] font-bold tabular-nums leading-none ${newInRange > 0 ? 'text-rose-300' : 'text-white/40'}`}>
+            {newInRange}
+            {newCount > newInRange && <span className="text-[11px] font-semibold text-white/30"> /{newCount}</span>}
+          </div>
+          <div className="text-[9px] text-white/40 uppercase tracking-wide mt-0.5">Novos</div>
+        </div>
+        <div className="text-center">
+          <div className="text-[18px] font-bold text-emerald-300 tabular-nums leading-none">{captured + capturedLive}</div>
+          <div className="text-[9px] text-white/40 uppercase tracking-wide mt-0.5">Captados</div>
+        </div>
+      </div>
+
+      {/* Feedback de busca vazia — quando o ultimo radar nesse centro voltou 0 resultados.
+          Sinal claro de que o user precisa ajustar (mudar raio, mover pra outra regiao,
+          ou voltar pra origem). */}
+      {lastRadarResult && lastRadarResult.count === 0 && !searching && (
+        <div className="mx-3.5 mb-2 px-2.5 py-1.5 rounded-lg bg-amber-500/10 border border-amber-400/20">
+          <p className="text-[10px] text-amber-200/90 leading-snug">
+            Nenhum lead novo neste raio. Tente <span className="font-bold">aumentar o raio</span> ou
+            {initialCenter ? <> <button type="button" onClick={onResetCenter} className="font-bold underline underline-offset-2 hover:text-amber-100">voltar para a origem</button>.</> : ' mover o mapa.'}
+          </p>
+        </div>
+      )}
+
+      {/* Acumulado total + hoje */}
+      <div className="grid grid-cols-2 gap-1 px-3.5 pb-2 border-t border-white/[0.06] pt-2">
+        <div className="text-center">
+          <div className="text-[14px] font-bold text-white tabular-nums leading-none">{today}</div>
+          <div className="text-[9px] text-white/40 uppercase tracking-wide mt-0.5">Hoje</div>
+        </div>
+        <div className="text-center">
+          <div className="text-[14px] font-bold text-white tabular-nums leading-none">{total}</div>
+          <div className="text-[9px] text-white/40 uppercase tracking-wide mt-0.5">Total</div>
+        </div>
+      </div>
+
+      {/* Origem (cidade que iniciou) + Centro atual (fonte da verdade do radar) */}
+      <div className="px-3.5 pb-2 border-t border-white/[0.06] pt-2 space-y-1">
+        {/* Origem — a cidade que o user digitou inicialmente */}
+        {(initialCenter?.label || location) && (
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className="w-1 h-1 rounded-full bg-white/30 shrink-0" />
+              <span className="text-[9px] font-bold text-white/40 uppercase tracking-wider shrink-0">Origem</span>
+              <span className="text-[10px] text-white/60 font-medium truncate">{initialCenter?.label || location}</span>
+            </div>
+          </div>
+        )}
+        {/* Centro atual — fonte da verdade do radar (lat/lng do mapa) */}
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className={`w-1 h-1 rounded-full shrink-0 ${movedFromInitial ? 'bg-emerald-400 shadow-[0_0_4px_rgba(52,211,153,0.8)]' : 'bg-white/30'}`} />
+            <span className="text-[9px] font-bold text-white/40 uppercase tracking-wider shrink-0">Centro</span>
+            <span className="text-[10px] text-white/70 font-mono tabular-nums truncate">
+              {center.lat.toFixed(4)}, {center.lng.toFixed(4)}
             </span>
-            Panfleteiro ativo · mova o mapa
-          </span>
+            <span className="text-[9.5px] font-bold text-emerald-300 tabular-nums shrink-0">· {radiusLabel}</span>
+          </div>
+          {movedFromInitial && (
+            <button
+              type="button"
+              onClick={onResetCenter}
+              title="Voltar ao centro inicial"
+              className="text-[9px] font-bold text-white/50 hover:text-white px-1.5 py-0.5 rounded hover:bg-white/[0.06] transition uppercase tracking-wider shrink-0"
+            >
+              voltar
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Ações */}
+      <div className="flex items-stretch gap-1.5 px-2.5 pb-2.5 pt-1">
+        <button
+          type="button"
+          onClick={onShowAll}
+          className="flex-1 inline-flex items-center justify-center gap-1 h-8 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-white/70 text-[10px] font-bold uppercase tracking-wide border border-white/10 transition"
+        >
+          <Users size={11} strokeWidth={2.5} /> Todos
+        </button>
+        <button
+          type="button"
+          onClick={onCaptureBatch}
+          disabled={batchCapturing || newCount === 0}
+          title={newCount === 0 ? 'Nenhum lead novo para capturar' : `Capturar todos os ${newCount} novos leads agora`}
+          className="flex-1 inline-flex items-center justify-center gap-1 h-8 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 text-[10px] font-bold uppercase tracking-wide border border-emerald-400/30 transition disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {batchCapturing ? <Loader2 size={11} className="animate-spin" /> : <Zap size={11} strokeWidth={2.5} />}
+          Captar ({newCount})
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/* ── Lead Detail Panel (sidebar do mapa) ── */
+function LeadDetailPanel({ lead, onClose }: { lead: Lead; onClose: () => void }) {
+  const isNew = lead.captureStatus === 'new'
+  const [showWaSend, setShowWaSend] = useState(false)
+  return (
+    <div className="rounded-2xl border border-border-light bg-white overflow-hidden">
+      <div className="flex items-start justify-between gap-2 p-3.5 border-b border-border-light">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            {isNew
+              ? <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">NOVO</span>
+              : <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-gray-900 text-white">CAPTADO</span>}
+            {lead.rating > 0 && (
+              <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded-full">
+                <Star size={9} className="text-amber-500 fill-amber-500" />
+                {lead.rating.toFixed(1)}
+                {lead.reviews > 0 && <span className="text-amber-600/70 font-medium ml-0.5">({lead.reviews})</span>}
+              </span>
+            )}
+          </div>
+          <h3 className="text-[14px] font-bold text-gray-900 mt-1.5 leading-tight">{lead.name}</h3>
+          {lead.category && <p className="text-[10px] text-gray-400 capitalize mt-0.5">{lead.category.replace(/_/g, ' ')}</p>}
+        </div>
+        <button
+          onClick={onClose}
+          aria-label="Fechar"
+          className="w-7 h-7 grid place-items-center rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition shrink-0"
+        >
+          <X size={14} />
+        </button>
+      </div>
+
+      <div className="p-3.5 space-y-2.5">
+        {lead.phone && (
+          <div className="flex items-center gap-2 text-[12px]">
+            <Phone size={12} className="text-gray-400 shrink-0" />
+            <span className="font-mono text-gray-700">{lead.phone}</span>
+          </div>
+        )}
+        {lead.address && (
+          <div className="flex items-start gap-2 text-[12px]">
+            <MapPin size={12} className="text-gray-400 shrink-0 mt-0.5" />
+            <span className="text-gray-700">{lead.address}</span>
+          </div>
+        )}
+        {lead.website && (
+          <div className="flex items-center gap-2 text-[12px]">
+            <Globe size={12} className="text-gray-400 shrink-0" />
+            <a href={lead.website} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline truncate">{lead.website}</a>
+          </div>
         )}
       </div>
+
+      <div className="px-3.5 pb-3.5 space-y-1.5">
+        {lead.phone && (
+          <button
+            type="button"
+            onClick={() => setShowWaSend(true)}
+            className="w-full inline-flex items-center justify-center gap-1.5 h-9 px-3 rounded-xl bg-emerald-600 text-white text-[11px] font-semibold hover:bg-emerald-700 transition"
+          >
+            <Send size={11} /> Enviar mensagem pelo WhatsApp
+          </button>
+        )}
+        <div className="flex gap-1.5">
+          {lead.phone && (
+            <a href={`https://wa.me/${lead.phone.replace(/\D/g, '')}`} target="_blank" rel="noreferrer"
+              className="flex-1 inline-flex items-center justify-center gap-1.5 h-9 px-3 rounded-xl bg-gray-100 text-gray-700 text-[11px] font-semibold hover:bg-gray-200 transition">
+              <Phone size={11} /> Abrir conversa
+            </a>
+          )}
+          {lead.googleMapsUri && (
+            <a href={lead.googleMapsUri} target="_blank" rel="noreferrer"
+              className="inline-flex items-center justify-center gap-1.5 h-9 px-3 rounded-xl bg-gray-100 text-gray-700 text-[11px] font-semibold hover:bg-gray-200 transition">
+              <Navigation size={11} /> Maps
+            </a>
+          )}
+        </div>
+      </div>
+
+      {showWaSend && (
+        <WhatsAppSendModal
+          leads={[{
+            name: lead.name,
+            phone: lead.phone,
+            category: lead.category,
+            google_rating: lead.rating,
+          }]}
+          onClose={() => setShowWaSend(false)}
+        />
+      )}
     </div>
   )
 }

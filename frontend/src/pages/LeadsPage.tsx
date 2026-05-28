@@ -3,10 +3,12 @@ import {
   Search, Filter, Star, Phone, MapPin, Tag, X,
   ChevronLeft, ChevronRight, Users, Loader2,
   MessageSquare, Mail, Globe, ExternalLink, Trash2, Send,
-  CheckCircle2, Edit3, CheckSquare, Square, Sparkles,
+  CheckCircle2, Edit3, CheckSquare, Square, Sparkles, AlertTriangle,
+  SlidersHorizontal, ChevronDown, Check, Building2,
 } from 'lucide-react'
 import { Button } from '@/components/ui'
 import { SmartImportModal } from '@/components/SmartImportModal'
+import { WhatsAppSendModal } from '@/components/WhatsAppSendModal'
 
 /* ── Auth helpers ── */
 function getHeaders(): Record<string, string> {
@@ -31,13 +33,57 @@ const CAT_LABEL: Record<string, string> = {
 const catLabel = (v: string) => CAT_LABEL[v] || v.replace(/_/g, ' ')
 
 const STATUS_LABEL: Record<string, { label: string; color: string }> = {
-  new: { label: 'Novo', color: 'bg-blue-100 text-blue-700' },
+  new: { label: 'Novo', color: 'bg-gray-900 text-white' },
   contacted: { label: 'Contatado', color: 'bg-amber-100 text-amber-700' },
   replied: { label: 'Respondeu', color: 'bg-emerald-100 text-emerald-700' },
-  negotiating: { label: 'Negociando', color: 'bg-purple-100 text-purple-700' },
+  negotiating: { label: 'Negociando', color: 'bg-gray-200 text-gray-800' },
   converted: { label: 'Convertido', color: 'bg-green-100 text-green-800' },
   lost: { label: 'Perdido', color: 'bg-red-100 text-red-600' },
   inactive: { label: 'Inativo', color: 'bg-gray-100 text-gray-500' },
+}
+
+/* ── Tags helper — normaliza tags de qualquer formato pra array de strings limpas.
+   Backend pode retornar:
+   - array nativo: ["a", "b"]
+   - JSON string: '["a","b"]'
+   - JSON duplo-encoded: '"[\"a\",\"b\"]"'
+   - PostgreSQL array literal: '{a,b}' ou '{"a","b"}' ou '{"{\"a\"}","b"}' aninhado
+   - null/undefined */
+function normalizeTags(raw: unknown): string[] {
+  if (!raw) return []
+  if (Array.isArray(raw)) return raw.map(t => String(t).trim()).filter(Boolean)
+  if (typeof raw !== 'string') return []
+  let s = raw.trim()
+
+  /* JSON parse repetido (até 3x pra cobrir duplo/triplo-encoded) */
+  for (let i = 0; i < 3; i++) {
+    if (s.startsWith('[') || s.startsWith('"')) {
+      try {
+        const parsed = JSON.parse(s)
+        if (Array.isArray(parsed)) return parsed.flatMap(p => normalizeTags(p))
+        if (typeof parsed === 'string') { s = parsed.trim(); continue }
+      } catch { break }
+    } else break
+  }
+
+  /* PostgreSQL array literal: {a,b} ou {"a","b"} — pode estar aninhado.
+     Estratégia: extrai todos os tokens entre aspas; se não tiver aspas, split por vírgula. */
+  if (s.startsWith('{') && s.endsWith('}')) {
+    const inner = s.slice(1, -1)
+    /* Match strings entre aspas (lida com escape) OU tokens sem aspas */
+    const matches = inner.match(/"((?:\\.|[^"\\])*)"|[^,{}]+/g) || []
+    return matches
+      .map(m => m.replace(/^"|"$/g, '').replace(/\\"/g, '"').replace(/\\\\/g, '\\').trim())
+      .flatMap(token => {
+        /* Se o token ainda parecer um array PG aninhado, recurse */
+        if (token.startsWith('{')) return normalizeTags(token)
+        return token ? [token] : []
+      })
+      .filter(Boolean)
+  }
+
+  /* Fallback: split por vírgula */
+  return s.split(',').map(t => t.trim()).filter(Boolean)
 }
 
 /* ── Date helpers ── */
@@ -57,7 +103,8 @@ interface FilterOptions {
   statuses: Array<{ value: string; count: number }>
   sources: Array<{ value: string; count: number }>
   states: Array<{ value: string; count: number }>
-  tags: Array<{ value: string; count: number }>
+  /* Backend retorna tags como array de strings simples (sem count) */
+  tags: string[]
   total: number
 }
 
@@ -117,6 +164,7 @@ export function LeadsPage() {
   const [bulkEditOpen, setBulkEditOpen] = useState(false)
   const [bulkBusy, setBulkBusy] = useState(false)
   const [smartImportOpen, setSmartImportOpen] = useState(false)
+  const [waQueueLeads, setWaQueueLeads] = useState<Lead[] | null>(null)
   const [flash, setFlash] = useState<{ msg: string; tone: 'ok' | 'err' } | null>(null)
   function toast(msg: string, tone: 'ok' | 'err' = 'ok') {
     setFlash({ msg, tone })
@@ -140,6 +188,32 @@ export function LeadsPage() {
     fetch('/api/customers/filter-options', { headers: getHeaders() })
       .then(r => r.json())
       .then(setFilterOptions)
+      .catch(() => {})
+  }, [])
+
+  /* ── Stats extras (today_count, week, whatsapp_count, etc) ──
+     Backend retorna em /api/leads/stats — usado nos KPI cards. */
+  const [extraStats, setExtraStats] = useState<{
+    today_count?: number
+    week_count?: number
+    month_count?: number
+    with_whatsapp?: number
+    whatsapp_validated_count?: number
+  } | null>(null)
+  useEffect(() => {
+    fetch('/api/leads/stats', { headers: getHeaders() })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (!d) return
+        const s = d?.stats ?? d
+        setExtraStats({
+          today_count: Number(s?.today_count || 0),
+          week_count: Number(s?.week_count || 0),
+          month_count: Number(s?.month_count || 0),
+          with_whatsapp: Number(s?.with_whatsapp || 0),
+          whatsapp_validated_count: Number(s?.whatsapp_validated_count || 0),
+        })
+      })
       .catch(() => {})
   }, [])
 
@@ -280,242 +354,271 @@ export function LeadsPage() {
   const statusCount = (s: string) =>
     filterOptions?.statuses?.find(x => x.value === s)?.count ?? 0
 
+  /* Activeфilters count — usado em varios lugares */
+  const activeFiltersCount =
+    selStatus.length + selCategory.length + selCity.length +
+    selTags.length + (minRating ? 1 : 0) + (hasWhatsapp !== null ? 1 : 0)
+
   /* ── Render ── */
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
 
-      {/* ── Header ── */}
-      <header className="flex items-start justify-between gap-3 flex-wrap">
-        <div>
-          <h2 className="text-[26px] font-bold text-gray-900 tracking-tight">Leads</h2>
-          <p className="text-[13px] text-gray-500 mt-0.5 tabular-nums">
-            {filterOptions ? `${filterOptions.total.toLocaleString('pt-BR')} registros` : 'Carregando…'}
+      {/* ── Header slim — título + ações principais ── */}
+      <header className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-baseline gap-3">
+          <h2 className="text-[24px] font-bold text-gray-900 tracking-[-0.02em]">Leads</h2>
+          <p className="text-[12px] text-gray-400 tabular-nums">
+            {filterOptions ? `${filterOptions.total.toLocaleString('pt-BR')} registros` : '—'}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <div className="relative">
-            <Search size={15} strokeWidth={1.75} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-            <input
-              type="text"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Buscar nome, telefone, cidade"
-              className="h-10 pl-10 pr-9 rounded-full border-0 bg-gray-100 text-[13px] text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:bg-white transition w-56 sm:w-72"
-            />
-            {search && (
-              <button
-                onClick={() => setSearch('')}
-                aria-label="Limpar busca"
-                className="absolute right-2 top-1/2 -translate-y-1/2 w-6 h-6 grid place-items-center rounded-full text-gray-400 hover:text-gray-700 hover:bg-gray-200"
-              >
-                <X size={12} strokeWidth={2.25} />
-              </button>
-            )}
-          </div>
           <button
             onClick={() => setSmartImportOpen(true)}
             title="Importar leads via IA — texto, CSV/XLS, imagem ou foto"
-            className="h-10 flex items-center gap-1.5 px-4 rounded-full bg-gradient-to-r from-violet-500 to-purple-600 text-white text-[12px] font-bold hover:from-violet-600 hover:to-purple-700 transition shadow-sm"
+            className="ai-shimmer h-9 flex items-center gap-1.5 px-3.5 rounded-lg bg-gray-900 text-white text-[12px] font-semibold hover:bg-black hover:shadow-[0_4px_12px_rgba(0,0,0,0.25)] transition-all"
           >
-            <Sparkles size={14} strokeWidth={2} />
-            <span className="hidden sm:inline">Importar leads</span>
-            <span className="sm:hidden">Importar</span>
+            <Sparkles size={13} strokeWidth={2.25} />
+            <span className="hidden sm:inline">Importar</span>
           </button>
-          <Button
-            variant={showFilters ? 'primary' : 'secondary'}
-            size="md"
-            onClick={() => setShowFilters(v => !v)}
-            iconLeft={<Filter size={14} strokeWidth={1.75} />}
-          >
-            Filtros
-            {hasActiveFilters && (
-              <span className={`ml-1.5 min-w-[18px] h-[18px] grid place-items-center rounded-full text-[10px] font-semibold tabular-nums ${
-                showFilters ? 'bg-white/20 text-white' : 'bg-gray-900 text-white'
-              }`}>
-                {[selStatus.length, selCategory.length, selCity.length, selTags.length, minRating ? 1 : 0, hasWhatsapp !== null ? 1 : 0].reduce((a, b) => a + b, 0)}
-              </span>
-            )}
-          </Button>
         </div>
       </header>
 
-      {/* ── KPI row ── */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
-        {[
-          { key: 'total', label: 'Total', value: total.toLocaleString('pt-BR'), active: !hasActiveFilters },
-          { key: 'new', label: 'Novos', value: statusCount('new').toLocaleString('pt-BR'), active: selStatus.includes('new') },
-          { key: 'contacted', label: 'Contatados', value: statusCount('contacted').toLocaleString('pt-BR'), active: selStatus.includes('contacted') },
-          { key: 'replied', label: 'Responderam', value: statusCount('replied').toLocaleString('pt-BR'), active: selStatus.includes('replied') },
-          { key: 'converted', label: 'Convertidos', value: statusCount('converted').toLocaleString('pt-BR'), active: selStatus.includes('converted') },
-        ].map(card => (
-          <button
-            key={card.key}
-            onClick={() => {
-              if (card.key === 'total') { clearFilters(); return }
-              toggle(selStatus, card.key, setSelStatus)
-            }}
-            aria-pressed={card.active}
-            className={`text-left p-4 rounded-2xl transition-colors active:scale-[0.99] ${
-              card.active
-                ? 'bg-gray-900 text-white'
-                : 'bg-white border border-border-light hover:border-gray-300'
-            }`}
-          >
-            <p className={`text-[10px] font-semibold uppercase tracking-wide mb-1.5 ${card.active ? 'text-white/60' : 'text-gray-400'}`}>{card.label}</p>
-            <p className={`text-[26px] font-bold tracking-tight tabular-nums ${card.active ? 'text-white' : 'text-gray-900'}`}>{card.value}</p>
-          </button>
-        ))}
+      {/* ── KPI CARDS — métricas densas com info adicional ── */}
+      {(() => {
+        const totalNum = filterOptions?.total ?? total ?? 0
+        const newCount = statusCount('new')
+        const contactedCount = statusCount('contacted')
+        const repliedCount = statusCount('replied')
+        const negotiatingCount = statusCount('negotiating')
+        const convertedCount = statusCount('converted')
+        const inFunnel = repliedCount + negotiatingCount
+        const pct = (n: number) => totalNum > 0 ? (n / totalNum * 100) : 0
+        const whatsappCount = extraStats?.with_whatsapp ?? 0
+        const today = extraStats?.today_count ?? 0
+        const week = extraStats?.week_count ?? 0
+        return (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
+            <KpiCard
+              label="Total"
+              value={totalNum.toLocaleString('pt-BR')}
+              subtitle={today > 0 ? `+${today} hoje · +${week} 7d` : (week > 0 ? `+${week} esta semana` : 'No banco')}
+              tone="default"
+            />
+            <KpiCard
+              label="Novos"
+              value={newCount.toLocaleString('pt-BR')}
+              subtitle={`${pct(newCount).toFixed(0)}% aguardando contato`}
+              tone="blue"
+              progress={pct(newCount)}
+              onClick={() => setSelStatus(selStatus.includes('new') ? [] : ['new'])}
+              active={selStatus.length === 1 && selStatus[0] === 'new'}
+            />
+            <KpiCard
+              label="WhatsApp"
+              value={whatsappCount.toLocaleString('pt-BR')}
+              subtitle={`${pct(whatsappCount).toFixed(0)}% têm número WA`}
+              tone="emerald"
+              progress={pct(whatsappCount)}
+              onClick={() => { setHasWhatsapp(hasWhatsapp === true ? null : true); setPage(1) }}
+              active={hasWhatsapp === true}
+            />
+            <KpiCard
+              label="Em conversão"
+              value={inFunnel.toLocaleString('pt-BR')}
+              subtitle={`${contactedCount.toLocaleString('pt-BR')} contatados, ${negotiatingCount} negociando`}
+              tone="amber"
+              progress={pct(inFunnel)}
+            />
+            <KpiCard
+              label="Convertidos"
+              value={convertedCount.toLocaleString('pt-BR')}
+              subtitle={totalNum > 0 ? `Taxa ${pct(convertedCount).toFixed(1)}%` : '—'}
+              tone="green"
+              progress={pct(convertedCount)}
+              onClick={() => setSelStatus(selStatus.includes('converted') ? [] : ['converted'])}
+              active={selStatus.length === 1 && selStatus[0] === 'converted'}
+            />
+          </div>
+        )
+      })()}
+
+      {/* ── Status TABS (mesma linha) — substitui os 5 cards huge ── */}
+      <div className="flex items-center gap-1 border-b border-gray-200 -mb-px overflow-x-auto scrollbar-none">
+        {([
+          { key: 'all',       label: 'Todos',       value: total },
+          { key: 'new',       label: 'Novos',       value: statusCount('new'),       dot: 'bg-gray-900' },
+          { key: 'contacted', label: 'Contatados',  value: statusCount('contacted'), dot: 'bg-amber-500' },
+          { key: 'replied',   label: 'Responderam', value: statusCount('replied'),   dot: 'bg-emerald-500' },
+          { key: 'negotiating', label: 'Negociando', value: statusCount('negotiating'), dot: 'bg-gray-700' },
+          { key: 'converted', label: 'Convertidos', value: statusCount('converted'), dot: 'bg-green-600' },
+          { key: 'lost',      label: 'Perdidos',    value: statusCount('lost'),      dot: 'bg-red-500' },
+        ] as const).map(tab => {
+          const active = tab.key === 'all'
+            ? selStatus.length === 0
+            : selStatus.length === 1 && selStatus[0] === tab.key
+          return (
+            <button
+              key={tab.key}
+              onClick={() => {
+                if (tab.key === 'all') setSelStatus([])
+                else setSelStatus(active ? [] : [tab.key])
+                setPage(1)
+              }}
+              className={`relative inline-flex items-center gap-1.5 px-3.5 h-9 text-[12px] font-semibold whitespace-nowrap transition-colors ${
+                active
+                  ? 'text-gray-900'
+                  : 'text-gray-500 hover:text-gray-900'
+              }`}
+            >
+              {'dot' in tab && tab.dot && (
+                <span className={`w-1.5 h-1.5 rounded-full ${tab.dot}`} />
+              )}
+              {tab.label}
+              <span className={`tabular-nums text-[11px] ${active ? 'text-gray-400' : 'text-gray-300'}`}>
+                {(tab.value ?? 0).toLocaleString('pt-BR')}
+              </span>
+              {active && (
+                <span className="absolute left-0 right-0 -bottom-px h-[2px] bg-gray-900 rounded-full" />
+              )}
+            </button>
+          )
+        })}
       </div>
 
-      {/* ── Filter panel ── */}
-      {showFilters && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-4 space-y-3">
-
-          {/* Row 1: Status */}
-          <div>
-            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">Status</p>
-            <div className="flex flex-wrap gap-1.5">
-              {Object.entries(STATUS_LABEL).map(([key, cfg]) => {
-                const cnt = filterOptions?.statuses?.find(x => x.value === key)?.count
-                return (
-                  <Chip
-                    key={key}
-                    label={cfg.label}
-                    count={cnt}
-                    active={selStatus.includes(key)}
-                    onClick={() => toggle(selStatus, key, setSelStatus)}
-                  />
-                )
-              })}
-            </div>
-          </div>
-
-          {/* Row 2: Categoria (top 10) */}
-          {filterOptions && filterOptions.categories.length > 0 && (
-            <div>
-              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">Categoria</p>
-              <div className="flex flex-wrap gap-1.5">
-                {filterOptions.categories.slice(0, 10).map(cat => (
-                  <Chip
-                    key={cat.value}
-                    label={catLabel(cat.value)}
-                    count={cat.count}
-                    active={selCategory.includes(cat.value)}
-                    onClick={() => toggle(selCategory, cat.value, setSelCategory)}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Row 3: Cidade (top 8) */}
-          {filterOptions && filterOptions.cities.length > 0 && (
-            <div>
-              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">Cidade</p>
-              <div className="flex flex-wrap gap-1.5">
-                {filterOptions.cities.slice(0, 8).map(city => (
-                  <Chip
-                    key={city.value}
-                    label={city.value}
-                    count={city.count}
-                    active={selCity.includes(city.value)}
-                    onClick={() => toggle(selCity, city.value, setSelCity)}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Row 4: Rating + WhatsApp + Tags */}
-          <div>
-            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">Avaliação &amp; outros</p>
-            <div className="flex flex-wrap gap-1.5">
-              {/* Rating chips */}
-              {([3, 4, 4.5] as number[]).map(r => (
-                <Chip
-                  key={r}
-                  label={`${r}+`}
-                  icon={<Star size={10} strokeWidth={2} className="fill-current" />}
-                  active={minRating === r}
-                  onClick={() => { setMinRating(minRating === r ? null : r); setPage(1) }}
-                />
-              ))}
-
-              {/* WhatsApp toggle */}
-              <Chip
-                label="WhatsApp"
-                active={hasWhatsapp === true}
-                onClick={() => { setHasWhatsapp(hasWhatsapp === true ? null : true); setPage(1) }}
-              />
-
-              {/* Tag chips */}
-              {filterOptions?.tags?.slice(0, 8).map(tag => (
-                <Chip
-                  key={tag.value}
-                  label={tag.value}
-                  count={tag.count}
-                  active={selTags.includes(tag.value)}
-                  onClick={() => toggle(selTags, tag.value, setSelTags)}
-                />
-              ))}
-            </div>
-          </div>
-
-          {/* Active filters summary + clear */}
-          {hasActiveFilters && (
-            <div className="flex items-center justify-between gap-2 pt-3 mt-1 border-t border-border-light">
-              <div className="flex flex-wrap gap-1">
-                {selStatus.map(s => (
-                  <span key={s} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 text-[10px] font-medium">
-                    {STATUS_LABEL[s]?.label || s}
-                    <button onClick={() => toggle(selStatus, s, setSelStatus)} aria-label={`Remover ${s}`}><X size={10} strokeWidth={2.25} /></button>
-                  </span>
-                ))}
-                {selCategory.map(c => (
-                  <span key={c} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 text-[10px] font-medium">
-                    {catLabel(c)}
-                    <button onClick={() => toggle(selCategory, c, setSelCategory)} aria-label={`Remover ${c}`}><X size={10} strokeWidth={2.25} /></button>
-                  </span>
-                ))}
-                {selCity.map(c => (
-                  <span key={c} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 text-[10px] font-medium">
-                    <MapPin size={10} strokeWidth={1.75} />{c}
-                    <button onClick={() => toggle(selCity, c, setSelCity)} aria-label={`Remover ${c}`}><X size={10} strokeWidth={2.25} /></button>
-                  </span>
-                ))}
-                {minRating && (
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 text-[10px] font-medium">
-                    <Star size={10} strokeWidth={2} className="fill-current" />
-                    {minRating}+
-                    <button onClick={() => { setMinRating(null); setPage(1) }} aria-label="Remover rating"><X size={10} strokeWidth={2.25} /></button>
-                  </span>
-                )}
-                {hasWhatsapp === true && (
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 text-[10px] font-medium">
-                    WhatsApp
-                    <button onClick={() => { setHasWhatsapp(null); setPage(1) }} aria-label="Remover WhatsApp"><X size={10} strokeWidth={2.25} /></button>
-                  </span>
-                )}
-                {selTags.map(t => (
-                  <span key={t} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 text-[10px] font-medium">
-                    <Tag size={10} strokeWidth={1.75} />{t}
-                    <button onClick={() => toggle(selTags, t, setSelTags)} aria-label={`Remover ${t}`}><X size={10} strokeWidth={2.25} /></button>
-                  </span>
-                ))}
-              </div>
-              <button
-                onClick={clearFilters}
-                className="text-[11px] font-medium text-gray-500 hover:text-gray-900 transition whitespace-nowrap shrink-0"
-              >
-                Limpar
-              </button>
-            </div>
+      {/* ── Toolbar de filtros: search + filter popovers ── */}
+      <div className="bg-white rounded-xl border border-gray-200 p-2 flex items-center gap-2 flex-wrap">
+        {/* Search */}
+        <div className="relative flex-1 min-w-[200px]">
+          <Search size={14} strokeWidth={2} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Buscar por nome, telefone, cidade…"
+            className="w-full h-8 pl-9 pr-8 rounded-lg bg-gray-50 border-0 text-[12.5px] text-gray-900 placeholder:text-gray-400 focus:outline-none focus:bg-white focus:ring-2 focus:ring-gray-900/10 transition"
+          />
+          {search && (
+            <button
+              onClick={() => setSearch('')}
+              aria-label="Limpar busca"
+              className="absolute right-2 top-1/2 -translate-y-1/2 w-5 h-5 grid place-items-center rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100"
+            >
+              <X size={11} strokeWidth={2.5} />
+            </button>
           )}
         </div>
-      )}
+
+        {/* Filter popovers — Categoria, Cidade, Tags, Rating, WhatsApp */}
+        <FilterPopover
+          label="Categoria"
+          icon={<Building2 size={12} strokeWidth={2} />}
+          selectedCount={selCategory.length}
+          options={(filterOptions?.categories || []).map(c => ({ value: c.value, label: catLabel(c.value), count: c.count }))}
+          selected={selCategory}
+          onToggle={(v) => toggle(selCategory, v, setSelCategory)}
+          onClear={() => { setSelCategory([]); setPage(1) }}
+          searchable
+        />
+        <FilterPopover
+          label="Cidade"
+          icon={<MapPin size={12} strokeWidth={2} />}
+          selectedCount={selCity.length}
+          options={(filterOptions?.cities || []).map(c => ({ value: c.value, label: c.value, count: c.count }))}
+          selected={selCity}
+          onToggle={(v) => toggle(selCity, v, setSelCity)}
+          onClear={() => { setSelCity([]); setPage(1) }}
+          searchable
+        />
+        <FilterPopover
+          label="Tags"
+          icon={<Tag size={12} strokeWidth={2} />}
+          selectedCount={selTags.length}
+          /* Backend retorna tags como string[] simples. Cada entrada pode ainda
+             ser PostgreSQL array literal — normaliza pra extrair tags atomicas. */
+          options={(() => {
+            const set = new Set<string>()
+            for (const t of (filterOptions?.tags || [])) {
+              for (const clean of normalizeTags(t)) {
+                if (clean) set.add(clean)
+              }
+            }
+            return Array.from(set)
+              .sort((a, b) => a.localeCompare(b))
+              .map((value) => ({
+                value,
+                label: value.replace(/^busca:/, ''),
+              }))
+          })()}
+          selected={selTags}
+          onToggle={(v) => toggle(selTags, v, setSelTags)}
+          onClear={() => { setSelTags([]); setPage(1) }}
+          searchable
+          emptyMessage="Nenhuma tag ainda. Adicione tags aos leads pelo painel de detalhe."
+        />
+        <FilterPopover
+          label="Rating"
+          icon={<Star size={12} strokeWidth={2} />}
+          selectedCount={minRating ? 1 : 0}
+          options={[
+            { value: '3', label: '3+ estrelas' },
+            { value: '4', label: '4+ estrelas' },
+            { value: '4.5', label: '4.5+ estrelas' },
+          ]}
+          selected={minRating ? [String(minRating)] : []}
+          onToggle={(v) => { const n = Number(v); setMinRating(minRating === n ? null : n); setPage(1) }}
+          onClear={() => { setMinRating(null); setPage(1) }}
+          single
+        />
+        <button
+          onClick={() => { setHasWhatsapp(hasWhatsapp === true ? null : true); setPage(1) }}
+          className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-[12px] font-semibold transition ${
+            hasWhatsapp === true
+              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+              : 'bg-gray-50 text-gray-600 hover:bg-gray-100 border border-transparent'
+          }`}
+        >
+          <MessageSquare size={12} strokeWidth={2.25} /> WhatsApp
+        </button>
+      </div>
+
+      {/* ── Active filter chips — slot RESERVADO (sempre presente, fica vazio se sem
+           filtros). Evita layout shift quando o usuario adiciona/remove filtro. */}
+      <div className="min-h-[28px] flex flex-wrap items-center gap-1.5">
+        {activeFiltersCount > 0 ? (
+          <>
+            <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mr-1">Filtros:</span>
+            {selStatus.map(s => (
+              <ActiveChip key={`s-${s}`} label={STATUS_LABEL[s]?.label || s} onRemove={() => toggle(selStatus, s, setSelStatus)} />
+            ))}
+            {selCategory.map(c => (
+              <ActiveChip key={`c-${c}`} label={catLabel(c)} onRemove={() => toggle(selCategory, c, setSelCategory)} />
+            ))}
+            {selCity.map(c => (
+              <ActiveChip key={`ct-${c}`} label={c} icon={<MapPin size={10} strokeWidth={2} />} onRemove={() => toggle(selCity, c, setSelCity)} />
+            ))}
+            {selTags.map(t => (
+              <ActiveChip key={`t-${t}`} label={t.replace(/^busca:/, '')} icon={<Tag size={10} strokeWidth={2} />} onRemove={() => toggle(selTags, t, setSelTags)} />
+            ))}
+            {minRating && (
+              <ActiveChip label={`${minRating}+`} icon={<Star size={10} strokeWidth={2} className="fill-current" />} onRemove={() => { setMinRating(null); setPage(1) }} />
+            )}
+            {hasWhatsapp === true && (
+              <ActiveChip label="WhatsApp" icon={<MessageSquare size={10} strokeWidth={2} />} onRemove={() => { setHasWhatsapp(null); setPage(1) }} />
+            )}
+            <button
+              onClick={clearFilters}
+              className="ml-auto inline-flex items-center gap-1 h-6 px-2 rounded-md text-[11px] font-semibold text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition"
+            >
+              <X size={10} strokeWidth={2.5} /> Limpar ({activeFiltersCount})
+            </button>
+          </>
+        ) : (
+          <span className="text-[10.5px] text-gray-300 italic">Nenhum filtro ativo · use os botões acima ou as tabs de status para filtrar</span>
+        )}
+      </div>
 
       {/* ── Table ── */}
-      <div className="bg-white rounded-2xl border border-border-light overflow-hidden">
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
 
         {/* Table header row */}
         <div className="px-4 py-2.5 border-b border-border-light flex items-center justify-between">
@@ -579,13 +682,12 @@ export function LeadsPage() {
                         )}
                       </button>
                     </th>
-                    <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Nome</th>
-                    <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Telefone</th>
-                    <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Cidade</th>
-                    <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Categoria</th>
-                    <th className="text-center px-4 py-2.5 text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Rating</th>
-                    <th className="text-left px-4 py-2.5 text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Status</th>
-                    <th className="text-right px-4 py-2.5 text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Data</th>
+                    <th className="text-left px-4 py-2 text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Lead</th>
+                    <th className="text-left px-3 py-2 text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Contato</th>
+                    <th className="text-left px-3 py-2 text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Local / Categoria</th>
+                    <th className="text-left px-3 py-2 text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Tags</th>
+                    <th className="text-left px-3 py-2 text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Status</th>
+                    <th className="text-right px-4 py-2 text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Data</th>
                   </tr>
                 </thead>
                 <tbody className={loading ? 'opacity-50 transition-opacity' : ''}>
@@ -593,68 +695,108 @@ export function LeadsPage() {
                     const rating = Number(lead.google_rating) || 0
                     const st = STATUS_LABEL[lead.status] || { label: lead.status, color: 'bg-gray-100 text-gray-600' }
                     const checked = selectedIds.has(lead.id)
+                    /* Normaliza tags pra array de strings limpas.
+                       Backend pode retornar: array, string JSON, string JSON duplo-escapado,
+                       ou null. Tenta parse recursivamente, fallback pra split por virgula. */
+                    const tagsArr = normalizeTags(lead.tags)
                     return (
                       <tr
                         key={lead.id}
                         onClick={() => setSelectedLead(lead)}
-                        className={`border-b border-border-light last:border-0 cursor-pointer transition-colors ${
-                          checked ? 'bg-gray-50' : 'hover:bg-gray-50'
+                        className={`group border-b border-gray-100 last:border-0 cursor-pointer transition-colors ${
+                          checked ? 'bg-gray-100/60' : 'hover:bg-gray-50/80'
                         }`}
                       >
                         <td
-                          className="pl-4 pr-2 py-3 w-8"
+                          className="pl-4 pr-2 py-2.5 w-8 align-middle"
                           onClick={e => { e.stopPropagation(); toggleSelect(lead.id) }}
                         >
                           <span
                             role="checkbox"
                             aria-checked={checked}
-                            className="w-4 h-4 grid place-items-center text-gray-500 hover:text-gray-900 transition"
+                            className={`w-4 h-4 grid place-items-center transition ${checked ? 'text-gray-900' : 'text-gray-300 group-hover:text-gray-500'}`}
                           >
                             {checked ? (
-                              <CheckSquare size={16} strokeWidth={2} className="text-gray-900" />
+                              <CheckSquare size={16} strokeWidth={2.25} />
                             ) : (
                               <Square size={16} strokeWidth={1.5} />
                             )}
                           </span>
                         </td>
-                        <td className="px-4 py-3">
-                          <p className="font-medium text-gray-900 truncate max-w-[220px] text-[13px]">
-                            {lead.name || '—'}
-                          </p>
-                          {lead.trade_name && lead.trade_name !== lead.name && (
-                            <p className="text-[10px] text-gray-400 truncate max-w-[220px] mt-0.5">{lead.trade_name}</p>
-                          )}
+                        <td className="px-4 py-2.5 align-middle">
+                          <div className="flex items-center gap-2.5">
+                            {/* Avatar com inicial */}
+                            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-gray-100 to-gray-200 grid place-items-center text-[11px] font-bold text-gray-600 shrink-0">
+                              {(lead.name || '?').trim().charAt(0).toUpperCase()}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="font-semibold text-gray-900 truncate max-w-[200px] text-[13px] leading-tight">
+                                {lead.name || '—'}
+                              </p>
+                              {lead.trade_name && lead.trade_name !== lead.name && (
+                                <p className="text-[10.5px] text-gray-400 truncate max-w-[200px] mt-0.5">{lead.trade_name}</p>
+                              )}
+                            </div>
+                          </div>
                         </td>
-                        <td className="px-4 py-3">
-                          {lead.phone ? (
-                            <span className="text-[12px] font-mono text-gray-600">{lead.phone}</span>
+                        <td className="px-3 py-2.5 align-middle">
+                          <div className="flex flex-col gap-0.5">
+                            {lead.phone ? (
+                              <span className="text-[12px] font-mono text-gray-700 flex items-center gap-1.5">
+                                {lead.has_whatsapp && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" title="WhatsApp" />}
+                                {lead.phone}
+                              </span>
+                            ) : (
+                              <span className="text-gray-300 text-[12px]">—</span>
+                            )}
+                            {lead.email && (
+                              <span className="text-[10.5px] text-gray-400 truncate max-w-[180px]">{lead.email}</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-3 py-2.5 align-middle">
+                          <div className="flex flex-col gap-0.5">
+                            <span className="text-[12px] text-gray-700">{lead.city || '—'}{lead.state ? `, ${lead.state}` : ''}</span>
+                            <div className="flex items-center gap-1.5 text-[10.5px] text-gray-400">
+                              {lead.category && <span className="capitalize">{catLabel(lead.category)}</span>}
+                              {rating > 0 && (
+                                <span className="inline-flex items-center gap-0.5 font-medium text-amber-700">
+                                  <Star size={9} className="fill-amber-500 text-amber-500" />
+                                  {rating.toFixed(1)}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-3 py-2.5 align-middle">
+                          {tagsArr.length > 0 ? (
+                            <div className="flex flex-wrap gap-1 max-w-[180px]">
+                              {tagsArr.slice(0, 2).map((tag, i) => (
+                                <span
+                                  key={i}
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-gray-100 text-gray-800 text-[10px] font-medium border border-gray-200"
+                                  title={String(tag)}
+                                >
+                                  <span className="w-1 h-1 rounded-full bg-gray-700" />
+                                  <span className="truncate max-w-[100px]">{String(tag).replace(/^busca:/, '')}</span>
+                                </span>
+                              ))}
+                              {tagsArr.length > 2 && (
+                                <span className="text-[10px] text-gray-400 font-medium">+{tagsArr.length - 2}</span>
+                              )}
+                            </div>
                           ) : (
-                            <span className="text-gray-300 text-xs">—</span>
+                            <span className="text-gray-300 text-[12px]">—</span>
                           )}
                         </td>
-                        <td className="px-4 py-3">
-                          <span className="text-[12px] text-gray-600">{lead.city || '—'}</span>
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className="text-[11px] text-gray-500">{lead.category ? catLabel(lead.category) : '—'}</span>
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          {rating > 0 ? (
-                            <span className="inline-flex items-center gap-0.5 text-[11px] font-medium text-amber-700 tabular-nums">
-                              <Star size={10} className="fill-amber-500 text-amber-500" />
-                              {rating.toFixed(1)}
-                            </span>
-                          ) : (
-                            <span className="text-gray-300 text-xs">—</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-medium ${st.color}`}>
+                        <td className="px-3 py-2.5 align-middle">
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${st.color}`}>
+                            <span className="w-1 h-1 rounded-full bg-current opacity-60" />
                             {st.label}
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-right">
-                          <span className="text-[10px] text-gray-400 tabular-nums">{fmtDate(lead.created_at)}</span>
+                        <td className="px-4 py-2.5 text-right align-middle">
+                          <span className="text-[10.5px] text-gray-400 tabular-nums">{fmtDate(lead.created_at)}</span>
                         </td>
                       </tr>
                     )
@@ -821,6 +963,18 @@ export function LeadsPage() {
               <span className="sm:hidden">Editar</span>
             </button>
             <button
+              onClick={() => {
+                const selected = leads.filter(l => selectedIds.has(l.id))
+                if (selected.length > 0) setWaQueueLeads(selected)
+              }}
+              disabled={bulkBusy}
+              className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-xl bg-emerald-600 text-white text-[12px] font-semibold hover:bg-emerald-700 disabled:opacity-40 active:scale-[0.97] transition"
+            >
+              <Send size={13} strokeWidth={2} />
+              <span className="hidden sm:inline">Fila WhatsApp</span>
+              <span className="sm:hidden">WA</span>
+            </button>
+            <button
               onClick={runBulkDelete}
               disabled={bulkBusy}
               className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-xl bg-red-500 text-white text-[12px] font-semibold hover:bg-red-600 disabled:opacity-40 active:scale-[0.97] transition"
@@ -862,6 +1016,14 @@ export function LeadsPage() {
           loadLeads()
         }}
       />
+
+      {/* WhatsApp queue — bulk send */}
+      {waQueueLeads && waQueueLeads.length > 0 && (
+        <WhatsAppSendModal
+          leads={waQueueLeads}
+          onClose={() => setWaQueueLeads(null)}
+        />
+      )}
     </div>
   )
 }
@@ -1060,12 +1222,93 @@ function LeadDetailModal({
   onUpdated: (c: Partial<Lead> & { id: string }) => void
   onDeleted: () => void
 }) {
-  const [tab, setTab] = useState<'info' | 'actions'>('info')
+  const [tab, setTab] = useState<'info' | 'edit' | 'actions'>('info')
   const [status, setStatus] = useState(lead.status || 'new')
   const [notes, setNotes] = useState(lead.notes || '')
   const [clientType, setClientType] = useState(lead.client_type || '')
   const [clientTypes, setClientTypes] = useState<Array<{ id: string; name: string }>>([])
   const [saving, setSaving] = useState(false)
+  const [showWaSend, setShowWaSend] = useState(false)
+
+  /* Editable fields — initialized from the lead, mutate locally until "Salvar". */
+  const [editName, setEditName] = useState(lead.name || '')
+  const [editTradeName, setEditTradeName] = useState((lead as any).trade_name || '')
+  const [editPhone, setEditPhone] = useState(lead.phone || '')
+  const [editPhone2, setEditPhone2] = useState((lead as any).phone_secondary || '')
+  const [editEmail, setEditEmail] = useState(lead.email || '')
+  const [editWebsite, setEditWebsite] = useState((lead as any).website || '')
+  const [editAddress, setEditAddress] = useState(lead.address || '')
+  const [editCity, setEditCity] = useState(lead.city || '')
+  const [editState, setEditState] = useState(lead.state || '')
+  const [editZip, setEditZip] = useState((lead as any).zip_code || '')
+  const [editCategory, setEditCategory] = useState(lead.category || '')
+  const [editSubcategory, setEditSubcategory] = useState((lead as any).subcategory || '')
+  /* Tags as a chip-array (UX upgrade — was a CSV string before). */
+  const [editTags, setEditTags] = useState<string[]>(
+    Array.isArray(lead.tags)
+      ? lead.tags.map((t) => String(t || '').trim()).filter(Boolean)
+      : typeof lead.tags === 'string'
+        ? String(lead.tags).replace(/[{}"]/g, '').split(',').map((s) => s.trim()).filter(Boolean)
+        : []
+  )
+  const [editTagInput, setEditTagInput] = useState('')
+  const [editNotes, setEditNotes] = useState(lead.notes || '')
+  const [editFormError, setEditFormError] = useState<string | null>(null)
+
+  function addTagFromInput() {
+    const raw = editTagInput.trim().replace(/,$/, '').trim()
+    if (!raw) return
+    /* Accept multiple at once if pasted with commas */
+    const incoming = raw.split(',').map(t => t.trim()).filter(Boolean)
+    setEditTags(prev => Array.from(new Set([...prev, ...incoming])))
+    setEditTagInput('')
+  }
+  function removeTag(t: string) {
+    setEditTags(prev => prev.filter(x => x !== t))
+  }
+
+  async function saveAllFields() {
+    /* Validation */
+    const name = editName.trim()
+    if (!name) { setEditFormError('Nome é obrigatório'); return }
+    setEditFormError(null)
+    setSaving(true)
+    try {
+      /* Commit any tag still in the input field (user might've typed without pressing Enter). */
+      const pendingTag = editTagInput.trim().replace(/,$/, '').trim()
+      const finalTags = pendingTag
+        ? Array.from(new Set([...editTags, ...pendingTag.split(',').map(t => t.trim()).filter(Boolean)]))
+        : editTags
+      const body = {
+        name,
+        trade_name: editTradeName.trim() || null,
+        phone: editPhone.trim() || null,
+        phone_secondary: editPhone2.trim() || null,
+        email: editEmail.trim() || null,
+        website: editWebsite.trim() || null,
+        address: editAddress.trim() || null,
+        city: editCity.trim() || null,
+        state: editState.trim().toUpperCase().slice(0, 2) || null,
+        zip_code: editZip.trim() || null,
+        category: editCategory.trim() || null,
+        subcategory: editSubcategory.trim() || null,
+        tags: finalTags.length > 0 ? finalTags : null,
+        notes: editNotes.trim() || null,
+      }
+      const r = await fetch(`/api/customers/${lead.id}`, {
+        method: 'PUT', headers: getHeaders(), body: JSON.stringify(body),
+      })
+      const d = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(d?.error || `Erro ${r.status}`)
+      /* Clear input now that values are committed */
+      setEditTagInput('')
+      onUpdated({ id: lead.id, ...body } as any)
+    } catch (e: any) {
+      setEditFormError(e?.message || 'Falha ao salvar')
+    } finally {
+      setSaving(false)
+    }
+  }
 
   useEffect(() => {
     fetch('/api/client-types', { headers: getHeaders() })
@@ -1201,7 +1444,7 @@ function LeadDetailModal({
 
         {/* Tabs */}
         <div className="px-5 pt-1 border-b border-border-light flex gap-1 shrink-0">
-          {([['info', 'Detalhes'], ['actions', 'Ações']] as const).map(([k, l]) => (
+          {([['info', 'Detalhes'], ['edit', 'Editar'], ['actions', 'Ações']] as const).map(([k, l]) => (
             <button
               key={k}
               onClick={() => setTab(k)}
@@ -1315,6 +1558,184 @@ function LeadDetailModal({
             </>
           )}
 
+          {tab === 'edit' && (
+            <div className="space-y-3">
+              {/* Header explanatory */}
+              <p className="text-[11px] text-gray-500 leading-relaxed">
+                Edite os dados do lead. Para alterar status ou tipo de cliente, use a aba <b>Ações</b>.
+              </p>
+
+              <div>
+                <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1 block">Nome *</label>
+                <input type="text" value={editName} onChange={(e) => setEditName(e.target.value)}
+                  placeholder="Nome do contato ou empresa"
+                  className="w-full h-10 px-3 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900 transition" />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1 block">Nome fantasia</label>
+                <input type="text" value={editTradeName} onChange={(e) => setEditTradeName(e.target.value)}
+                  placeholder="Razão social ou apelido comercial"
+                  className="w-full h-10 px-3 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900 transition" />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1 block">Telefone</label>
+                  <input type="tel" value={editPhone} onChange={(e) => setEditPhone(e.target.value)}
+                    placeholder="(11) 99999-9999"
+                    className="w-full h-10 px-3 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900 transition" />
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1 block">Telefone 2</label>
+                  <input type="tel" value={editPhone2} onChange={(e) => setEditPhone2(e.target.value)}
+                    placeholder="Opcional"
+                    className="w-full h-10 px-3 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900 transition" />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1 block">Email</label>
+                <input type="email" value={editEmail} onChange={(e) => setEditEmail(e.target.value)}
+                  placeholder="contato@empresa.com"
+                  className="w-full h-10 px-3 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900 transition" />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1 block">Website</label>
+                <input type="url" value={editWebsite} onChange={(e) => setEditWebsite(e.target.value)}
+                  placeholder="https://..."
+                  className="w-full h-10 px-3 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900 transition" />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1 block">Endereço</label>
+                <input type="text" value={editAddress} onChange={(e) => setEditAddress(e.target.value)}
+                  placeholder="Rua, número, complemento"
+                  className="w-full h-10 px-3 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900 transition" />
+              </div>
+
+              <div className="grid grid-cols-[1fr_80px_120px] gap-2">
+                <div>
+                  <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1 block">Cidade</label>
+                  <input type="text" value={editCity} onChange={(e) => setEditCity(e.target.value)}
+                    placeholder="São Paulo"
+                    className="w-full h-10 px-3 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900 transition" />
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1 block">UF</label>
+                  <input type="text" value={editState} onChange={(e) => setEditState(e.target.value.toUpperCase().slice(0, 2))}
+                    placeholder="SP" maxLength={2}
+                    className="w-full h-10 px-3 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900 transition uppercase text-center" />
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1 block">CEP</label>
+                  <input type="text" value={editZip} onChange={(e) => setEditZip(e.target.value)}
+                    placeholder="00000-000"
+                    className="w-full h-10 px-3 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900 transition" />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1 block">Categoria</label>
+                  <input type="text" value={editCategory} onChange={(e) => setEditCategory(e.target.value)}
+                    placeholder="ex: padaria, restaurante"
+                    className="w-full h-10 px-3 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900 transition" />
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1 block">Subcategoria</label>
+                  <input type="text" value={editSubcategory} onChange={(e) => setEditSubcategory(e.target.value)}
+                    placeholder="opcional"
+                    className="w-full h-10 px-3 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900 transition" />
+                </div>
+              </div>
+
+              {/* ── Tag chips — visual, removable, accepts paste with commas ── */}
+              <div>
+                <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1 block">
+                  Tags
+                </label>
+                <div className="flex flex-wrap gap-1.5 p-2 min-h-[44px] rounded-xl border border-border bg-white focus-within:ring-4 focus-within:ring-gray-900/5 focus-within:border-gray-900 transition">
+                  {editTags.map((t) => (
+                    <span key={t}
+                      className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded-full bg-gray-100 text-gray-800">
+                      <Tag size={9} strokeWidth={2.25} />
+                      {t}
+                      <button type="button" onClick={() => removeTag(t)}
+                        aria-label={`Remover tag ${t}`}
+                        className="ml-0.5 -mr-0.5 w-4 h-4 rounded-full grid place-items-center text-gray-500 hover:text-gray-900 hover:bg-gray-200 transition">
+                        <X size={10} strokeWidth={2.5} />
+                      </button>
+                    </span>
+                  ))}
+                  <input
+                    type="text"
+                    value={editTagInput}
+                    onChange={(e) => {
+                      const v = e.target.value
+                      /* Auto-commit on comma */
+                      if (v.endsWith(',')) {
+                        setEditTagInput(v.slice(0, -1))
+                        setTimeout(() => addTagFromInput(), 0)
+                      } else {
+                        setEditTagInput(v)
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        addTagFromInput()
+                      }
+                      if (e.key === 'Backspace' && !editTagInput && editTags.length > 0) {
+                        /* Backspace on empty input removes last tag */
+                        setEditTags(prev => prev.slice(0, -1))
+                      }
+                    }}
+                    onBlur={addTagFromInput}
+                    placeholder={editTags.length === 0 ? 'ex: quente, prioridade, follow-up' : 'adicionar...'}
+                    className="flex-1 min-w-[120px] bg-transparent text-sm border-0 outline-none placeholder:text-gray-400 px-1"
+                  />
+                </div>
+                <p className="text-[10px] text-gray-400 mt-1">Enter ou vírgula adiciona. Backspace remove a última.</p>
+              </div>
+
+              {/* ── Observações / anotações ── */}
+              <div>
+                <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1 block">
+                  Observações / anotações
+                </label>
+                <textarea
+                  value={editNotes}
+                  onChange={(e) => setEditNotes(e.target.value)}
+                  rows={4}
+                  placeholder="Histórico de contato, preferências, próximos passos, observações importantes sobre este lead…"
+                  className="w-full px-3 py-2.5 rounded-xl border border-border bg-white text-[13px] text-gray-900 placeholder:text-gray-400 resize-y leading-relaxed focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900 transition"
+                />
+                <p className="text-[10px] text-gray-400 mt-1">
+                  Aparecem em toda visualização do lead. Útil para passar o bastão entre vendedores.
+                </p>
+              </div>
+
+              {editFormError && (
+                <div className="flex items-start gap-2 p-3 rounded-xl bg-red-50 border border-red-200">
+                  <AlertTriangle size={14} className="text-red-500 shrink-0 mt-0.5" strokeWidth={2} />
+                  <p className="text-[12px] text-red-700 font-medium leading-snug">{editFormError}</p>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-border-light">
+                <button onClick={() => setTab('info')} disabled={saving}
+                  className="px-4 h-10 rounded-xl text-[12px] font-semibold text-gray-600 hover:bg-gray-100 transition disabled:opacity-50">
+                  Cancelar
+                </button>
+                <Button onClick={saveAllFields} loading={saving} size="md">
+                  {saving ? 'Salvando…' : 'Salvar alterações'}
+                </Button>
+              </div>
+            </div>
+          )}
+
           {tab === 'actions' && (
             <>
               {/* Status */}
@@ -1373,11 +1794,21 @@ function LeadDetailModal({
               {/* Communication grid */}
               <div>
                 <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">Comunicação</p>
+                {/* WhatsApp campaign sender — full width */}
+                {phone && (
+                  <button
+                    type="button"
+                    onClick={() => setShowWaSend(true)}
+                    className="w-full flex items-center justify-center gap-2 h-11 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-[13px] active:scale-[0.98] transition mb-2"
+                  >
+                    <Send size={15} strokeWidth={1.75} /> Enviar mensagem pelo WhatsApp
+                  </button>
+                )}
                 <div className="grid grid-cols-2 gap-2">
                   {phone && (
                     <a href={`https://wa.me/${phone}`} target="_blank" rel="noreferrer"
-                      className="flex items-center justify-center gap-2 h-11 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-[13px] active:scale-[0.98] transition">
-                      <MessageSquare size={15} strokeWidth={1.75} /> WhatsApp
+                      className="flex items-center justify-center gap-2 h-11 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-800 font-medium text-[13px] active:scale-[0.98] transition">
+                      <MessageSquare size={15} strokeWidth={1.75} /> Abrir conversa
                     </a>
                   )}
                   {lead.email && (
@@ -1414,6 +1845,253 @@ function LeadDetailModal({
           )}
         </div>
       </div>
+
+      {/* WhatsApp send modal */}
+      {showWaSend && (
+        <WhatsAppSendModal
+          leads={[lead]}
+          onClose={() => setShowWaSend(false)}
+          onSent={() => saveStatus('contacted')}
+        />
+      )}
     </div>
+  )
+}
+
+/* ══════════════════════════════════════════════
+   KpiCard — metrica densa: numero grande + label + subtitulo + barra de progresso
+   ══════════════════════════════════════════════ */
+function KpiCard({
+  label,
+  value,
+  subtitle,
+  tone = 'default',
+  progress,
+  onClick,
+  active,
+}: {
+  label: string
+  value: string
+  subtitle?: string
+  tone?: 'default' | 'blue' | 'emerald' | 'amber' | 'green'
+  progress?: number
+  onClick?: () => void
+  active?: boolean
+}) {
+  const tones: Record<string, { bar: string; valueColor: string; dot: string }> = {
+    default: { bar: 'bg-gray-300', valueColor: 'text-gray-900', dot: 'bg-gray-400' },
+    blue:    { bar: 'bg-gray-900',    valueColor: 'text-gray-900',    dot: 'bg-gray-900' },
+    emerald: { bar: 'bg-emerald-500', valueColor: 'text-emerald-700', dot: 'bg-emerald-500' },
+    amber:   { bar: 'bg-amber-500',   valueColor: 'text-amber-700',   dot: 'bg-amber-500' },
+    green:   { bar: 'bg-green-600',   valueColor: 'text-green-700',   dot: 'bg-green-600' },
+  }
+  const t = tones[tone]
+  const isClickable = !!onClick
+  const Wrapper = isClickable ? 'button' : 'div'
+  return (
+    <Wrapper
+      onClick={onClick}
+      className={`group relative text-left p-3.5 rounded-xl bg-white border transition-all overflow-hidden ${
+        active
+          ? 'border-gray-900 shadow-[0_0_0_3px_rgba(17,24,39,0.06)]'
+          : 'border-gray-200 hover:border-gray-300 hover:shadow-[0_2px_8px_rgba(0,0,0,0.04)]'
+      } ${isClickable ? 'cursor-pointer active:scale-[0.99]' : ''}`}
+    >
+      {/* Header: dot + label */}
+      <div className="flex items-center gap-1.5 mb-1.5">
+        <span className={`w-1.5 h-1.5 rounded-full ${t.dot}`} />
+        <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">{label}</p>
+      </div>
+      {/* Value */}
+      <p className={`text-[24px] font-bold tabular-nums leading-none ${t.valueColor}`}>{value}</p>
+      {/* Subtitle */}
+      {subtitle && (
+        <p className="text-[10.5px] text-gray-500 mt-1.5 truncate" title={subtitle}>{subtitle}</p>
+      )}
+      {/* Progress bar — sutil no rodape do card */}
+      {progress !== undefined && (
+        <div className="absolute bottom-0 left-0 right-0 h-[3px] bg-gray-100 overflow-hidden">
+          <div
+            className={`h-full ${t.bar} transition-all duration-500 ease-out`}
+            style={{ width: `${Math.min(100, Math.max(0, progress))}%` }}
+          />
+        </div>
+      )}
+    </Wrapper>
+  )
+}
+
+/* ══════════════════════════════════════════════
+   FilterPopover — dropdown reutilizavel pros filtros
+   ══════════════════════════════════════════════ */
+function FilterPopover({
+  label,
+  icon,
+  options,
+  selected,
+  onToggle,
+  onClear,
+  selectedCount,
+  searchable,
+  single,
+  emptyMessage,
+}: {
+  label: string
+  icon?: React.ReactNode
+  options: Array<{ value: string; label: string; count?: number }>
+  selected: string[]
+  onToggle: (value: string) => void
+  onClear: () => void
+  selectedCount: number
+  searchable?: boolean
+  single?: boolean
+  emptyMessage?: string
+}) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('keydown', onEsc)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onEsc)
+    }
+  }, [open])
+
+  const filtered = query
+    ? options.filter(o => o.label.toLowerCase().includes(query.toLowerCase()))
+    : options
+  const hasSelected = selectedCount > 0
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-[12px] font-semibold transition border ${
+          hasSelected
+            ? 'bg-gray-900 text-white border-gray-900 shadow-sm'
+            : 'bg-gray-50 text-gray-700 border-transparent hover:bg-gray-100'
+        }`}
+      >
+        {icon}
+        {label}
+        {hasSelected && (
+          <span className={`inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold tabular-nums ${
+            hasSelected ? 'bg-white/20 text-white' : 'bg-gray-200 text-gray-700'
+          }`}>{selectedCount}</span>
+        )}
+        <ChevronDown size={11} strokeWidth={2.25} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div
+          className="absolute top-full left-0 mt-1 z-30 w-64 rounded-xl overflow-hidden"
+          style={{
+            animation: 'popover-enter 140ms cubic-bezier(0.16, 1, 0.3, 1)',
+            backgroundColor: '#ffffff',
+            border: '1px solid #e5e7eb',
+            boxShadow: '0 10px 30px -8px rgba(0,0,0,0.18), 0 2px 6px rgba(0,0,0,0.06)',
+          }}
+        >
+          {searchable && options.length > 5 && (
+            <div className="p-2 border-b border-gray-100 bg-white">
+              <input
+                type="text"
+                placeholder="Filtrar…"
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                autoFocus
+                style={{ color: '#111827' }}
+                className="w-full h-7 px-2 rounded-md bg-gray-50 border-0 text-[12px] placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-gray-300"
+              />
+            </div>
+          )}
+          <div className="max-h-64 overflow-y-auto py-1 bg-white">
+            {filtered.length === 0 ? (
+              <p className="px-3 py-4 text-[11px] text-gray-500 text-center">
+                {emptyMessage || (query ? 'Nada encontrado' : 'Sem opções')}
+              </p>
+            ) : (
+              filtered.map(opt => {
+                const isSel = selected.includes(opt.value)
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => {
+                      onToggle(opt.value)
+                      if (single) setOpen(false)
+                    }}
+                    style={{ color: isSel ? '#111827' : '#374151' }}
+                    className={`w-full flex items-center justify-between gap-2 px-3 py-1.5 text-[12px] font-medium transition ${
+                      isSel ? 'bg-gray-100' : 'bg-white hover:bg-gray-50'
+                    }`}
+                  >
+                    <span className="flex items-center gap-2 min-w-0">
+                      <span className={`w-3.5 h-3.5 rounded grid place-items-center shrink-0 ${
+                        isSel ? 'bg-gray-900' : 'border border-gray-300 bg-white'
+                      }`}>
+                        {isSel && <Check size={9} strokeWidth={3} className="text-white" />}
+                      </span>
+                      <span className="truncate" style={{ color: 'inherit' }}>{opt.label}</span>
+                    </span>
+                    {opt.count !== undefined && (
+                      <span className="text-[10.5px] text-gray-400 tabular-nums shrink-0">{opt.count.toLocaleString('pt-BR')}</span>
+                    )}
+                  </button>
+                )
+              })
+            )}
+          </div>
+          {hasSelected && (
+            <div className="border-t border-gray-100 p-1.5 flex justify-between items-center bg-white">
+              <span className="text-[10.5px] text-gray-500 px-2 tabular-nums">
+                {selectedCount} selecionado{selectedCount > 1 ? 's' : ''}
+              </span>
+              <button
+                onClick={() => { onClear(); setOpen(false) }}
+                className="text-[11px] font-semibold text-gray-600 hover:text-gray-900 px-2 py-1 rounded hover:bg-gray-100 transition"
+              >
+                Limpar
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ══════════════════════════════════════════════
+   ActiveChip — chip removivel pra filtros ativos
+   ══════════════════════════════════════════════ */
+function ActiveChip({
+  label,
+  icon,
+  onRemove,
+}: {
+  label: string
+  icon?: React.ReactNode
+  onRemove: () => void
+}) {
+  return (
+    <span className="inline-flex items-center gap-1 pl-2 pr-1 h-6 rounded-md bg-white border border-gray-200 text-[11px] font-medium text-gray-700 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+      {icon}
+      <span className="truncate max-w-[140px]">{label}</span>
+      <button
+        onClick={onRemove}
+        aria-label={`Remover filtro ${label}`}
+        className="w-4 h-4 grid place-items-center rounded text-gray-400 hover:text-gray-900 hover:bg-gray-100 transition"
+      >
+        <X size={10} strokeWidth={2.5} />
+      </button>
+    </span>
   )
 }

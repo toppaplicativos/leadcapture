@@ -223,6 +223,67 @@ router.put("/agent-profile", async (req: BrandRequest, res: Response) => {
   }
 });
 
+/* ── WhatsApp message personalizer — gera mensagem personalizada pro lead
+   com base no template atual, dados do lead e perfil da marca. ── */
+router.post("/wa-personalize", async (req: BrandRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId as string | undefined;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+    const { lead, current_message, template_id, sender_name } = req.body || {};
+    const brandId = resolveBrandCompanyId(req);
+
+    /* Load brand profile to respect tone/rules */
+    const profile = await aiAgentProfileService.getByUserId(userId, brandId);
+
+    const leadDesc = [
+      lead?.name && `Nome: ${lead.name}`,
+      lead?.trade_name && `Empresa: ${lead.trade_name}`,
+      lead?.city && `Cidade: ${lead.city}`,
+      lead?.state && `Estado: ${lead.state}`,
+      lead?.category && `Segmento: ${lead.category}`,
+      lead?.google_rating && `Avaliação Google: ${lead.google_rating}/5`,
+      lead?.notes && `Notas: ${lead.notes}`,
+      lead?.status && `Status no CRM: ${lead.status}`,
+    ].filter(Boolean).join('\n');
+
+    const prompt = [
+      `Você é ${sender_name || profile.agent_name}, especialista em vendas pelo WhatsApp.`,
+      `Personalize a seguinte mensagem de abordagem para o lead abaixo. Mantenha o estilo e intenção originais, mas deixe mais natural e específico para este lead em particular.`,
+      ``,
+      `DADOS DO LEAD:`,
+      leadDesc || '(sem dados específicos)',
+      ``,
+      `MENSAGEM ATUAL:`,
+      String(current_message || ''),
+      ``,
+      `REGRAS:`,
+      `- Texto puro para WhatsApp (sem markdown, sem bullets desnecessários)`,
+      `- Máximo 350 caracteres`,
+      `- Tom: ${profile.tone || 'professional'}`,
+      profile.communication_rules ? `- Regras da marca: ${profile.communication_rules}` : '',
+      profile.training_notes ? `- Treinamento: ${profile.training_notes}` : '',
+      ``,
+      `Retorne APENAS o texto da mensagem personalizada, sem prefixos ou explicações.`,
+    ].filter(Boolean).join('\n');
+
+    const message = await aiService.generateCustomMessage(prompt, {
+      userId,
+      brandId,
+      tone: profile.tone || 'professional',
+      maxLength: 350,
+      includeEmojis: Boolean(profile.include_emojis),
+      communicationRules: profile.communication_rules || '',
+      trainingNotes: profile.training_notes || '',
+    });
+
+    res.json({ success: true, message: message.trim() });
+  } catch (error: any) {
+    logger.error(`Error in wa-personalize: ${error.message}`);
+    res.status(500).json({ error: error.message || "Failed to personalize message" });
+  }
+});
+
 router.get("/workspace-overview", async (req: BrandRequest, res: Response) => {
   try {
     const userId = req.user?.userId as string | undefined;

@@ -173,8 +173,10 @@ Gere APENAS a mensagem de follow-up.`;
       const { model, modelName } = await this.resolveClient(options);
       const parts: any[] = [];
 
+      /* Gemini v1beta requires EVERY part to be an object — strings literais are rejected
+       * with "Invalid value at 'contents[0].parts[N]' (v1beta.Part)". Wrap text in { text }. */
       if (context) {
-        parts.push(`CONTEXTO:\n${context}\n\n`);
+        parts.push({ text: `CONTEXTO:\n${context}\n\n` });
       }
 
       for (let i = 0; i < images.length; i++) {
@@ -187,11 +189,15 @@ Gere APENAS a mensagem de follow-up.`;
         });
 
         if (images.length > 1) {
-          parts.push(`[IMAGEM ${i + 1}: ${image.name || `Image ${i + 1}`} ]\n`);
+          parts.push({ text: `[IMAGEM ${i + 1}: ${image.name || `Image ${i + 1}`} ]\n` });
         }
       }
 
-      parts.push(detailedAnalysis ? `\n${prompt}\n\nForneca uma analise DETALHADA e COMPLETA.` : `\n${prompt}`);
+      parts.push({
+        text: detailedAnalysis
+          ? `\n${prompt}\n\nForneca uma analise DETALHADA e COMPLETA.`
+          : `\n${prompt}`,
+      });
 
       logger.info(`Analisando ${images.length} imagem(ns) com Gemini...`);
 

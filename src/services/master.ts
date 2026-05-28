@@ -211,57 +211,129 @@ export class MasterService {
         await query(`CREATE INDEX IF NOT EXISTS idx_email_logs_created ON email_logs (created_at DESC)`)
       } catch { /* ignore */ }
 
-      // 6. Seed default plans if table is empty
+      // 6. Seed default plans if table is empty.
+      // 3 planos: Starter (individual), Pro (escala c/ IA+Meta+dominio), Custom (enterprise).
+      // Limites usam estrutura nova { leads_per_day, leads_per_month, instances, brands,
+      // features: { creative_ai, meta_integration, custom_domain, corporate_email, ... } }
       const existing = await queryOne<{ count: string }>(`SELECT COUNT(*)::text AS count FROM plans`)
       if (existing && Number(existing.count) === 0) {
         const defaults = [
           {
             slug: 'starter',
             name: 'Starter',
-            tagline: 'Para começar',
+            tagline: 'Comece a captar hoje',
             price_cents: 9700,
             features: [
-              '1 número WhatsApp',
-              'Captação no mapa',
-              'CRM básico',
-              '500 disparos/mês',
+              'Até 100 leads captados/dia (3.000/mês)',
+              '1 brand · 1 número WhatsApp',
+              'Captação no mapa (Radar)',
+              'CRM completo com tags e funil',
+              'Importação inteligente (IA)',
+              'Inteligência de prospecção (IA)',
               'Suporte por email',
             ],
-            limits: { instances: 1, disparos_per_month: 500 },
+            limits: {
+              leads_per_day: 100,
+              leads_per_month: 3000,
+              instances: 1,
+              brands: 1,
+              disparos_per_month: 500,
+              features: {
+                radar: true,
+                crm: true,
+                smart_import: true,
+                prospect_ai: true,
+                creative_ai: false,
+                meta_integration: false,
+                custom_domain: false,
+                corporate_email: false,
+                campaigns: false,
+                automations: false,
+                multi_brand: false,
+                api: false,
+              },
+            },
             sort_order: 1,
           },
           {
             slug: 'pro',
             name: 'Pro',
-            tagline: 'Para escalar',
+            tagline: 'Cresça com IA + presença digital',
             price_cents: 29700,
             features: [
-              '3 números WhatsApp',
-              'Tudo do Starter',
-              'Automação completa',
-              'Disparos ilimitados',
-              'IA adaptativa',
-              'Vendas & catálogo',
+              'Até 500 leads captados/dia (15.000/mês)',
+              'Até 3 brands · 3 números WhatsApp',
+              'Tudo do Starter +',
+              'Criativo IA (posts, anúncios, copy)',
+              'Integração Instagram + Facebook',
+              'Domínio customizado (seudominio.com.br)',
+              'Emails corporativos (você@seudominio)',
+              'Automação completa de campanhas',
+              'Disparos em massa ilimitados',
+              'Vendas, catálogo e checkout',
               'Suporte prioritário',
             ],
-            limits: { instances: 3, disparos_per_month: -1 },
+            limits: {
+              leads_per_day: 500,
+              leads_per_month: 15000,
+              instances: 3,
+              brands: 3,
+              disparos_per_month: -1,
+              features: {
+                radar: true,
+                crm: true,
+                smart_import: true,
+                prospect_ai: true,
+                creative_ai: true,
+                meta_integration: true,
+                custom_domain: true,
+                corporate_email: true,
+                campaigns: true,
+                automations: true,
+                multi_brand: true,
+                api: false,
+              },
+            },
             is_featured: true,
             sort_order: 2,
           },
           {
-            slug: 'scale',
-            name: 'Scale',
-            tagline: 'Operações avançadas',
+            slug: 'custom',
+            name: 'Custom',
+            tagline: 'Sob medida para operações grandes',
             price_cents: 0,
             features: [
-              'Números ilimitados',
-              'Tudo do Pro',
-              'Multi-marca',
-              'API & integrações',
-              'Onboarding dedicado',
-              'SLA garantido',
+              'Volume customizado de leads',
+              'Brands e números ilimitados',
+              'Tudo do Pro +',
+              'API e webhooks dedicados',
+              'Integrações sob demanda (ERP, BI, etc)',
+              'Onboarding e treinamento dedicado',
+              'Gerente de sucesso (CSM) próprio',
+              'SLA garantido em contrato',
+              'Implantação assistida',
             ],
-            limits: { instances: -1, disparos_per_month: -1 },
+            limits: {
+              leads_per_day: -1,
+              leads_per_month: -1,
+              instances: -1,
+              brands: -1,
+              disparos_per_month: -1,
+              features: {
+                radar: true,
+                crm: true,
+                smart_import: true,
+                prospect_ai: true,
+                creative_ai: true,
+                meta_integration: true,
+                custom_domain: true,
+                corporate_email: true,
+                campaigns: true,
+                automations: true,
+                multi_brand: true,
+                api: true,
+              },
+            },
             sort_order: 3,
           },
         ]
@@ -282,7 +354,144 @@ export class MasterService {
             ],
           )
         }
-        logger.info("Seeded default plans (Starter, Pro, Scale)")
+        logger.info("Seeded default plans (Starter, Pro, Custom)")
+      }
+
+      /* Migration: atualiza planos existentes pra v2 (limites com features detalhados).
+         Roda UMA vez via flag em master_settings. Idempotente — se rodou ja, pula. */
+      const migrationFlag = await queryOne<{ value: any }>(
+        `SELECT value FROM master_settings WHERE key = ?`,
+        ['plans_v2_migrated_at'],
+      )
+      if (!migrationFlag) {
+        const v2Plans = [
+          {
+            slug: 'starter',
+            name: 'Starter',
+            tagline: 'Comece a captar hoje',
+            price_cents: 9700,
+            features: [
+              'Até 100 leads captados/dia (3.000/mês)',
+              '1 brand · 1 número WhatsApp',
+              'Captação no mapa (Radar)',
+              'CRM completo com tags e funil',
+              'Importação inteligente (IA)',
+              'Inteligência de prospecção (IA)',
+              'Suporte por email',
+            ],
+            limits: {
+              leads_per_day: 100, leads_per_month: 3000, instances: 1, brands: 1,
+              disparos_per_month: 500,
+              features: {
+                radar: true, crm: true, smart_import: true, prospect_ai: true,
+                creative_ai: false, meta_integration: false, custom_domain: false,
+                corporate_email: false, campaigns: false, automations: false,
+                multi_brand: false, api: false,
+              },
+            },
+            is_featured: false, sort_order: 1, is_active: true,
+          },
+          {
+            slug: 'pro',
+            name: 'Pro',
+            tagline: 'Cresça com IA + presença digital',
+            price_cents: 29700,
+            features: [
+              'Até 500 leads captados/dia (15.000/mês)',
+              'Até 3 brands · 3 números WhatsApp',
+              'Tudo do Starter +',
+              'Criativo IA (posts, anúncios, copy)',
+              'Integração Instagram + Facebook',
+              'Domínio customizado (seudominio.com.br)',
+              'Emails corporativos (você@seudominio)',
+              'Automação completa de campanhas',
+              'Disparos em massa ilimitados',
+              'Vendas, catálogo e checkout',
+              'Suporte prioritário',
+            ],
+            limits: {
+              leads_per_day: 500, leads_per_month: 15000, instances: 3, brands: 3,
+              disparos_per_month: -1,
+              features: {
+                radar: true, crm: true, smart_import: true, prospect_ai: true,
+                creative_ai: true, meta_integration: true, custom_domain: true,
+                corporate_email: true, campaigns: true, automations: true,
+                multi_brand: true, api: false,
+              },
+            },
+            is_featured: true, sort_order: 2, is_active: true,
+          },
+          {
+            slug: 'custom',
+            name: 'Custom',
+            tagline: 'Sob medida para operações grandes',
+            price_cents: 0,
+            features: [
+              'Volume customizado de leads',
+              'Brands e números ilimitados',
+              'Tudo do Pro +',
+              'API e webhooks dedicados',
+              'Integrações sob demanda (ERP, BI, etc)',
+              'Onboarding e treinamento dedicado',
+              'Gerente de sucesso (CSM) próprio',
+              'SLA garantido em contrato',
+              'Implantação assistida',
+            ],
+            limits: {
+              leads_per_day: -1, leads_per_month: -1, instances: -1, brands: -1,
+              disparos_per_month: -1,
+              features: {
+                radar: true, crm: true, smart_import: true, prospect_ai: true,
+                creative_ai: true, meta_integration: true, custom_domain: true,
+                corporate_email: true, campaigns: true, automations: true,
+                multi_brand: true, api: true,
+              },
+            },
+            is_featured: false, sort_order: 3, is_active: true,
+          },
+        ]
+        for (const p of v2Plans) {
+          /* Tenta atualizar pelo slug; se nao existir, insere. NAO mexe em stripe_* (preserva
+             os links de pagamento ja criados). */
+          const existingPlan = await queryOne<{ id: string }>(
+            `SELECT id FROM plans WHERE slug = ?`, [p.slug],
+          )
+          if (existingPlan) {
+            await query(
+              `UPDATE plans
+                 SET name = ?, tagline = ?, price_cents = ?, features = ?, limits = ?,
+                     is_featured = ?, sort_order = ?, is_active = ?, updated_at = NOW()
+               WHERE slug = ?`,
+              [
+                p.name, p.tagline, p.price_cents,
+                JSON.stringify(p.features), JSON.stringify(p.limits),
+                p.is_featured, p.sort_order, p.is_active, p.slug,
+              ],
+            )
+          } else {
+            await query(
+              `INSERT INTO plans (id, slug, name, tagline, price_cents, features, limits, is_featured, sort_order, is_active)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              [
+                uuidv4(), p.slug, p.name, p.tagline, p.price_cents,
+                JSON.stringify(p.features), JSON.stringify(p.limits),
+                p.is_featured, p.sort_order, p.is_active,
+              ],
+            )
+          }
+        }
+        /* Desativa qualquer plano legacy fora do conjunto v2 (ex: 'scale') */
+        await query(
+          `UPDATE plans SET is_active = FALSE WHERE slug NOT IN ('starter', 'pro', 'custom')`,
+          [],
+        )
+        /* Marca flag pra nao reexecutar */
+        await query(
+          `INSERT INTO master_settings (key, value) VALUES (?, ?)
+           ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+          ['plans_v2_migrated_at', JSON.stringify(new Date().toISOString())],
+        )
+        logger.info("Plans v2 migration applied (Starter/Pro/Custom with features matrix)")
       }
 
       this.schemaReady = true

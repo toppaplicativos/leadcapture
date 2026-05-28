@@ -11,6 +11,7 @@ export interface ReasonerInput {
   conversationHistory: string[];
   catalogBlock: string;
   knowledgeBlock: string;
+  skillsBlock?: string;
   brandIdentityBlock: string;
   memoryBlock: string;
   lastOutgoingMessages: string[];
@@ -70,6 +71,13 @@ export class Reasoner {
       input.catalogBlock,
       "",
       input.knowledgeBlock,
+      "",
+      /* Skills: posicionadas antes da mensagem — Reasoner precisa saber qual skill
+         disparou pra definir response_strategy como "executar skill X agora" e não
+         "prometer verificar depois". */
+      input.skillsBlock
+        ? `HABILIDADES ESPECIFICAS ATIVAS PARA ESTA MENSAGEM:\n${input.skillsBlock}\nAO DEFINIR response_strategy: se uma habilidade acima se aplica, a estratégia DEVE ser executá-la e entregar o resultado nesta resposta — não "verificar", não "perguntar depois".`
+        : "",
       "",
       `MENSAGEM ATUAL DO CLIENTE: "${input.incomingMessage}"`,
       "",

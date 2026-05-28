@@ -58,7 +58,13 @@ function buildTags(opts: {
   interest?: string | null;
   temperature?: string | null;
 }): string[] {
-  const tags: string[] = ["smart-import", opts.sourceTag];
+  /* Tag "new" é redundante com status="new" no momento da importação,
+   * MAS é o que permite ao operador segmentar campanhas por "primeiro contato"
+   * usando o filtro de Tags da CampaignEditor. Sem ela, o operador teria que
+   * combinar filtro por status + filtro por tag em duas dimensões — fonte
+   * recorrente de confusão. Mantemos a tag mesmo após status mudar para "contacted"
+   * para preservar o histórico de origem. */
+  const tags: string[] = ["new", "smart-import", opts.sourceTag];
   if (opts.interest) {
     /* Tag legível do interesse, slug-style */
     const slug = String(opts.interest)

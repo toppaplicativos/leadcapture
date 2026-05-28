@@ -588,7 +588,7 @@ export class InboxService {
       `UPDATE whatsapp_conversations
        SET last_message_text = ?,
            last_message_at = NOW(),
-           last_message_from_me = 1,
+           last_message_from_me = TRUE,
            ai_last_incoming_message_id = ?,
            ai_last_reply_message_id = ?,
            ai_last_decision_json = ?,

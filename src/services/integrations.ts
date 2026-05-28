@@ -398,6 +398,44 @@ export class IntegrationService {
     }
   }
 
+  /**
+   * findAnyActiveProvider — usado por endpoints PUBLICOS (sem user logado, ex: landing chat)
+   * Busca a PRIMEIRA integration ativa de qualquer um dos providers listados, ignorando
+   * account_id. Permite que features publicas reaproveitem chaves ja cadastradas
+   * por qualquer admin sem precisar de configuracao global especifica.
+   *
+   * Ordem de preferencia respeita a ordem do array de entrada (ex: ['openai','grok','gemini']).
+   * Dentro de cada provider, retorna a integration mais recente (updated_at DESC).
+   */
+  async findAnyActiveProvider(providers: string[]): Promise<IntegrationResolvedConfig | null> {
+    await this.ensureSchema();
+    for (const providerName of providers) {
+      const provider = normalizeProvider(providerName);
+      const row = await queryOne<IntegrationRow>(
+        `SELECT *
+         FROM integrations
+         WHERE provider = ? AND is_active = TRUE AND key_encrypted IS NOT NULL AND key_encrypted <> ''
+         ORDER BY updated_at DESC
+         LIMIT 1`,
+        [provider]
+      );
+      if (!row) continue;
+      const hydrated = this.hydrateRow(row);
+      if (!hydrated.key) continue;
+      return {
+        provider,
+        key: hydrated.key,
+        config: this.normalizeConfig(provider, hydrated.config_json),
+        is_active: hydrated.is_active,
+        priority: hydrated.priority,
+        source: "database",
+        account_id: hydrated.account_id,
+        updated_at: hydrated.updated_at,
+      };
+    }
+    return null;
+  }
+
   private async findStoredProvider(provider: IntegrationProvider, scope?: IntegrationScope): Promise<IntegrationRecord | null> {
     await this.ensureSchema();
 
@@ -524,7 +562,7 @@ export class IntegrationService {
     }
 
     const stored = await this.findStoredProvider(provider, scope);
-    const resolved: IntegrationResolvedConfig = stored
+    let resolved: IntegrationResolvedConfig = stored
       ? {
           provider,
           key: stored.key,
@@ -536,6 +574,13 @@ export class IntegrationService {
           updated_at: stored.updated_at,
         }
       : this.buildEnvFallback(provider);
+
+    // Last-resort fallback: se o escopo nao tem chave e a env var tambem nao tem,
+    // usa qualquer chave ativa do banco (evita GEMINI_API_KEY_NOT_CONFIGURED em dev)
+    if (!cleanString(resolved.key)) {
+      const anyActive = await this.findAnyActiveProvider([provider]);
+      if (anyActive) resolved = anyActive;
+    }
 
     this.cache.set(cacheKey, { value: resolved, expires: Date.now() + CACHE_TTL_MS });
     return resolved;

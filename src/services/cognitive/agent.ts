@@ -205,6 +205,8 @@ export class CognitiveAgent {
       /* Abordagem inicial — guia humanizacao na primeira mensagem */
       isFirstMessage,
       firstContactScript: String(profile.first_contact_script || "").trim() || undefined,
+      /* Proposta de valor — diretriz central, injeta em todo prompt comercial */
+      valueProposition: String(profile.value_proposition || "").trim() || undefined,
     });
     const composerMs = Date.now() - tComposer;
 

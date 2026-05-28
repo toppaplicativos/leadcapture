@@ -54,9 +54,11 @@ export class InstanceManager {
      Isso permite que sendMessage() so retorne true quando o WhatsApp REALMENTE
      confirmou recebimento — fim do "painel mente sent". */
   private pendingAcks: Map<string, { resolve: (ok: boolean) => void; timer: NodeJS.Timeout; instanceId: string; sentAt: number }> = new Map();
+  private consecutiveAckTimeouts: Map<string, number> = new Map();
   /* Default 15s pra esperar ack. Configurável via env. 5s era muito curto em redes lentas
      (SERVER_ACK pode demorar 8-12s em alta carga do WA), causando drops silenciosos. */
   private static readonly DEFAULT_ACK_TIMEOUT_MS = Math.max(1000, Math.min(60000, Number(process.env.WHATSAPP_ACK_TIMEOUT_MS) || 15000));
+  private static readonly MAX_CONSECUTIVE_ACK_TIMEOUTS = 4;
   private intentionalDisconnects: Set<string> = new Set();
   private mediaLogger = pino({ level: "silent" }) as any;
   private static MAX_RETRIES = 5;
@@ -123,6 +125,9 @@ export class InstanceManager {
     const normalized = this.normalizeDirectJid(rawJid);
     if (!normalized) return rawJid;
     if (normalized.endsWith("@g.us")) return normalized;
+    // LID JIDs are WhatsApp internal multi-device identifiers — not phone numbers.
+    // onWhatsApp() probe always fails for them; send directly.
+    if (normalized.endsWith("@lid")) return normalized;
 
     const digits = normalized.split("@")[0];
     /* Bug-19: same BR 9-digit gotcha applies here. resolveSendTargetJid is the
@@ -145,7 +150,7 @@ export class InstanceManager {
     try {
       const pool = getPool();
       const [rows] = await pool.execute<any[]>(
-        "SELECT id, name, phone, status, created_by FROM whatsapp_instances WHERE status IN ('connected', 'connecting')"
+        "SELECT id, name, phone, status, created_by FROM whatsapp_instances WHERE status IN ('connected', 'connecting', 'qr_ready')"
       );
 
       if (rows.length === 0) {
@@ -248,6 +253,12 @@ export class InstanceManager {
 
   // ==================== DB SYNC HELPERS ====================
   private async syncInstanceToDB(instance: WhatsAppInstance): Promise<void> {
+    /* Nao persiste o estado transitório 'connecting' no DB.
+       'connecting' é um estado in-process: escrever no DB causa drift oscilante
+       (restoreAllSessions lê 'connecting' como "not connected" → orphaned path).
+       Só persistimos 'connected', 'disconnected', 'qr_ready' e similares. */
+    if (instance.status === "connecting") return;
+
     try {
       const pool = getPool();
       const ownerUserId = this.instanceOwners.get(instance.id) || null;
@@ -424,14 +435,32 @@ export class InstanceManager {
 
           // Handle specific disconnect reasons
           if (statusCode === DisconnectReason.loggedOut) {
-            // User logged out - clean auth files
-            logger.info(`Instance ${instance.name} logged out. Cleaning auth files.`);
+            /* WhatsApp invalidou a sessao (401). Auth files nao valem mais.
+               TIER 2: limpar auth + auto-restart pra gerar NOVO QR + notificar admin.
+               Antes: so limpava e desistia. Agora QR aparece pronto no painel. */
+            logger.warn(`Instance ${instance.name} logged out (401). Cleaning auth + auto-restart pra novo QR.`);
             this.retryCount.delete(id);
             this.preconditionCloseCount.delete(id);
             const authPath = path.join(config.authDir, id);
             if (fs.existsSync(authPath)) {
-              fs.rmSync(authPath, { recursive: true });
+              try { fs.rmSync(authPath, { recursive: true }); } catch (e: any) {
+                logger.warn(`Failed to clean auth for ${instance.name}: ${e.message}`);
+              }
             }
+
+            /* Dispara notificacao pro admin (sininho + push se inscrito) */
+            this.notifySessionInvalidated(id, instance).catch((e: any) => {
+              logger.warn(`Failed to send session-invalidated notification: ${e.message}`);
+            });
+
+            /* Auto-restart pra gerar novo QR — sem await pra nao bloquear o handler.
+               Pequeno delay (3s) pra Baileys terminar de limpar listeners. */
+            setTimeout(() => {
+              this.connectInstance(id).catch((err: any) => {
+                logger.error(`Auto-reconnect after loggedOut failed for ${instance.name}: ${err.message}`);
+              });
+            }, 3000);
+
             if (!resolved) { resolved = true; resolve(null); }
             return;
           }
@@ -556,6 +585,7 @@ export class InstanceManager {
               /* Server confirmou recebimento (>= SERVER_ACK) */
               clearTimeout(pending.timer);
               this.pendingAcks.delete(messageId);
+              this.consecutiveAckTimeouts.delete(pending.instanceId);
               pending.resolve(true);
             }
           }
@@ -577,11 +607,62 @@ export class InstanceManager {
       const timer = setTimeout(() => {
         if (this.pendingAcks.has(messageId)) {
           this.pendingAcks.delete(messageId);
-          resolve(false); // timeout - assume drop
+          const consecutive = (this.consecutiveAckTimeouts.get(instanceId) || 0) + 1;
+          this.consecutiveAckTimeouts.set(instanceId, consecutive);
+          if (consecutive >= InstanceManager.MAX_CONSECUTIVE_ACK_TIMEOUTS) {
+            const inst = this.instances.get(instanceId);
+            logger.warn(`ZOMBIE DETECTED: ${inst?.name || instanceId} — ${consecutive} consecutive ack timeouts. Triggering reconnect.`);
+            this.consecutiveAckTimeouts.delete(instanceId);
+            setImmediate(() => this.triggerZombieRecovery(instanceId).catch(() => {}));
+          }
+          resolve(false);
         }
       }, timeout);
       this.pendingAcks.set(messageId, { resolve, timer, instanceId, sentAt: Date.now() });
     });
+  }
+
+  private async triggerZombieRecovery(instanceId: string): Promise<void> {
+    const instance = this.instances.get(instanceId);
+    if (!instance) return;
+    const sock = this.sockets.get(instanceId);
+    if (!sock) return;
+    logger.warn(`ZOMBIE RECOVERY: Forcing reconnect for ${instance.name} (${instanceId})`);
+    this.rejectPendingAcksForInstance(instanceId, "zombie_recovery");
+    await this.cleanupSocket(instanceId);
+    instance.status = "disconnected";
+    this.instances.set(instanceId, instance);
+    await this.syncInstanceToDB(instance);
+    setTimeout(() => this.safeConnect(instanceId), 3000);
+  }
+
+  /* Notifica admin (dono da instance) que a sessao WhatsApp foi invalidada e
+     precisa escanear QR novamente. Usado quando 401/loggedOut acontece.
+     Dispara via notificationService — apareca no sininho + push se inscrito. */
+  private async notifySessionInvalidated(instanceId: string, instance: WhatsAppInstance): Promise<void> {
+    try {
+      const ownerId = this.instanceOwners.get(instanceId);
+      if (!ownerId) return;
+      const { getNotificationService } = await import("../services/notifications");
+      const svc = getNotificationService();
+      await svc.createNotification({
+        user_id: ownerId,
+        type: "system",
+        event: "whatsapp_session_invalidated",
+        title: `Sessão WhatsApp expirou: ${instance.name}`,
+        message: `O WhatsApp invalidou a sessão da instância "${instance.name}" (${instance.phone || ""}). ` +
+                 `Um novo QR Code foi gerado automaticamente — escaneie em /whatsapp pra reconectar.`,
+        priority: "high",
+        metadata: {
+          instance_id: instanceId,
+          instance_name: instance.name,
+          phone: instance.phone || null,
+          reason: "session_expired_401",
+        },
+      } as any);
+    } catch (err: any) {
+      logger.warn(`notifySessionInvalidated failed: ${err.message}`);
+    }
   }
 
   /* Quando uma instance desconecta, rejeitar todos pendingAcks dela como false

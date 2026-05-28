@@ -27,7 +27,7 @@ if (IS_LOCAL_DEV) {
     );
   });
 } else {
-const SHELL_CACHE_NAME = "lead-system-shell-v23-20260521";
+const SHELL_CACHE_NAME = "lead-system-shell-v24-20260522";
 const RUNTIME_CACHE_NAME = "lead-system-runtime-v16-20260521";
 
 function getBasePath() {

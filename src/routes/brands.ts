@@ -97,6 +97,36 @@ router.post("/:id/activate", async (req: AuthRequest, res: Response) => {
   }
 });
 
+/* Panfleteiro V2: estado de busca persistido por brand
+   (resolve vazamento entre operacoes ao trocar brand). */
+router.get("/:id/search-state", async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId as string | undefined;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const brandId = String(req.params.id);
+    const state = await brandUnitsService.getSearchState(userId, brandId);
+    res.json({ success: true, state });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.patch("/:id/search-state", async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId as string | undefined;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const brandId = String(req.params.id);
+    const state = req.body?.state ?? req.body;
+    if (!state || typeof state !== "object") {
+      return res.status(400).json({ error: "state body is required" });
+    }
+    const saved = await brandUnitsService.setSearchState(userId, brandId, state);
+    res.json({ success: true, state: saved });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 router.delete("/:id", async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user?.userId as string | undefined;

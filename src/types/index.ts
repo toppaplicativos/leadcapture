@@ -413,10 +413,19 @@ export interface PlaceSearchRequest {
   maxResultCount?: number;
   languageCode?: string;
   pageToken?: string;
+  /* Dica suave - resultados podem cair fora do circulo */
   locationBias?: {
     circle: {
       center: { latitude: number; longitude: number };
       radius: number;
+    };
+  };
+  /* HARD limit - resultados garantidos dentro do rectangle (radar mode).
+     Google Places Text Search v1 NAO aceita circle em locationRestriction, apenas rectangle. */
+  locationRestriction?: {
+    rectangle: {
+      low: { latitude: number; longitude: number };
+      high: { latitude: number; longitude: number };
     };
   };
 }

@@ -995,14 +995,16 @@ export class CustomersService {
       params.push(filters.state);
     }
 
-    // search
+    // search — case-insensitive + accent-insensitive via unaccent.
+    // "Iguatu"/"iguatu"/"IGUATU" e "imobiliaria"/"imobiliária" todos batem.
+    // Requer extensão `unaccent` habilitada (CREATE EXTENSION IF NOT EXISTS unaccent).
     if (filters?.search) {
       const searchFields = ["name", "trade_name", "phone", "email"].filter((field) =>
         this.hasColumn(columns, field)
       );
 
       if (searchFields.length > 0) {
-        where += ` AND (${searchFields.map((field) => `${field} LIKE ?`).join(" OR ")})`;
+        where += ` AND (${searchFields.map((f) => `LOWER(unaccent(COALESCE(${f}::text, ''))) LIKE LOWER(unaccent(?))`).join(" OR ")})`;
         const s = `%${filters.search}%`;
         searchFields.forEach(() => params.push(s));
       }
@@ -1018,12 +1020,19 @@ export class CustomersService {
       params.push(filters.maxRating);
     }
 
-    // tags include (comma-separated; each must be present in the JSON array)
+    // tags include (comma-separated; cada tag deve aparecer no array de tags).
+    // Coluna `tags` na pratica vem em formatos mistos:
+    //   - JSONB array: ["a","b"]
+    //   - PostgreSQL text array literal: {"a","b"} ou {a,b}
+    //   - JSON string aninhada: "{\"a\",\"b\"}"
+    // Cast pra jsonb com @> quebra em formatos PG-array. Usamos LIKE no texto
+    // serializado, procurando a tag entre aspas (cobre JSONB, PG array com
+    // aspas, e JSON string). Case-insensitive via LOWER.
     if (filters?.tags && this.hasColumn(columns, "tags")) {
       const tagList = filters.tags.split(",").map((t) => t.trim()).filter(Boolean);
       for (const tag of tagList) {
-        where += " AND tags::jsonb @> ?::jsonb";
-        params.push(JSON.stringify([tag]));
+        where += " AND LOWER(COALESCE(tags::text, '')) LIKE LOWER(?)";
+        params.push(`%"${tag}"%`);
       }
     }
 
@@ -1031,8 +1040,8 @@ export class CustomersService {
     if (filters?.tagsExclude && this.hasColumn(columns, "tags")) {
       const tagList = filters.tagsExclude.split(",").map((t) => t.trim()).filter(Boolean);
       for (const tag of tagList) {
-        where += " AND NOT (tags::jsonb @> ?::jsonb)";
-        params.push(JSON.stringify([tag]));
+        where += " AND LOWER(COALESCE(tags::text, '')) NOT LIKE LOWER(?)";
+        params.push(`%"${tag}"%`);
       }
     }
 

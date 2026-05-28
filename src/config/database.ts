@@ -29,6 +29,7 @@ let compatPool: CompatPool;
 
 function isTransientDbError(error: any): boolean {
   const code = String(error?.code || "");
+  const msg = String(error?.message || "");
   return (
     code === "PROTOCOL_CONNECTION_LOST" ||
     code === "ECONNRESET" ||
@@ -38,7 +39,14 @@ function isTransientDbError(error: any): boolean {
     code === "57P02" ||
     code === "08006" ||
     code === "08000" ||
-    code === "08003"
+    code === "08003" ||
+    /* Supabase Pooler/PgBouncer derruba conexao com "Internal error (authenticated): :closed"
+       (XX000). Tratamos como transiente pra evitar erro fatal por causa de churn de pool. */
+    code === "XX000" ||
+    /:closed/i.test(msg) ||
+    /* Quando o pool foi encerrado por recreatePool e alguma query concorrente ainda
+       segura uma referencia velha, o pg-pool lanca essa msg. Retry vai recriar o pool. */
+    /Cannot use a pool after calling end/i.test(msg)
   );
 }
 
@@ -396,15 +404,24 @@ export function getPool(): CompatPool {
   return compatPool;
 }
 
+/* Guard contra recreate concorrente — varias queries falhando em sequencia podem
+   disparar recreatePool em paralelo. So o primeiro recria; demais aguardam. */
+let recreateInFlight: Promise<void> | null = null;
 async function recreatePool(): Promise<void> {
-  try {
-    await compatPool?.end();
-  } catch {
-    // ignore close errors
-  }
-  pgPool = createPgPool();
-  compatPool = createCompatPool();
-  logger.warn("PostgreSQL pool recreated after transient connection error");
+  if (recreateInFlight) return recreateInFlight;
+  recreateInFlight = (async () => {
+    /* CRITICAL: reatribui as referencias de modulo ANTES de tentar encerrar o
+       pool antigo. Queries concorrentes que ja entraram em run()/connect()
+       vao ler `pgPool`/`compatPool` dinamicamente e pegam o NOVO pool.
+       NAO chamamos end() no pool antigo — isso mataria queries em voo e
+       dispararia mais erros "Cannot use a pool after calling end" em cascata.
+       O pool antigo e abandonado e vai ser GC-coletado; conexoes sao
+       encerradas pelo OS via TCP timeout. */
+    pgPool = createPgPool();
+    compatPool = createCompatPool();
+    logger.warn("PostgreSQL pool recreated after transient connection error");
+  })().finally(() => { recreateInFlight = null; });
+  return recreateInFlight;
 }
 
 export async function query<T = any>(sql: string, params?: any[]): Promise<T> {
@@ -430,15 +447,31 @@ export async function queryOne<T = any>(sql: string, params?: any[]): Promise<T 
 }
 
 export async function insert(sql: string, params?: any[]): Promise<number> {
-  const p = getPool();
-  const [result] = await p.execute(sql, params || []);
-  return (result as any).insertId;
+  try {
+    const p = getPool();
+    const [result] = await p.execute(sql, params || []);
+    return (result as any).insertId;
+  } catch (error: any) {
+    if (!isTransientDbError(error)) throw error;
+    await recreatePool();
+    const retryPool = getPool();
+    const [result] = await retryPool.execute(sql, params || []);
+    return (result as any).insertId;
+  }
 }
 
 export async function update(sql: string, params?: any[]): Promise<number> {
-  const p = getPool();
-  const [result] = await p.execute(sql, params || []);
-  return (result as any).affectedRows;
+  try {
+    const p = getPool();
+    const [result] = await p.execute(sql, params || []);
+    return (result as any).affectedRows;
+  } catch (error: any) {
+    if (!isTransientDbError(error)) throw error;
+    await recreatePool();
+    const retryPool = getPool();
+    const [result] = await retryPool.execute(sql, params || []);
+    return (result as any).affectedRows;
+  }
 }
 
 export async function testConnection(): Promise<boolean> {

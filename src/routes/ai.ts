@@ -248,18 +248,29 @@ router.post("/wa-personalize", async (req: BrandRequest, res: Response) => {
     ].filter(Boolean).join('\n');
 
     const prompt = [
-      `Você é ${sender_name || profile.agent_name}, especialista em vendas pelo WhatsApp.`,
-      `Personalize a seguinte mensagem de abordagem para o lead abaixo. Mantenha o estilo e intenção originais, mas deixe mais natural e específico para este lead em particular.`,
+      `Você é ${sender_name || profile.agent_name}, especialista em vendas B2B pelo WhatsApp.`,
       ``,
-      `DADOS DO LEAD:`,
+      /* Proposta de valor: prioridade máxima — sem ela a mensagem será genérica */
+      profile.value_proposition?.trim()
+        ? [
+            `PROPOSTA DE VALOR DA SUA EMPRESA (OBRIGATÓRIO COMUNICAR):`,
+            profile.value_proposition.trim(),
+            `REGRA CRÍTICA: A mensagem DEVE comunicar esta proposta de forma clara e específica.`,
+            `PROIBIDO usar frases vagas como "soluções", "podemos te ajudar", "fazemos a diferença" sem especificar O QUÊ exatamente você oferece.`,
+          ].join('\n')
+        : `ATENÇÃO: Proposta de valor não configurada. Configure em Configurações > Atendente > Proposta de Valor para mensagens mais eficazes.`,
+      ``,
+      `DADOS DO LEAD (adapte a mensagem especificamente para este perfil):`,
       leadDesc || '(sem dados específicos)',
       ``,
-      `MENSAGEM ATUAL:`,
+      `MENSAGEM BASE (reescreva personalizando para este lead):`,
       String(current_message || ''),
       ``,
-      `REGRAS:`,
+      `INSTRUÇÕES:`,
+      `- Substitua qualquer referência genérica pelo dado real do lead (segmento, cidade, nome)`,
+      `- Comunique a proposta de valor de forma específica e relevante para o segmento do lead`,
       `- Texto puro para WhatsApp (sem markdown, sem bullets desnecessários)`,
-      `- Máximo 350 caracteres`,
+      `- Máximo 400 caracteres`,
       `- Tom: ${profile.tone || 'professional'}`,
       profile.communication_rules ? `- Regras da marca: ${profile.communication_rules}` : '',
       profile.training_notes ? `- Treinamento: ${profile.training_notes}` : '',

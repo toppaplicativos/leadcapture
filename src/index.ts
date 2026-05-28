@@ -24,6 +24,12 @@ import { rateLimit } from "./middleware/rateLimit";
 import { lgpdPublicRoutes, lgpdAdminRoutes } from "./routes/lgpd";
 import agentSilencesRoutes from "./routes/agentSilences";
 import leadImportRoutes from "./routes/leadImport";
+import leadIdeasRoutes from "./routes/leadIdeas";
+import brandAutomationsRoutes from "./routes/brandAutomations";
+import aiCampaignRoutes from "./routes/aiCampaign";
+import brandSkillsRoutes from "./routes/brandSkills";
+import { startAutomationScheduler } from "./services/automationScheduler";
+import { startWhatsAppHealthMonitor, getHealthSnapshot, setInstanceManagerRef } from "./services/whatsappHealth";
 import clientTypesRoutes from "./routes/clientTypes";
 import sessionsRoutes from "./routes/sessions";
 import automationsRoutes from "./routes/automations";
@@ -72,6 +78,7 @@ import leadCategoriesRoutes from "./routes/leadCategories";
 import flowBuilderRoutes from "./routes/flowBuilder";
 import { FlowExecutorService } from "./services/flowExecutor";
 import notificationsRoutes from "./routes/notifications";
+import videoStudioRoutes from "./routes/videoStudio";
 import supportRoutes from "./routes/support";
 import integrationsRoutes from "./routes/integrations";
 import instagramRoutes from "./routes/instagram";
@@ -329,6 +336,11 @@ app.use("/api/media", authMiddleware, mediaRoutes);
 app.use("/api/companies", authMiddleware, companiesRoutes);
 app.use("/api/clients", authMiddleware, rateLimit({ name: "clients", max: 200, windowMs: 60_000 }), clientsRoutes);
 app.use("/api/lead-import", authMiddleware, leadImportRoutes);
+app.use("/api/lead-ideas", authMiddleware, leadIdeasRoutes);
+app.use("/api/automations", authMiddleware, brandAutomationsRoutes);
+app.use("/api/ai-campaign", authMiddleware, aiCampaignRoutes);
+app.use("/api/video-studio", videoStudioRoutes);
+app.use("/api/brand-skills", authMiddleware, brandSkillsRoutes);
 app.use("/api/client-types", authMiddleware, clientTypesRoutes);
 app.use("/api/sessions", authMiddleware, sessionsRoutes);
 app.use("/api/automations", authMiddleware, automationsRoutes);
@@ -852,6 +864,21 @@ function sanitizeLeadSearchText(value: unknown, maxLength: number): string {
 
 // ==================== INSTANCE ROUTES (protected) ====================
 
+/* /api/instances/health — snapshot pra banner UI + dashboard. Cobre fantasma
+   conectado (drift), tempo desconectado, criticidade (ok/warning/critical). */
+app.get("/api/instances/health", authMiddleware, async (req: any, res) => {
+  try {
+    const userId = req.user?.userId as string | undefined;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const brandId = await brandUnitsService.resolveActiveBrandId(userId, getRequestedBrandId(req)).catch(() => null);
+    const snapshot = await getHealthSnapshot({ userId, brandId });
+    res.json({ success: true, ...snapshot });
+  } catch (e: any) {
+    logger.error(`/api/instances/health error: ${e?.message}`);
+    res.status(500).json({ error: e?.message || "Erro ao carregar health" });
+  }
+});
+
 app.post("/api/instances", authMiddleware, async (req: any, res) => {
   try {
     const userId = req.user?.userId as string | undefined;
@@ -1189,6 +1216,22 @@ app.post("/api/leads/search", authMiddleware, async (req: any, res) => {
 
     const capturedPoints = await customersService.getCapturedGeoPoints(userId, 600, brandId);
 
+    /* Panfleteiro V2 — calcula center a partir dos leads pra o frontend
+       centralizar o mapa na localizacao correta (corrige bug de mapa
+       em BH quando user buscou em Fortaleza, etc). */
+    let center: { latitude: number; longitude: number } | null = null;
+    let latSum = 0, lngSum = 0, validCount = 0;
+    for (const l of leads) {
+      const la = Number(l?.location?.latitude);
+      const ln = Number(l?.location?.longitude);
+      if (!Number.isFinite(la) || !Number.isFinite(ln)) continue;
+      if (la === 0 && ln === 0) continue;
+      latSum += la; lngSum += ln; validCount++;
+    }
+    if (validCount > 0) {
+      center = { latitude: latSum / validCount, longitude: lngSum / validCount };
+    }
+
     res.json({
       success: true,
       leads,
@@ -1208,6 +1251,7 @@ app.post("/api/leads/search", authMiddleware, async (req: any, res) => {
         triggered: automationQueuedJobs > 0,
       },
       brand_id: brandId,
+      center,
       capturedPoints,
     });
   } catch (error: any) {
@@ -1380,13 +1424,29 @@ app.post("/api/leads/capture-manual", authMiddleware, async (req: any, res) => {
 });
 
 // Radar mode search — coordinate-based, NO auto-persistence (exploration only)
+/* Panfleteiro V2 — cache TTL + dedup em flight (replica padrao do topp-aplicativos)
+   Chave: userId:brandId:lat3:lng3:radius:keyword:filters
+   TTL: 45s — buscas repetidas no mesmo viewport reusam resposta sem chamar Google.
+   In-flight: requisicoes paralelas para mesma chave reusam a Promise. */
+const radarCache = new Map<string, { value: any; expires: number }>();
+const radarInFlight = new Map<string, Promise<any>>();
+const RADAR_CACHE_TTL_MS = 45_000;
+
+function radarCacheKey(opts: {
+  userId: string; brandId: string | null; lat: number; lng: number;
+  radius: number; query: string; filters: string;
+}): string {
+  return `${opts.userId}:${opts.brandId || "default"}:${opts.lat.toFixed(3)}:${opts.lng.toFixed(3)}:${opts.radius}:${opts.query.toLowerCase()}:${opts.filters}`;
+}
+
 app.post("/api/leads/radar-search", authMiddleware, async (req: any, res) => {
   try {
     const userId = req.user?.userId as string | undefined;
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
     const brandId = await brandUnitsService.resolveActiveBrandId(userId, getRequestedBrandId(req));
 
-    const { query: rawQuery, latitude, longitude, radius, maxResults } = req.body;
+    const { query: rawQuery, latitude, longitude, radius, maxResults,
+            minRating, minReviews, onlyUncaptured, hasPhone, hasWebsite } = req.body;
     const searchQuery = sanitizeLeadSearchText(rawQuery, 120);
     const lat = Number(latitude);
     const lng = Number(longitude);
@@ -1409,15 +1469,36 @@ app.post("/api/leads/radar-search", authMiddleware, async (req: any, res) => {
       return res.status(400).json({ error: "Latitude/longitude out of range" });
     }
 
+    /* Normaliza filtros server-side (Panfleteiro V2) */
+    const filterMinRating = Math.max(0, Math.min(5, Number(minRating) || 0));
+    const filterMinReviews = Math.max(0, Math.min(10000, Number(minReviews) || 0));
+    const filterOnlyUncaptured = onlyUncaptured === true || onlyUncaptured === "true";
+    const filterHasPhone = hasPhone === true || hasPhone === "true";
+    const filterHasWebsite = hasWebsite === true || hasWebsite === "true";
+    const filterSig = `${filterMinRating}|${filterMinReviews}|${filterOnlyUncaptured ? 1 : 0}|${filterHasPhone ? 1 : 0}|${filterHasWebsite ? 1 : 0}`;
+
+    /* Cache + dedup em flight */
+    const cacheKey = radarCacheKey({ userId, brandId, lat, lng, radius: searchRadius, query: searchQuery, filters: filterSig });
+    const cached = radarCache.get(cacheKey);
+    if (cached && cached.expires > Date.now()) {
+      return res.json({ ...cached.value, cached: true });
+    }
+    const flying = radarInFlight.get(cacheKey);
+    if (flying) {
+      const value = await flying;
+      return res.json({ ...value, cached: false, deduped: true });
+    }
+
     const rateKey = `${userId}:${brandId || "default"}:radar-search`;
     if (!leadSearchRateLimiter.canSend(rateKey)) {
       return res.status(429).json({ error: "Radar search rate limit exceeded. Try again in a minute." });
     }
     leadSearchRateLimiter.recordSend(rateKey);
 
-    logger.info(`Radar search: "${searchQuery}" at [${lat.toFixed(4)}, ${lng.toFixed(4)}] r=${searchRadius}m (max: ${requested})`);
+    logger.info(`Radar search: "${searchQuery}" at [${lat.toFixed(4)}, ${lng.toFixed(4)}] r=${searchRadius}m (max: ${requested}) filters=${filterSig}`);
 
-    const places = await googlePlaces.searchText({
+    const workPromise = (async () => {
+      return await googlePlaces.searchText({
       query: searchQuery,
       latitude: lat,
       longitude: lng,
@@ -1426,9 +1507,15 @@ app.post("/api/leads/radar-search", authMiddleware, async (req: any, res) => {
       providerPreference: "official_first",
       includeDetails: false,
       fieldProfile: "radar",
+      /* HARD restrict ao circulo do radar — sem isso o Google retorna os top N da
+         cidade INTEIRA via locationBias e o radar parece "preso" aos mesmos resultados. */
+      strictLocation: true,
       userId,
       brandId: brandId || undefined,
     });
+    })();
+    radarInFlight.set(cacheKey, workPromise);
+    const places = await workPromise.finally(() => radarInFlight.delete(cacheKey));
 
     // Check which places are already captured across schema variants.
     const placeIds = places.map((p: any) => String(p.id || "")).filter(Boolean);
@@ -1446,7 +1533,7 @@ app.post("/api/leads/radar-search", authMiddleware, async (req: any, res) => {
       return pieces.join(", ");
     };
 
-    const leads = places.map((place: any) => ({
+    let leads = places.map((place: any) => ({
       id: place.id,
       name: place.displayName?.text || "Unknown",
       phone: place.internationalPhoneNumber || place.nationalPhoneNumber || "",
@@ -1463,19 +1550,34 @@ app.post("/api/leads/radar-search", authMiddleware, async (req: any, res) => {
       captureQuery: searchQuery,
     }));
 
+    /* Filtros server-side (Panfleteiro V2) — aplicados APOS detectar capturedStatus */
+    const beforeFilter = leads.length;
+    if (filterOnlyUncaptured) leads = leads.filter((l: any) => l.captureStatus !== "captured");
+    if (filterHasPhone) leads = leads.filter((l: any) => String(l.phone || "").trim().length >= 8);
+    if (filterHasWebsite) leads = leads.filter((l: any) => String(l.website || "").trim().length > 0);
+    if (filterMinRating > 0) leads = leads.filter((l: any) => Number(l.rating || 0) >= filterMinRating);
+    if (filterMinReviews > 0) leads = leads.filter((l: any) => Number(l.reviews || 0) >= filterMinReviews);
+
     const capturedCount = leads.filter((l: any) => l.captureStatus === "captured").length;
     const newCount = leads.length - capturedCount;
 
-    res.json({
+    const responseBody = {
       success: true,
       leads,
       total: leads.length,
       capturedCount,
       newCount,
+      filteredOut: beforeFilter - leads.length,
       center: { latitude: lat, longitude: lng },
       radius: searchRadius,
       brand_id: brandId,
-    });
+      cached: false,
+    };
+
+    /* Grava no cache antes de responder */
+    radarCache.set(cacheKey, { value: responseBody, expires: Date.now() + RADAR_CACHE_TTL_MS });
+
+    res.json(responseBody);
   } catch (error: any) {
     logger.error(`Radar search error: ${error.message}`);
     const statusCode = String(error.message || "").includes("Google Places search failed") ? 502 : 500;
@@ -2215,6 +2317,21 @@ httpServer.listen(config.port, "0.0.0.0", () => {
   }, 5000);
 
   logger.info(`Lead Captation System running on port ${config.port}`);
+  /* Brand Automations scheduler — tick a cada 60s, dispara brand_automations
+     ativadas cujo next_run_at chegou. Inicia in-process com 30s de grace. */
+  try {
+    startAutomationScheduler();
+  } catch (err: any) {
+    logger.error(`AutomationScheduler start failed: ${formatError(err)}`);
+  }
+  /* WhatsApp Health Monitor — tick a cada 2min, detecta drift (DB diz connected
+     mas socket morreu) e corrige. Tambem alimenta /api/instances/health pra banner UI. */
+  try {
+    setInstanceManagerRef(instanceManager);
+    startWhatsAppHealthMonitor();
+  } catch (err: any) {
+    logger.error(`WhatsAppHealth start failed: ${formatError(err)}`);
+  }
   // Auto-restore WhatsApp sessions
   instanceManager
     .restoreAllSessions()

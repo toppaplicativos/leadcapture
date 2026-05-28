@@ -1423,13 +1423,16 @@ export class CampaignEngineService {
         const syntheticLeadId = `dest:${target.target_type}:${jid}`.slice(0, 64);
 
         await query(
+          /* Qualify column refs with the table name so Postgres' ON CONFLICT DO UPDATE
+           * doesn't throw "column reference 'status' is ambiguous" (it can't tell if you
+           * mean the existing row or EXCLUDED). MySQL accepts the qualified form too. */
           `INSERT INTO campaign_leads (id, campaign_id, user_id, brand_id, lead_id, phone, whatsapp_jid, status)
            VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
            ON DUPLICATE KEY UPDATE
              phone = VALUES(phone),
-             whatsapp_jid = COALESCE(whatsapp_jid, VALUES(whatsapp_jid)),
+             whatsapp_jid = COALESCE(campaign_leads.whatsapp_jid, VALUES(whatsapp_jid)),
              status = CASE
-               WHEN status IN ('sent','delivered','read','replied','opted_out') THEN status
+               WHEN campaign_leads.status IN ('sent','delivered','read','replied','opted_out') THEN campaign_leads.status
                ELSE 'pending'
              END,
              error_message = NULL,
@@ -1452,12 +1455,13 @@ export class CampaignEngineService {
         if (!phone) continue;
 
         await query(
+          /* See note above on qualifying column refs for Postgres ON CONFLICT compatibility. */
           `INSERT INTO campaign_leads (id, campaign_id, user_id, brand_id, lead_id, phone, status)
            VALUES (?, ?, ?, ?, ?, ?, 'pending')
            ON DUPLICATE KEY UPDATE
              phone = VALUES(phone),
              status = CASE
-               WHEN status IN ('sent','delivered','read','replied','opted_out') THEN status
+               WHEN campaign_leads.status IN ('sent','delivered','read','replied','opted_out') THEN campaign_leads.status
                ELSE 'pending'
              END,
              error_message = NULL,
@@ -3099,14 +3103,17 @@ export class CampaignEngineService {
     await this.ensureSchema();
 
     const due = await query<any[]>(
-      `SELECT id, user_id, brand_id FROM campaign_history
+      `SELECT id, user_id, brand_id, name FROM campaign_history
        WHERE status = 'scheduled' AND scheduled_at <= NOW()
        ORDER BY scheduled_at ASC LIMIT 5`
     );
 
     for (const row of due) {
-      logger.info(`[Scheduler] Starting scheduled campaign ${row.id}`);
-      await this.startCampaign(row.user_id, row.id, row.brand_id || null);
+      logger.info(`[Scheduler] Starting scheduled campaign ${row.id} ("${row.name}")`);
+      const result = await this.startCampaign(row.user_id, row.id, row.brand_id || null);
+      if (!result.ok) {
+        logger.warn(`[Scheduler] Campanha "${row.name}" (${row.id}) falhou ao iniciar: ${result.message}`);
+      }
     }
   }
 

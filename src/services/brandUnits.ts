@@ -187,6 +187,8 @@ export class BrandUnitsService {
         await this.ensureTableColumn("brand_units", "primary_color", "VARCHAR(24) NULL");
         await this.ensureTableColumn("brand_units", "secondary_color", "VARCHAR(24) NULL");
         await this.ensureTableColumn("brand_units", "whatsapp_phone", "VARCHAR(40) NULL");
+        /* Panfleteiro V2: estado de busca isolado por brand (resolve vazamento entre operacoes) */
+        await this.ensureTableColumn("brand_units", "last_search_state", "JSONB NULL");
 
         this.schemaReady = true;
       })().finally(() => {
@@ -294,6 +296,35 @@ export class BrandUnitsService {
         [brandId, userId]
       )) || null;
     return row ? this.hydrateBrandUnit(row) : null;
+  }
+
+  /**
+   * Panfleteiro V2 — estado de busca persistido por brand.
+   * Cada brand guarda lat/lng/zoom/keyword/locationLabel/radius/filters separados,
+   * resolvendo o vazamento entre operacoes ao trocar brand.
+   */
+  async getSearchState(userId: string, brandId: string): Promise<Record<string, any> | null> {
+    await this.ensureSchema();
+    const row = await queryOne<{ last_search_state: any }>(
+      `SELECT last_search_state FROM brand_units WHERE id = ? AND user_id = ? LIMIT 1`,
+      [brandId, userId]
+    );
+    if (!row || !row.last_search_state) return null;
+    if (typeof row.last_search_state === "string") {
+      try { return JSON.parse(row.last_search_state); } catch { return null; }
+    }
+    return row.last_search_state as Record<string, any>;
+  }
+
+  async setSearchState(userId: string, brandId: string, state: Record<string, any>): Promise<Record<string, any>> {
+    await this.ensureSchema();
+    /* Anexa updated_at para timeline interno */
+    const payload = { ...state, updated_at: new Date().toISOString() };
+    await update(
+      `UPDATE brand_units SET last_search_state = ? WHERE id = ? AND user_id = ?`,
+      [JSON.stringify(payload), brandId, userId]
+    );
+    return payload;
   }
 
   private hydrateBrandUnit(item: BrandUnit): BrandUnit {

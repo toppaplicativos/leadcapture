@@ -56,9 +56,9 @@ const TEMPLATES: WaTemplate[] = [
     shortDesc: 'Apresentação inicial ao lead',
     body: `Oi, {{nome}}! Tudo bem?
 
-Vi a {{empresa}} no Google e fiquei curioso. Vocês atuam em {{segmento}} em {{cidade}}, certo?
+Vi a {{empresa}} no Google — vocês atuam em {{segmento}} em {{cidade}}, certo?
 
-Trabalho com soluções que podem fazer diferença pro seu negócio. Posso te mostrar em 5 minutinhos como funciona?`,
+{{proposta}} Posso te mostrar em 5 minutinhos como funciona pra vocês?`,
   },
   {
     id: 'followup',
@@ -66,9 +66,9 @@ Trabalho com soluções que podem fazer diferença pro seu negócio. Posso te mo
     shortDesc: 'Retorno após primeiro contato',
     body: `Oi {{nome}}, tudo certo?
 
-Estou retornando nossa conversa de antes. Você teve oportunidade de pensar?
+Estou retornando sobre o que conversamos. Você teve oportunidade de pensar?
 
-Fico à disposição pra esclarecer qualquer dúvida. É só me chamar!`,
+{{proposta}} Fico à disposição pra esclarecer qualquer dúvida!`,
   },
   {
     id: 'proposta',
@@ -78,7 +78,7 @@ Fico à disposição pra esclarecer qualquer dúvida. É só me chamar!`,
 
 Preparei uma proposta personalizada pra {{empresa}} conforme conversamos.
 
-Quando tiver uns minutinhos, posso te explicar os detalhes? Tenho certeza que vai gostar.`,
+Quando tiver uns minutinhos, posso te apresentar os detalhes? Baseei tudo no que entendi do seu negócio.`,
   },
   {
     id: 'reativacao',
@@ -86,9 +86,9 @@ Quando tiver uns minutinhos, posso te explicar os detalhes? Tenho certeza que va
     shortDesc: 'Para leads que esfriaram',
     body: `Oi {{nome}}, como vai?
 
-Faz um tempo que não conversamos e lembrei de você!
+Faz um tempo que não conversamos — lembrei de você hoje!
 
-Temos novidades que podem ser muito úteis pra {{empresa}}. Vale uma conversa rápida?`,
+{{proposta}} Acho que faz sentido pra {{empresa}}. Vale uma conversa rápida?`,
   },
   {
     id: 'posvenda',
@@ -122,7 +122,7 @@ function catLabel(v?: string) {
   return MAP[v] || v.replace(/_/g, ' ')
 }
 
-function buildVars(lead: WaSendLead, senderName: string): Record<string, string> {
+function buildVars(lead: WaSendLead, senderName: string, valueProposition = ''): Record<string, string> {
   return {
     nome: lead.name?.split(' ')[0] || lead.name || '',
     empresa: lead.trade_name || lead.name || '',
@@ -132,6 +132,7 @@ function buildVars(lead: WaSendLead, senderName: string): Record<string, string>
     segmento: catLabel(lead.category) || 'seu segmento',
     telefone: lead.phone || '',
     remetente: senderName || '',
+    proposta: valueProposition || '(configure sua Proposta de Valor em Configuracoes > Atendente)',
   }
 }
 
@@ -214,6 +215,15 @@ function VarChip({ name, value, missing }: { name: string; value: string; missin
 /* ─────────────────────────────────────────────────────────────
    Main component
    ───────────────────────────────────────────────────────────── */
+function getHeaders(): Record<string, string> {
+  const h: Record<string, string> = { 'Content-Type': 'application/json' }
+  const t = localStorage.getItem('lead-system-token')
+  if (t) h['Authorization'] = `Bearer ${t}`
+  const b = localStorage.getItem('lead-system:active-brand-id')
+  if (b) h['x-brand-id'] = b
+  return h
+}
+
 export function WhatsAppSendModal({ leads, onClose, onSent }: WhatsAppSendModalProps) {
   const [queueIdx, setQueueIdx] = useState(0)
   const [templateId, setTemplateId] = useState(TEMPLATES[0].id)
@@ -223,20 +233,32 @@ export function WhatsAppSendModal({ leads, onClose, onSent }: WhatsAppSendModalP
   const [sentIdx, setSentIdx] = useState<Set<number>>(new Set())
   const [aiLoading, setAiLoading] = useState(false)
   const [showSenderInput, setShowSenderInput] = useState(false)
+  const [valueProposition, setValuePropositionState] = useState('')
+
+  /* Fetch brand profile on mount to get value_proposition */
+  useEffect(() => {
+    fetch('/api/ai/agent-profile', { headers: getHeaders() })
+      .then(r => r.json())
+      .then(d => {
+        const vp = d?.profile?.value_proposition || ''
+        if (vp) setValuePropositionState(vp)
+      })
+      .catch(() => {})
+  }, [])
 
   const isQueue = leads.length > 1
   const lead = leads[queueIdx] || leads[0]
   const phone = cleanPhone(lead?.phone)
   const hasPhone = phone.length > 8
 
-  const vars = useMemo(() => buildVars(lead, senderName), [lead, senderName])
+  const vars = useMemo(() => buildVars(lead, senderName, valueProposition), [lead, senderName, valueProposition])
 
   /* When template or lead changes, rebuild message from template */
   useEffect(() => {
     const tpl = TEMPLATES.find(t => t.id === templateId)
     if (!tpl) return
     setMessage(applyVars(tpl.body, vars))
-  }, [templateId, queueIdx]) // intentionally NOT re-running on vars change (user may have edited)
+  }, [templateId, queueIdx, valueProposition]) // re-run when proposta loads
 
   /* Re-apply vars when sender name changes (only if message still matches template pattern) */
   const applyCurrentTemplate = useCallback(() => {

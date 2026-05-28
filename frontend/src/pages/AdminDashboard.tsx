@@ -8,11 +8,14 @@ import {
   Wand2, Truck, Globe, Settings, Volume2, FileText, Link2, Receipt, Sparkles,
   CreditCard, QrCode, Banknote, User, BadgeCheck, Headphones, Brain,
   Boxes, Store, Laptop, CheckCircle2, Copy, Info, AlertTriangle, Star,
-  Camera, Ticket, Percent, MessageSquareQuote, ThumbsUp, ThumbsDown,
+  Camera, Ticket, Percent, MessageSquareQuote, ThumbsUp, ThumbsDown, Film,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { adminApi, inventoryApi } from '@/lib/api-admin'
 import { useConfirm } from '@/components/ConfirmModal'
+import { AICampaignWizardModal } from '@/components/AICampaignWizardModal'
+import { BrandSkillsPage } from '@/pages/BrandSkillsPage'
+import { WhatsAppHealthBanner } from '@/components/WhatsAppHealthBanner'
 
 /* ── Helpers ── */
 const money = (v: number | string | undefined) => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -55,6 +58,7 @@ const ROUTE_MAP: Record<string, string> = {
   '/campanhas': 'campanhas', '/campanha': 'campanhas',
   '/automacoes': 'automacoes',
   '/criativos': 'criativos', '/creative': 'criativos',
+  '/video-studio': 'video-studio',
   '/produtos': 'produtos',
   '/pedidos': 'pedidos',
   '/estoque': 'estoque',
@@ -87,9 +91,11 @@ const NAV_ITEMS: { key: string; path: string; icon: any; label: string; group: s
   { key: 'busca', path: '/busca', icon: Search, label: 'Busca', group: 'main' },
   { key: 'mensagens', path: '/mensagens', icon: MessageSquare, label: 'Mensagens', group: 'main' },
   { key: 'campanhas', path: '/campanhas', icon: Megaphone, label: 'Campanhas', group: 'main' },
-  { key: 'automacoes', path: '/automacoes', icon: Zap, label: 'Automacoes', group: 'main' },
+  { key: 'automacoes', path: '/automacoes', icon: Zap, label: 'Automações', group: 'main', badge: 'Novo' },
   { key: 'criativos', path: '/criativos', icon: Palette, label: 'Criativos IA', group: 'main', badge: 'Novo' },
+  { key: 'video-studio', path: '/video-studio', icon: Film, label: 'Video Studio', group: 'main', badge: 'Novo' },
   { key: 'agente', path: '/agente', icon: Bot, label: 'Agente IA', group: 'main' },
+  /* Habilidades agora vive como tab DENTRO de /agente (sem duplicacao no sidebar) */
   { key: 'whatsapp', path: '/whatsapp', icon: Phone, label: 'WhatsApp', group: 'main' },
   { key: 'instagram', path: '/instagram', icon: Camera, label: 'Instagram', group: 'main', badge: 'Beta' },
   { key: 'facebook', path: '/facebook', icon: Globe, label: 'Facebook', group: 'main', badge: 'Beta' },
@@ -117,8 +123,17 @@ export function AdminShell({ children }: { children?: ReactNode }) {
   const location = useLocation()
   const { msg: toast, show: showToast } = useToast()
   const section = resolveSection(location.pathname)
+  const isImmersive = location.pathname === '/video-studio'
   const [brand, setBrand] = useState<{ name?: string; logo_url?: string }>({})
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [navCollapsed, setNavCollapsed] = useState(
+    () => localStorage.getItem('lead-system:nav-collapsed') === 'true'
+  )
+  function toggleNav() {
+    const next = !navCollapsed
+    setNavCollapsed(next)
+    localStorage.setItem('lead-system:nav-collapsed', String(next))
+  }
 
   const [brands, setBrands] = useState<any[]>([])
   const [activeBrandId, setActiveBrandId] = useState(localStorage.getItem('lead-system:active-brand-id') || '')
@@ -212,6 +227,23 @@ export function AdminShell({ children }: { children?: ReactNode }) {
   const configNav = NAV_ITEMS.filter(n => n.group === 'config')
 
   function NavButton({ item, active, onClick }: { item: typeof NAV_ITEMS[number]; active: boolean; onClick: () => void }) {
+    if (navCollapsed) {
+      return (
+        <button
+          onClick={onClick}
+          title={item.label}
+          aria-current={active ? 'page' : undefined}
+          className={`relative w-full flex items-center justify-center h-9 rounded-lg transition-colors ${
+            active ? 'bg-gray-100 text-gray-900' : 'text-gray-400 hover:bg-gray-50 hover:text-gray-700'
+          }`}
+        >
+          <item.icon size={17} strokeWidth={active ? 2 : 1.75} />
+          {item.badge && (
+            <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-violet-600" />
+          )}
+        </button>
+      )
+    }
     return (
       <button
         onClick={onClick}
@@ -245,9 +277,9 @@ export function AdminShell({ children }: { children?: ReactNode }) {
     return (
       <div className="space-y-0.5">
         {label && (
-          <p className="px-3 pt-3 pb-1.5 text-[10px] font-semibold text-gray-400 uppercase tracking-wide">
-            {label}
-          </p>
+          navCollapsed
+            ? <div className="mx-2 my-2 border-t border-gray-100" />
+            : <p className="px-3 pt-3 pb-1.5 text-[10px] font-semibold text-gray-400 uppercase tracking-wide">{label}</p>
         )}
         {items.map(n => (
           <NavButton
@@ -264,10 +296,13 @@ export function AdminShell({ children }: { children?: ReactNode }) {
   const sidebarContent = (
     <>
       {/* Brand picker */}
-      <div className="shrink-0 px-3 pt-3">
+      <div className={`shrink-0 pt-3 ${navCollapsed ? 'px-2' : 'px-3'}`}>
         <button
-          onClick={() => brands.length > 1 && setShowBrandPicker(!showBrandPicker)}
-          className="w-full flex items-center gap-3 p-2.5 rounded-xl hover:bg-gray-50 transition"
+          onClick={() => !navCollapsed && brands.length > 1 && setShowBrandPicker(!showBrandPicker)}
+          title={navCollapsed ? (brand.name || 'Admin') : undefined}
+          className={`flex items-center rounded-xl hover:bg-gray-50 transition ${
+            navCollapsed ? 'w-full justify-center p-2' : 'w-full gap-3 p-2.5'
+          }`}
         >
           {brand.logo_url ? (
             <img src={brand.logo_url} alt="" className="w-9 h-9 rounded-lg object-cover shrink-0" />
@@ -276,24 +311,26 @@ export function AdminShell({ children }: { children?: ReactNode }) {
               {(brand.name || 'A').charAt(0).toUpperCase()}
             </div>
           )}
-          <div className="flex-1 min-w-0 text-left">
-            <span className="block text-[13px] font-semibold text-gray-900 truncate">
-              {brand.name || 'Admin'}
-            </span>
-            <span className="block text-[11px] text-gray-500 truncate">Painel</span>
-          </div>
-          {brands.length > 1 && (
-            <ChevronRight
-              size={14}
-              strokeWidth={2}
-              className={`text-gray-400 transition-transform shrink-0 ${
-                showBrandPicker ? 'rotate-90' : ''
-              }`}
-            />
+          {!navCollapsed && (
+            <>
+              <div className="flex-1 min-w-0 text-left">
+                <span className="block text-[13px] font-semibold text-gray-900 truncate">
+                  {brand.name || 'Admin'}
+                </span>
+                <span className="block text-[11px] text-gray-500 truncate">Painel</span>
+              </div>
+              {brands.length > 1 && (
+                <ChevronRight
+                  size={14}
+                  strokeWidth={2}
+                  className={`text-gray-400 transition-transform shrink-0 ${showBrandPicker ? 'rotate-90' : ''}`}
+                />
+              )}
+            </>
           )}
         </button>
 
-        {showBrandPicker && brands.length > 1 && (
+        {!navCollapsed && showBrandPicker && brands.length > 1 && (
           <div className="mt-1 mb-1 p-1 rounded-xl bg-gray-50 space-y-0.5">
             <p className="px-2 pt-1 pb-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wide">
               Trocar conta
@@ -305,9 +342,7 @@ export function AdminShell({ children }: { children?: ReactNode }) {
                   key={b.id}
                   onClick={() => switchBrand(b.id)}
                   className={`w-full flex items-center gap-2.5 px-2 h-9 rounded-lg text-[12px] transition ${
-                    isActive
-                      ? 'bg-white text-gray-900 font-semibold shadow-sm'
-                      : 'text-gray-600 hover:bg-white/60'
+                    isActive ? 'bg-white text-gray-900 font-semibold shadow-sm' : 'text-gray-600 hover:bg-white/60'
                   }`}
                 >
                   {b.logo_url ? (
@@ -319,10 +354,7 @@ export function AdminShell({ children }: { children?: ReactNode }) {
                   )}
                   <span className="truncate flex-1 text-left">{b.name}</span>
                   {isActive && (
-                    <span
-                      className="w-1.5 h-1.5 rounded-full shrink-0"
-                      style={{ backgroundColor: 'var(--brand-secondary, #111827)' }}
-                    />
+                    <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: 'var(--brand-secondary, #111827)' }} />
                   )}
                 </button>
               )
@@ -333,19 +365,22 @@ export function AdminShell({ children }: { children?: ReactNode }) {
 
       <div className="my-2 mx-3 border-t border-border-light" />
 
-      <nav className="flex-1 px-3 pb-3 overflow-y-auto space-y-1">
+      <nav className={`flex-1 pb-3 overflow-y-auto space-y-1 ${navCollapsed ? 'px-2' : 'px-3'}`}>
         <NavSection items={mainNav} />
         <NavSection label="Catálogo" items={lojaNav} />
         <NavSection label="Configurações" items={configNav} />
       </nav>
 
-      <div className="shrink-0 p-3 border-t border-border-light">
+      <div className="shrink-0 p-2 border-t border-border-light">
         <button
           onClick={logout}
-          className="w-full flex items-center gap-2.5 px-3 h-9 rounded-lg text-[13px] text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition"
+          title={navCollapsed ? 'Sair' : undefined}
+          className={`flex items-center rounded-lg text-[13px] text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition ${
+            navCollapsed ? 'w-full justify-center h-9' : 'w-full gap-2.5 px-3 h-9'
+          }`}
         >
           <LogOut size={15} strokeWidth={1.75} className="text-gray-400" />
-          <span>Sair</span>
+          {!navCollapsed && <span>Sair</span>}
         </button>
       </div>
     </>
@@ -353,8 +388,10 @@ export function AdminShell({ children }: { children?: ReactNode }) {
 
   return (
     <div className="h-screen bg-bg flex flex-col">
-      {/* ── Mobile Topbar (hidden when drawer is open) ── */}
-      {!sidebarOpen && (
+      {/* Banner critico de saude do WhatsApp - aparece quando instance esta down > 10min */}
+      <WhatsAppHealthBanner />
+      {/* ── Mobile Topbar (hidden when drawer or immersive page is open) ── */}
+      {!sidebarOpen && !isImmersive && (
         <header className="admin-shell-mobile-header sticky top-0 z-40 bg-white/85 backdrop-blur-xl text-gray-900 flex items-center justify-between px-3 lg:hidden border-b border-border-light shrink-0">
           <div className="flex items-center gap-2">
             <button
@@ -397,11 +434,13 @@ export function AdminShell({ children }: { children?: ReactNode }) {
 
         {/* ── Sidebar (desktop fixed + mobile drawer above everything) ── */}
         <aside
-          className={`fixed top-0 bottom-0 left-0 w-[280px] sm:w-[260px] bg-white border-r border-border-light flex flex-col transition-transform duration-200 lg:translate-x-0 lg:w-[240px] safe-area-top ${
+          className={`fixed top-0 bottom-0 left-0 w-[280px] sm:w-[260px] bg-white border-r border-border-light flex flex-col transition-[transform,width] duration-200 lg:translate-x-0 safe-area-top ${
+            navCollapsed ? 'lg:w-[56px]' : 'lg:w-[240px]'
+          } ${
             sidebarOpen ? 'translate-x-0 z-[70] shadow-2xl lg:shadow-none lg:z-30' : '-translate-x-full lg:translate-x-0 lg:z-30'
           }`}
         >
-          {/* Mobile-only close button (floats on top right) */}
+          {/* Mobile-only close button */}
           <button
             onClick={() => setSidebarOpen(false)}
             aria-label="Fechar menu"
@@ -409,25 +448,45 @@ export function AdminShell({ children }: { children?: ReactNode }) {
           >
             <X size={18} strokeWidth={1.75} />
           </button>
+          {/* Desktop collapse toggle — pill on right edge */}
+          <button
+            onClick={toggleNav}
+            title={navCollapsed ? 'Expandir menu' : 'Recolher menu'}
+            className="absolute top-[62px] -right-[13px] z-20 hidden lg:flex w-[26px] h-[26px] items-center justify-center rounded-full bg-white border border-gray-200 shadow-sm text-gray-400 hover:text-gray-700 hover:border-gray-300 transition-colors"
+          >
+            {navCollapsed
+              ? <ChevronRight size={12} strokeWidth={2.5} />
+              : <ChevronLeft size={12} strokeWidth={2.5} />}
+          </button>
           {sidebarContent}
         </aside>
 
         {/* ── Main ── */}
-        <main className="flex-1 lg:ml-[240px] overflow-y-auto">
-          <div className="max-w-5xl mx-auto px-4 pt-5 pb-24 lg:pb-10 lg:px-8">
-            <div key={activeBrandId}>
+        <main className={`flex-1 transition-[margin] duration-200 ${navCollapsed ? 'lg:ml-[56px]' : 'lg:ml-[240px]'} ${isImmersive ? 'overflow-hidden flex flex-col' : 'overflow-y-auto'}`}>
+          {isImmersive ? (
+            <div key={activeBrandId} style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%' }}>
               {authReady ? children : (
                 <div className="min-h-[55vh] grid place-items-center">
                   <Loader2 size={20} className="animate-spin text-gray-400" />
                 </div>
               )}
             </div>
-          </div>
+          ) : (
+            <div className="max-w-5xl mx-auto px-4 pt-5 pb-24 lg:pb-10 lg:px-8">
+              <div key={activeBrandId}>
+                {authReady ? children : (
+                  <div className="min-h-[55vh] grid place-items-center">
+                    <Loader2 size={20} className="animate-spin text-gray-400" />
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </main>
       </div>
 
-      {/* ── Mobile Bottom Nav (hidden when drawer is open) ── */}
-      {!sidebarOpen && (
+      {/* ── Mobile Bottom Nav (hidden when drawer or immersive page is open) ── */}
+      {!sidebarOpen && !isImmersive && (
         <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white/85 backdrop-blur-xl border-t border-border-light flex h-[60px] lg:hidden safe-area-bottom shrink-0">
           {mobileItems.map(n => {
             const active = section === n.key
@@ -886,6 +945,8 @@ export function CampaignsView({ showToast }: { showToast: (t: string, tp?: 'ok' 
   const [editCampaign, setEditCampaign] = useState<any>(null)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [creatingRuler, setCreatingRuler] = useState(false)
+  /* Wizard de IA - 7 skills SSE que montam campanha do zero a partir de prompt */
+  const [aiWizardOpen, setAiWizardOpen] = useState(false)
   const { confirm } = useConfirm()
 
   function loadCampaigns() {
@@ -992,14 +1053,21 @@ export function CampaignsView({ showToast }: { showToast: (t: string, tp?: 'ok' 
           <p className="text-[13px] text-gray-400 mt-0.5">{campaigns.length} campanhas</p>
         </div>
         <div className="flex items-center gap-2">
+          {/* NOVO: Wizard de IA - 7 skills SSE montam campanha do zero a partir de prompt */}
+          <button onClick={() => setAiWizardOpen(true)}
+            title="Descreva o objetivo em linguagem natural - a IA monta a campanha completa em rascunho"
+            className="ai-shimmer relative overflow-hidden flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-gray-900 hover:bg-black text-white text-xs font-bold transition-all">
+            <Sparkles size={14} className="relative z-10" />
+            <span className="relative z-10">Criar com IA</span>
+          </button>
           <button onClick={createFollowupRuler} disabled={creatingRuler}
             title="Cria 8 follow-ups (FU0..FU7) adaptados ao tom do agente, produto e prova social do brand"
-            className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-white border border-violet-200 text-violet-700 text-xs font-bold hover:bg-violet-50 transition-all disabled:opacity-60 disabled:cursor-not-allowed">
+            className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-white border border-gray-200 text-gray-700 text-xs font-bold hover:bg-gray-50 transition-all disabled:opacity-60 disabled:cursor-not-allowed">
             {creatingRuler ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
             {creatingRuler ? 'Gerando regua...' : 'Criar regua de Follow-up'}
           </button>
           <button onClick={openCreate}
-            className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-gradient-to-r from-violet-500 to-purple-600 text-white text-xs font-bold hover:from-violet-600 hover:to-purple-700 transition-all shadow-md">
+            className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-gray-900 hover:bg-black text-white text-xs font-bold transition-all">
             <Plus size={14} /> Nova Campanha
           </button>
         </div>
@@ -1143,6 +1211,30 @@ export function CampaignsView({ showToast }: { showToast: (t: string, tp?: 'ok' 
           showToast={showToast}
         />
       )}
+
+      {/* ── Wizard de IA - 7 skills SSE montam campanha do zero ── */}
+      <AICampaignWizardModal
+        open={aiWizardOpen}
+        onClose={() => setAiWizardOpen(false)}
+        onCampaignCreated={(campaignId) => {
+          /* Squad terminou - recarrega lista e abre o editor pra revisar a draft.
+             Busca a campanha recem-criada no array recarregado. */
+          loadCampaigns()
+          /* Pequeno delay pra aguardar loadCampaigns popular o array */
+          setTimeout(() => {
+            adminApi.campaigns().then((d: any) => {
+              const list = d.campaigns || d.items || (Array.isArray(d) ? d : [])
+              const created = list.find((c: any) => String(c.id) === String(campaignId))
+              if (created) {
+                openEdit(created)
+                showToast('Campanha em rascunho aberta para revisao')
+              } else {
+                showToast('Campanha criada - role a lista para encontrar')
+              }
+            }).catch(() => undefined)
+          }, 400)
+        }}
+      />
     </div>
   )
 }
@@ -1155,6 +1247,13 @@ function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
   const [activeTab, setActiveTab] = useState('geral')
   const [saving, setSaving] = useState(false)
   const [instances, setInstances] = useState<any[]>([])
+  /* Local mirror of campaign status — refreshed from server after each action.
+   * NO optimistic update: avoids "ghost states" when backend rejects (e.g., instance offline). */
+  const [liveStatus, setLiveStatus] = useState<string>(campaign?.status || 'draft')
+  const [statusActing, setStatusActing] = useState<string | null>(null)
+  const [lastStatusError, setLastStatusError] = useState<string | null>(null)
+  const { confirm } = useConfirm()
+  useEffect(() => { setLiveStatus(campaign?.status || 'draft'); setLastStatusError(null) }, [campaign?.id, campaign?.status])
 
   const s = campaign?.settings || {}
   const core = s.campaignCore || {}
@@ -1392,6 +1491,160 @@ function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
           </div>
           <button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100 transition"><X size={18} className="text-gray-400" /></button>
         </div>
+
+        {/* ── Status bar (Bug-11) — controles de status sempre visíveis,
+             entre header e tabs. Só aparece em edição (não em "Nova Campanha"). */}
+        {isEdit && (() => {
+          const statusCfg: Record<string, { label: string; bg: string; text: string; dot: string }> = {
+            draft:     { label: 'Rascunho',  bg: 'bg-gray-100',     text: 'text-gray-700',    dot: 'bg-gray-400' },
+            scheduled: { label: 'Agendada',  bg: 'bg-violet-50',    text: 'text-violet-700',  dot: 'bg-violet-500' },
+            active:    { label: 'Ativa',     bg: 'bg-emerald-50',   text: 'text-emerald-700', dot: 'bg-emerald-500 animate-pulse' },
+            running:   { label: 'Enviando',  bg: 'bg-blue-50',      text: 'text-blue-700',    dot: 'bg-blue-500 animate-pulse' },
+            sending:   { label: 'Enviando',  bg: 'bg-blue-50',      text: 'text-blue-700',    dot: 'bg-blue-500 animate-pulse' },
+            paused:    { label: 'Pausada',   bg: 'bg-amber-50',     text: 'text-amber-700',   dot: 'bg-amber-500' },
+            completed: { label: 'Concluída', bg: 'bg-emerald-50',   text: 'text-emerald-700', dot: 'bg-emerald-500' },
+            finished:  { label: 'Finalizada', bg: 'bg-gray-100',    text: 'text-gray-500',    dot: 'bg-gray-400' },
+            cancelled: { label: 'Cancelada', bg: 'bg-red-50',       text: 'text-red-700',     dot: 'bg-red-500' },
+          }
+          const cfg = statusCfg[liveStatus.toLowerCase()] || statusCfg.draft
+          const isRunning = ['active', 'running', 'sending'].includes(liveStatus)
+          const canStart = ['draft', 'paused', 'scheduled'].includes(liveStatus)
+          const canPause = isRunning
+          const isDone = ['completed', 'cancelled', 'finished'].includes(liveStatus)
+          const canCancel = !isDone
+
+          /* Single executor — keeps modal open and refreshes the live status optimistically.
+           * Errors revert and toast. The parent (CampaignsView) is informed via onSaved on
+           * close so the list refreshes. */
+          async function runStatusAction(action: 'start' | 'pause' | 'cancel' | 'reopen') {
+            setStatusActing(action)
+            setLastStatusError(null)
+            try {
+              if (action === 'start') await adminApi.startCampaign(campaign.id)
+              else if (action === 'pause') await adminApi.pauseCampaign(campaign.id)
+              else if (action === 'cancel') await adminApi.cancelCampaign(campaign.id)
+              else if (action === 'reopen') await adminApi.reexecuteCampaign(campaign.id)
+              showToast(
+                action === 'start' ? 'Campanha iniciada!'
+                : action === 'pause' ? 'Campanha pausada.'
+                : action === 'cancel' ? 'Campanha cancelada.'
+                : 'Campanha reaberta!'
+              )
+              /* Always refresh status from server — single source of truth.
+               * No optimism: avoids stale UI when backend takes a different path
+               * (e.g., start succeeds but queue was empty → completed immediately). */
+              try {
+                const fresh = await adminApi.campaigns()
+                const arr = fresh?.campaigns || fresh?.items || (Array.isArray(fresh) ? fresh : [])
+                const updated = arr.find((c: any) => c.id === campaign.id)
+                if (updated?.status) setLiveStatus(updated.status)
+              } catch { /* fall through — keep current */ }
+            } catch (e: any) {
+              const msg = e?.message || `Falha ao ${action === 'start' ? 'iniciar' : action === 'pause' ? 'pausar' : action === 'cancel' ? 'cancelar' : 'reabrir'} campanha`
+              setLastStatusError(msg)
+              showToast(msg, 'err')
+            } finally {
+              setStatusActing(null)
+            }
+          }
+
+          async function confirmAndCancel() {
+            const ok = await confirm({
+              title: 'Cancelar campanha?',
+              message: <span>A campanha <b>{campaign.name || 'sem título'}</b> será marcada como cancelada. Você pode reabrir depois.</span>,
+              confirmLabel: 'Cancelar campanha',
+              cancelLabel: 'Voltar',
+              variant: 'danger',
+            })
+            if (ok) runStatusAction('cancel')
+          }
+
+          /* Progress for visual context — total sent vs target */
+          const totalTarget = Number(campaign.target_count || 0)
+          const totalSent = Number(campaign.sent_count || 0)
+          const pct = totalTarget > 0 ? Math.min(100, Math.round((totalSent / totalTarget) * 100)) : 0
+
+          return (
+            <div className={`px-5 py-3 border-b border-gray-100 ${cfg.bg} shrink-0`}>
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                {/* Left: status badge + progress */}
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white ${cfg.text} text-[11px] font-bold tracking-tight shadow-sm`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
+                    {cfg.label}
+                  </div>
+                  {totalTarget > 0 && (
+                    <div className="text-[11px] text-gray-600">
+                      <span className="font-bold">{totalSent.toLocaleString('pt-BR')}</span>
+                      <span className="text-gray-400">/{totalTarget.toLocaleString('pt-BR')}</span>
+                      <span className="text-gray-400 ml-1">({pct}%)</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Right: contextual action buttons */}
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {canStart && (
+                    <button onClick={() => runStatusAction('start')} disabled={!!statusActing}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-emerald-500 to-green-500 text-white text-[11px] font-bold hover:from-emerald-600 hover:to-green-600 transition shadow-sm disabled:opacity-60">
+                      {statusActing === 'start' ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
+                      {liveStatus === 'paused' ? 'Retomar' : 'Iniciar campanha'}
+                    </button>
+                  )}
+                  {canPause && (
+                    <button onClick={() => runStatusAction('pause')} disabled={!!statusActing}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-amber-200 text-amber-700 text-[11px] font-bold hover:bg-amber-50 transition disabled:opacity-60">
+                      {statusActing === 'pause' ? <Loader2 size={12} className="animate-spin" /> : <Pause size={12} />}
+                      Pausar
+                    </button>
+                  )}
+                  {isDone && (
+                    <button onClick={() => runStatusAction('reopen')} disabled={!!statusActing}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-blue-200 text-blue-700 text-[11px] font-bold hover:bg-blue-50 transition disabled:opacity-60">
+                      {statusActing === 'reopen' ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+                      Reabrir
+                    </button>
+                  )}
+                  {canCancel && (
+                    <button onClick={confirmAndCancel} disabled={!!statusActing}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-red-200 text-red-600 text-[11px] font-bold hover:bg-red-50 transition disabled:opacity-60">
+                      {statusActing === 'cancel' ? <Loader2 size={12} className="animate-spin" /> : <Ban size={12} />}
+                      Cancelar
+                    </button>
+                  )}
+                </div>
+              </div>
+              {/* Persistent error banner — survives until next successful action.
+                  Mostly hits when instance is offline, queue is empty, etc. */}
+              {lastStatusError && (
+                <div className="mt-2 flex items-start gap-2 p-2 rounded-lg bg-red-50 border border-red-200 text-[11px] text-red-700">
+                  <AlertTriangle size={12} className="shrink-0 mt-0.5" strokeWidth={2.5} />
+                  <div className="flex-1 leading-snug">
+                    <p className="font-semibold mb-0.5">Não foi possível executar a ação:</p>
+                    <p>{lastStatusError}</p>
+                  </div>
+                  <button onClick={() => setLastStatusError(null)} aria-label="Fechar"
+                    className="text-red-500 hover:text-red-800 shrink-0">
+                    <X size={12} strokeWidth={2.5} />
+                  </button>
+                </div>
+              )}
+
+              {/* Helpful one-liner about what each transition means */}
+              {!lastStatusError && (
+                <p className="text-[10px] text-gray-500 mt-2 leading-snug">
+                  {liveStatus === 'draft' && 'Rascunho — configure abaixo e clique Iniciar campanha quando estiver pronto.'}
+                  {liveStatus === 'paused' && 'Campanha pausada — envios suspensos. Retome para continuar de onde parou.'}
+                  {liveStatus === 'scheduled' && 'Campanha agendada — começará automaticamente na data marcada.'}
+                  {isRunning && 'Campanha ativa — disparando mensagens em fila. Você pode pausar a qualquer momento.'}
+                  {liveStatus === 'completed' && 'Campanha concluída — todos os leads foram processados.'}
+                  {liveStatus === 'cancelled' && 'Campanha cancelada — clique Reabrir para colocar como rascunho novamente.'}
+                  {liveStatus === 'finished' && 'Campanha finalizada — clique Reabrir para reexecutar.'}
+                </p>
+              )}
+            </div>
+          )
+        })()}
 
         {/* Tabs */}
         <div className="px-5 pt-3 border-b border-gray-100 flex gap-1 shrink-0 overflow-x-auto scrollbar-hide">
@@ -2066,16 +2319,39 @@ function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
           </>)}
         </div>
 
-        {/* Footer */}
-        <div className="px-5 py-4 border-t border-gray-100 flex items-center justify-between shrink-0">
-          <button onClick={onClose} className="px-4 py-2.5 rounded-xl bg-gray-100 text-gray-600 text-xs font-semibold hover:bg-gray-200 transition">
-            Cancelar
-          </button>
-          <button onClick={save} disabled={saving}
-            className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-violet-500 to-purple-600 text-white text-xs font-bold hover:from-violet-600 hover:to-purple-700 disabled:opacity-50 transition-all shadow-md">
-            {saving ? 'Salvando...' : isEdit ? 'Salvar Alteracoes' : 'Criar Campanha'}
-          </button>
-        </div>
+        {/* Footer — Save is disabled when campaign is in a state the backend
+            no longer accepts edits ('running', 'sending', 'completed', etc).
+            Backend rule (campaignEngine.updateCampaign): só rascunho/agendada/pausada. */}
+        {(() => {
+          const editableStatuses = new Set(['draft', 'scheduled', 'paused'])
+          const canEdit = !isEdit /* new campaign always editable */ || editableStatuses.has(liveStatus)
+          const blockReason = !canEdit ? (
+            liveStatus === 'running' || liveStatus === 'sending' || liveStatus === 'active'
+              ? 'Pause a campanha para editar a configuração.'
+              : liveStatus === 'completed' || liveStatus === 'finished'
+              ? 'Campanha finalizada — reabra para editar.'
+              : liveStatus === 'cancelled'
+              ? 'Campanha cancelada — reabra para editar.'
+              : 'Esta campanha não pode ser editada agora.'
+          ) : ''
+          return (
+            <div className="px-5 py-4 border-t border-gray-100 flex items-center justify-between shrink-0">
+              <button onClick={onClose} className="px-4 py-2.5 rounded-xl bg-gray-100 text-gray-600 text-xs font-semibold hover:bg-gray-200 transition">
+                Fechar
+              </button>
+              <div className="flex items-center gap-3">
+                {!canEdit && (
+                  <span className="text-[10px] text-amber-700 font-medium hidden sm:inline">{blockReason}</span>
+                )}
+                <button onClick={save} disabled={saving || !canEdit}
+                  title={!canEdit ? blockReason : undefined}
+                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-violet-500 to-purple-600 text-white text-xs font-bold hover:from-violet-600 hover:to-purple-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-md">
+                  {saving ? 'Salvando...' : isEdit ? 'Salvar Alterações' : 'Criar Campanha'}
+                </button>
+              </div>
+            </div>
+          )
+        })()}
       </div>
     </div>
   )
@@ -4725,7 +5001,10 @@ function SquadRules({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') =
 export function AgentView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') => void }) {
   const [data, setData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
-  const [tab, setTab] = useState<'overview' | 'config' | 'squad' | 'training' | 'skills'>('overview')
+  /* Tab principal — 'knowledge' substitui 'training' + 'skills' antigos (sub-abas dentro) */
+  const [tab, setTab] = useState<'overview' | 'config' | 'squad' | 'knowledge'>('overview')
+  /* Sub-aba dentro de Conhecimento: textos livres (knowledge_base) ou habilidades (brand_skills) */
+  const [knowledgeTab, setKnowledgeTab] = useState<'texts' | 'skills'>('skills')
   const [saving, setSaving] = useState(false)
 
   // Config state
@@ -4858,32 +5137,7 @@ export function AgentView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'e
     { key: 'overview', label: 'Visao Geral' },
     { key: 'config', label: 'Configuracao' },
     { key: 'squad', label: 'Squad & Atendimento' },
-    { key: 'training', label: 'Treinamento' },
-    { key: 'skills', label: 'Skills' },
-  ]
-
-  // Skills departments
-  const departments: { name: string; Icon: LucideIcon; color: string; skills: { name: string; status: string }[] }[] = [
-    { name: 'Vendas', Icon: ShoppingCart, color: 'from-emerald-500 to-teal-600', skills: [
-      { name: 'Closer de Vendas', status: 'active' }, { name: 'Qualificador', status: 'active' },
-      { name: 'Quebra de Objecoes', status: 'beta' }, { name: 'Upsell & Cross-sell', status: 'planned' },
-    ]},
-    { name: 'Marketing', Icon: Megaphone, color: 'from-violet-500 to-purple-600', skills: [
-      { name: 'Copywriter', status: 'active' }, { name: 'Segmentacao', status: 'beta' },
-      { name: 'Nutricao de Leads', status: 'active' }, { name: 'Conteudo', status: 'planned' },
-    ]},
-    { name: 'Atendimento', Icon: Headphones, color: 'from-blue-500 to-indigo-600', skills: [
-      { name: 'Primeiro Contato', status: 'active' }, { name: 'FAQ Inteligente', status: 'active' },
-      { name: 'Escalacao Humano', status: 'active' }, { name: 'Detector de Bot', status: 'active' },
-      { name: 'Curador de Contexto', status: 'active' }, { name: 'Pesquisa Satisfacao', status: 'beta' },
-    ]},
-    { name: 'Logistica', Icon: Truck, color: 'from-amber-500 to-orange-600', skills: [
-      { name: 'Rastreamento', status: 'active' }, { name: 'Agendamento', status: 'beta' },
-    ]},
-    { name: 'Inteligencia', Icon: Brain, color: 'from-pink-500 to-rose-600', skills: [
-      { name: 'Sentimento', status: 'active' }, { name: 'Intencao', status: 'active' },
-      { name: 'Lead Scoring', status: 'beta' }, { name: 'Predicao', status: 'planned' },
-    ]},
+    { key: 'knowledge', label: 'Conhecimento' },
   ]
 
   return (
@@ -5159,122 +5413,144 @@ export function AgentView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'e
         </div>
       </>)}
 
-      {/* ── Tab: Squad & Atendimento ── */}
+      {/* ── Tab: Squad & Atendimento ──
+          Antes tinha 3 cards "Autonomo/Co-piloto/Manual" decorativos (Co-piloto era
+          hardcoded active=false sem backend). Removido. Agora soh o card REAL do
+          toggle Global + os regras (SquadRules que ja sao funcionais). */}
       {tab === 'squad' && (<>
-        {/* Global AI control */}
-        <div className={`rounded-2xl p-5 ${globalAiEnabled ? 'bg-emerald-50 border border-emerald-200' : 'bg-red-50 border border-red-200'}`}>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className={`w-12 h-12 rounded-xl grid place-items-center ${globalAiEnabled ? 'bg-emerald-500' : 'bg-red-500'}`}>
-                <Bot size={24} className="text-white" />
+        {/* Status Global da IA — card unico, REAL */}
+        <div className={`rounded-2xl p-5 border ${globalAiEnabled ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'}`}>
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div className="flex items-start gap-3 flex-1 min-w-0">
+              <div className={`w-12 h-12 rounded-xl grid place-items-center shrink-0 ${globalAiEnabled ? 'bg-emerald-500' : 'bg-amber-500'}`}>
+                <Bot size={22} className="text-white" strokeWidth={1.75} />
               </div>
-              <div>
-                <p className="text-sm font-bold text-gray-900">Autoatendimento Global</p>
-                <p className="text-[10px] text-gray-500">{globalAiEnabled ? 'IA respondendo autonomamente' : 'IA pausada — respostas manuais'}</p>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="text-[14px] font-bold text-gray-900">Atendimento autonomo da IA</p>
+                  <span className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full ${
+                    globalAiEnabled ? 'bg-emerald-600 text-white' : 'bg-amber-600 text-white'
+                  }`}>
+                    {globalAiEnabled ? 'Ativo' : 'Pausado'}
+                  </span>
+                </div>
+                <p className="text-[12px] text-gray-700 mt-1 leading-snug">
+                  {globalAiEnabled
+                    ? 'O agente responde automaticamente todas as conversas usando o perfil, conhecimento e habilidades configurados.'
+                    : 'O agente esta pausado. Todas as mensagens entram em fila no menu Mensagens para atendimento manual.'}
+                </p>
+                {globalAiReason && (
+                  <p className="text-[11px] text-gray-600 mt-1.5 italic">Motivo: {globalAiReason}</p>
+                )}
               </div>
             </div>
             <Toggle value={globalAiEnabled} onChange={toggleGlobalAi} />
           </div>
+
+          {/* Ações relacionadas */}
+          <div className="mt-4 pt-4 border-t border-emerald-200/60 flex items-center gap-2 flex-wrap">
+            <a href="/mensagens" className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-white hover:bg-gray-50 border border-gray-200 text-[11.5px] font-semibold text-gray-700 transition">
+              <MessageSquare size={12} strokeWidth={2.25} />
+              Ver mensagens
+            </a>
+            <a href="/whatsapp" className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-white hover:bg-gray-50 border border-gray-200 text-[11.5px] font-semibold text-gray-700 transition">
+              <Phone size={12} strokeWidth={2.25} />
+              Instancias WhatsApp
+            </a>
+            <span className="text-[10.5px] text-gray-500 ml-auto">
+              Pause/ative individualmente por conversa no menu <a href="/mensagens" className="underline font-semibold hover:text-gray-900">Mensagens</a>.
+            </span>
+          </div>
         </div>
 
-        {/* Squad modes */}
-        <div className="bg-white rounded-2xl border border-border-light p-5 space-y-3">
-          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em]">Modos de atendimento</p>
-          {([
-            { key: 'autonomous', label: 'Autonomo', desc: 'IA responde sozinha, escala para humano quando necessario', Icon: Bot, active: globalAiEnabled },
-            { key: 'copilot', label: 'Co-piloto', desc: 'IA sugere respostas, humano aprova antes de enviar', Icon: BadgeCheck, active: false },
-            { key: 'manual', label: 'Manual', desc: 'Somente respostas humanas, IA desativada', Icon: User, active: !globalAiEnabled },
-          ] as { key: string; label: string; desc: string; Icon: LucideIcon; active: boolean }[]).map(m => (
-            <div key={m.key} className={`flex items-center gap-3 p-3.5 rounded-xl border transition ${m.active ? 'border-violet-300 bg-violet-50' : 'border-gray-200'}`}>
-              <span className={`w-10 h-10 rounded-xl grid place-items-center shrink-0 ${m.active ? 'bg-violet-100 text-violet-700' : 'bg-gray-100 text-gray-500'}`}>
-                <m.Icon size={18} strokeWidth={1.75} />
-              </span>
-              <div className="flex-1">
-                <p className={`text-sm font-bold ${m.active ? 'text-violet-700' : 'text-gray-700'}`}>{m.label}</p>
-                <p className="text-[10px] text-gray-400">{m.desc}</p>
-              </div>
-              {m.active && <div className="w-2.5 h-2.5 rounded-full bg-violet-500 animate-pulse shrink-0" />}
-            </div>
-          ))}
-        </div>
-
-        {/* Rules — functional toggles */}
+        {/* Regras de comportamento — funcionais */}
         <SquadRules showToast={showToast} />
       </>)}
 
-      {/* ── Tab: Training ── */}
-      {tab === 'training' && (<>
-        <div className="bg-white rounded-2xl border border-border-light p-5 space-y-4">
-          <p className="text-sm font-bold text-gray-900">Adicionar Conhecimento</p>
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-            <div className="sm:col-span-3">
-              <textarea value={trainingText} onChange={e => setTrainingText(e.target.value)} rows={2}
-                placeholder="Ex: Nosso alho descascado tipo A e ideal para restaurantes que processam grandes volumes..."
-                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-200 resize-none" />
-            </div>
-            <div className="flex flex-col gap-2">
-              <select value={trainingCategory} onChange={e => setTrainingCategory(e.target.value)}
-                className="px-3 py-2 border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-violet-200">
-                <option value="faq">FAQ</option>
-                <option value="produto">Produto</option>
-                <option value="preco">Preco</option>
-                <option value="entrega">Entrega</option>
-                <option value="geral">Geral</option>
-              </select>
-              <button onClick={addTraining}
-                className="px-3 py-2 rounded-xl bg-violet-600 text-white text-xs font-bold hover:bg-violet-700 transition">Adicionar</button>
-            </div>
-          </div>
+      {/* ── Tab: Conhecimento (unificado) ──
+          Antes eram 2 tabs separadas (Treinamento + Habilidades). Agora 1 tab com 2 sub-abas:
+            - Habilidades — brand_skills estruturadas (squad IA multimodal, plugado no composer)
+            - Textos livres — knowledge_base (texto solto, contexto extra no prompt)
+          Sub-aba default = Habilidades (mais poderosa e nova). */}
+      {tab === 'knowledge' && (<>
+        {/* Sub-abas */}
+        <div className="flex items-center gap-1 bg-gray-100 p-1 rounded-xl w-fit">
+          <button
+            onClick={() => setKnowledgeTab('skills')}
+            className={`h-9 px-4 rounded-lg text-[12.5px] font-bold transition ${
+              knowledgeTab === 'skills' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            Habilidades
+          </button>
+          <button
+            onClick={() => setKnowledgeTab('texts')}
+            className={`h-9 px-4 rounded-lg text-[12.5px] font-bold transition ${
+              knowledgeTab === 'texts' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+            }`}
+          >
+            Textos livres
+          </button>
+          <span className="ml-2 text-[10.5px] text-gray-400 font-medium hidden sm:inline">
+            {knowledgeTab === 'skills'
+              ? 'Habilidades treinadas com IA (multimodal) que disparam por gatilho'
+              : 'Anotações de texto solto - vai sempre no prompt do agente como contexto extra'}
+          </span>
         </div>
 
-        {/* KB entries */}
-        <div className="bg-white rounded-2xl border border-border-light overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-            <p className="text-xs font-bold text-gray-700">Base de Conhecimento</p>
-            <span className="text-[10px] text-gray-400">{kbEntries.length} entradas</span>
+        {/* Sub-aba: Habilidades */}
+        {knowledgeTab === 'skills' && (
+          <div className="-mx-4 sm:-mx-6">
+            <BrandSkillsPage />
           </div>
-          {kbEntries.length === 0 ? (
-            <div className="py-10 text-center"><p className="text-xs text-gray-400">Nenhum conhecimento cadastrado</p></div>
-          ) : kbEntries.map((e: any) => (
-            <div key={e.id} className="px-4 py-3 border-b border-gray-100 last:border-0 flex items-start gap-3">
-              <span className="text-[9px] font-bold text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded mt-0.5 shrink-0">{e.category || 'geral'}</span>
-              <p className="text-xs text-gray-600 flex-1 line-clamp-2">{e.question || e.answer || e.content}</p>
-              <button onClick={() => deleteKb(e.id)} className="text-gray-400 hover:text-red-500 transition shrink-0 p-1"><X size={12} /></button>
-            </div>
-          ))}
-        </div>
-      </>)}
+        )}
 
-      {/* ── Tab: Skills ── */}
-      {tab === 'skills' && (<>
-        <div className="space-y-3">
-          {departments.map(dept => (
-            <div key={dept.name} className="bg-white rounded-2xl border border-border-light overflow-hidden">
-              <div className="px-4 py-3 flex items-center gap-3 border-b border-gray-100">
-                <div className={`w-8 h-8 rounded-lg bg-gradient-to-br ${dept.color} grid place-items-center text-white shadow-sm`}><dept.Icon size={16} strokeWidth={1.75} /></div>
-                <div className="flex-1">
-                  <p className="text-sm font-bold text-gray-900">{dept.name}</p>
-                  <p className="text-[10px] text-gray-400">{dept.skills.filter(s => s.status === 'active').length}/{dept.skills.length} ativas</p>
-                </div>
+        {/* Sub-aba: Textos livres (knowledge_base antigo) */}
+        {knowledgeTab === 'texts' && (<>
+          <div className="bg-white rounded-2xl border border-border-light p-5 space-y-4">
+            <p className="text-sm font-bold text-gray-900">Adicionar texto livre</p>
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+              <div className="sm:col-span-3">
+                <textarea value={trainingText} onChange={e => setTrainingText(e.target.value)} rows={2}
+                  placeholder="Ex: Nosso alho descascado tipo A e ideal para restaurantes que processam grandes volumes..."
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 resize-none" />
               </div>
-              <div className="divide-y divide-gray-100">
-                {dept.skills.map(skill => (
-                  <div key={skill.name} className="px-4 py-3 flex items-center gap-3">
-                    <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${skill.status === 'active' ? 'bg-emerald-500' : skill.status === 'beta' ? 'bg-violet-500' : 'bg-gray-300'}`} />
-                    <span className="text-xs font-semibold text-gray-800 flex-1">{skill.name}</span>
-                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
-                      skill.status === 'active' ? 'bg-emerald-50 text-emerald-700' : skill.status === 'beta' ? 'bg-violet-50 text-violet-700' : 'bg-gray-100 text-gray-500'
-                    }`}>{skill.status === 'active' ? 'Ativa' : skill.status === 'beta' ? 'Beta' : 'Em breve'}</span>
-                  </div>
-                ))}
+              <div className="flex flex-col gap-2">
+                <select value={trainingCategory} onChange={e => setTrainingCategory(e.target.value)}
+                  className="px-3 py-2 border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-gray-900/10">
+                  <option value="faq">FAQ</option>
+                  <option value="produto">Produto</option>
+                  <option value="preco">Preço</option>
+                  <option value="entrega">Entrega</option>
+                  <option value="geral">Geral</option>
+                </select>
+                <button onClick={addTraining}
+                  className="px-3 py-2 rounded-xl bg-gray-900 hover:bg-black text-white text-xs font-bold transition">Adicionar</button>
               </div>
             </div>
-          ))}
-        </div>
-        <div className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
-          <span className="text-[11px] font-semibold text-gray-500">Motor: Gemini 2.0 Flash</span>
-          <span className="text-[9px] text-gray-400">Alto raciocinio · Baixo custo</span>
-        </div>
+            <p className="text-[10.5px] text-gray-400 leading-snug">
+              <b>Quando usar:</b> anotações soltas que o agente deve ter sempre em mente (FAQ, polítca, observações).
+              Para habilidades estruturadas com gatilhos e dados, use a aba <b>Habilidades</b>.
+            </p>
+          </div>
+
+          {/* KB entries */}
+          <div className="bg-white rounded-2xl border border-border-light overflow-hidden">
+            <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+              <p className="text-xs font-bold text-gray-700">Base de Conhecimento</p>
+              <span className="text-[10px] text-gray-400">{kbEntries.length} entradas</span>
+            </div>
+            {kbEntries.length === 0 ? (
+              <div className="py-10 text-center"><p className="text-xs text-gray-400">Nenhum conhecimento cadastrado</p></div>
+            ) : kbEntries.map((e: any) => (
+              <div key={e.id} className="px-4 py-3 border-b border-gray-100 last:border-0 flex items-start gap-3">
+                <span className="text-[9px] font-bold text-gray-600 bg-gray-100 px-1.5 py-0.5 rounded mt-0.5 shrink-0">{e.category || 'geral'}</span>
+                <p className="text-xs text-gray-600 flex-1 line-clamp-2">{e.question || e.answer || e.content}</p>
+                <button onClick={() => deleteKb(e.id)} className="text-gray-400 hover:text-red-500 transition shrink-0 p-1"><X size={12} /></button>
+              </div>
+            ))}
+          </div>
+        </>)}
       </>)}
     </div>
   )

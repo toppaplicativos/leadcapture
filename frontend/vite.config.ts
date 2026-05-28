@@ -13,6 +13,10 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  optimizeDeps: {
+    // Remotion uses dynamic requires internally; pre-bundle to avoid dev-mode CJS/ESM conflicts
+    include: ['remotion', '@remotion/player', 'framer-motion'],
+  },
   server: {
     port: 5173,
     proxy: {

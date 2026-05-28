@@ -228,9 +228,10 @@ export class InventoryService {
       : "(i.brand_id IS NULL OR i.brand_id = '')";
     const baseParams = brandId ? [userId, brandId] : [userId];
 
+    /* Stock-aware stats vem de inventory (tabela de rastreamento de estoque) */
     const summary = await queryOne<any>(
       `SELECT
-        COUNT(*) AS total_products,
+        COUNT(*) AS inventory_rows,
         SUM(CASE WHEN i.stock_available <= 0 THEN 1 ELSE 0 END) AS out_of_stock,
         SUM(CASE WHEN i.stock_available > 0 AND i.stock_available <= i.stock_min THEN 1 ELSE 0 END) AS low_stock,
         SUM(i.stock_current * i.cost_price) AS total_value,
@@ -240,6 +241,32 @@ export class InventoryService {
        WHERE i.user_id = ? AND ${bc}`,
       baseParams
     );
+
+    /* total_products SEMPRE conta da tabela `products` (catalogo) — produtos sem
+       linha de estoque (inventory) ainda existem como produto e devem contar.
+       Tenta `products` primeiro, fallback `commerce_products`. */
+    const prodBrandClause = brandId
+      ? "(brand_id = ? OR brand_id IS NULL)"
+      : "(brand_id IS NULL OR brand_id = '')";
+    const prodParams = brandId ? [userId, brandId] : [userId];
+    let totalProducts = 0;
+    try {
+      const r = await queryOne<any>(
+        `SELECT COUNT(*)::int AS n FROM products WHERE user_id = ? AND ${prodBrandClause}`,
+        prodParams,
+      );
+      totalProducts += Number(r?.n || 0);
+    } catch { /* tabela pode nao existir nesse schema */ }
+    try {
+      const r = await queryOne<any>(
+        `SELECT COUNT(*)::int AS n FROM commerce_products WHERE user_id = ? AND ${prodBrandClause}`,
+        prodParams,
+      );
+      totalProducts += Number(r?.n || 0);
+    } catch { /* idem */ }
+    if (summary) {
+      summary.total_products = totalProducts;
+    }
 
     const todayParams = brandId ? [userId, brandId] : [userId];
     const todayBc = brandId

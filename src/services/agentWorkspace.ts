@@ -99,6 +99,7 @@ export class AgentWorkspaceService {
     autonomyCoverage: number;
     autonomyPoints: number;
     inboundMessages: number;
+    hasBrandInstance: boolean;
   }): ReadinessChecklistItem[] {
     const { profile } = args;
     const round = (n: number) => Math.round(n * 10) / 10;
@@ -209,21 +210,28 @@ export class AgentWorkspaceService {
 
     const autonomyPct = Math.round(args.autonomyCoverage * 100);
     const autonomyDone = args.autonomyCoverage >= 1;
+    const noMessagesYet = args.inboundMessages === 0;
     const autonomyItem: ReadinessChecklistItem = {
       id: "performance.autonomy_coverage",
       group: "performance",
       title: `Cobertura autônoma (${autonomyPct}%)`,
-      description: args.inboundMessages === 0
-        ? "Cobertura autônoma é calculada conforme o agente vai respondendo as mensagens dos clientes. Aparece quando começarem a chegar conversas reais."
+      description: noMessagesYet
+        ? args.hasBrandInstance
+          ? "Instancia conectada e pronta. Os pontos de cobertura aparecem conforme o agente responde mensagens reais — envie a primeira mensagem de teste para comecar."
+          : "Conecte uma instancia WhatsApp a este brand para comecar a receber mensagens e acumular pontos de cobertura."
         : autonomyDone
-          ? "Agente está respondendo 100% das mensagens recebidas. Excelente cobertura."
-          : `Hoje o agente responde ${args.autonomyPoints.toFixed(1)} pontos dos 15 possíveis. Aumente revisando conversas em modo manual e migrando para autônomo.`,
-      why: "Mede o quanto da operação o agente realmente cobre — não dá pra forçar, é resultado do uso.",
+          ? "Agente esta respondendo 100% das mensagens recebidas. Excelente cobertura."
+          : `Hoje o agente responde ${args.autonomyPoints.toFixed(1)} pontos dos 15 possiveis. Aumente revisando conversas em modo manual e migrando para autonomo.`,
+      why: "Mede o quanto da operacao o agente realmente cobre — nao da pra forcar, e resultado do uso real.",
       points_earned: round(args.autonomyPoints),
       points_max: 15,
       done: autonomyDone,
       action_tab: "squad",
-      cta_label: args.inboundMessages === 0 ? "Conectar instância" : "Ver conversas",
+      cta_label: noMessagesYet
+        ? args.hasBrandInstance
+          ? "Tudo pronto — aguardando mensagens"
+          : "Conectar instancia"
+        : "Ver conversas",
     };
 
     return [...profileItems, trainingItem, autoReplyItem, autonomyItem];
@@ -303,6 +311,16 @@ export class AgentWorkspaceService {
         ).catch(() => null)
       : null;
 
+    const brandInstanceRow = normalizedBrandId
+      ? await queryOne<any>(
+          `SELECT id FROM whatsapp_instances
+           WHERE created_by = ? AND brand_id = ? AND status = 'connected'
+           LIMIT 1`,
+          [userId, normalizedBrandId]
+        ).catch(() => null)
+      : null;
+    const hasBrandInstance = Boolean(brandInstanceRow?.id);
+
     const filledFields = this.countFilledFields(profile);
     const totalFields = 7;
     const trainingTotal = Number(trainingStats?.total_entries || 0);
@@ -339,6 +357,7 @@ export class AgentWorkspaceService {
       autonomyCoverage,
       autonomyPoints,
       inboundMessages,
+      hasBrandInstance,
     });
 
     return {

@@ -36,6 +36,8 @@ export interface ComposerInput {
   isFirstMessage?: boolean;
   /* Roteiro de abordagem inicial configurado pelo usuario (campo first_contact_script do profile) */
   firstContactScript?: string;
+  /* Proposta de valor da marca — diretriz central de toda comunicação comercial */
+  valueProposition?: string;
 }
 
 export interface ComposerOutput {
@@ -178,8 +180,21 @@ export class Composer {
       }
     })();
 
+    /* Proposta de valor: bloco de máxima prioridade — vai logo após a identidade
+     * da marca para que o LLM nunca responda com promessas vagas ("soluções") */
+    const valuePropBlock = input.valueProposition?.trim()
+      ? [
+          "=== PROPOSTA DE VALOR DA MARCA (OBRIGATÓRIO COMUNICAR) ===",
+          input.valueProposition.trim(),
+          "REGRA: Em mensagens comerciais, transmita esta proposta de forma clara e específica.",
+          "PROIBIDO: Usar frases vagas como 'soluções para seu negócio', 'podemos te ajudar', 'trabalhamos com...' sem especificar O QUÊ exatamente.",
+          "=== FIM DA PROPOSTA DE VALOR ===",
+        ].join("\n")
+      : "";
+
     const prompt = [
       input.brandIdentityBlock,
+      valuePropBlock,
       toneInstructions,
       firstContactBlock,
       antiGreetingBlock,

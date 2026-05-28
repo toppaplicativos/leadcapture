@@ -32,6 +32,101 @@ router.post("/", async (req: BrandRequest, res: Response) => {
   }
 });
 
+/* Filter-options pra UI de filtros (similar a /api/customers/filter-options).
+   Retorna agregados de status, source, city, state, tags + total. */
+router.get("/filter-options", async (req: BrandRequest, res: Response) => {
+  try {
+    const userId = req.user!.userId;
+    const brandId = req.brandId || undefined;
+    const pool = getPool();
+    const brandClause = brandId ? "AND (brand_id = ? OR brand_id IS NULL)" : "";
+    const brandArgs = brandId ? [brandId] : [];
+    const args = [userId, ...brandArgs];
+
+    /* Total */
+    const totalRes = await pool.query(
+      `SELECT COUNT(*)::int AS n FROM clients WHERE user_id = ? ${brandClause}`,
+      args,
+    ) as any;
+    const total = Number(totalRes?.rows?.[0]?.n ?? totalRes?.[0]?.n ?? 0);
+
+    /* Helpers: aggregate por coluna */
+    const agg = async (col: string) => {
+      const r = await pool.query(
+        `SELECT ${col} AS value, COUNT(*)::int AS count FROM clients
+         WHERE user_id = ? ${brandClause} AND ${col} IS NOT NULL AND ${col}::text <> ''
+         GROUP BY ${col} ORDER BY count DESC LIMIT 50`,
+        args,
+      ) as any;
+      return (r?.rows ?? r ?? []).map((row: any) => ({ value: String(row.value), count: Number(row.count) }));
+    };
+
+    const [statuses, sources, cities, states] = await Promise.all([
+      agg("status").catch(() => []),
+      agg("source").catch(() => []),
+      agg("city").catch(() => []),
+      agg("state").catch(() => []),
+    ]);
+
+    /* Tags — extrai tags únicas de jsonb/text array */
+    let tags: string[] = [];
+    try {
+      const tagRes = await pool.query(
+        `SELECT DISTINCT tags::text AS t FROM clients
+         WHERE user_id = ? ${brandClause} AND tags IS NOT NULL
+         LIMIT 500`,
+        args,
+      ) as any;
+      const rows = tagRes?.rows ?? tagRes ?? [];
+      const tagSet = new Set<string>();
+      for (const row of rows) {
+        const raw = String(row.t || '');
+        const matches = raw.match(/"([^"]+)"/g) || [];
+        for (const m of matches) tagSet.add(m.replace(/^"|"$/g, ''));
+      }
+      tags = Array.from(tagSet).sort();
+    } catch { /* tabela sem coluna tags ou erro — devolve vazio */ }
+
+    res.json({ total, categories: [], statuses, sources, cities, states, tags });
+  } catch (error: any) {
+    logger.error(error, "Erro ao buscar filter-options de clientes");
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/* Stats agregados (today, week, month, total) */
+router.get("/stats", async (req: BrandRequest, res: Response) => {
+  try {
+    const userId = req.user!.userId;
+    const brandId = req.brandId || undefined;
+    const pool = getPool();
+    const brandClause = brandId ? "AND (brand_id = ? OR brand_id IS NULL)" : "";
+    const args = brandId ? [userId, brandId] : [userId];
+
+    const r = await pool.query(
+      `SELECT
+         COUNT(*)::int AS total,
+         SUM(CASE WHEN DATE(created_at) = CURRENT_DATE THEN 1 ELSE 0 END)::int AS today_count,
+         SUM(CASE WHEN created_at >= CURRENT_TIMESTAMP - INTERVAL '7 day' THEN 1 ELSE 0 END)::int AS week_count,
+         SUM(CASE WHEN created_at >= CURRENT_TIMESTAMP - INTERVAL '30 day' THEN 1 ELSE 0 END)::int AS month_count
+       FROM clients WHERE user_id = ? ${brandClause}`,
+      args,
+    ) as any;
+    /* Pool.query retorna em formatos diferentes (rows vs array direto) — normaliza */
+    const row = Array.isArray(r) ? r[0] : (r?.rows?.[0] ?? r?.[0] ?? {});
+    const stats = {
+      total: Number(row?.total ?? 0),
+      today_count: Number(row?.today_count ?? 0),
+      week_count: Number(row?.week_count ?? 0),
+      month_count: Number(row?.month_count ?? 0),
+    };
+    res.json({ success: true, stats });
+  } catch (error: any) {
+    logger.error(error, "Erro ao buscar stats de clientes");
+    res.status(500).json({ error: error.message });
+  }
+});
+
 router.get("/", async (req: BrandRequest, res: Response) => {
   try {
     const { status, source, company_id, search, page, limit } = req.query;

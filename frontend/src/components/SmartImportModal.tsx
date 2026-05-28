@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   X, Upload, Camera, FileText, Sparkles, Loader2, CheckCircle2, AlertTriangle,
   Edit3, Trash2, Phone, Mail, Building2, MapPin, Thermometer, Tag, Plus,
+  FileSpreadsheet, Image as ImageIcon,
 } from 'lucide-react'
 import { adminApi } from '@/lib/api-admin'
 import type { ImportPreviewDTO, ParsedLeadDTO } from '@/lib/api-admin'
@@ -16,7 +17,7 @@ import type { ImportPreviewDTO, ParsedLeadDTO } from '@/lib/api-admin'
  *   4) Confirmacao — chama /lead-import/confirm e mostra resultado
  */
 
-type Tab = 'text' | 'file' | 'photo'
+type Tab = 'text' | 'file' | 'image' | 'photo'
 type Stage = 'input' | 'loading' | 'preview' | 'done'
 
 interface Props {
@@ -24,6 +25,9 @@ interface Props {
   onClose: () => void
   /** Chamado depois de importar com sucesso — pai pode dar reload na lista */
   onImported?: (count: number) => void
+  /** Entidade alvo. Default 'leads' chama /api/lead-import/confirm.
+      'clients' chama /api/clients/import-leads (mesmo schema de leads, salva em clients) */
+  entity?: 'leads' | 'clients'
 }
 
 function fileToBase64(file: File): Promise<string> {
@@ -39,7 +43,32 @@ function fileToBase64(file: File): Promise<string> {
   })
 }
 
-export function SmartImportModal({ open, onClose, onImported }: Props) {
+/* Helper de labels baseado em entity — textos UI mudam de 'lead'→'cliente' etc.
+   Internals (variaveis, classes, payloads) continuam falando 'lead' pra evitar
+   refactor amplo; só strings visiveis usam o termo certo. */
+function entityLabels(entity: 'leads' | 'clients') {
+  if (entity === 'clients') return {
+    singular: 'cliente',
+    plural: 'clientes',
+    singularCap: 'Cliente',
+    pluralCap: 'Clientes',
+    actionImport: 'Importar clientes com IA',
+    reviewTitle: 'Revisar clientes extraídos',
+    targetPlaceLabel: 'Os clientes entram em Clientes.',
+  }
+  return {
+    singular: 'lead',
+    plural: 'leads',
+    singularCap: 'Lead',
+    pluralCap: 'Leads',
+    actionImport: 'Importar leads com IA',
+    reviewTitle: 'Revisar leads extraídos',
+    targetPlaceLabel: 'Os leads entram em Leads / Prospects.',
+  }
+}
+
+export function SmartImportModal({ open, onClose, onImported, entity = 'leads' }: Props) {
+  const L = entityLabels(entity)
   const [tab, setTab] = useState<Tab>('text')
   const [stage, setStage] = useState<Stage>('input')
   const [textInput, setTextInput] = useState('')
@@ -54,6 +83,7 @@ export function SmartImportModal({ open, onClose, onImported }: Props) {
   const [editing, setEditing] = useState<ParsedLeadDTO[]>([])
 
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const imageInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
 
   /* Reset ao abrir/fechar */
@@ -134,7 +164,29 @@ export function SmartImportModal({ open, onClose, onImported }: Props) {
     setBusy(true)
     setError(null)
     try {
-      const result = await adminApi.smartImportConfirm(editing, skipDups)
+      let result: { imported: number; total: number; skipped: number; errors: Array<{ name: string; error: string }> }
+      if (entity === 'clients') {
+        /* Rota de clientes — POST /api/clients/import-leads aceita o mesmo shape
+           que adminApi.smartImportConfirm gera (array de leads). Resposta tem
+           apenas { imported, total } — completamos `skipped` e `errors`. */
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+        const t = localStorage.getItem('lead-system-token')
+        const b = localStorage.getItem('lead-system:active-brand-id')
+        if (t) headers['Authorization'] = `Bearer ${t}`
+        if (b) headers['x-brand-id'] = b
+        const r = await fetch('/api/clients/import-leads', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ leads: editing, source: 'smart-import', skipDuplicates: skipDups }),
+        })
+        const d = await r.json()
+        if (!r.ok) throw new Error(d?.error || `Erro ${r.status}`)
+        const imported = Number(d?.imported || 0)
+        const totalCount = Number(d?.total || editing.length)
+        result = { imported, total: totalCount, skipped: Math.max(0, totalCount - imported), errors: [] }
+      } else {
+        result = await adminApi.smartImportConfirm(editing, skipDups)
+      }
       setConfirmResult(result)
       setStage('done')
       if (result.imported > 0) onImported?.(result.imported)
@@ -143,7 +195,7 @@ export function SmartImportModal({ open, onClose, onImported }: Props) {
     } finally {
       setBusy(false)
     }
-  }, [editing, skipDups, onImported])
+  }, [editing, skipDups, onImported, entity])
 
   if (!open) return null
 
@@ -185,12 +237,12 @@ export function SmartImportModal({ open, onClose, onImported }: Props) {
           </div>
           <div className="flex-1 min-w-0">
             <h3 className="text-[15px] font-bold text-gray-900 tracking-tight leading-tight">
-              {stage === 'preview' ? 'Revisar leads extraidos' : stage === 'done' ? 'Importacao concluida' : 'Importar leads com IA'}
+              {stage === 'preview' ? L.reviewTitle : stage === 'done' ? 'Importação concluída' : L.actionImport}
             </h3>
             <p className="text-[11px] text-gray-500 mt-0.5">
-              {stage === 'input' && 'Cole texto, suba arquivo ou tire foto. A IA extrai, normaliza e detecta duplicados. Os leads entram em Leads / Prospects.'}
+              {stage === 'input' && `Cole texto, suba arquivo ou tire foto. A IA extrai, normaliza e detecta duplicados. ${L.targetPlaceLabel}`}
               {stage === 'loading' && 'Processando com IA...'}
-              {stage === 'preview' && `${liveStats.total} leads encontrados. Edite, remova ou confirme.`}
+              {stage === 'preview' && `${liveStats.total} ${liveStats.total === 1 ? L.singular : L.plural} encontrado${liveStats.total === 1 ? '' : 's'}. Edite, remova ou confirme.`}
               {stage === 'done' && 'Veja o resumo abaixo.'}
             </p>
           </div>
@@ -209,17 +261,18 @@ export function SmartImportModal({ open, onClose, onImported }: Props) {
           {/* ─── INPUT STAGE ─── */}
           {stage === 'input' && (
             <div className="p-5">
-              {/* Tabs */}
-              <div className="flex gap-1 bg-gray-100 p-0.5 rounded-xl w-fit mb-4">
+              {/* Tabs — quatro caminhos distintos pra evitar confusão de "onde subo imagem?" */}
+              <div className="flex gap-1 bg-gray-100 p-0.5 rounded-xl mb-4 overflow-x-auto">
                 {([
                   { k: 'text', label: 'Colar texto', Icon: FileText },
-                  { k: 'file', label: 'Arquivo (CSV/XLS)', Icon: Upload },
+                  { k: 'file', label: 'Planilha (CSV/XLS)', Icon: FileSpreadsheet },
+                  { k: 'image', label: 'Imagem ou PDF', Icon: ImageIcon },
                   { k: 'photo', label: 'Tirar foto', Icon: Camera },
                 ] as const).map(({ k, label, Icon }) => (
                   <button
                     key={k}
                     onClick={() => setTab(k)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition ${
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition whitespace-nowrap ${
                       tab === k ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
                     }`}
                   >
@@ -263,29 +316,28 @@ export function SmartImportModal({ open, onClose, onImported }: Props) {
                 </div>
               )}
 
-              {/* TAB: Arquivo */}
+              {/* TAB: Planilha (CSV/XLS) — apenas tabela estruturada */}
               {tab === 'file' && (
                 <div className="space-y-3">
                   <p className="text-[12px] text-gray-500">
-                    Suba <b>CSV, XLS, XLSX</b> ou uma <b>imagem</b> (PDF, JPG, PNG — print de WhatsApp, cartao de visita, flyer). A IA decide as colunas e extrai os contatos. Maximo 10MB.
+                    Suba uma <b>planilha</b> (CSV, XLS, XLSX). A IA decide as colunas e extrai os contatos.
+                    Para imagens (print, foto, cartão), use a aba <b>Imagem ou PDF</b>. Máximo 10MB.
                   </p>
                   <label className="block">
                     <div className="border-2 border-dashed border-gray-200 rounded-2xl p-8 text-center hover:border-violet-400 hover:bg-violet-50/30 transition cursor-pointer">
-                      <Upload size={32} className="text-gray-300 mx-auto mb-2" strokeWidth={1.5} />
-                      <p className="text-[13px] font-semibold text-gray-700">Clique para selecionar o arquivo</p>
-                      <p className="text-[11px] text-gray-400 mt-1">.csv, .xlsx, .xls, .pdf, .jpg, .png</p>
+                      <FileSpreadsheet size={32} className="text-gray-300 mx-auto mb-2" strokeWidth={1.5} />
+                      <p className="text-[13px] font-semibold text-gray-700">Clique para selecionar a planilha</p>
+                      <p className="text-[11px] text-gray-400 mt-1">.csv, .xlsx, .xls, .xlsm</p>
                     </div>
                     <input
                       ref={fileInputRef}
                       type="file"
-                      accept=".csv,.xlsx,.xls,.xlsm,.pdf,image/*"
+                      accept=".csv,.xlsx,.xls,.xlsm,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
                       className="hidden"
                       onChange={(e) => {
                         const f = e.target.files?.[0]
                         if (!f) return
-                        const mime = (f.type || '').toLowerCase()
-                        const mode = mime.startsWith('image/') || mime.includes('pdf') ? 'image' : 'file'
-                        handleFileSelected(f, mode)
+                        handleFileSelected(f, 'file')
                         e.target.value = ''
                       }}
                     />
@@ -299,17 +351,53 @@ export function SmartImportModal({ open, onClose, onImported }: Props) {
                 </div>
               )}
 
-              {/* TAB: Foto */}
+              {/* TAB: Imagem ou PDF — print de WhatsApp, cartão de visita, flyer, screenshot */}
+              {tab === 'image' && (
+                <div className="space-y-3">
+                  <p className="text-[12px] text-gray-500">
+                    Suba uma <b>imagem</b> ou <b>PDF</b> (print de WhatsApp, cartão de visita, flyer, screenshot de lista).
+                    A IA lê e extrai os contatos automaticamente. Máximo 10MB. Imagens grandes são otimizadas antes do envio.
+                  </p>
+                  <label className="block">
+                    <div className="border-2 border-dashed border-gray-200 rounded-2xl p-8 text-center hover:border-violet-400 hover:bg-violet-50/30 transition cursor-pointer">
+                      <ImageIcon size={32} className="text-gray-300 mx-auto mb-2" strokeWidth={1.5} />
+                      <p className="text-[13px] font-semibold text-gray-700">Clique para selecionar imagem ou PDF</p>
+                      <p className="text-[11px] text-gray-400 mt-1">.jpg, .jpeg, .png, .webp, .gif, .pdf</p>
+                    </div>
+                    <input
+                      ref={imageInputRef}
+                      type="file"
+                      accept="image/*,application/pdf,.pdf"
+                      className="hidden"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0]
+                        if (!f) return
+                        handleFileSelected(f, 'image')
+                        e.target.value = ''
+                      }}
+                    />
+                  </label>
+                  {error && (
+                    <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-100 rounded-xl text-[12px] text-red-700">
+                      <AlertTriangle size={14} className="shrink-0 mt-0.5" />
+                      <span>{error}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* TAB: Foto — câmera direta (mobile); desktop usa a aba "Imagem ou PDF" */}
               {tab === 'photo' && (
                 <div className="space-y-3">
                   <p className="text-[12px] text-gray-500">
-                    Aponte a camera para um <b>cartao de visita</b>, <b>flyer</b>, <b>print de WhatsApp</b> ou qualquer lista de contatos. A IA le e extrai automaticamente.
+                    Aponte a câmera para um <b>cartão de visita</b>, <b>flyer</b>, <b>print de WhatsApp</b> ou qualquer lista de contatos.
+                    A IA lê e extrai automaticamente. <span className="text-gray-400">No desktop, use a aba <b>Imagem ou PDF</b> em vez desta.</span>
                   </p>
                   <label className="block">
                     <div className="border-2 border-dashed border-gray-200 rounded-2xl p-8 text-center hover:border-violet-400 hover:bg-violet-50/30 transition cursor-pointer">
                       <Camera size={32} className="text-gray-300 mx-auto mb-2" strokeWidth={1.5} />
-                      <p className="text-[13px] font-semibold text-gray-700">Abrir camera</p>
-                      <p className="text-[11px] text-gray-400 mt-1">No mobile abre a camera direto. No desktop abre o seletor de arquivo.</p>
+                      <p className="text-[13px] font-semibold text-gray-700">Abrir câmera</p>
+                      <p className="text-[11px] text-gray-400 mt-1">No celular abre a câmera direto.</p>
                     </div>
                     <input
                       ref={cameraInputRef}
@@ -415,7 +503,7 @@ export function SmartImportModal({ open, onClose, onImported }: Props) {
                 <CheckCircle2 size={28} className="text-emerald-600" />
               </div>
               <p className="text-[16px] font-bold text-gray-900">
-                {confirmResult.imported} {confirmResult.imported === 1 ? 'lead importado' : 'leads importados'}
+                {confirmResult.imported} {confirmResult.imported === 1 ? `${L.singular} importado` : `${L.plural} importados`}
               </p>
               <p className="text-[12px] text-gray-500 max-w-sm">
                 {confirmResult.skipped > 0 && `${confirmResult.skipped} pulados (duplicados ou invalidos). `}
@@ -447,10 +535,10 @@ export function SmartImportModal({ open, onClose, onImported }: Props) {
               <button
                 onClick={handleConfirmImport}
                 disabled={busy || editing.length === 0 || (skipDups && liveStats.newLeads === 0)}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-violet-500 to-purple-600 text-white text-[12px] font-bold hover:from-violet-600 hover:to-purple-700 transition disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+                className="ai-shimmer flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gray-900 text-white text-[12px] font-bold hover:bg-black transition disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
               >
                 {busy ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
-                Importar {skipDups ? liveStats.newLeads : liveStats.total} {(skipDups ? liveStats.newLeads : liveStats.total) === 1 ? 'lead' : 'leads'}
+                Importar {skipDups ? liveStats.newLeads : liveStats.total} {(skipDups ? liveStats.newLeads : liveStats.total) === 1 ? L.singular : L.plural}
               </button>
             </>
           )}

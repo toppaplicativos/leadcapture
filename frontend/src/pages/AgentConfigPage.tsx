@@ -10,7 +10,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Bot, MessageSquare, BookOpen, Settings2, Save, Loader2,
-  CheckCircle2, AlertCircle, ChevronDown, ChevronUp, Info,
+  CheckCircle2, AlertCircle, ChevronDown, ChevronUp, Info, Target,
 } from 'lucide-react'
 
 /* ─────────────────────────────────────────────────────────────
@@ -155,6 +155,8 @@ export function AgentConfigPage() {
   const [includeEmojis, setIncludeEmojis] = useState(true)
   const [maxLength, setMaxLength] = useState('500')
 
+  const [valueProposition, setValueProposition] = useState('')
+
   const [firstContactScript, setFirstContactScript] = useState('')
 
   const [objective, setObjective] = useState('')
@@ -176,6 +178,7 @@ export function AgentConfigPage() {
       setTone(p.tone || 'professional')
       setIncludeEmojis(Boolean(p.include_emojis ?? true))
       setMaxLength(String(p.max_length || 500))
+      setValueProposition(p.value_proposition || '')
       setFirstContactScript(p.first_contact_script || '')
       setObjective(p.objective || '')
       setCommunicationRules(p.communication_rules || '')
@@ -210,6 +213,7 @@ export function AgentConfigPage() {
           tone,
           include_emojis: includeEmojis,
           max_length: Math.max(100, Math.min(1200, Number(maxLength) || 500)),
+          value_proposition: valueProposition,
           first_contact_script: firstContactScript,
           objective,
           communication_rules: communicationRules,
@@ -279,6 +283,53 @@ export function AgentConfigPage() {
           {error}
         </div>
       )}
+
+      {/* 0. Proposta de Valor — campo central, máxima prioridade */}
+      <div className={`rounded-xl border-2 overflow-hidden ${valueProposition.trim() ? 'border-gray-900 bg-white' : 'border-amber-400 bg-amber-50'}`}>
+        <div className="flex items-center gap-3 px-5 py-4">
+          <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${valueProposition.trim() ? 'bg-gray-900' : 'bg-amber-400'}`}>
+            <Target size={16} className="text-white" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-gray-900">Proposta de Valor</p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Diretriz central de toda comunicacao do agente e dos templates WhatsApp
+            </p>
+          </div>
+          {!valueProposition.trim() && (
+            <span className="text-[10px] font-bold uppercase tracking-wide text-amber-700 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-full flex-shrink-0">
+              Essencial
+            </span>
+          )}
+        </div>
+        <div className="px-5 pb-5 border-t border-gray-100 space-y-3">
+          {!valueProposition.trim() && (
+            <div className="rounded-lg bg-amber-100 border border-amber-200 px-4 py-3 text-xs text-amber-800 space-y-1">
+              <p className="font-semibold">Por que este campo e critico?</p>
+              <p>
+                Sem a proposta de valor, o agente gera mensagens como <em>"Trabalho com solucoes que podem fazer diferenca no seu negocio"</em> — vago, sem impacto, sem conversao.
+              </p>
+              <p>
+                Com ela preenchida, o agente comunica exatamente <strong>o que voce oferece</strong>, para quem, e por que e relevante para aquele lead especifico.
+              </p>
+            </div>
+          )}
+          <div>
+            <Label hint="O que exatamente sua empresa oferece, para quem, e qual o diferencial. Esta frase guia TODA comunicacao.">
+              O que voce vende e qual o seu diferencial
+            </Label>
+            <Textarea
+              value={valueProposition}
+              onChange={setValueProposition}
+              placeholder={`Exemplos:\n• "Software de gestao para esmaltecas que reduz o no-show em 40% com confirmacao automatica pelo WhatsApp"\n• "Contabilidade especializada em MEI e pequenas empresas, com abertura em 24h e suporte humanizado"\n• "Agencia de trafego pago para e-commerce com garantia de ROAS minimo de 3x ou devolvemos o valor"`}
+              rows={5}
+            />
+            <p className="mt-1.5 text-[11px] text-gray-400">
+              Seja especifico: segmento-alvo + o que resolve + diferencial competitivo. Quanto mais claro, mais precisa sera a comunicacao.
+            </p>
+          </div>
+        </div>
+      </div>
 
       {/* 1. Identidade */}
       <Section

@@ -1412,14 +1412,13 @@ function LeadDetailModal({
           {(phone || lead.email) && (
             <div className="flex gap-2 mt-3">
               {phone && (
-                <a
-                  href={`https://wa.me/${phone}`}
-                  target="_blank"
-                  rel="noreferrer"
+                <button
+                  type="button"
+                  onClick={() => setShowWaSend(true)}
                   className="flex items-center justify-center gap-1.5 h-10 flex-1 px-3 rounded-xl bg-emerald-600 text-white text-[13px] font-medium hover:bg-emerald-700 active:scale-[0.98] transition"
                 >
-                  <MessageSquare size={14} strokeWidth={1.75} /> WhatsApp
-                </a>
+                  <Send size={14} strokeWidth={1.75} /> WhatsApp
+                </button>
               )}
               {lead.email && (
                 <a

@@ -19,11 +19,15 @@ type SearchProviderPreference = "rapid_first" | "official_first" | "rapid_only" 
 type SearchFieldProfile = "full" | "radar";
 
 type RapidProviderConfig = {
-  key: string;
+  /** Lista de chaves disponiveis — alternamos entre elas e fazemos fallback em 429. */
+  keys: string[];
   host: string;
   baseUrl: string;
   timeout: number;
 };
+
+/** Index round-robin em memoria — distribui carga entre as keys configuradas. */
+let _rapidKeyCursor = 0;
 
 type GoogleOfficialProviderConfig = {
   key: string;
@@ -41,13 +45,59 @@ export class GooglePlacesService {
 
   private async getRapidProvider(scope?: IntegrationScope): Promise<RapidProviderConfig | null> {
     const resolved = await integrationService.getProvider("rapidapi", this.toScope(scope));
-    const key = String(resolved.key || "").trim();
+    const primaryKey = String(resolved.key || "").trim();
     const host = String(resolved.config.host || "").trim();
     const baseUrl = String(resolved.config.baseUrl || "").trim();
     const timeout = Math.max(500, Math.floor(Number(resolved.config.timeout || 15000)));
 
-    if (!key || !host || !baseUrl) return null;
-    return { key, host, baseUrl: baseUrl.replace(/\/+$/, ""), timeout };
+    /* Coleta chaves: a primaria + alternativas (config.keysAlt: string[] OU env
+       RAPIDAPI_KEY_ALT, RAPIDAPI_KEY_ALT_2...). Round-robin distribui carga e
+       fallback automatico em 429. */
+    const altFromConfig = Array.isArray((resolved.config as any).keysAlt)
+      ? (resolved.config as any).keysAlt.map((k: any) => String(k || "").trim()).filter(Boolean)
+      : [];
+    const altFromEnv = [
+      process.env.RAPIDAPI_KEY_ALT,
+      process.env.RAPIDAPI_KEY_ALT_2,
+      process.env.RAPIDAPI_KEY_ALT_3,
+    ].map((k) => String(k || "").trim()).filter(Boolean);
+
+    const keys = Array.from(new Set([primaryKey, ...altFromConfig, ...altFromEnv].filter(Boolean)));
+    if (!keys.length || !host || !baseUrl) return null;
+    return { keys, host, baseUrl: baseUrl.replace(/\/+$/, ""), timeout };
+  }
+
+  /** Retorna a key da rotacao atual + rotaciona o cursor. */
+  private pickRapidKey(rapid: RapidProviderConfig): string {
+    const key = rapid.keys[_rapidKeyCursor % rapid.keys.length];
+    _rapidKeyCursor = (_rapidKeyCursor + 1) % rapid.keys.length;
+    return key;
+  }
+
+  /** Tenta um axios call com cada key disponivel ate sucesso ou exaustar.
+      Em 429 (rate limit), avanca pra proxima key automaticamente. */
+  private async tryRapidWithFallback<T>(
+    rapid: RapidProviderConfig,
+    callFn: (key: string) => Promise<T>,
+  ): Promise<T> {
+    let lastErr: any = null;
+    const tried = new Set<string>();
+    /* Comeca pela key da rotacao atual, depois tenta as outras se 429 */
+    for (let i = 0; i < rapid.keys.length; i++) {
+      const key = this.pickRapidKey(rapid);
+      if (tried.has(key)) continue;
+      tried.add(key);
+      try {
+        return await callFn(key);
+      } catch (err: any) {
+        lastErr = err;
+        const status = err?.response?.status;
+        /* 429 = rate limit, 403 = quota exceeded — tenta a proxima key */
+        if (status !== 429 && status !== 403) throw err;
+        logger.warn(`RapidAPI key ${key.slice(0, 8)}… returned ${status} — tentando proxima chave`);
+      }
+    }
+    throw lastErr;
   }
 
   private async getGoogleOfficialProvider(scope?: IntegrationScope): Promise<GoogleOfficialProviderConfig | null> {
@@ -63,6 +113,23 @@ export class GooglePlacesService {
     location?: string;
   }): string {
     return params.location ? `${params.query} em ${params.location}` : params.query;
+  }
+
+  /* Converte um circulo geografico (centro + raio em metros) em bounding box (lat/lng SW + NE).
+     Necessario porque o locationRestriction do Google Places Text Search v1 SO aceita
+     rectangle, nao circle. A box eh ligeiramente maior que o circulo (escolhemos sqrt(2)
+     pra cobrir o circulo inscrito) — filtragem geografica fina fica no client. */
+  private circleToRectangle(lat: number, lng: number, radiusMeters: number): {
+    low: { latitude: number; longitude: number };
+    high: { latitude: number; longitude: number };
+  } {
+    const R = 6378137; // Raio da Terra em metros
+    const dLat = (radiusMeters / R) * (180 / Math.PI);
+    const dLng = (radiusMeters / (R * Math.cos((lat * Math.PI) / 180))) * (180 / Math.PI);
+    return {
+      low: { latitude: lat - dLat, longitude: lng - dLng },
+      high: { latitude: lat + dLat, longitude: lng + dLng },
+    };
   }
 
   private getPlacesFieldMask(profile: SearchFieldProfile = "full", withPrefix = true): string {
@@ -172,6 +239,7 @@ export class GooglePlacesService {
     accountId?: string;
     userId?: string;
     brandId?: string;
+    strictLocation?: boolean;
   }): Promise<PlacesPageResult> {
     const rapid = await this.getRapidProvider(this.toScope(params));
     if (!rapid) {
@@ -186,37 +254,53 @@ export class GooglePlacesService {
     };
     if (params.pageToken) body.pageToken = params.pageToken;
 
-    // Add locationBias when coordinates are provided (radar mode)
+    // Add location scope when coordinates are provided.
+    // - strictLocation=true (radar/panfleteiro): locationRestriction com rectangle (HARD limit)
+    //   IMPORTANTE: locationRestriction so aceita rectangle, NAO aceita circle (limitacao da API).
+    //   Convertemos o circulo (lat/lng + radius) em bounding box quadrada.
+    // - strictLocation=false (text search normal): locationBias.circle eh apenas uma dica
+    // Sem strictLocation o Google retorna os top N da cidade inteira ignorando o centro.
     if (
       typeof params.latitude === "number" &&
       typeof params.longitude === "number" &&
       Number.isFinite(params.latitude) &&
       Number.isFinite(params.longitude)
     ) {
-      body.locationBias = {
-        circle: {
-          center: { latitude: params.latitude, longitude: params.longitude },
-          radius: params.radius && Number.isFinite(params.radius) ? params.radius : 3000,
-        },
-      };
+      const radiusMeters = params.radius && Number.isFinite(params.radius)
+        ? Math.max(1, Math.min(50000, params.radius))
+        : 3000;
+      if (params.strictLocation) {
+        body.locationRestriction = {
+          rectangle: this.circleToRectangle(params.latitude, params.longitude, radiusMeters),
+        };
+      } else {
+        body.locationBias = {
+          circle: {
+            center: { latitude: params.latitude, longitude: params.longitude },
+            radius: radiusMeters,
+          },
+        };
+      }
     }
 
     logger.info(
       `Google Places V2 search: "${textQuery}" (max: ${body.maxResultCount})${params.pageToken ? " [next page]" : ""}`
     );
 
-    const response = await axios.post(
-      `${rapid.baseUrl}/v1/places:searchText`,
-      body,
-      {
-        timeout: rapid.timeout,
-        headers: {
-          "Content-Type": "application/json",
-          "x-rapidapi-key": rapid.key,
-          "x-rapidapi-host": rapid.host,
-          "X-Goog-FieldMask": this.getPlacesFieldMask(params.fieldProfile || "full", true),
-        },
-      }
+    const response = await this.tryRapidWithFallback(rapid, (key) =>
+      axios.post(
+        `${rapid.baseUrl}/v1/places:searchText`,
+        body,
+        {
+          timeout: rapid.timeout,
+          headers: {
+            "Content-Type": "application/json",
+            "x-rapidapi-key": key,
+            "x-rapidapi-host": rapid.host,
+            "X-Goog-FieldMask": this.getPlacesFieldMask(params.fieldProfile || "full", true),
+          },
+        }
+      )
     );
 
     return {
@@ -238,6 +322,7 @@ export class GooglePlacesService {
     accountId?: string;
     userId?: string;
     brandId?: string;
+    strictLocation?: boolean;
   }): Promise<PlacesPageResult> {
     const google = await this.getGoogleOfficialProvider(this.toScope(params));
     if (!google) {
@@ -258,12 +343,21 @@ export class GooglePlacesService {
       Number.isFinite(params.latitude) &&
       Number.isFinite(params.longitude)
     ) {
-      body.locationBias = {
-        circle: {
-          center: { latitude: params.latitude, longitude: params.longitude },
-          radius: params.radius && Number.isFinite(params.radius) ? params.radius : 3000,
-        },
-      };
+      const radiusMeters = params.radius && Number.isFinite(params.radius)
+        ? Math.max(1, Math.min(50000, params.radius))
+        : 3000;
+      if (params.strictLocation) {
+        body.locationRestriction = {
+          rectangle: this.circleToRectangle(params.latitude, params.longitude, radiusMeters),
+        };
+      } else {
+        body.locationBias = {
+          circle: {
+            center: { latitude: params.latitude, longitude: params.longitude },
+            radius: radiusMeters,
+          },
+        };
+      }
     }
 
     logger.info(
@@ -309,6 +403,10 @@ export class GooglePlacesService {
     accountId?: string;
     userId?: string;
     brandId?: string;
+    /* strictLocation=true usa locationRestriction (HARD limit ao raio) em vez de
+       locationBias (apenas uma dica). Essencial pro modo radar/panfleteiro —
+       sem isso o Google retorna os top N da cidade INTEIRA ignorando o centro. */
+    strictLocation?: boolean;
   }): Promise<GooglePlaceV2[]> {
     try {
       const target = this.sanitizeMaxResults(params.maxResults);
@@ -463,17 +561,19 @@ export class GooglePlacesService {
       const rapidProvider = await this.getRapidProvider(scope);
       if (!rapidProvider) return null;
 
-      const rapid = await axios.get(
-        `${rapidProvider.baseUrl}/maps/places/${encodeURIComponent(placeId)}`,
-        {
-          timeout: rapidProvider.timeout,
-          headers: {
-            "Content-Type": "application/json",
-            "x-rapidapi-key": rapidProvider.key,
-            "x-rapidapi-host": rapidProvider.host,
-            "X-Goog-FieldMask": this.getPlacesFieldMask("full", false),
-          },
-        }
+      const rapid = await this.tryRapidWithFallback(rapidProvider, (key) =>
+        axios.get(
+          `${rapidProvider.baseUrl}/maps/places/${encodeURIComponent(placeId)}`,
+          {
+            timeout: rapidProvider.timeout,
+            headers: {
+              "Content-Type": "application/json",
+              "x-rapidapi-key": key,
+              "x-rapidapi-host": rapidProvider.host,
+              "X-Goog-FieldMask": this.getPlacesFieldMask("full", false),
+            },
+          }
+        )
       );
 
       return (rapid.data as GooglePlaceV2) || null;

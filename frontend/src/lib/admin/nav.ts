@@ -2,6 +2,7 @@ import {
   LayoutDashboard, Users, MessageSquare, Megaphone, ShoppingCart,
   Package, Palette, Search, Phone, Mail, Truck, Globe, Bot, Zap,
   BarChart3, Receipt, Ticket, Star, Sparkles, Film, Camera,
+  GitBranch, Brain, Headphones, Bell,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -16,6 +17,10 @@ export const ROUTE_MAP: Record<string, string> = {
   '/campanhas': 'campanhas',
   '/campanha': 'campanhas',
   '/automacoes': 'automacoes',
+  '/fluxos': 'fluxos',
+  '/habilidades': 'habilidades',
+  '/skills': 'habilidades',
+  '/atendente': 'atendente',
   '/criativos': 'criativos',
   '/creative': 'criativos',
   '/video-studio': 'video-studio',
@@ -59,9 +64,13 @@ export const NAV_ITEMS: NavItem[] = [
   { key: 'mensagens', path: '/mensagens', icon: MessageSquare, label: 'Mensagens', group: 'main' },
   { key: 'campanhas', path: '/campanhas', icon: Megaphone, label: 'Campanhas', group: 'main' },
   { key: 'automacoes', path: '/automacoes', icon: Zap, label: 'Automações', group: 'main', badge: 'Novo' },
+  { key: 'fluxos', path: '/fluxos', icon: GitBranch, label: 'Fluxos', group: 'main' },
+  { key: 'habilidades', path: '/habilidades', icon: Brain, label: 'Habilidades', group: 'main' },
   { key: 'criativos', path: '/criativos', icon: Palette, label: 'Criativos IA', group: 'main', badge: 'Novo' },
   { key: 'video-studio', path: '/video-studio', icon: Film, label: 'Video Studio', group: 'main', badge: 'Novo' },
   { key: 'agente', path: '/agente', icon: Bot, label: 'Agente IA', group: 'main' },
+  { key: 'atendente', path: '/atendente', icon: Headphones, label: 'Atendente', group: 'main' },
+  { key: 'notificacoes', path: '/notificacoes', icon: Bell, label: 'Notificações', group: 'main' },
   { key: 'whatsapp', path: '/whatsapp', icon: Phone, label: 'WhatsApp', group: 'main' },
   { key: 'instagram', path: '/instagram', icon: Camera, label: 'Instagram', group: 'main', badge: 'Beta' },
   { key: 'facebook', path: '/facebook', icon: Globe, label: 'Facebook', group: 'main', badge: 'Beta' },

@@ -5,35 +5,13 @@ import { storeSlug } from '@/lib/store-context'
 import { Topbar } from '@/components/Topbar'
 import { BottomNav } from '@/components/BottomNav'
 import { Toast } from '@/components/Toast'
-import { useToast } from '@/components/Toast'
 import { ConfirmModal } from '@/components/ConfirmModal'
 import { CatalogHome } from '@/pages/CatalogHome'
 import { OrdersTab } from '@/pages/OrdersTab'
 import { ProfileTab } from '@/pages/ProfileTab'
 import { LoginPage } from '@/pages/LoginPage'
-import { Palette } from 'lucide-react'
 import { PWAInstallBanner } from '@/components/PWAInstallBanner'
-
-/* ──────────────────────────────────────────────
-   Admin — lazy chunk per page (code-split por rota)
-   ────────────────────────────────────────────── */
-const AdminShell = lazy(() => import('@/components/admin/AdminShell').then(m => ({ default: m.AdminShell })))
-const DashboardView = lazy(() => import('@/pages/admin/dashboard/DashboardView').then(m => ({ default: m.DashboardView })))
-const CampaignsView = lazy(() => import('@/pages/admin/campaigns/CampaignsView').then(m => ({ default: m.CampaignsView })))
-const OrdersView = lazy(() => import('@/pages/admin/orders/OrdersView').then(m => ({ default: m.OrdersView })))
-const ProductsView = lazy(() => import('@/pages/admin/products/ProductsView').then(m => ({ default: m.ProductsView })))
-const AgentView = lazy(() => import('@/pages/admin/agent/AgentView').then(m => ({ default: m.AgentView })))
-const NotificationsView = lazy(() => import('@/pages/admin/notifications/NotificationsView').then(m => ({ default: m.NotificationsView })))
-const DomainView = lazy(() => import('@/pages/admin/domain/DomainView').then(m => ({ default: m.DomainView })))
-const FreteView = lazy(() => import('@/pages/admin/frete/FreteView').then(m => ({ default: m.FreteView })))
-const EstoqueAccessView = lazy(() => import('@/pages/admin/estoque/EstoqueAccessView').then(m => ({ default: m.EstoqueAccessView })))
-const CouponsView = lazy(() => import('@/pages/admin/coupons/CouponsView').then(m => ({ default: m.CouponsView })))
-const ReviewsView = lazy(() => import('@/pages/admin/reviews/ReviewsView').then(m => ({ default: m.ReviewsView })))
-const PaymentConfigView = lazy(() => import('@/pages/admin/payments/PaymentConfigView').then(m => ({ default: m.PaymentConfigView })))
-const WhatsAppManagerView = lazy(() => import('@/pages/admin/whatsapp/WhatsAppManagerView').then(m => ({ default: m.WhatsAppManagerView })))
-const SettingsView = lazy(() => import('@/pages/admin/settings/SettingsView').then(m => ({ default: m.SettingsView })))
-
-const ClientesPage = lazy(() => import('./pages/ClientesPage').then(m => ({ default: m.ClientesPage })))
+import { AdminRoutes } from '@/routes/adminRoutes'
 
 const CheckoutPage = lazy(() => import('@/pages/CheckoutPage').then(m => ({ default: m.CheckoutPage })))
 const OrderPage = lazy(() => import('@/pages/OrderPage').then(m => ({ default: m.OrderPage })))
@@ -42,22 +20,6 @@ const OnboardingPage = lazy(() => import('@/pages/OnboardingPage').then(m => ({ 
 const StockLoginPage = lazy(() => import('@/pages/StockLoginPage').then(m => ({ default: m.StockLoginPage })))
 const InventoryPage = lazy(() => import('@/pages/InventoryPage').then(m => ({ default: m.InventoryPage })))
 const ProductDetailPage = lazy(() => import('@/pages/ProductDetailPage').then(m => ({ default: m.ProductDetailPage })))
-const AgentPDVPage = lazy(() => import('@/pages/AgentPDVPage').then(m => ({ default: m.AgentPDVPage })))
-const AIProvidersPage = lazy(() => import('@/pages/AIProvidersPage').then(m => ({ default: m.AIProvidersPage })))
-const MessagesPage = lazy(() => import('@/pages/MessagesPage').then(m => ({ default: m.MessagesPage })))
-const FlowBuilderPage = lazy(() => import('@/pages/FlowBuilderPage').then(m => ({ default: m.FlowBuilderPage })))
-const LeadSearchPage = lazy(() => import('@/pages/LeadSearchPage').then(m => ({ default: m.LeadSearchPage })))
-const LeadsPage = lazy(() => import('@/pages/LeadsPage').then(m => ({ default: m.LeadsPage })))
-/* Nova página de Automações - 14 templates pré-configurados por brand (inspirada no Topp App) */
-const AutomationsPage = lazy(() => import('@/pages/AutomationsPage').then(m => ({ default: m.AutomationsPage })))
-/* Habilidades treinaveis por brand (squad-IA multimodal) */
-const BrandSkillsPage = lazy(() => import('@/pages/BrandSkillsPage').then(m => ({ default: m.BrandSkillsPage })))
-/* Configuracao completa do atendente IA */
-const AgentConfigPage = lazy(() => import('@/pages/AgentConfigPage').then(m => ({ default: m.AgentConfigPage })))
-const DesignPage = lazy(() => import('@/pages/DesignPage').then(m => ({ default: m.DesignPage })))
-const BrandImageGeneratorPage = lazy(() => import('@/pages/BrandImageGeneratorPage').then(m => ({ default: m.BrandImageGeneratorPage })))
-const CriativosPage = lazy(() => import('@/pages/CriativosPage').then(m => ({ default: m.CriativosPage })))
-const VideoStudioPage = lazy(() => import('@/pages/VideoStudioPage').then(m => ({ default: m.VideoStudioPage })))
 const LandingPage = lazy(() => import('@/pages/LandingPage').then(m => ({ default: m.LandingPage })))
 const MasterShell = lazy(() => import('@/pages/master/MasterShell').then(m => ({ default: m.MasterShell })))
 const MasterDashboard = lazy(() => import('@/pages/master/MasterDashboard').then(m => ({ default: m.MasterDashboard })))
@@ -69,9 +31,6 @@ const MasterAuditLog = lazy(() => import('@/pages/master/MasterAuditLog').then(m
 const MasterEmails = lazy(() => import('@/pages/master/MasterEmails').then(m => ({ default: m.MasterEmails })))
 const CadastroPage = lazy(() => import('@/pages/CadastroPage').then(m => ({ default: m.CadastroPage })))
 const CadastroSucessoPage = lazy(() => import('@/pages/CadastroSucessoPage').then(m => ({ default: m.CadastroSucessoPage })))
-const AdminEmailsPage = lazy(() => import('@/pages/AdminEmailsPage').then(m => ({ default: m.AdminEmailsPage })))
-const InstagramPage = lazy(() => import('@/pages/InstagramPage').then(m => ({ default: m.InstagramPage })))
-const FacebookPage = lazy(() => import('@/pages/FacebookPage').then(m => ({ default: m.FacebookPage })))
 const PrivacyPolicyPage = lazy(() => import('@/pages/PrivacyPolicyPage').then(m => ({ default: m.PrivacyPolicyPage })))
 const DataDeletionPage = lazy(() => import('@/pages/DataDeletionPage').then(m => ({ default: m.DataDeletionPage })))
 const TermsOfServicePage = lazy(() => import('@/pages/TermsOfServicePage').then(m => ({ default: m.TermsOfServicePage })))
@@ -184,41 +143,6 @@ function RootIndex() {
   return <RouteFallback />
 }
 
-/* ── Placeholder for sections not yet built ── */
-function ComingSoon({ title, icon: Icon }: { title: string; icon: any }) {
-  return (
-    <div className="flex flex-col items-center justify-center py-20 text-center">
-      <div className="w-14 h-14 bg-gray-100 rounded-2xl grid place-items-center mb-3">
-        <Icon size={22} className="text-gray-400" strokeWidth={1.5} />
-      </div>
-      <h2 className="text-[15px] font-semibold tracking-tight text-gray-900 mb-1">{title}</h2>
-      <p className="text-[12px] text-gray-500">Em desenvolvimento</p>
-    </div>
-  )
-}
-
-/* ── Wrapper: AdminShell + child content ── */
-function AdminPage({ children }: { children: React.ReactNode }) {
-  return <AdminShell>{children}</AdminShell>
-}
-
-/* ── Inline wrappers ── */
-const noop = () => {}
-function DashboardInline() { return <DashboardView showToast={noop} /> }
-function CampaignsInline() {
-  const { showToast } = useToast()
-  return <CampaignsView showToast={(msg: string, tp?: 'ok' | 'err') => showToast(tp === 'err' ? `Erro: ${msg}` : msg)} />
-}
-function OrdersInline() { return <OrdersView showToast={noop} /> }
-function ProductsInline() {
-  const { showToast } = useToast()
-  return (
-    <ProductsView
-      showToast={(msg: string, tp?: 'ok' | 'err') => showToast(tp === 'err' ? `Erro: ${msg}` : msg)}
-    />
-  )
-}
-
 /* ──────────────────────────────────────────────────────────────────────────────
  * ChunkLoadError defensive reload (PWA stability fix)
  *
@@ -289,46 +213,12 @@ export default function App() {
           {/* ── Login ── */}
           <Route path="/login" element={<LoginPage />} />
 
-          {/* ── Admin pages (all wrapped in AdminShell sidebar) ── */}
-          <Route path="/admin" element={<AdminPage><DashboardInline /></AdminPage>} />
-          <Route path="/dashboard" element={<AdminPage><DashboardInline /></AdminPage>} />
-          <Route path="/leads" element={<AdminPage><LeadsPage /></AdminPage>} />
-          <Route path="/clientes" element={<AdminPage><ClientesPage /></AdminPage>} />
-          <Route path="/busca" element={<AdminPage><LeadSearchPage /></AdminPage>} />
-          <Route path="/mensagens" element={<AdminPage><MessagesPage /></AdminPage>} />
-          <Route path="/notificacoes" element={<AdminPage><NotificationsView showToast={noop} /></AdminPage>} />
-          <Route path="/campanhas" element={<AdminPage><CampaignsInline /></AdminPage>} />
-          <Route path="/campanha" element={<AdminPage><CampaignsInline /></AdminPage>} />
-          {/* /automacoes — 14 templates pre-configurados de automacao por brand */}
-          <Route path="/automacoes" element={<AdminPage><AutomationsPage /></AdminPage>} />
-          {/* /habilidades — skills treinaveis por brand (multimodal) */}
-          <Route path="/habilidades" element={<AdminPage><BrandSkillsPage /></AdminPage>} />
-          <Route path="/skills" element={<AdminPage><BrandSkillsPage /></AdminPage>} />
-          <Route path="/fluxos" element={<AdminPage><FlowBuilderPage /></AdminPage>} />
-          <Route path="/criativos" element={<AdminPage><CriativosPage /></AdminPage>} />
-          <Route path="/video-studio" element={<AdminPage><VideoStudioPage /></AdminPage>} />
-          <Route path="/criativos/avancado" element={<AdminPage><BrandImageGeneratorPage /></AdminPage>} />
-          <Route path="/creative" element={<AdminPage><CriativosPage /></AdminPage>} />
-          <Route path="/agente" element={<AdminPage><AgentView showToast={noop} /></AdminPage>} />
-          <Route path="/atendente" element={<AdminPage><AgentConfigPage /></AdminPage>} />
-          <Route path="/tirar-pedido" element={<AdminPage><AgentPDVPage /></AdminPage>} />
-          <Route path="/whatsapp" element={<AdminPage><WhatsAppManagerView showToast={noop} /></AdminPage>} />
-          <Route path="/instagram" element={<AdminPage><InstagramPage /></AdminPage>} />
-          <Route path="/facebook" element={<AdminPage><FacebookPage /></AdminPage>} />
-          <Route path="/produtos" element={<AdminPage><ProductsInline /></AdminPage>} />
-          <Route path="/pedidos" element={<AdminPage><OrdersInline /></AdminPage>} />
-          <Route path="/estoque" element={<AdminPage><EstoqueAccessView showToast={noop} /></AdminPage>} />
-          <Route path="/cupons" element={<AdminPage><CouponsView showToast={noop} /></AdminPage>} />
-          <Route path="/avaliacoes" element={<AdminPage><ReviewsView showToast={noop} /></AdminPage>} />
+          {/* ── Admin (lazy-load por rota — ver routes/adminRoutes.tsx) ── */}
+          <AdminRoutes />
+
+          {/* ── Estoque standalone (fora do AdminShell) ── */}
           <Route path="/estoque/app" element={<InventoryPage />} />
           <Route path="/inventario" element={<InventoryPage />} />
-          <Route path="/design" element={<AdminPage><DesignPage /></AdminPage>} />
-          <Route path="/pagamentos" element={<AdminPage><PaymentConfigView showToast={noop} /></AdminPage>} />
-          <Route path="/frete" element={<AdminPage><FreteView showToast={noop} /></AdminPage>} />
-          <Route path="/dominio" element={<AdminPage><DomainView showToast={noop} /></AdminPage>} />
-          <Route path="/configuracoes" element={<AdminPage><SettingsView showToast={noop} /></AdminPage>} />
-          <Route path="/provedores-ia" element={<AdminPage><AIProvidersPage /></AdminPage>} />
-          <Route path="/emails" element={<AdminPage><AdminEmailsPage /></AdminPage>} />
 
           {/* ── App Estoque (stock managers — separate auth scope) ──
               URL pattern: /app-estoque/{brand-slug} → branded login

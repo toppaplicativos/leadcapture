@@ -4,7 +4,7 @@ import {
   ChevronLeft, ChevronRight, Users, Loader2,
   MessageSquare, Mail, Globe, ExternalLink, Trash2, Send,
   CheckCircle2, Edit3, CheckSquare, Square, Sparkles, AlertTriangle,
-  SlidersHorizontal, ChevronDown, Check, Building2,
+  SlidersHorizontal, ChevronDown, Check, Building2, ShieldCheck,
 } from 'lucide-react'
 import { Button } from '@/components/ui'
 import { SmartImportModal } from '@/components/SmartImportModal'
@@ -116,6 +116,7 @@ interface Lead {
   google_rating?: number; google_reviews_count?: number
   website?: string; google_maps_uri?: string; category?: string
   phone_secondary?: string; business_status?: string; has_whatsapp?: boolean
+  whatsapp_checked_at?: string; whatsapp_jid?: string; whatsapp_status?: string
 }
 
 /* ── Filter chip component ── */
@@ -163,6 +164,11 @@ export function LeadsPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bulkEditOpen, setBulkEditOpen] = useState(false)
   const [bulkBusy, setBulkBusy] = useState(false)
+  const [validateAllRunning, setValidateAllRunning] = useState(false)
+  const [validateAllProgress, setValidateAllProgress] = useState<{
+    processed: number; valid: number; invalid: number; errors: number; skipped: number; total: number
+  } | null>(null)
+  const validateAllAbortRef = useRef<AbortController | null>(null)
   const [smartImportOpen, setSmartImportOpen] = useState(false)
   const [waQueueLeads, setWaQueueLeads] = useState<Lead[] | null>(null)
   const [flash, setFlash] = useState<{ msg: string; tone: 'ok' | 'err' } | null>(null)
@@ -346,6 +352,92 @@ export function LeadsPage() {
     }
   }
 
+  async function runBulkValidateWhatsApp() {
+    if (!selectedCount) return
+    setBulkBusy(true)
+    try {
+      const r = await fetch('/api/leads/validate-whatsapp-batch', {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({ leadIds: selectedIdsArray, limit: selectedCount }),
+      })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.error || 'Falha ao validar')
+      const valid = d.results?.filter((r: any) => r.has_whatsapp).length || 0
+      const invalid = d.results?.filter((r: any) => !r.has_whatsapp).length || 0
+      toast(`Validados: ${valid} com WhatsApp, ${invalid} sem WhatsApp`)
+      clearSelection()
+      loadLeads()
+    } catch (e: any) {
+      toast(e.message || 'Erro ao validar WhatsApp', 'err')
+    } finally {
+      setBulkBusy(false)
+    }
+  }
+
+  async function runValidateAll() {
+    if (validateAllRunning) {
+      validateAllAbortRef.current?.abort()
+      return
+    }
+    setValidateAllRunning(true)
+    setValidateAllProgress({ processed: 0, valid: 0, invalid: 0, errors: 0, skipped: 0, total: 0 })
+    const ac = new AbortController()
+    validateAllAbortRef.current = ac
+    try {
+      const r = await fetch('/api/leads/validate-whatsapp-all', {
+        method: 'POST',
+        headers: getHeaders(),
+        body: '{}',
+        signal: ac.signal,
+      })
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({ error: 'Falha' }))
+        throw new Error(d.error || 'Falha ao iniciar validacao')
+      }
+      const reader = r.body?.getReader()
+      if (!reader) throw new Error('Stream nao suportado')
+      const decoder = new TextDecoder()
+      let buf = ''
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buf += decoder.decode(value, { stream: true })
+        const lines = buf.split('\n')
+        buf = lines.pop() || ''
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          try {
+            const ev = JSON.parse(line.slice(6))
+            if (ev.type === 'progress' || ev.type === 'done') {
+              setValidateAllProgress({
+                processed: ev.processed || 0,
+                valid: ev.valid || 0,
+                invalid: ev.invalid || 0,
+                errors: ev.errors || 0,
+                skipped: ev.skipped || 0,
+                total: ev.total || 0,
+              })
+            }
+            if (ev.type === 'start') {
+              setValidateAllProgress(p => p ? { ...p, total: ev.totalLeads } : p)
+            }
+            if (ev.type === 'done') {
+              toast(`Validacao completa: ${ev.valid} com WhatsApp, ${ev.invalid} sem`)
+              loadLeads()
+            }
+          } catch {}
+        }
+      }
+    } catch (e: any) {
+      if (e.name !== 'AbortError') toast(e.message || 'Erro na validacao', 'err')
+      else toast('Validacao cancelada')
+    } finally {
+      setValidateAllRunning(false)
+      setTimeout(() => setValidateAllProgress(null), 5000)
+    }
+  }
+
   const totalPages = Math.ceil(total / LIMIT)
   const startItem = (page - 1) * LIMIT + 1
   const endItem = Math.min(page * LIMIT, total)
@@ -373,6 +465,18 @@ export function LeadsPage() {
         </div>
         <div className="flex items-center gap-2">
           <button
+            onClick={runValidateAll}
+            title={validateAllRunning ? 'Clique para cancelar' : 'Validar WhatsApp de todos os leads automaticamente'}
+            className={`h-9 flex items-center gap-1.5 px-3.5 rounded-lg text-[12px] font-semibold transition-all ${
+              validateAllRunning
+                ? 'bg-red-50 text-red-700 hover:bg-red-100 border border-red-200'
+                : 'bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200'
+            }`}
+          >
+            {validateAllRunning ? <Loader2 size={13} className="animate-spin" /> : <ShieldCheck size={13} strokeWidth={2} />}
+            <span className="hidden sm:inline">{validateAllRunning ? 'Cancelar' : 'Validar Todos'}</span>
+          </button>
+          <button
             onClick={() => setSmartImportOpen(true)}
             title="Importar leads via IA — texto, CSV/XLS, imagem ou foto"
             className="ai-shimmer h-9 flex items-center gap-1.5 px-3.5 rounded-lg bg-gray-900 text-white text-[12px] font-semibold hover:bg-black hover:shadow-[0_4px_12px_rgba(0,0,0,0.25)] transition-all"
@@ -382,6 +486,38 @@ export function LeadsPage() {
           </button>
         </div>
       </header>
+
+      {/* ── VALIDATE ALL PROGRESS BANNER ── */}
+      {validateAllProgress && (
+        <div className="mx-4 mb-2 p-3 bg-purple-50 border border-purple-100 rounded-xl">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              {validateAllRunning && <Loader2 size={14} className="text-purple-600 animate-spin" />}
+              {!validateAllRunning && <ShieldCheck size={14} className="text-purple-600" />}
+              <span className="text-[12px] font-bold text-purple-800">
+                {validateAllRunning ? 'Validando WhatsApp...' : 'Validacao completa'}
+              </span>
+            </div>
+            <div className="flex items-center gap-3 text-[11px] font-semibold">
+              <span className="text-emerald-700">{validateAllProgress.valid} validos</span>
+              <span className="text-red-600">{validateAllProgress.invalid} invalidos</span>
+              <span className="text-gray-500">{validateAllProgress.skipped} pulados</span>
+              {validateAllProgress.errors > 0 && <span className="text-orange-600">{validateAllProgress.errors} erros</span>}
+            </div>
+          </div>
+          {validateAllProgress.total > 0 && (
+            <div className="w-full h-1.5 bg-purple-100 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-gray-900 rounded-full transition-all duration-300"
+                style={{ width: `${Math.min(100, ((validateAllProgress.processed + validateAllProgress.skipped) / validateAllProgress.total) * 100)}%` }}
+              />
+            </div>
+          )}
+          <div className="text-[10px] text-purple-500 mt-1">
+            {validateAllProgress.processed + validateAllProgress.skipped} de {validateAllProgress.total} leads verificados
+          </div>
+        </div>
+      )}
 
       {/* ── KPI CARDS — métricas densas com info adicional ── */}
       {(() => {
@@ -963,6 +1099,15 @@ export function LeadsPage() {
               <span className="sm:hidden">Editar</span>
             </button>
             <button
+              onClick={runBulkValidateWhatsApp}
+              disabled={bulkBusy}
+              className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-xl bg-violet-600 text-white text-[12px] font-semibold hover:bg-violet-700 disabled:opacity-40 active:scale-[0.97] transition"
+            >
+              {bulkBusy ? <Loader2 size={13} className="animate-spin" /> : <ShieldCheck size={13} strokeWidth={2} />}
+              <span className="hidden sm:inline">Validar WhatsApp</span>
+              <span className="sm:hidden">Validar</span>
+            </button>
+            <button
               onClick={() => {
                 const selected = leads.filter(l => selectedIds.has(l.id))
                 if (selected.length > 0) setWaQueueLeads(selected)
@@ -1229,6 +1374,25 @@ function LeadDetailModal({
   const [clientTypes, setClientTypes] = useState<Array<{ id: string; name: string }>>([])
   const [saving, setSaving] = useState(false)
   const [showWaSend, setShowWaSend] = useState(false)
+  const [validatingWa, setValidatingWa] = useState(false)
+  const [waValidation, setWaValidation] = useState<{ has_whatsapp?: boolean; checked_at?: string } | null>(
+    lead.whatsapp_checked_at ? { has_whatsapp: lead.has_whatsapp, checked_at: lead.whatsapp_checked_at } : null
+  )
+
+  async function validateWhatsApp() {
+    setValidatingWa(true)
+    try {
+      const r = await fetch(`/api/leads/${lead.id}/validate-whatsapp`, {
+        method: 'POST', headers: getHeaders(),
+      })
+      const d = await r.json()
+      if (d.success && d.validation) {
+        setWaValidation({ has_whatsapp: d.validation.has_whatsapp, checked_at: d.validation.checked_at })
+        onUpdated({ id: lead.id, has_whatsapp: d.validation.has_whatsapp, whatsapp_checked_at: d.validation.checked_at, whatsapp_jid: d.validation.jid })
+      }
+    } catch {}
+    setValidatingWa(false)
+  }
 
   /* Editable fields — initialized from the lead, mutate locally until "Salvar". */
   const [editName, setEditName] = useState(lead.name || '')
@@ -1464,9 +1628,27 @@ function LeadDetailModal({
           {tab === 'info' && (
             <>
               {lead.phone && (
-                <div className="flex items-center gap-2.5 bg-gray-50 rounded-xl px-3.5 py-2.5">
-                  <Phone size={14} strokeWidth={1.75} className="text-gray-400 shrink-0" />
-                  <span className="text-[13px] font-mono text-gray-800 flex-1">{lead.phone}</span>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2.5 bg-gray-50 rounded-xl px-3.5 py-2.5">
+                    <Phone size={14} strokeWidth={1.75} className="text-gray-400 shrink-0" />
+                    <span className="text-[13px] font-mono text-gray-800 flex-1">{lead.phone}</span>
+                    {waValidation ? (
+                      <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                        waValidation.has_whatsapp ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-600'
+                      }`}>
+                        <ShieldCheck size={10} strokeWidth={2} />
+                        {waValidation.has_whatsapp ? 'WhatsApp' : 'Sem WhatsApp'}
+                      </span>
+                    ) : null}
+                  </div>
+                  <button
+                    onClick={validateWhatsApp}
+                    disabled={validatingWa}
+                    className="w-full flex items-center justify-center gap-2 h-9 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-[12px] font-semibold disabled:opacity-50 active:scale-[0.98] transition"
+                  >
+                    {validatingWa ? <Loader2 size={13} className="animate-spin" /> : <ShieldCheck size={13} strokeWidth={2} />}
+                    {validatingWa ? 'Validando...' : waValidation ? 'Revalidar WhatsApp' : 'Validar WhatsApp'}
+                  </button>
                 </div>
               )}
               {lead.address && (

@@ -1,0 +1,1 @@
+export type ShowToast = (text: string, type?: 'ok' | 'err') => void

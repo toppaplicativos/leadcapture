@@ -243,12 +243,12 @@ h2 { letter-spacing: -0.025em; }
   border: none;
 }
 .btn-primary {
-  @apply bg-blue-500 text-white;
+  @apply bg-gray-900 text-white;
 }
 .btn-primary:hover {
-  @apply bg-blue-600;
+  @apply bg-gray-800;
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+  box-shadow: 0 4px 12px rgba(23, 23, 23, 0.15);
 }
 .btn-secondary {
   @apply bg-gray-100 text-gray-700;
@@ -279,8 +279,8 @@ textarea, select {
 }
 input:focus, textarea:focus, select:focus {
   outline: none;
-  border-color: var(--color-brand-secondary);
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  border-color: var(--color-gray-900);
+  box-shadow: 0 0 0 3px rgba(23, 23, 23, 0.06);
 }
 
 /* ── Sidebar ── */
@@ -288,8 +288,8 @@ input:focus, textarea:focus, select:focus {
   transition: all 0.15s ease;
 }
 .sidebar-item.active {
-  background: rgba(59, 130, 246, 0.08);
-  color: #3b82f6;
+  background: var(--brand-secondary-light, rgba(23, 23, 23, 0.06));
+  color: var(--brand-secondary, #171717);
   font-weight: 600;
 }
 
@@ -467,4 +467,38 @@ input:focus, textarea:focus, select:focus {
 @keyframes toast-slide-in {
   0%   { opacity: 0; transform: translateX(40px); }
   100% { opacity: 1; transform: translateX(0);    }
+}
+
+/* ── Reduced motion — WCAG 2.1 ── */
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .text-shimmer,
+  .ai-shimmer::after,
+  .skeleton,
+  .radar-pulse::before,
+  .radar-pulse::after {
+    animation: none !important;
+  }
+
+  .page-enter {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+
+  .card:hover,
+  .card-interactive:active,
+  .kpi-card:hover,
+  .btn-primary:hover {
+    transform: none;
+  }
 }

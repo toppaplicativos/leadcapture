@@ -55,14 +55,14 @@ function variantStyles(variant: ConfirmVariant): {
       return {
         iconWrap: 'bg-red-50 ring-1 ring-red-100',
         icon: 'text-red-600',
-        confirmBtn: 'bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white',
+        confirmBtn: 'bg-red-600 hover:bg-red-700 text-white',
         defaultIcon: AlertTriangle,
       }
     case 'info':
       return {
-        iconWrap: 'bg-violet-50 ring-1 ring-violet-100',
-        icon: 'text-violet-600',
-        confirmBtn: 'bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700 text-white',
+        iconWrap: 'bg-gray-100 ring-1 ring-gray-200',
+        icon: 'text-gray-700',
+        confirmBtn: 'bg-gray-900 hover:bg-gray-800 text-white',
         defaultIcon: Sparkles,
       }
     default:

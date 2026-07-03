@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   X, Upload, Camera, FileText, Sparkles, Loader2, CheckCircle2, AlertTriangle,
   Edit3, Trash2, Phone, Mail, Building2, MapPin, Thermometer, Tag, Plus,
-  FileSpreadsheet, Image as ImageIcon,
+  FileSpreadsheet, Image as ImageIcon, Layers, XCircle, RotateCcw,
 } from 'lucide-react'
 import { adminApi } from '@/lib/api-admin'
 import type { ImportPreviewDTO, ParsedLeadDTO } from '@/lib/api-admin'
@@ -18,7 +18,16 @@ import type { ImportPreviewDTO, ParsedLeadDTO } from '@/lib/api-admin'
  */
 
 type Tab = 'text' | 'file' | 'image' | 'photo'
-type Stage = 'input' | 'loading' | 'preview' | 'done'
+type Stage = 'input' | 'loading' | 'batch' | 'preview' | 'done'
+
+interface BatchProgress {
+  total: number
+  current: number
+  currentFileName: string
+  leadsFound: number
+  errors: string[]
+  cancelled: boolean
+}
 
 interface Props {
   open: boolean
@@ -82,6 +91,10 @@ export function SmartImportModal({ open, onClose, onImported, entity = 'leads' }
   /* Workspace de edicao do preview — array mutavel local */
   const [editing, setEditing] = useState<ParsedLeadDTO[]>([])
 
+  /* Batch processing state */
+  const [batchProgress, setBatchProgress] = useState<BatchProgress | null>(null)
+  const batchCancelRef = useRef(false)
+
   const fileInputRef = useRef<HTMLInputElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
@@ -99,6 +112,8 @@ export function SmartImportModal({ open, onClose, onImported, entity = 'leads' }
     setBusy(false)
     setSkipDups(true)
     setConfirmResult(null)
+    setBatchProgress(null)
+    batchCancelRef.current = false
   }, [open])
 
   /* ESC fecha */
@@ -158,6 +173,105 @@ export function SmartImportModal({ open, onClose, onImported, entity = 'leads' }
       setBusy(false)
     }
   }, [])
+
+  const handleBatchFiles = useCallback(async (files: FileList) => {
+    const fileArray = Array.from(files)
+    if (fileArray.length === 0) return
+
+    if (fileArray.length === 1) {
+      handleFileSelected(fileArray[0], 'image')
+      return
+    }
+
+    setError(null)
+    setBusy(true)
+    setStage('batch')
+    batchCancelRef.current = false
+    const progress: BatchProgress = {
+      total: fileArray.length,
+      current: 0,
+      currentFileName: '',
+      leadsFound: 0,
+      errors: [],
+      cancelled: false,
+    }
+    setBatchProgress({ ...progress })
+
+    const allLeads: ParsedLeadDTO[] = []
+    const allWarnings: string[] = []
+
+    for (let i = 0; i < fileArray.length; i++) {
+      if (batchCancelRef.current) {
+        progress.cancelled = true
+        setBatchProgress({ ...progress })
+        break
+      }
+
+      const file = fileArray[i]
+      progress.current = i + 1
+      progress.currentFileName = file.name
+      setBatchProgress({ ...progress })
+
+      try {
+        if (file.size > 11 * 1024 * 1024) {
+          progress.errors.push(`${file.name}: arquivo maior que 10MB`)
+          setBatchProgress({ ...progress })
+          continue
+        }
+        const b64 = await fileToBase64(file)
+        const r = await adminApi.smartImportParse({
+          mode: 'image',
+          payload: b64,
+          mimeType: file.type || 'image/jpeg',
+          fileName: file.name,
+        })
+        if (r.preview.leads.length > 0) {
+          allLeads.push(...r.preview.leads)
+          progress.leadsFound = allLeads.length
+          setBatchProgress({ ...progress })
+        }
+        if (r.preview.pipelineWarnings?.length) {
+          allWarnings.push(...r.preview.pipelineWarnings.map(w => `[${file.name}] ${w}`))
+        }
+      } catch (e: any) {
+        progress.errors.push(`${file.name}: ${e.message || 'Falha ao processar'}`)
+        setBatchProgress({ ...progress })
+      }
+
+      if (i < fileArray.length - 1 && !batchCancelRef.current) {
+        await new Promise(r => setTimeout(r, 1500 + Math.random() * 1500))
+      }
+    }
+
+    if (allLeads.length > 0) {
+      setPreview({
+        mode: 'image',
+        sourceTag: 'batch-import',
+        leads: allLeads,
+        stats: {
+          total: allLeads.length,
+          newLeads: allLeads.filter(l => !l.duplicateOf).length,
+          duplicates: allLeads.filter(l => !!l.duplicateOf).length,
+          withoutPhone: allLeads.filter(l => !l.phone).length,
+          withInterest: allLeads.filter(l => !!l.interest).length,
+        },
+        pipelineWarnings: [
+          ...(progress.errors.length > 0 ? [`${progress.errors.length} arquivo(s) com erro`] : []),
+          ...allWarnings.slice(0, 5),
+        ],
+      })
+      setEditing(allLeads)
+      setStage('preview')
+    } else {
+      setError(
+        progress.errors.length > 0
+          ? `Nenhum lead encontrado. Erros: ${progress.errors.slice(0, 3).join('; ')}`
+          : 'Nenhum lead encontrado nos arquivos enviados.'
+      )
+      setStage('input')
+    }
+    setBusy(false)
+  }, [handleFileSelected])
 
   const handleConfirmImport = useCallback(async () => {
     if (!editing.length) return
@@ -232,7 +346,7 @@ export function SmartImportModal({ open, onClose, onImported, entity = 'leads' }
       >
         {/* Header */}
         <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-100 shrink-0">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 grid place-items-center shrink-0">
+          <div className="w-10 h-10 rounded-xl bg-gray-900 grid place-items-center shrink-0">
             <Sparkles size={18} className="text-white" />
           </div>
           <div className="flex-1 min-w-0">
@@ -295,7 +409,7 @@ export function SmartImportModal({ open, onClose, onImported, entity = 'leads' }
                       'Exemplos aceitos:\n\nJoao - 8599999999 - quer BYD Seal\nMaria Silva / Empresaria / 85 98888-7777\nCarlos: interessado em consorcio\n\nOu cole uma conversa do WhatsApp, lista de feira, etc.'
                     }
                     rows={10}
-                    className="w-full p-3 border border-gray-200 rounded-xl text-[13px] font-mono text-gray-800 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent resize-y"
+                    className="w-full p-3 border border-gray-200 rounded-xl text-[13px] font-mono text-gray-800 focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900 resize-y"
                   />
                   {error && (
                     <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-100 rounded-xl text-[12px] text-red-700">
@@ -307,7 +421,7 @@ export function SmartImportModal({ open, onClose, onImported, entity = 'leads' }
                     <button
                       onClick={handleParseText}
                       disabled={!textInput.trim() || busy}
-                      className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-gradient-to-r from-violet-500 to-purple-600 text-white text-xs font-bold hover:from-violet-600 hover:to-purple-700 transition disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
+                      className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-gray-900 text-white text-xs font-bold hover:bg-gray-800 transition disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
                     >
                       <Sparkles size={14} />
                       Extrair contatos
@@ -324,7 +438,7 @@ export function SmartImportModal({ open, onClose, onImported, entity = 'leads' }
                     Para imagens (print, foto, cartão), use a aba <b>Imagem ou PDF</b>. Máximo 10MB.
                   </p>
                   <label className="block">
-                    <div className="border-2 border-dashed border-gray-200 rounded-2xl p-8 text-center hover:border-violet-400 hover:bg-violet-50/30 transition cursor-pointer">
+                    <div className="border-2 border-dashed border-gray-200 rounded-2xl p-8 text-center hover:border-gray-400 hover:bg-gray-50 transition cursor-pointer">
                       <FileSpreadsheet size={32} className="text-gray-300 mx-auto mb-2" strokeWidth={1.5} />
                       <p className="text-[13px] font-semibold text-gray-700">Clique para selecionar a planilha</p>
                       <p className="text-[11px] text-gray-400 mt-1">.csv, .xlsx, .xls, .xlsm</p>
@@ -355,24 +469,26 @@ export function SmartImportModal({ open, onClose, onImported, entity = 'leads' }
               {tab === 'image' && (
                 <div className="space-y-3">
                   <p className="text-[12px] text-gray-500">
-                    Suba uma <b>imagem</b> ou <b>PDF</b> (print de WhatsApp, cartão de visita, flyer, screenshot de lista).
-                    A IA lê e extrai os contatos automaticamente. Máximo 10MB. Imagens grandes são otimizadas antes do envio.
+                    Suba <b>imagens</b> ou <b>PDFs</b> (print de WhatsApp, cartão de visita, flyer, screenshot de lista).
+                    A IA lê e extrai os contatos automaticamente. <b>Selecione vários arquivos</b> para importação em lote.
+                    Máximo 10MB por arquivo.
                   </p>
                   <label className="block">
-                    <div className="border-2 border-dashed border-gray-200 rounded-2xl p-8 text-center hover:border-violet-400 hover:bg-violet-50/30 transition cursor-pointer">
-                      <ImageIcon size={32} className="text-gray-300 mx-auto mb-2" strokeWidth={1.5} />
-                      <p className="text-[13px] font-semibold text-gray-700">Clique para selecionar imagem ou PDF</p>
-                      <p className="text-[11px] text-gray-400 mt-1">.jpg, .jpeg, .png, .webp, .gif, .pdf</p>
+                    <div className="border-2 border-dashed border-gray-200 rounded-2xl p-8 text-center hover:border-gray-400 hover:bg-gray-50 transition cursor-pointer">
+                      <Layers size={32} className="text-gray-300 mx-auto mb-2" strokeWidth={1.5} />
+                      <p className="text-[13px] font-semibold text-gray-700">Clique para selecionar imagens ou PDFs</p>
+                      <p className="text-[11px] text-gray-400 mt-1">Selecione 1 ou varios — .jpg, .png, .webp, .pdf</p>
                     </div>
                     <input
                       ref={imageInputRef}
                       type="file"
                       accept="image/*,application/pdf,.pdf"
+                      multiple
                       className="hidden"
                       onChange={(e) => {
-                        const f = e.target.files?.[0]
-                        if (!f) return
-                        handleFileSelected(f, 'image')
+                        const files = e.target.files
+                        if (!files || files.length === 0) return
+                        handleBatchFiles(files)
                         e.target.value = ''
                       }}
                     />
@@ -394,7 +510,7 @@ export function SmartImportModal({ open, onClose, onImported, entity = 'leads' }
                     A IA lê e extrai automaticamente. <span className="text-gray-400">No desktop, use a aba <b>Imagem ou PDF</b> em vez desta.</span>
                   </p>
                   <label className="block">
-                    <div className="border-2 border-dashed border-gray-200 rounded-2xl p-8 text-center hover:border-violet-400 hover:bg-violet-50/30 transition cursor-pointer">
+                    <div className="border-2 border-dashed border-gray-200 rounded-2xl p-8 text-center hover:border-gray-400 hover:bg-gray-50 transition cursor-pointer">
                       <Camera size={32} className="text-gray-300 mx-auto mb-2" strokeWidth={1.5} />
                       <p className="text-[13px] font-semibold text-gray-700">Abrir câmera</p>
                       <p className="text-[11px] text-gray-400 mt-1">No celular abre a câmera direto.</p>
@@ -427,12 +543,84 @@ export function SmartImportModal({ open, onClose, onImported, entity = 'leads' }
           {/* ─── LOADING STAGE ─── */}
           {stage === 'loading' && (
             <div className="p-10 flex flex-col items-center justify-center gap-3 text-center">
-              <div className="w-14 h-14 rounded-2xl bg-violet-50 grid place-items-center">
-                <Loader2 size={28} className="text-violet-600 animate-spin" />
+              <div className="w-14 h-14 rounded-2xl bg-gray-100 grid place-items-center">
+                <Loader2 size={28} className="text-gray-700 animate-spin" />
               </div>
               <p className="text-[14px] font-semibold text-gray-900">IA processando...</p>
               <p className="text-[12px] text-gray-500 max-w-sm">
                 {fileInfo ? `Lendo ${fileInfo.name}. ` : ''}Extraindo contatos, normalizando telefones e detectando duplicados. Pode levar alguns segundos.
+              </p>
+            </div>
+          )}
+
+          {/* ─── BATCH PROCESSING STAGE ─── */}
+          {stage === 'batch' && batchProgress && (
+            <div className="p-6 space-y-5">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-gray-100 grid place-items-center shrink-0">
+                  <Loader2 size={24} className="text-gray-700 animate-spin" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[14px] font-bold text-gray-900">
+                    Processando em lote
+                  </p>
+                  <p className="text-[12px] text-gray-500 truncate">
+                    {batchProgress.currentFileName}
+                  </p>
+                </div>
+                <button
+                  onClick={() => { batchCancelRef.current = true }}
+                  className="px-3 py-1.5 rounded-lg text-[11px] font-semibold text-red-600 hover:bg-red-50 transition"
+                >
+                  <XCircle size={14} className="inline mr-1" />
+                  Cancelar
+                </button>
+              </div>
+
+              {/* Progress bar */}
+              <div>
+                <div className="flex justify-between text-[11px] font-semibold text-gray-500 mb-1.5">
+                  <span>Arquivo {batchProgress.current} de {batchProgress.total}</span>
+                  <span>{Math.round((batchProgress.current / batchProgress.total) * 100)}%</span>
+                </div>
+                <div className="w-full h-2.5 bg-gray-100 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-gray-900 rounded-full transition-all duration-500 ease-out"
+                    style={{ width: `${(batchProgress.current / batchProgress.total) * 100}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* Live stats */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="bg-emerald-50 rounded-xl p-3 text-center">
+                  <p className="text-[20px] font-extrabold text-emerald-700">{batchProgress.leadsFound}</p>
+                  <p className="text-[9px] text-emerald-600 uppercase font-bold tracking-wide mt-0.5">Leads encontrados</p>
+                </div>
+                <div className="bg-gray-100 rounded-xl p-3 text-center">
+                  <p className="text-[20px] font-extrabold text-gray-800">{batchProgress.current}</p>
+                  <p className="text-[9px] text-gray-700 uppercase font-bold tracking-wide mt-0.5">Processados</p>
+                </div>
+                <div className="bg-gray-50 rounded-xl p-3 text-center">
+                  <p className="text-[20px] font-extrabold text-gray-500">{batchProgress.total - batchProgress.current}</p>
+                  <p className="text-[9px] text-gray-400 uppercase font-bold tracking-wide mt-0.5">Restantes</p>
+                </div>
+              </div>
+
+              {/* Errors so far */}
+              {batchProgress.errors.length > 0 && (
+                <div className="p-3 bg-red-50 border border-red-100 rounded-xl space-y-1 max-h-32 overflow-y-auto">
+                  <p className="text-[10px] font-bold text-red-700 uppercase tracking-wide">
+                    {batchProgress.errors.length} erro(s)
+                  </p>
+                  {batchProgress.errors.slice(-5).map((err, i) => (
+                    <p key={i} className="text-[11px] text-red-600 truncate">{err}</p>
+                  ))}
+                </div>
+              )}
+
+              <p className="text-[11px] text-gray-400 text-center">
+                A IA analisa cada arquivo individualmente com intervalo entre eles para evitar bloqueios.
               </p>
             </div>
           )}
@@ -446,7 +634,7 @@ export function SmartImportModal({ open, onClose, onImported, entity = 'leads' }
                 <StatCard label="Novos" value={liveStats.newLeads} color="text-emerald-600" />
                 <StatCard label="Duplicados" value={liveStats.duplicates} color="text-amber-600" />
                 <StatCard label="Sem fone" value={liveStats.withoutPhone} color="text-gray-500" />
-                <StatCard label="C/ interesse" value={liveStats.withInterest} color="text-violet-600" />
+                <StatCard label="C/ interesse" value={liveStats.withInterest} color="text-gray-700" />
               </div>
 
               {preview.pipelineWarnings.length > 0 && (
@@ -464,7 +652,7 @@ export function SmartImportModal({ open, onClose, onImported, entity = 'leads' }
                   type="checkbox"
                   checked={skipDups}
                   onChange={(e) => setSkipDups(e.target.checked)}
-                  className="w-4 h-4 rounded border-gray-300 text-violet-600 focus:ring-violet-500"
+                  className="w-4 h-4 rounded border-gray-300 text-gray-700 focus:ring-gray-900"
                 />
                 <span className="text-[12px] text-gray-700">Pular contatos marcados como duplicados ({liveStats.duplicates})</span>
               </label>
@@ -550,10 +738,10 @@ export function SmartImportModal({ open, onClose, onImported, entity = 'leads' }
               Fechar
             </button>
           )}
-          {stage === 'input' && (
+          {(stage === 'input' || stage === 'loading') && (
             <button
               onClick={onClose}
-              disabled={busy}
+              disabled={busy && stage === 'loading'}
               className="ml-auto px-4 py-2 rounded-xl text-[12px] font-bold text-gray-700 hover:bg-gray-200 transition disabled:opacity-50"
             >
               Cancelar
@@ -601,10 +789,10 @@ function LeadCard({
   const isDup = !!lead.duplicateOf
 
   return (
-    <div className={`border rounded-xl p-3 transition ${isDup ? 'border-amber-200 bg-amber-50/40' : 'border-gray-100 bg-white hover:border-violet-200'}`}>
+    <div className={`border rounded-xl p-3 transition ${isDup ? 'border-amber-200 bg-amber-50/40' : 'border-gray-100 bg-white hover:border-gray-300'}`}>
       <div className="flex items-start gap-2.5">
         {/* Avatar */}
-        <div className={`w-9 h-9 rounded-lg grid place-items-center shrink-0 ${isDup ? 'bg-amber-100 text-amber-700' : 'bg-violet-100 text-violet-700'} font-bold text-[12px]`}>
+        <div className={`w-9 h-9 rounded-lg grid place-items-center shrink-0 ${isDup ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-800'} font-bold text-[12px]`}>
           {lead.name.charAt(0).toUpperCase()}
         </div>
 
@@ -614,7 +802,7 @@ function LeadCard({
             <input
               value={lead.name}
               onChange={(e) => onUpdate({ name: e.target.value })}
-              className="font-bold text-[13px] text-gray-900 bg-transparent focus:bg-white border-0 focus:border focus:border-violet-300 rounded px-1 -mx-1 outline-none focus:ring-1 focus:ring-violet-200"
+              className="font-bold text-[13px] text-gray-900 bg-transparent focus:bg-white border-0 focus:border focus:border-gray-400 rounded px-1 -mx-1 outline-none focus:ring-1 focus:ring-gray-200"
             />
             {tempBadge(lead.temperature)}
             {isDup && (
@@ -631,7 +819,7 @@ function LeadCard({
                 value={lead.phone || ''}
                 onChange={(e) => onUpdate({ phone: e.target.value || null })}
                 placeholder="sem telefone"
-                className="flex-1 bg-transparent focus:bg-white border-0 focus:border focus:border-violet-300 rounded px-1 -mx-1 outline-none focus:ring-1 focus:ring-violet-200 placeholder:text-gray-300"
+                className="flex-1 bg-transparent focus:bg-white border-0 focus:border focus:border-gray-400 rounded px-1 -mx-1 outline-none focus:ring-1 focus:ring-gray-200 placeholder:text-gray-300"
               />
             </div>
             <div className="flex items-center gap-1.5 text-[11px] text-gray-600">
@@ -640,7 +828,7 @@ function LeadCard({
                 value={lead.email || ''}
                 onChange={(e) => onUpdate({ email: e.target.value || null })}
                 placeholder="sem email"
-                className="flex-1 bg-transparent focus:bg-white border-0 focus:border focus:border-violet-300 rounded px-1 -mx-1 outline-none focus:ring-1 focus:ring-violet-200 placeholder:text-gray-300"
+                className="flex-1 bg-transparent focus:bg-white border-0 focus:border focus:border-gray-400 rounded px-1 -mx-1 outline-none focus:ring-1 focus:ring-gray-200 placeholder:text-gray-300"
               />
             </div>
             {(lead.company || expanded) && (
@@ -650,7 +838,7 @@ function LeadCard({
                   value={lead.company || ''}
                   onChange={(e) => onUpdate({ company: e.target.value || null })}
                   placeholder="empresa"
-                  className="flex-1 bg-transparent focus:bg-white border-0 focus:border focus:border-violet-300 rounded px-1 -mx-1 outline-none focus:ring-1 focus:ring-violet-200 placeholder:text-gray-300"
+                  className="flex-1 bg-transparent focus:bg-white border-0 focus:border focus:border-gray-400 rounded px-1 -mx-1 outline-none focus:ring-1 focus:ring-gray-200 placeholder:text-gray-300"
                 />
               </div>
             )}
@@ -661,21 +849,21 @@ function LeadCard({
                   value={lead.city || ''}
                   onChange={(e) => onUpdate({ city: e.target.value || null })}
                   placeholder="cidade"
-                  className="flex-1 bg-transparent focus:bg-white border-0 focus:border focus:border-violet-300 rounded px-1 -mx-1 outline-none focus:ring-1 focus:ring-violet-200 placeholder:text-gray-300"
+                  className="flex-1 bg-transparent focus:bg-white border-0 focus:border focus:border-gray-400 rounded px-1 -mx-1 outline-none focus:ring-1 focus:ring-gray-200 placeholder:text-gray-300"
                 />
                 <input
                   value={lead.state || ''}
                   onChange={(e) => onUpdate({ state: (e.target.value || '').toUpperCase().slice(0, 2) || null })}
                   placeholder="UF"
                   maxLength={2}
-                  className="w-10 bg-transparent focus:bg-white border-0 focus:border focus:border-violet-300 rounded px-1 outline-none focus:ring-1 focus:ring-violet-200 placeholder:text-gray-300 text-center uppercase"
+                  className="w-10 bg-transparent focus:bg-white border-0 focus:border focus:border-gray-400 rounded px-1 outline-none focus:ring-1 focus:ring-gray-200 placeholder:text-gray-300 text-center uppercase"
                 />
               </div>
             )}
           </div>
 
           {lead.interest && (
-            <div className="flex items-center gap-1.5 text-[10px] text-violet-700 bg-violet-50 px-2 py-0.5 rounded-full w-fit mb-1">
+            <div className="flex items-center gap-1.5 text-[10px] text-gray-800 bg-gray-100 px-2 py-0.5 rounded-full w-fit mb-1">
               <Thermometer size={10} />
               {lead.interest}
             </div>
@@ -710,7 +898,7 @@ function LeadCard({
                 value={lead.notes || ''}
                 onChange={(e) => onUpdate({ notes: e.target.value || null })}
                 rows={2}
-                className="w-full p-1.5 border border-gray-200 rounded-lg text-[11px] text-gray-700 focus:outline-none focus:ring-1 focus:ring-violet-300"
+                className="w-full p-1.5 border border-gray-200 rounded-lg text-[11px] text-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-300"
               />
             </div>
           )}

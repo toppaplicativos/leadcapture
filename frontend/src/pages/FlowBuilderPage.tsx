@@ -137,22 +137,22 @@ export function FlowBuilderPage() {
           <p className="text-[13px] text-gray-400 mt-0.5">{flows.length} fluxos de automacao</p>
         </div>
         <button onClick={createFlow}
-          className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-gradient-to-r from-violet-500 to-purple-600 text-white text-xs font-bold hover:from-violet-600 hover:to-purple-700 transition-all shadow-md">
+          className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-gray-900 text-white text-xs font-bold hover:bg-gray-800 transition-all shadow-sm">
           <Plus size={14} /> Novo Fluxo
         </button>
       </div>
 
       {flows.length === 0 ? (
-        <div className="bg-gradient-to-br from-violet-50 to-indigo-50 rounded-2xl border border-violet-100 p-8 text-center">
+        <div className="bg-gray-50 rounded-2xl border border-gray-200 p-8 text-center">
           <div className="w-16 h-16 bg-white rounded-2xl grid place-items-center mx-auto mb-4 shadow-sm">
-            <GitBranch size={28} className="text-violet-500" />
+            <GitBranch size={28} className="text-gray-700" />
           </div>
           <h3 className="text-base font-bold text-gray-900 mb-2">Crie seu primeiro fluxo</h3>
           <p className="text-xs text-gray-500 max-w-sm mx-auto leading-relaxed mb-4">
             Automatize processos: envie mensagens, mude status, notifique a equipe — tudo baseado em gatilhos como novos leads, pedidos ou mensagens.
           </p>
           <button onClick={createFlow}
-            className="px-5 py-2.5 rounded-xl bg-violet-600 text-white text-xs font-bold hover:bg-violet-700 transition shadow-sm">
+            className="px-5 py-2.5 rounded-xl bg-gray-900 text-white text-xs font-bold hover:bg-gray-800 transition shadow-sm">
             <Plus size={14} className="inline mr-1" /> Criar Fluxo
           </button>
         </div>
@@ -295,9 +295,9 @@ function FlowEditor({ flow, onClose }: { flow: Flow; onClose: () => void }) {
 
   const selected = nodes.find(n => n.id === selectedNode)
   const typeColors: Record<string, string> = {
-    trigger: 'from-blue-500 to-indigo-600', action: 'from-emerald-500 to-teal-600',
-    condition: 'from-amber-500 to-orange-600', delay: 'from-violet-500 to-purple-600',
-    end: 'from-gray-400 to-gray-500',
+    trigger: 'bg-blue-600', action: 'bg-emerald-600',
+    condition: 'bg-amber-600', delay: 'bg-gray-700',
+    end: 'bg-gray-500',
   }
 
   return (
@@ -330,7 +330,7 @@ function FlowEditor({ flow, onClose }: { flow: Flow; onClose: () => void }) {
                 className={`relative flex flex-col items-center p-3 rounded-xl min-w-[100px] transition-all ${
                   selectedNode === node.id ? 'ring-2 ring-white/40 scale-105' : 'hover:scale-105'
                 }`}>
-                <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${typeColors[node.type] || 'from-gray-500 to-gray-600'} grid place-items-center shadow-lg text-white`}>
+                <div className={`w-10 h-10 rounded-xl ${typeColors[node.type] || 'bg-gray-600'} grid place-items-center shadow-sm text-white`}>
                   {(() => { const Icon = NODE_ICON[node.type] || Square; return <Icon size={16} strokeWidth={1.75} /> })()}
                 </div>
                 <p className="text-[10px] font-bold text-white/80 mt-1.5 text-center max-w-[90px] truncate">{node.label}</p>
@@ -352,7 +352,7 @@ function FlowEditor({ flow, onClose }: { flow: Flow; onClose: () => void }) {
         <div className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-5 space-y-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <div className={`w-8 h-8 rounded-lg bg-gradient-to-br ${typeColors[selected.type]} grid place-items-center text-white`}>
+              <div className={`w-8 h-8 rounded-lg ${typeColors[selected.type]} grid place-items-center text-white`}>
                 {(() => { const Icon = NODE_ICON[selected.type] || Square; return <Icon size={14} strokeWidth={1.75} /> })()}
               </div>
               <div>

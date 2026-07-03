@@ -15,31 +15,25 @@ import { Palette } from 'lucide-react'
 import { PWAInstallBanner } from '@/components/PWAInstallBanner'
 
 /* ──────────────────────────────────────────────
-   Lazy chunks — split per route to keep the
-   initial bundle small. Each named export from
-   AdminDashboard re-uses the same module chunk
-   (Vite/Rollup deduplicates dynamic imports).
+   Admin — lazy chunk per page (code-split por rota)
    ────────────────────────────────────────────── */
-const adminModule = () => import('@/pages/AdminDashboard')
+const AdminShell = lazy(() => import('@/components/admin/AdminShell').then(m => ({ default: m.AdminShell })))
+const DashboardView = lazy(() => import('@/pages/admin/dashboard/DashboardView').then(m => ({ default: m.DashboardView })))
+const CampaignsView = lazy(() => import('@/pages/admin/campaigns/CampaignsView').then(m => ({ default: m.CampaignsView })))
+const OrdersView = lazy(() => import('@/pages/admin/orders/OrdersView').then(m => ({ default: m.OrdersView })))
+const ProductsView = lazy(() => import('@/pages/admin/products/ProductsView').then(m => ({ default: m.ProductsView })))
+const AgentView = lazy(() => import('@/pages/admin/agent/AgentView').then(m => ({ default: m.AgentView })))
+const NotificationsView = lazy(() => import('@/pages/admin/notifications/NotificationsView').then(m => ({ default: m.NotificationsView })))
+const DomainView = lazy(() => import('@/pages/admin/domain/DomainView').then(m => ({ default: m.DomainView })))
+const FreteView = lazy(() => import('@/pages/admin/frete/FreteView').then(m => ({ default: m.FreteView })))
+const EstoqueAccessView = lazy(() => import('@/pages/admin/estoque/EstoqueAccessView').then(m => ({ default: m.EstoqueAccessView })))
+const CouponsView = lazy(() => import('@/pages/admin/coupons/CouponsView').then(m => ({ default: m.CouponsView })))
+const ReviewsView = lazy(() => import('@/pages/admin/reviews/ReviewsView').then(m => ({ default: m.ReviewsView })))
+const PaymentConfigView = lazy(() => import('@/pages/admin/payments/PaymentConfigView').then(m => ({ default: m.PaymentConfigView })))
+const WhatsAppManagerView = lazy(() => import('@/pages/admin/whatsapp/WhatsAppManagerView').then(m => ({ default: m.WhatsAppManagerView })))
+const SettingsView = lazy(() => import('@/pages/admin/settings/SettingsView').then(m => ({ default: m.SettingsView })))
 
-const AdminShell = lazy(() => adminModule().then(m => ({ default: m.AdminShell })))
-const DashboardView = lazy(() => adminModule().then(m => ({ default: m.DashboardView })))
-/* ClientesView antigo (do AdminDashboard) substituído pela ClientesPage nova
-   com mesma estrutura da LeadsPage (KPIs, filter popovers, tags, SmartImport). */
 const ClientesPage = lazy(() => import('./pages/ClientesPage').then(m => ({ default: m.ClientesPage })))
-const CampaignsView = lazy(() => adminModule().then(m => ({ default: m.CampaignsView })))
-const OrdersView = lazy(() => adminModule().then(m => ({ default: m.OrdersView })))
-const ProductsView = lazy(() => adminModule().then(m => ({ default: m.ProductsView })))
-const AgentView = lazy(() => adminModule().then(m => ({ default: m.AgentView })))
-const NotificationsView = lazy(() => adminModule().then(m => ({ default: m.NotificationsView })))
-const DomainView = lazy(() => adminModule().then(m => ({ default: m.DomainView })))
-const FreteView = lazy(() => adminModule().then(m => ({ default: m.FreteView })))
-const EstoqueAccessView = lazy(() => adminModule().then(m => ({ default: m.EstoqueAccessView })))
-const CouponsView = lazy(() => adminModule().then(m => ({ default: m.CouponsView })))
-const ReviewsView = lazy(() => adminModule().then(m => ({ default: m.ReviewsView })))
-const PaymentConfigView = lazy(() => adminModule().then(m => ({ default: m.PaymentConfigView })))
-const WhatsAppManagerView = lazy(() => adminModule().then(m => ({ default: m.WhatsAppManagerView })))
-const SettingsView = lazy(() => adminModule().then(m => ({ default: m.SettingsView })))
 
 const CheckoutPage = lazy(() => import('@/pages/CheckoutPage').then(m => ({ default: m.CheckoutPage })))
 const OrderPage = lazy(() => import('@/pages/OrderPage').then(m => ({ default: m.OrderPage })))
@@ -216,11 +210,19 @@ function CampaignsInline() {
   return <CampaignsView showToast={(msg: string, tp?: 'ok' | 'err') => showToast(tp === 'err' ? `Erro: ${msg}` : msg)} />
 }
 function OrdersInline() { return <OrdersView showToast={noop} /> }
+function ProductsInline() {
+  const { showToast } = useToast()
+  return (
+    <ProductsView
+      showToast={(msg: string, tp?: 'ok' | 'err') => showToast(tp === 'err' ? `Erro: ${msg}` : msg)}
+    />
+  )
+}
 
 /* ──────────────────────────────────────────────────────────────────────────────
  * ChunkLoadError defensive reload (PWA stability fix)
  *
- * Vite splits routes into chunks like AdminDashboard-{hash}.js. Each build
+ * Vite splits routes into per-page chunks. Each build
  * generates new hashes. When the service worker cycles to a new version and
  * the user has the old tab open, dynamic import() (React.lazy) requests the
  * OLD chunk name — which the server no longer has → 404 → React throws
@@ -302,7 +304,7 @@ export default function App() {
           {/* /habilidades — skills treinaveis por brand (multimodal) */}
           <Route path="/habilidades" element={<AdminPage><BrandSkillsPage /></AdminPage>} />
           <Route path="/skills" element={<AdminPage><BrandSkillsPage /></AdminPage>} />
-          <Route path="/automacoes" element={<AdminPage><FlowBuilderPage /></AdminPage>} />
+          <Route path="/fluxos" element={<AdminPage><FlowBuilderPage /></AdminPage>} />
           <Route path="/criativos" element={<AdminPage><CriativosPage /></AdminPage>} />
           <Route path="/video-studio" element={<AdminPage><VideoStudioPage /></AdminPage>} />
           <Route path="/criativos/avancado" element={<AdminPage><BrandImageGeneratorPage /></AdminPage>} />
@@ -313,7 +315,7 @@ export default function App() {
           <Route path="/whatsapp" element={<AdminPage><WhatsAppManagerView showToast={noop} /></AdminPage>} />
           <Route path="/instagram" element={<AdminPage><InstagramPage /></AdminPage>} />
           <Route path="/facebook" element={<AdminPage><FacebookPage /></AdminPage>} />
-          <Route path="/produtos" element={<AdminPage><ProductsView showToast={noop} /></AdminPage>} />
+          <Route path="/produtos" element={<AdminPage><ProductsInline /></AdminPage>} />
           <Route path="/pedidos" element={<AdminPage><OrdersInline /></AdminPage>} />
           <Route path="/estoque" element={<AdminPage><EstoqueAccessView showToast={noop} /></AdminPage>} />
           <Route path="/cupons" element={<AdminPage><CouponsView showToast={noop} /></AdminPage>} />

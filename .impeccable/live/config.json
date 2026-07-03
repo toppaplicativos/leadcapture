@@ -1,0 +1,7 @@
+{
+  "framework": "vite-spa",
+  "files": ["frontend/index.html"],
+  "insertBefore": "</head>",
+  "commentSyntax": "html",
+  "cspChecked": false
+}

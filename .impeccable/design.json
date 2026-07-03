@@ -1,0 +1,175 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-07-03T21:00:00.000Z",
+  "title": "Design System: LeadCapture",
+  "extensions": {
+    "colorMeta": {
+      "ink": {
+        "role": "primary",
+        "displayName": "True Ink",
+        "canonical": "oklch(18% 0 0)",
+        "tonalRamp": ["#0a0a0a", "#171717", "#262626", "#404040", "#525252", "#6b6b6b", "#9a9a9a", "#f5f5f5"]
+      },
+      "accent-system": {
+        "role": "secondary",
+        "displayName": "System Blue",
+        "canonical": "oklch(62% 0.19 255)",
+        "tonalRamp": ["#1e3a5f", "#1d4ed8", "#3b82f6", "#60a5fa", "#93c5fd", "#bfdbfe", "#dbeafe", "#eff6ff"]
+      },
+      "accent-brand": {
+        "role": "primary",
+        "displayName": "Brand Dynamic",
+        "canonical": "oklch(18% 0.02 255)",
+        "tonalRamp": ["#0a0a0a", "#0f172a", "#111827", "#1e293b", "#334155", "#64748b", "#94a3b8", "#e2e8f0"]
+      },
+      "canvas": {
+        "role": "neutral",
+        "displayName": "Canvas",
+        "canonical": "oklch(96% 0 0)",
+        "tonalRamp": ["#171717", "#404040", "#6b6b6b", "#9a9a9a", "#d4d4d4", "#e5e5e5", "#f3f3f3", "#f5f5f5"]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Surface",
+        "canonical": "oklch(100% 0 0)",
+        "tonalRamp": ["#0a0a0a", "#171717", "#404040", "#6b6b6b", "#9a9a9a", "#e5e5e5", "#f3f3f3", "#ffffff"]
+      },
+      "success": {
+        "role": "semantic",
+        "displayName": "Success",
+        "canonical": "oklch(65% 0.17 160)",
+        "tonalRamp": ["#064e3b", "#047857", "#10b981", "#34d399", "#6ee7b7", "#a7f3d0", "#d1fae5", "#ecfdf5"]
+      },
+      "danger": {
+        "role": "semantic",
+        "displayName": "Danger",
+        "canonical": "oklch(63% 0.24 25)",
+        "tonalRamp": ["#7f1d1d", "#b91c1c", "#ef4444", "#f87171", "#fca5a5", "#fecaca", "#fee2e2", "#fef2f2"]
+      }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "Hero headlines na landing apenas. 40–72px fixo." },
+      "headline": { "displayName": "Headline", "purpose": "Títulos de página no painel admin." },
+      "title": { "displayName": "Title", "purpose": "Títulos de card e seção." },
+      "body": { "displayName": "Body", "purpose": "Texto corrido, tabelas, descrições. Max 65–75ch em prosa." },
+      "label": { "displayName": "Label", "purpose": "Labels de formulário, metadados, hints." }
+    },
+    "shadows": [
+      { "name": "card", "value": "0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.02)", "purpose": "Cards em repouso." },
+      { "name": "elevated", "value": "0 4px 12px rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.04)", "purpose": "Hover em cards interativos." },
+      { "name": "modal", "value": "0 12px 40px rgba(0,0,0,0.12)", "purpose": "Modais e drawers." }
+    ],
+    "motion": [
+      { "name": "ease-standard", "value": "cubic-bezier(0.16, 1, 0.3, 1)", "purpose": "Transições de estado padrão (150ms)." },
+      { "name": "page-enter", "value": "opacity 0→1, translateY 6px→0, 200ms", "purpose": "Entrada de página no admin." },
+      { "name": "ai-shimmer", "value": "translateX sweep 3.8s ease-in-out", "purpose": "Feedback visual em botões IA — usar com moderação." }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "lg", "value": "1024px" },
+      { "name": "admin-mobile", "value": "1024px", "purpose": "Sidebar colapsa; bottom nav ativa abaixo deste breakpoint." }
+    ],
+    "integrationColors": {
+      "instagram": {
+        "displayName": "Instagram Gradient",
+        "gradient": "linear-gradient(135deg, #9333ea, #ec4899, #f97316)",
+        "purpose": "Apenas em InstagramPage — identidade da plataforma, não do shell admin."
+      },
+      "facebook": {
+        "displayName": "Facebook Blue",
+        "gradient": "linear-gradient(135deg, #2563eb, #60a5fa)",
+        "purpose": "Apenas em FacebookPage — identidade da plataforma, não do shell admin."
+      }
+    }
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Ação primária no painel — sólido ink, sem gradiente.",
+      "html": "<button class=\"ds-btn-primary\">Salvar alterações</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 44px; padding: 0 16px; border: none; border-radius: 18px; background: #171717; color: #ffffff; font-family: Inter, system-ui, sans-serif; font-size: 14px; font-weight: 600; letter-spacing: -0.011em; cursor: pointer; transition: background 150ms cubic-bezier(0.16, 1, 0.3, 1), transform 150ms cubic-bezier(0.16, 1, 0.3, 1); } .ds-btn-primary:hover { background: #262626; } .ds-btn-primary:focus-visible { outline: none; box-shadow: 0 0 0 2px #ffffff, 0 0 0 4px #171717; } .ds-btn-primary:active { transform: scale(0.98); }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Ações secundárias e cancelamento.",
+      "html": "<button class=\"ds-btn-secondary\">Cancelar</button>",
+      "css": ".ds-btn-secondary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 44px; padding: 0 16px; border: none; border-radius: 18px; background: #f3f3f3; color: #404040; font-family: Inter, system-ui, sans-serif; font-size: 14px; font-weight: 600; letter-spacing: -0.011em; cursor: pointer; transition: background 150ms cubic-bezier(0.16, 1, 0.3, 1); } .ds-btn-secondary:hover { background: #e5e5e5; } .ds-btn-secondary:focus-visible { outline: none; box-shadow: 0 0 0 2px #ffffff, 0 0 0 4px #d4d4d4; }"
+    },
+    {
+      "name": "Brand Button",
+      "kind": "button",
+      "refersTo": "button-brand",
+      "description": "CTA com cor da marca do cliente (white-label).",
+      "html": "<button class=\"ds-btn-brand\">Publicar loja</button>",
+      "css": ".ds-btn-brand { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 44px; padding: 0 16px; border: none; border-radius: 18px; background: var(--brand-secondary, #0f172a); color: #ffffff; font-family: Inter, system-ui, sans-serif; font-size: 14px; font-weight: 600; cursor: pointer; transition: opacity 150ms cubic-bezier(0.16, 1, 0.3, 1), transform 150ms cubic-bezier(0.16, 1, 0.3, 1); } .ds-btn-brand:hover { opacity: 0.9; } .ds-btn-brand:focus-visible { outline: none; box-shadow: 0 0 0 2px #ffffff, 0 0 0 4px var(--brand-secondary, #0f172a); } .ds-btn-brand:active { transform: scale(0.98); }"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input-default",
+      "description": "Campo de texto padrão com label e estados de foco/erro.",
+      "html": "<div class=\"ds-field\"><label class=\"ds-field-label\" for=\"ds-email\">E-mail</label><input class=\"ds-input\" id=\"ds-email\" type=\"email\" placeholder=\"seu@email.com\" /></div>",
+      "css": ".ds-field { width: 100%; } .ds-field-label { display: block; font-family: Inter, system-ui, sans-serif; font-size: 12px; font-weight: 600; color: #404040; margin-bottom: 6px; } .ds-input { width: 100%; height: 44px; padding: 0 14px; border: 1px solid #e5e5e5; border-radius: 18px; background: #ffffff; color: #171717; font-family: Inter, system-ui, sans-serif; font-size: 14px; transition: border-color 150ms, box-shadow 150ms; } .ds-input::placeholder { color: #9a9a9a; } .ds-input:focus { outline: none; border-color: #171717; box-shadow: 0 0 0 4px rgba(23, 23, 23, 0.05); }"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card-default",
+      "description": "Container padrão para conteúdo agrupado no painel.",
+      "html": "<div class=\"ds-card\"><h3 class=\"ds-card-title\">Leads hoje</h3><p class=\"ds-card-body\">24 novos contatos capturados.</p></div>",
+      "css": ".ds-card { background: #ffffff; border: 1px solid #e5e5e5; border-radius: 20px; padding: 20px; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04); transition: box-shadow 150ms, transform 150ms; } .ds-card:hover { box-shadow: 0 4px 16px rgba(15, 23, 42, 0.06); } .ds-card-title { font-family: Inter, system-ui, sans-serif; font-size: 15px; font-weight: 600; color: #171717; letter-spacing: -0.022em; margin: 0 0 4px; } .ds-card-body { font-family: Inter, system-ui, sans-serif; font-size: 14px; color: #6b6b6b; margin: 0; }"
+    },
+    {
+      "name": "Status Badge",
+      "kind": "chip",
+      "refersTo": "badge-success",
+      "description": "Indicador de status semântico.",
+      "html": "<span class=\"ds-badge ds-badge-success\">Ativo</span>",
+      "css": ".ds-badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 9999px; font-family: Inter, system-ui, sans-serif; font-size: 11px; font-weight: 600; white-space: nowrap; } .ds-badge-success { background: #ecfdf5; color: #047857; }"
+    },
+    {
+      "name": "Sidebar Item",
+      "kind": "nav",
+      "refersTo": "nav-sidebar-item",
+      "description": "Item de navegação lateral no admin shell.",
+      "html": "<a class=\"ds-nav-item ds-nav-item-active\" href=\"#\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z\"/></svg> Painel</a>",
+      "css": ".ds-nav-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 12px; font-family: Inter, system-ui, sans-serif; font-size: 13px; font-weight: 500; color: #6b6b6b; text-decoration: none; transition: background 150ms, color 150ms; } .ds-nav-item:hover { background: #f3f3f3; color: #171717; } .ds-nav-item-active { background: rgba(59, 130, 246, 0.08); color: #3b82f6; font-weight: 600; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Operations Console",
+    "overview": "LeadCapture é uma ferramenta de trabalho, não um showroom. O painel admin usa neutros verdadeiros, tipografia Inter densa e affordances familiares de SaaS premium. A landing pública opera num registro irmão mais cinematográfico mas compartilha a mesma disciplina de espaçamento.",
+    "keyCharacteristics": [
+      "Neutros verdadeiros sem tint azulado",
+      "Inter como única família no produto",
+      "Cantos generosos (18–20px)",
+      "Elevação sutil em repouso",
+      "Marca white-label via CSS vars dinâmicas",
+      "Dois registros: landing (brand) + painel (product)"
+    ],
+    "rules": [
+      { "name": "The Brand Injection Rule", "body": "Cores primárias do cliente vivem em --brand-* setadas por JS. O shell admin nunca pinta a tela inteira com a cor da marca.", "section": "colors" },
+      { "name": "The No-Purple-Gradient Rule", "body": "Gradientes violet→purple em botões do painel são legado AI slop. Novos componentes usam Button sólido.", "section": "colors" },
+      { "name": "The Fixed Scale Rule", "body": "No painel admin, tamanhos são fixos em px/rem — sem clamp() em headings.", "section": "typography" },
+      { "name": "The Flat-By-Default Rule", "body": "Superfícies em repouso são planas com borda 1px. Sombra aparece como resposta a hover ou modal.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do usar components/ui/Button, Input, Card como primitives canônicos em telas novas.",
+      "Do aplicar cores de marca via --brand-* e classes .bg-brand, .text-brand.",
+      "Do manter touch targets ≥44px (h-11 em botões e inputs).",
+      "Do usar tabular-nums em KPIs, tabelas e valores monetários.",
+      "Do limitar animações de landing a seções públicas."
+    ],
+    "donts": [
+      "Don't usar gradientes violeta→roxo ou azul→indigo em botões do painel.",
+      "Don't usar background-clip: text / .text-shimmer fora da landing.",
+      "Don't usar .glass / glassmorphism como padrão de card.",
+      "Don't usar texto gray-400/500 em fundos coloridos.",
+      "Don't hardcodar #3b82f6 quando --brand-secondary está disponível."
+    ]
+  }
+}

@@ -1,10 +1,10 @@
 export function ProductSkeleton() {
   return (
     <div className="flex flex-col">
-      <div className="aspect-square rounded-2xl skeleton" />
-      <div className="pt-2.5 px-0.5 space-y-1.5">
+      <div className="aspect-[4/5] rounded-2xl skeleton ring-1 ring-black/[0.04]" />
+      <div className="pt-2.5 space-y-1.5">
         <div className="skeleton h-3 w-3/4 rounded" />
-        <div className="skeleton h-3 w-1/3 rounded" />
+        <div className="skeleton h-4 w-1/3 rounded" />
       </div>
     </div>
   )

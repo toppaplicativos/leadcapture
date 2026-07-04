@@ -57,7 +57,7 @@ function CatalogShell() {
   }, [])
 
   return (
-    <div className="min-h-screen bg-bg pb-16">
+    <div className="store-page min-h-screen pb-16">
       <Topbar storeName={storeName} logoUrl={logoUrl} />
 
       <main>

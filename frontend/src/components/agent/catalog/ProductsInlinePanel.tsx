@@ -86,7 +86,7 @@ export function ProductsInlinePanel() {
   const [categories, setCategories] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [cardsOpen, setCardsOpen] = useState(false)
+  const [cardsOpen, setCardsOpen] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
   const [editProduct, setEditProduct] = useState<any>(null)
   const productsRef = useRef<any[]>([])
@@ -105,6 +105,7 @@ export function ProductsInlinePanel() {
       productsRef.current = list
       setProducts(list)
       setCategories(c.categories || [])
+      if (list.length > 0) setCardsOpen(true)
       const active = list.filter((item: any) => item.active !== false && item.is_active !== false).length
       const drafts = list.filter((item: any) => item?.metadata?.is_draft).length
       publishSnapshot?.({
@@ -122,10 +123,10 @@ export function ProductsInlinePanel() {
   }, [publishSnapshot])
 
   useEffect(() => {
-    if (isDesktop || loadedRef.current) return
+    if (loadedRef.current) return
     loadedRef.current = true
     void load()
-  }, [isDesktop, load])
+  }, [load])
 
   const openProduct = useCallback((p: any | null) => {
     setEditProduct(p)
@@ -166,8 +167,6 @@ export function ProductsInlinePanel() {
       || (p.category || '').toLowerCase().includes(q)
   })
 
-  if (isDesktop) return null
-
   if (loading) {
     return (
       <div className="catalog-panel__loading">
@@ -207,11 +206,7 @@ export function ProductsInlinePanel() {
         </button>
       </div>
 
-      {!cardsOpen ? (
-        <p className="catalog-panel__empty">
-          Toque em <strong>Ver todos</strong> para listar produtos em cards.
-        </p>
-      ) : filtered.length === 0 ? (
+      {filtered.length === 0 ? (
         <p className="catalog-panel__empty">Nenhum produto encontrado. Crie um novo pelo botão acima.</p>
       ) : (
         <div className="catalog-product-grid">

@@ -40,12 +40,13 @@ export function ProductsModuleBlock({ messageId, isActive }: Props) {
       </div>
       {expanded && (
         <div className="catalog-module__body">
-          {!isDesktop ? <ProductsInlinePanel /> : (
+          <ProductsInlinePanel />
+          {isDesktop && (
             <p className="catalog-module__hint">
-              Catálogo aberto no canvas. Edite produtos à direita ou{' '}
+              Catálogo completo no canvas à direita.{' '}
               <button type="button" className="catalog-module__link" onClick={() => openCanvas('/produtos')}>
-                expandir
-              </button>.
+                Expandir
+              </button>
             </p>
           )}
           <div className="catalog-module__stats">

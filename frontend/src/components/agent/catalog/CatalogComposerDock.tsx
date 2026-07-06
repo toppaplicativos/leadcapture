@@ -16,8 +16,15 @@ export function CatalogComposerDock() {
         <button type="button" className="workspace-chat__catalog-chip" onClick={() => products.dispatch({ type: 'create_new' })}>
           <Plus size={13} /> Novo produto
         </button>
-        <button type="button" className="workspace-chat__catalog-chip" onClick={() => products.dispatch({ type: 'open_full' })}>
-          <Package size={13} /> Gerenciador
+        <button
+          type="button"
+          className="workspace-chat__catalog-chip"
+          onClick={() => {
+            products.setModuleExpanded(true)
+            products.dispatch({ type: 'open_full' })
+          }}
+        >
+          <Package size={13} /> Ver todos
         </button>
       </div>
     )

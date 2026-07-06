@@ -24,6 +24,8 @@ import type { ShowToast } from '@/lib/admin/types'
 import { Skeleton, KpiCard, EmptyState } from '@/components/admin/primitives'
 import { MediaPickerModal } from '@/components/gallery/MediaPickerModal'
 import type { GalleryItem } from '@/lib/gallery/types'
+import { useProductsBridgeOptional } from '@/lib/agent/ProductsBridgeContext'
+import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
 
 export function ProductsView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') => void }) {
   const [products, setProducts] = useState<any[]>([])
@@ -36,6 +38,11 @@ export function ProductsView({ showToast }: { showToast: (t: string, tp?: 'ok' |
   const [showCreate, setShowCreate] = useState(false)
   const [subTab, setSubTab] = useState<'products' | 'collections' | 'attributes'>('products')
   const { confirm } = useConfirm()
+  const productsBridge = useProductsBridgeOptional()
+  const publishSnapshot = productsBridge?.publishSnapshot
+  const registerHandlers = productsBridge?.registerHandlers
+  const isDesktop = useIsDesktop()
+  const pendingSelectId = useRef<string | null>(null)
 
   function load() {
     setLoading(true)
@@ -49,6 +56,50 @@ export function ProductsView({ showToast }: { showToast: (t: string, tp?: 'ok' |
     })
   }
   useEffect(() => { load() }, [])
+
+  function openCreate() { setEditProduct(null); setShowCreate(true) }
+  function openEdit(p: any) { setEditProduct(p); setShowCreate(true) }
+
+  useEffect(() => {
+    if (!registerHandlers || !isDesktop) return
+    return registerHandlers({
+      search: (q) => setSearch(q),
+      selectProduct: (id) => {
+        const found = products.find((p) => String(p.id) === String(id))
+        if (found) {
+          pendingSelectId.current = null
+          openEdit(found)
+        } else {
+          pendingSelectId.current = id
+        }
+      },
+      createNew: openCreate,
+      openFull: () => undefined,
+      refresh: () => load(),
+    })
+  }, [registerHandlers, isDesktop, products])
+
+  useEffect(() => {
+    if (!isDesktop || !pendingSelectId.current) return
+    const found = products.find((p) => String(p.id) === String(pendingSelectId.current))
+    if (found) {
+      openEdit(found)
+      pendingSelectId.current = null
+    }
+  }, [products, isDesktop])
+
+  useEffect(() => {
+    if (!publishSnapshot || !isDesktop) return
+    publishSnapshot({
+      total: products.length,
+      active: products.filter((p) => p.active !== false && p.is_active !== false).length,
+      drafts: products.filter((p) => p?.metadata?.is_draft).length,
+      search,
+      loading,
+      selectedId: editProduct?.id ? String(editProduct.id) : null,
+      selectedName: editProduct?.name || '',
+    })
+  }, [publishSnapshot, isDesktop, products, loading, search, editProduct?.id, editProduct?.name])
 
   const filtered = useMemo(() => {
     let list = products
@@ -97,7 +148,7 @@ export function ProductsView({ showToast }: { showToast: (t: string, tp?: 'ok' |
           <p className="text-[13px] text-gray-400 mt-0.5">{metrics.total} produtos · {metrics.active} ativos · {metrics.drafts} rascunhos</p>
         </div>
         {subTab === 'products' && (
-          <button onClick={() => { setEditProduct(null); setShowCreate(true) }}
+          <button onClick={openCreate}
             className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-gray-900 text-white text-xs font-bold hover:bg-gray-800 transition-all shadow-sm">
             <Plus size={14} /> Novo Produto
           </button>
@@ -172,7 +223,7 @@ export function ProductsView({ showToast }: { showToast: (t: string, tp?: 'ok' |
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
           {filtered.map((p: any) => (
             <div key={p.id} className="bg-white rounded-2xl border border-border-light overflow-hidden group hover:shadow-md transition-all cursor-pointer"
-              onClick={() => { setEditProduct(p); setShowCreate(true) }}>
+              onClick={() => openEdit(p)}>
               <div className="aspect-square bg-gray-100 relative overflow-hidden">
                 {(p.imageUrl || p.image) ? (
                   <img src={p.imageUrl || p.image} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform"
@@ -219,7 +270,7 @@ export function ProductsView({ showToast }: { showToast: (t: string, tp?: 'ok' |
             <tbody>
               {filtered.map((p: any) => (
                 <tr key={p.id} className="border-b border-gray-100 last:border-0 hover:bg-blue-50/30 transition cursor-pointer"
-                  onClick={() => { setEditProduct(p); setShowCreate(true) }}>
+                  onClick={() => openEdit(p)}>
                   <td className="px-4 py-2.5">
                     <div className="flex items-center gap-2.5">
                       {(p.imageUrl || p.image)
@@ -278,7 +329,7 @@ export function ProductsView({ showToast }: { showToast: (t: string, tp?: 'ok' |
 }
 
 /* ── Product Editor Modal ── */
-function ProductEditorModal({ product, categories: categoriesProp, onClose, onSaved, onDelete, showToast }: {
+export function ProductEditorModal({ product, categories: categoriesProp, onClose, onSaved, onDelete, showToast }: {
   product: any; categories: any[]; onClose: () => void; onSaved: () => void; onDelete?: (id: string) => void; showToast: (t: string, tp?: 'ok' | 'err') => void
 }) {
   const isEdit = !!product?.id

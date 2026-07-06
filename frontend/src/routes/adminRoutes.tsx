@@ -1,5 +1,5 @@
 import { lazy } from 'react'
-import { Route } from 'react-router-dom'
+import { Route, Navigate } from 'react-router-dom'
 import { useToast } from '@/components/Toast'
 
 /* ── Admin views (code-split por rota) ── */
@@ -9,6 +9,7 @@ const CampaignsView = lazy(() => import('@/pages/admin/campaigns/CampaignsView')
 const OrdersView = lazy(() => import('@/pages/admin/orders/OrdersView').then(m => ({ default: m.OrdersView })))
 const ProductsView = lazy(() => import('@/pages/admin/products/ProductsView').then(m => ({ default: m.ProductsView })))
 const AgentView = lazy(() => import('@/pages/admin/agent/AgentView').then(m => ({ default: m.AgentView })))
+
 const NotificationsView = lazy(() => import('@/pages/admin/notifications/NotificationsView').then(m => ({ default: m.NotificationsView })))
 const DomainView = lazy(() => import('@/pages/admin/domain/DomainView').then(m => ({ default: m.DomainView })))
 const FreteView = lazy(() => import('@/pages/admin/frete/FreteView').then(m => ({ default: m.FreteView })))
@@ -31,6 +32,7 @@ const AgentPDVPage = lazy(() => import('@/pages/AgentPDVPage').then(m => ({ defa
 const DesignPage = lazy(() => import('@/pages/DesignPage').then(m => ({ default: m.DesignPage })))
 const BrandImageGeneratorPage = lazy(() => import('@/pages/BrandImageGeneratorPage').then(m => ({ default: m.BrandImageGeneratorPage })))
 const CriativosPage = lazy(() => import('@/pages/CriativosPage').then(m => ({ default: m.CriativosPage })))
+const GaleriaPage = lazy(() => import('@/pages/GaleriaPage').then(m => ({ default: m.GaleriaPage })))
 const VideoStudioPage = lazy(() => import('@/pages/VideoStudioPage').then(m => ({ default: m.VideoStudioPage })))
 const AIProvidersPage = lazy(() => import('@/pages/AIProvidersPage').then(m => ({ default: m.AIProvidersPage })))
 const AdminEmailsPage = lazy(() => import('@/pages/AdminEmailsPage').then(m => ({ default: m.AdminEmailsPage })))
@@ -69,12 +71,12 @@ function ProductsInline() {
   )
 }
 
-/** Todas as rotas do painel admin — cada uma com lazy-load próprio */
-export function AdminRoutes() {
-  return (
-    <>
-      <Route path="/admin" element={<AdminPage><DashboardInline /></AdminPage>} />
+/** Rotas do painel admin — fragmento direto (Routes não aceita componente wrapper). */
+export const adminRouteElements = (
+  <>
+      <Route path="/admin" element={<AdminPage>{null}</AdminPage>} />
       <Route path="/dashboard" element={<AdminPage><DashboardInline /></AdminPage>} />
+      <Route path="/assistente" element={<Navigate to="/admin" replace />} />
       <Route path="/leads" element={<AdminPage><LeadsPage /></AdminPage>} />
       <Route path="/clientes" element={<AdminPage><ClientesPage /></AdminPage>} />
       <Route path="/busca" element={<AdminPage><LeadSearchPage /></AdminPage>} />
@@ -87,13 +89,14 @@ export function AdminRoutes() {
       <Route path="/skills" element={<AdminPage><BrandSkillsPage /></AdminPage>} />
       <Route path="/fluxos" element={<AdminPage><FlowBuilderPage /></AdminPage>} />
       <Route path="/criativos" element={<AdminPage><CriativosPage /></AdminPage>} />
+      <Route path="/galeria" element={<AdminPage><GaleriaPage /></AdminPage>} />
       <Route path="/video-studio" element={<AdminPage><VideoStudioPage /></AdminPage>} />
       <Route path="/criativos/avancado" element={<AdminPage><BrandImageGeneratorPage /></AdminPage>} />
       <Route path="/creative" element={<AdminPage><CriativosPage /></AdminPage>} />
       <Route path="/agente" element={<AdminPage><AgentView showToast={noop} /></AdminPage>} />
       <Route path="/atendente" element={<AdminPage><AgentConfigPage /></AdminPage>} />
       <Route path="/tirar-pedido" element={<AdminPage><AgentPDVPage /></AdminPage>} />
-      <Route path="/whatsapp" element={<AdminPage><WhatsAppManagerView showToast={noop} /></AdminPage>} />
+      <Route path="/whatsapp" element={<AdminPage><WhatsAppManagerView /></AdminPage>} />
       <Route path="/instagram" element={<AdminPage><InstagramPage /></AdminPage>} />
       <Route path="/facebook" element={<AdminPage><FacebookPage /></AdminPage>} />
       <Route path="/produtos" element={<AdminPage><ProductsInline /></AdminPage>} />
@@ -109,5 +112,4 @@ export function AdminRoutes() {
       <Route path="/provedores-ia" element={<AdminPage><AIProvidersPage /></AdminPage>} />
       <Route path="/emails" element={<AdminPage><AdminEmailsPage /></AdminPage>} />
     </>
-  )
-}
+)

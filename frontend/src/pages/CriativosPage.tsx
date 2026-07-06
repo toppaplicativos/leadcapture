@@ -15,6 +15,8 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
+import { GalleryPreview as SharedGalleryPreview } from '@/components/gallery/GalleryPreview'
+import type { GalleryItem } from '@/lib/gallery/types'
 import {
   Sparkles, Loader2, Search, X, ArrowRight, Download, RefreshCw,
   ImageIcon, ChevronLeft, Wrench, Tag, Star, Zap, Send, CheckCircle2,
@@ -102,6 +104,21 @@ interface GeneratedAsset {
   fileUrl?: string
   prompt?: string
   metadata?: any
+}
+
+function generatedAssetToGalleryItem(asset: GeneratedAsset): GalleryItem {
+  return {
+    id: `ca:${asset.id}`,
+    type: 'image',
+    url: asset.fileUrl || '',
+    name: asset.prompt || 'Criativo gerado',
+    folder: 'ia',
+    source: 'ia',
+    tags: Array.isArray(asset.metadata?.studio?.tags) ? asset.metadata.studio.tags : [],
+    createdAt: new Date().toISOString(),
+    metadata: { prompt: asset.prompt, ...asset.metadata },
+    origin: 'creative_assets',
+  }
 }
 
 /** Returned by POST /api/ai/creatives/auto-compose/preview. The modal
@@ -217,10 +234,7 @@ const SECTION_TINT: Record<string, { bg: string; ring: string; text: string; ico
 /* ══════════════════════════════════════════════════════════════════
  * Page
  * ══════════════════════════════════════════════════════════════════ */
-type Tab = 'create' | 'gallery'
-
 export function CriativosPage() {
-  const [tab, setTab] = useState<Tab>('create')
   const [sections, setSections] = useState<Section[]>([])
   const [suggestions, setSuggestions] = useState<Suggestion[]>([])
   const [loadingMeta, setLoadingMeta] = useState(true)
@@ -246,10 +260,6 @@ export function CriativosPage() {
   } | null>(null)
   const [generatedAssets, setGeneratedAssets] = useState<GeneratedAsset[] | null>(null)
   const [generationError, setGenerationError] = useState<string | null>(null)
-  /* Bumped each time a generation completes so the Gallery tab refetches
-   * when the user switches over. */
-  const [galleryRefreshKey, setGalleryRefreshKey] = useState(0)
-
   /* Initial fetch: sections + suggestions in parallel. */
   useEffect(() => {
     let alive = true
@@ -327,7 +337,6 @@ export function CriativosPage() {
       const data = await r.json()
       if (!r.ok) throw new Error(data.error || 'Falha ao gerar criativo')
       setGeneratedAssets(data.assets || [])
-      setGalleryRefreshKey((k) => k + 1)
     } catch (err: any) {
       setGenerationError(err?.message || 'Erro inesperado')
     }
@@ -375,23 +384,25 @@ export function CriativosPage() {
             Escolha um tipo de post — a IA monta tudo a partir do seu catálogo.
           </p>
         </div>
-        <Link
-          to="/criativos/avancado"
-          className="inline-flex items-center gap-2 h-9 px-3.5 rounded-full bg-white text-gray-700 text-[12px] font-semibold ring-1 ring-gray-200 hover:bg-gray-50 transition"
-        >
-          <Wrench size={13} strokeWidth={1.75} />
-          Modo avançado
-        </Link>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Link
+            to="/galeria"
+            className="inline-flex items-center gap-2 h-9 px-3.5 rounded-full bg-white text-gray-700 text-[12px] font-semibold ring-1 ring-gray-200 hover:bg-gray-50 transition"
+          >
+            <Images size={13} strokeWidth={1.75} />
+            Ver na Galeria
+          </Link>
+          <Link
+            to="/criativos/avancado"
+            className="inline-flex items-center gap-2 h-9 px-3.5 rounded-full bg-white text-gray-700 text-[12px] font-semibold ring-1 ring-gray-200 hover:bg-gray-50 transition"
+          >
+            <Wrench size={13} strokeWidth={1.75} />
+            Modo avançado
+          </Link>
+        </div>
       </header>
 
-      {/* Tab switcher */}
-      <div role="tablist" aria-label="Modo da página" className="inline-flex p-1 rounded-full bg-gray-100">
-        <TabButton active={tab === 'create'} onClick={() => setTab('create')} icon={Sparkles} label="Criar" />
-        <TabButton active={tab === 'gallery'} onClick={() => setTab('gallery')} icon={Images} label="Galeria" />
-      </div>
-
-      {tab === 'create' ? (
-        <>
+      <>
           {/* ── Suggestions row ─ */}
           {suggestions.length > 0 && (
             <section>
@@ -427,10 +438,7 @@ export function CriativosPage() {
               </div>
             )}
           </section>
-        </>
-      ) : (
-        <GalleryView refreshKey={galleryRefreshKey} sections={sections} />
-      )}
+      </>
 
       {/* ── Product picker modal ─ */}
       {pickerOpen && (
@@ -753,7 +761,18 @@ function ResultScreen({
       )}
 
       {!loading && !error && assets && assets.length > 0 && (
-        <ResultGrid assets={assets} />
+        <>
+          <ResultGrid assets={assets} />
+          <div className="flex justify-center pt-2">
+            <Link
+              to="/galeria"
+              className="inline-flex items-center gap-2 h-10 px-4 rounded-xl bg-gray-900 text-white text-[13px] font-semibold hover:bg-gray-800 transition"
+            >
+              <Images size={14} strokeWidth={2} />
+              Ver todos na Galeria
+            </Link>
+          </div>
+        </>
       )}
     </div>
   )
@@ -797,7 +816,12 @@ function ResultGrid({ assets: initialAssets }: { assets: GeneratedAsset[] }) {
       </div>
 
       {previewing && (
-        <GalleryPreview asset={previewing as any} onClose={() => setPreviewing(null)} />
+        <SharedGalleryPreview
+          item={generatedAssetToGalleryItem(previewing)}
+          onClose={() => setPreviewing(null)}
+          onUpdated={() => {}}
+          onDeleted={() => setPreviewing(null)}
+        />
       )}
 
       {remixing && (

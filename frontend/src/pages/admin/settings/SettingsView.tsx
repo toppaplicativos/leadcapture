@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react'
-import { useNavigate, useLocation } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   LayoutDashboard, Users, MessageSquare, Megaphone, ShoppingCart,
   Package, Palette, Search, RefreshCw, LogOut, Menu, X, Loader2,
@@ -21,7 +21,15 @@ import {
   toBrandSlug, pickStockBrandSlug, buildStockAppUrl,
 } from '@/lib/admin/helpers'
 import type { ShowToast } from '@/lib/admin/types'
-import { Skeleton, KpiCard, EmptyState } from '@/components/admin/primitives'
+import { Skeleton, EmptyState } from '@/components/admin/primitives'
+import { WhatsAppInstancesPanel } from '@/components/whatsapp/WhatsAppInstancesPanel'
+
+const SETTINGS_TABS = [
+  { id: 'geral', label: 'Geral' },
+  { id: 'whatsapp', label: 'WhatsApp' },
+] as const
+
+type SettingsTab = (typeof SETTINGS_TABS)[number]['id']
 
 function BrandEditForm({ brand, onSave, onCancel, showToast }: any) {
   const [form, setForm] = useState({
@@ -305,12 +313,16 @@ function ClientTypesSection({ showToast }: { showToast: (t: string, tp?: 'ok' | 
 }
 
 export function SettingsView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') => void }) {
-  const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tab = (searchParams.get('tab') === 'whatsapp' ? 'whatsapp' : 'geral') as SettingsTab
   const [brands, setBrands] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [activeBrandId, setActiveBrandId] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [deleting, setDeleting] = useState<string | null>(null)
+  const [showNewBrand, setShowNewBrand] = useState(false)
+  const [newBrandName, setNewBrandName] = useState('')
+  const [creatingBrand, setCreatingBrand] = useState(false)
 
   useEffect(() => {
     refreshBrands()
@@ -356,11 +368,9 @@ export function SettingsView({ showToast }: { showToast: (t: string, tp?: 'ok' |
     }
   }
 
-  if (loading) return <Skeleton rows={5} />
-
-  const [showNewBrand, setShowNewBrand] = useState(false)
-  const [newBrandName, setNewBrandName] = useState('')
-  const [creatingBrand, setCreatingBrand] = useState(false)
+  function setTab(next: SettingsTab) {
+    setSearchParams(next === 'geral' ? {} : { tab: next }, { replace: true })
+  }
 
   async function createNewBrand() {
     if (!newBrandName.trim()) {
@@ -389,20 +399,50 @@ export function SettingsView({ showToast }: { showToast: (t: string, tp?: 'ok' |
     }
   }
 
+  if (loading && tab === 'geral') return <Skeleton rows={5} />
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 mb-1">Configuracoes</h1>
-          <p className="text-sm text-gray-500">Gerenciar seus brands, lojas e companhias</p>
+          <h1 className="text-2xl font-bold text-gray-900 mb-1">Configurações</h1>
+          <p className="text-sm text-gray-500">
+            {tab === 'whatsapp'
+              ? 'Sessões WhatsApp — conexão pelo código no chat'
+              : 'Marcas, lojas e tipos de cliente'}
+          </p>
         </div>
-        <button
-          onClick={() => setShowNewBrand(true)}
-          className="bg-gray-900 text-white px-4 py-2 rounded-xl font-semibold text-sm hover:bg-gray-800 transition"
-        >
-          + Novo Brand
-        </button>
+        {tab === 'geral' && (
+          <button
+            onClick={() => setShowNewBrand(true)}
+            className="bg-gray-900 text-white px-4 py-2 rounded-xl font-semibold text-sm hover:bg-gray-800 transition shrink-0"
+          >
+            + Novo Brand
+          </button>
+        )}
       </div>
+
+      <nav className="settings-tabs" aria-label="Seções de configuração">
+        {SETTINGS_TABS.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => setTab(t.id)}
+            className={`settings-tabs__item ${tab === t.id ? 'is-active' : ''}`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </nav>
+
+      {tab === 'whatsapp' && (
+        <div className="bg-white rounded-2xl border border-border-light p-5">
+          <WhatsAppInstancesPanel showToast={showToast} />
+        </div>
+      )}
+
+      {tab === 'geral' && (
+      <>
 
       {/* Create Brand Form */}
       {showNewBrand && (
@@ -526,10 +566,11 @@ export function SettingsView({ showToast }: { showToast: (t: string, tp?: 'ok' |
         <EmptyState icon={Package} text="Nenhum brand criado ainda" />
       )}
 
-      {/* Client Types Section */}
       <div className="bg-white rounded-2xl border border-border-light p-5">
         <ClientTypesSection showToast={showToast} />
       </div>
+      </>
+      )}
     </div>
   )
 }

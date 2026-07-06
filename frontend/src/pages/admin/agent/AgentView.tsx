@@ -479,7 +479,7 @@ export function AgentView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'e
               <MessageSquare size={12} strokeWidth={2.25} />
               Ver mensagens
             </a>
-            <a href="/whatsapp" className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-white hover:bg-gray-50 border border-gray-200 text-[11.5px] font-semibold text-gray-700 transition">
+            <a href="/configuracoes?tab=whatsapp" className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-white hover:bg-gray-50 border border-gray-200 text-[11.5px] font-semibold text-gray-700 transition">
               <Phone size={12} strokeWidth={2.25} />
               Instancias WhatsApp
             </a>

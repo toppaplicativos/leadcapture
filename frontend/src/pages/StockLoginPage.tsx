@@ -32,6 +32,14 @@ export function StockLoginPage() {
   // Slug priority: URL param > ?brand= query > localStorage (last logged in)
   const brandRef = params.slug || searchParams.get('brand') || getStockBrandRef() || ''
 
+  // Canonical URL: /app-estoque/{slug} (legacy ?brand= still accepted)
+  useEffect(() => {
+    const queryBrand = String(searchParams.get('brand') || '').trim()
+    if (!params.slug && queryBrand) {
+      navigate(`/app-estoque/${encodeURIComponent(queryBrand)}`, { replace: true })
+    }
+  }, [params.slug, searchParams, navigate])
+
   const [brand, setBrand] = useState<BrandInfo | null>(null)
   const [bootstrapping, setBootstrapping] = useState(true)
   const [bootstrapError, setBootstrapError] = useState('')

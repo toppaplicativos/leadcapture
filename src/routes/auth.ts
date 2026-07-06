@@ -92,8 +92,21 @@ async function resolveBrandReference(
      LIMIT 1`,
     ownerUserId ? [normalized, String(ownerUserId)] : [normalized]
   );
+  if (bySlug) return bySlug;
 
-  return bySlug || null;
+  // Fallback: storefront public slug (ex.: alhopronto) → brand vinculada
+  const byStoreSlug = await queryOne<BrandLookupRow>(
+    `SELECT b.id, b.user_id, COALESCE(NULLIF(TRIM(b.slug), ''), s.slug) AS slug, b.name, b.logo_url
+     FROM storefront_stores s
+     INNER JOIN brand_units b ON b.id = s.brand_id
+     WHERE LOWER(s.slug) = LOWER(?)
+       ${ownerUserId ? "AND s.owner_user_id = ?" : ""}
+     ORDER BY (s.status = 'active') DESC, s.updated_at DESC
+     LIMIT 1`,
+    ownerUserId ? [normalized, String(ownerUserId)] : [normalized]
+  );
+
+  return byStoreSlug || null;
 }
 
 function signStockToken(input: {
@@ -372,7 +385,9 @@ router.post("/stock-access", authMiddleware, requireRole(["admin", "operator"]),
     }
 
     const loginRef = String(brand.slug || "").trim() || brandId;
-    const loginUrl = `/app-estoque?brand=${encodeURIComponent(loginRef)}`;
+    const loginUrl = loginRef
+      ? `/app-estoque/${encodeURIComponent(loginRef)}`
+      : `/app-estoque?brand=${encodeURIComponent(brandId)}`;
 
     res.status(201).json({
       success: true,

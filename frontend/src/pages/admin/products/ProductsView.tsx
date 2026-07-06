@@ -22,6 +22,8 @@ import {
 } from '@/lib/admin/helpers'
 import type { ShowToast } from '@/lib/admin/types'
 import { Skeleton, KpiCard, EmptyState } from '@/components/admin/primitives'
+import { MediaPickerModal } from '@/components/gallery/MediaPickerModal'
+import type { GalleryItem } from '@/lib/gallery/types'
 
 export function ProductsView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') => void }) {
   const [products, setProducts] = useState<any[]>([])
@@ -334,6 +336,7 @@ function ProductEditorModal({ product, categories: categoriesProp, onClose, onSa
   const [active, setActive] = useState(product?.active !== false)
   const [imageUrl, setImageUrl] = useState(product?.imageUrl || product?.image || '')
   const [uploading, setUploading] = useState(false)
+  const [galleryOpen, setGalleryOpen] = useState(false)
   /* OfferEntity Fase 0+3 — type, subtitle, CTA */
   const [offerType, setOfferType] = useState<string>(product?.type || 'physical_product')
   const [subtitle, setSubtitle] = useState<string>(product?.subtitle || '')
@@ -726,6 +729,16 @@ function ProductEditorModal({ product, categories: categoriesProp, onClose, onSa
 
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
           {/* Image */}
+          <div className="flex items-center justify-between mb-1">
+            <span className={labelCls + ' mb-0'}>Imagem</span>
+            <button
+              type="button"
+              onClick={() => setGalleryOpen(true)}
+              className="text-[11px] font-semibold text-gray-700 hover:text-gray-900"
+            >
+              Escolher da galeria
+            </button>
+          </div>
           <div className={`rounded-xl border-2 border-dashed overflow-hidden transition ${imageUrl ? 'border-blue-300' : 'border-gray-200'}`}>
             {imageUrl ? (
               <div className="relative group" style={{ aspectRatio: '16/10' }}>
@@ -1530,6 +1543,20 @@ function ProductEditorModal({ product, categories: categoriesProp, onClose, onSa
           </div>
         </div>
       </div>
+
+      <MediaPickerModal
+        open={galleryOpen}
+        onClose={() => setGalleryOpen(false)}
+        accept={['image']}
+        folder="produtos"
+        title="Escolher imagem do produto"
+        useContext="product"
+        contextId={product?.id}
+        onSelect={(item: GalleryItem) => {
+          setImageUrl(item.url)
+          setGalleryOpen(false)
+        }}
+      />
     </div>
   )
 }

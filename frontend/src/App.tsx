@@ -11,7 +11,7 @@ import { OrdersTab } from '@/pages/OrdersTab'
 import { ProfileTab } from '@/pages/ProfileTab'
 import { LoginPage } from '@/pages/LoginPage'
 import { PWAInstallBanner } from '@/components/PWAInstallBanner'
-import { AdminRoutes } from '@/routes/adminRoutes'
+import { adminRouteElements } from '@/routes/adminRoutes'
 
 const CheckoutPage = lazy(() => import('@/pages/CheckoutPage').then(m => ({ default: m.CheckoutPage })))
 const OrderPage = lazy(() => import('@/pages/OrderPage').then(m => ({ default: m.OrderPage })))
@@ -214,7 +214,7 @@ export default function App() {
           <Route path="/login" element={<LoginPage />} />
 
           {/* ── Admin (lazy-load por rota — ver routes/adminRoutes.tsx) ── */}
-          <AdminRoutes />
+          {adminRouteElements}
 
           {/* ── Estoque standalone (fora do AdminShell) ── */}
           <Route path="/estoque/app" element={<InventoryPage />} />

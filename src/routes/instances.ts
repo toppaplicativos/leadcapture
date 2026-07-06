@@ -206,6 +206,50 @@ router.post('/:id/reconnect', async (req: AuthRequest, res: Response) => {
 });
 
 /**
+ * POST /api/instances/:id/pairing-code
+ * Gera codigo de pareamento como alternativa ao QR code
+ */
+router.post('/:id/pairing-code', async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user?.userId;
+    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+
+    const { phoneNumber } = req.body;
+    if (!phoneNumber || typeof phoneNumber !== 'string') {
+      return res.status(400).json({ error: 'Numero de telefone obrigatorio' });
+    }
+
+    const cleanPhone = phoneNumber.replace(/\D/g, '');
+    if (cleanPhone.length < 10 || cleanPhone.length > 15) {
+      return res.status(400).json({ error: 'Numero de telefone invalido' });
+    }
+
+    const instanceManager = getInstanceManager(req);
+    if (!instanceManager) return res.status(500).json({ error: 'InstanceManager não disponível' });
+
+    const pool = getPool();
+    const [rows] = await pool.execute<any[]>(
+      'SELECT id, name FROM whatsapp_instances WHERE id = ? AND created_by = ? LIMIT 1',
+      [id, userId]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Instância não encontrada' });
+
+    await instanceManager.disconnectInstance(id).catch(() => {});
+
+    const code = await instanceManager.connectWithPairingCode(id, cleanPhone);
+
+    res.json({
+      code,
+      message: 'Digite este codigo no WhatsApp para conectar.',
+    });
+  } catch (error: any) {
+    logger.error('Erro ao gerar pairing code:', error);
+    res.status(500).json({ error: error.message || 'Erro ao gerar codigo de pareamento' });
+  }
+});
+
+/**
  * DELETE /api/instances/:id
  * Remove uma instância
  */

@@ -192,30 +192,45 @@ export function CheckoutPage() {
     else if (step === 'delivery') setStep('payment')
   }
 
-  if (loading) return <div className="flex items-center justify-center min-h-[60vh]"><div className="skeleton w-12 h-12 rounded-full" /></div>
+  if (loading) {
+    return (
+      <div className="store-page min-h-screen flex items-center justify-center">
+        <div className="skeleton w-12 h-12 rounded-full" />
+      </div>
+    )
+  }
 
-  const inputCls = "w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[var(--brand-secondary)]/30 focus:border-[var(--brand-secondary)] transition"
+  const inputCls = 'store-search w-full !pl-4 !pr-4 !h-auto py-3'
 
   return (
-    <div className="min-h-screen bg-bg">
-      {/* Header */}
-      <header className="sticky top-0 z-50 bg-white/95 backdrop-blur border-b border-gray-200">
-        <div className="max-w-2xl mx-auto px-4 h-14 flex items-center gap-3">
-          <button onClick={() => stepIdx > 0 ? setStep(steps[stepIdx - 1].key) : navigate(storeUrl())}
-            className="w-9 h-9 flex items-center justify-center rounded-full hover:bg-gray-100 transition">
-            <ArrowLeft className="w-5 h-5 text-gray-600" />
+    <div className="store-page page-enter min-h-screen">
+      <header className="store-topbar sticky top-0 z-50 safe-area-top">
+        <div className="max-w-[var(--store-max)] mx-auto px-4 h-14 flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => (stepIdx > 0 ? setStep(steps[stepIdx - 1].key) : navigate(storeUrl()))}
+            aria-label={stepIdx > 0 ? 'Voltar etapa' : 'Voltar ao catálogo'}
+            className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 active:scale-95 transition"
+          >
+            <ArrowLeft className="w-5 h-5 text-gray-700" strokeWidth={1.75} />
           </button>
-          <h1 className="text-base font-bold text-gray-900">Checkout</h1>
+          <h1 className="text-[15px] font-semibold text-gray-900 tracking-tight">Checkout</h1>
         </div>
       </header>
 
       {cartKeys.length === 0 && step === 'cart' ? (
-        <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 px-4">
-          <div className="w-20 h-20 rounded-full bg-gray-100 flex items-center justify-center">
-            <ShoppingBag className="w-8 h-8 text-gray-400" />
+        <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 px-6 text-center">
+          <div className="w-14 h-14 rounded-2xl bg-gray-100 grid place-items-center">
+            <ShoppingBag className="w-6 h-6 text-gray-500" strokeWidth={1.5} />
           </div>
-          <p className="text-gray-500 font-medium">Seu carrinho esta vazio</p>
-          <button onClick={() => navigate(storeUrl())} className="text-sm font-semibold text-[var(--brand-secondary)] hover:underline">Voltar ao catalogo</button>
+          <p className="text-[15px] font-semibold text-gray-900">Seu carrinho está vazio</p>
+          <button
+            type="button"
+            onClick={() => navigate(storeUrl())}
+            className="text-[13px] font-semibold text-brand hover:opacity-80 transition"
+          >
+            Voltar ao catálogo
+          </button>
         </div>
       ) : (
         <div className="max-w-2xl mx-auto px-4 py-5 space-y-5">
@@ -226,7 +241,7 @@ export function CheckoutPage() {
               <div key={s.key} className="flex items-center flex-1">
                 <button onClick={() => i <= stepIdx && setStep(s.key)}
                   className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition w-full justify-center ${
-                    i === stepIdx ? 'bg-[var(--brand-secondary)] text-white shadow-sm' :
+                    i === stepIdx ? 'bg-brand text-white shadow-sm' :
                     i < stepIdx ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-400'
                   }`}>
                   {i < stepIdx ? <CheckCircle2 size={13} /> : <s.icon size={13} />}
@@ -464,9 +479,9 @@ export function CheckoutPage() {
                   return (
                     <button key={m.value} type="button" onClick={() => setPaymentMethod(m.value)}
                       className={`w-full flex items-center gap-3 p-4 rounded-xl border transition text-left ${
-                        selected ? 'border-[var(--brand-secondary)] bg-[var(--brand-secondary-light)] ring-2 ring-[var(--brand-secondary)]/20' : 'border-gray-200 hover:border-gray-300'
+                        selected ? 'border-brand bg-brand-light ring-2 ring-brand/20' : 'border-gray-200 hover:border-gray-300'
                       }`}>
-                      <span className={`w-10 h-10 rounded-xl grid place-items-center shrink-0 ${selected ? 'bg-white text-[var(--brand-secondary)]' : 'bg-gray-50 text-gray-500'}`}>
+                      <span className={`w-10 h-10 rounded-xl grid place-items-center shrink-0 ${selected ? 'bg-white text-brand' : 'bg-gray-50 text-gray-500'}`}>
                         <Icon size={18} strokeWidth={1.75} />
                       </span>
                       <span className={`text-sm font-semibold ${selected ? 'text-[var(--brand-secondary)]' : 'text-gray-700'}`}>{m.label}</span>
@@ -515,12 +530,12 @@ export function CheckoutPage() {
             )}
             {step !== 'payment' ? (
               <button onClick={nextStep} disabled={!canAdvance()}
-                className="flex-1 flex items-center justify-center gap-2 py-3.5 rounded-xl bg-[var(--brand-secondary)] text-white font-bold text-sm hover:opacity-90 active:scale-[0.98] transition-all disabled:opacity-40 shadow-sm">
+                className="flex-1 flex items-center justify-center gap-2 py-3.5 rounded-xl bg-brand text-white font-bold text-sm hover:opacity-90 active:scale-[0.98] transition-all disabled:opacity-40 shadow-sm">
                 Continuar <ArrowRight size={16} />
               </button>
             ) : (
               <button onClick={handleSubmit} disabled={submitting || !paymentMethod}
-                className="flex-1 flex items-center justify-center gap-2 py-3.5 rounded-xl bg-[var(--brand-secondary)] text-white font-bold text-base hover:opacity-90 active:scale-[0.98] transition-all disabled:opacity-40 shadow-sm">
+                className="flex-1 flex items-center justify-center gap-2 py-3.5 rounded-xl bg-brand text-white font-bold text-base hover:opacity-90 active:scale-[0.98] transition-all disabled:opacity-40 shadow-sm">
                 <CreditCard size={18} />
                 {submitting ? 'Processando...' : `Finalizar • ${money(finalTotal)}`}
               </button>

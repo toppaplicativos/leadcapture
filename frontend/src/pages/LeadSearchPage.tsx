@@ -23,6 +23,7 @@ import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { PanfleteiroMapMapbox, type PanfleteiroPlace } from '@/components/PanfleteiroMapMapbox'
 import { IdeaGeneratorModal } from '@/components/IdeaGeneratorModal'
+import { useProspectBridgeOptional } from '@/lib/agent/ProspectBridgeContext'
 
 /* Sugestões de segmento (substituem emojis por lucide icons — regra UI no_emojis_in_ui) */
 const SUGGESTIONS: Array<{ icon: typeof Smile; label: string; query: string }> = [
@@ -94,7 +95,11 @@ async function persistBrandSearchState(brandId: string, state: Record<string, an
 /* ══════════════════════════════════════════════
    LEAD SEARCH PAGE — with Panfleteiro Mode
    ══════════════════════════════════════════════ */
-export function LeadSearchPage() {
+export function LeadSearchPage({ variant = 'page' }: { variant?: 'page' | 'canvas' | 'inline-map' }) {
+  const mapOnly = variant === 'canvas' || variant === 'inline-map'
+  const isInlineMap = variant === 'inline-map'
+  const isCanvas = variant === 'canvas'
+  const prospectBridge = useProspectBridgeOptional()
   /* Brand ativo — usado em todo state persistido. Quando muda, recarrega. */
   const [activeBrandId, setActiveBrandId] = useState<string | null>(getActiveBrandId())
 
@@ -290,14 +295,18 @@ export function LeadSearchPage() {
     return () => { if (saveTimer.current) clearTimeout(saveTimer.current) }
   }, [activeBrandId, query, location, maxResults, automate, radius, minRating, minReviews, onlyUncaptured, hasPhoneFilter, hasWebsiteFilter, mapCenter, autoCapture])
 
-  // ── Standard search ──
-  async function handleSearch(e: FormEvent) {
-    e.preventDefault()
-    if (!query.trim() || !location.trim()) return
+  // ── Standard search (também chamado pelo chat via ProspectBridge) ──
+  const runTextSearch = useCallback(async (q: string, loc: string) => {
+    const trimmedQ = q.trim()
+    const trimmedLoc = loc.trim()
+    if (!trimmedQ || !trimmedLoc) return
+    setQuery(trimmedQ)
+    setLocation(trimmedLoc)
     setLoading(true); setError(''); setSearched(true)
     setRadarCount(0); setCapturedLive(0); setStatusFilter('all')
+    setViewMode('map')
     try {
-      const body: Record<string, any> = { query: query.trim(), location: location.trim(), maxResults, executeAutomation: automate }
+      const body: Record<string, any> = { query: trimmedQ, location: trimmedLoc, maxResults, executeAutomation: automate }
       if (radius && Number(radius) > 0) body.radius = Number(radius) * 1000
       const r = await fetch('/api/leads/search', { method: 'POST', headers: getHeaders(), body: JSON.stringify(body) })
       const d = await r.json()
@@ -308,7 +317,6 @@ export function LeadSearchPage() {
       setLeads(resultLeads)
       setCapturedPoints(d.capturedPoints || [])
       setStats(resultStats)
-      setViewMode('map')
       /* CENTRALIZA O MAPA na localizacao buscada — usa center do backend OU
          primeiro lead com location valida. Corrige bug "buscou Fortaleza, mapa
          continua em BH". */
@@ -327,10 +335,15 @@ export function LeadSearchPage() {
         setMapCenter({ lat: c.lat, lng: c.lng, zoom: c.zoom ?? 13 })
         /* Marca este como o ponto INICIAL — usado pra mostrar "Voltar" no card
            e diferenciar visualmente quando o user arrastou o mapa pra outro lugar. */
-        setInitialCenter({ lat: c.lat, lng: c.lng, zoom: c.zoom ?? 13, label: location.trim() })
+        setInitialCenter({ lat: c.lat, lng: c.lng, zoom: c.zoom ?? 13, label: trimmedLoc })
       }
     } catch (err: any) { setError(err.message || 'Erro na busca') }
     finally { setLoading(false) }
+  }, [maxResults, automate, radius])
+
+  async function handleSearch(e: FormEvent) {
+    e.preventDefault()
+    await runTextSearch(query, location)
   }
 
   // ── Radar search (panfleteiro — by coordinates) ──
@@ -503,11 +516,9 @@ export function LeadSearchPage() {
   useEffect(() => {
     restoreLastSearchRef.current = () => {
       if (!query.trim() || !location.trim()) return
-      const fakeEvent = { preventDefault: () => {} } as FormEvent
-      handleSearch(fakeEvent)
+      runTextSearch(query, location)
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, location])
+  }, [query, location, runTextSearch])
 
   const filtered = leads.filter(l => {
     if (statusFilter === 'new' && l.captureStatus !== 'new') return false
@@ -543,9 +554,66 @@ export function LeadSearchPage() {
      (todos duplicados pelo RadarCard no canto do mapa). Form fica condensado. */
   const isCompact = searched || leads.length > 0
 
+  /* ── Ponte chat ↔ mapa (ProspectBridge) ── */
+  useEffect(() => {
+    if (!prospectBridge) return
+    return prospectBridge.registerHandlers({
+      search: ({ query: q, location: loc, radius: r }) => {
+        if (r) setRadius(String(r))
+        return runTextSearch(q, loc)
+      },
+      captureBatch: () => { captureBatch() },
+      toggleAutoCapture: () => { setAutoCapture((v) => !v) },
+      toggleAutomate: () => { setAutomate((v) => !v) },
+      setImmersive: (v) => { setImmersive(v) },
+      openIdeas: () => { setIdeasModalOpen(true) },
+      apply: ({ query: q, location: loc, radius: r, automate: auto }) => {
+        if (q !== undefined) setQuery(q)
+        if (loc !== undefined) setLocation(loc)
+        if (r !== undefined) setRadius(String(r))
+        if (auto !== undefined) setAutomate(auto)
+      },
+    })
+  }, [prospectBridge, runTextSearch, captureBatch])
+
+  useEffect(() => {
+    if (!prospectBridge) return
+    prospectBridge.publishSnapshot({
+      query,
+      location,
+      radius,
+      found: leads.length,
+      newCount,
+      captured: capturedCount,
+      capturedLive,
+      todayCount,
+      totalCount,
+      inRange: inRangeCount,
+      newInRange,
+      radarLoading,
+      prospecting,
+      autoCapture,
+      automate,
+      immersive,
+      searched,
+      batchCapturing,
+      loading,
+      error,
+    })
+  }, [
+    prospectBridge, query, location, radius, leads.length, newCount, capturedCount,
+    capturedLive, todayCount, totalCount, inRangeCount, newInRange,
+    radarLoading, prospecting, autoCapture, automate, immersive, searched, batchCapturing, loading, error,
+  ])
+
   return (
-    <div className="space-y-4">
+    <div className={
+      mapOnly
+        ? (isInlineMap ? 'prospect-inline-map h-full min-h-0 flex flex-col' : 'h-full min-h-0 flex flex-col overflow-hidden')
+        : 'space-y-4'
+    }>
       {/* ── Header ── */}
+      {!mapOnly && (
       <header className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h2 className="text-[28px] font-bold text-gray-900 tracking-[-0.025em] leading-tight">Busca de leads</h2>
@@ -584,11 +652,10 @@ export function LeadSearchPage() {
           </button>
         </div>
       </header>
+      )}
 
-      {/* ── Search Form ──
-          Duas variantes:
-          - Expansivo (primeira busca): inputs grandes empilhados + chips + botao full-width
-          - Compacto (mapa ja ativo): tudo em UMA linha — inputs + raio + botao "Atualizar". */}
+      {/* Form + toolbar — só na página standalone (/busca), nunca no canvas nem inline */}
+      {!mapOnly && (
       <form onSubmit={handleSearch} className="bg-white rounded-2xl border border-border-light overflow-hidden">
         {isCompact ? (
           /* COMPACTO — uma linha so. Mudar segmento/cidade muda a rota; arrasto do mapa
@@ -840,10 +907,11 @@ export function LeadSearchPage() {
           </div>
         )}
       </form>
+      )}
 
       {/* ── Stats — só na PRIMEIRA busca. Depois disso fica duplicado com o RadarCard
            no canto do mapa (mesmas metricas), entao escondemos pra liberar espaco. */}
-      {!isCompact && (
+      {!mapOnly && !isCompact && (
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2">
           {([
             { v: leads.length, l: 'Encontrados', accent: 'text-gray-900' },
@@ -863,9 +931,10 @@ export function LeadSearchPage() {
 
       {/* ── Results ── Mapa fica visível sempre que o usuário já buscou.
            O arrasto do mapa SEMPRE dispara nova busca (radar implicito). */}
-      {(searched || leads.length > 0) && !loading && (
-        <div className="space-y-3">
-          {/* Controls */}
+      {(searched || leads.length > 0 || mapOnly) && (mapOnly || !loading) && (
+        <div className={mapOnly ? 'flex-1 min-h-0 flex flex-col overflow-hidden' : 'space-y-3'}>
+          {/* Controls — só na página standalone */}
+          {!mapOnly && (
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div className="flex items-center gap-2 flex-wrap">
               {/* View toggle */}
@@ -926,20 +995,30 @@ export function LeadSearchPage() {
               />
             </div>
           </div>
+          )}
 
           {/* Map (Panfleteiro V2 — Mapbox GL JS)
               Em modo imersivo: outer fixed inset-0 SEM padding (p-3 quebra height interno).
               O componente PanfleteiroMapMapbox preenche 100% do outer.
               NOTA: mapa sempre full-width — o painel de detalhes é overlay absolute pra
               nao redimensionar o mapa (Mapbox nao re-render markers em resize de flex). */}
-          {viewMode === 'map' && (
+          {(mapOnly || viewMode === 'map') && (
             <div
-              className={immersive ? 'fixed inset-0 z-[200] bg-black' : 'relative w-full'}
+              className={`${immersive ? 'fixed inset-0 z-[200] bg-black' : mapOnly ? 'relative flex-1 min-h-0 w-full' : 'relative w-full'}`}
               /* isolation: isolate cria um stacking context proprio — sem isso, os
                  z-index dos overlays internos (RadarCard, legend, etc) competem com
                  sidebar (z-30) e bottomnav (z-40) e vazam por cima da UI ao scrollar. */
-              style={immersive ? undefined : { height: '560px', isolation: 'isolate' }}
+              style={immersive ? undefined : {
+                height: mapOnly ? '100%' : '560px',
+                isolation: 'isolate',
+                minHeight: mapOnly ? (isInlineMap ? '200px' : '320px') : undefined,
+              }}
             >
+              {mapOnly && loading && (
+                <div className="absolute inset-0 z-10 grid place-items-center bg-black/30 backdrop-blur-[1px]">
+                  <Loader2 size={22} className="animate-spin text-white" />
+                </div>
+              )}
               <PanfleteiroMapMapbox
                 initialCenter={mapCenter}
                 radius={Math.max(100, Number(radius || 3) * 1000)}
@@ -972,10 +1051,8 @@ export function LeadSearchPage() {
                   if (lead) setSelectedLead(lead)
                 }}
               />
-              {/* Botao "Modo imersivo" — so aparece QUANDO NAO esta imersivo.
-                  Em modo imersivo, a saida é via bottom bar "Sair" + tecla ESC
-                  (evita botoes duplicados fazendo a mesma coisa). */}
-              {!immersive && (
+              {/* Modo imersivo no mapa: pagina standalone. No chat (inline/canvas) fica no dock. */}
+              {!immersive && !mapOnly && (
                 <button
                   type="button"
                   onClick={() => setImmersive(true)}
@@ -1000,36 +1077,35 @@ export function LeadSearchPage() {
                 </div>
               )}
 
-              {/* RADAR CARD — canto superior esquerdo. Metricas + acoes em lote.
-                  Sempre ativo: o radar reage ao arrasto do mapa por padrao. */}
-              <RadarCard
-                active={true}
-                searching={radarLoading || prospecting}
-                found={leads.length}
-                inRange={inRangeCount}
-                newCount={newCount}
-                newInRange={newInRange}
-                captured={capturedCount}
-                capturedLive={capturedLive}
-                today={todayCount}
-                total={totalCount}
-                center={mapCenter}
-                initialCenter={initialCenter}
-                radius={Math.max(0.1, Number(radius || 3))}
-                location={location}
-                autoCapture={autoCapture}
-                batchCapturing={batchCapturing}
-                lastRadarResult={lastRadarResult}
-                onCaptureBatch={captureBatch}
-                onShowAll={() => { setStatusFilter('all'); setSelectedLead(null); }}
-                onResetCenter={() => {
-                  if (!initialCenter) return
-                  /* Volta o mapa pro ponto inicial — flyTo dispara moveend que
-                     vai re-buscar radar nesse centro. */
-                  setFlyToCenter({ lat: initialCenter.lat, lng: initialCenter.lng, zoom: initialCenter.zoom })
-                  setMapCenter({ lat: initialCenter.lat, lng: initialCenter.lng, zoom: initialCenter.zoom })
-                }}
-              />
+              {/* RADAR CARD — canvas desktop ou modo imersivo (metricas ja estao no dock do chat). */}
+              {(!isInlineMap || immersive) && (
+                <RadarCard
+                  active={true}
+                  searching={radarLoading || prospecting}
+                  found={leads.length}
+                  inRange={inRangeCount}
+                  newCount={newCount}
+                  newInRange={newInRange}
+                  captured={capturedCount}
+                  capturedLive={capturedLive}
+                  today={todayCount}
+                  total={totalCount}
+                  center={mapCenter}
+                  initialCenter={initialCenter}
+                  radius={Math.max(0.1, Number(radius || 3))}
+                  location={location}
+                  autoCapture={autoCapture}
+                  batchCapturing={batchCapturing}
+                  lastRadarResult={lastRadarResult}
+                  onCaptureBatch={captureBatch}
+                  onShowAll={() => { setStatusFilter('all'); setSelectedLead(null); }}
+                  onResetCenter={() => {
+                    if (!initialCenter) return
+                    setFlyToCenter({ lat: initialCenter.lat, lng: initialCenter.lng, zoom: initialCenter.zoom })
+                    setMapCenter({ lat: initialCenter.lat, lng: initialCenter.lng, zoom: initialCenter.zoom })
+                  }}
+                />
+              )}
 
               {/* Painel de detalhe — overlay flutuante no canto direito, NAO compete pelo
                   espaco do mapa (preserva markers/centro). Oculto em modo imersivo. */}
@@ -1103,7 +1179,7 @@ export function LeadSearchPage() {
         </div>
       )}
 
-      {!searched && (
+      {!searched && !mapOnly && (
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <div className="w-14 h-14 rounded-2xl bg-gray-900 grid place-items-center mb-4">
             <Sparkles size={22} className="text-white" strokeWidth={1.75} />

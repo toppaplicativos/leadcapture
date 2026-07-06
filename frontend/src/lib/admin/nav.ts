@@ -1,8 +1,8 @@
 import {
   LayoutDashboard, Users, MessageSquare, Megaphone, ShoppingCart,
-  Package, Palette, Search, Phone, Mail, Truck, Globe, Bot, Zap,
-  BarChart3, Receipt, Ticket, Star, Sparkles, Film, Camera,
-  GitBranch, Brain, Headphones, Bell,
+  Package, Palette, Search, Mail, Truck, Globe, Bot, Zap,
+  BarChart3, Receipt, Ticket, Star, Sparkles, Film, Camera, Images,
+  GitBranch, Brain, Headphones, Bell, Settings,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -23,6 +23,7 @@ export const ROUTE_MAP: Record<string, string> = {
   '/atendente': 'atendente',
   '/criativos': 'criativos',
   '/creative': 'criativos',
+  '/galeria': 'galeria',
   '/video-studio': 'video-studio',
   '/produtos': 'produtos',
   '/pedidos': 'pedidos',
@@ -36,6 +37,7 @@ export const ROUTE_MAP: Record<string, string> = {
   '/pagamentos': 'pagamentos',
   '/frete': 'frete',
   '/dominio': 'dominio',
+
   '/agente': 'agente',
   '/configuracoes': 'configuracoes',
   '/provedores-ia': 'provedores-ia',
@@ -67,11 +69,11 @@ export const NAV_ITEMS: NavItem[] = [
   { key: 'fluxos', path: '/fluxos', icon: GitBranch, label: 'Fluxos', group: 'main' },
   { key: 'habilidades', path: '/habilidades', icon: Brain, label: 'Habilidades', group: 'main' },
   { key: 'criativos', path: '/criativos', icon: Palette, label: 'Criativos IA', group: 'main', badge: 'Novo' },
+  { key: 'galeria', path: '/galeria', icon: Images, label: 'Galeria', group: 'main' },
   { key: 'video-studio', path: '/video-studio', icon: Film, label: 'Video Studio', group: 'main', badge: 'Novo' },
   { key: 'agente', path: '/agente', icon: Bot, label: 'Agente IA', group: 'main' },
   { key: 'atendente', path: '/atendente', icon: Headphones, label: 'Atendente', group: 'main' },
   { key: 'notificacoes', path: '/notificacoes', icon: Bell, label: 'Notificações', group: 'main' },
-  { key: 'whatsapp', path: '/whatsapp', icon: Phone, label: 'WhatsApp', group: 'main' },
   { key: 'instagram', path: '/instagram', icon: Camera, label: 'Instagram', group: 'main', badge: 'Beta' },
   { key: 'facebook', path: '/facebook', icon: Globe, label: 'Facebook', group: 'main', badge: 'Beta' },
   { key: 'produtos', path: '/produtos', icon: Package, label: 'Produtos', group: 'loja' },
@@ -84,6 +86,7 @@ export const NAV_ITEMS: NavItem[] = [
   { key: 'pagamentos', path: '/pagamentos', icon: ShoppingCart, label: 'Pagamentos', group: 'loja' },
   { key: 'frete', path: '/frete', icon: Truck, label: 'Frete', group: 'loja' },
   { key: 'dominio', path: '/dominio', icon: Globe, label: 'Dominio', group: 'loja' },
+  { key: 'configuracoes', path: '/configuracoes', icon: Settings, label: 'Configurações', group: 'config' },
   { key: 'emails', path: '/emails', icon: Mail, label: 'Emails', group: 'config' },
   { key: 'provedores-ia', path: '/provedores-ia', icon: Sparkles, label: 'Provedores IA', group: 'config' },
 ]

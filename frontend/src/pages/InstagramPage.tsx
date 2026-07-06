@@ -3,9 +3,11 @@ import {
   Camera, Home, Sparkles, LayoutGrid, BarChart3, Zap, Bot, CalendarDays, MessageCircle,
   RefreshCw, Plus, Eye, TrendingUp, Users, Heart, MessageSquare, Bookmark, Image,
   Video, Film, Play, Pause, Square, ChevronLeft, ChevronRight, Send, Clock, FileText,
-  Upload, Search, List, Grid3X3, Loader2, CheckCircle2, AlertCircle, ExternalLink,
+  Upload, Search, List, Grid3X3, Loader2, CheckCircle2, AlertCircle, ExternalLink, Images,
   Trash2, Settings, Globe, X, MoreHorizontal,
 } from 'lucide-react'
+import { MediaPickerModal } from '@/components/gallery/MediaPickerModal'
+import type { GalleryItem } from '@/lib/gallery/types'
 
 const API = '/api/instagram'
 
@@ -440,6 +442,7 @@ function CreateTab() {
   const [mediaUrl, setMediaUrl] = useState('')
   const [when, setWhen] = useState<'now' | 'schedule' | 'draft'>('now')
   const [publishing, setPublishing] = useState(false)
+  const [galleryOpen, setGalleryOpen] = useState(false)
 
   const postTypes = [
     { key: 'IMAGE' as const, label: 'Imagem', sub: 'Post com 1 foto', icon: Image },
@@ -485,7 +488,16 @@ function CreateTab() {
 
         {/* Media */}
         <div className="bg-white border border-gray-100 rounded-xl p-4">
-          <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Midia</h3>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Midia</h3>
+            <button
+              type="button"
+              onClick={() => setGalleryOpen(true)}
+              className="inline-flex items-center gap-1 text-[11px] font-semibold text-gray-700 hover:text-gray-900"
+            >
+              <Images size={12} /> Galeria
+            </button>
+          </div>
           <div className="flex gap-1 mb-3 bg-gray-50 rounded-lg p-0.5">
             {[
               { key: 'upload' as const, label: 'Upload', icon: Upload },
@@ -594,6 +606,19 @@ function CreateTab() {
           </div>
         )}
       </div>
+
+      <MediaPickerModal
+        open={galleryOpen}
+        onClose={() => setGalleryOpen(false)}
+        accept={postType === 'REELS' || postType === 'VIDEO' ? ['video'] : ['image']}
+        folder="posts"
+        title="Escolher mídia para o post"
+        useContext="post"
+        onSelect={(item: GalleryItem) => {
+          setMediaUrl(item.url)
+          setGalleryOpen(false)
+        }}
+      />
     </div>
   )
 }

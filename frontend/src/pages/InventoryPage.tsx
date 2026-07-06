@@ -1416,18 +1416,28 @@ function EditProductModal({ product, categories, onClose, onDone, showToast }: {
     reader.readAsDataURL(f)
   }
 
-  async function submit() {
-    if (!name.trim()) { showToast('Nome obrigatório', 'error'); return }
+  async function submit(saveAsDraft = false) {
+    if (saveAsDraft) {
+      if (!name.trim() && !description.trim()) {
+        showToast('Informe ao menos o nome ou a descrição para salvar o rascunho', 'error')
+        return
+      }
+    } else if (!name.trim()) {
+      showToast('Nome obrigatório', 'error')
+      return
+    }
+
     setSaving(true)
     try {
       const body = {
         name: name.trim(),
         description: description.trim(),
         unit,
-        price: Number(price) || 0,
+        price: price === '' ? 0 : Number(price) || 0,
         promoPrice: Number(promoPrice) > 0 ? Number(promoPrice) : null,
-        category,
-        active,
+        category: category || null,
+        active: saveAsDraft ? false : active,
+        save_as_draft: saveAsDraft,
         features: features.split(',').map(f => f.trim()).filter(Boolean),
       }
       const token = localStorage.getItem('lead-system-token') || ''
@@ -1436,25 +1446,36 @@ function EditProductModal({ product, categories, onClose, onDone, showToast }: {
       if (brandId) headers['x-brand-id'] = brandId
 
       let savedId = pid
-      if (isNew) {
-        const res = await fetch('/api/products', { method: 'POST', headers, body: JSON.stringify(body) }).then(r => r.json())
-        savedId = res.product?.id || res.id
-      } else {
-        await fetch(`/api/products/${pid}`, { method: 'PUT', headers, body: JSON.stringify(body) })
-      }
+      const url = isNew ? '/api/products' : `/api/products/${pid}`
+      const method = isNew ? 'POST' : 'PUT'
+      const res = await fetch(url, { method, headers, body: JSON.stringify(body) })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || `Erro ${res.status} ao salvar produto`)
+      savedId = data.product?.id || data.id || pid
 
-      // Upload image
       if (imageFile && savedId) {
         const fd = new FormData()
         fd.append('image', imageFile)
         const imgHeaders: Record<string, string> = { 'Authorization': `Bearer ${token}` }
         if (brandId) imgHeaders['x-brand-id'] = brandId
-        await fetch(`/api/products/${savedId}/image`, { method: 'POST', headers: imgHeaders, body: fd })
+        const imgRes = await fetch(`/api/products/${savedId}/image`, { method: 'POST', headers: imgHeaders, body: fd })
+        if (!imgRes.ok) {
+          const imgData = await imgRes.json().catch(() => ({}))
+          throw new Error(imgData.error || 'Produto salvo, mas falhou ao enviar a imagem')
+        }
       }
 
-      showToast(isNew ? 'Produto criado' : 'Produto salvo')
+      if (data.draft || saveAsDraft) {
+        const missing = Array.isArray(data.missing_fields) ? data.missing_fields : []
+        const hint = missing.length
+          ? ` Falta: ${missing.map((f: string) => ({ name: 'nome', category: 'categoria', price: 'preço' }[f] || f)).join(', ')}.`
+          : ''
+        showToast(`Salvo como rascunho.${hint}`)
+      } else {
+        showToast(isNew ? 'Produto criado' : 'Produto salvo')
+      }
       onDone()
-    } catch (e: any) { showToast(e.message, 'error') }
+    } catch (e: any) { showToast(e.message || 'Erro ao salvar produto', 'error') }
     finally { setSaving(false) }
   }
 
@@ -1510,7 +1531,10 @@ function EditProductModal({ product, categories, onClose, onDone, showToast }: {
 
       <div className="flex gap-2 mt-5">
         <Button variant="secondary" onClick={onClose} fullWidth>Cancelar</Button>
-        <Button onClick={submit} loading={saving} fullWidth>
+        <Button variant="secondary" onClick={() => submit(true)} loading={saving} fullWidth>
+          {saving ? 'Salvando' : 'Rascunho'}
+        </Button>
+        <Button onClick={() => submit(false)} loading={saving} fullWidth>
           {saving ? 'Salvando' : isNew ? 'Criar produto' : 'Salvar'}
         </Button>
       </div>

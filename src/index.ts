@@ -16,6 +16,7 @@ import customersRoutes from "./routes/customers";
 import knowledgeBaseRoutes from "./routes/knowledgeBase";
 import aiRoutes from "./routes/ai";
 import mediaRoutes from "./routes/media";
+import galleryRoutes from "./routes/gallery";
 import imageProxyRoutes from "./routes/imageProxy";
 import messagesRoutes from "./routes/messages";
 import companiesRoutes from "./routes/companies";
@@ -59,6 +60,7 @@ import inventoryRoutes from "./routes/inventory";
 import publicOnboardingRoutes from "./routes/publicOnboarding";
 import publicPwaRoutes from "./routes/publicPwa";
 import landingChatRoutes from "./routes/landingChat";
+import adminAgentRoutes from "./routes/adminAgent";
 import masterRoutes from "./routes/master";
 import stripeWebhookRoutes from "./routes/stripeWebhook";
 import publicSignupRoutes from "./routes/publicSignup";
@@ -332,7 +334,9 @@ app.get("/brand-onboarding", (_req, res) => {
 app.use("/api/customers", authMiddleware, customersRoutes);
 app.use("/api/knowledge-base", authMiddleware, knowledgeBaseRoutes);
 app.use("/api/ai", authMiddleware, aiRoutes);
+app.use("/api/admin-agent", authMiddleware, adminAgentRoutes);
 app.use("/api/media", authMiddleware, mediaRoutes);
+app.use("/api/gallery", authMiddleware, galleryRoutes);
 app.use("/api/companies", authMiddleware, companiesRoutes);
 app.use("/api/clients", authMiddleware, rateLimit({ name: "clients", max: 200, windowMs: 60_000 }), clientsRoutes);
 app.use("/api/lead-import", authMiddleware, leadImportRoutes);
@@ -1836,6 +1840,99 @@ app.post("/api/leads/validate-whatsapp-batch", authMiddleware, async (req: any, 
   }
 });
 
+app.post("/api/leads/validate-whatsapp-all", authMiddleware, async (req: any, res) => {
+  try {
+    const userId = req.user?.userId as string | undefined;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const brandId = await brandUnitsService.resolveActiveBrandId(userId, getRequestedBrandId(req));
+
+    const preferredInstanceId = String(req.body?.instanceId || "").trim() || undefined;
+    const validationInstanceId = await resolveValidationInstanceId(userId, preferredInstanceId);
+    if (!validationInstanceId) {
+      return res.status(400).json({ error: "Nenhuma instancia WhatsApp conectada para validacao." });
+    }
+    const allowed = await instanceBelongsToUser(validationInstanceId, userId);
+    if (!allowed) return res.status(404).json({ error: "Instance not found" });
+
+    const runtimeInstance = instanceManager.getInstance(validationInstanceId, userId);
+    if (!runtimeInstance || runtimeInstance.status !== "connected") {
+      return res.status(409).json({ error: "Instancia nao conectada. Reconecte e tente novamente." });
+    }
+
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.flushHeaders?.();
+
+    const sendEvent = (data: any) => {
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+      if (typeof (res as any).flush === "function") (res as any).flush();
+    };
+
+    let offset = 0;
+    const batchSize = 50;
+    let totalProcessed = 0;
+    let totalValid = 0;
+    let totalInvalid = 0;
+    let totalErrors = 0;
+    let totalSkipped = 0;
+    let cancelled = false;
+
+    req.on("close", () => { cancelled = true; });
+
+    const countResult = await customersService.getAll({ limit: 1, offset: 0, ownerUserId: userId, brandId });
+    const totalLeads = countResult.total || 0;
+    sendEvent({ type: "start", totalLeads });
+
+    while (!cancelled) {
+      const batch = await customersService.getAll({ limit: batchSize, offset, ownerUserId: userId, brandId });
+      const candidates = batch.customers || [];
+      if (candidates.length === 0) break;
+      offset += candidates.length;
+
+      for (const lead of candidates) {
+        if (cancelled) break;
+
+        const phone = normalizePhone((lead as any)?.phone);
+        if (!phone) { totalSkipped++; continue; }
+
+        if (!isLeadPendingWhatsAppValidation(lead)) { totalSkipped++; continue; }
+
+        try {
+          const check = await instanceManager.checkWhatsAppNumber(validationInstanceId, phone);
+          const checkedAt = new Date().toISOString();
+          await customersService.updateWhatsAppValidation(
+            (lead as any).id,
+            { hasWhatsApp: check.exists, checkedAt, instanceId: validationInstanceId, normalizedPhone: check.normalizedPhone, jid: check.jid, status: check.exists ? "valid" : "invalid" },
+            userId, brandId,
+          );
+          totalProcessed++;
+          if (check.exists) totalValid++; else totalInvalid++;
+        } catch (e: any) {
+          totalErrors++;
+          logger.error(`validate-all error: ${e.message}`);
+        }
+
+        sendEvent({ type: "progress", processed: totalProcessed, valid: totalValid, invalid: totalInvalid, errors: totalErrors, skipped: totalSkipped, total: totalLeads });
+
+        await new Promise(r => setTimeout(r, 800 + Math.random() * 700));
+      }
+
+      if (candidates.length < batchSize) break;
+    }
+
+    sendEvent({ type: "done", processed: totalProcessed, valid: totalValid, invalid: totalInvalid, errors: totalErrors, skipped: totalSkipped });
+    res.end();
+  } catch (error: any) {
+    if (!res.headersSent) {
+      res.status(500).json({ error: error.message });
+    } else {
+      res.write(`data: ${JSON.stringify({ type: "error", message: error.message })}\n\n`);
+      res.end();
+    }
+  }
+});
+
 app.put("/api/leads/:id/status", authMiddleware, async (req: any, res) => {
   try {
     const userId = req.user?.userId as string | undefined;
@@ -2278,6 +2375,9 @@ app.post("/api/campaigns/:id/stop", authMiddleware, async (req: any, res) => {
 app.get("*", async (req, res) => {
   if (req.path.startsWith("/api")) {
     return res.status(404).json({ error: "API route not found" });
+  }
+  if (req.path.startsWith("/uploads")) {
+    return res.status(404).end();
   }
   const host = extractHostname(req);
   if (isCustomDomainHost(host)) {

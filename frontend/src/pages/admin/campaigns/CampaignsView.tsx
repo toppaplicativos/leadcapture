@@ -22,6 +22,8 @@ import {
 } from '@/lib/admin/helpers'
 import type { ShowToast } from '@/lib/admin/types'
 import { Skeleton, KpiCard, EmptyState } from '@/components/admin/primitives'
+import { MediaPickerModal } from '@/components/gallery/MediaPickerModal'
+import type { GalleryItem } from '@/lib/gallery/types'
 
 export function CampaignsView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') => void }) {
   const [campaigns, setCampaigns] = useState<any[]>([])
@@ -428,6 +430,7 @@ function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
   const [uploadingVideo, setUploadingVideo] = useState(false)
   const [uploadingAudio, setUploadingAudio] = useState(false)
   const [uploadingDocument, setUploadingDocument] = useState(false)
+  const [galleryPicker, setGalleryPicker] = useState<'image' | 'video' | null>(null)
 
   async function uploadMedia(file: File, type: 'image' | 'video' | 'audio' | 'document') {
     const setterMap: Record<string, (v: string) => void> = { image: setImageUrl, audio: setAudioUrl, document: setDocumentUrl }
@@ -856,7 +859,16 @@ function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
 
             {/* ─── 1. MIDIA + LINK (topo) ─── */}
             <div className="bg-gray-50 rounded-xl p-3 space-y-3">
-              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em]">Midia & Link (opcional)</p>
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em]">Midia & Link (opcional)</p>
+                <button
+                  type="button"
+                  onClick={() => setGalleryPicker('image')}
+                  className="text-[10px] font-bold text-gray-700 hover:text-gray-900 underline-offset-2 hover:underline"
+                >
+                  Escolher da galeria
+                </button>
+              </div>
 
               {/* Imagem + Video */}
               <div className="grid grid-cols-2 gap-2">
@@ -1702,6 +1714,24 @@ function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
           )
         })()}
       </div>
+
+      <MediaPickerModal
+        open={galleryPicker !== null}
+        onClose={() => setGalleryPicker(null)}
+        accept={galleryPicker === 'video' ? ['video'] : ['image']}
+        folder={galleryPicker === 'video' ? undefined : 'campanhas'}
+        title={galleryPicker === 'video' ? 'Escolher vídeo' : 'Escolher imagem'}
+        useContext="campaign"
+        contextId={campaign?.id}
+        onSelect={(item: GalleryItem) => {
+          if (galleryPicker === 'video') {
+            setVideoUrls((prev) => (prev.length < 5 ? [...prev, item.url] : prev))
+          } else {
+            setImageUrl(item.url)
+          }
+          setGalleryPicker(null)
+        }}
+      />
     </div>
   )
 }

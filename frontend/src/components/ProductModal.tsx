@@ -50,6 +50,30 @@ function openWhatsApp(phone: string, productName: string) {
   window.open(url, '_blank', 'noopener,noreferrer')
 }
 
+function resolveStock(product: Product) {
+  const stockStatus = product.stock_status || 'unlimited'
+  const stockQty = product.stock_quantity == null ? null : Number(product.stock_quantity)
+  const legacyStock = product.stock != null && product.stock !== '' ? Number(product.stock) : null
+  const isOutOfStock =
+    stockStatus === 'out_of_stock' ||
+    (stockQty !== null && stockQty <= 0) ||
+    (legacyStock !== null && legacyStock <= 0)
+  const isLowStock =
+    !isOutOfStock &&
+    ((stockStatus === 'low_stock' && stockQty !== null && stockQty > 0) ||
+      (legacyStock !== null && legacyStock > 0 && legacyStock <= 5))
+  const displayQty = stockQty ?? legacyStock
+  const stockCap = displayQty !== null && displayQty > 0 ? displayQty : 999
+  return { isOutOfStock, isLowStock, displayQty, stockStatus, stockCap }
+}
+
+function chipClass(active: boolean, disabled = false) {
+  if (disabled) {
+    return 'store-chip store-chip--filter opacity-40 line-through cursor-not-allowed'
+  }
+  return `store-chip store-chip--filter${active ? ' is-active' : ''}`
+}
+
 export function ProductModal({ product, onClose, onAddToCart, whatsappPhone, allProducts, onSelectProduct }: ProductModalProps) {
   const [qty, setQty] = useState(1)
   const [leadFormFor, setLeadFormFor] = useState<Exclude<OfferCta, 'buy' | 'whatsapp'> | null>(null)
@@ -140,6 +164,11 @@ export function ProductModal({ product, onClose, onAddToCart, whatsappPhone, all
   const subtotal = finalUnitPrice * qty
   const imgSrc = (selectedVariant && (selectedVariant as any).image_url) || product.image || product.images?.[0] || ''
   const hasCompare = displayedCompare != null && configPriceDelta === 0
+  const discount = hasCompare && displayedCompare
+    ? Math.round((1 - displayedPrice / displayedCompare) * 100)
+    : 0
+  const stock = resolveStock(product)
+  const categoryLabel = product.category_name || product.category
 
   const details: [string, string][] = []
   if (product.sku) details.push(['SKU', product.sku])
@@ -169,20 +198,19 @@ export function ProductModal({ product, onClose, onAddToCart, whatsappPhone, all
       role="dialog"
       aria-modal="true"
       aria-label={product.name || 'Produto'}
-      className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-[2px] flex items-end sm:items-center justify-center animate-in fade-in"
+      className="fixed inset-0 z-[100] bg-black/45 flex items-end sm:items-center justify-center"
+      style={{ animation: 'fadeIn 160ms ease-out' }}
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <div
-        className="bg-white w-full max-w-md max-h-[92vh] overflow-y-auto rounded-t-3xl sm:rounded-3xl shadow-2xl flex flex-col"
-        style={{ animation: 'slideUp 280ms cubic-bezier(0.16, 1, 0.3, 1)' }}
+        className="store-modal w-full max-w-md max-h-[92vh] overflow-y-auto rounded-t-[1.25rem] sm:rounded-2xl flex flex-col"
+        style={{ animation: 'slideUp 220ms cubic-bezier(0.16, 1, 0.3, 1)' }}
       >
-        {/* Drag handle (mobile) */}
-        <div className="sm:hidden pt-2 pb-1 flex justify-center shrink-0">
-          <span className="w-10 h-1 rounded-full bg-gray-300" />
+        <div className="sm:hidden pt-2.5 pb-1 flex justify-center shrink-0">
+          <span className="w-10 h-1 rounded-full bg-gray-300" aria-hidden />
         </div>
 
-        {/* Image */}
-        <div className="relative aspect-[4/3] sm:aspect-[16/10] bg-gray-100 shrink-0">
+        <div className="relative aspect-[4/5] bg-gray-100 shrink-0 overflow-hidden sm:rounded-t-2xl">
           {imgSrc ? (
             <img
               src={optimizedImage(imgSrc, 800, 82)}
@@ -198,68 +226,77 @@ export function ProductModal({ product, onClose, onAddToCart, whatsappPhone, all
               }}
             />
           ) : (
-            <div className="w-full h-full flex items-center justify-center">
-              <ImageOff className="w-10 h-10 text-gray-300" strokeWidth={1.5} />
+            <div className="w-full h-full grid place-items-center">
+              <ImageOff className="w-10 h-10 text-gray-400" strokeWidth={1.5} />
             </div>
           )}
+
+          {discount > 0 && !stock.isOutOfStock && (
+            <span className="absolute top-3 left-3 px-2.5 py-1 rounded-lg bg-gray-900 text-white text-[11px] font-bold tracking-tight">
+              −{discount}%
+            </span>
+          )}
+
+          {stock.isOutOfStock && (
+            <span className="absolute top-3 left-3 px-2.5 py-1 rounded-lg bg-red-600 text-white text-[11px] font-bold tracking-tight uppercase">
+              Esgotado
+            </span>
+          )}
+
+          {!stock.isOutOfStock && stock.isLowStock && stock.displayQty != null && (
+            <span className="absolute top-3 left-3 px-2.5 py-1 rounded-lg bg-amber-500 text-white text-[11px] font-bold tracking-tight">
+              Últimas {stock.displayQty}
+            </span>
+          )}
+
+          {stock.isOutOfStock && (
+            <div className="absolute inset-0 bg-white/45 pointer-events-none" aria-hidden />
+          )}
+
           <button
+            type="button"
             onClick={onClose}
             aria-label="Fechar"
-            className="absolute top-3 right-3 w-9 h-9 rounded-full bg-white/90 text-gray-700 grid place-items-center shadow-md hover:bg-white active:scale-90 transition"
+            className="absolute top-3 right-3 w-9 h-9 rounded-full bg-white/95 text-gray-800 grid place-items-center shadow-[var(--shadow-elevated)] hover:bg-white active:scale-95 transition"
           >
             <X size={16} strokeWidth={2} />
           </button>
         </div>
 
-        {/* Content */}
         <div className="px-5 pt-5 pb-4 space-y-4 flex-1">
-          <div>
-            {product.category && (
-              <span className="text-[11px] font-medium text-gray-500 uppercase tracking-wide">
-                {product.category}
+          <div className="space-y-2">
+            {categoryLabel && (
+              <span className="store-chip bg-brand-soft text-brand">
+                {categoryLabel}
               </span>
             )}
-            <h2 className="text-xl font-semibold text-gray-900 tracking-tight mt-0.5">
+            <h2 className="text-[1.35rem] font-bold text-gray-900 tracking-[-0.03em] leading-[1.15] text-wrap-balance">
               {product.name}
             </h2>
           </div>
 
-          <div className="flex items-baseline gap-2">
-            <span className="text-2xl font-semibold text-gray-900 tabular-nums tracking-tight">
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <span className="text-[1.5rem] font-bold text-gray-900 tabular-nums tracking-tight">
               {money(finalUnitPrice)}
             </span>
             {hasCompare && (
-              <span className="text-sm text-gray-400 line-through tabular-nums">
+              <span className="text-[14px] font-medium text-gray-500 line-through tabular-nums">
                 {money(displayedCompare!)}
               </span>
             )}
             {configPriceDelta !== 0 && (
-              <span className="text-[11px] text-gray-500">
+              <span className="text-[12px] text-gray-500">
                 ({money(displayedPrice)} base {configPriceDelta > 0 ? '+' : ''}{money(configPriceDelta)})
               </span>
             )}
           </div>
 
-          {/* ── Stock badge (Fase 12) — only when tracked */}
-          {(() => {
-            const ss = product.stock_status || 'unlimited'
-            const sq = product.stock_quantity == null ? null : Number(product.stock_quantity)
-            if (ss === 'out_of_stock' || (sq !== null && sq <= 0)) {
-              return (
-                <p className="text-[12px] font-semibold text-red-600 flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-red-600" /> Esgotado no momento
-                </p>
-              )
-            }
-            if (ss === 'low_stock' && sq !== null && sq > 0) {
-              return (
-                <p className="text-[12px] font-semibold text-amber-600 flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500" /> Últimas {sq} unidades
-                </p>
-              )
-            }
-            return null
-          })()}
+          {stock.stockStatus !== 'unlimited' && stock.displayQty != null && !stock.isOutOfStock && !stock.isLowStock && (
+            <div className="inline-flex items-center gap-1.5 text-[12px] font-semibold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-800">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" aria-hidden />
+              {stock.displayQty} em estoque
+            </div>
+          )}
 
           {/* ── Aggregate rating (Fase 14) — only when ≥ 1 approved review */}
           {Number(product.reviews_count || 0) > 0 && Number(product.reviews_avg || 0) > 0 && (
@@ -279,8 +316,8 @@ export function ProductModal({ product, onClose, onAddToCart, whatsappPhone, all
           {/* ── Variants selector (Fase 1) ── */}
           {hasVariants && (
             <div>
-              <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">Variação</p>
-              <div className="flex flex-wrap gap-1.5">
+              <p className="store-modal__field-label mb-2">Variação</p>
+              <div className="flex flex-wrap gap-2">
                 {variants.filter((v: any) => v.is_active !== false).map((v: any) => {
                   const label = String(v.name || '').trim() ||
                     Object.values(v.attributes || {}).filter(Boolean).join(' / ') ||
@@ -293,13 +330,7 @@ export function ProductModal({ product, onClose, onAddToCart, whatsappPhone, all
                       type="button"
                       onClick={() => setSelectedVariantId(v.id)}
                       disabled={outOfStock}
-                      className={`px-3 py-1.5 rounded-full text-[12px] font-medium border transition ${
-                        isSelected
-                          ? 'bg-gray-900 text-white border-gray-900'
-                          : outOfStock
-                            ? 'bg-gray-50 text-gray-300 border-gray-200 line-through cursor-not-allowed'
-                            : 'bg-white text-gray-700 border-gray-200 hover:border-gray-400'
-                      }`}
+                      className={chipClass(isSelected, outOfStock)}
                     >
                       {label}
                       {outOfStock && ' (esgotado)'}
@@ -318,16 +349,16 @@ export function ProductModal({ product, onClose, onAddToCart, whatsappPhone, all
             const singleSelect = maxSel === 1
             return (
               <div key={g.id}>
-                <div className="flex items-baseline justify-between mb-1.5">
-                  <p className="text-[11px] font-bold text-gray-600 tracking-wide">
+                <div className="flex items-baseline justify-between mb-2">
+                  <p className="store-modal__field-label">
                     {g.name}
                     {g.required && <span className="text-red-500 ml-1">*</span>}
                   </p>
-                  <span className="text-[10px] text-gray-400">
+                  <span className="text-[11px] text-gray-500">
                     {singleSelect ? 'escolha 1' : `${minSel}–${maxSel} opções`}
                   </span>
                 </div>
-                <div className="flex flex-wrap gap-1.5">
+                <div className="flex flex-wrap gap-2">
                   {g.options.filter((o) => o.is_active !== false).map((o) => {
                     const isOn = chosen.includes(o.id)
                     return (
@@ -346,13 +377,10 @@ export function ProductModal({ product, onClose, onAddToCart, whatsappPhone, all
                             return { ...prev, [g.id]: next }
                           })
                         }}
-                        className={`px-3 py-1.5 rounded-full text-[12px] font-medium border transition ${
-                          isOn ? 'bg-gray-900 text-white border-gray-900'
-                            : 'bg-white text-gray-700 border-gray-200 hover:border-gray-400'
-                        }`}>
+                        className={chipClass(isOn)}>
                         {o.name}
                         {Number(o.price_delta || 0) !== 0 && (
-                          <span className="ml-1 opacity-70 text-[10px]">
+                          <span className="ml-1 opacity-80 text-[10px] tabular-nums">
                             {Number(o.price_delta || 0) > 0 ? '+' : ''}{money(Number(o.price_delta))}
                           </span>
                         )}
@@ -365,7 +393,9 @@ export function ProductModal({ product, onClose, onAddToCart, whatsappPhone, all
           })}
 
           {product.description && (
-            <p className="text-[14px] text-gray-600 leading-relaxed whitespace-pre-wrap">{product.description}</p>
+            <p className="text-[14px] text-gray-600 leading-relaxed whitespace-pre-wrap max-w-prose">
+              {product.description}
+            </p>
           )}
 
           {details.length > 0 && (
@@ -390,26 +420,26 @@ export function ProductModal({ product, onClose, onAddToCart, whatsappPhone, all
             if (items.length === 0) return null
             return (
               <div className="border-t border-border-light pt-4">
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em] mb-2">
-                  Este kit contém ({items.length} {items.length === 1 ? 'item' : 'itens'})
+                <p className="store-section-title mb-3">
+                  Este kit contém · {items.length} {items.length === 1 ? 'item' : 'itens'}
                 </p>
-                <div className="space-y-1.5">
+                <div className="space-y-2">
                   {items.map((it) => {
                     const img = it.product.image || it.product.images?.[0]
                     return (
                       <button key={it.product_id} type="button"
                         onClick={() => onSelectProduct?.(it.product)}
-                        className="w-full flex items-center gap-2.5 bg-gray-50 hover:bg-gray-100 rounded-xl p-2 text-left transition">
+                        className="w-full flex items-center gap-3 bg-gray-50 hover:bg-gray-100 rounded-xl p-2.5 text-left transition ring-1 ring-black/[0.03]">
                         {img ? (
-                          <img src={img} alt="" className="w-10 h-10 rounded-lg object-cover shrink-0" loading="lazy" />
+                          <img src={img} alt="" className="w-11 h-11 rounded-xl object-cover shrink-0 ring-1 ring-black/[0.04]" loading="lazy" />
                         ) : (
-                          <div className="w-10 h-10 rounded-lg bg-gray-200 grid place-items-center shrink-0"><ImageOff size={14} className="text-gray-400" /></div>
+                          <div className="w-11 h-11 rounded-xl bg-gray-200 grid place-items-center shrink-0"><ImageOff size={14} className="text-gray-400" /></div>
                         )}
                         <div className="flex-1 min-w-0">
-                          <p className="text-[12px] font-medium text-gray-900 line-clamp-1">{it.product.name}</p>
-                          {it.note && <p className="text-[10px] text-gray-500">{it.note}</p>}
+                          <p className="text-[13px] font-semibold text-gray-900 line-clamp-1">{it.product.name}</p>
+                          {it.note && <p className="text-[11px] text-gray-500 mt-0.5">{it.note}</p>}
                         </div>
-                        <span className="text-[11px] font-bold text-gray-600 tabular-nums shrink-0">
+                        <span className="text-[12px] font-bold text-gray-700 tabular-nums shrink-0">
                           {it.quantity}×
                         </span>
                       </button>
@@ -430,23 +460,23 @@ export function ProductModal({ product, onClose, onAddToCart, whatsappPhone, all
             if (related.length === 0) return null
             return (
               <div className="border-t border-border-light pt-4">
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em] mb-2">Você também pode gostar</p>
-                <div className="flex gap-2.5 overflow-x-auto scrollbar-hide -mx-5 px-5 pb-1 snap-x snap-mandatory">
+                <p className="store-section-title mb-3">Você também pode gostar</p>
+                <div className="store-collection-track -mx-5 px-5">
                   {related.map((rp) => {
                     const img = rp.image || rp.images?.[0]
                     return (
                       <button key={rp.id} type="button"
                         onClick={() => onSelectProduct?.(rp)}
-                        className="shrink-0 w-[120px] text-left snap-start group">
-                        <div className="aspect-square rounded-xl overflow-hidden bg-gray-100 mb-1.5">
+                        className="text-left group flex flex-col">
+                        <div className="aspect-[4/5] rounded-2xl overflow-hidden bg-gray-100 ring-1 ring-black/[0.04] mb-2 transition-[box-shadow,transform] duration-200 group-hover:shadow-[var(--shadow-elevated)] group-hover:-translate-y-0.5">
                           {img ? (
-                            <img src={img} alt={rp.name} className="w-full h-full object-cover group-hover:scale-105 transition" loading="lazy" />
+                            <img src={img} alt={rp.name} className="w-full h-full object-cover" loading="lazy" />
                           ) : (
-                            <div className="w-full h-full flex items-center justify-center"><ImageOff className="w-5 h-5 text-gray-300" /></div>
+                            <div className="w-full h-full grid place-items-center"><ImageOff className="w-5 h-5 text-gray-400" /></div>
                           )}
                         </div>
-                        <p className="text-[11px] font-medium text-gray-900 leading-tight line-clamp-2">{rp.name}</p>
-                        <p className="text-[12px] font-bold text-gray-900 mt-0.5 tabular-nums">{money(rp.price)}</p>
+                        <p className="text-[12px] font-semibold text-gray-900 leading-snug line-clamp-2">{rp.name}</p>
+                        <p className="text-[13px] font-bold text-gray-900 mt-1 tabular-nums">{money(rp.price)}</p>
                       </button>
                     )
                   })}
@@ -459,38 +489,35 @@ export function ProductModal({ product, onClose, onAddToCart, whatsappPhone, all
           <ProductReviewsSection product={product} />
         </div>
 
-        {/* Footer — CTA-aware (buy = cart; whatsapp = deeplink; quote/schedule/visit/simulate/subscribe = lead form) */}
-        <div className="px-5 pb-[max(20px,env(safe-area-inset-bottom))] pt-3 border-t border-border-light bg-white sticky bottom-0 flex items-center gap-3 shrink-0">
+        <div className="store-modal__footer px-5 pb-[max(20px,env(safe-area-inset-bottom))] pt-3 sticky bottom-0 flex items-center gap-3 shrink-0">
           {(() => {
             const cta = (product.cta_type || 'buy') as OfferCta
             const meta = CTA_LABELS[cta] || CTA_LABELS.custom
             const Icon = meta.Icon
-            /* Inventory (Fase 12) — gate CTA when out of stock; cap qty when low */
-            const stockStatus = product.stock_status || 'unlimited'
-            const stockQty = product.stock_quantity == null ? null : Number(product.stock_quantity)
-            const isOutOfStock = stockStatus === 'out_of_stock' || (stockQty !== null && stockQty <= 0)
-            const stockCap = stockQty !== null && stockQty > 0 ? stockQty : 999
+            const { isOutOfStock, stockCap } = stock
 
             if (cta === 'buy') {
               return (
                 <>
-                  <div className="flex items-center bg-gray-100 rounded-full">
+                  <div className="store-qty-stepper shrink-0">
                     <button
+                      type="button"
                       onClick={() => setQty((q) => Math.max(1, q - 1))}
                       aria-label="Diminuir quantidade"
                       disabled={qty <= 1 || isOutOfStock}
-                      className="w-10 h-10 grid place-items-center rounded-full text-gray-600 hover:text-gray-900 disabled:opacity-30 disabled:hover:text-gray-600 active:scale-90 transition"
+                      className="store-qty-stepper__btn disabled:opacity-30"
                     >
-                      <Minus size={14} strokeWidth={2.25} />
+                      <Minus size={16} strokeWidth={2} />
                     </button>
-                    <span className="w-8 text-center font-semibold tabular-nums text-[14px]">{qty}</span>
+                    <span className="store-qty-stepper__value">{qty}</span>
                     <button
+                      type="button"
                       onClick={() => setQty((q) => Math.min(stockCap, q + 1))}
                       aria-label="Aumentar quantidade"
                       disabled={isOutOfStock || qty >= stockCap}
-                      className="w-10 h-10 grid place-items-center rounded-full text-gray-600 hover:text-gray-900 disabled:opacity-30 active:scale-90 transition"
+                      className="store-qty-stepper__btn disabled:opacity-30"
                     >
-                      <Plus size={14} strokeWidth={2.25} />
+                      <Plus size={16} strokeWidth={2} />
                     </button>
                   </div>
                   <Button onClick={handleAdd} size="lg" variant="brand" className="flex-1"
@@ -624,10 +651,10 @@ function ProductReviewsSection({ product }: { product: Product }) {
   return (
     <div className="border-t border-border-light pt-4">
       <div className="flex items-center justify-between mb-3">
-        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em]">Avaliações</p>
+        <p className="store-section-title">Avaliações</p>
         {!showForm && (
-          <button onClick={() => setShowForm(true)}
-            className="text-[11px] font-bold text-gray-900 hover:underline">
+          <button type="button" onClick={() => setShowForm(true)}
+            className="text-[12px] font-semibold text-brand hover:opacity-80 transition">
             Deixar avaliação
           </button>
         )}
@@ -650,12 +677,12 @@ function ProductReviewsSection({ product }: { product: Product }) {
       )}
 
       {showForm && (
-        <div className="bg-gray-50 rounded-xl p-3 space-y-2 mb-3">
+        <div className="bg-gray-50 rounded-2xl p-4 space-y-3 mb-3 ring-1 ring-black/[0.03]">
           <div className="flex gap-1.5">
             {[1,2,3,4,5].map(n => (
               <button key={n} type="button" onClick={() => setRating(n)}
                 aria-label={`${n} estrela${n === 1 ? '' : 's'}`}
-                className="p-1 rounded transition active:scale-90">
+                className="p-1 rounded-lg transition active:scale-95">
                 <Star size={22}
                   className={n <= rating ? 'text-amber-400 fill-amber-400' : 'text-gray-300'}
                   strokeWidth={1.5} />
@@ -664,21 +691,21 @@ function ProductReviewsSection({ product }: { product: Product }) {
           </div>
           <input type="text" value={name} onChange={e => setName(e.target.value)}
             placeholder="Seu nome *"
-            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10" />
+            className="store-search w-full !pl-3.5 !pr-3.5 !h-auto py-2.5 bg-white" />
           <input type="tel" value={phone} onChange={e => setPhone(e.target.value)}
             placeholder="Telefone (opcional, pra marcar como verificada)"
-            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10" />
+            className="store-search w-full !pl-3.5 !pr-3.5 !h-auto py-2.5 bg-white" />
           <textarea value={comment} onChange={e => setComment(e.target.value)} rows={3}
             placeholder="Conte sua experiência..."
-            className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 resize-none" />
+            className="store-search w-full !pl-3.5 !pr-3.5 !h-auto py-2.5 bg-white resize-none" />
           {submitMsg && (
             <p className={`text-[12px] font-semibold ${submitMsg.kind === 'ok' ? 'text-emerald-600' : 'text-red-600'}`}>
               {submitMsg.text}
             </p>
           )}
           <div className="flex justify-end gap-2 pt-1">
-            <button onClick={() => { setShowForm(false); setSubmitMsg(null) }}
-              className="px-3 py-1.5 text-[12px] font-bold text-gray-500 hover:text-gray-900">
+            <button type="button" onClick={() => { setShowForm(false); setSubmitMsg(null) }}
+              className="px-3 py-1.5 text-[12px] font-semibold text-gray-600 hover:text-gray-900 transition">
               Cancelar
             </button>
             <Button onClick={submit} disabled={submitting} variant="brand" size="sm">
@@ -693,10 +720,10 @@ function ProductReviewsSection({ product }: { product: Product }) {
       )}
 
       {hasReviews && (
-        <div className="space-y-3">
+        <div className="space-y-2.5">
           {reviews.slice(0, 5).map((r) => (
-            <div key={r.id} className="border-l-2 border-gray-100 pl-3">
-              <div className="flex items-center gap-1.5 mb-1">
+            <div key={r.id} className="rounded-xl bg-gray-50 p-3 ring-1 ring-black/[0.03]">
+              <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
                 <div className="flex gap-0.5">
                   {[1,2,3,4,5].map(n => (
                     <Star key={n} size={11}
@@ -706,9 +733,7 @@ function ProductReviewsSection({ product }: { product: Product }) {
                 </div>
                 <span className="text-[12px] font-semibold text-gray-900">{r.customer_name}</span>
                 {r.verified_purchase && (
-                  <BadgeCheck size={12} className="text-emerald-600" strokeWidth={2.5}>
-                    <title>Compra verificada</title>
-                  </BadgeCheck>
+                  <BadgeCheck size={12} className="text-emerald-600" strokeWidth={2.5} aria-label="Compra verificada" />
                 )}
               </div>
               {r.comment && (

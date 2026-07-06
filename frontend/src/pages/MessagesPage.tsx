@@ -1,13 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import {
-  Search, Send, Phone, User, MessageSquare, ChevronLeft,
-  Loader2, Bot, Paperclip, MoreVertical, X,
-  Clock, CheckCheck, Check, Tag, Star, GitBranch,
-  Zap, UserCheck, Ban, RefreshCw,
-  Hand, Hourglass, CheckCircle2, DollarSign, Truck, Package,
+  Search, Send, Phone, MessageSquare, ChevronLeft,
+  Loader2, Bot, X, CheckCheck, Check,
+  Zap, Hand, Hourglass, CheckCircle2, DollarSign, Truck, Package,
   Heart, Calendar, BookOpen, ArrowLeftRight,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
+import { useInboxBridgeOptional } from '@/lib/agent/InboxBridgeContext'
 
 function getHeaders(): Record<string, string> {
   const h: Record<string, string> = { 'Content-Type': 'application/json' }
@@ -37,10 +36,17 @@ interface Message {
   status?: string; media_url?: string
 }
 
+function displayContactName(c: Conversation) {
+  return c.contact_push_name || (c.contact_name?.length > 12 ? c.contact_phone : c.contact_name) || c.contact_phone || 'Contato'
+}
+
 /* ══════════════════════════════════════════════
    MESSAGES PAGE
    ══════════════════════════════════════════════ */
-export function MessagesPage() {
+export function MessagesPage({ variant = 'page' }: { variant?: 'page' | 'canvas' | 'inline-panel' }) {
+  const inboxOnly = variant === 'canvas' || variant === 'inline-panel'
+  const isInlinePanel = variant === 'inline-panel'
+  const inboxBridge = useInboxBridgeOptional()
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [activeConvo, setActiveConvo] = useState<Conversation | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
@@ -51,6 +57,7 @@ export function MessagesPage() {
   const [search, setSearch] = useState('')
   const [showCommands, setShowCommands] = useState(false)
   const messagesEnd = useRef<HTMLDivElement>(null)
+  const pendingSelectId = useRef<string | null>(null)
 
   const loadConvos = useCallback(() => {
     setLoadingConvos(true)
@@ -58,7 +65,7 @@ export function MessagesPage() {
       .then(r => r.json()).then(d => { setConversations(d.conversations || []); setLoadingConvos(false) })
       .catch(() => setLoadingConvos(false))
   }, [])
-  useEffect(() => { loadConvos() }, [])
+  useEffect(() => { loadConvos() }, [loadConvos])
 
   useEffect(() => {
     if (!activeConvo) return
@@ -85,7 +92,20 @@ export function MessagesPage() {
 
   useEffect(() => { messagesEnd.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
-  async function sendMessage(text?: string) {
+  const selectConversation = useCallback((c: Conversation | null) => {
+    setActiveConvo(c)
+  }, [])
+
+  useEffect(() => {
+    if (!pendingSelectId.current || !conversations.length) return
+    const found = conversations.find((c) => c.id === pendingSelectId.current)
+    if (found) {
+      pendingSelectId.current = null
+      selectConversation(found)
+    }
+  }, [conversations, selectConversation])
+
+  const sendMessage = useCallback(async (text?: string) => {
     const msgText = text || newMsg.trim()
     if (!msgText || !activeConvo) return
     setSending(true)
@@ -103,7 +123,59 @@ export function MessagesPage() {
     } catch {}
     setSending(false)
     setShowCommands(false)
-  }
+  }, [activeConvo, newMsg, loadConvos])
+
+  const toggleAiMode = useCallback(async (mode: string) => {
+    if (!activeConvo) return
+    try {
+      await fetch(`/api/inbox/conversations/${activeConvo.id}/ai-state`, {
+        method: 'PATCH', headers: getHeaders(), body: JSON.stringify({ ai_mode: mode }),
+      })
+      setActiveConvo({ ...activeConvo, ai_mode: mode })
+      loadConvos()
+    } catch { /* ignore */ }
+  }, [activeConvo, loadConvos])
+
+  useEffect(() => {
+    if (!inboxBridge) return
+    return inboxBridge.registerHandlers({
+      selectConversation: (id) => {
+        const found = conversations.find((c) => c.id === id)
+        if (found) {
+          pendingSelectId.current = null
+          selectConversation(found)
+        } else {
+          pendingSelectId.current = id
+        }
+      },
+      sendMessage: (text) => { sendMessage(text) },
+      toggleAiMode: () => {
+        if (!activeConvo) return
+        toggleAiMode(activeConvo.ai_mode === 'autonomous' ? 'manual' : 'autonomous')
+      },
+      backToList: () => selectConversation(null),
+      refresh: () => loadConvos(),
+    })
+  }, [inboxBridge, conversations, activeConvo, loadConvos, selectConversation, sendMessage, toggleAiMode])
+
+  useEffect(() => {
+    if (!inboxBridge) return
+    const unreadTotal = conversations.reduce((s, c) => s + (c.unread_count || 0), 0)
+    inboxBridge.publishSnapshot({
+      conversationCount: conversations.length,
+      unreadTotal,
+      activeId: activeConvo?.id || null,
+      contactName: activeConvo ? displayContactName(activeConvo) : '',
+      contactPhone: activeConvo?.contact_phone || '',
+      aiMode: activeConvo?.ai_mode || 'manual',
+      lastPreview: activeConvo?.last_message_text || '',
+      sending,
+      loadingConvos,
+      loadingMsgs,
+    })
+  }, [
+    inboxBridge, conversations, activeConvo, sending, loadingConvos, loadingMsgs,
+  ])
 
   // Quick commands for human operators
   const COMMANDS: { Icon: LucideIcon; label: string; msg: string }[] = [
@@ -119,34 +191,34 @@ export function MessagesPage() {
     { Icon: ArrowLeftRight, label: 'Transferir', msg: 'Vou transferir você para o setor responsável. Um momento!' },
   ]
 
-  async function toggleAiMode(mode: string) {
-    if (!activeConvo) return
-    try {
-      await fetch(`/api/inbox/conversations/${activeConvo.id}/ai-state`, {
-        method: 'PATCH', headers: getHeaders(), body: JSON.stringify({ ai_mode: mode }),
-      })
-      setActiveConvo({ ...activeConvo, ai_mode: mode })
-      loadConvos()
-    } catch {}
-  }
-
   const filteredConvos = search
     ? conversations.filter(c => (c.contact_name || c.contact_phone || c.contact_push_name || '').toLowerCase().includes(search.toLowerCase()))
     : conversations
 
-  const contactName = (c: Conversation) => c.contact_push_name || (c.contact_name?.length > 12 ? c.contact_phone : c.contact_name) || c.contact_phone || 'Contato'
-  const contactInitial = (c: Conversation) => (contactName(c)[0] || '?').toUpperCase()
+  const contactInitial = (c: Conversation) => (displayContactName(c)[0] || '?').toUpperCase()
   const formatPhone = (p: string) => p?.replace(/@.*/, '').replace(/^55/, '+55 ')
 
+  const shellClass = inboxOnly
+    ? (isInlinePanel ? 'inbox-inline-panel h-full min-h-0 flex flex-col overflow-hidden bg-white' : 'h-full min-h-0 flex overflow-hidden bg-white')
+    : 'h-[calc(100vh-120px)] lg:h-[calc(100vh-80px)] flex bg-white rounded-2xl border border-border-light overflow-hidden'
+
+  const showList = isInlinePanel ? !activeConvo : true
+  const listClass = isInlinePanel
+    ? (activeConvo ? 'hidden' : 'flex flex-col w-full shrink-0')
+    : `${activeConvo ? 'hidden md:flex' : 'flex'} flex-col w-full md:w-80 lg:w-96 border-r border-border-light shrink-0`
+
   return (
-    <div className="h-[calc(100vh-120px)] lg:h-[calc(100vh-80px)] flex bg-white rounded-2xl border border-border-light overflow-hidden">
+    <div className={shellClass}>
 
       {/* ── Conversations List ── */}
-      <div className={`${activeConvo ? 'hidden md:flex' : 'flex'} flex-col w-full md:w-80 lg:w-96 border-r border-border-light shrink-0`}>
+      {showList && (
+      <div className={listClass}>
+        {!isInlinePanel && (
         <div className="px-4 py-3.5 border-b border-border-light shrink-0">
           <h2 className="text-[15px] font-bold tracking-tight text-gray-900">Mensagens</h2>
           <p className="text-[11px] text-gray-500 mt-0.5 tabular-nums">{conversations.length} conversa{conversations.length === 1 ? '' : 's'}</p>
         </div>
+        )}
         <div className="px-3 py-2.5 border-b border-border-light shrink-0">
           <div className="relative">
             <Search size={14} strokeWidth={1.75} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
@@ -174,7 +246,7 @@ export function MessagesPage() {
             return (
               <button
                 key={c.id}
-                onClick={() => setActiveConvo(c)}
+                onClick={() => selectConversation(c)}
                 aria-current={active ? 'page' : undefined}
                 className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors border-b border-border-light ${
                   active ? 'bg-gray-100' : 'hover:bg-gray-50'
@@ -186,7 +258,7 @@ export function MessagesPage() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5 min-w-0">
-                      <p className={`text-[13px] truncate ${active ? 'font-semibold text-gray-900' : 'font-medium text-gray-900'}`}>{contactName(c)}</p>
+                      <p className={`text-[13px] truncate ${active ? 'font-semibold text-gray-900' : 'font-medium text-gray-900'}`}>{displayContactName(c)}</p>
                       {c.ai_mode === 'autonomous' && <Bot size={11} strokeWidth={1.75} className="text-gray-500 shrink-0" />}
                     </div>
                     <span className="text-[10px] text-gray-400 shrink-0 tabular-nums">{dtTime(c.last_message_at) || dtDate(c.last_message_at)}</span>
@@ -208,14 +280,16 @@ export function MessagesPage() {
           })}
         </div>
       </div>
+      )}
 
       {/* ── Chat Area ── */}
       {activeConvo ? (
-        <div className="flex-1 flex flex-col min-w-0">
+        <div className="flex-1 flex flex-col min-w-0 min-h-0">
           {/* Header */}
+          {!isInlinePanel && (
           <div className="px-4 py-3 border-b border-border-light flex items-center gap-3 shrink-0 bg-white">
             <button
-              onClick={() => setActiveConvo(null)}
+              onClick={() => selectConversation(null)}
               aria-label="Voltar"
               className="md:hidden w-9 h-9 grid place-items-center rounded-full text-gray-700 hover:bg-gray-100 active:scale-90 transition"
             >
@@ -225,7 +299,7 @@ export function MessagesPage() {
               {contactInitial(activeConvo)}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-[14px] font-semibold tracking-tight text-gray-900 truncate">{contactName(activeConvo)}</p>
+              <p className="text-[14px] font-semibold tracking-tight text-gray-900 truncate">{displayContactName(activeConvo)}</p>
               <p className="text-[11px] text-gray-500 font-mono tabular-nums">{formatPhone(activeConvo.contact_phone)}</p>
             </div>
             <div className="flex items-center gap-1 shrink-0">
@@ -253,6 +327,7 @@ export function MessagesPage() {
               </a>
             </div>
           </div>
+          )}
 
           {/* Messages */}
           <div className="flex-1 overflow-y-auto px-4 py-3 bg-bg">
@@ -309,8 +384,8 @@ export function MessagesPage() {
             )}
           </div>
 
-          {/* Quick Commands */}
-          {showCommands && (
+          {/* Quick Commands + input — página/canvas; no chat o dock responde */}
+          {!isInlinePanel && showCommands && (
             <div className="border-t border-border-light bg-white px-4 py-3 max-h-48 overflow-y-auto shrink-0">
               <div className="flex items-center justify-between mb-2">
                 <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Respostas rápidas</p>
@@ -340,7 +415,7 @@ export function MessagesPage() {
             </div>
           )}
 
-          {/* Input */}
+          {!isInlinePanel && (
           <div className="px-4 py-3 border-t border-border-light bg-white shrink-0">
             <div className="flex items-end gap-2 max-w-2xl mx-auto">
               <button
@@ -374,8 +449,10 @@ export function MessagesPage() {
               </button>
             </div>
           </div>
+          )}
         </div>
       ) : (
+        !isInlinePanel && (
         <div className="flex-1 hidden md:flex items-center justify-center bg-bg">
           <div className="text-center">
             <div className="w-16 h-16 bg-white border border-border-light rounded-3xl grid place-items-center mx-auto mb-4">
@@ -385,6 +462,7 @@ export function MessagesPage() {
             <p className="text-[12px] text-gray-500 mt-1 max-w-xs">Escolha um contato à esquerda para ver as mensagens</p>
           </div>
         </div>
+        )
       )}
     </div>
   )

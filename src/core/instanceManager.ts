@@ -596,6 +596,144 @@ export class InstanceManager {
     });
   }
 
+  async connectWithPairingCode(id: string, phoneNumber: string): Promise<string> {
+    const instance = (await this.ensureInstanceLoaded(id)) || this.instances.get(id);
+    if (!instance) throw new Error("Instance not found");
+
+    const existingSock = this.sockets.get(id);
+    if (instance.status === "connected" && existingSock) {
+      throw new Error("Instancia ja esta conectada");
+    }
+
+    await this.cleanupSocket(id);
+
+    const authPath = path.join(config.authDir, id);
+    if (!fs.existsSync(authPath)) {
+      fs.mkdirSync(authPath, { recursive: true });
+    }
+
+    const { state, saveCreds } = await useMultiFileAuthState(authPath);
+    const { version } = await fetchLatestBaileysVersion();
+
+    instance.status = "connecting";
+    this.instances.set(id, instance);
+    await this.syncInstanceToDB(instance);
+
+    const cleanPhone = phoneNumber.replace(/\D/g, "");
+    if (cleanPhone.length < 10 || cleanPhone.length > 15) {
+      throw new Error("Numero de telefone invalido");
+    }
+
+    return new Promise((resolve, reject) => {
+      let resolved = false;
+      let pairingRequested = false;
+
+      const sock = makeWASocket({
+        version,
+        auth: state,
+        printQRInTerminal: false,
+        logger: pino({ level: "silent" }) as any,
+        browser: ["Lead System", "Chrome", "1.0.0"],
+        connectTimeoutMs: 60000,
+        defaultQueryTimeoutMs: 0,
+        keepAliveIntervalMs: 30000,
+        emitOwnEvents: true,
+        retryRequestDelayMs: 500,
+        markOnlineOnConnect: false,
+      });
+
+      this.sockets.set(id, sock);
+      sock.ev.on("creds.update", saveCreds);
+
+      sock.ev.on("connection.update", async (update) => {
+        const { connection, lastDisconnect, qr } = update;
+
+        if (qr && !pairingRequested) {
+          pairingRequested = true;
+          try {
+            const code = await sock.requestPairingCode(cleanPhone);
+            logger.info(`Pairing code generated for ${instance.name}: ${code}`);
+            if (!resolved) {
+              resolved = true;
+              resolve(code);
+            }
+          } catch (err: any) {
+            logger.error(`Pairing code request failed for ${instance.name}: ${err.message}`);
+            if (!resolved) {
+              resolved = true;
+              reject(new Error("Falha ao gerar codigo de pareamento. Verifique o numero."));
+            }
+          }
+        }
+
+        if (connection === "close") {
+          const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
+          instance.status = "disconnected";
+          instance.qrCode = undefined;
+          this.instances.set(id, instance);
+          await this.syncInstanceToDB(instance);
+          this.connectedSince.delete(id);
+
+          if (!resolved) {
+            resolved = true;
+            reject(new Error(`Conexao fechada (${statusCode || "unknown"})`));
+          }
+        }
+
+        if (connection === "open") {
+          const user = sock.user;
+          instance.status = "connected";
+          instance.phone = user?.id?.split(":")[0] || user?.id?.split("@")[0];
+          instance.qrCode = undefined;
+          this.instances.set(id, instance);
+          await this.syncInstanceToDB(instance);
+          this.connectedSince.set(id, Date.now());
+          logger.info(`Instance connected via pairing code: ${instance.name} (${instance.phone})`);
+        }
+      });
+
+      sock.ev.on("messages.upsert", async ({ messages, type }) => {
+        if (type !== "notify") return;
+        for (const msg of messages) {
+          if (msg.key.fromMe) {
+            for (const handler of this.globalMessageHandlers) {
+              try { handler(id, msg); } catch (e) {}
+            }
+            continue;
+          }
+          instance.messagesReceived++;
+          this.instances.set(id, instance);
+          const handler = this.messageHandlers.get(id);
+          if (handler) handler(msg);
+          for (const gHandler of this.globalMessageHandlers) {
+            try { gHandler(id, msg); } catch (e) {}
+          }
+        }
+      });
+
+      sock.ev.on("messages.update", (updates) => {
+        for (const u of updates) {
+          if (u.update?.status && u.update.status >= 2 && u.key.id) {
+            const pending = this.pendingAcks.get(u.key.id);
+            if (pending) {
+              clearTimeout(pending.timer);
+              this.pendingAcks.delete(u.key.id);
+              this.consecutiveAckTimeouts.delete(pending.instanceId);
+              pending.resolve(true);
+            }
+          }
+        }
+      });
+
+      setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          reject(new Error("Timeout ao gerar codigo de pareamento"));
+        }
+      }, 45000);
+    });
+  }
+
   /* waitForAck — espera o messages.update com status >= 2 chegar pra esse messageId.
      Timeout default 5s (configuravel via WHATSAPP_ACK_TIMEOUT_MS env).
      Resolve true se ack ok, false se timeout, erro ou disconnect.
@@ -747,18 +885,6 @@ export class InstanceManager {
     return [digits];
   }
 
-  /**
-   * Probes onWhatsApp with each BR variant and returns the first that exists.
-   *
-   * IMPORTANT: We deliberately DO NOT use `hit.jid` from Baileys' response.
-   * Baileys' onWhatsApp() frequently returns a "canonical" jid that strips the
-   * 9th digit from BR mobiles even when we queried the 11-digit modern form
-   * (e.g. query "5585986818511" → returns "558586818511@s.whatsapp.net"). That
-   * stripped JID is what's been silently dropping our campaign messages. The
-   * modern 11-digit JID is the actually-reachable one on current accounts, so
-   * we construct the target JID from the *variant we asked about* rather than
-   * trusting the canonical form Baileys returns.
-   */
   private async resolveWhatsAppTarget(
     sock: WASocket,
     digits: string
@@ -769,11 +895,8 @@ export class InstanceManager {
         const results = await sock.onWhatsApp(variant);
         const hit = results && results[0];
         if (hit?.exists) {
-          return {
-            exists: true,
-            jid: `${variant}@s.whatsapp.net`,
-            triedVariants: variants,
-          };
+          const jid = hit.jid || `${variant}@s.whatsapp.net`;
+          return { exists: true, jid, triedVariants: variants };
         }
       } catch (err: any) {
         logger.warn(`onWhatsApp probe failed for ${variant}: ${err?.message || err}`);
@@ -884,6 +1007,36 @@ export class InstanceManager {
       logger.error(`Error sending message by JID: ${error.message}`);
       return false;
     }
+  }
+
+  async fetchContactName(instanceId: string, jid: string): Promise<string | null> {
+    const sock = this.sockets.get(instanceId);
+    const instance = this.instances.get(instanceId);
+    if (!sock || !instance || instance.status !== "connected") return null;
+
+    try {
+      const status = await sock.fetchStatus(jid);
+      if (status && (status as any).status?.setAt) {
+        // fetchStatus returns "about" text, not name — try business profile instead
+      }
+    } catch {}
+
+    try {
+      const biz = await (sock as any).getBusinessProfile(jid);
+      if (biz?.profile?.name) return String(biz.profile.name).trim();
+      if (biz?.name) return String(biz.name).trim();
+    } catch {}
+
+    try {
+      const store = (sock as any).store;
+      const contact = store?.contacts?.[jid];
+      if (contact) {
+        const name = contact.notify || contact.name || contact.pushName;
+        if (name) return String(name).trim();
+      }
+    } catch {}
+
+    return null;
   }
 
   async getProfilePictureUrl(instanceId: string, jid: string): Promise<string | null> {

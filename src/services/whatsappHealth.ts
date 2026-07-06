@@ -96,6 +96,7 @@ async function tick(): Promise<void> {
             `UPDATE whatsapp_instances SET status = 'disconnected' WHERE id = ?`,
             [id],
           );
+          r.status = "disconnected";
           driftFixed++;
           logger.warn(`WhatsAppHealth: drift detectado em "${r.name}" — DB=connected mas runtime=${runtime}. Corrigido pra disconnected.`);
         } catch (e: any) {
@@ -105,13 +106,15 @@ async function tick(): Promise<void> {
 
       /* Drift reverso: DB diz disconnected mas runtime tem socket ativo.
          Acontece quando reconnect bem-sucedido mas syncInstanceToDB falhou,
-         ou quando o health tick rodou entre disconnect e reconnect. */
+         ou quando o health tick rodou entre disconnect e reconnect.
+         Also update last_connected_at so deadInstance check sees fresh time. */
       if (r.status !== "connected" && runtime === "connected") {
         try {
           await query(
-            `UPDATE whatsapp_instances SET status = 'connected', updated_at = NOW() WHERE id = ?`,
+            `UPDATE whatsapp_instances SET status = 'connected', last_connected_at = NOW(), updated_at = NOW() WHERE id = ?`,
             [id],
           );
+          r.status = "connected";
           driftFixed++;
           logger.info(`WhatsAppHealth: drift reverso corrigido em "${r.name}" — DB=disconnected mas runtime=connected. Atualizado pra connected.`);
         } catch (e: any) {
@@ -120,11 +123,14 @@ async function tick(): Promise<void> {
       }
 
       /* Identifica instances "mortas" — disconnected ha > 30min sem reconectar.
-         Campanhas amarradas a elas vao ser pausadas pra parar o loop infinito. */
-      const isDead = r.status === "disconnected" && r.last_connected_at &&
-        (now - new Date(r.last_connected_at).getTime()) > DEAD_THRESHOLD_MS;
-      if (isDead || (r.status === "disconnected" && !r.last_connected_at)) {
-        deadInstanceIds.push(id);
+         Campanhas amarradas a elas vao ser pausadas pra parar o loop infinito.
+         IMPORTANT: use the corrected r.status (after drift fix), not original DB value. */
+      if (r.status !== "connected") {
+        const isDead = r.last_connected_at &&
+          (now - new Date(r.last_connected_at).getTime()) > DEAD_THRESHOLD_MS;
+        if (isDead || !r.last_connected_at) {
+          deadInstanceIds.push(id);
+        }
       }
     }
 

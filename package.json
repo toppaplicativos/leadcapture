@@ -7,8 +7,8 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
-    "snapshot": "bash scripts/snapshot_vps.sh /root/lead-system /root/lead-system/snapshots",
-    "predeploy:check": "bash scripts/predeploy_check.sh /root/lead-system-local /root/lead-system",
+    "snapshot": "bash scripts/snapshot_vps.sh /root/leadcapture /root/leadcapture/snapshots",
+    "predeploy:check": "bash scripts/predeploy_check.sh /root/leadcapture-local /root/leadcapture",
     "master:create": "ts-node scripts/create-super-admin.ts"
   },
   "dependencies": {

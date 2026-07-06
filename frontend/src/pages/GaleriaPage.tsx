@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Upload } from 'lucide-react'
 import type { GalleryItem } from '@/lib/gallery/types'
 import {
@@ -14,6 +14,8 @@ import { GalleryEmpty } from '@/components/gallery/GalleryEmpty'
 import { GalleryUploadZone } from '@/components/gallery/GalleryUploadZone'
 import { Button } from '@/components/ui/Button'
 import { cn } from '@/lib/cn'
+import { useGalleryBridgeOptional } from '@/lib/agent/GalleryBridgeContext'
+import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
 
 export function GaleriaPage() {
   const [folders, setFolders] = useState<Awaited<ReturnType<typeof fetchGalleryFolders>>>([])
@@ -29,6 +31,11 @@ export function GaleriaPage() {
   const [page, setPage] = useState(1)
   const [preview, setPreview] = useState<GalleryItem | null>(null)
   const [uploadOpen, setUploadOpen] = useState(false)
+  const galleryBridge = useGalleryBridgeOptional()
+  const publishSnapshot = galleryBridge?.publishSnapshot
+  const registerHandlers = galleryBridge?.registerHandlers
+  const isDesktop = useIsDesktop()
+  const pendingSelectId = useRef<string | null>(null)
 
   const reload = useCallback(async (append = false, pageOverride?: number) => {
     if (!append) setLoading(true)
@@ -68,6 +75,47 @@ export function GaleriaPage() {
   useEffect(() => {
     setPage(1)
   }, [activeFolder, typeFilter, activeTags])
+
+  useEffect(() => {
+    if (!registerHandlers || !isDesktop) return
+    return registerHandlers({
+      selectItem: (id, title) => {
+        const found = items.find((i) => i.id === id)
+        if (found) {
+          pendingSelectId.current = null
+          setPreview(found)
+          publishSnapshot?.({ selectedId: id, selectedTitle: title || found.name || '' })
+        } else {
+          pendingSelectId.current = id
+        }
+      },
+      openUpload: () => setUploadOpen(true),
+      setFolder: (folder) => setActiveFolder(folder),
+      openFull: () => undefined,
+      refresh: () => { void reload() },
+    })
+  }, [registerHandlers, isDesktop, items, publishSnapshot, reload])
+
+  useEffect(() => {
+    if (!isDesktop || !pendingSelectId.current) return
+    const found = items.find((i) => i.id === pendingSelectId.current)
+    if (found) {
+      setPreview(found)
+      publishSnapshot?.({ selectedId: found.id, selectedTitle: found.name || '' })
+      pendingSelectId.current = null
+    }
+  }, [items, isDesktop, publishSnapshot])
+
+  useEffect(() => {
+    if (!publishSnapshot || !isDesktop) return
+    publishSnapshot({
+      total,
+      folder: activeFolder,
+      loading,
+      selectedId: preview?.id ?? null,
+      selectedTitle: preview?.name || '',
+    })
+  }, [publishSnapshot, isDesktop, total, activeFolder, loading, preview?.id, preview?.name])
 
   function toggleTag(tag: string) {
     setActiveTags((prev) =>

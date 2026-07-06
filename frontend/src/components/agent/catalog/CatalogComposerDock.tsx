@@ -56,8 +56,15 @@ export function CatalogComposerDock() {
         <button type="button" className="workspace-chat__catalog-chip" onClick={() => gallery.dispatch({ type: 'open_upload' })}>
           <Upload size={13} /> Enviar mídia
         </button>
-        <button type="button" className="workspace-chat__catalog-chip" onClick={() => gallery.dispatch({ type: 'open_full' })}>
-          Galeria completa
+        <button
+          type="button"
+          className="workspace-chat__catalog-chip"
+          onClick={() => {
+            gallery.setModuleExpanded(true)
+            gallery.dispatch({ type: 'open_full' })
+          }}
+        >
+          Ver todos
         </button>
       </div>
     )

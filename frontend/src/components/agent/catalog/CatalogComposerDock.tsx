@@ -24,7 +24,7 @@ export function CatalogComposerDock() {
             products.dispatch({ type: 'open_full' })
           }}
         >
-          <Package size={13} /> Ver todos
+          <Package size={13} /> Ver produtos
         </button>
       </div>
     )

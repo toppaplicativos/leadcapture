@@ -1,10 +1,78 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { Loader2, Package, Plus, Search } from 'lucide-react'
+import { Loader2, Package, Plus, Search, ChevronRight } from 'lucide-react'
 import { getHeaders, money } from '@/lib/admin/helpers'
 import { useProductsBridgeOptional } from '@/lib/agent/ProductsBridgeContext'
 import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
 import { useToast } from '@/components/Toast'
 import { ProductEditorModal } from '@/pages/admin/products/ProductsView'
+
+function productStatus(product: any) {
+  if (product?.metadata?.is_draft) return { label: 'Rascunho', tone: 'is-draft' as const }
+  if (product?.active === false || product?.is_active === false) return { label: 'Inativo', tone: 'is-inactive' as const }
+  return { label: 'Ativo', tone: 'is-active' as const }
+}
+
+function productStock(product: any) {
+  const n = product?.stock ?? product?.stock_current ?? product?.stock_available
+  if (n == null || n === '') return '—'
+  return String(n)
+}
+
+function ProductChatCard({ product, onOpen }: { product: any; onOpen: () => void }) {
+  const status = productStatus(product)
+  const hasPromo = Number(product.promoPrice) > 0
+  const img = product.imageUrl || product.image
+  const [imgError, setImgError] = useState(false)
+
+  return (
+    <button type="button" className={`catalog-product-card ${status.tone}`} onClick={onOpen}>
+      <div className="catalog-product-card__bar" />
+      <div className="catalog-product-card__body">
+        <div className="catalog-product-card__header">
+          <div className="catalog-product-card__thumb">
+            {img && !imgError ? (
+              <img src={img} alt="" onError={() => setImgError(true)} />
+            ) : (
+              <Package size={20} className="text-gray-300" strokeWidth={1.5} />
+            )}
+          </div>
+          <div className="catalog-product-card__headline">
+            <span className="catalog-product-card__title">{product.name || 'Produto'}</span>
+            <div className="catalog-product-card__meta">
+              <span className={`catalog-product-card__status ${status.tone}`}>{status.label}</span>
+              {product.category && (
+                <span className="catalog-product-card__category">{product.category}</span>
+              )}
+              {product.unit && (
+                <span className="catalog-product-card__unit">{product.unit}</span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="catalog-product-card__kpis">
+          <div className="catalog-product-card__kpi">
+            <strong>{money(product.price)}</strong>
+            <span>Preço</span>
+          </div>
+          <div className={`catalog-product-card__kpi ${hasPromo ? 'is-promo' : ''}`}>
+            <strong>{hasPromo ? money(product.promoPrice) : '—'}</strong>
+            <span>Promo</span>
+          </div>
+          <div className="catalog-product-card__kpi">
+            <strong>{productStock(product)}</strong>
+            <span>Estoque</span>
+          </div>
+        </div>
+
+        <span className="catalog-product-card__cta">
+          Abrir produto
+          <ChevronRight size={14} strokeWidth={2} />
+        </span>
+      </div>
+    </button>
+  )
+}
 
 export function ProductsInlinePanel() {
   const bridge = useProductsBridgeOptional()
@@ -72,6 +140,7 @@ export function ProductsInlinePanel() {
     return registerHandlers({
       search: (q) => {
         setSearch(q)
+        setCardsOpen(true)
         publishSnapshot?.({ search: q })
       },
       selectProduct: (id) => {
@@ -94,6 +163,7 @@ export function ProductsInlinePanel() {
     if (!search.trim()) return true
     const q = search.toLowerCase()
     return (p.name || '').toLowerCase().includes(q)
+      || (p.category || '').toLowerCase().includes(q)
   })
 
   if (isDesktop) return null
@@ -116,6 +186,7 @@ export function ProductsInlinePanel() {
             value={search}
             onChange={(e) => {
               setSearch(e.target.value)
+              if (e.target.value.trim()) setCardsOpen(true)
               publishSnapshot?.({ search: e.target.value })
             }}
             placeholder="Buscar produto…"
@@ -141,26 +212,11 @@ export function ProductsInlinePanel() {
           Toque em <strong>Ver todos</strong> para listar produtos em cards.
         </p>
       ) : filtered.length === 0 ? (
-        <p className="catalog-panel__empty">Nenhum produto. Crie um novo pelo botão acima.</p>
+        <p className="catalog-panel__empty">Nenhum produto encontrado. Crie um novo pelo botão acima.</p>
       ) : (
-        <div className="catalog-panel__grid">
+        <div className="catalog-product-grid">
           {filtered.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              className="catalog-panel__card"
-              onClick={() => openProduct(p)}
-            >
-              <div className="catalog-panel__thumb">
-                {(p.imageUrl || p.image) ? (
-                  <img src={p.imageUrl || p.image} alt="" />
-                ) : (
-                  <Package size={18} className="text-gray-300" />
-                )}
-              </div>
-              <span className="catalog-panel__label">{p.name}</span>
-              <span className="catalog-panel__meta">{money(p.price)}</span>
-            </button>
+            <ProductChatCard key={p.id} product={p} onOpen={() => openProduct(p)} />
           ))}
         </div>
       )}

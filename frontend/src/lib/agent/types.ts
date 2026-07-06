@@ -13,6 +13,9 @@ export type ComponentType =
   | 'option_picker'
   | 'prospect_stats'
   | 'inbox_stats'
+  | 'products_stats'
+  | 'campaigns_stats'
+  | 'gallery_stats'
 
 export type PresentationMode = 'inline' | 'canvas'
 

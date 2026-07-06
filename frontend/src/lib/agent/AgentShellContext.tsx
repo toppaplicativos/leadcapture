@@ -13,6 +13,9 @@ import { useAdminAgentChat } from './useAdminAgentChat'
 import { turnNeedsCanvas } from './canvasRegistry'
 import { useProspectBridgeOptional } from './ProspectBridgeContext'
 import { useInboxBridgeOptional } from './InboxBridgeContext'
+import { useProductsBridgeOptional } from './ProductsBridgeContext'
+import { useCampaignsBridgeOptional } from './CampaignsBridgeContext'
+import { useGalleryBridgeOptional } from './GalleryBridgeContext'
 import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
 import { resolveTrigger } from './workspaceTriggers'
 import { useWhatsAppConnectOptional } from '@/lib/whatsapp/WhatsAppConnectContext'
@@ -42,6 +45,12 @@ type AgentShellValue = {
   prospectModuleOpen: boolean
   closeInboxModule: () => void
   inboxModuleOpen: boolean
+  closeProductsModule: () => void
+  productsModuleOpen: boolean
+  closeCampaignsModule: () => void
+  campaignsModuleOpen: boolean
+  closeGalleryModule: () => void
+  galleryModuleOpen: boolean
 }
 
 const AgentShellContext = createContext<AgentShellValue | null>(null)
@@ -59,7 +68,13 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
   const chat = useAdminAgentChat(location.pathname)
   const prospectBridge = useProspectBridgeOptional()
   const inboxBridge = useInboxBridgeOptional()
+  const productsBridge = useProductsBridgeOptional()
+  const campaignsBridge = useCampaignsBridgeOptional()
+  const galleryBridge = useGalleryBridgeOptional()
   const isDesktop = useIsDesktop()
+
+  const PRODUCT_SKILLS = useMemo(() => new Set(['catalog.products', 'catalog.products.table']), [])
+  const isProductSkill = (skill?: string) => !!skill && PRODUCT_SKILLS.has(skill)
   const lastProspectKey = useRef('')
   const lastInboxConvoKey = useRef('')
   const [canvasMode, setCanvasMode] = useState<CanvasMode>('agent')
@@ -134,6 +149,47 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
     lastInboxConvoKey.current = ''
   }, [inboxBridge])
 
+  const closeProductsModule = useCallback(() => {
+    productsBridge?.setModuleOpen(false)
+    productsBridge?.setModuleExpanded(false)
+    setDesktopCanvasOpen(false)
+    setEmbeddedRoute(null)
+    setMobileCanvasOpen(false)
+    setCanvasMode('agent')
+  }, [productsBridge])
+
+  const closeCampaignsModule = useCallback(() => {
+    campaignsBridge?.setModuleOpen(false)
+    campaignsBridge?.setModuleExpanded(false)
+    setDesktopCanvasOpen(false)
+    setEmbeddedRoute(null)
+    setMobileCanvasOpen(false)
+    setCanvasMode('agent')
+  }, [campaignsBridge])
+
+  const closeGalleryModule = useCallback(() => {
+    galleryBridge?.setModuleOpen(false)
+    galleryBridge?.setModuleExpanded(false)
+    setDesktopCanvasOpen(false)
+    setEmbeddedRoute(null)
+    setMobileCanvasOpen(false)
+    setCanvasMode('agent')
+  }, [galleryBridge])
+
+  function openCatalogCanvas(route: string) {
+    if (isDesktop) {
+      setDesktopCanvasOpen(true)
+      setCanvasMode('embed')
+      setEmbeddedRoute(route)
+      setMobileCanvasOpen(false)
+    } else {
+      setDesktopCanvasOpen(false)
+      setEmbeddedRoute(null)
+      setMobileCanvasOpen(false)
+      setCanvasMode('agent')
+    }
+  }
+
   /* Busca paleteiro: desktop = mapa no canvas; mobile = mapa inline no chat */
   useEffect(() => {
     if (!activeTurn || activeTurn.skill !== 'lead.prospect') {
@@ -207,6 +263,48 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
     }
   }, [activeTurn, inboxBridge, isDesktop, closeInboxModule])
 
+  /* Produtos: desktop = /produtos no canvas; mobile = painel inline */
+  useEffect(() => {
+    if (!activeTurn || !isProductSkill(activeTurn.skill)) {
+      if (productsBridge?.moduleOpen && activeTurn && !isProductSkill(activeTurn.skill)) {
+        closeProductsModule()
+      }
+      return
+    }
+    productsBridge?.setModuleOpen(true)
+    productsBridge?.setModuleExpanded(true)
+    openCatalogCanvas('/produtos')
+    const stats = activeTurn.components?.find((c) => c.type === 'products_stats')
+    const search = String(stats?.props?.search || '').trim()
+    if (search) productsBridge?.queueCommand({ type: 'search', query: search })
+  }, [activeTurn, productsBridge, isDesktop, closeProductsModule, isProductSkill])
+
+  /* Campanhas: desktop = canvas; mobile = inline */
+  useEffect(() => {
+    if (!activeTurn || activeTurn.skill !== 'campaigns.list') {
+      if (campaignsBridge?.moduleOpen && activeTurn?.skill !== 'campaigns.list') {
+        closeCampaignsModule()
+      }
+      return
+    }
+    campaignsBridge?.setModuleOpen(true)
+    campaignsBridge?.setModuleExpanded(true)
+    openCatalogCanvas('/campanhas')
+  }, [activeTurn, campaignsBridge, isDesktop, closeCampaignsModule])
+
+  /* Galeria: desktop = canvas; mobile = inline com upload */
+  useEffect(() => {
+    if (!activeTurn || activeTurn.skill !== 'gallery.open') {
+      if (galleryBridge?.moduleOpen && activeTurn?.skill !== 'gallery.open') {
+        closeGalleryModule()
+      }
+      return
+    }
+    galleryBridge?.setModuleOpen(true)
+    galleryBridge?.setModuleExpanded(true)
+    openCatalogCanvas('/galeria')
+  }, [activeTurn, galleryBridge, isDesktop, closeGalleryModule])
+
   const send = useCallback(async (
     text: string,
     opts?: { componentEvent?: ComponentEvent; skillContext?: SkillContext; directSkill?: string },
@@ -221,6 +319,13 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
     chat.triggerSkill(skillId, opts)
   }, [chat])
 
+  const openCanvas = useCallback((route: string) => {
+    setCanvasMode('embed')
+    setEmbeddedRoute(route)
+    setDesktopCanvasOpen(true)
+    setMobileCanvasOpen(true)
+  }, [])
+
   const triggerNav = useCallback((navKeyOrPath: string) => {
     const raw = String(navKeyOrPath || '').trim().replace(/\/$/, '')
     const key = raw.startsWith('/') ? raw.slice(1) : raw
@@ -230,7 +335,16 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
       return
     }
     if (key === 'configuracoes' || raw === '/configuracoes') {
+      openCanvas('/configuracoes')
       navigate('/configuracoes')
+      return
+    }
+    if (key === 'produtos' || raw === '/produtos') {
+      chat.triggerSkill('catalog.products', { label: 'Produtos', assistantMessage: 'Seu catálogo:' })
+      return
+    }
+    if (key === 'galeria' || raw === '/galeria') {
+      chat.triggerSkill('gallery.open', { label: 'Galeria', assistantMessage: 'Assets da marca:' })
       return
     }
 
@@ -244,7 +358,7 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
       return
     }
     navigate(navKeyOrPath.startsWith('/') ? navKeyOrPath : `/${navKeyOrPath}`)
-  }, [chat, navigate, waConnect])
+  }, [chat, navigate, waConnect, openCanvas])
 
   const handleComponentEvent = useCallback((
     event: ComponentEvent,
@@ -269,13 +383,6 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
     setOpenModalFn(() => fn)
   }, [])
 
-  const openCanvas = useCallback((route: string) => {
-    setCanvasMode('embed')
-    setEmbeddedRoute(route)
-    setDesktopCanvasOpen(true)
-    setMobileCanvasOpen(true)
-  }, [])
-
   const value: AgentShellValue = {
     messages: chat.messages,
     loading: chat.loading,
@@ -298,6 +405,12 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
     prospectModuleOpen: !!prospectBridge?.moduleOpen,
     closeInboxModule,
     inboxModuleOpen: !!inboxBridge?.moduleOpen,
+    closeProductsModule,
+    productsModuleOpen: !!productsBridge?.moduleOpen,
+    closeCampaignsModule,
+    campaignsModuleOpen: !!campaignsBridge?.moduleOpen,
+    closeGalleryModule,
+    galleryModuleOpen: !!galleryBridge?.moduleOpen,
   }
 
   return (

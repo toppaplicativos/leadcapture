@@ -2,13 +2,17 @@ import { useState, useRef, useEffect, type FormEvent } from 'react'
 import {
   Send, Loader2, LayoutGrid, Search, MapPin, Zap,
   Maximize2, Sparkles, MessageSquare, Megaphone, ShoppingCart,
-  PanelRight, X,
+  PanelRight, X, Package, Images,
 } from 'lucide-react'
 import { AgentUIRenderer } from './AgentUIRenderer'
 import { ProspectModuleBlock } from './prospect/ProspectModuleBlock'
 import { ProspectSearchControls } from './prospect/ProspectSearchControls'
 import { InboxModuleBlock } from './inbox/InboxModuleBlock'
 import { InboxComposerDock } from './inbox/InboxComposerDock'
+import { ProductsModuleBlock } from './catalog/ProductsModuleBlock'
+import { CampaignsModuleBlock } from './catalog/CampaignsModuleBlock'
+import { GalleryModuleBlock } from './catalog/GalleryModuleBlock'
+import { CatalogComposerDock } from './catalog/CatalogComposerDock'
 import { useAgentShell } from '@/lib/agent/AgentShellContext'
 import { useProspectBridgeOptional } from '@/lib/agent/ProspectBridgeContext'
 import { useInboxBridgeOptional } from '@/lib/agent/InboxBridgeContext'
@@ -21,6 +25,21 @@ import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
 import type { AgentChatMessage, AgentTurn, ComponentSpec } from '@/lib/agent/types'
 
 const STORAGE_KEY = 'leadcapture:workspace-chat:v1'
+
+const PRODUCT_SKILLS = new Set(['catalog.products', 'catalog.products.table'])
+const CATALOG_INLINE_SKILLS = new Set([
+  ...PRODUCT_SKILLS,
+  'campaigns.list',
+  'gallery.open',
+])
+
+function isProductSkill(skill?: string) {
+  return !!skill && PRODUCT_SKILLS.has(skill)
+}
+
+function isCatalogInlineSkill(skill?: string) {
+  return !!skill && CATALOG_INLINE_SKILLS.has(skill)
+}
 
 type Shortcut = {
   id: string
@@ -37,6 +56,15 @@ function filterInlineComponents(turn?: AgentTurn): ComponentSpec[] | undefined {
   }
   if (turn.skill === 'messages.inbox') {
     return turn.components.filter((c) => c.type !== 'inbox_stats')
+  }
+  if (isProductSkill(turn.skill)) {
+    return turn.components.filter((c) => c.type !== 'products_stats')
+  }
+  if (turn.skill === 'campaigns.list') {
+    return turn.components.filter((c) => c.type !== 'campaigns_stats')
+  }
+  if (turn.skill === 'gallery.open') {
+    return turn.components.filter((c) => c.type !== 'gallery_stats')
   }
   return turn.components
 }
@@ -57,6 +85,9 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
     openCanvas,
     prospectModuleOpen,
     inboxModuleOpen,
+    productsModuleOpen,
+    campaignsModuleOpen,
+    galleryModuleOpen,
   } = useAgentShell()
 
   const bridge = useProspectBridgeOptional()
@@ -76,7 +107,7 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
   useEffect(() => {
     const el = scrollRef.current
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
-  }, [messages, loading, prospectModuleOpen, inboxModuleOpen])
+  }, [messages, loading, prospectModuleOpen, inboxModuleOpen, productsModuleOpen, campaignsModuleOpen, galleryModuleOpen])
 
   useEffect(() => {
     if (!menuOpen) return
@@ -107,11 +138,22 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
   const lastInboxMsg = [...display].reverse().find(
     (m) => m.role === 'assistant' && !m.loading && m.turn?.skill === 'messages.inbox',
   )
+  const lastProductsMsg = [...display].reverse().find(
+    (m) => m.role === 'assistant' && !m.loading && isProductSkill(m.turn?.skill),
+  )
+  const lastCampaignsMsg = [...display].reverse().find(
+    (m) => m.role === 'assistant' && !m.loading && m.turn?.skill === 'campaigns.list',
+  )
+  const lastGalleryMsg = [...display].reverse().find(
+    (m) => m.role === 'assistant' && !m.loading && m.turn?.skill === 'gallery.open',
+  )
+  const catalogModuleOpen = productsModuleOpen || campaignsModuleOpen || galleryModuleOpen
   const showCanvasBtn = lastAssistant?.turn
     && turnNeedsCanvas(lastAssistant.turn)
     && !desktopCanvasOpen
     && lastAssistant.turn.skill !== 'lead.prospect'
     && lastAssistant.turn.skill !== 'messages.inbox'
+    && !isCatalogInlineSkill(lastAssistant.turn.skill)
 
   function ensureMapDesktop() {
     if (isDesktop) openCanvas('/busca')
@@ -191,6 +233,36 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
       },
     },
     {
+      id: 'products',
+      label: 'Produtos',
+      desc: 'Catálogo no chat ou canvas',
+      icon: Package,
+      action: () => {
+        setMenuOpen(false)
+        triggerSkill('catalog.products', { label: 'Produtos', assistantMessage: 'Seu catálogo:' })
+      },
+    },
+    {
+      id: 'gallery',
+      label: 'Galeria',
+      desc: 'Assets e upload inline',
+      icon: Images,
+      action: () => {
+        setMenuOpen(false)
+        triggerSkill('gallery.open', { label: 'Galeria', assistantMessage: 'Assets da marca:' })
+      },
+    },
+    {
+      id: 'campaigns',
+      label: 'Campanhas',
+      desc: 'Ver e criar campanhas',
+      icon: Megaphone,
+      action: () => {
+        setMenuOpen(false)
+        triggerNav('campanhas')
+      },
+    },
+    {
       id: 'campaign',
       label: 'Criar campanha',
       icon: Megaphone,
@@ -234,6 +306,15 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
           const isInboxActive = inboxModuleOpen
             && msg.id === lastInboxMsg?.id
             && msg.turn?.skill === 'messages.inbox'
+          const isProductsActive = productsModuleOpen
+            && msg.id === lastProductsMsg?.id
+            && isProductSkill(msg.turn?.skill)
+          const isCampaignsActive = campaignsModuleOpen
+            && msg.id === lastCampaignsMsg?.id
+            && msg.turn?.skill === 'campaigns.list'
+          const isGalleryActive = galleryModuleOpen
+            && msg.id === lastGalleryMsg?.id
+            && msg.turn?.skill === 'gallery.open'
           const inlineComponents = filterInlineComponents(msg.turn)
 
           return (
@@ -256,6 +337,15 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
                       )}
                       {msg.turn?.skill === 'messages.inbox' && (
                         <InboxModuleBlock messageId={msg.id} isActive={!!isInboxActive} />
+                      )}
+                      {isProductSkill(msg.turn?.skill) && (
+                        <ProductsModuleBlock messageId={msg.id} isActive={!!isProductsActive} />
+                      )}
+                      {msg.turn?.skill === 'campaigns.list' && (
+                        <CampaignsModuleBlock messageId={msg.id} isActive={!!isCampaignsActive} />
+                      )}
+                      {msg.turn?.skill === 'gallery.open' && (
+                        <GalleryModuleBlock messageId={msg.id} isActive={!!isGalleryActive} />
                       )}
                       {msg.turn && turnShowsInline(msg.turn) && inlineComponents && inlineComponents.length > 0 && (
                         <AgentUIRenderer
@@ -289,7 +379,7 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
       </div>
 
       <div className="workspace-chat__footer">
-        {messages.length > 0 && messages.length < 6 && !prospectModuleOpen && !inboxModuleOpen && (
+        {messages.length > 0 && messages.length < 6 && !prospectModuleOpen && !inboxModuleOpen && !catalogModuleOpen && (
           <div className="workspace-chat__objectives">
             {OBJECTIVE_TRIGGERS.map((chip) => (
               <button
@@ -320,7 +410,9 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
           </div>
         )}
 
-        {!prospectModuleOpen && !inboxModuleOpen && (
+        <CatalogComposerDock />
+
+        {!prospectModuleOpen && !inboxModuleOpen && !catalogModuleOpen && (
           <WhatsAppConnectDock />
         )}
 

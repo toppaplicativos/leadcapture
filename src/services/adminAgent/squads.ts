@@ -89,7 +89,7 @@ export const SKILLS: Record<string, SkillDefinition> = {
     squad: "catalog",
     intents: ["lista de produtos", "tabela produtos", "ver estoque detalhado"],
     permissions: ["catalog.read"],
-    ui: ["table"],
+    ui: ["products_stats", "table"],
   },
   "campaigns.list": {
     id: "campaigns.list",
@@ -98,7 +98,7 @@ export const SKILLS: Record<string, SkillDefinition> = {
     squad: "campaigns",
     intents: ["campanhas", "minhas campanhas", "campanhas ativas"],
     permissions: ["campaigns.read"],
-    ui: ["kpi_row", "nav_suggestions"],
+    ui: ["campaigns_stats", "kpi_row", "nav_suggestions"],
   },
   "campaigns.create": {
     id: "campaigns.create",
@@ -134,7 +134,7 @@ export const SKILLS: Record<string, SkillDefinition> = {
     squad: "catalog",
     intents: ["produtos", "catálogo", "estoque", "inventário"],
     permissions: ["catalog.read"],
-    ui: ["kpi_row", "nav_suggestions"],
+    ui: ["products_stats", "kpi_row", "nav_suggestions"],
   },
   "catalog.orders": {
     id: "catalog.orders",
@@ -215,7 +215,7 @@ export const SKILLS: Record<string, SkillDefinition> = {
     squad: "creative",
     intents: ["abrir galeria", "minhas imagens", "galeria"],
     permissions: [],
-    ui: [],
+    ui: ["gallery_stats", "nav_suggestions"],
   },
   "agent.configure": {
     id: "agent.configure",

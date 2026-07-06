@@ -53,6 +53,7 @@ export const SKILL_META: Record<string, SkillMeta> = {
     kind: "business",
     objectives: ["ver campanhas", "campanhas ativas"],
     requiresCanvas: false,
+    canvasRoute: "/campanhas",
     inlineComponents: true,
   },
   "messages.inbox": {
@@ -92,9 +93,9 @@ export const SKILL_META: Record<string, SkillMeta> = {
   "gallery.open": {
     kind: "business",
     objectives: ["abrir galeria", "minhas imagens"],
-    requiresCanvas: true,
+    requiresCanvas: false,
     canvasRoute: "/galeria",
-    inlineComponents: false,
+    inlineComponents: true,
   },
   "agent.configure": {
     kind: "business",
@@ -119,6 +120,14 @@ export const SKILL_META: Record<string, SkillMeta> = {
     kind: "business",
     objectives: ["ver produtos", "catálogo"],
     requiresCanvas: false,
+    canvasRoute: "/produtos",
+    inlineComponents: true,
+  },
+  "catalog.products.table": {
+    kind: "business",
+    objectives: ["ver estoque", "tabela de produtos"],
+    requiresCanvas: false,
+    canvasRoute: "/produtos",
     inlineComponents: true,
   },
   "catalog.orders": {

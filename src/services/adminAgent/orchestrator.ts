@@ -10,6 +10,7 @@ import {
   fetchRecentConversations,
   fetchRecentLeads,
   fetchRecentProducts,
+  fetchGalleryCount,
 } from "./actions";
 import { SKILLS, NAV_PATHS, buildSkillsCatalog } from "./squads";
 import { getSkillMeta } from "./skillMeta";
@@ -139,6 +140,18 @@ export class AdminAgentOrchestrator {
     if (skillId === "messages.inbox") {
       turn.presentation = "inline";
       turn.canvasRoute = "/mensagens";
+    }
+    if (skillId === "catalog.products" || skillId === "catalog.products.table") {
+      turn.presentation = "inline";
+      turn.canvasRoute = "/produtos";
+    }
+    if (skillId === "campaigns.list") {
+      turn.presentation = "inline";
+      turn.canvasRoute = "/campanhas";
+    }
+    if (skillId === "gallery.open") {
+      turn.presentation = "inline";
+      turn.canvasRoute = "/galeria";
     }
     if (!turn.presentation && turn.components?.length) {
       turn.presentation = "inline";
@@ -619,6 +632,16 @@ Responda APENAS com JSON válido neste formato:
 
       case "catalog.products.table": {
         const products = await fetchRecentProducts(ctx.userId, ctx.brandId);
+        const search = String(sk.search || "").trim();
+        components.push({
+          id: "products-stats",
+          type: "products_stats",
+          props: {
+            total: products.total,
+            search: search || undefined,
+            live: true,
+          },
+        });
         components.push({
           id: "products-table",
           type: "table",
@@ -640,6 +663,15 @@ Responda APENAS com JSON válido neste formato:
 
       case "campaigns.list": {
         const stats = await this.countCampaigns(ctx.userId, ctx.brandId);
+        components.push({
+          id: "campaigns-stats",
+          type: "campaigns_stats",
+          props: {
+            total: stats.total,
+            active: stats.active,
+            live: true,
+          },
+        });
         components.push({
           id: "kpis",
           type: "kpi_row",
@@ -759,7 +791,17 @@ Responda APENAS com JSON válido neste formato:
       case "flow.builder":
       case "creative.generate":
       case "video.create":
-      case "gallery.open":
+      case "gallery.open": {
+        const total = await fetchGalleryCount(ctx.userId, ctx.brandId);
+        components.push({
+          id: "gallery-stats",
+          type: "gallery_stats",
+          props: { total, live: true },
+        });
+        components.push(this.buildNavSuggestions(["galeria"]));
+        break;
+      }
+
       case "agent.configure":
         break;
 
@@ -803,6 +845,18 @@ Responda APENAS com JSON válido neste formato:
 
       case "catalog.products": {
         const inv = await inventoryService.getOverview(ctx.userId, ctx.brandId);
+        const search = String(sk.search || "").trim();
+        components.push({
+          id: "products-stats",
+          type: "products_stats",
+          props: {
+            total: inv.total_products || 0,
+            active: Math.max(0, (inv.total_products || 0) - (inv.out_of_stock || 0)),
+            outOfStock: inv.out_of_stock || 0,
+            search: search || undefined,
+            live: true,
+          },
+        });
         components.push({
           id: "kpis",
           type: "kpi_row",

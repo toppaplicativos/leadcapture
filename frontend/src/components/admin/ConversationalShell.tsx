@@ -5,6 +5,9 @@ import { WhatsAppHealthBanner } from '@/components/WhatsAppHealthBanner'
 import { AgentShellProvider, useAgentShell } from '@/lib/agent/AgentShellContext'
 import { ProspectBridgeProvider } from '@/lib/agent/ProspectBridgeContext'
 import { InboxBridgeProvider } from '@/lib/agent/InboxBridgeContext'
+import { ProductsBridgeProvider } from '@/lib/agent/ProductsBridgeContext'
+import { CampaignsBridgeProvider } from '@/lib/agent/CampaignsBridgeContext'
+import { GalleryBridgeProvider } from '@/lib/agent/GalleryBridgeContext'
 import { WorkspaceChat } from '@/components/agent/WorkspaceChat'
 import { AgentCanvas } from '@/components/agent/AgentCanvas'
 import { getHeaders, clearAdminAuth } from '@/lib/admin/helpers'
@@ -26,7 +29,11 @@ function ConversationalShellInner({ children }: { children?: ReactNode }) {
   const navigate = useNavigate()
   const location = useLocation()
   const { msg: toast, show: showToast } = useShellToast()
-  const { mobileCanvasOpen, setMobileCanvasOpen, desktopCanvasOpen, prospectModuleOpen, inboxModuleOpen } = useAgentShell()
+  const {
+    mobileCanvasOpen, setMobileCanvasOpen, desktopCanvasOpen,
+    prospectModuleOpen, inboxModuleOpen, productsModuleOpen,
+    campaignsModuleOpen, galleryModuleOpen,
+  } = useAgentShell()
   const isImmersive = location.pathname === '/video-studio'
   const [brand, setBrand] = useState<{ name?: string; logo_url?: string }>({})
   const [brands, setBrands] = useState<any[]>([])
@@ -188,7 +195,10 @@ function ConversationalShellInner({ children }: { children?: ReactNode }) {
 
         <main
           className={`agent-shell__canvas flex-1 min-w-0 min-h-0 ${
-            mobileCanvasOpen && desktopCanvasOpen && !prospectModuleOpen && !inboxModuleOpen ? 'is-open' : ''
+            mobileCanvasOpen && desktopCanvasOpen
+              && !prospectModuleOpen && !inboxModuleOpen
+              && !productsModuleOpen && !campaignsModuleOpen && !galleryModuleOpen
+              ? 'is-open' : ''
           }`}
         >
           <button
@@ -221,9 +231,15 @@ export function ConversationalShell({ children }: { children?: ReactNode }) {
     <WhatsAppConnectProvider>
       <ProspectBridgeProvider>
         <InboxBridgeProvider>
-          <AgentShellProvider>
-            <ConversationalShellInner>{children}</ConversationalShellInner>
-          </AgentShellProvider>
+          <ProductsBridgeProvider>
+            <CampaignsBridgeProvider>
+              <GalleryBridgeProvider>
+                <AgentShellProvider>
+                  <ConversationalShellInner>{children}</ConversationalShellInner>
+                </AgentShellProvider>
+              </GalleryBridgeProvider>
+            </CampaignsBridgeProvider>
+          </ProductsBridgeProvider>
         </InboxBridgeProvider>
       </ProspectBridgeProvider>
     </WhatsAppConnectProvider>

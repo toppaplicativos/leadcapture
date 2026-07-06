@@ -1,5 +1,6 @@
 import { CustomersService } from "../customers";
 import { InventoryService } from "../inventory";
+import { galleryService } from "../gallery";
 import { query } from "../../config/database";
 
 const customersService = new CustomersService();
@@ -98,6 +99,16 @@ export async function fetchRecentConversations(userId: string, _brandId: string 
     };
   } catch {
     return { total: 0, rows: [] };
+  }
+}
+
+export async function fetchGalleryCount(userId: string, brandId: string | null) {
+  if (!brandId) return 0;
+  try {
+    const { total } = await galleryService.listItems(userId, brandId, { limit: 1, page: 1 });
+    return total;
+  } catch {
+    return 0;
   }
 }
 

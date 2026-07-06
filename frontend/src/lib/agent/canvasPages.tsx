@@ -13,6 +13,7 @@ const AutomationsView = lazy(() => import('@/pages/admin/automations/Automations
 const DesignPage = lazy(() => import('@/pages/DesignPage').then(m => ({ default: m.DesignPage })))
 const LeadSearchPage = lazy(() => import('@/pages/LeadSearchPage').then(m => ({ default: m.LeadSearchPage })))
 const MessagesPage = lazy(() => import('@/pages/MessagesPage').then(m => ({ default: m.MessagesPage })))
+const ProductsView = lazy(() => import('@/pages/admin/products/ProductsView').then(m => ({ default: m.ProductsView })))
 
 const noop = () => {}
 
@@ -33,6 +34,15 @@ function CampaignsCanvas() {
   )
 }
 
+function ProductsCanvas() {
+  const { showToast } = useToast()
+  return (
+    <ProductsView
+      showToast={(msg: string, tp?: 'ok' | 'err') => showToast(tp === 'err' ? `Erro: ${msg}` : msg)}
+    />
+  )
+}
+
 const CANVAS_PAGE_MAP: Record<string, () => ReactNode> = {
   '/dashboard': () => <DashboardView showToast={noop} />,
   '/fluxos': () => <FlowBuilderPage />,
@@ -42,6 +52,7 @@ const CANVAS_PAGE_MAP: Record<string, () => ReactNode> = {
   '/agente': () => <AgentView showToast={noop} />,
   '/automacoes': () => <AutomationsView />,
   '/campanhas': () => <CampaignsCanvas />,
+  '/produtos': () => <ProductsCanvas />,
   '/design': () => <DesignPage />,
   '/busca': () => <LeadSearchPage variant="canvas" />,
   '/mensagens': () => <MessagesPage variant="canvas" />,

@@ -134,7 +134,9 @@ const PATH_TO_KEY: Record<string, string> = {
 export const OBJECTIVE_TRIGGERS: WorkspaceTrigger[] = [
   { skill: 'lead.prospect', userLabel: 'Prospectar', assistantMessage: 'Vamos prospectar no mapa. Qual segmento e cidade?' },
   { skill: 'messages.inbox', userLabel: 'Responder cliente', assistantMessage: 'Últimas conversas:' },
-  { skill: 'campaigns.create', userLabel: 'Criar campanha', assistantMessage: 'Vamos criar sua campanha.' },
+  { skill: 'catalog.products', userLabel: 'Produtos', assistantMessage: 'Seu catálogo:' },
+  { skill: 'gallery.open', userLabel: 'Galeria', assistantMessage: 'Assets da marca:' },
+  { skill: 'campaigns.list', userLabel: 'Campanhas', assistantMessage: 'Suas campanhas:' },
   { skill: 'order.assisted', userLabel: 'Fazer pedido', assistantMessage: 'Vamos montar esse pedido. Para quem é?' },
 ]
 

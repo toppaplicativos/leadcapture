@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { Loader2, Megaphone, Plus, Sparkles, Settings } from 'lucide-react'
+import { Loader2, Megaphone, Plus, Sparkles, ChevronRight } from 'lucide-react'
 import { adminApi } from '@/lib/api-admin'
 import { useCampaignsBridgeOptional } from '@/lib/agent/CampaignsBridgeContext'
 import { useAgentShell } from '@/lib/agent/AgentShellContext'
@@ -33,29 +33,52 @@ function CampaignChatCard({ campaign, onOpen }: { campaign: any; onOpen: () => v
     <button type="button" className={`catalog-campaign-card ${accent}`} onClick={onOpen}>
       <div className="catalog-campaign-card__bar" />
       <div className="catalog-campaign-card__body">
-        <div className="catalog-campaign-card__head">
-          <Megaphone size={13} className="shrink-0 text-gray-400" />
-          <span className="catalog-campaign-card__title">{campaign.name || 'Campanha'}</span>
+        <div className="catalog-campaign-card__header">
+          <div className="catalog-campaign-card__icon">
+            <Megaphone size={15} strokeWidth={1.75} />
+          </div>
+          <div className="catalog-campaign-card__headline">
+            <span className="catalog-campaign-card__title">{campaign.name || 'Campanha'}</span>
+            <div className="catalog-campaign-card__meta">
+              <span className={`catalog-campaign-card__status is-${campaign.status || 'draft'}`}>
+                {statusLabel(campaign.status)}
+              </span>
+              {campaign.use_ai && <span className="catalog-campaign-card__ai">IA</span>}
+              <span className="catalog-campaign-card__date">{dt(campaign.created_at)}</span>
+            </div>
+          </div>
         </div>
-        <div className="catalog-campaign-card__meta">
-          <span className={`catalog-campaign-card__status is-${campaign.status || 'draft'}`}>
-            {statusLabel(campaign.status)}
-          </span>
-          {campaign.use_ai && <span className="catalog-campaign-card__ai">IA</span>}
-          <span className="catalog-campaign-card__date">{dt(campaign.created_at)}</span>
-        </div>
+
         <div className="catalog-campaign-card__kpis">
-          <span><strong>{num(campaign.target_count || 0)}</strong> leads</span>
-          <span><strong>{num(campaign.sent_count || 0)}</strong> enviados</span>
-          <span><strong>{num(campaign.replied_count || 0)}</strong> resp.</span>
+          <div className="catalog-campaign-card__kpi">
+            <strong>{num(campaign.target_count || 0)}</strong>
+            <span>Leads</span>
+          </div>
+          <div className={`catalog-campaign-card__kpi ${isRunning ? 'is-live' : ''}`}>
+            <strong>{num(campaign.sent_count || 0)}</strong>
+            <span>Enviados</span>
+          </div>
+          <div className={`catalog-campaign-card__kpi ${(campaign.replied_count || 0) > 0 ? 'is-ok' : ''}`}>
+            <strong>{num(campaign.replied_count || 0)}</strong>
+            <span>Respostas</span>
+          </div>
         </div>
+
         {campaign.target_count > 0 && (
-          <div className="catalog-campaign-card__progress">
-            <div className="catalog-campaign-card__progress-bar" style={{ width: `${Math.min(100, pct)}%` }} />
+          <div className="catalog-campaign-card__progress-wrap">
+            <div className="catalog-campaign-card__progress-head">
+              <span>Progresso</span>
+              <span className="tabular-nums">{pct}%</span>
+            </div>
+            <div className="catalog-campaign-card__progress">
+              <div className="catalog-campaign-card__progress-bar" style={{ width: `${Math.min(100, pct)}%` }} />
+            </div>
           </div>
         )}
+
         <span className="catalog-campaign-card__cta">
-          <Settings size={11} /> Abrir campanha
+          Abrir campanha
+          <ChevronRight size={14} strokeWidth={2} />
         </span>
       </div>
     </button>

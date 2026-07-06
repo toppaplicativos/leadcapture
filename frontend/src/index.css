@@ -2101,32 +2101,41 @@ html.agent-workspace #root {
   color: #059669;
 }
 
+.catalog-panel--campaigns .catalog-campaign-grid {
+  margin-top: 0.25rem;
+}
+
 .catalog-campaign-grid {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  max-height: min(52vh, 420px);
+  gap: 0.875rem;
+  max-height: min(56vh, 460px);
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding-right: 0.125rem;
+  padding: 0.25rem 0.125rem 0.5rem;
+  scroll-padding-bottom: 0.5rem;
 }
 
 .catalog-campaign-card {
   display: block;
   width: 100%;
   text-align: left;
-  border-radius: var(--radius-xl);
+  border-radius: 1rem;
   border: 1px solid var(--color-border-light);
   background: white;
   overflow: hidden;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+.catalog-campaign-card:active {
+  transform: scale(0.985);
 }
 .catalog-campaign-card:hover {
   border-color: var(--color-gray-300);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
 }
 .catalog-campaign-card__bar {
-  height: 3px;
+  height: 4px;
   background: var(--color-gray-300);
 }
 .catalog-campaign-card.is-running .catalog-campaign-card__bar {
@@ -2134,18 +2143,45 @@ html.agent-workspace #root {
   animation: pulse 2s ease-in-out infinite;
 }
 .catalog-campaign-card.is-draft .catalog-campaign-card__bar { background: #10b981; }
-.catalog-campaign-card__body { padding: 0.625rem 0.75rem 0.75rem; }
-.catalog-campaign-card__head {
+.catalog-campaign-card.is-done .catalog-campaign-card__bar { background: var(--color-gray-300); }
+
+.catalog-campaign-card__body {
   display: flex;
-  align-items: center;
-  gap: 0.375rem;
-  margin-bottom: 0.25rem;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.875rem 1rem 0;
 }
-.catalog-campaign-card__title {
+
+.catalog-campaign-card__header {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.625rem;
+}
+.catalog-campaign-card__icon {
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 0.625rem;
+  background: var(--color-gray-100);
+  color: var(--color-gray-500);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+.catalog-campaign-card.is-running .catalog-campaign-card__icon {
+  background: #eff6ff;
+  color: #2563eb;
+}
+.catalog-campaign-card__headline {
   flex: 1;
   min-width: 0;
-  font-size: 0.8125rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+.catalog-campaign-card__title {
+  font-size: 0.9375rem;
   font-weight: 700;
+  line-height: 1.25;
   color: var(--color-gray-900);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2156,14 +2192,13 @@ html.agent-workspace #root {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.375rem;
-  margin-bottom: 0.5rem;
 }
 .catalog-campaign-card__status {
-  font-size: 0.5625rem;
+  font-size: 0.625rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.03em;
-  padding: 0.125rem 0.375rem;
+  letter-spacing: 0.04em;
+  padding: 0.1875rem 0.5rem;
   border-radius: 9999px;
   background: var(--color-gray-100);
   color: var(--color-gray-600);
@@ -2175,38 +2210,78 @@ html.agent-workspace #root {
   color: #059669;
 }
 .catalog-campaign-card__ai {
-  font-size: 0.5625rem;
+  font-size: 0.625rem;
   font-weight: 700;
-  padding: 0.125rem 0.375rem;
+  padding: 0.1875rem 0.5rem;
   border-radius: 9999px;
   background: #f5f3ff;
   color: #6d28d9;
 }
 .catalog-campaign-card__date {
-  font-size: 0.625rem;
+  font-size: 0.6875rem;
   color: var(--color-gray-400);
 }
+
 .catalog-campaign-card__kpis {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 0.25rem;
-  margin-bottom: 0.5rem;
-  font-size: 0.625rem;
-  color: var(--color-gray-500);
+  gap: 0.5rem;
 }
-.catalog-campaign-card__kpis strong {
+.catalog-campaign-card__kpi {
+  text-align: center;
+  padding: 0.5rem 0.375rem;
+  border-radius: 0.625rem;
+  background: var(--color-gray-50);
+  border: 1px solid var(--color-border-light);
+}
+.catalog-campaign-card__kpi strong {
   display: block;
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   font-weight: 800;
+  line-height: 1.1;
   color: var(--color-gray-900);
   font-variant-numeric: tabular-nums;
 }
+.catalog-campaign-card__kpi span {
+  display: block;
+  margin-top: 0.125rem;
+  font-size: 0.5625rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-gray-400);
+}
+.catalog-campaign-card__kpi.is-live {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
+.catalog-campaign-card__kpi.is-live strong { color: #1d4ed8; }
+.catalog-campaign-card__kpi.is-ok {
+  background: #ecfdf5;
+  border-color: #a7f3d0;
+}
+.catalog-campaign-card__kpi.is-ok strong { color: #059669; }
+
+.catalog-campaign-card__progress-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+.catalog-campaign-card__progress-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.625rem;
+  font-weight: 600;
+  color: var(--color-gray-500);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
 .catalog-campaign-card__progress {
-  height: 4px;
+  height: 6px;
   border-radius: 9999px;
   background: var(--color-gray-100);
   overflow: hidden;
-  margin-bottom: 0.5rem;
 }
 .catalog-campaign-card__progress-bar {
   height: 100%;
@@ -2215,13 +2290,24 @@ html.agent-workspace #root {
   transition: width 0.5s ease;
 }
 .catalog-campaign-card.is-running .catalog-campaign-card__progress-bar { background: #2563eb; }
+
 .catalog-campaign-card__cta {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 0.25rem;
-  font-size: 0.625rem;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: 0.125rem;
+  padding: 0.75rem 1rem;
+  margin-inline: -1rem;
+  border-top: 1px solid var(--color-border-light);
+  font-size: 0.75rem;
   font-weight: 700;
+  color: var(--color-gray-800);
+  background: var(--color-gray-50);
+}
+.catalog-campaign-card:hover .catalog-campaign-card__cta {
   color: #6d28d9;
+  background: #faf5ff;
 }
 
 .inbox-dock {

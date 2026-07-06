@@ -1,14 +1,77 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Loader2, Megaphone, Plus, Sparkles } from 'lucide-react'
+import { Loader2, Megaphone, Plus, Sparkles, Settings } from 'lucide-react'
 import { adminApi } from '@/lib/api-admin'
 import { useCampaignsBridgeOptional } from '@/lib/agent/CampaignsBridgeContext'
 import { useAgentShell } from '@/lib/agent/AgentShellContext'
+import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
+import { useToast } from '@/components/Toast'
+import { CampaignEditorModal } from '@/pages/admin/campaigns/CampaignsView'
+import { dt, num } from '@/lib/admin/helpers'
+
+function statusLabel(status?: string) {
+  const m: Record<string, string> = {
+    active: 'Ativa',
+    running: 'Enviando',
+    sending: 'Enviando',
+    draft: 'Rascunho',
+    paused: 'Pausada',
+    completed: 'Concluída',
+    finished: 'Finalizada',
+    cancelled: 'Cancelada',
+  }
+  return m[(status || '').toLowerCase()] || status || 'Rascunho'
+}
+
+function CampaignChatCard({ campaign, onOpen }: { campaign: any; onOpen: () => void }) {
+  const isRunning = ['active', 'running', 'sending'].includes(campaign.status)
+  const pct = campaign.target_count > 0
+    ? Math.round(((campaign.sent_count || 0) / campaign.target_count) * 100)
+    : 0
+  const accent = isRunning ? 'is-running' : ['draft', 'paused', 'scheduled'].includes(campaign.status) ? 'is-draft' : 'is-done'
+
+  return (
+    <button type="button" className={`catalog-campaign-card ${accent}`} onClick={onOpen}>
+      <div className="catalog-campaign-card__bar" />
+      <div className="catalog-campaign-card__body">
+        <div className="catalog-campaign-card__head">
+          <Megaphone size={13} className="shrink-0 text-gray-400" />
+          <span className="catalog-campaign-card__title">{campaign.name || 'Campanha'}</span>
+        </div>
+        <div className="catalog-campaign-card__meta">
+          <span className={`catalog-campaign-card__status is-${campaign.status || 'draft'}`}>
+            {statusLabel(campaign.status)}
+          </span>
+          {campaign.use_ai && <span className="catalog-campaign-card__ai">IA</span>}
+          <span className="catalog-campaign-card__date">{dt(campaign.created_at)}</span>
+        </div>
+        <div className="catalog-campaign-card__kpis">
+          <span><strong>{num(campaign.target_count || 0)}</strong> leads</span>
+          <span><strong>{num(campaign.sent_count || 0)}</strong> enviados</span>
+          <span><strong>{num(campaign.replied_count || 0)}</strong> resp.</span>
+        </div>
+        {campaign.target_count > 0 && (
+          <div className="catalog-campaign-card__progress">
+            <div className="catalog-campaign-card__progress-bar" style={{ width: `${Math.min(100, pct)}%` }} />
+          </div>
+        )}
+        <span className="catalog-campaign-card__cta">
+          <Settings size={11} /> Abrir campanha
+        </span>
+      </div>
+    </button>
+  )
+}
 
 export function CampaignsInlinePanel() {
   const bridge = useCampaignsBridgeOptional()
-  const { openCanvas, onOpenModal } = useAgentShell()
+  const { onOpenModal } = useAgentShell()
+  const isDesktop = useIsDesktop()
+  const { showToast } = useToast()
   const [campaigns, setCampaigns] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [cardsOpen, setCardsOpen] = useState(false)
+  const [modalOpen, setModalOpen] = useState(false)
+  const [editCampaign, setEditCampaign] = useState<any>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -27,19 +90,37 @@ export function CampaignsInlinePanel() {
 
   useEffect(() => { load() }, [load])
 
+  const openCampaign = useCallback((c: any) => {
+    setEditCampaign(c)
+    setModalOpen(true)
+    bridge?.publishSnapshot({
+      selectedId: String(c.id),
+      selectedName: c.name || '',
+    })
+  }, [bridge])
+
   useEffect(() => {
-    if (!bridge) return
+    if (!bridge || isDesktop) return
     return bridge.registerHandlers({
-      selectCampaign: (id, name) => {
-        bridge.publishSnapshot({ selectedId: id, selectedName: name || '' })
-        openCanvas('/campanhas')
+      selectCampaign: (id) => {
+        const found = campaigns.find((c) => String(c.id) === String(id))
+        if (found) openCampaign(found)
       },
-      createNew: () => openCanvas('/campanhas'),
+      createNew: () => {
+        setEditCampaign(null)
+        setModalOpen(true)
+        setCardsOpen(true)
+      },
       openAiWizard: () => onOpenModal('ai-campaign'),
-      openFull: () => openCanvas('/campanhas'),
+      openFull: () => {
+        bridge.setModuleExpanded(true)
+        setCardsOpen(true)
+      },
       refresh: () => load(),
     })
-  }, [bridge, load, openCanvas, onOpenModal])
+  }, [bridge, campaigns, load, onOpenModal, openCampaign, isDesktop])
+
+  if (isDesktop) return null
 
   if (loading) {
     return (
@@ -62,31 +143,49 @@ export function CampaignsInlinePanel() {
         <button
           type="button"
           className="catalog-panel__action catalog-panel__action--ghost"
-          onClick={() => bridge?.dispatch({ type: 'create_new' })}
+          onClick={() => {
+            bridge?.setModuleExpanded(true)
+            setCardsOpen(true)
+          }}
         >
-          <Plus size={14} /> Nova
+          <Plus size={14} /> Ver todas
         </button>
       </div>
-      {campaigns.length === 0 ? (
-        <p className="catalog-panel__empty">Nenhuma campanha ainda.</p>
+
+      {!cardsOpen ? (
+        <p className="catalog-panel__empty">
+          Toque em <strong>Ver todas</strong> para listar suas campanhas em cards.
+        </p>
+      ) : campaigns.length === 0 ? (
+        <p className="catalog-panel__empty">Nenhuma campanha ainda. Crie uma com IA ou no gerenciador.</p>
       ) : (
-        <ul className="catalog-panel__list">
-          {campaigns.slice(0, 6).map((c) => (
-            <li key={c.id}>
-              <button
-                type="button"
-                className="catalog-panel__row"
-                onClick={() => bridge?.dispatch({ type: 'select_campaign', id: c.id, name: c.name })}
-              >
-                <Megaphone size={14} className="text-gray-400 shrink-0" />
-                <span className="catalog-panel__row-title">{c.name || 'Campanha'}</span>
-                <span className={`catalog-panel__status is-${c.status || 'draft'}`}>
-                  {c.status || 'draft'}
-                </span>
-              </button>
-            </li>
+        <div className="catalog-campaign-grid">
+          {campaigns.map((c) => (
+            <CampaignChatCard
+              key={c.id}
+              campaign={c}
+              onOpen={() => openCampaign(c)}
+            />
           ))}
-        </ul>
+        </div>
+      )}
+
+      {modalOpen && (
+        <CampaignEditorModal
+          campaign={editCampaign}
+          onClose={() => {
+            setModalOpen(false)
+            setEditCampaign(null)
+            bridge?.publishSnapshot({ selectedId: null, selectedName: '' })
+          }}
+          onSaved={() => {
+            setModalOpen(false)
+            setEditCampaign(null)
+            bridge?.publishSnapshot({ selectedId: null, selectedName: '' })
+            load()
+          }}
+          showToast={(msg, tp) => showToast(tp === 'err' ? `Erro: ${msg}` : msg)}
+        />
       )}
     </div>
   )

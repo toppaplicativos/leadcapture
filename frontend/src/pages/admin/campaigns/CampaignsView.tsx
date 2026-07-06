@@ -24,6 +24,7 @@ import type { ShowToast } from '@/lib/admin/types'
 import { Skeleton, KpiCard, EmptyState } from '@/components/admin/primitives'
 import { MediaPickerModal } from '@/components/gallery/MediaPickerModal'
 import type { GalleryItem } from '@/lib/gallery/types'
+import { useCampaignsBridgeOptional } from '@/lib/agent/CampaignsBridgeContext'
 
 export function CampaignsView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') => void }) {
   const [campaigns, setCampaigns] = useState<any[]>([])
@@ -36,6 +37,8 @@ export function CampaignsView({ showToast }: { showToast: (t: string, tp?: 'ok' 
   /* Wizard de IA - 7 skills SSE que montam campanha do zero a partir de prompt */
   const [aiWizardOpen, setAiWizardOpen] = useState(false)
   const { confirm } = useConfirm()
+  const campaignsBridge = useCampaignsBridgeOptional()
+  const pendingSelectId = useRef<string | null>(null)
 
   function loadCampaigns(silent = false) {
     if (!silent) setLoading(true)
@@ -70,6 +73,46 @@ export function CampaignsView({ showToast }: { showToast: (t: string, tp?: 'ok' 
 
   function openCreate() { setEditCampaign(null); setModalOpen(true) }
   function openEdit(c: any) { setEditCampaign(c); setModalOpen(true) }
+
+  useEffect(() => {
+    if (!campaignsBridge) return
+    return campaignsBridge.registerHandlers({
+      selectCampaign: (id) => {
+        const found = campaigns.find((c) => String(c.id) === String(id))
+        if (found) {
+          pendingSelectId.current = null
+          openEdit(found)
+        } else {
+          pendingSelectId.current = id
+        }
+      },
+      createNew: openCreate,
+      openAiWizard: () => setAiWizardOpen(true),
+      openFull: () => undefined,
+      refresh: () => loadCampaigns(),
+    })
+  }, [campaignsBridge, campaigns])
+
+  useEffect(() => {
+    if (!pendingSelectId.current) return
+    const found = campaigns.find((c) => String(c.id) === String(pendingSelectId.current))
+    if (found) {
+      openEdit(found)
+      pendingSelectId.current = null
+    }
+  }, [campaigns])
+
+  useEffect(() => {
+    if (!campaignsBridge) return
+    const active = campaigns.filter((c) => ['active', 'running', 'sending'].includes(c.status)).length
+    campaignsBridge.publishSnapshot({
+      total: campaigns.length,
+      active,
+      loading,
+      selectedId: editCampaign?.id ? String(editCampaign.id) : null,
+      selectedName: editCampaign?.name || '',
+    })
+  }, [campaignsBridge, campaigns, loading, editCampaign?.id, editCampaign?.name])
 
   async function createFollowupRuler() {
     const ok = await confirm({
@@ -351,7 +394,7 @@ export function CampaignsView({ showToast }: { showToast: (t: string, tp?: 'ok' 
 }
 
 /* ── Campaign Editor Modal (7 tabs — COMPLETE config) ── */
-function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
+export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
   campaign: any; onClose: () => void; onSaved: () => void; showToast: (t: string, tp?: 'ok' | 'err') => void
 }) {
   const isEdit = !!campaign?.id

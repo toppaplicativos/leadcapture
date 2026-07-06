@@ -29,7 +29,14 @@ export function CatalogComposerDock() {
         <button type="button" className="workspace-chat__catalog-chip" onClick={() => campaigns.dispatch({ type: 'open_ai_wizard' })}>
           <Sparkles size={13} /> Campanha IA
         </button>
-        <button type="button" className="workspace-chat__catalog-chip" onClick={() => campaigns.dispatch({ type: 'open_full' })}>
+        <button
+          type="button"
+          className="workspace-chat__catalog-chip"
+          onClick={() => {
+            campaigns.setModuleExpanded(true)
+            campaigns.dispatch({ type: 'open_full' })
+          }}
+        >
           <Plus size={13} /> Ver todas
         </button>
       </div>

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { Loader2, Upload, Images } from 'lucide-react'
 import { fetchGalleryItems } from '@/lib/gallery/api'
 import type { GalleryItem } from '@/lib/gallery/types'
@@ -9,41 +9,50 @@ import { GalleryPreview } from '@/components/gallery/GalleryPreview'
 
 export function GalleryInlinePanel() {
   const bridge = useGalleryBridgeOptional()
+  const publishSnapshot = bridge?.publishSnapshot
+  const registerHandlers = bridge?.registerHandlers
   const { openCanvas } = useAgentShell()
   const [items, setItems] = useState<GalleryItem[]>([])
   const [loading, setLoading] = useState(true)
   const [uploadOpen, setUploadOpen] = useState(false)
   const [preview, setPreview] = useState<GalleryItem | null>(null)
+  const itemsRef = useRef<GalleryItem[]>([])
+  const loadedRef = useRef(false)
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
       const list = await fetchGalleryItems({ page: 1, limit: 12 })
+      itemsRef.current = list.items
       setItems(list.items)
-      bridge?.publishSnapshot({ total: list.total, loading: false })
+      publishSnapshot?.({ total: list.total, loading: false })
     } catch {
-      bridge?.publishSnapshot({ loading: false })
+      publishSnapshot?.({ loading: false })
     } finally {
       setLoading(false)
     }
-  }, [bridge])
-
-  useEffect(() => { load() }, [load])
+  }, [publishSnapshot])
 
   useEffect(() => {
-    if (!bridge) return
-    return bridge.registerHandlers({
+    if (loadedRef.current) return
+    loadedRef.current = true
+    void load()
+  }, [load])
+
+  useEffect(() => {
+    if (!registerHandlers || !publishSnapshot) return
+    return registerHandlers({
       selectItem: (id, title) => {
-        bridge.publishSnapshot({ selectedId: id, selectedTitle: title || '' })
-        const item = items.find((i) => i.id === id)
+        publishSnapshot({ selectedId: id, selectedTitle: title || '' })
+        const item = itemsRef.current.find((i) => i.id === id)
         if (item) setPreview(item)
       },
       openUpload: () => setUploadOpen(true),
       setFolder: () => openCanvas('/galeria'),
       openFull: () => openCanvas('/galeria'),
-      refresh: () => load(),
+      refresh: () => { void load() },
     })
-  }, [bridge, items, load, openCanvas])
+  }, [registerHandlers, publishSnapshot, load, openCanvas])
 
   if (loading) {
     return (

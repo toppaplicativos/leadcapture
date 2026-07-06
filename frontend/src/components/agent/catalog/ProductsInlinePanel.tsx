@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { Loader2, Package, Plus, Search } from 'lucide-react'
 import { getHeaders, money } from '@/lib/admin/helpers'
 import { useProductsBridgeOptional } from '@/lib/agent/ProductsBridgeContext'
@@ -6,10 +6,15 @@ import { useAgentShell } from '@/lib/agent/AgentShellContext'
 
 export function ProductsInlinePanel() {
   const bridge = useProductsBridgeOptional()
+  const publishSnapshot = bridge?.publishSnapshot
+  const registerHandlers = bridge?.registerHandlers
   const { openCanvas } = useAgentShell()
   const [products, setProducts] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const searchRef = useRef(search)
+  searchRef.current = search
+  const loadedRef = useRef(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -20,35 +25,39 @@ export function ProductsInlinePanel() {
       setProducts(list)
       const active = list.filter((p: any) => p.active !== false && p.is_active !== false).length
       const drafts = list.filter((p: any) => p?.metadata?.is_draft).length
-      bridge?.publishSnapshot({
+      publishSnapshot?.({
         total: list.length,
         active,
         drafts,
-        search,
+        search: searchRef.current,
         loading: false,
       })
     } catch {
-      bridge?.publishSnapshot({ loading: false })
+      publishSnapshot?.({ loading: false })
     } finally {
       setLoading(false)
     }
-  }, [bridge, search])
-
-  useEffect(() => { load() }, [load])
+  }, [publishSnapshot])
 
   useEffect(() => {
-    if (!bridge) return
-    return bridge.registerHandlers({
+    if (loadedRef.current) return
+    loadedRef.current = true
+    void load()
+  }, [load])
+
+  useEffect(() => {
+    if (!registerHandlers || !publishSnapshot) return
+    return registerHandlers({
       search: (q) => setSearch(q),
       selectProduct: (id, name) => {
-        bridge.publishSnapshot({ selectedId: id, selectedName: name || '' })
+        publishSnapshot({ selectedId: id, selectedName: name || '' })
         openCanvas('/produtos')
       },
       createNew: () => openCanvas('/produtos'),
       openFull: () => openCanvas('/produtos'),
-      refresh: () => load(),
+      refresh: () => { void load() },
     })
-  }, [bridge, load, openCanvas])
+  }, [registerHandlers, publishSnapshot, load, openCanvas])
 
   const filtered = products.filter((p) => {
     if (!search.trim()) return true

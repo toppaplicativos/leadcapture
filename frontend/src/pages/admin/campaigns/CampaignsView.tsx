@@ -25,6 +25,7 @@ import { Skeleton, KpiCard, EmptyState } from '@/components/admin/primitives'
 import { MediaPickerModal } from '@/components/gallery/MediaPickerModal'
 import type { GalleryItem } from '@/lib/gallery/types'
 import { useCampaignsBridgeOptional } from '@/lib/agent/CampaignsBridgeContext'
+import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
 
 export function CampaignsView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') => void }) {
   const [campaigns, setCampaigns] = useState<any[]>([])
@@ -38,6 +39,9 @@ export function CampaignsView({ showToast }: { showToast: (t: string, tp?: 'ok' 
   const [aiWizardOpen, setAiWizardOpen] = useState(false)
   const { confirm } = useConfirm()
   const campaignsBridge = useCampaignsBridgeOptional()
+  const publishSnapshot = campaignsBridge?.publishSnapshot
+  const registerHandlers = campaignsBridge?.registerHandlers
+  const isDesktop = useIsDesktop()
   const pendingSelectId = useRef<string | null>(null)
 
   function loadCampaigns(silent = false) {
@@ -75,8 +79,8 @@ export function CampaignsView({ showToast }: { showToast: (t: string, tp?: 'ok' 
   function openEdit(c: any) { setEditCampaign(c); setModalOpen(true) }
 
   useEffect(() => {
-    if (!campaignsBridge) return
-    return campaignsBridge.registerHandlers({
+    if (!registerHandlers || !isDesktop) return
+    return registerHandlers({
       selectCampaign: (id) => {
         const found = campaigns.find((c) => String(c.id) === String(id))
         if (found) {
@@ -91,28 +95,28 @@ export function CampaignsView({ showToast }: { showToast: (t: string, tp?: 'ok' 
       openFull: () => undefined,
       refresh: () => loadCampaigns(),
     })
-  }, [campaignsBridge, campaigns])
+  }, [registerHandlers, isDesktop, campaigns])
 
   useEffect(() => {
-    if (!pendingSelectId.current) return
+    if (!isDesktop || !pendingSelectId.current) return
     const found = campaigns.find((c) => String(c.id) === String(pendingSelectId.current))
     if (found) {
       openEdit(found)
       pendingSelectId.current = null
     }
-  }, [campaigns])
+  }, [campaigns, isDesktop])
 
   useEffect(() => {
-    if (!campaignsBridge) return
+    if (!publishSnapshot || !isDesktop) return
     const active = campaigns.filter((c) => ['active', 'running', 'sending'].includes(c.status)).length
-    campaignsBridge.publishSnapshot({
+    publishSnapshot({
       total: campaigns.length,
       active,
       loading,
       selectedId: editCampaign?.id ? String(editCampaign.id) : null,
       selectedName: editCampaign?.name || '',
     })
-  }, [campaignsBridge, campaigns, loading, editCampaign?.id, editCampaign?.name])
+  }, [publishSnapshot, isDesktop, campaigns, loading, editCampaign?.id, editCampaign?.name])
 
   async function createFollowupRuler() {
     const ok = await confirm({

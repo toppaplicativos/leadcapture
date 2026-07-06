@@ -72,7 +72,11 @@ export function ProductsBridgeProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const publishSnapshot = useCallback((s: Partial<ProductsSnapshot>) => {
-    setSnapshot((prev) => ({ ...prev, ...s }))
+    setSnapshot((prev) => {
+      const keys = Object.keys(s) as (keyof ProductsSnapshot)[]
+      if (keys.every((k) => prev[k] === s[k])) return prev
+      return { ...prev, ...s }
+    })
     setIsReady(true)
   }, [])
 

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { Loader2, Megaphone, Plus, Sparkles, Settings } from 'lucide-react'
 import { adminApi } from '@/lib/api-admin'
 import { useCampaignsBridgeOptional } from '@/lib/agent/CampaignsBridgeContext'
@@ -64,6 +64,9 @@ function CampaignChatCard({ campaign, onOpen }: { campaign: any; onOpen: () => v
 
 export function CampaignsInlinePanel() {
   const bridge = useCampaignsBridgeOptional()
+  const publishSnapshot = bridge?.publishSnapshot
+  const registerHandlers = bridge?.registerHandlers
+  const setModuleExpanded = bridge?.setModuleExpanded
   const { onOpenModal } = useAgentShell()
   const isDesktop = useIsDesktop()
   const { showToast } = useToast()
@@ -72,38 +75,45 @@ export function CampaignsInlinePanel() {
   const [cardsOpen, setCardsOpen] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
   const [editCampaign, setEditCampaign] = useState<any>(null)
+  const campaignsRef = useRef<any[]>([])
+  const loadedRef = useRef(false)
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
       const d = await adminApi.campaigns()
       const list = d.campaigns || d.items || (Array.isArray(d) ? d : [])
+      campaignsRef.current = list
       setCampaigns(list)
       const active = list.filter((c: any) => ['active', 'running', 'sending'].includes(c.status)).length
-      bridge?.publishSnapshot({ total: list.length, active, loading: false })
+      publishSnapshot?.({ total: list.length, active, loading: false })
     } catch {
-      bridge?.publishSnapshot({ loading: false })
+      publishSnapshot?.({ loading: false })
     } finally {
       setLoading(false)
     }
-  }, [bridge])
+  }, [publishSnapshot])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    if (isDesktop || loadedRef.current) return
+    loadedRef.current = true
+    void load()
+  }, [isDesktop, load])
 
   const openCampaign = useCallback((c: any) => {
     setEditCampaign(c)
     setModalOpen(true)
-    bridge?.publishSnapshot({
+    publishSnapshot?.({
       selectedId: String(c.id),
       selectedName: c.name || '',
     })
-  }, [bridge])
+  }, [publishSnapshot])
 
   useEffect(() => {
-    if (!bridge || isDesktop) return
-    return bridge.registerHandlers({
+    if (!registerHandlers || !setModuleExpanded || isDesktop) return
+    return registerHandlers({
       selectCampaign: (id) => {
-        const found = campaigns.find((c) => String(c.id) === String(id))
+        const found = campaignsRef.current.find((c) => String(c.id) === String(id))
         if (found) openCampaign(found)
       },
       createNew: () => {
@@ -113,12 +123,12 @@ export function CampaignsInlinePanel() {
       },
       openAiWizard: () => onOpenModal('ai-campaign'),
       openFull: () => {
-        bridge.setModuleExpanded(true)
+        setModuleExpanded(true)
         setCardsOpen(true)
       },
-      refresh: () => load(),
+      refresh: () => { void load() },
     })
-  }, [bridge, campaigns, load, onOpenModal, openCampaign, isDesktop])
+  }, [registerHandlers, setModuleExpanded, isDesktop, onOpenModal, openCampaign, load])
 
   if (isDesktop) return null
 
@@ -144,7 +154,7 @@ export function CampaignsInlinePanel() {
           type="button"
           className="catalog-panel__action catalog-panel__action--ghost"
           onClick={() => {
-            bridge?.setModuleExpanded(true)
+            setModuleExpanded?.(true)
             setCardsOpen(true)
           }}
         >
@@ -176,13 +186,13 @@ export function CampaignsInlinePanel() {
           onClose={() => {
             setModalOpen(false)
             setEditCampaign(null)
-            bridge?.publishSnapshot({ selectedId: null, selectedName: '' })
+            publishSnapshot?.({ selectedId: null, selectedName: '' })
           }}
           onSaved={() => {
             setModalOpen(false)
             setEditCampaign(null)
-            bridge?.publishSnapshot({ selectedId: null, selectedName: '' })
-            load()
+            publishSnapshot?.({ selectedId: null, selectedName: '' })
+            void load()
           }}
           showToast={(msg, tp) => showToast(tp === 'err' ? `Erro: ${msg}` : msg)}
         />

@@ -70,7 +70,11 @@ export function GalleryBridgeProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const publishSnapshot = useCallback((s: Partial<GallerySnapshot>) => {
-    setSnapshot((prev) => ({ ...prev, ...s }))
+    setSnapshot((prev) => {
+      const keys = Object.keys(s) as (keyof GallerySnapshot)[]
+      if (keys.every((k) => prev[k] === s[k])) return prev
+      return { ...prev, ...s }
+    })
     setIsReady(true)
   }, [])
 

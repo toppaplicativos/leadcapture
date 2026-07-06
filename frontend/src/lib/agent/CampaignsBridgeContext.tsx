@@ -70,7 +70,11 @@ export function CampaignsBridgeProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const publishSnapshot = useCallback((s: Partial<CampaignsSnapshot>) => {
-    setSnapshot((prev) => ({ ...prev, ...s }))
+    setSnapshot((prev) => {
+      const keys = Object.keys(s) as (keyof CampaignsSnapshot)[]
+      if (keys.every((k) => prev[k] === s[k])) return prev
+      return { ...prev, ...s }
+    })
     setIsReady(true)
   }, [])
 

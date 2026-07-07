@@ -15,6 +15,7 @@ import { GalleryUploadZone } from '@/components/gallery/GalleryUploadZone'
 import { Button } from '@/components/ui/Button'
 import { cn } from '@/lib/cn'
 import { useGalleryBridgeOptional } from '@/lib/agent/GalleryBridgeContext'
+import { useAgentShell } from '@/lib/agent/AgentShellContext'
 import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
 
 export function GaleriaPage({ embedded = false }: { embedded?: boolean } = {}) {
@@ -34,6 +35,7 @@ export function GaleriaPage({ embedded = false }: { embedded?: boolean } = {}) {
   const galleryBridge = useGalleryBridgeOptional()
   const publishSnapshot = galleryBridge?.publishSnapshot
   const registerHandlers = galleryBridge?.registerHandlers
+  const { openCanvas } = useAgentShell()
   const isDesktop = useIsDesktop()
   const pendingSelectId = useRef<string | null>(null)
 
@@ -91,10 +93,10 @@ export function GaleriaPage({ embedded = false }: { embedded?: boolean } = {}) {
       },
       openUpload: () => setUploadOpen(true),
       setFolder: (folder) => setActiveFolder(folder),
-      openFull: () => undefined,
+      openFull: () => { if (isDesktop) openCanvas('/galeria') },
       refresh: () => { void reload() },
     })
-  }, [registerHandlers, isDesktop, items, publishSnapshot, reload])
+  }, [registerHandlers, isDesktop, items, publishSnapshot, reload, openCanvas])
 
   useEffect(() => {
     if (!isDesktop || !pendingSelectId.current) return

@@ -35,11 +35,12 @@ export function GalleryModuleBlock({ messageId, isActive }: Props) {
       </div>
       {expanded && (
         <div className="catalog-module__body">
-          {!isDesktop ? <GalleryInlinePanel /> : (
+          <GalleryInlinePanel />
+          {isDesktop && (
             <p className="catalog-module__hint">
-              Galeria no canvas.{' '}
+              Galeria completa no canvas à direita.{' '}
               <button type="button" className="catalog-module__link" onClick={() => openCanvas('/galeria')}>
-                Ver tudo
+                Expandir
               </button>
             </p>
           )}

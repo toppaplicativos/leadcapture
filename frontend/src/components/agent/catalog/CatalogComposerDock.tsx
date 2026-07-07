@@ -1,4 +1,4 @@
-import { Plus, Upload, Sparkles, Package } from 'lucide-react'
+import { Plus, Upload, Sparkles, Package, Images } from 'lucide-react'
 import { useAgentShell } from '@/lib/agent/AgentShellContext'
 import { useProductsBridgeOptional } from '@/lib/agent/ProductsBridgeContext'
 import { useCampaignsBridgeOptional } from '@/lib/agent/CampaignsBridgeContext'
@@ -64,7 +64,7 @@ export function CatalogComposerDock() {
             gallery.dispatch({ type: 'open_full' })
           }}
         >
-          Gerenciar
+          <Images size={13} /> Gerenciar
         </button>
       </div>
     )

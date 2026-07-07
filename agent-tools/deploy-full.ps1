@@ -15,21 +15,29 @@ if (-not (Test-Path "$Root\dist\index.js")) {
   exit 1
 }
 
-$tar = Join-Path $PSScriptRoot "frontend-dist-full.tar.gz"
+$frontendTar = Join-Path $PSScriptRoot "frontend-dist-full.tar.gz"
 Push-Location "$Root\frontend\dist"
-tar -czf $tar .
+tar -czf $frontendTar .
 Pop-Location
 
-Write-Host ">> Enviando backend dist/index.js"
-scp "$Root\dist\index.js" "${Vps}:${RemoteRoot}/dist/index.js"
+$backendTar = Join-Path $PSScriptRoot "backend-dist-full.tar.gz"
+Push-Location "$Root\dist"
+tar -czf $backendTar .
+Pop-Location
+
+Write-Host ">> Enviando backend dist completo"
+scp $backendTar "${Vps}:${RemoteRoot}/backend-dist-full.tar.gz"
 
 Write-Host ">> Enviando frontend completo"
-scp $tar "${Vps}:${RemoteRoot}/frontend-dist-full.tar.gz"
+scp $frontendTar "${Vps}:${RemoteRoot}/frontend-dist-full.tar.gz"
 
 ssh $Vps @"
 set -e
 cd $RemoteRoot
-mkdir -p frontend/dist public
+mkdir -p dist frontend/dist public
+rm -rf dist/*
+tar -xzf backend-dist-full.tar.gz -C dist
+mkdir -p frontend/dist
 rm -rf frontend/dist/*
 tar -xzf frontend-dist-full.tar.gz -C frontend/dist
 rsync -a --delete frontend/dist/ public/

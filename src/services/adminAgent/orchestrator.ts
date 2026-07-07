@@ -498,6 +498,15 @@ Responda APENAS com JSON válido neste formato:
         ]);
         if (stats) {
           components.push({
+            id: "leads-stats",
+            type: "leads_stats",
+            props: {
+              total: stats.total || 0,
+              newCount: stats.new_count || 0,
+              live: true,
+            },
+          });
+          components.push({
             id: "lead-stats",
             type: "kpi_row",
             props: {

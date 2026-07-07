@@ -3,6 +3,7 @@ import { ChevronDown, ChevronUp, Loader2, MapPin, X } from 'lucide-react'
 import { useProspectBridge } from '@/lib/agent/ProspectBridgeContext'
 import { useAgentShell } from '@/lib/agent/AgentShellContext'
 import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
+import { ProspectInlinePanel } from './ProspectInlinePanel'
 
 const LeadSearchPage = lazy(() =>
   import('@/pages/LeadSearchPage').then((m) => ({ default: m.LeadSearchPage })),
@@ -62,16 +63,7 @@ export function ProspectModuleBlock({ messageId, isActive }: Props) {
               </Suspense>
             </div>
           )}
-          {isDesktop && (
-            <p className="prospect-module__hint">
-              Mapa aberto ao lado. Ajuste segmento e cidade nos controles abaixo do chat.
-            </p>
-          )}
-          <div className="prospect-module__stats">
-            <span><strong className="tabular-nums">{snap.newCount}</strong> novos</span>
-            <span><strong className="tabular-nums">{snap.capturedLive}</strong> captados agora</span>
-            <span><strong className="tabular-nums">{snap.todayCount}</strong> hoje</span>
-          </div>
+          <ProspectInlinePanel />
         </div>
       )}
     </div>

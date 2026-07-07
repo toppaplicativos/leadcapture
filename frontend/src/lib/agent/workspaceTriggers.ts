@@ -133,6 +133,7 @@ const PATH_TO_KEY: Record<string, string> = {
 /** Chips e atalhos com skill dedicada */
 export const OBJECTIVE_TRIGGERS: WorkspaceTrigger[] = [
   { skill: 'lead.prospect', userLabel: 'Prospectar', assistantMessage: 'Vamos prospectar no mapa. Qual segmento e cidade?' },
+  { skill: 'crm.leads.table', userLabel: 'Leads', assistantMessage: 'Seus leads recentes:' },
   { skill: 'messages.inbox', userLabel: 'Responder cliente', assistantMessage: 'Últimas conversas:' },
   { skill: 'catalog.products', userLabel: 'Produtos', assistantMessage: 'Seu catálogo:' },
   { skill: 'gallery.open', userLabel: 'Galeria', assistantMessage: 'Assets da marca:' },

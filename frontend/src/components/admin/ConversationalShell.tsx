@@ -8,6 +8,7 @@ import { InboxBridgeProvider } from '@/lib/agent/InboxBridgeContext'
 import { ProductsBridgeProvider } from '@/lib/agent/ProductsBridgeContext'
 import { CampaignsBridgeProvider } from '@/lib/agent/CampaignsBridgeContext'
 import { GalleryBridgeProvider } from '@/lib/agent/GalleryBridgeContext'
+import { LeadsBridgeProvider } from '@/lib/agent/LeadsBridgeContext'
 import { WorkspaceChat } from '@/components/agent/WorkspaceChat'
 import { AgentCanvas } from '@/components/agent/AgentCanvas'
 import { getHeaders, clearAdminAuth } from '@/lib/admin/helpers'
@@ -33,7 +34,7 @@ function ConversationalShellInner({ children }: { children?: ReactNode }) {
   const {
     mobileCanvasOpen, setMobileCanvasOpen, desktopCanvasOpen,
     prospectModuleOpen, inboxModuleOpen, productsModuleOpen,
-    campaignsModuleOpen, galleryModuleOpen,
+    campaignsModuleOpen, galleryModuleOpen, leadsModuleOpen,
   } = useAgentShell()
   const isImmersive = location.pathname === '/video-studio'
   const isDesktop = useIsDesktop()
@@ -199,7 +200,7 @@ function ConversationalShellInner({ children }: { children?: ReactNode }) {
           className={`agent-shell__canvas flex-1 min-w-0 min-h-0 ${
             mobileCanvasOpen && desktopCanvasOpen
               && !prospectModuleOpen && !inboxModuleOpen
-              && !productsModuleOpen && !campaignsModuleOpen && !galleryModuleOpen
+              && !productsModuleOpen && !campaignsModuleOpen && !galleryModuleOpen && !leadsModuleOpen
               ? 'is-open' : ''
           }`}
         >
@@ -238,9 +239,11 @@ export function ConversationalShell({ children }: { children?: ReactNode }) {
           <ProductsBridgeProvider>
             <CampaignsBridgeProvider>
               <GalleryBridgeProvider>
-                <AgentShellProvider>
-                  <ConversationalShellInner>{children}</ConversationalShellInner>
-                </AgentShellProvider>
+                <LeadsBridgeProvider>
+                  <AgentShellProvider>
+                    <ConversationalShellInner>{children}</ConversationalShellInner>
+                  </AgentShellProvider>
+                </LeadsBridgeProvider>
               </GalleryBridgeProvider>
             </CampaignsBridgeProvider>
           </ProductsBridgeProvider>

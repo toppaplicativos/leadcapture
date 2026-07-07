@@ -21,6 +21,19 @@ export const SKILL_TRAINER_SKILLS = new Set([
   'skills.create',
 ])
 
+export const LEADS_SKILLS = new Set([
+  'crm.leads.table',
+  'crm.leads.list',
+  'crm.leads.search',
+  'crm.lead.find',
+  'crm.lead.detail',
+])
+
+export const PROSPECT_SKILLS = new Set([
+  'lead.prospect',
+  'crm.leads.search',
+])
+
 export function isCampaignSkill(skill?: string) {
   return !!skill && CAMPAIGN_SKILLS.has(skill)
 }
@@ -35,4 +48,12 @@ export function isCreativeSkill(skill?: string) {
 
 export function isSkillTrainerSkill(skill?: string) {
   return !!skill && SKILL_TRAINER_SKILLS.has(skill)
+}
+
+export function isLeadsSkill(skill?: string) {
+  return !!skill && LEADS_SKILLS.has(skill)
+}
+
+export function isProspectSkill(skill?: string) {
+  return !!skill && PROSPECT_SKILLS.has(skill)
 }

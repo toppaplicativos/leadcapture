@@ -9,6 +9,9 @@ import {
 import { Button } from '@/components/ui'
 import { SmartImportModal } from '@/components/SmartImportModal'
 import { WhatsAppSendModal } from '@/components/WhatsAppSendModal'
+import { useLeadsBridgeOptional } from '@/lib/agent/LeadsBridgeContext'
+import { useAgentShellOptional } from '@/lib/agent/AgentShellContext'
+import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
 
 /* ── Auth helpers ── */
 function getHeaders(): Record<string, string> {
@@ -148,7 +151,7 @@ function Chip({
 /* ══════════════════════════════════════════════
    LEADS PAGE — Server-side pagination + filters
    ══════════════════════════════════════════════ */
-export function LeadsPage() {
+export function LeadsPage({ embedded = false }: { embedded?: boolean } = {}) {
   const [leads, setLeads] = useState<Lead[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
@@ -188,6 +191,10 @@ export function LeadsPage() {
   const [showFilters, setShowFilters] = useState(true)
 
   const LIMIT = 50
+  const leadsBridge = useLeadsBridgeOptional()
+  const agentShell = useAgentShellOptional()
+  const isDesktop = useIsDesktop()
+  const pendingSelectId = useRef<string | null>(null)
 
   /* ── Load filter options once on mount ── */
   useEffect(() => {
@@ -438,6 +445,54 @@ export function LeadsPage() {
     }
   }
 
+  useEffect(() => {
+    if (!leadsBridge?.registerHandlers || (!embedded && !isDesktop)) return
+    return leadsBridge.registerHandlers({
+      search: (q) => {
+        setSearch(q)
+        setPage(1)
+        loadLeads(1)
+      },
+      filterStatus: (s) => {
+        setSelStatus(s ? [s] : [])
+        setPage(1)
+      },
+      selectLead: (id) => {
+        const found = leads.find((l) => String(l.id) === String(id))
+        if (found) setSelectedLead(found)
+        else pendingSelectId.current = id
+      },
+      openFull: () => { if (isDesktop) agentShell?.openCanvas('/leads') },
+      openImport: () => setSmartImportOpen(true),
+      validateWhatsapp: () => { void runValidateAll() },
+      refresh: () => loadLeads(),
+    })
+  }, [leadsBridge, embedded, isDesktop, leads, agentShell])
+
+  useEffect(() => {
+    if (!isDesktop || !pendingSelectId.current) return
+    const found = leads.find((l) => String(l.id) === String(pendingSelectId.current))
+    if (found) {
+      setSelectedLead(found)
+      pendingSelectId.current = null
+    }
+  }, [leads, isDesktop])
+
+  useEffect(() => {
+    if (!leadsBridge?.publishSnapshot || (!embedded && !isDesktop)) return
+    const newCount = filterOptions?.statuses?.find((x) => x.value === 'new')?.count
+      ?? leads.filter((l) => l.status === 'new').length
+    leadsBridge.publishSnapshot({
+      total: total || filterOptions?.total || 0,
+      newCount,
+      search,
+      statusFilter: selStatus[0] || '',
+      loading,
+      selectedId: selectedLead?.id ? String(selectedLead.id) : null,
+      selectedName: selectedLead?.name || '',
+    })
+  }, [leadsBridge, embedded, isDesktop, total, filterOptions, leads, search, selStatus, loading, selectedLead])
+
   const totalPages = Math.ceil(total / LIMIT)
   const startItem = (page - 1) * LIMIT + 1
   const endItem = Math.min(page * LIMIT, total)
@@ -457,12 +512,19 @@ export function LeadsPage() {
 
       {/* ── Header slim — título + ações principais ── */}
       <header className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-baseline gap-3">
-          <h2 className="text-[24px] font-bold text-gray-900 tracking-[-0.02em]">Leads</h2>
-          <p className="text-[12px] text-gray-400 tabular-nums">
-            {filterOptions ? `${filterOptions.total.toLocaleString('pt-BR')} registros` : '—'}
+        {embedded ? (
+          <p className="text-[12px] text-gray-500 tabular-nums">
+            {filterOptions ? `${filterOptions.total.toLocaleString('pt-BR')} leads` : '—'}
+            {selStatus.length ? ` · ${selStatus.join(', ')}` : ''}
           </p>
-        </div>
+        ) : (
+          <div className="flex items-baseline gap-3">
+            <h2 className="text-[24px] font-bold text-gray-900 tracking-[-0.02em]">Leads</h2>
+            <p className="text-[12px] text-gray-400 tabular-nums">
+              {filterOptions ? `${filterOptions.total.toLocaleString('pt-BR')} registros` : '—'}
+            </p>
+          </div>
+        )}
         <div className="flex items-center gap-2">
           <button
             onClick={runValidateAll}

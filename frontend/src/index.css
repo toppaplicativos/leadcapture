@@ -2195,6 +2195,212 @@ html.agent-workspace #root {
   margin-top: 0.25rem;
 }
 
+.catalog-panel__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  margin-top: 0.375rem;
+}
+.catalog-panel__filter-chip {
+  height: 1.625rem;
+  padding: 0 0.625rem;
+  border-radius: 9999px;
+  font-size: 0.625rem;
+  font-weight: 600;
+  color: var(--color-gray-600);
+  background: var(--color-gray-100);
+  border: 1px solid var(--color-border-light);
+}
+.catalog-panel__filter-chip.is-active {
+  color: white;
+  background: var(--color-gray-900);
+  border-color: var(--color-gray-900);
+}
+
+.catalog-panel--leads .catalog-lead-grid,
+.catalog-panel--prospect .catalog-lead-list {
+  margin-top: 0.25rem;
+}
+
+.catalog-lead-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.75rem;
+  max-height: min(42vh, 320px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.catalog-lead-compact-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.5rem;
+  max-height: min(36vh, 260px);
+  overflow-y: auto;
+}
+.catalog-lead-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  max-height: min(36vh, 260px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.catalog-lead-list-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.5rem 0.625rem;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border-light);
+  background: white;
+  text-align: left;
+  flex-shrink: 0;
+}
+.catalog-lead-list-row__avatar {
+  width: 2rem;
+  height: 2rem;
+  border-radius: var(--radius-md);
+  display: grid;
+  place-items: center;
+  background: var(--color-gray-100);
+  color: var(--color-gray-500);
+  flex-shrink: 0;
+}
+.catalog-lead-list-row__avatar.is-new { background: #eff6ff; color: #2563eb; }
+.catalog-lead-list-row__main { flex: 1; min-width: 0; }
+.catalog-lead-list-row__name {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-gray-900);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.catalog-lead-list-row__meta {
+  display: block;
+  font-size: 0.625rem;
+  color: var(--color-gray-500);
+}
+.catalog-lead-list-row__wa { color: #059669; flex-shrink: 0; }
+
+.catalog-lead-compact-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+  text-align: left;
+}
+.catalog-lead-compact-tile__dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 9999px;
+  background: var(--color-gray-300);
+}
+.catalog-lead-compact-tile__dot.is-new { background: #2563eb; }
+.catalog-lead-compact-tile__name {
+  font-size: 0.625rem;
+  font-weight: 600;
+  color: var(--color-gray-800);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.catalog-lead-compact-tile__meta { font-size: 0.5625rem; color: var(--color-gray-400); }
+
+.catalog-lead-card {
+  display: flex;
+  width: 100%;
+  flex-shrink: 0;
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--color-border-light);
+  background: white;
+  overflow: hidden;
+  text-align: left;
+}
+.catalog-lead-card__bar { width: 0.25rem; background: #2563eb; flex-shrink: 0; }
+.catalog-lead-card.is-contacted .catalog-lead-card__bar { background: #d97706; }
+.catalog-lead-card.is-replied .catalog-lead-card__bar { background: #059669; }
+.catalog-lead-card__body { flex: 1; padding: 0.75rem; display: flex; flex-direction: column; gap: 0.5rem; }
+.catalog-lead-card__header { display: flex; gap: 0.5rem; }
+.catalog-lead-card__avatar {
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: var(--radius-lg);
+  background: var(--color-gray-100);
+  display: grid;
+  place-items: center;
+  color: var(--color-gray-500);
+}
+.catalog-lead-card__title { font-size: 0.8125rem; font-weight: 700; color: var(--color-gray-900); }
+.catalog-lead-card__meta { display: flex; gap: 0.375rem; flex-wrap: wrap; font-size: 0.625rem; }
+.catalog-lead-card__status { font-weight: 600; color: var(--color-gray-600); }
+.catalog-lead-card__city { color: var(--color-gray-400); }
+.catalog-lead-card__kpis { display: flex; gap: 0.75rem; font-size: 0.625rem; color: var(--color-gray-600); }
+.catalog-lead-card__kpi { display: inline-flex; align-items: center; gap: 0.25rem; }
+.catalog-lead-card__kpi.is-wa { color: #059669; }
+.catalog-lead-card__cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--color-gray-700);
+}
+
+.catalog-lead-detail {
+  margin-top: 0.5rem;
+  padding: 0.75rem;
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--color-border-light);
+  background: var(--color-surface);
+}
+.catalog-lead-detail__head { display: flex; justify-content: space-between; align-items: center; }
+.catalog-lead-detail__title { font-size: 0.875rem; font-weight: 700; }
+.catalog-lead-detail__close { font-size: 1.25rem; line-height: 1; color: var(--color-gray-400); }
+.catalog-lead-detail__row { display: flex; align-items: center; gap: 0.375rem; font-size: 0.75rem; color: var(--color-gray-600); margin: 0.25rem 0; }
+.catalog-lead-detail__status { font-size: 0.6875rem; font-weight: 600; color: var(--color-gray-500); }
+
+.prospect-inline__metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+.prospect-inline__metric {
+  padding: 0.5rem;
+  border-radius: var(--radius-lg);
+  background: var(--color-gray-50);
+  border: 1px solid var(--color-border-light);
+  text-align: center;
+}
+.prospect-inline__metric-val {
+  display: block;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--color-gray-900);
+  line-height: 1.1;
+}
+.prospect-inline__metric-val--new { color: #2563eb; }
+.prospect-inline__metric-val--ok { color: #059669; }
+.prospect-inline__metric-lbl { font-size: 0.5625rem; font-weight: 600; color: var(--color-gray-500); text-transform: uppercase; letter-spacing: 0.04em; }
+.prospect-inline__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  margin: 0.5rem 0;
+}
+.prospect-inline__section-title {
+  font-size: 0.625rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-gray-400);
+  margin: 0.5rem 0 0.375rem;
+}
+
 .catalog-campaign-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);

@@ -18,7 +18,8 @@ import { useCampaignsBridgeOptional } from './CampaignsBridgeContext'
 import { useGalleryBridgeOptional } from './GalleryBridgeContext'
 import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
 import { resolveTrigger } from './workspaceTriggers'
-import { isCampaignSkill } from './composerAiActions'
+import { isCampaignSkill, isLeadsSkill } from './composerAiActions'
+import { useLeadsBridgeOptional } from './LeadsBridgeContext'
 import { useWhatsAppConnectOptional } from '@/lib/whatsapp/WhatsAppConnectContext'
 import type { AgentModalId, AgentTurn, ComponentEvent, SkillContext, TriggerSkillOptions } from './types'
 
@@ -52,6 +53,8 @@ type AgentShellValue = {
   campaignsModuleOpen: boolean
   closeGalleryModule: () => void
   galleryModuleOpen: boolean
+  closeLeadsModule: () => void
+  leadsModuleOpen: boolean
 }
 
 const AgentShellContext = createContext<AgentShellValue | null>(null)
@@ -60,6 +63,10 @@ export function useAgentShell() {
   const ctx = useContext(AgentShellContext)
   if (!ctx) throw new Error('useAgentShell must be used within AgentShellProvider')
   return ctx
+}
+
+export function useAgentShellOptional() {
+  return useContext(AgentShellContext)
 }
 
 export function AgentShellProvider({ children }: { children: ReactNode }) {
@@ -72,6 +79,7 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
   const productsBridge = useProductsBridgeOptional()
   const campaignsBridge = useCampaignsBridgeOptional()
   const galleryBridge = useGalleryBridgeOptional()
+  const leadsBridge = useLeadsBridgeOptional()
   const isDesktop = useIsDesktop()
 
   const PRODUCT_SKILLS = useMemo(() => new Set(['catalog.products', 'catalog.products.table']), [])
@@ -176,6 +184,15 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
     setMobileCanvasOpen(false)
     setCanvasMode('agent')
   }, [galleryBridge])
+
+  const closeLeadsModule = useCallback(() => {
+    leadsBridge?.setModuleOpen(false)
+    leadsBridge?.setModuleExpanded(false)
+    setDesktopCanvasOpen(false)
+    setEmbeddedRoute(null)
+    setMobileCanvasOpen(false)
+    setCanvasMode('agent')
+  }, [leadsBridge])
 
   function openCatalogCanvas(route: string) {
     if (isDesktop) {
@@ -296,6 +313,24 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
     }
   }, [activeTurn, campaignsBridge, isDesktop, closeCampaignsModule])
 
+  /* Leads CRM: desktop = canvas; mobile = inline */
+  useEffect(() => {
+    if (!activeTurn || !isLeadsSkill(activeTurn.skill)) {
+      if (leadsBridge?.moduleOpen && activeTurn && !isLeadsSkill(activeTurn.skill)) {
+        closeLeadsModule()
+      }
+      return
+    }
+    leadsBridge?.setModuleOpen(true)
+    leadsBridge?.setModuleExpanded(true)
+    openCatalogCanvas('/leads')
+    const stats = activeTurn.components?.find((c) => c.type === 'leads_stats')
+    const search = String(stats?.props?.search || '').trim()
+    const status = String(stats?.props?.status || '').trim()
+    if (search) leadsBridge?.queueCommand({ type: 'search', query: search })
+    if (status) leadsBridge?.queueCommand({ type: 'filter_status', status })
+  }, [activeTurn, leadsBridge, isDesktop, closeLeadsModule])
+
   /* Galeria: desktop = canvas; mobile = inline com upload */
   useEffect(() => {
     if (!activeTurn || activeTurn.skill !== 'gallery.open') {
@@ -349,6 +384,10 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
     }
     if (key === 'galeria' || raw === '/galeria') {
       chat.triggerSkill('gallery.open', { label: 'Galeria', assistantMessage: 'Assets da marca:' })
+      return
+    }
+    if (key === 'leads' || raw === '/leads') {
+      chat.triggerSkill('crm.leads.table', { label: 'Ver leads', assistantMessage: 'Seus leads recentes:' })
       return
     }
 
@@ -415,6 +454,8 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
     campaignsModuleOpen: !!campaignsBridge?.moduleOpen,
     closeGalleryModule,
     galleryModuleOpen: !!galleryBridge?.moduleOpen,
+    closeLeadsModule,
+    leadsModuleOpen: !!leadsBridge?.moduleOpen,
   }
 
   return (

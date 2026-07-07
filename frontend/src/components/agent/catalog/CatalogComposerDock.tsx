@@ -1,13 +1,15 @@
 import {
-  Plus, Upload, Sparkles, Package, Images, Megaphone, Wand2, Brain,
+  Plus, Upload, Sparkles, Package, Images, Megaphone, Wand2, Brain, Users, ShieldCheck, Zap, MapPin,
 } from 'lucide-react'
 import { useAgentShell } from '@/lib/agent/AgentShellContext'
 import { useProductsBridgeOptional } from '@/lib/agent/ProductsBridgeContext'
 import { useCampaignsBridgeOptional } from '@/lib/agent/CampaignsBridgeContext'
 import { useGalleryBridgeOptional } from '@/lib/agent/GalleryBridgeContext'
 import { useProspectBridgeOptional } from '@/lib/agent/ProspectBridgeContext'
+import { useLeadsBridgeOptional } from '@/lib/agent/LeadsBridgeContext'
 import {
   isCampaignSkill,
+  isLeadsSkill,
   isProductSkill,
   isCreativeSkill,
   isSkillTrainerSkill,
@@ -56,6 +58,7 @@ export function CatalogComposerDock() {
     productsModuleOpen,
     campaignsModuleOpen,
     galleryModuleOpen,
+    leadsModuleOpen,
     prospectModuleOpen,
     onOpenModal,
     openCanvas,
@@ -65,8 +68,10 @@ export function CatalogComposerDock() {
   const campaigns = useCampaignsBridgeOptional()
   const gallery = useGalleryBridgeOptional()
   const prospect = useProspectBridgeOptional()
+  const leads = useLeadsBridgeOptional()
 
   const campaignContext = campaignsModuleOpen || isCampaignSkill(activeTurn?.skill)
+  const leadsContext = leadsModuleOpen || isLeadsSkill(activeTurn?.skill)
   const productContext = productsModuleOpen || isProductSkill(activeTurn?.skill)
   const galleryContext = galleryModuleOpen || activeTurn?.skill === 'gallery.open'
   const creativeContext = isCreativeSkill(activeTurn?.skill)
@@ -104,6 +109,38 @@ export function CatalogComposerDock() {
     )
   }
 
+  if (leadsContext) {
+    const openImport = () => {
+      if (leads?.isReady) leads.dispatch({ type: 'open_import' })
+      else openCanvas('/leads')
+    }
+
+    return (
+      <div className="workspace-chat__action-dock">
+        <AiPrimaryButton label="Importar leads com IA" onClick={openImport} />
+        <div className="workspace-chat__action-chips">
+          {leads?.isReady && (
+            <>
+              <ActionChip
+                label="Gerenciar"
+                icon={Users}
+                onClick={() => {
+                  leads.setModuleExpanded(true)
+                  leads.dispatch({ type: 'open_full' })
+                }}
+              />
+              <ActionChip
+                label="Validar WA"
+                icon={ShieldCheck}
+                onClick={() => leads.dispatch({ type: 'validate_whatsapp' })}
+              />
+            </>
+          )}
+        </div>
+      </div>
+    )
+  }
+
   if (prospectModuleOpen && prospect?.isReady) {
     return (
       <div className="workspace-chat__action-dock">
@@ -112,6 +149,18 @@ export function CatalogComposerDock() {
           icon={Wand2}
           onClick={() => prospect.dispatch({ type: 'open_ideas' })}
         />
+        <div className="workspace-chat__action-chips">
+          <ActionChip
+            label="Captar todos"
+            icon={Zap}
+            onClick={() => prospect.dispatch({ type: 'capture_batch' })}
+          />
+          <ActionChip
+            label="Mapa"
+            icon={MapPin}
+            onClick={() => openCanvas('/busca')}
+          />
+        </div>
       </div>
     )
   }

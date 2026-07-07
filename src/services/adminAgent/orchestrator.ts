@@ -1191,10 +1191,10 @@ Responda APENAS com JSON válido neste formato:
 
   private async countOrders(userId: string, brandId: string | null): Promise<number> {
     try {
-      const brandClause = brandId ? "AND brand_id = ?" : "";
+      const brandClause = brandId ? "AND o.brand_id = ?" : "AND o.brand_id IS NULL";
       const params = brandId ? [userId, brandId] : [userId];
       const row = await queryOne<any>(
-        `SELECT COUNT(*)::int AS n FROM orders WHERE user_id = ? ${brandClause}`,
+        `SELECT COUNT(*)::int AS n FROM commerce_orders o WHERE o.user_id = ? ${brandClause}`,
         params,
       );
       return Number(row?.n ?? 0);

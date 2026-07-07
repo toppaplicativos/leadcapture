@@ -169,71 +169,91 @@ const ORDER_STATUS_LABEL: Record<string, string> = {
   cancelado: "Cancelado",
 };
 
+const ORDER_BUSINESS_STATUS_SQL = `COALESCE(m.business_status, CASE o.status_pedido
+  WHEN 'pago' THEN 'pago'
+  WHEN 'aguardando_pagamento' THEN 'aguardando_pagamento'
+  WHEN 'cancelado' THEN 'cancelado'
+  WHEN 'estornado' THEN 'cancelado'
+  ELSE 'novo'
+END)`;
+
+function orderBrandClause(brandId: string | null, params: any[]): string {
+  if (brandId) {
+    params.push(brandId);
+    return "o.brand_id = ?";
+  }
+  return "o.brand_id IS NULL";
+}
+
 export async function fetchRecentOrders(
   userId: string,
   brandId: string | null,
   opts?: { search?: string; status?: string; limit?: number },
 ) {
-  const limit = opts?.limit || 12;
-  const params: any[] = [userId];
-  let where = "user_id = ?";
-  if (brandId) {
-    where += " AND brand_id = ?";
-    params.push(brandId);
-  }
-  if (opts?.status) {
-    where += " AND LOWER(COALESCE(business_status, status_pedido, '')) = ?";
-    params.push(String(opts.status).toLowerCase());
-  }
-  if (opts?.search?.trim()) {
-    where += " AND (customer_name ILIKE ? OR CAST(order_number AS TEXT) ILIKE ?)";
-    const q = `%${opts.search.trim()}%`;
-    params.push(q, q);
-  }
-  params.push(limit);
+  try {
+    const limit = opts?.limit || 12;
+    const params: any[] = [userId];
+    const brandClause = orderBrandClause(brandId, params);
+    let where = `o.user_id = ? AND ${brandClause}`;
+    if (opts?.status) {
+      where += ` AND LOWER(${ORDER_BUSINESS_STATUS_SQL}) = ?`;
+      params.push(String(opts.status).toLowerCase());
+    }
+    if (opts?.search?.trim()) {
+      where += " AND (o.customer_name ILIKE ? OR o.id::text ILIKE ?)";
+      const q = `%${opts.search.trim()}%`;
+      params.push(q, q);
+    }
+    const countParams = [...params];
+    params.push(limit);
 
-  const rows = await query<any>(
-    `SELECT id, order_number, customer_name, customer_phone, valor_total,
-            COALESCE(business_status, status_pedido, 'novo') AS status,
-            forma_pagamento, channel, origem, created_at
-     FROM orders WHERE ${where}
-     ORDER BY created_at DESC LIMIT ?`,
-    params,
-  );
+    const rows = await query<any>(
+      `SELECT o.id, o.customer_name, o.customer_phone, o.valor_total,
+              ${ORDER_BUSINESS_STATUS_SQL} AS status,
+              o.forma_pagamento,
+              COALESCE(m.channel, CASE o.origem WHEN 'whatsapp' THEN 'WhatsApp' WHEN 'checkout_web' THEN 'Site' ELSE 'Site' END) AS channel,
+              o.origem, o.created_at
+       FROM commerce_orders o
+       LEFT JOIN order_management_meta m ON m.order_id = o.id
+       WHERE ${where}
+       ORDER BY o.created_at DESC LIMIT ?`,
+      params,
+    );
 
-  const countParams = params.slice(0, -1);
-  const totalRow = await queryOne<{ n: number }>(
-    `SELECT COUNT(*)::int AS n FROM orders WHERE ${where}`,
-    countParams,
-  );
+    const totalRow = await queryOne<{ n: number }>(
+      `SELECT COUNT(*)::int AS n
+       FROM commerce_orders o
+       LEFT JOIN order_management_meta m ON m.order_id = o.id
+       WHERE ${where}`,
+      countParams,
+    );
 
-  return {
-    total: Number(totalRow?.n ?? rows.length),
-    rows: (rows || []).map((o: any) => {
-      const st = String(o.status || "novo").toLowerCase();
-      return {
-        id: o.id,
-        name: o.customer_name || "Cliente",
-        order_number: o.order_number || String(o.id || "").slice(0, 8),
-        phone: o.customer_phone || "",
-        total: Number(o.valor_total || 0),
-        status: ORDER_STATUS_LABEL[st] || st,
-        payment: String(o.forma_pagamento || "").toUpperCase() || "—",
-        channel: o.channel || o.origem || "",
-        created_at: o.created_at || "",
-      };
-    }),
-  };
+    return {
+      total: Number(totalRow?.n ?? rows.length),
+      rows: (rows || []).map((o: any) => {
+        const st = String(o.status || "novo").toLowerCase();
+        return {
+          id: o.id,
+          name: o.customer_name || "Cliente",
+          order_number: String(o.id || "").slice(0, 8),
+          phone: o.customer_phone || "",
+          total: Number(o.valor_total || 0),
+          status: ORDER_STATUS_LABEL[st] || st,
+          payment: String(o.forma_pagamento || "").toUpperCase() || "—",
+          channel: o.channel || o.origem || "",
+          created_at: o.created_at || "",
+        };
+      }),
+    };
+  } catch {
+    return { total: 0, rows: [] };
+  }
 }
 
 export async function fetchOrderStats(userId: string, brandId: string | null) {
   try {
     const params: any[] = [userId];
-    let where = "user_id = ?";
-    if (brandId) {
-      where += " AND brand_id = ?";
-      params.push(brandId);
-    }
+    const brandClause = orderBrandClause(brandId, params);
     const row = await queryOne<{
       total: number
       pending_count: number
@@ -241,10 +261,12 @@ export async function fetchOrderStats(userId: string, brandId: string | null) {
       revenue_total: number
     }>(
       `SELECT COUNT(*)::int AS total,
-        SUM(CASE WHEN LOWER(COALESCE(business_status, status_pedido, '')) IN ('novo', 'aguardando_pagamento') THEN 1 ELSE 0 END)::int AS pending_count,
-        SUM(CASE WHEN LOWER(COALESCE(business_status, status_pedido, '')) IN ('pago', 'em_preparacao', 'em_entrega', 'entregue') THEN 1 ELSE 0 END)::int AS paid_count,
-        COALESCE(SUM(valor_total), 0)::float AS revenue_total
-       FROM orders WHERE ${where}`,
+        SUM(CASE WHEN LOWER(${ORDER_BUSINESS_STATUS_SQL}) IN ('novo', 'aguardando_pagamento') THEN 1 ELSE 0 END)::int AS pending_count,
+        SUM(CASE WHEN LOWER(${ORDER_BUSINESS_STATUS_SQL}) IN ('pago', 'em_preparacao', 'em_entrega', 'entregue') THEN 1 ELSE 0 END)::int AS paid_count,
+        COALESCE(SUM(o.valor_total), 0)::float AS revenue_total
+       FROM commerce_orders o
+       LEFT JOIN order_management_meta m ON m.order_id = o.id
+       WHERE o.user_id = ? AND ${brandClause}`,
       params,
     );
     return {

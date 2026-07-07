@@ -203,6 +203,33 @@ export const SKILL_META: Record<string, SkillMeta> = {
     canvasRoute: "/instagram",
     inlineComponents: true,
   },
+  "facebook.open": {
+    kind: "business",
+    objectives: ["abrir facebook", "página facebook"],
+    requiresCanvas: false,
+    canvasRoute: "/facebook",
+    inlineComponents: true,
+  },
+  "facebook.post.create": {
+    kind: "business",
+    objectives: ["criar post facebook", "publicar no fb"],
+    requiresCanvas: false,
+    canvasRoute: "/facebook",
+    inlineComponents: true,
+  },
+  "facebook.post.confirm": {
+    kind: "business",
+    objectives: ["confirmar publicação facebook"],
+    requiresCanvas: false,
+    inlineComponents: true,
+  },
+  "facebook.analyze": {
+    kind: "business",
+    objectives: ["analisar facebook", "métricas fb"],
+    requiresCanvas: false,
+    canvasRoute: "/facebook",
+    inlineComponents: true,
+  },
 };
 
 export function getSkillMeta(skillId: string): SkillMeta | null {

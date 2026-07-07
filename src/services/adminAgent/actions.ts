@@ -5,6 +5,7 @@ import { galleryService } from "../gallery";
 import { aiRouter } from "../aiRouter";
 import { CreativeStudioService } from "../creativeStudio";
 import { instagramService } from "../instagram";
+import { facebookService } from "../facebook";
 import { query, queryOne } from "../../config/database";
 
 export type ProductDraft = {
@@ -474,6 +475,80 @@ export async function generateInstagramPostFromBrief(
   return {
     postId: post.id,
     caption,
+    mediaUrl: media.url,
+    brief,
+    imageSource: media.source,
+  };
+}
+
+export type FacebookPostDraft = {
+  postId: string;
+  message: string;
+  mediaUrl: string;
+  brief: string;
+  imageSource: "gallery" | "ai" | "none";
+};
+
+export async function generateFacebookCaption(
+  userId: string,
+  brandId: string | null,
+  input: { brief: string; tone?: string; objective?: string },
+) {
+  const brief = String(input.brief || "").trim();
+  const prompt = [
+    "Gere um texto profissional e envolvente para um post de página no Facebook.",
+    "Maximo 2000 caracteres. Tom conversacional de marca.",
+    "Inclua chamada para acao sutil.",
+    `Contexto: ${brief}`,
+    input.tone ? `Tom: ${input.tone}` : "",
+    input.objective ? `Objetivo: ${input.objective}` : "",
+  ].filter(Boolean).join("\n");
+
+  const result = await creativeStudio.generateText(userId, {
+    prompt,
+    tone: input.tone || undefined,
+    objective: input.objective || undefined,
+    maxCharacters: 2200,
+  }, brandId || undefined);
+
+  return { message: String(result?.text || brief).trim().slice(0, 2200) };
+}
+
+export async function generateFacebookPostFromBrief(
+  userId: string,
+  brandId: string | null,
+  input: { brief?: string; tone?: string; objective?: string },
+): Promise<FacebookPostDraft | { error: string }> {
+  const brief = String(input.brief || "").trim();
+  if (!brief) return { error: "Descreva o tema do post." };
+  if (!brandId) return { error: "Selecione uma marca." };
+
+  const profile = await facebookService.getProfile(brandId);
+  if (!profile?.is_connected) {
+    return { error: "Facebook não conectado. Conecte sua página primeiro." };
+  }
+
+  const { message } = await generateFacebookCaption(userId, brandId, {
+    brief,
+    tone: input.tone,
+    objective: input.objective,
+  });
+
+  const media = await resolveInstagramMediaUrl(userId, brandId, brief);
+  if (!media.url) {
+    return { error: "Não encontrei imagem na galeria e a geração com IA falhou. Envie uma mídia na Galeria e tente de novo." };
+  }
+
+  const post = await facebookService.createPost(brandId, {
+    post_type: "photo",
+    message,
+    media_url: media.url,
+    status: "draft",
+  });
+
+  return {
+    postId: post.id,
+    message,
     mediaUrl: media.url,
     brief,
     imageSource: media.source,

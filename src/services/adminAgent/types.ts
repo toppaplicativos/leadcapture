@@ -20,7 +20,9 @@ export type ComponentType =
   | "clients_stats"
   | "orders_stats"
   | "instagram_stats"
-  | "instagram_post_preview";
+  | "instagram_post_preview"
+  | "facebook_stats"
+  | "facebook_post_preview";
 
 export type PresentationMode = "inline" | "canvas";
 

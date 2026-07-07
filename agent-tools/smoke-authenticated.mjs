@@ -24,6 +24,7 @@ const MODULES = [
   { label: 'Habilidades', selector: '.catalog-module--skills', titleRe: /habilidade/i, minCount: 1 },
   { label: 'Pedidos', selector: '.catalog-module--orders', titleRe: /pedido/i },
   { label: 'Instagram', selector: '.catalog-module--instagram', titleRe: /instagram/i, canvasHint: /studio completo no canvas/i },
+  { label: 'Facebook', selector: '.catalog-module--facebook', titleRe: /facebook/i, canvasHint: /studio completo no canvas/i },
 ]
 
 let failed = 0

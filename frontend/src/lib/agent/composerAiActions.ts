@@ -61,6 +61,13 @@ export const INSTAGRAM_SKILLS = new Set([
   'instagram.messages',
 ])
 
+export const FACEBOOK_SKILLS = new Set([
+  'facebook.open',
+  'facebook.post.create',
+  'facebook.post.confirm',
+  'facebook.analyze',
+])
+
 export function isCampaignSkill(skill?: string) {
   return !!skill && CAMPAIGN_SKILLS.has(skill)
 }
@@ -103,4 +110,8 @@ export function isProspectSkill(skill?: string) {
 
 export function isInstagramSkill(skill?: string) {
   return !!skill && INSTAGRAM_SKILLS.has(skill)
+}
+
+export function isFacebookSkill(skill?: string) {
+  return !!skill && FACEBOOK_SKILLS.has(skill)
 }

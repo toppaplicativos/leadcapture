@@ -31,10 +31,16 @@ const TABS = [
   { key: 'messages', label: 'Mensagens', icon: MessageCircle },
 ] as const
 
-type TabKey = typeof TABS[number]['key']
+export type FacebookTabKey = typeof TABS[number]['key']
+type TabKey = FacebookTabKey
 
-export function FacebookPage() {
-  const [tab, setTab] = useState<TabKey>('overview')
+type FacebookPageProps = {
+  embedded?: boolean
+  initialTab?: TabKey
+}
+
+export function FacebookPage({ embedded = false, initialTab = 'overview' }: FacebookPageProps = {}) {
+  const [tab, setTab] = useState<TabKey>(initialTab)
   const [profile, setProfile] = useState<any>(null)
   const [connection, setConnection] = useState<any>(null)
   const [loading, setLoading] = useState(true)
@@ -51,10 +57,11 @@ export function FacebookPage() {
   }, [])
 
   useEffect(() => { loadProfile() }, [loadProfile])
+  useEffect(() => { setTab(initialTab) }, [initialTab])
 
   if (loading) {
     return (
-      <div className="min-h-[60vh] grid place-items-center">
+      <div className={embedded ? 'py-10 grid place-items-center' : 'min-h-[60vh] grid place-items-center'}>
         <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
       </div>
     )
@@ -63,7 +70,7 @@ export function FacebookPage() {
   if (!connection) {
     return (
       <>
-        <NotConnectedView onConnect={() => setShowConnectModal(true)} />
+        <NotConnectedView embedded={embedded} onConnect={() => setShowConnectModal(true)} />
         {showConnectModal && (
           <ConnectModal onClose={() => setShowConnectModal(false)} onConnected={() => { setShowConnectModal(false); loadProfile() }} />
         )}
@@ -154,9 +161,9 @@ export function FacebookPage() {
 /* ═══════════════════════════════════════════
    NOT CONNECTED VIEW — clean empty state
    ═══════════════════════════════════════════ */
-function NotConnectedView({ onConnect }: { onConnect: () => void }) {
+function NotConnectedView({ onConnect, embedded = false }: { onConnect: () => void; embedded?: boolean }) {
   return (
-    <div className="max-w-md mx-auto py-16 text-center">
+    <div className={`max-w-md mx-auto text-center ${embedded ? 'py-8' : 'py-16'}`}>
       <div className="w-20 h-20 mx-auto rounded-2xl bg-gradient-to-br from-blue-600 to-blue-400 grid place-items-center mb-6 shadow-lg shadow-blue-200/50">
         <Globe size={32} className="text-white" />
       </div>

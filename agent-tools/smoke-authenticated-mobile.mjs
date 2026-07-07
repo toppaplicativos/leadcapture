@@ -24,6 +24,7 @@ const MODULES = [
   { label: 'Habilidades', selector: '.catalog-module--skills', titleRe: /habilidade/i, minCount: 1, sheetBtn: /gerenciar habilidade/i },
   { label: 'Pedidos', selector: '.catalog-module--orders', titleRe: /pedido/i },
   { label: 'Instagram', selector: '.catalog-module--instagram', titleRe: /instagram/i, sheetBtn: /instagram completo|conectar instagram/i },
+  { label: 'Facebook', selector: '.catalog-module--facebook', titleRe: /facebook/i, sheetBtn: /facebook completo|conectar facebook/i },
 ]
 
 let failed = 0
@@ -150,13 +151,16 @@ try {
 
     if (mod.sheetBtn) {
       await dismissPwaBanner()
-      if (mod.label === 'Instagram') {
+      if (mod.label === 'Instagram' || mod.label === 'Facebook') {
         await block.locator('.catalog-panel__loading').waitFor({ state: 'hidden', timeout: 15000 }).catch(() => null)
-        await block.locator('.catalog-instagram-connect, .catalog-panel__open-manager').first()
+        const connectSel = mod.label === 'Instagram'
+          ? '.catalog-instagram-connect, .catalog-panel__open-manager'
+          : '.catalog-facebook-connect, .catalog-panel__open-manager'
+        await block.locator(connectSel).first()
           .waitFor({ state: 'visible', timeout: 12000 }).catch(() => null)
       }
       const panel = block.locator('.catalog-module__body')
-      const openBtn = panel.locator('.catalog-panel__open-manager, .catalog-panel__more, .catalog-panel__action, .catalog-panel__action--instagram').filter({ hasText: mod.sheetBtn })
+      const openBtn = panel.locator('.catalog-panel__open-manager, .catalog-panel__more, .catalog-panel__action, .catalog-panel__action--instagram, .catalog-panel__action--facebook').filter({ hasText: mod.sheetBtn })
       if (await openBtn.count()) {
         await openBtn.first().click({ force: true })
         await page.waitForSelector('.catalog-manager-sheet', { timeout: 10000 })

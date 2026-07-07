@@ -4,7 +4,7 @@ import { SkillTrainerWizardModal } from '@/components/SkillTrainerWizardModal'
 import {
   Send, Loader2, LayoutGrid, Search, MapPin, Zap,
   Maximize2, Sparkles, MessageSquare, Megaphone, ShoppingCart,
-  PanelRight, X, Package, Images, Users, Building2, LayoutDashboard, Brain, Camera,
+  PanelRight, X, Package, Images, Users, Building2, LayoutDashboard, Brain, Camera, Globe,
 } from 'lucide-react'
 import { AgentUIRenderer } from './AgentUIRenderer'
 import { ProspectModuleBlock } from './prospect/ProspectModuleBlock'
@@ -20,6 +20,7 @@ import { OrdersModuleBlock } from './orders/OrdersModuleBlock'
 import { DashboardModuleBlock } from './dashboard/DashboardModuleBlock'
 import { SkillsModuleBlock } from './skills/SkillsModuleBlock'
 import { InstagramModuleBlock } from './instagram/InstagramModuleBlock'
+import { FacebookModuleBlock } from './facebook/FacebookModuleBlock'
 import { CatalogComposerDock } from './catalog/CatalogComposerDock'
 import { useAgentShell } from '@/lib/agent/AgentShellContext'
 import { useProspectBridgeOptional } from '@/lib/agent/ProspectBridgeContext'
@@ -37,6 +38,7 @@ import {
   isDashboardSkill,
   isSkillsModuleSkill,
   isInstagramSkill,
+  isFacebookSkill,
   isProductSkill as isCatalogProductSkill,
 } from '@/lib/agent/composerAiActions'
 import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
@@ -58,6 +60,10 @@ const CATALOG_INLINE_SKILLS = new Set([
   'instagram.post.confirm',
   'instagram.analyze',
   'instagram.messages',
+  'facebook.open',
+  'facebook.post.create',
+  'facebook.post.confirm',
+  'facebook.analyze',
   'crm.leads.table',
   'crm.leads.list',
   'crm.leads.search',
@@ -107,6 +113,9 @@ function filterInlineComponents(turn?: AgentTurn): ComponentSpec[] | undefined {
   if (isInstagramSkill(turn.skill)) {
     return turn.components.filter((c) => c.type !== 'instagram_stats')
   }
+  if (isFacebookSkill(turn.skill)) {
+    return turn.components.filter((c) => c.type !== 'facebook_stats')
+  }
   if (isLeadsSkill(turn.skill)) {
     return turn.components.filter((c) =>
       c.type !== 'leads_stats' && c.type !== 'kpi_row' && c.type !== 'table' && c.type !== 'lead_card',
@@ -152,6 +161,7 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
     campaignsModuleOpen,
     galleryModuleOpen,
     instagramModuleOpen,
+    facebookModuleOpen,
     leadsModuleOpen,
     clientsModuleOpen,
     ordersModuleOpen,
@@ -185,7 +195,7 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
   useEffect(() => {
     const el = scrollRef.current
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
-  }, [messages, loading, prospectModuleOpen, inboxModuleOpen, productsModuleOpen, campaignsModuleOpen, galleryModuleOpen, instagramModuleOpen, leadsModuleOpen, clientsModuleOpen, ordersModuleOpen, dashboardModuleOpen, skillsModuleOpen])
+  }, [messages, loading, prospectModuleOpen, inboxModuleOpen, productsModuleOpen, campaignsModuleOpen, galleryModuleOpen, instagramModuleOpen, facebookModuleOpen, leadsModuleOpen, clientsModuleOpen, ordersModuleOpen, dashboardModuleOpen, skillsModuleOpen])
 
   useEffect(() => {
     if (!menuOpen) return
@@ -228,6 +238,9 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
   const lastInstagramMsg = [...display].reverse().find(
     (m) => m.role === 'assistant' && !m.loading && isInstagramSkill(m.turn?.skill),
   )
+  const lastFacebookMsg = [...display].reverse().find(
+    (m) => m.role === 'assistant' && !m.loading && isFacebookSkill(m.turn?.skill),
+  )
   const lastLeadsMsg = [...display].reverse().find(
     (m) => m.role === 'assistant' && !m.loading && isLeadsSkill(m.turn?.skill),
   )
@@ -243,7 +256,7 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
   const lastSkillsMsg = [...display].reverse().find(
     (m) => m.role === 'assistant' && !m.loading && isSkillsModuleSkill(m.turn?.skill),
   )
-  const catalogModuleOpen = productsModuleOpen || campaignsModuleOpen || galleryModuleOpen || instagramModuleOpen || leadsModuleOpen || clientsModuleOpen || ordersModuleOpen || dashboardModuleOpen || skillsModuleOpen
+  const catalogModuleOpen = productsModuleOpen || campaignsModuleOpen || galleryModuleOpen || instagramModuleOpen || facebookModuleOpen || leadsModuleOpen || clientsModuleOpen || ordersModuleOpen || dashboardModuleOpen || skillsModuleOpen
   const showCanvasBtn = lastAssistant?.turn
     && turnNeedsCanvas(lastAssistant.turn)
     && !desktopCanvasOpen
@@ -400,6 +413,26 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
       },
     },
     {
+      id: 'facebook',
+      label: 'Facebook',
+      desc: 'Posts, mensagens e métricas',
+      icon: Globe,
+      action: () => {
+        setMenuOpen(false)
+        triggerSkill('facebook.open', { label: 'Facebook', assistantMessage: 'Sua página Facebook:' })
+      },
+    },
+    {
+      id: 'facebook-post',
+      label: 'Criar post FB',
+      desc: 'IA gera texto e imagem',
+      icon: Globe,
+      action: () => {
+        setMenuOpen(false)
+        triggerSkill('facebook.post.create', { label: 'Post Facebook', assistantMessage: 'Sobre o que é o post no Facebook?' })
+      },
+    },
+    {
       id: 'campaigns',
       label: 'Campanhas',
       desc: 'Ver e criar campanhas',
@@ -485,6 +518,9 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
           const isInstagramActive = instagramModuleOpen
             && msg.id === lastInstagramMsg?.id
             && isInstagramSkill(msg.turn?.skill)
+          const isFacebookActive = facebookModuleOpen
+            && msg.id === lastFacebookMsg?.id
+            && isFacebookSkill(msg.turn?.skill)
           const isLeadsActive = leadsModuleOpen
             && msg.id === lastLeadsMsg?.id
             && isLeadsSkill(msg.turn?.skill)
@@ -534,6 +570,9 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
                       )}
                       {isInstagramSkill(msg.turn?.skill) && (
                         <InstagramModuleBlock messageId={msg.id} isActive={!!isInstagramActive} />
+                      )}
+                      {isFacebookSkill(msg.turn?.skill) && (
+                        <FacebookModuleBlock messageId={msg.id} isActive={!!isFacebookActive} />
                       )}
                       {isLeadsSkill(msg.turn?.skill) && (
                         <LeadsModuleBlock messageId={msg.id} isActive={!!isLeadsActive} />

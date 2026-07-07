@@ -17,8 +17,10 @@ import {
   fetchGalleryCount,
   generateProductDraftFromBrief,
   generateInstagramPostFromBrief,
+  generateFacebookPostFromBrief,
 } from "./actions";
 import { instagramService } from "../instagram";
+import { facebookService } from "../facebook";
 import { SKILLS, NAV_PATHS, buildSkillsCatalog } from "./squads";
 import { getSkillMeta } from "./skillMeta";
 import type {
@@ -60,6 +62,7 @@ export class AdminAgentOrchestrator {
       if (directSkill === "campaigns.create") turn.nextSkill = "campaigns.confirm";
       if (directSkill === "skills.train") turn.nextSkill = "skills.confirm";
       if (directSkill === "instagram.post.create") turn.nextSkill = "instagram.post.confirm";
+      if (directSkill === "facebook.post.create") turn.nextSkill = "facebook.post.confirm";
       return this.applyPresentation(directSkill, turn);
     }
 
@@ -108,7 +111,7 @@ export class AdminAgentOrchestrator {
       ? { ...ctx, skillContext: { ...ctx.skillContext, ...selection.context } }
       : ctx;
     if (
-      selection.skill === "instagram.post.create"
+      (selection.skill === "instagram.post.create" || selection.skill === "facebook.post.create")
       && !String(execCtx.skillContext?.brief || "").trim()
       && trimmed
     ) {
@@ -135,6 +138,9 @@ export class AdminAgentOrchestrator {
     }
     if (selection.skill === "instagram.post.create") {
       turn.nextSkill = "instagram.post.confirm";
+    }
+    if (selection.skill === "facebook.post.create") {
+      turn.nextSkill = "facebook.post.confirm";
     }
     if (selection.skill === "crm.lead.find" && selection.context?.search) {
       turn.nextSkill = "crm.lead.detail";
@@ -187,6 +193,13 @@ export class AdminAgentOrchestrator {
       turn.canvasRoute = "/instagram";
     }
     if (skillId === "instagram.post.confirm") {
+      turn.presentation = "inline";
+    }
+    if (skillId === "facebook.open" || skillId === "facebook.post.create" || skillId === "facebook.analyze") {
+      turn.presentation = "inline";
+      turn.canvasRoute = "/facebook";
+    }
+    if (skillId === "facebook.post.confirm") {
       turn.presentation = "inline";
     }
     if (skillId === "dashboard.overview" || skillId === "dashboard.show") {
@@ -347,6 +360,37 @@ Responda APENAS com JSON válido neste formato:
       };
     }
 
+    if (ev?.action === "submit_form" && ev.componentId === "fb-post-form") {
+      const brief = String(ev.payload?.brief || "").trim();
+      if (!brief) return null;
+      return {
+        skill: "facebook.post.create",
+        squad: "social",
+        message: "Gerando post do Facebook com IA…",
+        context: {
+          brief,
+          objective: String(ev.payload?.objective || "").trim(),
+          tone: String(ev.payload?.tone || "").trim(),
+        },
+        nextSkill: "facebook.post.confirm",
+      };
+    }
+
+    if (ev?.action === "fb_publish_now" || ev?.action === "fb_schedule" || ev?.action === "fb_save_draft") {
+      const postId = String(ev.payload?.postId || sk?.postId || "").trim();
+      if (!postId) return null;
+      const action = ev.action;
+      if (action === "fb_publish_now") {
+        return { skill: "facebook.post.confirm", squad: "social", message: "Publicando no Facebook…", context: { postId, action } };
+      }
+      if (action === "fb_schedule") {
+        const scheduledAt = String(ev.payload?.scheduledAt || "").trim();
+        if (!scheduledAt) return null;
+        return { skill: "facebook.post.confirm", squad: "social", message: "Agendando post…", context: { postId, action, scheduledAt } };
+      }
+      return { skill: "facebook.post.confirm", squad: "social", message: "Rascunho salvo.", context: { postId, action } };
+    }
+
     if (ev?.action === "ig_publish_now" || ev?.action === "ig_schedule" || ev?.action === "ig_save_draft") {
       const postId = String(ev.payload?.postId || sk?.postId || "").trim();
       if (!postId) return null;
@@ -496,6 +540,14 @@ Responda APENAS com JSON válido neste formato:
     if (/galeria|minhas\s+imagens/i.test(lower)) {
       return { squad: "creative", skill: "gallery.open", message: "Abrindo sua galeria..." };
     }
+    if (/cri(ar|e)\s+(um\s+)?post|postar|publicar|fazer\s+(um\s+)?post|legenda\s+para/i.test(lower) && /facebook|face\s*book|\bfb\b/i.test(lower)) {
+      return {
+        squad: "social",
+        skill: "facebook.post.create",
+        message: "Vou montar o post do Facebook com IA…",
+        context: { brief: message },
+      };
+    }
     if (/cri(ar|e)\s+(um\s+)?post|postar\s+no\s+insta|publicar\s+no\s+instagram|fazer\s+(um\s+)?post|legenda\s+para/i.test(lower)) {
       return {
         squad: "social",
@@ -504,11 +556,17 @@ Responda APENAS com JSON válido neste formato:
         context: { brief: message },
       };
     }
+    if (/(analis|métricas?|performance|insights|engajamento)/i.test(lower) && /facebook|\bfb\b/i.test(lower)) {
+      return { squad: "social", skill: "facebook.analyze", message: "Analisando sua página Facebook…" };
+    }
     if (/(analis|métricas?|performance|insights|engajamento)/i.test(lower) && /instagram|insta/i.test(lower)) {
       return { squad: "social", skill: "instagram.analyze", message: "Analisando sua conta Instagram…" };
     }
     if (/(dm|direct|mensagens?)/i.test(lower) && /instagram|insta/i.test(lower)) {
       return { squad: "social", skill: "instagram.messages", message: "Abrindo suas DMs do Instagram…" };
+    }
+    if (/facebook|\bfb\b|face\s*book/i.test(lower)) {
+      return { squad: "social", skill: "facebook.open", message: "Abrindo o Facebook..." };
     }
     if (/instagram|insta\b|reels?\b|stories?\b/i.test(lower)) {
       return { squad: "social", skill: "instagram.open", message: "Abrindo o Instagram..." };
@@ -982,20 +1040,25 @@ Responda APENAS com JSON válido neste formato:
             },
           });
           actions.push({ type: "open_modal", payload: { modal: "ai-campaign" } });
-        } else {
+        } else if (channel === "instagram") {
           components.push({
             id: "channel-nav",
             type: "button",
-            props: {
-              label: channel === "instagram" ? "Abrir Instagram" : "Abrir Facebook",
-              path: channel === "instagram" ? "/instagram" : "/facebook",
-              variant: "primary",
-            },
+            props: { label: "Abrir Instagram", path: "/instagram", variant: "primary" },
           });
-          actions.push({
-            type: "navigate",
-            payload: { path: channel === "instagram" ? "/instagram" : "/facebook" },
+          actions.push({ type: "navigate", payload: { path: "/instagram" } });
+        } else if (channel === "facebook") {
+          components.push({
+            id: "fb-stats",
+            type: "facebook_stats",
+            props: { connected: false, live: true },
           });
+          components.push({
+            id: "channel-nav",
+            type: "button",
+            props: { label: "Abrir Facebook", path: "/facebook", variant: "primary" },
+          });
+          actions.push({ type: "navigate", payload: { path: "/facebook" } });
         }
         break;
       }
@@ -1362,6 +1425,224 @@ Responda APENAS com JSON válido neste formato:
           props: { label: "Responder no studio", path: "/instagram", variant: "primary" },
         });
         actions.push({ type: "navigate", payload: { path: "/instagram" } });
+        break;
+      }
+
+      case "facebook.open": {
+        const brandId = String(ctx.brandId || "").trim();
+        if (!brandId) {
+          components.push({ id: "fb-no-brand", type: "text", props: { content: "Selecione uma marca para gerenciar o Facebook." } });
+          break;
+        }
+        try {
+          const conn = await facebookService.getConnection(brandId);
+          const profile = await facebookService.getProfile(brandId);
+          const connected = !!conn && !!profile?.is_connected;
+          components.push({
+            id: "fb-stats",
+            type: "facebook_stats",
+            props: {
+              connected,
+              pageName: profile?.page_name || profile?.name || "",
+              category: profile?.page_category || profile?.category || "",
+              fans: Number(profile?.fan_count || 0),
+              followers: Number(profile?.followers_count || 0),
+              avatarUrl: profile?.page_picture_url || profile?.picture_url || "",
+              live: true,
+            },
+          });
+        } catch {
+          components.push({
+            id: "fb-stats",
+            type: "facebook_stats",
+            props: { connected: false, live: true },
+          });
+        }
+        components.push(this.buildNavSuggestions(["facebook"]));
+        actions.push({ type: "navigate", payload: { path: "/facebook" } });
+        break;
+      }
+
+      case "facebook.post.create": {
+        const brandId = String(ctx.brandId || "").trim();
+        const brief = String(sk.brief || "").trim();
+
+        if (!brief) {
+          components.push({
+            id: "fb-post-form",
+            type: "form",
+            props: {
+              title: "Novo post Facebook",
+              fields: [
+                { name: "brief", label: "Sobre o que é o post?", type: "textarea", placeholder: "Ex: promoção de verão na loja com frete grátis" },
+                { name: "objective", label: "Objetivo (opcional)", type: "text", placeholder: "Ex: aumentar vendas" },
+                { name: "tone", label: "Tom (opcional)", type: "text", placeholder: "Ex: amigável, institucional" },
+              ],
+              submitLabel: "Gerar post com IA",
+              nextSkill: "facebook.post.create",
+            },
+          });
+          break;
+        }
+
+        if (!brandId) {
+          components.push({ id: "fb-no-brand", type: "text", props: { content: "Selecione uma marca para criar posts." } });
+          break;
+        }
+
+        const draft = await generateFacebookPostFromBrief(ctx.userId, brandId, {
+          brief,
+          objective: String(sk.objective || "").trim() || undefined,
+          tone: String(sk.tone || "").trim() || undefined,
+        });
+
+        if ("error" in draft) {
+          components.push({ id: "fb-error", type: "text", props: { content: draft.error } });
+          if (draft.error.includes("não conectado")) {
+            components.push({
+              id: "fb-connect-btn",
+              type: "button",
+              props: { label: "Conectar Facebook", path: "/facebook", variant: "primary" },
+            });
+            actions.push({ type: "navigate", payload: { path: "/facebook" } });
+          }
+          break;
+        }
+
+        const previewMessage = draft.message.length > 280 ? `${draft.message.slice(0, 280)}…` : draft.message;
+
+        components.push({
+          id: "fb-post-preview",
+          type: "facebook_post_preview",
+          props: {
+            postId: draft.postId,
+            message: draft.message,
+            previewMessage,
+            mediaUrl: draft.mediaUrl,
+            brief: draft.brief,
+            imageSource: draft.imageSource,
+          },
+        });
+        components.push({
+          id: "fb-preview-hint",
+          type: "text",
+          props: { content: "Revise o preview. Quer publicar agora, agendar ou manter como rascunho?" },
+        });
+        actions.push({ type: "navigate", payload: { path: "/facebook" } });
+        break;
+      }
+
+      case "facebook.post.confirm": {
+        const brandId = String(ctx.brandId || "").trim();
+        const postId = String(sk.postId || "").trim();
+        const action = String(sk.action || "");
+
+        if (!brandId || !postId) {
+          components.push({ id: "fb-missing", type: "text", props: { content: "Post não encontrado. Crie um novo post pelo chat." } });
+          break;
+        }
+
+        if (action === "fb_publish_now") {
+          const result = await facebookService.publishPost(brandId, postId);
+          components.push({
+            id: "fb-publish-result",
+            type: "text",
+            props: {
+              content: result.ok
+                ? "Post publicado no Facebook com sucesso."
+                : `Não foi possível publicar: ${result.message}`,
+            },
+          });
+          break;
+        }
+
+        if (action === "fb_schedule") {
+          const scheduledAt = String(sk.scheduledAt || "").trim();
+          if (!scheduledAt) {
+            components.push({ id: "fb-sched-missing", type: "text", props: { content: "Informe data e hora para agendar." } });
+            break;
+          }
+          await facebookService.updatePost(postId, {
+            status: "scheduled",
+            scheduled_at: new Date(scheduledAt).toISOString(),
+          });
+          const when = new Date(scheduledAt).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
+          components.push({
+            id: "fb-scheduled",
+            type: "text",
+            props: { content: `Post agendado para ${when}. Revise no calendário do Facebook.` },
+          });
+          actions.push({ type: "navigate", payload: { path: "/facebook" } });
+          break;
+        }
+
+        components.push({
+          id: "fb-draft-saved",
+          type: "text",
+          props: { content: "Rascunho salvo. Abra o studio para editar ou publicar quando quiser." },
+        });
+        actions.push({ type: "navigate", payload: { path: "/facebook" } });
+        break;
+      }
+
+      case "facebook.analyze": {
+        const brandId = String(ctx.brandId || "").trim();
+        if (!brandId) {
+          components.push({ id: "fb-no-brand", type: "text", props: { content: "Selecione uma marca." } });
+          break;
+        }
+        const profile = await facebookService.getProfile(brandId);
+        if (!profile?.is_connected) {
+          components.push({ id: "fb-not-connected", type: "text", props: { content: "Conecte o Facebook para ver métricas." } });
+          break;
+        }
+        const insights = await facebookService.fetchInsights(brandId, "days_28");
+        const feed = await facebookService.fetchPosts(brandId, 6);
+
+        let engagements = 0;
+        let impressions = 0;
+        if (insights?.data) {
+          for (const m of insights.data) {
+            const val = Number(m.values?.[0]?.value || 0);
+            if (m.name === "page_post_engagements") engagements = val;
+            if (m.name === "page_impressions_unique") impressions = val;
+          }
+        }
+
+        components.push({
+          id: "fb-analyze-kpis",
+          type: "kpi_row",
+          props: {
+            items: [
+              { label: "Curtidas", value: Number(profile.fan_count || 0), icon: "users" },
+              { label: "Seguidores", value: Number(profile.followers_count || 0), icon: "megaphone" },
+              { label: "Engajamento", value: engagements, icon: "zap" },
+              { label: "Alcance", value: impressions, icon: "package" },
+            ],
+          },
+        });
+
+        if (feed.length) {
+          components.push({
+            id: "fb-recent-posts",
+            type: "table",
+            props: {
+              title: "Posts recentes",
+              columns: ["Texto", "Curtidas", "Comentários"],
+              rows: feed.slice(0, 5).map((p: any) => ({
+                id: p.id,
+                cells: [
+                  String(p.message || "(sem texto)").slice(0, 60),
+                  String(p.likes?.summary?.total_count ?? "—"),
+                  String(p.comments?.summary?.total_count ?? "—"),
+                ],
+              })),
+            },
+          });
+        }
+
+        components.push(this.buildNavSuggestions(["facebook"]));
+        actions.push({ type: "navigate", payload: { path: "/facebook" } });
         break;
       }
 

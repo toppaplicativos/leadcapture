@@ -18,8 +18,9 @@ import { useCampaignsBridgeOptional } from './CampaignsBridgeContext'
 import { useGalleryBridgeOptional } from './GalleryBridgeContext'
 import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
 import { resolveTrigger } from './workspaceTriggers'
-import { isCampaignSkill, isLeadsSkill, isClientsSkill, isOrdersSkill, isDashboardSkill, isSkillsModuleSkill, isInstagramSkill } from './composerAiActions'
+import { isCampaignSkill, isLeadsSkill, isClientsSkill, isOrdersSkill, isDashboardSkill, isSkillsModuleSkill, isInstagramSkill, isFacebookSkill } from './composerAiActions'
 import { useInstagramBridgeOptional } from './InstagramBridgeContext'
+import { useFacebookBridgeOptional } from './FacebookBridgeContext'
 import { useLeadsBridgeOptional } from './LeadsBridgeContext'
 import { useClientsBridgeOptional } from './ClientsBridgeContext'
 import { useOrdersBridgeOptional } from './OrdersBridgeContext'
@@ -70,6 +71,8 @@ type AgentShellValue = {
   skillsModuleOpen: boolean
   closeInstagramModule: () => void
   instagramModuleOpen: boolean
+  closeFacebookModule: () => void
+  facebookModuleOpen: boolean
 }
 
 const AgentShellContext = createContext<AgentShellValue | null>(null)
@@ -100,6 +103,7 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
   const dashboardBridge = useDashboardBridgeOptional()
   const skillsBridge = useSkillsBridgeOptional()
   const instagramBridge = useInstagramBridgeOptional()
+  const facebookBridge = useFacebookBridgeOptional()
   const isDesktop = useIsDesktop()
 
   const PRODUCT_SKILLS = useMemo(() => new Set(['catalog.products', 'catalog.products.table', 'catalog.products.create']), [])
@@ -217,6 +221,15 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
     setMobileCanvasOpen(false)
     setCanvasMode('agent')
   }, [instagramBridge])
+
+  const closeFacebookModule = useCallback(() => {
+    facebookBridge?.setModuleOpen(false)
+    facebookBridge?.setModuleExpanded(false)
+    setDesktopCanvasOpen(false)
+    setEmbeddedRoute(null)
+    setMobileCanvasOpen(false)
+    setCanvasMode('agent')
+  }, [facebookBridge])
 
   const closeLeadsModule = useCallback(() => {
     leadsBridge?.setModuleOpen(false)
@@ -599,6 +612,32 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
     }
   }, [activeTurn, instagramBridge, isDesktop, closeInstagramModule])
 
+  /* Facebook: chat = resumo; desktop = studio no canvas */
+  useEffect(() => {
+    if (!activeTurn || !isFacebookSkill(activeTurn.skill)) {
+      if (facebookBridge?.moduleOpen && activeTurn && !isFacebookSkill(activeTurn.skill)) {
+        closeFacebookModule()
+      }
+      return
+    }
+    facebookBridge?.setModuleOpen(true)
+    facebookBridge?.setModuleExpanded(true)
+    openCatalogCanvas('/facebook')
+    const stats = activeTurn.components?.find((c) => c.type === 'facebook_stats')
+    if (stats?.props) {
+      facebookBridge?.publishSnapshot({
+        connected: !!stats.props.connected,
+        pageName: String(stats.props.pageName || stats.props.name || ''),
+        category: String(stats.props.category || ''),
+        fans: Number(stats.props.fans || stats.props.fanCount || 0),
+        followers: Number(stats.props.followers || stats.props.followersCount || 0),
+        postsCount: Number(stats.props.postsCount || 0),
+        avatarUrl: String(stats.props.avatarUrl || stats.props.pictureUrl || ''),
+        loading: false,
+      })
+    }
+  }, [activeTurn, facebookBridge, isDesktop, closeFacebookModule])
+
   const send = useCallback(async (
     text: string,
     opts?: { componentEvent?: ComponentEvent; skillContext?: SkillContext; directSkill?: string },
@@ -643,6 +682,10 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
     }
     if (key === 'instagram' || raw === '/instagram') {
       chat.triggerSkill('instagram.open', { label: 'Instagram', assistantMessage: 'Sua conta Instagram:' })
+      return
+    }
+    if (key === 'facebook' || raw === '/facebook') {
+      chat.triggerSkill('facebook.open', { label: 'Facebook', assistantMessage: 'Sua página Facebook:' })
       return
     }
     if (key === 'leads' || raw === '/leads') {
@@ -723,6 +766,8 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
     galleryModuleOpen: !!galleryBridge?.moduleOpen,
     closeInstagramModule,
     instagramModuleOpen: !!instagramBridge?.moduleOpen,
+    closeFacebookModule,
+    facebookModuleOpen: !!facebookBridge?.moduleOpen,
     closeLeadsModule,
     leadsModuleOpen: !!leadsBridge?.moduleOpen,
     closeClientsModule,

@@ -488,6 +488,33 @@ function collectProductPublishErrors(input: {
   return errors;
 }
 
+function resolveProductImageUrl(body: Record<string, unknown>): string {
+  const raw = body.imageUrl ?? body.image ?? body.image_url;
+  return normalizeText(raw);
+}
+
+function mergeProductImageMetadata(
+  metadata: Record<string, any>,
+  imageUrl?: unknown,
+): Record<string, any> {
+  const normalized = normalizeText(imageUrl);
+  if (!normalized) return metadata;
+  const gallery = [normalized];
+  const media = metadata.media && typeof metadata.media === "object" ? metadata.media : {};
+  return {
+    ...metadata,
+    cover_image: normalized,
+    gallery_images: gallery,
+    galleryImages: gallery,
+    media: {
+      ...media,
+      gallery,
+      gallery_count: gallery.length,
+      cover: normalized,
+    },
+  };
+}
+
 function buildDraftProductName(rawName?: unknown): string {
   const name = normalizeText(rawName);
   if (name) return name;
@@ -541,12 +568,14 @@ router.post("/", async (req: BrandRequest, res: Response) => {
     const publishReady = missingFields.length === 0;
     const shouldStayDraft = saveAsDraft || !publishReady;
 
-    const metadata = {
+    const imageUrl = resolveProductImageUrl(body);
+    let metadata = {
       ...(body.metadata && typeof body.metadata === "object" ? body.metadata : {}),
       is_draft: shouldStayDraft,
       missing_fields: shouldStayDraft ? missingFields : [],
       draft_saved_at: shouldStayDraft ? new Date().toISOString() : null,
     };
+    if (imageUrl) metadata = mergeProductImageMetadata(metadata, imageUrl);
 
     /* Pass through all OfferEntity fields (Fase 0+) — service guards by column existence. */
     const product = await productsService.createProduct({
@@ -573,7 +602,7 @@ router.post("/", async (req: BrandRequest, res: Response) => {
       ...(body.bundle_items !== undefined ? { bundle_items: body.bundle_items } : {}),
       ...(body.stock_quantity !== undefined ? { stock_quantity: body.stock_quantity } : {}),
       ...(body.stock_threshold_low !== undefined ? { stock_threshold_low: body.stock_threshold_low } : {}),
-      ...(body.imageUrl !== undefined ? { imageUrl: body.imageUrl } : {}),
+      ...(imageUrl ? { imageUrl } : (body.imageUrl !== undefined || body.image !== undefined ? { imageUrl: imageUrl || null } : {})),
     } as any, userId, req.brandId);
 
     res.json({
@@ -630,13 +659,24 @@ router.put("/:id", async (req: BrandRequest, res: Response) => {
     const baseMetadata = (existing as any).metadata && typeof (existing as any).metadata === "object"
       ? (existing as any).metadata
       : {};
-    const metadata = {
+    const imageUrl = resolveProductImageUrl(body);
+    let metadata = {
       ...baseMetadata,
       ...(body.metadata && typeof body.metadata === "object" ? body.metadata : {}),
       is_draft: shouldStayDraft,
       missing_fields: shouldStayDraft ? missingFields : [],
       draft_saved_at: shouldStayDraft ? new Date().toISOString() : null,
     };
+    if (imageUrl) {
+      metadata = mergeProductImageMetadata(metadata, imageUrl);
+    } else if (body.imageUrl === null || body.imageUrl === "") {
+      metadata = {
+        ...metadata,
+        cover_image: null,
+        gallery_images: [],
+        galleryImages: [],
+      };
+    }
 
     /* Build a clean payload: legacy fields with type coercion + ALL OfferEntity fields
      * (Fase 0+) forwarded verbatim. The service itself guards each field by checking

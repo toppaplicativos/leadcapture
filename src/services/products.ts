@@ -389,26 +389,14 @@ export class ProductsService {
   }
 
   private async ensureImageColumn(): Promise<boolean> {
-    if (this.imageColumnReady !== null) return this.imageColumnReady;
+    if (this.imageColumnReady === true) return true;
 
     try {
-      const [rows] = await pool.query("SHOW COLUMNS FROM products LIKE 'image_url'");
-      if (Array.isArray(rows) && rows.length > 0) {
-        this.imageColumnReady = true;
-        return true;
-      }
-
-      await pool.query("ALTER TABLE products ADD COLUMN image_url TEXT NULL");
+      await this.ensureColumnIfMissing("products", "image_url", "TEXT NULL");
       this.imageColumnReady = true;
       return true;
     } catch (error: any) {
-      if (String(error?.message || "").toLowerCase().includes("duplicate column")) {
-        this.imageColumnReady = true;
-        return true;
-      }
-
       logger.warn(`Product image column unavailable: ${error?.message || error}`);
-      this.imageColumnReady = false;
       return false;
     }
   }
@@ -945,6 +933,14 @@ export class ProductsService {
     pushIfCol("service_config_json", JSON.stringify(anyData.service_config || {}));
     pushIfCol("configurator_json", JSON.stringify(anyData.configurator || {}));
     pushIfCol("bundle_items_json", JSON.stringify(Array.isArray(anyData.bundle_items) ? anyData.bundle_items : []));
+    if (anyData.imageUrl !== undefined || anyData.image !== undefined) {
+      const imageUrl = anyData.imageUrl !== undefined ? anyData.imageUrl : anyData.image;
+      const normalizedImage = imageUrl ? String(imageUrl).trim() : null;
+      if (normalizedImage) {
+        const baseMeta = anyData.metadata && typeof anyData.metadata === "object" ? anyData.metadata : {};
+        anyData.metadata = this.buildNextMetadataWithGallery(baseMeta, [normalizedImage]);
+      }
+    }
     if (anyData.metadata !== undefined) {
       pushIfCol("metadata_json", JSON.stringify(anyData.metadata && typeof anyData.metadata === "object" ? anyData.metadata : {}));
     }
@@ -952,7 +948,7 @@ export class ProductsService {
       const canPersistImage = await this.ensureImageColumn();
       if (canPersistImage) {
         const imageUrl = anyData.imageUrl !== undefined ? anyData.imageUrl : anyData.image;
-        pushIfCol("image_url", imageUrl || null);
+        pushIfCol("image_url", imageUrl ? String(imageUrl).trim() : null);
       }
     }
     /* Inventory (Fase 12) — null = unlimited (default), number = tracked */
@@ -995,17 +991,29 @@ export class ProductsService {
     if (data.unit !== undefined) { fields.push("unit = ?"); values.push(data.unit); }
     if (data.features !== undefined) { fields.push("features = ?"); values.push(JSON.stringify(data.features)); }
     if (data.active !== undefined) { fields.push("active = ?"); values.push(data.active); }
+    const productColumnsForFoundation = await this.getTableColumns("products");
+    const anyData = data as any;
+    if (anyData.imageUrl !== undefined || anyData.image !== undefined) {
+      const imageUrl = anyData.imageUrl !== undefined ? anyData.imageUrl : anyData.image;
+      const normalizedImage = imageUrl ? String(imageUrl).trim() : null;
+      if (normalizedImage) {
+        const baseMeta = anyData.metadata && typeof anyData.metadata === "object"
+          ? anyData.metadata
+          : (existing as any).metadata && typeof (existing as any).metadata === "object"
+            ? (existing as any).metadata
+            : {};
+        anyData.metadata = this.buildNextMetadataWithGallery(baseMeta, [normalizedImage]);
+      }
+    }
     if (data.imageUrl !== undefined || data.image !== undefined) {
       const canPersistImage = await this.ensureImageColumn();
       if (canPersistImage) {
         const imageUrl = data.imageUrl !== undefined ? data.imageUrl : data.image;
         fields.push("image_url = ?");
-        values.push(imageUrl || null);
+        values.push(imageUrl ? String(imageUrl).trim() : null);
       }
     }
     /* OfferEntity foundation fields — guarded by column existence */
-    const productColumnsForFoundation = await this.getTableColumns("products");
-    const anyData = data as any;
     const setIfCol = (col: string, val: any) => {
       if (productColumnsForFoundation.has(col)) {
         fields.push(`${col} = ?`);

@@ -694,6 +694,18 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
   function buildProductBody(saveAsDraft: boolean) {
     const qtyNum = parseFloat(unitQty) || 1
     const composedUnit = qtyNum === 1 ? baseUnit : `${qtyNum}${baseUnit}`
+    const trimmedImage = imageUrl.trim()
+    const metadata: Record<string, unknown> = {
+      ...(product?.metadata && typeof product.metadata === 'object' ? product.metadata : {}),
+    }
+    if (trimmedImage) {
+      metadata.cover_image = trimmedImage
+      metadata.gallery_images = [trimmedImage]
+      metadata.galleryImages = [trimmedImage]
+    }
+    if (saveAsDraft || product?.metadata?.is_draft) {
+      metadata.is_draft = true
+    }
     return {
       name: name.trim(),
       description: description.trim(),
@@ -703,7 +715,8 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
       unit: composedUnit,
       features: features.split(',').map((f: string) => f.trim()).filter(Boolean),
       active: saveAsDraft ? false : active,
-      imageUrl: imageUrl || null,
+      imageUrl: trimmedImage || null,
+      metadata: Object.keys(metadata).length ? metadata : undefined,
       save_as_draft: saveAsDraft,
       type: offerType,
       subtitle: subtitle.trim() || null,

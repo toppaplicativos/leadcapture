@@ -1,4 +1,6 @@
 import { useState, useRef, useEffect, type FormEvent } from 'react'
+import { AICampaignWizardModal } from '@/components/AICampaignWizardModal'
+import { SkillTrainerWizardModal } from '@/components/SkillTrainerWizardModal'
 import {
   Send, Loader2, LayoutGrid, Search, MapPin, Zap,
   Maximize2, Sparkles, MessageSquare, Megaphone, ShoppingCart,
@@ -21,20 +23,24 @@ import { WorkspaceWelcome } from './WorkspaceWelcome'
 import { WhatsAppConnectDock } from './WhatsAppConnectDock'
 import { turnNeedsCanvas, turnShowsInline } from '@/lib/agent/canvasRegistry'
 import { OBJECTIVE_TRIGGERS } from '@/lib/agent/workspaceTriggers'
+import { isCampaignSkill, isProductSkill as isCatalogProductSkill } from '@/lib/agent/composerAiActions'
 import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
 import type { AgentChatMessage, AgentTurn, ComponentSpec } from '@/lib/agent/types'
 
 const STORAGE_KEY = 'leadcapture:workspace-chat:v1'
 
-const PRODUCT_SKILLS = new Set(['catalog.products', 'catalog.products.table'])
 const CATALOG_INLINE_SKILLS = new Set([
-  ...PRODUCT_SKILLS,
+  'catalog.products',
+  'catalog.products.table',
   'campaigns.list',
+  'campaigns.create',
+  'campaigns.confirm',
+  'campaign.builder',
   'gallery.open',
 ])
 
 function isProductSkill(skill?: string) {
-  return !!skill && PRODUCT_SKILLS.has(skill)
+  return isCatalogProductSkill(skill)
 }
 
 function isCatalogInlineSkill(skill?: string) {
@@ -60,7 +66,7 @@ function filterInlineComponents(turn?: AgentTurn): ComponentSpec[] | undefined {
   if (isProductSkill(turn.skill)) {
     return turn.components.filter((c) => c.type !== 'products_stats')
   }
-  if (turn.skill === 'campaigns.list') {
+  if (isCampaignSkill(turn.skill)) {
     return turn.components.filter((c) => c.type !== 'campaigns_stats')
   }
   if (turn.skill === 'gallery.open') {
@@ -80,6 +86,7 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
     handleComponentEvent,
     onNavigate,
     onOpenModal,
+    registerOpenModal,
     setMobileCanvasOpen,
     desktopCanvasOpen,
     openCanvas,
@@ -95,8 +102,17 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
   const isDesktop = useIsDesktop()
   const [input, setInput] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
+  const [campaignModal, setCampaignModal] = useState(false)
+  const [skillModal, setSkillModal] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    registerOpenModal((modal) => {
+      if (modal === 'ai-campaign') setCampaignModal(true)
+      if (modal === 'skill-trainer') setSkillModal(true)
+    })
+  }, [registerOpenModal])
 
   useEffect(() => {
     try {
@@ -142,7 +158,7 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
     (m) => m.role === 'assistant' && !m.loading && isProductSkill(m.turn?.skill),
   )
   const lastCampaignsMsg = [...display].reverse().find(
-    (m) => m.role === 'assistant' && !m.loading && m.turn?.skill === 'campaigns.list',
+    (m) => m.role === 'assistant' && !m.loading && isCampaignSkill(m.turn?.skill),
   )
   const lastGalleryMsg = [...display].reverse().find(
     (m) => m.role === 'assistant' && !m.loading && m.turn?.skill === 'gallery.open',
@@ -311,7 +327,7 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
             && isProductSkill(msg.turn?.skill)
           const isCampaignsActive = campaignsModuleOpen
             && msg.id === lastCampaignsMsg?.id
-            && msg.turn?.skill === 'campaigns.list'
+            && isCampaignSkill(msg.turn?.skill)
           const isGalleryActive = galleryModuleOpen
             && msg.id === lastGalleryMsg?.id
             && msg.turn?.skill === 'gallery.open'
@@ -341,7 +357,7 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
                       {isProductSkill(msg.turn?.skill) && (
                         <ProductsModuleBlock messageId={msg.id} isActive={!!isProductsActive} />
                       )}
-                      {msg.turn?.skill === 'campaigns.list' && (
+                      {isCampaignSkill(msg.turn?.skill) && (
                         <CampaignsModuleBlock messageId={msg.id} isActive={!!isCampaignsActive} />
                       )}
                       {msg.turn?.skill === 'gallery.open' && (
@@ -492,6 +508,24 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
         </div>
         </form>
       </div>
+
+      <AICampaignWizardModal
+        open={campaignModal}
+        onClose={() => setCampaignModal(false)}
+        onCampaignCreated={(id) => {
+          setCampaignModal(false)
+          onNavigate(`/campanhas?review=${id}`)
+        }}
+      />
+
+      <SkillTrainerWizardModal
+        open={skillModal}
+        onClose={() => setSkillModal(false)}
+        onSkillCreated={() => {
+          setSkillModal(false)
+          send('Mostrar minhas habilidades')
+        }}
+      />
     </div>
   )
 }

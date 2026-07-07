@@ -242,8 +242,12 @@ export function CampaignsInlinePanel() {
             placeholder="Buscar campanha…"
           />
         </div>
-        <button type="button" className="catalog-panel__action" onClick={() => dispatch?.({ type: 'open_ai_wizard' })}>
-          <Sparkles size={14} /> IA
+        <button
+          type="button"
+          className="catalog-panel__action catalog-panel__action--ai ai-shimmer"
+          onClick={() => dispatch?.({ type: 'open_ai_wizard' })}
+        >
+          <Sparkles size={14} className="relative z-10" /> <span className="relative z-10">Gerar com IA</span>
         </button>
         <button type="button" className="catalog-panel__action catalog-panel__action--ghost" onClick={() => dispatch?.({ type: 'create_new' })}>
           <Plus size={14} /> Nova

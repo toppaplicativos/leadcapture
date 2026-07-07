@@ -1895,6 +1895,50 @@ html.agent-workspace #root {
 .inbox-module__stats strong { color: var(--color-gray-900); }
 
 /* ── Catalog: produtos, campanhas, galeria inline no chat ── */
+.workspace-chat__action-dock {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.625rem 0.75rem 0;
+  border-top: 1px solid var(--color-border-light);
+  background: color-mix(in srgb, var(--color-surface) 94%, var(--color-bg));
+}
+.workspace-chat__action-dock--chips-only {
+  gap: 0;
+}
+
+.workspace-chat__ai-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+  min-height: 2.625rem;
+  padding: 0.625rem 1rem;
+  border-radius: var(--radius-xl);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  color: white;
+  background: var(--color-gray-900);
+  border: none;
+  box-shadow: 0 2px 10px rgba(17, 24, 39, 0.2);
+  transition: background 150ms ease, box-shadow 150ms ease, transform 120ms ease;
+}
+.workspace-chat__ai-btn:hover {
+  background: #000;
+  box-shadow: 0 4px 16px rgba(17, 24, 39, 0.28);
+}
+.workspace-chat__ai-btn:active {
+  transform: scale(0.985);
+}
+
+.workspace-chat__action-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+}
+
 .workspace-chat__catalog-dock {
   display: flex;
   flex-wrap: wrap;
@@ -2043,6 +2087,12 @@ html.agent-workspace #root {
   font-weight: 600;
   color: white;
   background: var(--color-gray-900);
+}
+.catalog-panel__action--ai {
+  position: relative;
+  overflow: hidden;
+  font-weight: 700;
+  padding: 0 0.75rem;
 }
 .catalog-panel__action--ghost {
   color: var(--color-gray-800);

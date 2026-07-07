@@ -18,6 +18,7 @@ import { useCampaignsBridgeOptional } from './CampaignsBridgeContext'
 import { useGalleryBridgeOptional } from './GalleryBridgeContext'
 import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
 import { resolveTrigger } from './workspaceTriggers'
+import { isCampaignSkill } from './composerAiActions'
 import { useWhatsAppConnectOptional } from '@/lib/whatsapp/WhatsAppConnectContext'
 import type { AgentModalId, AgentTurn, ComponentEvent, SkillContext, TriggerSkillOptions } from './types'
 
@@ -282,15 +283,17 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
 
   /* Campanhas: desktop = canvas; mobile = inline */
   useEffect(() => {
-    if (!activeTurn || activeTurn.skill !== 'campaigns.list') {
-      if (campaignsBridge?.moduleOpen && activeTurn?.skill !== 'campaigns.list') {
+    if (!activeTurn || !isCampaignSkill(activeTurn.skill)) {
+      if (campaignsBridge?.moduleOpen && activeTurn && !isCampaignSkill(activeTurn.skill)) {
         closeCampaignsModule()
       }
       return
     }
     campaignsBridge?.setModuleOpen(true)
     campaignsBridge?.setModuleExpanded(true)
-    openCatalogCanvas('/campanhas')
+    if (activeTurn.skill === 'campaigns.list' || activeTurn.skill === 'campaign.builder') {
+      openCatalogCanvas('/campanhas')
+    }
   }, [activeTurn, campaignsBridge, isDesktop, closeCampaignsModule])
 
   /* Galeria: desktop = canvas; mobile = inline com upload */

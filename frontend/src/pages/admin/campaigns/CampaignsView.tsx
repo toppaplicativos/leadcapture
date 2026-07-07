@@ -25,9 +25,16 @@ import { Skeleton, KpiCard, EmptyState } from '@/components/admin/primitives'
 import { MediaPickerModal } from '@/components/gallery/MediaPickerModal'
 import type { GalleryItem } from '@/lib/gallery/types'
 import { useCampaignsBridgeOptional } from '@/lib/agent/CampaignsBridgeContext'
+import { useAgentShell } from '@/lib/agent/AgentShellContext'
 import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
 
-export function CampaignsView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') => void }) {
+export function CampaignsView({
+  showToast,
+  embedded = false,
+}: {
+  showToast: (t: string, tp?: 'ok' | 'err') => void
+  embedded?: boolean
+}) {
   const [campaigns, setCampaigns] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<'all' | 'active' | 'draft' | 'done'>('all')
@@ -41,6 +48,7 @@ export function CampaignsView({ showToast }: { showToast: (t: string, tp?: 'ok' 
   const campaignsBridge = useCampaignsBridgeOptional()
   const publishSnapshot = campaignsBridge?.publishSnapshot
   const registerHandlers = campaignsBridge?.registerHandlers
+  const { openCanvas } = useAgentShell()
   const isDesktop = useIsDesktop()
   const pendingSelectId = useRef<string | null>(null)
 
@@ -92,10 +100,10 @@ export function CampaignsView({ showToast }: { showToast: (t: string, tp?: 'ok' 
       },
       createNew: openCreate,
       openAiWizard: () => setAiWizardOpen(true),
-      openFull: () => undefined,
+      openFull: () => { if (isDesktop) openCanvas('/campanhas') },
       refresh: () => loadCampaigns(),
     })
-  }, [registerHandlers, isDesktop, campaigns])
+  }, [registerHandlers, isDesktop, campaigns, openCanvas])
 
   useEffect(() => {
     if (!isDesktop || !pendingSelectId.current) return
@@ -203,32 +211,53 @@ export function CampaignsView({ showToast }: { showToast: (t: string, tp?: 'ok' 
   }
 
   return (
-    <div className="space-y-5">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-[26px] font-bold text-gray-900 tracking-tight">Campanhas</h2>
-          <p className="text-[13px] text-gray-400 mt-0.5">{campaigns.length} campanhas</p>
+    <div className={embedded ? 'space-y-4' : 'space-y-5'}>
+      {embedded ? (
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <p className="text-[12px] text-gray-500 tabular-nums">{campaigns.length} campanhas</p>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setAiWizardOpen(true)}
+              className="flex items-center gap-1 px-3 py-2 rounded-xl bg-gray-900 text-white text-[11px] font-bold hover:bg-gray-800"
+            >
+              <Sparkles size={13} /> IA
+            </button>
+            <button
+              type="button"
+              onClick={openCreate}
+              className="flex items-center gap-1 px-3 py-2 rounded-xl border border-gray-200 bg-white text-gray-800 text-[11px] font-bold hover:bg-gray-50"
+            >
+              <Plus size={13} /> Nova
+            </button>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          {/* NOVO: Wizard de IA - 7 skills SSE montam campanha do zero a partir de prompt */}
-          <button onClick={() => setAiWizardOpen(true)}
-            title="Descreva o objetivo em linguagem natural - a IA monta a campanha completa em rascunho"
-            className="ai-shimmer relative overflow-hidden flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-gray-900 hover:bg-black text-white text-xs font-bold transition-all">
-            <Sparkles size={14} className="relative z-10" />
-            <span className="relative z-10">Criar com IA</span>
-          </button>
-          <button onClick={createFollowupRuler} disabled={creatingRuler}
-            title="Cria 8 follow-ups (FU0..FU7) adaptados ao tom do agente, produto e prova social do brand"
-            className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-white border border-gray-200 text-gray-700 text-xs font-bold hover:bg-gray-50 transition-all disabled:opacity-60 disabled:cursor-not-allowed">
-            {creatingRuler ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-            {creatingRuler ? 'Gerando regua...' : 'Criar regua de Follow-up'}
-          </button>
-          <button onClick={openCreate}
-            className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-gray-900 hover:bg-black text-white text-xs font-bold transition-all">
-            <Plus size={14} /> Nova Campanha
-          </button>
+      ) : (
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-[26px] font-bold text-gray-900 tracking-tight">Campanhas</h2>
+            <p className="text-[13px] text-gray-400 mt-0.5">{campaigns.length} campanhas</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setAiWizardOpen(true)}
+              title="Descreva o objetivo em linguagem natural - a IA monta a campanha completa em rascunho"
+              className="ai-shimmer relative overflow-hidden flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-gray-900 hover:bg-black text-white text-xs font-bold transition-all">
+              <Sparkles size={14} className="relative z-10" />
+              <span className="relative z-10">Criar com IA</span>
+            </button>
+            <button onClick={createFollowupRuler} disabled={creatingRuler}
+              title="Cria 8 follow-ups (FU0..FU7) adaptados ao tom do agente, produto e prova social do brand"
+              className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-white border border-gray-200 text-gray-700 text-xs font-bold hover:bg-gray-50 transition-all disabled:opacity-60 disabled:cursor-not-allowed">
+              {creatingRuler ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+              {creatingRuler ? 'Gerando regua...' : 'Criar regua de Follow-up'}
+            </button>
+            <button onClick={openCreate}
+              className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-gray-900 hover:bg-black text-white text-xs font-bold transition-all">
+              <Plus size={14} /> Nova Campanha
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Tabs */}
       <div className="flex gap-1 bg-gray-100 p-0.5 rounded-xl w-fit">

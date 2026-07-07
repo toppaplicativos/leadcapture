@@ -38,11 +38,12 @@ export function CampaignsModuleBlock({ messageId, isActive }: Props) {
       </div>
       {expanded && (
         <div className="catalog-module__body">
-          {!isDesktop ? <CampaignsInlinePanel /> : (
+          <CampaignsInlinePanel />
+          {isDesktop && (
             <p className="catalog-module__hint">
-              Campanhas no canvas.{' '}
+              Campanhas completas no canvas à direita.{' '}
               <button type="button" className="catalog-module__link" onClick={() => openCanvas('/campanhas')}>
-                Abrir editor
+                Expandir
               </button>
             </p>
           )}

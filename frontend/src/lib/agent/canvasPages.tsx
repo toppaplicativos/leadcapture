@@ -43,6 +43,9 @@ function ProductsCanvas() {
   )
 }
 
+/** Rotas que precisam de borda a borda (mapa, etc.) — sem padding do canvas */
+const CANVAS_FLUSH_ROUTES = new Set(['/busca'])
+
 const CANVAS_PAGE_MAP: Record<string, () => ReactNode> = {
   '/dashboard': () => <DashboardView showToast={noop} />,
   '/fluxos': () => <FlowBuilderPage />,
@@ -69,9 +72,13 @@ export function CanvasPageEmbed({ route }: { route: string }) {
     )
   }
 
+  const flush = CANVAS_FLUSH_ROUTES.has(route)
+
   return (
     <Suspense fallback={<CanvasFallback />}>
-      <div className="agent-canvas__embed h-full min-h-0">{render()}</div>
+      <div className={`agent-canvas__embed h-full min-h-0${flush ? ' agent-canvas__embed--flush' : ''}`}>
+        {render()}
+      </div>
     </Suspense>
   )
 }

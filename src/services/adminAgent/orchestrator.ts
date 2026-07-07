@@ -492,9 +492,15 @@ Responda APENAS com JSON válido neste formato:
       }
 
       case "crm.leads.table": {
+        const search = String(sk.search || "").trim();
+        const status = String(sk.status || "").trim();
         const [stats, leads] = await Promise.all([
           fetchLeadStats(ctx.userId, ctx.brandId),
-          fetchRecentLeads(ctx.userId, ctx.brandId),
+          fetchRecentLeads(ctx.userId, ctx.brandId, {
+            search: search || undefined,
+            status: status || undefined,
+            limit: 12,
+          }),
         ]);
         if (stats) {
           components.push({
@@ -503,6 +509,8 @@ Responda APENAS com JSON válido neste formato:
             props: {
               total: stats.total || 0,
               newCount: stats.new_count || 0,
+              search: search || undefined,
+              status: status || undefined,
               live: true,
             },
           });

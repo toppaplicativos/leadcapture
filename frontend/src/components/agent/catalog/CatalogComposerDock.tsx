@@ -62,6 +62,7 @@ export function CatalogComposerDock() {
     prospectModuleOpen,
     onOpenModal,
     openCanvas,
+    triggerSkill,
   } = useAgentShell()
 
   const products = useProductsBridgeOptional()
@@ -159,6 +160,17 @@ export function CatalogComposerDock() {
             label="Mapa"
             icon={MapPin}
             onClick={() => openCanvas('/busca')}
+          />
+          <ActionChip
+            label="Ver leads"
+            icon={Users}
+            onClick={() => {
+              triggerSkill('crm.leads.table', {
+                label: 'Ver leads',
+                assistantMessage: 'Seus leads recentes:',
+                context: { status: 'new' },
+              })
+            }}
           />
         </div>
       </div>

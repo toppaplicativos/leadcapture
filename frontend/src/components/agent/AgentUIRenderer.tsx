@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/Button'
 import { Card, CardBody } from '@/components/ui/Card'
 import type { AgentCallbacks, ComponentSpec } from '@/lib/agent/types'
 import { useProspectBridgeOptional } from '@/lib/agent/ProspectBridgeContext'
+import { useLeadsBridgeOptional } from '@/lib/agent/LeadsBridgeContext'
 
 const KPI_ICONS: Record<string, LucideIcon> = {
   users: Users,
@@ -322,6 +323,7 @@ function InlineForm({ spec, callbacks }: { spec: ComponentSpec; callbacks: Agent
 }
 
 function LeadCard({ props, callbacks }: { props?: Record<string, unknown>; callbacks: AgentCallbacks }) {
+  const leadsBridge = useLeadsBridgeOptional()
   const lead = props?.lead as {
     id?: string
     name?: string
@@ -371,9 +373,21 @@ function LeadCard({ props, callbacks }: { props?: Record<string, unknown>; callb
           <Button
             size="sm"
             variant="secondary"
-            onClick={() => callbacks.onNavigate('/leads')}
+            onClick={() => {
+              if (leadsBridge?.isReady) {
+                leadsBridge.setModuleExpanded(true)
+                leadsBridge.dispatch({
+                  type: 'select_lead',
+                  id: String(lead.id),
+                  name: lead.name,
+                })
+                leadsBridge.dispatch({ type: 'open_full' })
+              } else {
+                callbacks.onNavigate('/leads')
+              }
+            }}
           >
-            Editar na lista
+            Abrir no CRM
           </Button>
         )}
       </CardBody>

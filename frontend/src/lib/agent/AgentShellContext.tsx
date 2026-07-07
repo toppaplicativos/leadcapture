@@ -86,6 +86,8 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
   const isProductSkill = (skill?: string) => !!skill && PRODUCT_SKILLS.has(skill)
   const lastProspectKey = useRef('')
   const lastInboxConvoKey = useRef('')
+  const lastLeadsFilterKey = useRef('')
+  const lastLeadsSelectKey = useRef('')
   const [canvasMode, setCanvasMode] = useState<CanvasMode>('agent')
   const [embeddedRoute, setEmbeddedRoute] = useState<string | null>(null)
   const [desktopCanvasOpen, setDesktopCanvasOpen] = useState(false)
@@ -327,8 +329,24 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
     const stats = activeTurn.components?.find((c) => c.type === 'leads_stats')
     const search = String(stats?.props?.search || '').trim()
     const status = String(stats?.props?.status || '').trim()
-    if (search) leadsBridge?.queueCommand({ type: 'search', query: search })
-    if (status) leadsBridge?.queueCommand({ type: 'filter_status', status })
+    const filterKey = `${search}|${status}`
+    if (filterKey !== '|' && lastLeadsFilterKey.current !== filterKey) {
+      lastLeadsFilterKey.current = filterKey
+      if (search) leadsBridge?.queueCommand({ type: 'search', query: search })
+      if (status) leadsBridge?.queueCommand({ type: 'filter_status', status })
+    }
+
+    const leadCard = activeTurn.components?.find((c) => c.type === 'lead_card')
+    const leadFromCard = leadCard?.props?.lead as { id?: string; name?: string } | undefined
+    const leadId = String(leadFromCard?.id || '').trim()
+    if (activeTurn.skill === 'crm.lead.detail' && leadId && lastLeadsSelectKey.current !== leadId) {
+      lastLeadsSelectKey.current = leadId
+      leadsBridge?.queueCommand({
+        type: 'select_lead',
+        id: leadId,
+        name: leadFromCard?.name,
+      })
+    }
   }, [activeTurn, leadsBridge, isDesktop, closeLeadsModule])
 
   /* Galeria: desktop = canvas; mobile = inline com upload */

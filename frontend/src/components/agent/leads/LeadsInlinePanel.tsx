@@ -128,7 +128,6 @@ export function LeadsInlinePanel() {
   const publishSnapshot = bridge?.publishSnapshot
   const registerHandlers = bridge?.registerHandlers
   const setModuleExpanded = bridge?.setModuleExpanded
-  const dispatch = bridge?.dispatch
   const { openCanvas } = useAgentShell()
   const isDesktop = useIsDesktop()
   const { showToast } = useToast()
@@ -206,11 +205,17 @@ export function LeadsInlinePanel() {
         if (found) openLead(found)
       },
       openFull: () => openManager(),
-      openImport: () => setManagerOpen(true),
-      validateWhatsapp: () => setManagerOpen(true),
+      openImport: () => {
+        setManagerOpen(true)
+        bridge?.queueCommand({ type: 'open_import' })
+      },
+      validateWhatsapp: () => {
+        setManagerOpen(true)
+        bridge?.queueCommand({ type: 'validate_whatsapp' })
+      },
       refresh: () => { void load() },
     })
-  }, [registerHandlers, setModuleExpanded, isDesktop, load, openManager, openLead])
+  }, [registerHandlers, setModuleExpanded, isDesktop, load, openManager, openLead, bridge])
 
   const filtered = leads.filter((l) => {
     if (!search.trim()) return true

@@ -37,11 +37,19 @@ export function ProspectInlinePanel() {
 
   useEffect(() => { void loadRecent() }, [loadRecent, snap.capturedLive, snap.todayCount])
 
-  const openLeads = () => {
+  const openLeads = (opts?: { status?: string }) => {
     triggerSkill('crm.leads.table', {
-      label: 'Ver leads',
-      assistantMessage: 'Seus leads recentes:',
-      context: { status: 'new' },
+      label: opts?.status === 'new' ? 'Ver novos leads' : 'Ver leads',
+      assistantMessage: opts?.status === 'new' ? 'Leads novos na base:' : 'Seus leads recentes:',
+      context: opts?.status ? { status: opts.status } : undefined,
+    })
+  }
+
+  const openLeadDetail = (lead: any) => {
+    triggerSkill('crm.lead.detail', {
+      label: lead.name || lead.trade_name || 'Ver lead',
+      assistantMessage: 'Detalhes do lead:',
+      context: { leadId: String(lead.id) },
     })
   }
 
@@ -71,11 +79,20 @@ export function ProspectInlinePanel() {
         </p>
       )}
 
+      {snap.capturedLive > 0 && (
+        <div className="prospect-inline__capture-banner">
+          <span><strong className="tabular-nums">{snap.capturedLive}</strong> captado{snap.capturedLive === 1 ? '' : 's'} nesta sessão</span>
+          <button type="button" className="prospect-inline__capture-link" onClick={() => openLeads({ status: 'new' })}>
+            Ver no CRM
+          </button>
+        </div>
+      )}
+
       <div className="prospect-inline__actions">
         <button type="button" className="catalog-panel__action catalog-panel__action--ghost" onClick={() => bridge.dispatch({ type: 'capture_batch' })} disabled={!snap.newCount}>
           <Zap size={13} /> Captar ({snap.newCount})
         </button>
-        <button type="button" className="catalog-panel__action" onClick={openLeads}>
+        <button type="button" className="catalog-panel__action" onClick={() => openLeads({ status: 'new' })}>
           <Users size={13} /> Ver leads
         </button>
       </div>
@@ -88,7 +105,7 @@ export function ProspectInlinePanel() {
       ) : (
         <div className="catalog-lead-list">
           {recent.map((l) => (
-            <button key={l.id} type="button" className="catalog-lead-list-row" onClick={openLeads}>
+            <button key={l.id} type="button" className="catalog-lead-list-row" onClick={() => openLeadDetail(l)}>
               <div className="catalog-lead-list-row__avatar is-new">
                 <MapPin size={14} strokeWidth={1.75} />
               </div>
@@ -102,7 +119,7 @@ export function ProspectInlinePanel() {
       )}
 
       {recent.length > 0 && (
-        <button type="button" className="catalog-panel__more" onClick={openLeads}>
+        <button type="button" className="catalog-panel__more" onClick={() => openLeads()}>
           Ver todos os leads
           <ChevronRight size={13} />
         </button>

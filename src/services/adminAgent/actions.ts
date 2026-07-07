@@ -9,12 +9,13 @@ const inventoryService = new InventoryService();
 export async function fetchRecentLeads(
   userId: string,
   brandId: string | null,
-  opts?: { search?: string; limit?: number },
+  opts?: { search?: string; status?: string; limit?: number },
 ) {
   const result = await customersService.getAll({
     ownerUserId: userId,
     brandId,
     search: opts?.search,
+    status: opts?.status,
     limit: opts?.limit || 8,
     offset: 0,
   });

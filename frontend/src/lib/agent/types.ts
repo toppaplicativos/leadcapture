@@ -19,6 +19,7 @@ export type ComponentType =
   | 'leads_stats'
   | 'clients_stats'
   | 'orders_stats'
+  | 'instagram_stats'
 
 export type PresentationMode = 'inline' | 'canvas'
 

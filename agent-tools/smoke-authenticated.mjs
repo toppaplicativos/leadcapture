@@ -23,6 +23,7 @@ const MODULES = [
   { label: 'Campanhas', selector: '.catalog-module.is-expanded', titleRe: /campanha/i },
   { label: 'Habilidades', selector: '.catalog-module--skills', titleRe: /habilidade/i, minCount: 1 },
   { label: 'Pedidos', selector: '.catalog-module--orders', titleRe: /pedido/i },
+  { label: 'Instagram', selector: '.catalog-module--instagram', titleRe: /instagram/i, canvasHint: /studio completo no canvas/i },
 ]
 
 let failed = 0
@@ -140,6 +141,16 @@ try {
       } else {
         ok(`${mod.label} → KPI ${num}`)
       }
+    }
+
+    if (mod.canvasHint) {
+      const hint = block.locator('.catalog-module__hint')
+      const hintText = (await hint.textContent().catch(() => '')) || ''
+      if (mod.canvasHint.test(hintText)) ok(`${mod.label} → hint canvas desktop`)
+      else fail(`${mod.label} → hint canvas ausente ("${hintText.trim()}")`)
+      const canvasEmbed = page.locator('.agent-canvas__embed')
+      if (await canvasEmbed.isVisible().catch(() => false)) ok(`${mod.label} → canvas embed visível`)
+      else fail(`${mod.label} → canvas embed não visível no desktop`)
     }
 
     const modChunks = consoleErrors.filter((e) =>

@@ -36,10 +36,16 @@ const TABS = [
   { key: 'messages', label: 'Mensagens', icon: MessageCircle },
 ] as const
 
-type TabKey = typeof TABS[number]['key']
+export type InstagramTabKey = typeof TABS[number]['key']
+type TabKey = InstagramTabKey
 
-export function InstagramPage() {
-  const [tab, setTab] = useState<TabKey>('overview')
+type InstagramPageProps = {
+  embedded?: boolean
+  initialTab?: TabKey
+}
+
+export function InstagramPage({ embedded = false, initialTab = 'overview' }: InstagramPageProps = {}) {
+  const [tab, setTab] = useState<TabKey>(initialTab)
   const [profile, setProfile] = useState<any>(null)
   const [connection, setConnection] = useState<any>(null)
   const [loading, setLoading] = useState(true)
@@ -56,12 +62,13 @@ export function InstagramPage() {
   }, [])
 
   useEffect(() => { loadProfile() }, [loadProfile])
+  useEffect(() => { setTab(initialTab) }, [initialTab])
 
   const isConnected = profile?.is_connected
 
   if (loading) {
     return (
-      <div className="min-h-[60vh] grid place-items-center">
+      <div className={embedded ? 'py-10 grid place-items-center' : 'min-h-[60vh] grid place-items-center'}>
         <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
       </div>
     )
@@ -70,7 +77,7 @@ export function InstagramPage() {
   if (!connection) {
     return (
       <>
-        <NotConnectedView onConnect={() => setShowConnectModal(true)} />
+        <NotConnectedView embedded={embedded} onConnect={() => setShowConnectModal(true)} />
         {showConnectModal && (
           <ConnectModal onClose={() => setShowConnectModal(false)} onConnected={() => { setShowConnectModal(false); loadProfile() }} />
         )}
@@ -94,9 +101,9 @@ export function InstagramPage() {
 
   return (
     <>
-      <div className="space-y-0">
+      <div className={embedded ? 'space-y-0' : 'space-y-0'}>
         {/* Header */}
-        <div className="flex items-center justify-between px-1 pb-4 border-b border-gray-100">
+        <div className={`flex items-center justify-between px-1 pb-4 border-b border-gray-100 ${embedded ? 'pt-0' : ''}`}>
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 via-pink-500 to-orange-400 grid place-items-center">
               <Camera size={20} className="text-white" />
@@ -162,9 +169,9 @@ export function InstagramPage() {
 /* ═══════════════════════════════════════════
    NOT CONNECTED VIEW — clean empty state
    ═══════════════════════════════════════════ */
-function NotConnectedView({ onConnect }: { onConnect: () => void }) {
+function NotConnectedView({ onConnect, embedded = false }: { onConnect: () => void; embedded?: boolean }) {
   return (
-    <div className="max-w-md mx-auto py-16 text-center">
+    <div className={`max-w-md mx-auto text-center ${embedded ? 'py-8' : 'py-16'}`}>
       <div className="w-20 h-20 mx-auto rounded-2xl bg-gradient-to-br from-purple-500 via-pink-500 to-orange-400 grid place-items-center mb-6 shadow-lg shadow-purple-200/50">
         <Camera size={32} className="text-white" />
       </div>

@@ -72,6 +72,11 @@ const TRIGGERS: Record<string, WorkspaceTrigger> = {
     userLabel: 'Abrir galeria',
     assistantMessage: 'Sua galeria de mídia:',
   },
+  instagram: {
+    skill: 'instagram.open',
+    userLabel: 'Abrir Instagram',
+    assistantMessage: 'Sua conta Instagram:',
+  },
   'video-studio': {
     skill: 'video.create',
     userLabel: 'Video Studio',
@@ -127,6 +132,7 @@ const PATH_TO_KEY: Record<string, string> = {
   '/criativos': 'criativos',
   '/creative': 'criativos',
   '/galeria': 'galeria',
+  '/instagram': 'instagram',
   '/video-studio': 'video-studio',
   '/fluxos': 'fluxos',
   '/automacoes': 'automacoes',
@@ -145,6 +151,7 @@ export const OBJECTIVE_TRIGGERS: WorkspaceTrigger[] = [
   { skill: 'catalog.products', userLabel: 'Produtos', assistantMessage: 'Seu catálogo:' },
   { skill: 'catalog.products.create', userLabel: 'Criar produto', assistantMessage: 'Vamos criar um produto. Preencha o formulário:' },
   { skill: 'gallery.open', userLabel: 'Galeria', assistantMessage: 'Assets da marca:' },
+  { skill: 'instagram.open', userLabel: 'Instagram', assistantMessage: 'Sua conta Instagram:' },
   { skill: 'campaigns.list', userLabel: 'Campanhas', assistantMessage: 'Suas campanhas:' },
   { skill: 'skills.list', userLabel: 'Habilidades', assistantMessage: 'Habilidades do agente:' },
   { skill: 'catalog.orders', userLabel: 'Pedidos', assistantMessage: 'Seus pedidos recentes:' },

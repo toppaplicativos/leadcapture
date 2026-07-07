@@ -17,6 +17,7 @@ import {
   fetchGalleryCount,
   generateProductDraftFromBrief,
 } from "./actions";
+import { instagramService } from "../instagram";
 import { SKILLS, NAV_PATHS, buildSkillsCatalog } from "./squads";
 import { getSkillMeta } from "./skillMeta";
 import type {
@@ -165,6 +166,10 @@ export class AdminAgentOrchestrator {
     if (skillId === "gallery.open") {
       turn.presentation = "inline";
       turn.canvasRoute = "/galeria";
+    }
+    if (skillId === "instagram.open") {
+      turn.presentation = "inline";
+      turn.canvasRoute = "/instagram";
     }
     if (skillId === "dashboard.overview" || skillId === "dashboard.show") {
       turn.presentation = "inline";
@@ -426,6 +431,9 @@ Responda APENAS com JSON válido neste formato:
     }
     if (/galeria|minhas\s+imagens/i.test(lower)) {
       return { squad: "creative", skill: "gallery.open", message: "Abrindo sua galeria..." };
+    }
+    if (/instagram|insta\b|reels?\b|stories?\b/i.test(lower)) {
+      return { squad: "social", skill: "instagram.open", message: "Abrindo o Instagram..." };
     }
     if (/painel|dashboard|como\s+está\s+o\s+negócio|mostrar\s+painel/i.test(lower)) {
       return { squad: "dashboard", skill: "dashboard.show", message: "Abrindo o painel completo..." };
@@ -996,6 +1004,46 @@ Responda APENAS com JSON válido neste formato:
           props: { total, live: true },
         });
         components.push(this.buildNavSuggestions(["galeria"]));
+        break;
+      }
+
+      case "instagram.open": {
+        const brandId = String(ctx.brandId || "").trim();
+        if (!brandId) {
+          components.push({
+            id: "ig-no-brand",
+            type: "text",
+            props: { text: "Selecione uma marca para gerenciar o Instagram." },
+          });
+          break;
+        }
+        try {
+          const conn = await instagramService.getConnection(brandId);
+          const profile = await instagramService.getProfile(brandId);
+          const connected = !!conn && !!profile?.is_connected;
+          components.push({
+            id: "ig-stats",
+            type: "instagram_stats",
+            props: {
+              connected,
+              username: profile?.username || "",
+              name: profile?.name || "",
+              followers: Number(profile?.followers_count || 0),
+              following: Number(profile?.follows_count || 0),
+              mediaCount: Number(profile?.media_count || 0),
+              avatarUrl: profile?.profile_picture_url || "",
+              live: true,
+            },
+          });
+        } catch {
+          components.push({
+            id: "ig-stats",
+            type: "instagram_stats",
+            props: { connected: false, live: true },
+          });
+        }
+        components.push(this.buildNavSuggestions(["instagram"]));
+        actions.push({ type: "navigate", payload: { path: "/instagram" } });
         break;
       }
 

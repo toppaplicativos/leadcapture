@@ -244,6 +244,15 @@ export const SKILLS: Record<string, SkillDefinition> = {
     permissions: [],
     ui: ["gallery_stats", "nav_suggestions"],
   },
+  "instagram.open": {
+    id: "instagram.open",
+    name: "Instagram",
+    description: "Resumo da conta Instagram Business e studio completo.",
+    squad: "social",
+    intents: ["instagram", "abrir instagram", "posts instagram", "dm instagram", "reels"],
+    permissions: [],
+    ui: ["instagram_stats", "nav_suggestions"],
+  },
   "agent.configure": {
     id: "agent.configure",
     name: "Configurar agente",
@@ -310,6 +319,12 @@ export const SQUADS: Record<string, SquadDefinition> = {
     description: "Galeria, criativos IA e vídeo.",
     skills: ["creative.generate", "video.create", "gallery.open"],
   },
+  social: {
+    id: "social",
+    name: "Redes sociais",
+    description: "Instagram, Facebook e canais sociais.",
+    skills: ["instagram.open"],
+  },
   nav: {
     id: "nav",
     name: "Navegação",
@@ -332,6 +347,7 @@ export const NAV_PATHS: Record<string, { path: string; label: string }> = {
   estoque: { path: "/estoque", label: "Estoque" },
   criativos: { path: "/criativos", label: "Criativos IA" },
   galeria: { path: "/galeria", label: "Galeria" },
+  instagram: { path: "/instagram", label: "Instagram" },
   whatsapp: { path: "/configuracoes?tab=whatsapp", label: "WhatsApp" },
   automacoes: { path: "/automacoes", label: "Automações" },
   configuracoes: { path: "/configuracoes", label: "Configurações" },

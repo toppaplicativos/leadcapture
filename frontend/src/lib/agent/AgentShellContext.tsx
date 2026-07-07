@@ -18,7 +18,8 @@ import { useCampaignsBridgeOptional } from './CampaignsBridgeContext'
 import { useGalleryBridgeOptional } from './GalleryBridgeContext'
 import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
 import { resolveTrigger } from './workspaceTriggers'
-import { isCampaignSkill, isLeadsSkill, isClientsSkill, isOrdersSkill, isDashboardSkill, isSkillsModuleSkill } from './composerAiActions'
+import { isCampaignSkill, isLeadsSkill, isClientsSkill, isOrdersSkill, isDashboardSkill, isSkillsModuleSkill, isInstagramSkill } from './composerAiActions'
+import { useInstagramBridgeOptional } from './InstagramBridgeContext'
 import { useLeadsBridgeOptional } from './LeadsBridgeContext'
 import { useClientsBridgeOptional } from './ClientsBridgeContext'
 import { useOrdersBridgeOptional } from './OrdersBridgeContext'
@@ -67,6 +68,8 @@ type AgentShellValue = {
   dashboardModuleOpen: boolean
   closeSkillsModule: () => void
   skillsModuleOpen: boolean
+  closeInstagramModule: () => void
+  instagramModuleOpen: boolean
 }
 
 const AgentShellContext = createContext<AgentShellValue | null>(null)
@@ -96,6 +99,7 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
   const ordersBridge = useOrdersBridgeOptional()
   const dashboardBridge = useDashboardBridgeOptional()
   const skillsBridge = useSkillsBridgeOptional()
+  const instagramBridge = useInstagramBridgeOptional()
   const isDesktop = useIsDesktop()
 
   const PRODUCT_SKILLS = useMemo(() => new Set(['catalog.products', 'catalog.products.table', 'catalog.products.create']), [])
@@ -204,6 +208,15 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
     setMobileCanvasOpen(false)
     setCanvasMode('agent')
   }, [galleryBridge])
+
+  const closeInstagramModule = useCallback(() => {
+    instagramBridge?.setModuleOpen(false)
+    instagramBridge?.setModuleExpanded(false)
+    setDesktopCanvasOpen(false)
+    setEmbeddedRoute(null)
+    setMobileCanvasOpen(false)
+    setCanvasMode('agent')
+  }, [instagramBridge])
 
   const closeLeadsModule = useCallback(() => {
     leadsBridge?.setModuleOpen(false)
@@ -560,6 +573,32 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
     openCatalogCanvas('/galeria')
   }, [activeTurn, galleryBridge, isDesktop, closeGalleryModule])
 
+  /* Instagram: chat = resumo; desktop = studio no canvas */
+  useEffect(() => {
+    if (!activeTurn || !isInstagramSkill(activeTurn.skill)) {
+      if (instagramBridge?.moduleOpen && activeTurn && !isInstagramSkill(activeTurn.skill)) {
+        closeInstagramModule()
+      }
+      return
+    }
+    instagramBridge?.setModuleOpen(true)
+    instagramBridge?.setModuleExpanded(true)
+    openCatalogCanvas('/instagram')
+    const stats = activeTurn.components?.find((c) => c.type === 'instagram_stats')
+    if (stats?.props) {
+      instagramBridge?.publishSnapshot({
+        connected: !!stats.props.connected,
+        username: String(stats.props.username || ''),
+        name: String(stats.props.name || ''),
+        followers: Number(stats.props.followers || 0),
+        following: Number(stats.props.following || 0),
+        mediaCount: Number(stats.props.mediaCount || 0),
+        avatarUrl: String(stats.props.avatarUrl || ''),
+        loading: false,
+      })
+    }
+  }, [activeTurn, instagramBridge, isDesktop, closeInstagramModule])
+
   const send = useCallback(async (
     text: string,
     opts?: { componentEvent?: ComponentEvent; skillContext?: SkillContext; directSkill?: string },
@@ -600,6 +639,10 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
     }
     if (key === 'galeria' || raw === '/galeria') {
       chat.triggerSkill('gallery.open', { label: 'Galeria', assistantMessage: 'Assets da marca:' })
+      return
+    }
+    if (key === 'instagram' || raw === '/instagram') {
+      chat.triggerSkill('instagram.open', { label: 'Instagram', assistantMessage: 'Sua conta Instagram:' })
       return
     }
     if (key === 'leads' || raw === '/leads') {
@@ -678,6 +721,8 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
     campaignsModuleOpen: !!campaignsBridge?.moduleOpen,
     closeGalleryModule,
     galleryModuleOpen: !!galleryBridge?.moduleOpen,
+    closeInstagramModule,
+    instagramModuleOpen: !!instagramBridge?.moduleOpen,
     closeLeadsModule,
     leadsModuleOpen: !!leadsBridge?.moduleOpen,
     closeClientsModule,

@@ -8,6 +8,7 @@ import { InboxBridgeProvider } from '@/lib/agent/InboxBridgeContext'
 import { ProductsBridgeProvider } from '@/lib/agent/ProductsBridgeContext'
 import { CampaignsBridgeProvider } from '@/lib/agent/CampaignsBridgeContext'
 import { GalleryBridgeProvider } from '@/lib/agent/GalleryBridgeContext'
+import { InstagramBridgeProvider } from '@/lib/agent/InstagramBridgeContext'
 import { LeadsBridgeProvider } from '@/lib/agent/LeadsBridgeContext'
 import { ClientsBridgeProvider } from '@/lib/agent/ClientsBridgeContext'
 import { OrdersBridgeProvider } from '@/lib/agent/OrdersBridgeContext'
@@ -38,7 +39,7 @@ function ConversationalShellInner({ children }: { children?: ReactNode }) {
   const {
     mobileCanvasOpen, setMobileCanvasOpen, desktopCanvasOpen,
     prospectModuleOpen, inboxModuleOpen, productsModuleOpen,
-    campaignsModuleOpen, galleryModuleOpen, leadsModuleOpen, clientsModuleOpen, ordersModuleOpen,
+    campaignsModuleOpen, galleryModuleOpen, instagramModuleOpen, leadsModuleOpen, clientsModuleOpen, ordersModuleOpen,
     dashboardModuleOpen, skillsModuleOpen,
   } = useAgentShell()
   const isImmersive = location.pathname === '/video-studio'
@@ -205,7 +206,7 @@ function ConversationalShellInner({ children }: { children?: ReactNode }) {
           className={`agent-shell__canvas flex-1 min-w-0 min-h-0 ${
             mobileCanvasOpen && desktopCanvasOpen
               && !prospectModuleOpen && !inboxModuleOpen
-              && !productsModuleOpen && !campaignsModuleOpen && !galleryModuleOpen && !leadsModuleOpen && !clientsModuleOpen && !ordersModuleOpen
+              && !productsModuleOpen && !campaignsModuleOpen && !galleryModuleOpen && !instagramModuleOpen && !leadsModuleOpen && !clientsModuleOpen && !ordersModuleOpen
               && !dashboardModuleOpen && !skillsModuleOpen
               ? 'is-open' : ''
           }`}
@@ -245,6 +246,7 @@ export function ConversationalShell({ children }: { children?: ReactNode }) {
           <ProductsBridgeProvider>
             <CampaignsBridgeProvider>
               <GalleryBridgeProvider>
+                <InstagramBridgeProvider>
                 <LeadsBridgeProvider>
                   <ClientsBridgeProvider>
                     <OrdersBridgeProvider>
@@ -258,6 +260,7 @@ export function ConversationalShell({ children }: { children?: ReactNode }) {
                     </OrdersBridgeProvider>
                   </ClientsBridgeProvider>
                 </LeadsBridgeProvider>
+                </InstagramBridgeProvider>
               </GalleryBridgeProvider>
             </CampaignsBridgeProvider>
           </ProductsBridgeProvider>

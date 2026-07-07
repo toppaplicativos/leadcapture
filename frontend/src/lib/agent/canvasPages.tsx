@@ -1,6 +1,8 @@
 import { lazy, Suspense, type ReactNode } from 'react'
 import { Loader2 } from 'lucide-react'
 import { useToast } from '@/components/Toast'
+import { useInstagramBridgeOptional } from '@/lib/agent/InstagramBridgeContext'
+import type { InstagramTabKey } from '@/pages/InstagramPage'
 
 const DashboardView = lazy(() => import('@/pages/admin/dashboard/DashboardView').then(m => ({ default: m.DashboardView })))
 const CampaignsView = lazy(() => import('@/pages/admin/campaigns/CampaignsView').then(m => ({ default: m.CampaignsView })))
@@ -18,6 +20,13 @@ const LeadsPage = lazy(() => import('@/pages/LeadsPage').then(m => ({ default: m
 const ClientesPage = lazy(() => import('@/pages/ClientesPage').then(m => ({ default: m.ClientesPage })))
 const OrdersView = lazy(() => import('@/pages/admin/orders/OrdersView').then(m => ({ default: m.OrdersView })))
 const BrandSkillsPage = lazy(() => import('@/pages/BrandSkillsPage').then(m => ({ default: m.BrandSkillsPage })))
+const InstagramPage = lazy(() => import('@/pages/InstagramPage').then(m => ({ default: m.InstagramPage })))
+
+function InstagramCanvas() {
+  const bridge = useInstagramBridgeOptional()
+  const tab = (bridge?.snapshot.activeTab || 'overview') as InstagramTabKey
+  return <InstagramPage initialTab={tab} />
+}
 
 const noop = () => {}
 
@@ -72,6 +81,7 @@ const CANVAS_PAGE_MAP: Record<string, () => ReactNode> = {
   '/mensagens': () => <MessagesPage variant="canvas" />,
   '/habilidades': () => <BrandSkillsPage />,
   '/skills': () => <BrandSkillsPage />,
+  '/instagram': () => <InstagramCanvas />,
 }
 
 export function CanvasPageEmbed({ route }: { route: string }) {

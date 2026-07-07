@@ -23,6 +23,7 @@ const MODULES = [
   { label: 'Campanhas', selector: '.catalog-module.is-expanded', titleRe: /campanha/i },
   { label: 'Habilidades', selector: '.catalog-module--skills', titleRe: /habilidade/i, minCount: 1, sheetBtn: /gerenciar habilidade/i },
   { label: 'Pedidos', selector: '.catalog-module--orders', titleRe: /pedido/i },
+  { label: 'Instagram', selector: '.catalog-module--instagram', titleRe: /instagram/i, sheetBtn: /instagram completo/i },
 ]
 
 let failed = 0

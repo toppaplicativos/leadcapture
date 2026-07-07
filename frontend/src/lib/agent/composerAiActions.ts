@@ -53,6 +53,10 @@ export const PROSPECT_SKILLS = new Set([
   'crm.leads.search',
 ])
 
+export const INSTAGRAM_SKILLS = new Set([
+  'instagram.open',
+])
+
 export function isCampaignSkill(skill?: string) {
   return !!skill && CAMPAIGN_SKILLS.has(skill)
 }
@@ -91,4 +95,8 @@ export function isSkillsModuleSkill(skill?: string) {
 
 export function isProspectSkill(skill?: string) {
   return !!skill && PROSPECT_SKILLS.has(skill)
+}
+
+export function isInstagramSkill(skill?: string) {
+  return !!skill && INSTAGRAM_SKILLS.has(skill)
 }

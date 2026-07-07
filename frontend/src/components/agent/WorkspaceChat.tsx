@@ -4,7 +4,7 @@ import { SkillTrainerWizardModal } from '@/components/SkillTrainerWizardModal'
 import {
   Send, Loader2, LayoutGrid, Search, MapPin, Zap,
   Maximize2, Sparkles, MessageSquare, Megaphone, ShoppingCart,
-  PanelRight, X, Package, Images, Users, Building2, LayoutDashboard, Brain,
+  PanelRight, X, Package, Images, Users, Building2, LayoutDashboard, Brain, Camera,
 } from 'lucide-react'
 import { AgentUIRenderer } from './AgentUIRenderer'
 import { ProspectModuleBlock } from './prospect/ProspectModuleBlock'
@@ -19,6 +19,7 @@ import { ClientsModuleBlock } from './clients/ClientsModuleBlock'
 import { OrdersModuleBlock } from './orders/OrdersModuleBlock'
 import { DashboardModuleBlock } from './dashboard/DashboardModuleBlock'
 import { SkillsModuleBlock } from './skills/SkillsModuleBlock'
+import { InstagramModuleBlock } from './instagram/InstagramModuleBlock'
 import { CatalogComposerDock } from './catalog/CatalogComposerDock'
 import { useAgentShell } from '@/lib/agent/AgentShellContext'
 import { useProspectBridgeOptional } from '@/lib/agent/ProspectBridgeContext'
@@ -35,6 +36,7 @@ import {
   isOrdersSkill,
   isDashboardSkill,
   isSkillsModuleSkill,
+  isInstagramSkill,
   isProductSkill as isCatalogProductSkill,
 } from '@/lib/agent/composerAiActions'
 import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
@@ -51,6 +53,7 @@ const CATALOG_INLINE_SKILLS = new Set([
   'campaigns.confirm',
   'campaign.builder',
   'gallery.open',
+  'instagram.open',
   'crm.leads.table',
   'crm.leads.list',
   'crm.leads.search',
@@ -97,6 +100,9 @@ function filterInlineComponents(turn?: AgentTurn): ComponentSpec[] | undefined {
   if (turn.skill === 'gallery.open') {
     return turn.components.filter((c) => c.type !== 'gallery_stats')
   }
+  if (isInstagramSkill(turn.skill)) {
+    return turn.components.filter((c) => c.type !== 'instagram_stats')
+  }
   if (isLeadsSkill(turn.skill)) {
     return turn.components.filter((c) =>
       c.type !== 'leads_stats' && c.type !== 'kpi_row' && c.type !== 'table' && c.type !== 'lead_card',
@@ -141,6 +147,7 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
     productsModuleOpen,
     campaignsModuleOpen,
     galleryModuleOpen,
+    instagramModuleOpen,
     leadsModuleOpen,
     clientsModuleOpen,
     ordersModuleOpen,
@@ -174,7 +181,7 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
   useEffect(() => {
     const el = scrollRef.current
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
-  }, [messages, loading, prospectModuleOpen, inboxModuleOpen, productsModuleOpen, campaignsModuleOpen, galleryModuleOpen, leadsModuleOpen, clientsModuleOpen, ordersModuleOpen, dashboardModuleOpen, skillsModuleOpen])
+  }, [messages, loading, prospectModuleOpen, inboxModuleOpen, productsModuleOpen, campaignsModuleOpen, galleryModuleOpen, instagramModuleOpen, leadsModuleOpen, clientsModuleOpen, ordersModuleOpen, dashboardModuleOpen, skillsModuleOpen])
 
   useEffect(() => {
     if (!menuOpen) return
@@ -214,6 +221,9 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
   const lastGalleryMsg = [...display].reverse().find(
     (m) => m.role === 'assistant' && !m.loading && m.turn?.skill === 'gallery.open',
   )
+  const lastInstagramMsg = [...display].reverse().find(
+    (m) => m.role === 'assistant' && !m.loading && isInstagramSkill(m.turn?.skill),
+  )
   const lastLeadsMsg = [...display].reverse().find(
     (m) => m.role === 'assistant' && !m.loading && isLeadsSkill(m.turn?.skill),
   )
@@ -229,7 +239,7 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
   const lastSkillsMsg = [...display].reverse().find(
     (m) => m.role === 'assistant' && !m.loading && isSkillsModuleSkill(m.turn?.skill),
   )
-  const catalogModuleOpen = productsModuleOpen || campaignsModuleOpen || galleryModuleOpen || leadsModuleOpen || clientsModuleOpen || ordersModuleOpen || dashboardModuleOpen || skillsModuleOpen
+  const catalogModuleOpen = productsModuleOpen || campaignsModuleOpen || galleryModuleOpen || instagramModuleOpen || leadsModuleOpen || clientsModuleOpen || ordersModuleOpen || dashboardModuleOpen || skillsModuleOpen
   const showCanvasBtn = lastAssistant?.turn
     && turnNeedsCanvas(lastAssistant.turn)
     && !desktopCanvasOpen
@@ -366,6 +376,16 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
       },
     },
     {
+      id: 'instagram',
+      label: 'Instagram',
+      desc: 'Posts, DMs e métricas',
+      icon: Camera,
+      action: () => {
+        setMenuOpen(false)
+        triggerSkill('instagram.open', { label: 'Instagram', assistantMessage: 'Sua conta Instagram:' })
+      },
+    },
+    {
       id: 'campaigns',
       label: 'Campanhas',
       desc: 'Ver e criar campanhas',
@@ -448,6 +468,9 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
           const isGalleryActive = galleryModuleOpen
             && msg.id === lastGalleryMsg?.id
             && msg.turn?.skill === 'gallery.open'
+          const isInstagramActive = instagramModuleOpen
+            && msg.id === lastInstagramMsg?.id
+            && isInstagramSkill(msg.turn?.skill)
           const isLeadsActive = leadsModuleOpen
             && msg.id === lastLeadsMsg?.id
             && isLeadsSkill(msg.turn?.skill)
@@ -494,6 +517,9 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
                       )}
                       {msg.turn?.skill === 'gallery.open' && (
                         <GalleryModuleBlock messageId={msg.id} isActive={!!isGalleryActive} />
+                      )}
+                      {isInstagramSkill(msg.turn?.skill) && (
+                        <InstagramModuleBlock messageId={msg.id} isActive={!!isInstagramActive} />
                       )}
                       {isLeadsSkill(msg.turn?.skill) && (
                         <LeadsModuleBlock messageId={msg.id} isActive={!!isLeadsActive} />

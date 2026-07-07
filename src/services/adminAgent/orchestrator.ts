@@ -11,6 +11,8 @@ import {
   fetchRecentLeads,
   fetchRecentClients,
   fetchClientStats,
+  fetchRecentOrders,
+  fetchOrderStats,
   fetchRecentProducts,
   fetchGalleryCount,
   generateProductDraftFromBrief,
@@ -151,6 +153,10 @@ export class AdminAgentOrchestrator {
     if (skillId === "crm.clients.table" || skillId === "crm.clients.list") {
       turn.presentation = "inline";
       turn.canvasRoute = "/clientes";
+    }
+    if (skillId === "catalog.orders") {
+      turn.presentation = "inline";
+      turn.canvasRoute = "/pedidos";
     }
     if (skillId === "campaigns.list") {
       turn.presentation = "inline";
@@ -1032,15 +1038,62 @@ Responda APENAS com JSON válido neste formato:
       }
 
       case "catalog.orders": {
-        const total = await this.countOrders(ctx.userId, ctx.brandId);
+        const search = String(sk.search || "").trim();
+        const status = String(sk.status || "").trim();
+        const [stats, orders] = await Promise.all([
+          fetchOrderStats(ctx.userId, ctx.brandId),
+          fetchRecentOrders(ctx.userId, ctx.brandId, {
+            search: search || undefined,
+            status: status || undefined,
+            limit: 12,
+          }),
+        ]);
         components.push({
-          id: "kpis",
-          type: "kpi_row",
+          id: "orders-stats",
+          type: "orders_stats",
           props: {
-            items: [{ label: "Pedidos", value: total, icon: "cart" }],
+            total: stats.total || 0,
+            pendingCount: stats.pending_count || 0,
+            paidCount: stats.paid_count || 0,
+            revenueTotal: stats.revenue_total || 0,
+            search: search || undefined,
+            status: status || undefined,
+            live: true,
           },
         });
-        components.push(this.buildNavSuggestions(["pedidos"]));
+        components.push({
+          id: "orders-stats-kpi",
+          type: "kpi_row",
+          props: {
+            items: [
+              { label: "Pedidos", value: stats.total || 0, icon: "cart" },
+              { label: "Pagos", value: stats.paid_count || 0, icon: "zap" },
+              { label: "Pendentes", value: stats.pending_count || 0, icon: "alert" },
+            ],
+          },
+        });
+        components.push({
+          id: "orders-table",
+          type: "table",
+          props: {
+            title: "Pedidos recentes",
+            columns: [
+              { key: "order_number", label: "Pedido" },
+              { key: "name", label: "Cliente" },
+              { key: "total", label: "Valor" },
+              { key: "status", label: "Status" },
+            ],
+            rows: orders.rows.map((r: { total?: number; [key: string]: unknown }) => ({
+              ...r,
+              total: r.total != null
+                ? Number(r.total).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
+                : "—",
+            })),
+            rowType: "order",
+            emptyLabel: "Nenhum pedido encontrado.",
+          },
+        });
+        components.push(this.buildNavSuggestions(["pedidos", "produtos"]));
         break;
       }
 

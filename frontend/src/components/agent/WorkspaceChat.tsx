@@ -16,6 +16,7 @@ import { CampaignsModuleBlock } from './catalog/CampaignsModuleBlock'
 import { GalleryModuleBlock } from './catalog/GalleryModuleBlock'
 import { LeadsModuleBlock } from './leads/LeadsModuleBlock'
 import { ClientsModuleBlock } from './clients/ClientsModuleBlock'
+import { OrdersModuleBlock } from './orders/OrdersModuleBlock'
 import { CatalogComposerDock } from './catalog/CatalogComposerDock'
 import { useAgentShell } from '@/lib/agent/AgentShellContext'
 import { useProspectBridgeOptional } from '@/lib/agent/ProspectBridgeContext'
@@ -29,6 +30,7 @@ import {
   isCampaignSkill,
   isLeadsSkill,
   isClientsSkill,
+  isOrdersSkill,
   isProductSkill as isCatalogProductSkill,
 } from '@/lib/agent/composerAiActions'
 import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
@@ -52,6 +54,7 @@ const CATALOG_INLINE_SKILLS = new Set([
   'crm.lead.detail',
   'crm.clients.table',
   'crm.clients.list',
+  'catalog.orders',
   'lead.prospect',
 ])
 
@@ -98,6 +101,11 @@ function filterInlineComponents(turn?: AgentTurn): ComponentSpec[] | undefined {
       c.type !== 'clients_stats' && c.type !== 'kpi_row' && c.type !== 'table',
     )
   }
+  if (isOrdersSkill(turn.skill)) {
+    return turn.components.filter((c) =>
+      c.type !== 'orders_stats' && c.type !== 'kpi_row' && c.type !== 'table',
+    )
+  }
   return turn.components
 }
 
@@ -123,6 +131,7 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
     galleryModuleOpen,
     leadsModuleOpen,
     clientsModuleOpen,
+    ordersModuleOpen,
   } = useAgentShell()
 
   const bridge = useProspectBridgeOptional()
@@ -151,7 +160,7 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
   useEffect(() => {
     const el = scrollRef.current
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
-  }, [messages, loading, prospectModuleOpen, inboxModuleOpen, productsModuleOpen, campaignsModuleOpen, galleryModuleOpen, leadsModuleOpen, clientsModuleOpen])
+  }, [messages, loading, prospectModuleOpen, inboxModuleOpen, productsModuleOpen, campaignsModuleOpen, galleryModuleOpen, leadsModuleOpen, clientsModuleOpen, ordersModuleOpen])
 
   useEffect(() => {
     if (!menuOpen) return
@@ -197,7 +206,10 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
   const lastClientsMsg = [...display].reverse().find(
     (m) => m.role === 'assistant' && !m.loading && isClientsSkill(m.turn?.skill),
   )
-  const catalogModuleOpen = productsModuleOpen || campaignsModuleOpen || galleryModuleOpen || leadsModuleOpen || clientsModuleOpen
+  const lastOrdersMsg = [...display].reverse().find(
+    (m) => m.role === 'assistant' && !m.loading && isOrdersSkill(m.turn?.skill),
+  )
+  const catalogModuleOpen = productsModuleOpen || campaignsModuleOpen || galleryModuleOpen || leadsModuleOpen || clientsModuleOpen || ordersModuleOpen
   const showCanvasBtn = lastAssistant?.turn
     && turnNeedsCanvas(lastAssistant.turn)
     && !desktopCanvasOpen
@@ -304,6 +316,16 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
       },
     },
     {
+      id: 'orders',
+      label: 'Pedidos',
+      desc: 'Vendas e expedição',
+      icon: ShoppingCart,
+      action: () => {
+        setMenuOpen(false)
+        triggerSkill('catalog.orders', { label: 'Ver pedidos', assistantMessage: 'Seus pedidos recentes:' })
+      },
+    },
+    {
       id: 'products',
       label: 'Produtos',
       desc: 'Catálogo no chat ou canvas',
@@ -392,6 +414,9 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
           const isClientsActive = clientsModuleOpen
             && msg.id === lastClientsMsg?.id
             && isClientsSkill(msg.turn?.skill)
+          const isOrdersActive = ordersModuleOpen
+            && msg.id === lastOrdersMsg?.id
+            && isOrdersSkill(msg.turn?.skill)
           const inlineComponents = filterInlineComponents(msg.turn)
 
           return (
@@ -429,6 +454,9 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
                       )}
                       {isClientsSkill(msg.turn?.skill) && (
                         <ClientsModuleBlock messageId={msg.id} isActive={!!isClientsActive} />
+                      )}
+                      {isOrdersSkill(msg.turn?.skill) && (
+                        <OrdersModuleBlock messageId={msg.id} isActive={!!isOrdersActive} />
                       )}
                       {msg.turn && turnShowsInline(msg.turn) && inlineComponents && inlineComponents.length > 0 && (
                         <AgentUIRenderer

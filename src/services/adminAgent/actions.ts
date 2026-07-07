@@ -159,6 +159,105 @@ export async function fetchRecentClients(
   };
 }
 
+const ORDER_STATUS_LABEL: Record<string, string> = {
+  novo: "Novo",
+  aguardando_pagamento: "Aguardando",
+  pago: "Pago",
+  em_preparacao: "Preparando",
+  em_entrega: "Em entrega",
+  entregue: "Entregue",
+  cancelado: "Cancelado",
+};
+
+export async function fetchRecentOrders(
+  userId: string,
+  brandId: string | null,
+  opts?: { search?: string; status?: string; limit?: number },
+) {
+  const limit = opts?.limit || 12;
+  const params: any[] = [userId];
+  let where = "user_id = ?";
+  if (brandId) {
+    where += " AND brand_id = ?";
+    params.push(brandId);
+  }
+  if (opts?.status) {
+    where += " AND LOWER(COALESCE(business_status, status_pedido, '')) = ?";
+    params.push(String(opts.status).toLowerCase());
+  }
+  if (opts?.search?.trim()) {
+    where += " AND (customer_name ILIKE ? OR CAST(order_number AS TEXT) ILIKE ?)";
+    const q = `%${opts.search.trim()}%`;
+    params.push(q, q);
+  }
+  params.push(limit);
+
+  const rows = await query<any>(
+    `SELECT id, order_number, customer_name, customer_phone, valor_total,
+            COALESCE(business_status, status_pedido, 'novo') AS status,
+            forma_pagamento, channel, origem, created_at
+     FROM orders WHERE ${where}
+     ORDER BY created_at DESC LIMIT ?`,
+    params,
+  );
+
+  const countParams = params.slice(0, -1);
+  const totalRow = await queryOne<{ n: number }>(
+    `SELECT COUNT(*)::int AS n FROM orders WHERE ${where}`,
+    countParams,
+  );
+
+  return {
+    total: Number(totalRow?.n ?? rows.length),
+    rows: (rows || []).map((o: any) => {
+      const st = String(o.status || "novo").toLowerCase();
+      return {
+        id: o.id,
+        name: o.customer_name || "Cliente",
+        order_number: o.order_number || String(o.id || "").slice(0, 8),
+        phone: o.customer_phone || "",
+        total: Number(o.valor_total || 0),
+        status: ORDER_STATUS_LABEL[st] || st,
+        payment: String(o.forma_pagamento || "").toUpperCase() || "—",
+        channel: o.channel || o.origem || "",
+        created_at: o.created_at || "",
+      };
+    }),
+  };
+}
+
+export async function fetchOrderStats(userId: string, brandId: string | null) {
+  try {
+    const params: any[] = [userId];
+    let where = "user_id = ?";
+    if (brandId) {
+      where += " AND brand_id = ?";
+      params.push(brandId);
+    }
+    const row = await queryOne<{
+      total: number
+      pending_count: number
+      paid_count: number
+      revenue_total: number
+    }>(
+      `SELECT COUNT(*)::int AS total,
+        SUM(CASE WHEN LOWER(COALESCE(business_status, status_pedido, '')) IN ('novo', 'aguardando_pagamento') THEN 1 ELSE 0 END)::int AS pending_count,
+        SUM(CASE WHEN LOWER(COALESCE(business_status, status_pedido, '')) IN ('pago', 'em_preparacao', 'em_entrega', 'entregue') THEN 1 ELSE 0 END)::int AS paid_count,
+        COALESCE(SUM(valor_total), 0)::float AS revenue_total
+       FROM orders WHERE ${where}`,
+      params,
+    );
+    return {
+      total: Number(row?.total ?? 0),
+      pending_count: Number(row?.pending_count ?? 0),
+      paid_count: Number(row?.paid_count ?? 0),
+      revenue_total: Number(row?.revenue_total ?? 0),
+    };
+  } catch {
+    return { total: 0, pending_count: 0, paid_count: 0, revenue_total: 0 };
+  }
+}
+
 export async function fetchClientStats(userId: string, brandId: string | null) {
   try {
     const params: any[] = [userId];

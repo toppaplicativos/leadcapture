@@ -16,6 +16,7 @@ const MessagesPage = lazy(() => import('@/pages/MessagesPage').then(m => ({ defa
 const ProductsView = lazy(() => import('@/pages/admin/products/ProductsView').then(m => ({ default: m.ProductsView })))
 const LeadsPage = lazy(() => import('@/pages/LeadsPage').then(m => ({ default: m.LeadsPage })))
 const ClientesPage = lazy(() => import('@/pages/ClientesPage').then(m => ({ default: m.ClientesPage })))
+const OrdersView = lazy(() => import('@/pages/admin/orders/OrdersView').then(m => ({ default: m.OrdersView })))
 
 const noop = () => {}
 
@@ -66,6 +67,7 @@ const CANVAS_PAGE_MAP: Record<string, () => ReactNode> = {
   '/busca': () => <LeadSearchPage variant="canvas" />,
   '/leads': () => <LeadsPage />,
   '/clientes': () => <ClientesPage />,
+  '/pedidos': () => <OrdersView showToast={() => {}} />,
   '/mensagens': () => <MessagesPage variant="canvas" />,
 }
 

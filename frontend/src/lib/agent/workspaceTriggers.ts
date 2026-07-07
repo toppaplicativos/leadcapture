@@ -145,6 +145,7 @@ export const OBJECTIVE_TRIGGERS: WorkspaceTrigger[] = [
   { skill: 'catalog.products.create', userLabel: 'Criar produto', assistantMessage: 'Vamos criar um produto. Preencha o formulário:' },
   { skill: 'gallery.open', userLabel: 'Galeria', assistantMessage: 'Assets da marca:' },
   { skill: 'campaigns.list', userLabel: 'Campanhas', assistantMessage: 'Suas campanhas:' },
+  { skill: 'catalog.orders', userLabel: 'Pedidos', assistantMessage: 'Seus pedidos recentes:' },
   { skill: 'order.assisted', userLabel: 'Fazer pedido', assistantMessage: 'Vamos montar esse pedido. Para quem é?' },
 ]
 

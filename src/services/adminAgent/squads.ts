@@ -170,7 +170,7 @@ export const SKILLS: Record<string, SkillDefinition> = {
     squad: "catalog",
     intents: ["pedidos", "vendas", "ordens"],
     permissions: ["catalog.read"],
-    ui: ["kpi_row", "nav_suggestions"],
+    ui: ["orders_stats", "kpi_row", "table"],
   },
   "nav.help": {
     id: "nav.help",

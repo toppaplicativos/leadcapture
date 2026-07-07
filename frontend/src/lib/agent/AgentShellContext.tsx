@@ -18,9 +18,10 @@ import { useCampaignsBridgeOptional } from './CampaignsBridgeContext'
 import { useGalleryBridgeOptional } from './GalleryBridgeContext'
 import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
 import { resolveTrigger } from './workspaceTriggers'
-import { isCampaignSkill, isLeadsSkill, isClientsSkill } from './composerAiActions'
+import { isCampaignSkill, isLeadsSkill, isClientsSkill, isOrdersSkill } from './composerAiActions'
 import { useLeadsBridgeOptional } from './LeadsBridgeContext'
 import { useClientsBridgeOptional } from './ClientsBridgeContext'
+import { useOrdersBridgeOptional } from './OrdersBridgeContext'
 import { useWhatsAppConnectOptional } from '@/lib/whatsapp/WhatsAppConnectContext'
 import type { AgentModalId, AgentTurn, ComponentEvent, SkillContext, TriggerSkillOptions } from './types'
 
@@ -58,6 +59,8 @@ type AgentShellValue = {
   leadsModuleOpen: boolean
   closeClientsModule: () => void
   clientsModuleOpen: boolean
+  closeOrdersModule: () => void
+  ordersModuleOpen: boolean
 }
 
 const AgentShellContext = createContext<AgentShellValue | null>(null)
@@ -84,6 +87,7 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
   const galleryBridge = useGalleryBridgeOptional()
   const leadsBridge = useLeadsBridgeOptional()
   const clientsBridge = useClientsBridgeOptional()
+  const ordersBridge = useOrdersBridgeOptional()
   const isDesktop = useIsDesktop()
 
   const PRODUCT_SKILLS = useMemo(() => new Set(['catalog.products', 'catalog.products.table', 'catalog.products.create']), [])
@@ -93,6 +97,7 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
   const lastLeadsFilterKey = useRef('')
   const lastLeadsSelectKey = useRef('')
   const lastClientsFilterKey = useRef('')
+  const lastOrdersFilterKey = useRef('')
   const [canvasMode, setCanvasMode] = useState<CanvasMode>('agent')
   const [embeddedRoute, setEmbeddedRoute] = useState<string | null>(null)
   const [desktopCanvasOpen, setDesktopCanvasOpen] = useState(false)
@@ -209,6 +214,15 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
     setMobileCanvasOpen(false)
     setCanvasMode('agent')
   }, [clientsBridge])
+
+  const closeOrdersModule = useCallback(() => {
+    ordersBridge?.setModuleOpen(false)
+    ordersBridge?.setModuleExpanded(false)
+    setDesktopCanvasOpen(false)
+    setEmbeddedRoute(null)
+    setMobileCanvasOpen(false)
+    setCanvasMode('agent')
+  }, [ordersBridge])
 
   function openCatalogCanvas(route: string) {
     if (isDesktop) {
@@ -385,6 +399,28 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
     }
   }, [activeTurn, clientsBridge, isDesktop, closeClientsModule])
 
+  /* Pedidos: desktop = canvas; mobile = inline */
+  useEffect(() => {
+    if (!activeTurn || !isOrdersSkill(activeTurn.skill)) {
+      if (ordersBridge?.moduleOpen && activeTurn && !isOrdersSkill(activeTurn.skill)) {
+        closeOrdersModule()
+      }
+      return
+    }
+    ordersBridge?.setModuleOpen(true)
+    ordersBridge?.setModuleExpanded(true)
+    openCatalogCanvas('/pedidos')
+    const stats = activeTurn.components?.find((c) => c.type === 'orders_stats')
+    const search = String(stats?.props?.search || '').trim()
+    const status = String(stats?.props?.status || '').trim()
+    const filterKey = `${search}|${status}`
+    if (filterKey !== '|' && lastOrdersFilterKey.current !== filterKey) {
+      lastOrdersFilterKey.current = filterKey
+      if (search) ordersBridge?.queueCommand({ type: 'search', query: search })
+      if (status) ordersBridge?.queueCommand({ type: 'filter_status', status })
+    }
+  }, [activeTurn, ordersBridge, isDesktop, closeOrdersModule])
+
   /* Galeria: desktop = canvas; mobile = inline com upload */
   useEffect(() => {
     if (!activeTurn || activeTurn.skill !== 'gallery.open') {
@@ -446,6 +482,10 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
     }
     if (key === 'clientes' || raw === '/clientes') {
       chat.triggerSkill('crm.clients.table', { label: 'Ver clientes', assistantMessage: 'Sua base de clientes:' })
+      return
+    }
+    if (key === 'pedidos' || raw === '/pedidos') {
+      chat.triggerSkill('catalog.orders', { label: 'Ver pedidos', assistantMessage: 'Seus pedidos recentes:' })
       return
     }
 
@@ -516,6 +556,8 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
     leadsModuleOpen: !!leadsBridge?.moduleOpen,
     closeClientsModule,
     clientsModuleOpen: !!clientsBridge?.moduleOpen,
+    closeOrdersModule,
+    ordersModuleOpen: !!ordersBridge?.moduleOpen,
   }
 
   return (

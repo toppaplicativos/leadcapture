@@ -10,6 +10,7 @@ import type { AgentCallbacks, ComponentSpec } from '@/lib/agent/types'
 import { useProspectBridgeOptional } from '@/lib/agent/ProspectBridgeContext'
 import { useLeadsBridgeOptional } from '@/lib/agent/LeadsBridgeContext'
 import { useClientsBridgeOptional } from '@/lib/agent/ClientsBridgeContext'
+import { useOrdersBridgeOptional } from '@/lib/agent/OrdersBridgeContext'
 import { useProductsBridgeOptional } from '@/lib/agent/ProductsBridgeContext'
 
 const KPI_ICONS: Record<string, LucideIcon> = {
@@ -207,13 +208,14 @@ function SkillList({ props, callbacks }: { props?: Record<string, unknown>; call
 
 function DataTable({ spec, callbacks }: { spec: ComponentSpec; callbacks: AgentCallbacks }) {
   const clientsBridge = useClientsBridgeOptional()
+  const ordersBridge = useOrdersBridgeOptional()
   const props = spec.props
   const title = String(props?.title || '')
   const columns = (props?.columns as Array<{ key: string; label: string }>) || []
   const rows = (props?.rows as Array<Record<string, unknown>>) || []
   const rowType = String(props?.rowType || '')
   const emptyLabel = String(props?.emptyLabel || 'Nenhum registro.')
-  const rowClickable = rowType === 'lead' || rowType === 'client' || rowType === 'conversation' || rowType === 'product'
+  const rowClickable = rowType === 'lead' || rowType === 'client' || rowType === 'order' || rowType === 'conversation' || rowType === 'product'
 
   if (!rows.length) {
     return (
@@ -269,6 +271,18 @@ function DataTable({ spec, callbacks }: { spec: ComponentSpec; callbacks: AgentC
                       clientsBridge.dispatch({ type: 'open_full' })
                     } else {
                       callbacks.onNavigate('/clientes')
+                    }
+                  } else if (rowType === 'order' && row.id) {
+                    if (ordersBridge?.isReady) {
+                      ordersBridge.setModuleExpanded(true)
+                      ordersBridge.dispatch({
+                        type: 'select_order',
+                        id: String(row.id),
+                        label: String(row.name || row.order_number || ''),
+                      })
+                      ordersBridge.dispatch({ type: 'open_full' })
+                    } else {
+                      callbacks.onNavigate('/pedidos')
                     }
                   } else if (rowType === 'conversation' && row.id) {
                     callbacks.onComponentEvent?.({

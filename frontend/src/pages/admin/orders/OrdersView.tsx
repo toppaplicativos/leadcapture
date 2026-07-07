@@ -22,8 +22,17 @@ import {
 } from '@/lib/admin/helpers'
 import type { ShowToast } from '@/lib/admin/types'
 import { Skeleton, KpiCard, EmptyState } from '@/components/admin/primitives'
+import { useOrdersBridgeOptional } from '@/lib/agent/OrdersBridgeContext'
+import { useAgentShellOptional } from '@/lib/agent/AgentShellContext'
+import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
 
-export function OrdersView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') => void }) {
+export function OrdersView({
+  showToast,
+  embedded = false,
+}: {
+  showToast: (t: string, tp?: 'ok' | 'err') => void
+  embedded?: boolean
+}) {
   const [orders, setOrders] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState('')
@@ -32,6 +41,10 @@ export function OrdersView({ showToast }: { showToast: (t: string, tp?: 'ok' | '
   const [loadingDetail, setLoadingDetail] = useState(false)
   const [actionLoading, setActionLoading] = useState(false)
   const [subTab, setSubTab] = useState<'orders' | 'bookings'>('orders')
+  const ordersBridge = useOrdersBridgeOptional()
+  const agentShell = useAgentShellOptional()
+  const isDesktop = useIsDesktop()
+  const pendingSelectId = useRef<string | null>(null)
 
   function load() {
     setLoading(true)
@@ -59,6 +72,56 @@ export function OrdersView({ showToast }: { showToast: (t: string, tp?: 'ok' | '
   }, [orders])
 
   const filtered = useMemo(() => statusFilter ? orders.filter(o => (o.business_status || o.status_pedido || '').toLowerCase() === statusFilter) : orders, [orders, statusFilter])
+
+  useEffect(() => {
+    if (!ordersBridge?.registerHandlers || (!embedded && !isDesktop)) return
+    return ordersBridge.registerHandlers({
+      search: () => { void load() },
+      filterStatus: (s) => { setStatusFilter(s); void load() },
+      selectOrder: (id) => {
+        const found = orders.find((o) => String(o.id) === String(id))
+        if (found) void openDetail(found)
+        else pendingSelectId.current = id
+      },
+      openFull: () => { if (isDesktop) agentShell?.openCanvas('/pedidos') },
+      openPdv: () => agentShell?.triggerSkill('order.assisted', {
+        label: 'Fazer pedido',
+        assistantMessage: 'Vamos montar esse pedido. Para quem é?',
+      }),
+      refresh: () => load(),
+    })
+  }, [ordersBridge, embedded, isDesktop, orders, agentShell])
+
+  useEffect(() => {
+    if (!isDesktop || !pendingSelectId.current) return
+    const found = orders.find((o) => String(o.id) === String(pendingSelectId.current))
+    if (found) {
+      void openDetail(found)
+      pendingSelectId.current = null
+    }
+  }, [orders, isDesktop])
+
+  useEffect(() => {
+    if (!ordersBridge?.publishSnapshot || (!embedded && !isDesktop)) return
+    const pendingCount = orders.filter((o) =>
+      ['novo', 'aguardando_pagamento'].includes(
+        String(o.business_status || o.status_pedido || '').toLowerCase(),
+      ),
+    ).length
+    const paidCount = orders.filter((o) =>
+      ['pago', 'em_preparacao', 'em_entrega', 'entregue'].includes(
+        String(o.business_status || o.status_pedido || '').toLowerCase(),
+      ),
+    ).length
+    ordersBridge.publishSnapshot({
+      total: metrics.total || orders.length,
+      pendingCount,
+      paidCount,
+      revenueTotal: metrics.totalValue,
+      statusFilter,
+      loading: false,
+    })
+  }, [ordersBridge, embedded, isDesktop, orders, metrics.total, metrics.totalValue, statusFilter, loading])
 
   async function openDetail(o: any) {
     setSelectedOrder(o); setLoadingDetail(true)
@@ -93,9 +156,15 @@ export function OrdersView({ showToast }: { showToast: (t: string, tp?: 'ok' | '
   if (loading) return <Skeleton rows={6} />
 
   return (
-    <div className="space-y-5">
-      <div><h2 className="text-[26px] font-bold text-gray-900 tracking-tight">Pedidos & Agendamentos</h2>
-        <p className="text-[13px] text-gray-400 mt-0.5">{metrics.total} pedidos · {money(metrics.totalValue)} total</p></div>
+    <div className={embedded ? 'space-y-4' : 'space-y-5'}>
+      {embedded ? (
+        <p className="text-[12px] text-gray-500 tabular-nums">
+          {metrics.total} pedidos · {money(metrics.totalValue)} faturado · {metrics.paid} pagos
+        </p>
+      ) : (
+        <div><h2 className="text-[26px] font-bold text-gray-900 tracking-tight">Pedidos & Agendamentos</h2>
+          <p className="text-[13px] text-gray-400 mt-0.5">{metrics.total} pedidos · {money(metrics.totalValue)} total</p></div>
+      )}
 
       {/* Sub-tabs */}
       <div className="flex gap-1 bg-gray-100 p-0.5 rounded-xl w-fit">

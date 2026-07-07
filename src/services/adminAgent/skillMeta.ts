@@ -153,8 +153,9 @@ export const SKILL_META: Record<string, SkillMeta> = {
   },
   "catalog.orders": {
     kind: "business",
-    objectives: ["ver pedidos", "vendas"],
+    objectives: ["ver pedidos", "vendas", "ordens"],
     requiresCanvas: false,
+    canvasRoute: "/pedidos",
     inlineComponents: true,
   },
   "skills.list": {

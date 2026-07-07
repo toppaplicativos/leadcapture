@@ -10,6 +10,7 @@ import { CampaignsBridgeProvider } from '@/lib/agent/CampaignsBridgeContext'
 import { GalleryBridgeProvider } from '@/lib/agent/GalleryBridgeContext'
 import { LeadsBridgeProvider } from '@/lib/agent/LeadsBridgeContext'
 import { ClientsBridgeProvider } from '@/lib/agent/ClientsBridgeContext'
+import { OrdersBridgeProvider } from '@/lib/agent/OrdersBridgeContext'
 import { WorkspaceChat } from '@/components/agent/WorkspaceChat'
 import { AgentCanvas } from '@/components/agent/AgentCanvas'
 import { getHeaders, clearAdminAuth } from '@/lib/admin/helpers'
@@ -35,7 +36,7 @@ function ConversationalShellInner({ children }: { children?: ReactNode }) {
   const {
     mobileCanvasOpen, setMobileCanvasOpen, desktopCanvasOpen,
     prospectModuleOpen, inboxModuleOpen, productsModuleOpen,
-    campaignsModuleOpen, galleryModuleOpen, leadsModuleOpen, clientsModuleOpen,
+    campaignsModuleOpen, galleryModuleOpen, leadsModuleOpen, clientsModuleOpen, ordersModuleOpen,
   } = useAgentShell()
   const isImmersive = location.pathname === '/video-studio'
   const isDesktop = useIsDesktop()
@@ -201,7 +202,7 @@ function ConversationalShellInner({ children }: { children?: ReactNode }) {
           className={`agent-shell__canvas flex-1 min-w-0 min-h-0 ${
             mobileCanvasOpen && desktopCanvasOpen
               && !prospectModuleOpen && !inboxModuleOpen
-              && !productsModuleOpen && !campaignsModuleOpen && !galleryModuleOpen && !leadsModuleOpen && !clientsModuleOpen
+              && !productsModuleOpen && !campaignsModuleOpen && !galleryModuleOpen && !leadsModuleOpen && !clientsModuleOpen && !ordersModuleOpen
               ? 'is-open' : ''
           }`}
         >
@@ -242,9 +243,11 @@ export function ConversationalShell({ children }: { children?: ReactNode }) {
               <GalleryBridgeProvider>
                 <LeadsBridgeProvider>
                   <ClientsBridgeProvider>
-                    <AgentShellProvider>
-                      <ConversationalShellInner>{children}</ConversationalShellInner>
-                    </AgentShellProvider>
+                    <OrdersBridgeProvider>
+                      <AgentShellProvider>
+                        <ConversationalShellInner>{children}</ConversationalShellInner>
+                      </AgentShellProvider>
+                    </OrdersBridgeProvider>
                   </ClientsBridgeProvider>
                 </LeadsBridgeProvider>
               </GalleryBridgeProvider>

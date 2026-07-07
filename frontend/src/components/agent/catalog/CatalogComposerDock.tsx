@@ -1,5 +1,5 @@
 import {
-  Plus, Upload, Sparkles, Package, Images, Megaphone, Wand2, Brain, Users, Building2, ShieldCheck, Zap, MapPin,
+  Plus, Upload, Sparkles, Package, Images, Megaphone, Wand2, Brain, Users, Building2, ShoppingCart, ShieldCheck, Zap, MapPin,
 } from 'lucide-react'
 import { useAgentShell } from '@/lib/agent/AgentShellContext'
 import { useProductsBridgeOptional } from '@/lib/agent/ProductsBridgeContext'
@@ -8,10 +8,12 @@ import { useGalleryBridgeOptional } from '@/lib/agent/GalleryBridgeContext'
 import { useProspectBridgeOptional } from '@/lib/agent/ProspectBridgeContext'
 import { useLeadsBridgeOptional } from '@/lib/agent/LeadsBridgeContext'
 import { useClientsBridgeOptional } from '@/lib/agent/ClientsBridgeContext'
+import { useOrdersBridgeOptional } from '@/lib/agent/OrdersBridgeContext'
 import {
   isCampaignSkill,
   isLeadsSkill,
   isClientsSkill,
+  isOrdersSkill,
   isProductSkill,
   isCreativeSkill,
   isSkillTrainerSkill,
@@ -62,6 +64,7 @@ export function CatalogComposerDock() {
     galleryModuleOpen,
     leadsModuleOpen,
     clientsModuleOpen,
+    ordersModuleOpen,
     prospectModuleOpen,
     onOpenModal,
     openCanvas,
@@ -74,8 +77,10 @@ export function CatalogComposerDock() {
   const prospect = useProspectBridgeOptional()
   const leads = useLeadsBridgeOptional()
   const clients = useClientsBridgeOptional()
+  const orders = useOrdersBridgeOptional()
 
   const campaignContext = campaignsModuleOpen || isCampaignSkill(activeTurn?.skill)
+  const ordersContext = ordersModuleOpen || isOrdersSkill(activeTurn?.skill)
   const clientsContext = clientsModuleOpen || isClientsSkill(activeTurn?.skill)
   const leadsContext = leadsModuleOpen || isLeadsSkill(activeTurn?.skill)
   const productContext = productsModuleOpen || isProductSkill(activeTurn?.skill)
@@ -107,6 +112,40 @@ export function CatalogComposerDock() {
                   campaigns.setModuleExpanded(true)
                   campaigns.dispatch({ type: 'open_full' })
                 }}
+              />
+            </>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  if (ordersContext) {
+    const startPdv = () => {
+      triggerSkill('order.assisted', {
+        label: 'Fazer pedido',
+        assistantMessage: 'Vamos montar esse pedido. Para quem é?',
+      })
+    }
+
+    return (
+      <div className="workspace-chat__action-dock">
+        <AiPrimaryButton label="Fazer pedido com IA" onClick={startPdv} icon={ShoppingCart} />
+        <div className="workspace-chat__action-chips">
+          {orders?.isReady && (
+            <>
+              <ActionChip
+                label="Gerenciar"
+                icon={ShoppingCart}
+                onClick={() => {
+                  orders.setModuleExpanded(true)
+                  orders.dispatch({ type: 'open_full' })
+                }}
+              />
+              <ActionChip
+                label="Atualizar"
+                icon={Upload}
+                onClick={() => orders.dispatch({ type: 'refresh' })}
               />
             </>
           )}

@@ -11,6 +11,7 @@ const CARD_ICONS: Record<string, LucideIcon> = {
   'campaigns.list': Megaphone,
   'crm.leads.table': Users,
   'crm.clients.table': Building2,
+  'catalog.orders': ShoppingCart,
   'order.assisted': ShoppingCart,
 }
 
@@ -22,6 +23,7 @@ const CARD_HINTS: Record<string, string> = {
   'campaigns.list': 'Campanhas · ver e criar',
   'crm.leads.table': 'Leads · CRM e importação',
   'crm.clients.table': 'Clientes · base convertida',
+  'catalog.orders': 'Pedidos · vendas e status',
   'order.assisted': 'PDV · montar pedido',
 }
 

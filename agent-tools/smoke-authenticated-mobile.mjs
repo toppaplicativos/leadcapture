@@ -23,7 +23,7 @@ const MODULES = [
   { label: 'Campanhas', selector: '.catalog-module.is-expanded', titleRe: /campanha/i },
   { label: 'Habilidades', selector: '.catalog-module--skills', titleRe: /habilidade/i, minCount: 1, sheetBtn: /gerenciar habilidade/i },
   { label: 'Pedidos', selector: '.catalog-module--orders', titleRe: /pedido/i },
-  { label: 'Instagram', selector: '.catalog-module--instagram', titleRe: /instagram/i, sheetBtn: /instagram completo/i },
+  { label: 'Instagram', selector: '.catalog-module--instagram', titleRe: /instagram/i, sheetBtn: /instagram completo|conectar instagram/i },
 ]
 
 let failed = 0
@@ -150,7 +150,7 @@ try {
 
     if (mod.sheetBtn) {
       await dismissPwaBanner()
-      const openBtn = block.locator('.catalog-panel__open-manager, .catalog-panel__more').filter({ hasText: mod.sheetBtn })
+      const openBtn = block.locator('.catalog-panel__open-manager, .catalog-panel__more, .catalog-panel__action').filter({ hasText: mod.sheetBtn })
       if (await openBtn.count()) {
         await openBtn.first().click({ force: true })
         await page.waitForSelector('.catalog-manager-sheet', { timeout: 10000 })

@@ -150,7 +150,13 @@ try {
 
     if (mod.sheetBtn) {
       await dismissPwaBanner()
-      const openBtn = block.locator('.catalog-panel__open-manager, .catalog-panel__more, .catalog-panel__action').filter({ hasText: mod.sheetBtn })
+      if (mod.label === 'Instagram') {
+        await block.locator('.catalog-panel__loading').waitFor({ state: 'hidden', timeout: 15000 }).catch(() => null)
+        await block.locator('.catalog-instagram-connect, .catalog-panel__open-manager').first()
+          .waitFor({ state: 'visible', timeout: 12000 }).catch(() => null)
+      }
+      const panel = block.locator('.catalog-module__body')
+      const openBtn = panel.locator('.catalog-panel__open-manager, .catalog-panel__more, .catalog-panel__action, .catalog-panel__action--instagram').filter({ hasText: mod.sheetBtn })
       if (await openBtn.count()) {
         await openBtn.first().click({ force: true })
         await page.waitForSelector('.catalog-manager-sheet', { timeout: 10000 })

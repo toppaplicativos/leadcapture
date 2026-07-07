@@ -9,6 +9,7 @@ export const CAMPAIGN_SKILLS = new Set([
 export const PRODUCT_SKILLS = new Set([
   'catalog.products',
   'catalog.products.table',
+  'catalog.products.create',
 ])
 
 export const CREATIVE_SKILLS = new Set([

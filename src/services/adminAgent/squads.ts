@@ -136,6 +136,15 @@ export const SKILLS: Record<string, SkillDefinition> = {
     permissions: ["catalog.read"],
     ui: ["products_stats", "kpi_row", "nav_suggestions"],
   },
+  "catalog.products.create": {
+    id: "catalog.products.create",
+    name: "Criar produto",
+    description: "Fluxo conversacional para cadastrar produto com IA.",
+    squad: "catalog",
+    intents: ["criar produto", "novo produto", "cadastrar produto", "adicionar produto", "lançar produto"],
+    permissions: ["catalog.write"],
+    ui: ["form", "confirmation", "text"],
+  },
   "catalog.orders": {
     id: "catalog.orders",
     name: "Ver pedidos",
@@ -263,7 +272,7 @@ export const SQUADS: Record<string, SquadDefinition> = {
     id: "catalog",
     name: "Catálogo",
     description: "Produtos, pedidos e estoque da loja.",
-    skills: ["catalog.products", "catalog.products.table", "catalog.orders", "order.assisted"],
+    skills: ["catalog.products", "catalog.products.table", "catalog.products.create", "catalog.orders", "order.assisted"],
   },
   dashboard: {
     id: "dashboard",

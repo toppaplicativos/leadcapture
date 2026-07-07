@@ -67,6 +67,17 @@ export function ProductsView({
 
   function openCreate() { setEditProduct(null); setShowCreate(true) }
   function openEdit(p: any) { setEditProduct(p); setShowCreate(true) }
+  function openDraft(draft: { name: string; description?: string; category?: string; price?: number; features?: string[] }) {
+    setEditProduct({
+      name: draft.name,
+      description: draft.description || '',
+      category: draft.category || '',
+      price: draft.price ?? 0,
+      features: draft.features || [],
+      metadata: { is_draft: true },
+    })
+    setShowCreate(true)
+  }
 
   useEffect(() => {
     if (!registerHandlers || !isDesktop) return
@@ -82,6 +93,7 @@ export function ProductsView({
         }
       },
       createNew: openCreate,
+      createWithDraft: openDraft,
       openFull: () => { if (isDesktop) openCanvas('/produtos') },
       refresh: () => load(),
     })

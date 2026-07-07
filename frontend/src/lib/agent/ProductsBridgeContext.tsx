@@ -2,6 +2,14 @@ import {
   createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode,
 } from 'react'
 
+export type ProductDraft = {
+  name: string
+  description?: string
+  category?: string
+  price?: number
+  features?: string[]
+}
+
 export type ProductsSnapshot = {
   total: number
   active: number
@@ -16,6 +24,7 @@ export type ProductsCommand =
   | { type: 'search'; query: string }
   | { type: 'select_product'; id: string; name?: string }
   | { type: 'create_new' }
+  | { type: 'create_with_draft'; draft: ProductDraft }
   | { type: 'open_full' }
   | { type: 'refresh' }
 
@@ -23,6 +32,7 @@ export type ProductsHandlers = {
   search: (query: string) => void
   selectProduct: (id: string, name?: string) => void
   createNew: () => void
+  createWithDraft: (draft: ProductDraft) => void
   openFull: () => void
   refresh: () => void
 }
@@ -51,6 +61,7 @@ function run(cmd: ProductsCommand, h: ProductsHandlers) {
     case 'search': h.search(cmd.query); break
     case 'select_product': h.selectProduct(cmd.id, cmd.name); break
     case 'create_new': h.createNew(); break
+    case 'create_with_draft': h.createWithDraft(cmd.draft); break
     case 'open_full': h.openFull(); break
     case 'refresh': h.refresh(); break
   }

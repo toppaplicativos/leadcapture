@@ -1,7 +1,16 @@
 import { CustomersService } from "../customers";
 import { InventoryService } from "../inventory";
 import { galleryService } from "../gallery";
+import { aiRouter } from "../aiRouter";
 import { query } from "../../config/database";
+
+export type ProductDraft = {
+  name: string;
+  description: string;
+  category: string;
+  price: number;
+  features: string[];
+};
 
 const customersService = new CustomersService();
 const inventoryService = new InventoryService();
@@ -118,5 +127,61 @@ export async function fetchLeadStats(userId: string, brandId: string | null) {
     return await customersService.getStats(userId, brandId);
   } catch {
     return null;
+  }
+}
+
+export async function generateProductDraftFromBrief(
+  userId: string,
+  brandId: string | null,
+  input: { name?: string; category?: string; brief?: string; price?: number },
+): Promise<ProductDraft> {
+  const name = String(input.name || "").trim() || "Novo produto";
+  const category = String(input.category || "").trim() || "Geral";
+  const brief = String(input.brief || "").trim();
+  const priceHint = input.price != null && Number.isFinite(input.price) ? Number(input.price) : null;
+
+  const fallback: ProductDraft = {
+    name,
+    description: brief || `Produto ${name} — adicione mais detalhes na descrição.`,
+    category,
+    price: priceHint ?? 0,
+    features: [],
+  };
+
+  if (!brief && !priceHint) return fallback;
+
+  const prompt = [
+    "Você é especialista em catálogo de e-commerce no Brasil.",
+    "Gere um rascunho de produto em JSON válido com os campos:",
+    '{ "name": string, "description": string, "category": string, "price": number, "features": string[] }',
+    "Regras:",
+    "- Português-BR natural e comercial",
+    "- description: 2-3 parágrafos curtos, sem markdown",
+    "- price: número em reais (sem símbolo), realista para o segmento",
+    "- features: 3-5 bullets curtos como strings",
+    "- Não inventar especificações técnicas impossíveis",
+    `- Nome base: ${name}`,
+    `- Categoria: ${category}`,
+    brief ? `- Briefing do lojista: ${brief}` : "",
+    priceHint != null ? `- Preço sugerido pelo lojista: R$ ${priceHint.toFixed(2)}` : "",
+    "Retorne APENAS o JSON.",
+  ].filter(Boolean).join("\n");
+
+  try {
+    const result = await aiRouter.generateJson<ProductDraft>(prompt, {
+      userId,
+      brandId: brandId || undefined,
+    }, { temperature: 0.55 });
+    return {
+      name: String(result?.name || name).trim() || name,
+      description: String(result?.description || brief || fallback.description).trim(),
+      category: String(result?.category || category).trim() || category,
+      price: Number(result?.price ?? priceHint ?? 0) || 0,
+      features: Array.isArray(result?.features)
+        ? result.features.map((f) => String(f).trim()).filter(Boolean).slice(0, 6)
+        : [],
+    };
+  } catch {
+    return fallback;
   }
 }

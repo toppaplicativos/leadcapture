@@ -130,6 +130,13 @@ export const SKILL_META: Record<string, SkillMeta> = {
     canvasRoute: "/produtos",
     inlineComponents: true,
   },
+  "catalog.products.create": {
+    kind: "business",
+    objectives: ["criar produto", "cadastrar produto", "novo produto"],
+    requiresCanvas: false,
+    canvasRoute: "/produtos",
+    inlineComponents: true,
+  },
   "catalog.orders": {
     kind: "business",
     objectives: ["ver pedidos", "vendas"],

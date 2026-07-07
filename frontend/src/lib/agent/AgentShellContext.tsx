@@ -82,7 +82,7 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
   const leadsBridge = useLeadsBridgeOptional()
   const isDesktop = useIsDesktop()
 
-  const PRODUCT_SKILLS = useMemo(() => new Set(['catalog.products', 'catalog.products.table']), [])
+  const PRODUCT_SKILLS = useMemo(() => new Set(['catalog.products', 'catalog.products.table', 'catalog.products.create']), [])
   const isProductSkill = (skill?: string) => !!skill && PRODUCT_SKILLS.has(skill)
   const lastProspectKey = useRef('')
   const lastInboxConvoKey = useRef('')

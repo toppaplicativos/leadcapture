@@ -37,6 +37,7 @@ const STORAGE_KEY = 'leadcapture:workspace-chat:v1'
 const CATALOG_INLINE_SKILLS = new Set([
   'catalog.products',
   'catalog.products.table',
+  'catalog.products.create',
   'campaigns.list',
   'campaigns.create',
   'campaigns.confirm',

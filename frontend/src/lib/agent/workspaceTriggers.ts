@@ -47,6 +47,11 @@ const TRIGGERS: Record<string, WorkspaceTrigger> = {
     userLabel: 'Ver produtos',
     assistantMessage: 'Resumo do catálogo:',
   },
+  'criar-produto': {
+    skill: 'catalog.products.create',
+    userLabel: 'Criar produto',
+    assistantMessage: 'Vamos criar um produto. Preencha o formulário:',
+  },
   pedidos: {
     skill: 'catalog.orders',
     userLabel: 'Ver pedidos',
@@ -136,6 +141,7 @@ export const OBJECTIVE_TRIGGERS: WorkspaceTrigger[] = [
   { skill: 'crm.leads.table', userLabel: 'Leads', assistantMessage: 'Seus leads recentes:' },
   { skill: 'messages.inbox', userLabel: 'Responder cliente', assistantMessage: 'Últimas conversas:' },
   { skill: 'catalog.products', userLabel: 'Produtos', assistantMessage: 'Seu catálogo:' },
+  { skill: 'catalog.products.create', userLabel: 'Criar produto', assistantMessage: 'Vamos criar um produto. Preencha o formulário:' },
   { skill: 'gallery.open', userLabel: 'Galeria', assistantMessage: 'Assets da marca:' },
   { skill: 'campaigns.list', userLabel: 'Campanhas', assistantMessage: 'Suas campanhas:' },
   { skill: 'order.assisted', userLabel: 'Fazer pedido', assistantMessage: 'Vamos montar esse pedido. Para quem é?' },

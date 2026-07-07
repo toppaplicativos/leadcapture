@@ -4,7 +4,7 @@ import {
   LayoutGrid, List, Rows3, ExternalLink,
 } from 'lucide-react'
 import { getHeaders, money } from '@/lib/admin/helpers'
-import { useProductsBridgeOptional } from '@/lib/agent/ProductsBridgeContext'
+import { useProductsBridgeOptional, type ProductDraft } from '@/lib/agent/ProductsBridgeContext'
 import { useAgentShell } from '@/lib/agent/AgentShellContext'
 import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
 import { useToast } from '@/components/Toast'
@@ -198,6 +198,19 @@ export function ProductsInlinePanel() {
     }
   }, [publishSnapshot])
 
+  const openDraft = useCallback((draft: ProductDraft) => {
+    setEditProduct({
+      name: draft.name,
+      description: draft.description || '',
+      category: draft.category || '',
+      price: draft.price ?? 0,
+      features: draft.features || [],
+      metadata: { is_draft: true },
+    })
+    setModalOpen(true)
+    publishSnapshot?.({ selectedId: null, selectedName: draft.name })
+  }, [publishSnapshot])
+
   const openManager = useCallback(() => {
     if (isDesktop) {
       openCanvas('/produtos')
@@ -219,10 +232,11 @@ export function ProductsInlinePanel() {
         if (found) openProduct(found)
       },
       createNew: () => openProduct(null),
+      createWithDraft: (draft) => openDraft(draft),
       openFull: () => openManager(),
       refresh: () => { void load() },
     })
-  }, [registerHandlers, setModuleExpanded, isDesktop, publishSnapshot, openProduct, load, openManager])
+  }, [registerHandlers, setModuleExpanded, isDesktop, publishSnapshot, openProduct, openDraft, load, openManager])
 
   const filtered = products.filter((p) => {
     if (!search.trim()) return true

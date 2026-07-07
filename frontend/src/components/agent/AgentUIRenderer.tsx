@@ -9,6 +9,7 @@ import { Card, CardBody } from '@/components/ui/Card'
 import type { AgentCallbacks, ComponentSpec } from '@/lib/agent/types'
 import { useProspectBridgeOptional } from '@/lib/agent/ProspectBridgeContext'
 import { useLeadsBridgeOptional } from '@/lib/agent/LeadsBridgeContext'
+import { useProductsBridgeOptional } from '@/lib/agent/ProductsBridgeContext'
 
 const KPI_ICONS: Record<string, LucideIcon> = {
   users: Users,
@@ -306,13 +307,23 @@ function InlineForm({ spec, callbacks }: { spec: ComponentSpec; callbacks: Agent
       {fields.map((field) => (
         <label key={field.name} className="block space-y-1">
           <span className="text-[11px] font-medium text-gray-500">{field.label}</span>
-          <input
-            type={field.type || 'text'}
-            value={values[field.name] || ''}
-            onChange={(e) => setValues((v) => ({ ...v, [field.name]: e.target.value }))}
-            placeholder={field.placeholder}
-            className="w-full h-9 px-3 rounded-lg border border-border-light text-[13px] outline-none focus:border-gray-300"
-          />
+          {field.type === 'textarea' ? (
+            <textarea
+              value={values[field.name] || ''}
+              onChange={(e) => setValues((v) => ({ ...v, [field.name]: e.target.value }))}
+              placeholder={field.placeholder}
+              rows={3}
+              className="w-full px-3 py-2 rounded-lg border border-border-light text-[13px] outline-none focus:border-gray-300 resize-y min-h-[4.5rem]"
+            />
+          ) : (
+            <input
+              type={field.type || 'text'}
+              value={values[field.name] || ''}
+              onChange={(e) => setValues((v) => ({ ...v, [field.name]: e.target.value }))}
+              placeholder={field.placeholder}
+              className="w-full h-9 px-3 rounded-lg border border-border-light text-[13px] outline-none focus:border-gray-300"
+            />
+          )}
         </label>
       ))}
       <Button type="submit" size="sm" fullWidth disabled={!Object.values(values).some(Boolean)}>
@@ -509,10 +520,36 @@ function OptionPicker({ spec, callbacks }: { spec: ComponentSpec; callbacks: Age
 }
 
 function Confirmation({ props, callbacks }: { props?: Record<string, unknown>; callbacks: AgentCallbacks }) {
+  const productsBridge = useProductsBridgeOptional()
   const title = String(props?.title || '')
   const description = String(props?.description || '')
   const confirmLabel = String(props?.confirmLabel || 'Confirmar')
   const modal = props?.modal as 'ai-campaign' | 'skill-trainer' | undefined
+  const action = String(props?.action || '')
+  const draft = props?.draft as {
+    name?: string
+    description?: string
+    category?: string
+    price?: number
+    features?: string[]
+  } | undefined
+
+  function handleProductCreate() {
+    if (!draft || !productsBridge) return
+    productsBridge.setModuleOpen(true)
+    productsBridge.setModuleExpanded(true)
+    productsBridge.dispatch({
+      type: 'create_with_draft',
+      draft: {
+        name: String(draft.name || 'Novo produto'),
+        description: String(draft.description || ''),
+        category: String(draft.category || ''),
+        price: Number(draft.price || 0),
+        features: Array.isArray(draft.features) ? draft.features.map(String) : [],
+      },
+    })
+    productsBridge.dispatch({ type: 'open_full' })
+  }
 
   return (
     <Card>
@@ -524,6 +561,11 @@ function Confirmation({ props, callbacks }: { props?: Record<string, unknown>; c
             <p className="text-[12px] text-gray-500 mt-0.5">{description}</p>
           </div>
         </div>
+        {action === 'create_product' && draft && (
+          <Button size="sm" onClick={handleProductCreate}>
+            {confirmLabel}
+          </Button>
+        )}
         {modal && (
           <Button size="sm" onClick={() => callbacks.onOpenModal(modal)}>
             {confirmLabel}

@@ -11,6 +11,7 @@ import {
   fetchRecentLeads,
   fetchRecentProducts,
   fetchGalleryCount,
+  generateProductDraftFromBrief,
 } from "./actions";
 import { SKILLS, NAV_PATHS, buildSkillsCatalog } from "./squads";
 import { getSkillMeta } from "./skillMeta";
@@ -141,7 +142,7 @@ export class AdminAgentOrchestrator {
       turn.presentation = "inline";
       turn.canvasRoute = "/mensagens";
     }
-    if (skillId === "catalog.products" || skillId === "catalog.products.table") {
+    if (skillId === "catalog.products" || skillId === "catalog.products.table" || skillId === "catalog.products.create") {
       turn.presentation = "inline";
       turn.canvasRoute = "/produtos";
     }
@@ -288,6 +289,27 @@ Responda APENAS com JSON válido neste formato:
         message: `Resultados para "${search}":`,
         context: { search },
         nextSkill: "crm.lead.detail",
+      };
+    }
+
+    if (ev?.action === "submit_form" && ev.componentId === "product-create-form") {
+      const name = String(ev.payload?.name || "").trim();
+      const brief = String(ev.payload?.brief || "").trim();
+      if (!name && !brief) return null;
+      return {
+        skill: "catalog.products.create",
+        squad: "catalog",
+        message: name
+          ? `Gerando rascunho de "${name}" com IA…`
+          : "Gerando rascunho do produto com IA…",
+        context: {
+          name,
+          category: String(ev.payload?.category || "").trim(),
+          brief,
+          price: ev.payload?.price != null && ev.payload?.price !== ""
+            ? Number(ev.payload.price)
+            : undefined,
+        },
       };
     }
 
@@ -644,6 +666,67 @@ Responda APENAS com JSON válido neste formato:
           },
         });
         components.push(this.buildNavSuggestions(["mensagens"]));
+        break;
+      }
+
+      case "catalog.products.create": {
+        const name = String(sk.name || "").trim();
+        const brief = String(sk.brief || sk.description || "").trim();
+        const category = String(sk.category || "").trim();
+        const priceRaw = sk.price;
+
+        if (!name && !brief) {
+          components.push({
+            id: "product-create-form",
+            type: "form",
+            props: {
+              title: "Novo produto",
+              fields: [
+                { name: "name", label: "Nome do produto", type: "text", placeholder: "Ex: Bolo de chocolate 1kg" },
+                { name: "category", label: "Categoria", type: "text", placeholder: "Ex: Bolos, Bebidas…" },
+                { name: "brief", label: "Descreva em poucas palavras", type: "textarea", placeholder: "Ex: bolo artesanal para festas, massa fofa, entrega no mesmo dia" },
+                { name: "price", label: "Preço (opcional)", type: "number", placeholder: "49.90" },
+              ],
+              submitLabel: "Gerar com IA",
+              nextSkill: "catalog.products.create",
+            },
+          });
+          break;
+        }
+
+        const draft = await generateProductDraftFromBrief(ctx.userId, ctx.brandId, {
+          name: name || brief.slice(0, 60),
+          category,
+          brief,
+          price: priceRaw != null && priceRaw !== "" ? Number(priceRaw) : undefined,
+        });
+
+        const preview = draft.description.length > 220
+          ? `${draft.description.slice(0, 220)}…`
+          : draft.description;
+
+        components.push({
+          id: "product-draft-preview",
+          type: "text",
+          props: { content: preview },
+        });
+        components.push({
+          id: "product-draft-confirm",
+          type: "confirmation",
+          props: {
+            title: draft.name,
+            description: [
+              category || draft.category ? `Categoria: ${category || draft.category}` : "",
+              draft.price > 0 ? `Preço sugerido: R$ ${draft.price.toFixed(2)}` : "",
+              draft.features.length ? `Destaques: ${draft.features.slice(0, 3).join(" · ")}` : "",
+              "Revise e publique no editor.",
+            ].filter(Boolean).join(" · "),
+            confirmLabel: "Abrir editor",
+            action: "create_product",
+            draft,
+          },
+        });
+        components.push(this.buildNavSuggestions(["produtos"]));
         break;
       }
 

@@ -201,23 +201,35 @@ export function CatalogComposerDock() {
     )
   }
 
-  if (productContext && products?.isReady) {
+  if (productContext) {
+    const startCreateFlow = () => {
+      triggerSkill('catalog.products.create', {
+        label: 'Criar produto',
+        assistantMessage: 'Vamos criar um produto. Preencha o formulário:',
+      })
+    }
+
     return (
-      <div className="workspace-chat__action-dock workspace-chat__action-dock--chips-only">
+      <div className="workspace-chat__action-dock">
+        <AiPrimaryButton label="Criar produto com IA" onClick={startCreateFlow} />
         <div className="workspace-chat__action-chips">
-          <ActionChip
-            label="Novo produto"
-            icon={Plus}
-            onClick={() => products.dispatch({ type: 'create_new' })}
-          />
-          <ActionChip
-            label="Gerenciar"
-            icon={Package}
-            onClick={() => {
-              products.setModuleExpanded(true)
-              products.dispatch({ type: 'open_full' })
-            }}
-          />
+          {products?.isReady && (
+            <>
+              <ActionChip
+                label="Novo"
+                icon={Plus}
+                onClick={() => products.dispatch({ type: 'create_new' })}
+              />
+              <ActionChip
+                label="Gerenciar"
+                icon={Package}
+                onClick={() => {
+                  products.setModuleExpanded(true)
+                  products.dispatch({ type: 'open_full' })
+                }}
+              />
+            </>
+          )}
         </div>
       </div>
     )

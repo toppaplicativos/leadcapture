@@ -2,7 +2,7 @@
 set -euo pipefail
 
 LOCAL_DIR="${1:-$PWD}"
-PROD_DIR="${2:-/root/lead-system}"
+PROD_DIR="${2:-/root/leadcapture}"
 
 if [ ! -f "$LOCAL_DIR/package.json" ]; then
   echo "package.json não encontrado em: $LOCAL_DIR" >&2
@@ -11,7 +11,6 @@ fi
 
 if [ "$LOCAL_DIR" = "$PROD_DIR" ]; then
   echo "LOCAL_DIR e PROD_DIR não podem ser o mesmo diretório." >&2
-  echo "Use este script a partir do workspace local isolado (ex: /root/lead-system-local)." >&2
   exit 1
 fi
 

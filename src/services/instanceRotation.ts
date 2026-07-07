@@ -60,6 +60,8 @@ type SelectOptions = {
   excludedInstanceIds?: string[];
   /** Campaign-specific instance pool. If set, only these instances are eligible. */
   allowedInstanceIds?: string[];
+  /** Distribution pattern: conservative=round-robin 1-by-1, balanced=spread evenly, aggressive=exhaust then rotate */
+  distributionMode?: RotationMode;
 };
 
 type SendOptions = {
@@ -414,16 +416,34 @@ export class InstanceRotationService {
     return { healthScore, riskScore };
   }
 
-  private candidateScore(candidate: Candidate): number {
+  private candidateScore(candidate: Candidate, distributionMode?: RotationMode): number {
     const loadRatioHour = candidate.hourlyLimit > 0 ? candidate.sentLastHour / candidate.hourlyLimit : 1;
     const loadRatioDay = candidate.dailyLimit > 0 ? candidate.sentToday / candidate.dailyLimit : 1;
-    const loadPenalty = (loadRatioHour * 40) + (loadRatioDay * 30);
 
-    const timeBonus = Math.min(30, Math.floor(candidate.secondsSinceLastUse / 10));
     const healthBonus = candidate.healthScore * 0.9;
     const riskPenalty = candidate.riskScore * 0.8;
     const priorityBonus = Math.max(0, candidate.priorityWeight / 5);
 
+    if (distributionMode === "conservative") {
+      // Sequential/round-robin: heavily favor the instance that was used LEAST recently.
+      // This produces a strict 1-by-1 rotation pattern across instances.
+      const timeBonus = Math.min(200, candidate.secondsSinceLastUse * 5);
+      const loadPenalty = (loadRatioHour * 10) + (loadRatioDay * 5);
+      return timeBonus + healthBonus + priorityBonus - loadPenalty - riskPenalty;
+    }
+
+    if (distributionMode === "aggressive") {
+      // Concentrated: keep using the same instance until it approaches its limits,
+      // then move to the next. Minimizes switching between instances.
+      const capacityRemaining = Math.max(0, 1 - loadRatioHour) * 100;
+      const stickBonus = candidate.secondsSinceLastUse < 60 ? 80 : 0;
+      const loadPenalty = loadRatioHour >= 0.9 ? 300 : (loadRatioDay * 20);
+      return capacityRemaining + stickBonus + healthBonus + priorityBonus - loadPenalty - riskPenalty;
+    }
+
+    // Balanced (default): spread evenly — original algorithm
+    const loadPenalty = (loadRatioHour * 40) + (loadRatioDay * 30);
+    const timeBonus = Math.min(30, Math.floor(candidate.secondsSinceLastUse / 10));
     return healthBonus + timeBonus + priorityBonus - loadPenalty - riskPenalty;
   }
 
@@ -441,7 +461,7 @@ export class InstanceRotationService {
     });
   }
 
-  async getPoolSnapshot(userId: string, leadId?: string): Promise<RotationPoolSnapshot> {
+  async getPoolSnapshot(userId: string, leadId?: string, distributionMode?: RotationMode): Promise<RotationPoolSnapshot> {
     await this.ensureSchema();
     const settings = await this.getSettings(userId);
     const pool = await this.getPoolRows(userId);
@@ -505,7 +525,7 @@ export class InstanceRotationService {
     }
 
     const throttled = this.applyGlobalRiskThrottle(settings, candidatesRaw);
-    const sorted = [...throttled].sort((a, b) => this.candidateScore(b) - this.candidateScore(a));
+    const sorted = [...throttled].sort((a, b) => this.candidateScore(b, distributionMode) - this.candidateScore(a, distributionMode));
     const selected = sorted.find((item) => item.eligible)?.instanceId || null;
 
     const items: RotationPoolItem[] = sorted.map((item) => ({
@@ -529,7 +549,7 @@ export class InstanceRotationService {
     // Helper — check if an instance is in the campaign-specific pool (if set)
     const isAllowed = (id: string) => !allowedSet || allowedSet.has(id);
 
-    const snapshot = await this.getPoolSnapshot(userId, options?.leadId);
+    const snapshot = await this.getPoolSnapshot(userId, options?.leadId, options?.distributionMode);
     const eligible = snapshot.items.filter(
       (item) => item.eligible && !excluded.has(item.instanceId) && isAllowed(item.instanceId)
     );

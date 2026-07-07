@@ -990,10 +990,17 @@ html.agent-workspace #root {
   .agent-shell__body.has-canvas {
     flex-direction: row;
   }
+  .agent-shell__body.has-canvas .agent-shell__rail {
+    border-right: none;
+    box-shadow: 6px 0 28px -14px rgba(17, 24, 39, 0.12);
+    z-index: 1;
+  }
   .agent-shell__body.has-canvas .agent-shell__canvas {
     display: flex;
     flex: 1;
     min-width: 0;
+    background: var(--color-surface);
+    border-left: 1px solid var(--color-border);
   }
   .agent-shell__body.chat-only .agent-shell__rail {
     flex: 1;
@@ -1019,12 +1026,24 @@ html.agent-workspace #root {
   z-index: 10;
   width: 2.25rem;
   height: 2.25rem;
-  display: grid;
+  display: none;
   place-items: center;
   border-radius: var(--radius-lg);
   background: var(--color-surface);
   border: 1px solid var(--color-border-light);
   color: var(--color-gray-600);
+}
+@media (max-width: 1023px) {
+  .agent-shell__canvas-close {
+    display: grid;
+  }
+}
+@media (min-width: 1024px) {
+  .agent-shell__canvas-close {
+    display: none !important;
+    visibility: hidden;
+    pointer-events: none;
+  }
 }
 
 .agent-shell__toast {
@@ -1495,14 +1514,20 @@ html.agent-workspace #root {
   -webkit-overflow-scrolling: touch;
 }
 
-/* Margem interna do canvas — todo embed com conteúdo */
-.agent-shell__body.has-canvas .agent-canvas__embed:not(.agent-canvas__embed--flush),
-.agent-shell__canvas.is-open .agent-canvas__embed:not(.agent-canvas__embed--flush) {
+/* Margem interna do canvas — aplicada no body para todo conteúdo renderizado */
+.agent-canvas__body.agent-canvas__body--inset {
   padding: 1rem 1rem max(1.25rem, env(safe-area-inset-bottom));
+  box-sizing: border-box;
 }
 @media (min-width: 1024px) {
-  .agent-shell__body.has-canvas .agent-canvas__embed:not(.agent-canvas__embed--flush) {
-    padding: 1.25rem 1.5rem 1.5rem;
+  .agent-canvas__body.agent-canvas__body--inset {
+    padding: 1.5rem 2rem 2rem;
+  }
+}
+/* Mobile overlay: espaço para o botão voltar */
+@media (max-width: 1023px) {
+  .agent-shell__canvas.is-open .agent-canvas__body--inset {
+    padding-top: max(3.5rem, calc(2.75rem + env(safe-area-inset-top, 0px)));
   }
 }
 
@@ -2936,16 +2961,14 @@ html.agent-workspace #root {
 }
 .agent-rail__send:disabled { opacity: 0.35; }
 
-/* Canvas stage */
-.agent-canvas__body { padding: 0; }
+/* Canvas stage — sem padding aqui; margem fica em .agent-canvas__body--inset */
+.agent-canvas__body:not(.agent-canvas__body--inset) {
+  padding: 0;
+}
 
 .agent-canvas__stage {
   max-width: 48rem;
   margin: 0 auto;
-  padding: 1.5rem 1.25rem 2rem;
-}
-@media (min-width: 1024px) {
-  .agent-canvas__stage { padding: 2rem 2rem 2.5rem; }
 }
 
 .agent-canvas__head {
@@ -2974,13 +2997,11 @@ html.agent-workspace #root {
 .agent-canvas__page {
   max-width: 64rem;
   margin: 0 auto;
-  padding: 1.25rem 1rem 2rem;
 }
 @media (min-width: 1024px) {
   .agent-shell__body.has-canvas .agent-canvas__page {
     max-width: none;
     margin: 0;
-    padding: 1.25rem 1.5rem 1.5rem;
     height: 100%;
     min-height: 0;
     display: flex;
@@ -2995,9 +3016,6 @@ html.agent-workspace #root {
   }
   .agent-shell__body.has-canvas .agent-canvas {
     height: 100%;
-  }
-  .agent-shell__body.chat-only .agent-canvas__page {
-    padding: 1.5rem 2rem 2.5rem;
   }
 }
 
@@ -3095,6 +3113,14 @@ html.agent-workspace #root {
 }
 
 /* ── WhatsApp pairing (código por número) ── */
+.wa-pairing__loading {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0;
+  font-size: 0.75rem;
+  color: var(--color-gray-500);
+}
 .wa-pairing__intro {
   font-size: 0.75rem;
   line-height: 1.5;
@@ -3144,6 +3170,12 @@ html.agent-workspace #root {
   transition: opacity 150ms ease-out;
 }
 .wa-pairing__submit:disabled { opacity: 0.45; }
+.wa-pairing__error {
+  margin: 0.5rem 0 0;
+  font-size: 0.6875rem;
+  line-height: 1.4;
+  color: #e11d48;
+}
 .wa-pairing__hint {
   margin: 0.5rem 0 0;
   font-size: 0.625rem;

@@ -46,6 +46,10 @@ function ProductsCanvas() {
 /** Rotas que precisam de borda a borda (mapa, etc.) — sem padding do canvas */
 const CANVAS_FLUSH_ROUTES = new Set(['/busca'])
 
+export function isCanvasFlushRoute(route: string) {
+  return CANVAS_FLUSH_ROUTES.has(route)
+}
+
 const CANVAS_PAGE_MAP: Record<string, () => ReactNode> = {
   '/dashboard': () => <DashboardView showToast={noop} />,
   '/fluxos': () => <FlowBuilderPage />,

@@ -9,6 +9,60 @@ import { InstanceRotationService, RotationMode } from "./instanceRotation";
 import { aiRouter } from "./aiRouter";
 import { logger } from "../utils/logger";
 
+// ─── Name enrichment helpers ────────────────────────────────────
+
+const PT_BR_LOWER_WORDS = new Set(["da", "de", "do", "das", "dos", "e", "di", "du", "del", "la", "le"]);
+const JUNK_NAME_PATTERNS = [
+  /^\d+$/, // only digits
+  /^[+\d\s()-]+$/, // phone-like
+  /^\.+$/, // only dots
+  /^null$/i,
+  /^undefined$/i,
+  /^n\/?a$/i,
+  /^none$/i,
+  /^teste?$/i,
+  /^user$/i,
+  /^contato$/i,
+  /^cliente$/i,
+  /^lead$/i,
+];
+
+function isJunkName(name: string): boolean {
+  const t = name.trim();
+  if (!t || t.length < 2) return true;
+  return JUNK_NAME_PATTERNS.some((rx) => rx.test(t));
+}
+
+function normalizeContactName(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  let name = String(raw).trim();
+  if (!name) return null;
+
+  // Strip leading/trailing special chars and excessive whitespace
+  name = name.replace(/^[~\-_.*#@!]+|[~\-_.*#@!]+$/g, "").trim();
+  name = name.replace(/\s{2,}/g, " ");
+
+  if (isJunkName(name)) return null;
+
+  // titleCase with PT-BR preposition support
+  name = name
+    .toLowerCase()
+    .split(/\s+/)
+    .map((word, i) => {
+      if (i > 0 && PT_BR_LOWER_WORDS.has(word)) return word;
+      return word.charAt(0).toUpperCase() + word.slice(1);
+    })
+    .join(" ");
+
+  // First word always capitalized (safety)
+  name = name.replace(/^./, (c) => c.toUpperCase());
+
+  // If result is still junk after normalization, discard
+  if (isJunkName(name)) return null;
+
+  return name;
+}
+
 // ─── Types ──────────────────────────────────────────────────────
 
 export type CampaignStatus = "draft" | "scheduled" | "running" | "paused" | "completed" | "cancelled";
@@ -1610,7 +1664,7 @@ export class CampaignEngineService {
 
     // Reset all leads back to pending
     await update(
-      `UPDATE campaign_leads SET status = 'pending', error_message = NULL, sent_at = NULL, delivered_at = NULL, read_at = NULL, replied_at = NULL, reply_text = NULL, reply_classification = NULL, score_delta = 0, tags_added = NULL, whatsapp_valid = NULL, message_text = NULL, ai_generated = 0, attempt_count = 0 WHERE campaign_id = ? AND user_id = ? AND ${normalizedBrandId ? "brand_id = ?" : "brand_id IS NULL"}`,
+      `UPDATE campaign_leads SET status = 'pending', error_message = NULL, sent_at = NULL, delivered_at = NULL, read_at = NULL, replied_at = NULL, reply_text = NULL, reply_classification = NULL, score_delta = 0, tags_added = NULL, whatsapp_valid = NULL, message_text = NULL, ai_generated = FALSE, attempt_count = 0 WHERE campaign_id = ? AND user_id = ? AND ${normalizedBrandId ? "brand_id = ?" : "brand_id IS NULL"}`,
       normalizedBrandId ? [campaignId, userId, normalizedBrandId] : [campaignId, userId]
     );
 
@@ -1904,6 +1958,55 @@ export class CampaignEngineService {
         }
       }
 
+      // Step 1.5: Name enrichment — fetch + normalize contact name when missing
+      const nameEnrichmentEnabled = Boolean((campaignSettings as any)?.nameEnrichment?.enabled);
+      if (nameEnrichmentEnabled && !lead.lead_name?.trim()) {
+        let enrichedName: string | null = null;
+
+        // Source 1: whatsapp_conversations table (already captured pushName)
+        if (!enrichedName && (jid || phone)) {
+          try {
+            const phoneCandidates = [jid, phone, `${phone}@s.whatsapp.net`].filter(Boolean);
+            const placeholders = phoneCandidates.map(() => "?").join(",");
+            const convRow = await queryOne<{ contact_push_name?: string; contact_name?: string }>(
+              `SELECT contact_push_name, contact_name FROM whatsapp_conversations
+               WHERE remote_jid IN (${placeholders}) AND contact_push_name IS NOT NULL
+               ORDER BY last_message_at DESC LIMIT 1`,
+              phoneCandidates
+            );
+            if (convRow?.contact_push_name) enrichedName = normalizeContactName(convRow.contact_push_name);
+            if (!enrichedName && convRow?.contact_name) enrichedName = normalizeContactName(convRow.contact_name);
+          } catch {}
+        }
+
+        // Source 2: WhatsApp business profile / contact store via Baileys
+        if (!enrichedName && jid) {
+          try {
+            const validationInstanceId = campaign.use_instance_rotation
+              ? this.resolveCampaignPoolIds(campaign).find((id) => {
+                  const inst = this.instanceManager.getInstance(id, userId) ?? this.instanceManager.getInstance(id);
+                  return inst?.status === "connected";
+                }) || campaign.instance_id
+              : campaign.instance_id;
+            const remoteName = await withTimeout(
+              this.instanceManager.fetchContactName(validationInstanceId, jid),
+              5000,
+              "Timeout buscando nome"
+            );
+            if (remoteName) enrichedName = normalizeContactName(remoteName);
+          } catch {}
+        }
+
+        if (enrichedName) {
+          lead.lead_name = enrichedName;
+          // Persist to customers table so future campaigns already have the name
+          try {
+            await update(`UPDATE customers SET name = ? WHERE id = ? AND (name IS NULL OR name = '')`, [enrichedName, lead.lead_id]);
+          } catch {}
+          logger.info(`[Campaign ${campaignId}] Name enriched for ${phone}: ${enrichedName}`);
+        }
+      }
+
       // Step 2: Generate or use template message
       let messageText = campaign.message_template || "";
 
@@ -1976,7 +2079,7 @@ export class CampaignEngineService {
       const mediaConfig = this.extractCampaignMediaConfig(campaignSettings);
       const hasMedia =
         Boolean(mediaConfig.imagePath) ||
-        Boolean(mediaConfig.videoPath) ||
+        mediaConfig.videoPaths.length > 0 ||
         Boolean(mediaConfig.audioPath) ||
         Boolean(mediaConfig.documentPath);
       const hasLink = Boolean(mediaConfig.linkUrl);
@@ -1992,6 +2095,7 @@ export class CampaignEngineService {
           leadId: String(lead.lead_id || ""),
           preferredInstanceId: campaign.instance_id,
           allowedInstanceIds: poolIds.length > 0 ? poolIds : undefined,
+          distributionMode: (campaign.rotation_mode as "balanced" | "conservative" | "aggressive") || "balanced",
         });
         if (rotated) sendingInstanceId = rotated;
       }
@@ -2120,9 +2224,30 @@ export class CampaignEngineService {
         );
       }
 
-      // Anti-blocking delay
-      const delay = randomDelay(speed.minIntervalSeconds, speed.maxIntervalSeconds);
-      await sleep(delay);
+      // Anti-blocking delay — rotation-aware.
+      // When rotation is ON with multiple instances, the rotation engine manages per-instance
+      // cooldowns (min_interval, per_minute_limit, hourly_limit). We use a shorter base delay
+      // between sends so the engine can distribute across instances efficiently.
+      // When rotation is OFF (single instance), use the campaign's global speed settings.
+      if (campaign.use_instance_rotation && this.rotationEngine) {
+        const poolIds = this.resolveCampaignPoolIds(campaign);
+        const connectedCount = poolIds.filter(id => {
+          const inst = this.instanceManager.getInstance(id, userId) ?? this.instanceManager.getInstance(id);
+          return inst?.status === "connected";
+        }).length;
+        if (connectedCount > 1) {
+          // Multiple instances: short delay (3-6s) — rotation engine handles per-instance pacing
+          const rotationDelay = randomDelay(3, Math.max(4, Math.floor(speed.minIntervalSeconds / connectedCount)));
+          await sleep(rotationDelay);
+        } else {
+          // Single instance even with rotation on: use campaign speed
+          const delay = randomDelay(speed.minIntervalSeconds, speed.maxIntervalSeconds);
+          await sleep(delay);
+        }
+      } else {
+        const delay = randomDelay(speed.minIntervalSeconds, speed.maxIntervalSeconds);
+        await sleep(delay);
+      }
     }
 
     // Check if campaign completed
@@ -2723,20 +2848,52 @@ export class CampaignEngineService {
    * Resolve a media URL stored in campaign settings to an absolute filesystem path.
    * The frontend stores media as URLs like "/uploads/images/abc.jpg" via /api/media/upload.
    * This converts that to an absolute path on disk so it can be read for sending.
+   * Also supports external HTTP URLs by downloading them to a temp cache.
    */
   private resolveCampaignMediaPath(mediaUrl: string | null | undefined): string | null {
     const cleaned = String(mediaUrl || "").trim();
     if (!cleaned) return null;
-    if (/^https?:\/\//i.test(cleaned)) return null; // External URL not supported (would need download)
+
+    // External URL — try to extract local path first if same domain
+    if (/^https?:\/\//i.test(cleaned)) {
+      const localMatch = cleaned.match(/\/uploads\/(.+)$/);
+      if (localMatch) {
+        const localPath = path.resolve(process.cwd(), "uploads", localMatch[1]);
+        if (fs.existsSync(localPath) && fs.statSync(localPath).size > 0) return localPath;
+      }
+      return this.downloadExternalMedia(cleaned);
+    }
+
     const relative = cleaned.replace(/^\/+/, "");
     if (!relative.startsWith("uploads/")) return null;
     const absolute = path.resolve(process.cwd(), relative);
-    if (!absolute.startsWith(path.resolve(process.cwd(), "uploads"))) return null; // Path traversal guard
+    if (!absolute.startsWith(path.resolve(process.cwd(), "uploads"))) return null;
     if (!fs.existsSync(absolute)) {
       logger.warn(`[Campaign] Media file not found: ${absolute}`);
       return null;
     }
     return absolute;
+  }
+
+  private downloadExternalMedia(url: string): string | null {
+    try {
+      const cacheDir = path.resolve(process.cwd(), "uploads", "media-cache");
+      if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
+      const hash = require("crypto").createHash("md5").update(url).digest("hex");
+      const ext = (url.match(/\.(jpe?g|png|webp|gif|mp4|webm|pdf)(\?|$)/i) || [])[1] || "jpg";
+      const cached = path.join(cacheDir, `${hash}.${ext}`);
+      if (fs.existsSync(cached) && fs.statSync(cached).size > 0) return cached;
+      const { execSync } = require("child_process");
+      execSync(`curl -sL -o "${cached}" "${url}"`, { timeout: 30000 });
+      if (fs.existsSync(cached) && fs.statSync(cached).size > 0) {
+        logger.info(`[Campaign] Downloaded external media: ${url} → ${cached}`);
+        return cached;
+      }
+      return null;
+    } catch (err: any) {
+      logger.warn(`[Campaign] Failed to download external media ${url}: ${err.message}`);
+      return null;
+    }
   }
 
   /**
@@ -2746,7 +2903,7 @@ export class CampaignEngineService {
     imagePath: string | null;
     imageCaption: string;
     imageUseTextAsCaption: boolean;
-    videoPath: string | null;
+    videoPaths: string[];
     videoCaption: string;
     videoUseTextAsCaption: boolean;
     audioPath: string | null;
@@ -2754,13 +2911,31 @@ export class CampaignEngineService {
     documentPath: string | null;
     documentName: string | null;
     linkUrl: string;
+    product: { id: string; name: string; price: number; description: string } | null;
   } {
     const media = (campaignSettings && typeof campaignSettings === "object" && (campaignSettings as any).media) || {};
+    const videoFiles: string[] = [];
+    if (Array.isArray((media as any).videoFiles)) {
+      for (const f of (media as any).videoFiles) {
+        const p = this.resolveCampaignMediaPath(f);
+        if (p) videoFiles.push(p);
+      }
+    }
+    if (videoFiles.length === 0) {
+      const legacy = this.resolveCampaignMediaPath((media as any).videoFileName);
+      if (legacy) videoFiles.push(legacy);
+    }
+    const product = (media as any).product || null;
+    let productImagePath: string | null = null;
+    if (product?.imageUrl) {
+      productImagePath = this.resolveCampaignMediaPath(product.imageUrl);
+    }
+
     return {
-      imagePath: this.resolveCampaignMediaPath((media as any).imageFileName),
+      imagePath: this.resolveCampaignMediaPath((media as any).imageFileName) || productImagePath,
       imageCaption: String((media as any).imageCaption || "").trim(),
       imageUseTextAsCaption: Boolean((media as any).imageUseTextAsCaption),
-      videoPath: this.resolveCampaignMediaPath((media as any).videoFileName),
+      videoPaths: videoFiles.slice(0, 5),
       videoCaption: String((media as any).videoCaption || "").trim(),
       videoUseTextAsCaption: Boolean((media as any).videoUseTextAsCaption),
       audioPath: this.resolveCampaignMediaPath((media as any).audioFileName),
@@ -2768,6 +2943,7 @@ export class CampaignEngineService {
       documentPath: this.resolveCampaignMediaPath((media as any).documentFileName),
       documentName: String((media as any).documentName || "").trim() || null,
       linkUrl: String((media as any).linkUrl || "").trim(),
+      product: product ? { id: product.id, name: product.name, price: product.price, description: product.description || "" } : null,
     };
   }
 
@@ -2886,10 +3062,15 @@ export class CampaignEngineService {
       await new Promise((r) => setTimeout(r, 800));
     }
 
-    // 3. Video
-    if (media.videoPath) {
-      await sendMedia("video", media.videoPath);
-      await new Promise((r) => setTimeout(r, 800));
+    // 3. Videos (up to 5, sequential with delay)
+    for (let vi = 0; vi < media.videoPaths.length; vi++) {
+      await sendMedia("video", media.videoPaths[vi]);
+      if (vi < media.videoPaths.length - 1) {
+        const delay = 2000 + Math.floor(Math.random() * 1500);
+        await new Promise((r) => setTimeout(r, delay));
+      } else {
+        await new Promise((r) => setTimeout(r, 800));
+      }
     }
 
     // 4. Audio

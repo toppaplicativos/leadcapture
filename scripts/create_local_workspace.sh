@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROD_DIR="${1:-/root/lead-system}"
-LOCAL_DIR="${2:-/root/lead-system-local}"
+PROD_DIR="${1:-/root/leadcapture}"
+LOCAL_DIR="${2:-/root/leadcapture-local}"
 
 if [ ! -d "$PROD_DIR" ]; then
   echo "Diretório de produção não encontrado: $PROD_DIR" >&2

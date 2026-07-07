@@ -945,6 +945,16 @@ export class ProductsService {
     pushIfCol("service_config_json", JSON.stringify(anyData.service_config || {}));
     pushIfCol("configurator_json", JSON.stringify(anyData.configurator || {}));
     pushIfCol("bundle_items_json", JSON.stringify(Array.isArray(anyData.bundle_items) ? anyData.bundle_items : []));
+    if (anyData.metadata !== undefined) {
+      pushIfCol("metadata_json", JSON.stringify(anyData.metadata && typeof anyData.metadata === "object" ? anyData.metadata : {}));
+    }
+    if (anyData.imageUrl !== undefined || anyData.image !== undefined) {
+      const canPersistImage = await this.ensureImageColumn();
+      if (canPersistImage) {
+        const imageUrl = anyData.imageUrl !== undefined ? anyData.imageUrl : anyData.image;
+        pushIfCol("image_url", imageUrl || null);
+      }
+    }
     /* Inventory (Fase 12) — null = unlimited (default), number = tracked */
     if (anyData.stock_quantity !== undefined) {
       const qty = anyData.stock_quantity === null ? null : Math.max(0, parseInt(String(anyData.stock_quantity), 10) || 0);
@@ -1012,6 +1022,9 @@ export class ProductsService {
     if (anyData.service_config !== undefined) setIfCol("service_config_json", JSON.stringify(anyData.service_config || {}));
     if (anyData.configurator !== undefined) setIfCol("configurator_json", JSON.stringify(anyData.configurator || {}));
     if (anyData.bundle_items !== undefined) setIfCol("bundle_items_json", JSON.stringify(Array.isArray(anyData.bundle_items) ? anyData.bundle_items : []));
+    if (anyData.metadata !== undefined) {
+      setIfCol("metadata_json", JSON.stringify(anyData.metadata && typeof anyData.metadata === "object" ? anyData.metadata : {}));
+    }
     /* Inventory (Fase 12). Note: when stock_quantity changes here without going through productStockService,
      * we recompute status inline so badges/filters stay consistent. The atomic decrement on orders still
      * goes through productStockService.adjust() which uses FOR UPDATE locks. */

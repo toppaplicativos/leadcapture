@@ -465,6 +465,41 @@ router.get("/", async (req: BrandRequest, res: Response) => {
   }
 });
 
+type ProductFieldErrors = Partial<Record<"name" | "category" | "price", string>>;
+
+function collectProductPublishErrors(input: {
+  name?: unknown;
+  category?: unknown;
+  price?: unknown;
+}): ProductFieldErrors {
+  const errors: ProductFieldErrors = {};
+  const name = normalizeText(input.name);
+  const category = normalizeText(input.category);
+  const priceRaw = input.price;
+
+  if (!name) errors.name = "Nome é obrigatório";
+  if (!category) errors.category = "Categoria é obrigatória";
+  if (priceRaw == null || priceRaw === "" || !Number.isFinite(parseFloat(String(priceRaw)))) {
+    errors.price = "Preço válido é obrigatório";
+  } else if (parseFloat(String(priceRaw)) < 0) {
+    errors.price = "Preço não pode ser negativo";
+  }
+
+  return errors;
+}
+
+function buildDraftProductName(rawName?: unknown): string {
+  const name = normalizeText(rawName);
+  if (name) return name;
+  const stamp = new Date().toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  return `Rascunho ${stamp}`;
+}
+
 // POST create product
 router.post("/", async (req: BrandRequest, res: Response) => {
   try {
@@ -472,29 +507,59 @@ router.post("/", async (req: BrandRequest, res: Response) => {
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
     const body = req.body || {};
-    const { name, category, price } = body;
+    const saveAsDraft = body.save_as_draft === true || body.status === "draft";
+    const fieldErrors = saveAsDraft ? {} : collectProductPublishErrors(body);
 
-    if (!name || String(name).trim().length === 0) {
-      return res.status(400).json({ error: "Name is required" });
+    if (!saveAsDraft && Object.keys(fieldErrors).length > 0) {
+      const messages = Object.values(fieldErrors);
+      return res.status(400).json({
+        error: messages.join(" · "),
+        fields: fieldErrors,
+      });
     }
-    if (!category || String(category).trim().length === 0) {
-      return res.status(400).json({ error: "Category is required" });
+
+    const rawName = normalizeText(body.name);
+    const rawDescription = normalizeText(body.description);
+    if (saveAsDraft && !rawName && !rawDescription) {
+      return res.status(400).json({
+        error: "Informe ao menos o nome ou a descrição para salvar o rascunho",
+        fields: { name: "Nome ou descrição é obrigatório" },
+      });
     }
-    if (price == null || isNaN(parseFloat(price))) {
-      return res.status(400).json({ error: "Valid price is required" });
+
+    const missingFields: string[] = [];
+    if (!rawName) missingFields.push("name");
+    if (!normalizeText(body.category)) missingFields.push("category");
+    if (body.price == null || body.price === "" || !Number.isFinite(parseFloat(String(body.price)))) {
+      missingFields.push("price");
     }
+
+    const parsedPrice = body.price == null || body.price === ""
+      ? 0
+      : parseFloat(String(body.price));
+    const finalPrice = Number.isFinite(parsedPrice) && parsedPrice >= 0 ? parsedPrice : 0;
+    const publishReady = missingFields.length === 0;
+    const shouldStayDraft = saveAsDraft || !publishReady;
+
+    const metadata = {
+      ...(body.metadata && typeof body.metadata === "object" ? body.metadata : {}),
+      is_draft: shouldStayDraft,
+      missing_fields: shouldStayDraft ? missingFields : [],
+      draft_saved_at: shouldStayDraft ? new Date().toISOString() : null,
+    };
 
     /* Pass through all OfferEntity fields (Fase 0+) — service guards by column existence. */
     const product = await productsService.createProduct({
-      name: String(name).trim(),
-      description: body.description ? String(body.description).trim() : "",
-      category: String(category).trim(),
-      price: parseFloat(price),
+      name: buildDraftProductName(body.name),
+      description: rawDescription,
+      category: normalizeText(body.category) || undefined,
+      price: finalPrice,
       promoPrice: body.promoPrice ? parseFloat(body.promoPrice) : undefined,
       unit: body.unit ? String(body.unit).trim() : "unidade",
       features: Array.isArray(body.features) ? body.features : [],
-      is_active: body.active !== false,
-      active: body.active !== false,
+      is_active: shouldStayDraft ? false : body.active !== false,
+      active: shouldStayDraft ? false : body.active !== false,
+      metadata,
       /* OfferEntity */
       ...(body.type !== undefined ? { type: body.type } : {}),
       ...(body.subtitle !== undefined ? { subtitle: body.subtitle } : {}),
@@ -506,12 +571,20 @@ router.post("/", async (req: BrandRequest, res: Response) => {
       ...(body.service_config !== undefined ? { service_config: body.service_config } : {}),
       ...(body.configurator !== undefined ? { configurator: body.configurator } : {}),
       ...(body.bundle_items !== undefined ? { bundle_items: body.bundle_items } : {}),
+      ...(body.stock_quantity !== undefined ? { stock_quantity: body.stock_quantity } : {}),
+      ...(body.stock_threshold_low !== undefined ? { stock_threshold_low: body.stock_threshold_low } : {}),
+      ...(body.imageUrl !== undefined ? { imageUrl: body.imageUrl } : {}),
     } as any, userId, req.brandId);
 
-    res.json({ success: true, product });
+    res.json({
+      success: true,
+      product,
+      draft: shouldStayDraft,
+      missing_fields: shouldStayDraft ? missingFields : [],
+    });
   } catch (error: any) {
     logger.error(error, "Error creating product");
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error.message || "Erro ao criar produto" });
   }
 });
 
@@ -522,6 +595,48 @@ router.put("/:id", async (req: BrandRequest, res: Response) => {
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
     const id = String(req.params.id);
     const body = req.body || {};
+    const saveAsDraft = body.save_as_draft === true || body.status === "draft";
+    const existing = await productsService.getProduct(id, userId, req.brandId);
+    if (!existing) return res.status(404).json({ error: "Produto não encontrado" });
+
+    const mergedForValidation = {
+      name: body.name !== undefined ? body.name : existing.name,
+      category: body.category !== undefined ? body.category : existing.category,
+      price: body.price !== undefined ? body.price : existing.price,
+    };
+    const fieldErrors = saveAsDraft ? {} : collectProductPublishErrors(mergedForValidation);
+
+    if (!saveAsDraft && Object.keys(fieldErrors).length > 0) {
+      const messages = Object.values(fieldErrors);
+      return res.status(400).json({
+        error: messages.join(" · "),
+        fields: fieldErrors,
+      });
+    }
+
+    const missingFields: string[] = [];
+    if (!normalizeText(mergedForValidation.name)) missingFields.push("name");
+    if (!normalizeText(mergedForValidation.category)) missingFields.push("category");
+    if (
+      mergedForValidation.price == null
+      || mergedForValidation.price === ""
+      || !Number.isFinite(parseFloat(String(mergedForValidation.price)))
+    ) {
+      missingFields.push("price");
+    }
+    const publishReady = missingFields.length === 0;
+    const shouldStayDraft = saveAsDraft || !publishReady;
+
+    const baseMetadata = (existing as any).metadata && typeof (existing as any).metadata === "object"
+      ? (existing as any).metadata
+      : {};
+    const metadata = {
+      ...baseMetadata,
+      ...(body.metadata && typeof body.metadata === "object" ? body.metadata : {}),
+      is_draft: shouldStayDraft,
+      missing_fields: shouldStayDraft ? missingFields : [],
+      draft_saved_at: shouldStayDraft ? new Date().toISOString() : null,
+    };
 
     /* Build a clean payload: legacy fields with type coercion + ALL OfferEntity fields
      * (Fase 0+) forwarded verbatim. The service itself guards each field by checking
@@ -537,9 +652,10 @@ router.put("/:id", async (req: BrandRequest, res: Response) => {
       promoPrice: body.promoPrice !== undefined ? (body.promoPrice === null ? null : parseFloat(body.promoPrice)) : undefined,
       unit: body.unit !== undefined ? String(body.unit).trim() : undefined,
       features: body.features !== undefined ? (Array.isArray(body.features) ? body.features : []) : undefined,
-      is_active: body.active !== undefined ? body.active : undefined,
-      active: body.active !== undefined ? body.active : undefined,
+      is_active: shouldStayDraft ? false : (body.active !== undefined ? body.active : undefined),
+      active: shouldStayDraft ? false : (body.active !== undefined ? body.active : undefined),
       imageUrl: body.imageUrl !== undefined ? String(body.imageUrl) : undefined,
+      metadata,
       /* OfferEntity (Fase 0+) */
       type: body.type !== undefined ? body.type : undefined,
       subtitle: body.subtitle !== undefined ? body.subtitle : undefined,
@@ -551,15 +667,22 @@ router.put("/:id", async (req: BrandRequest, res: Response) => {
       service_config: body.service_config !== undefined ? body.service_config : undefined,
       configurator: body.configurator !== undefined ? body.configurator : undefined,
       bundle_items: body.bundle_items !== undefined ? body.bundle_items : undefined,
+      ...(body.stock_quantity !== undefined ? { stock_quantity: body.stock_quantity } : {}),
+      ...(body.stock_threshold_low !== undefined ? { stock_threshold_low: body.stock_threshold_low } : {}),
     };
 
     const updated = await productsService.updateProduct(id, payload, userId, req.brandId);
 
-    if (!updated) return res.status(404).json({ error: "Product not found" });
-    res.json({ success: true, product: updated });
+    if (!updated) return res.status(404).json({ error: "Produto não encontrado" });
+    res.json({
+      success: true,
+      product: updated,
+      draft: shouldStayDraft,
+      missing_fields: shouldStayDraft ? missingFields : [],
+    });
   } catch (error: any) {
     logger.error(error, "Error updating product");
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error.message || "Erro ao atualizar produto" });
   }
 });
 

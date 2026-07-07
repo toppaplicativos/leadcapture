@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { X, Loader2 } from 'lucide-react'
 import { useWhatsAppConnect } from '@/lib/whatsapp/WhatsAppConnectContext'
 import { WhatsAppPairingFlow } from './WhatsAppPairingFlow'
-import { getHeaders } from '@/lib/admin/helpers'
+import { fetchWhatsAppInstances, pickWhatsAppInstance } from '@/lib/whatsapp/resolveInstance'
 
 type InstanceRow = {
   id: string
@@ -26,16 +26,11 @@ export function WhatsAppConnectModal({
   useEffect(() => {
     if (!isOpen) return
     setLoading(true)
-    fetch('/api/instances', { headers: getHeaders() })
-      .then((r) => r.json())
-      .then((d) => {
-        const list: InstanceRow[] = d.instances || []
+    fetchWhatsAppInstances()
+      .then((list) => {
         setInstances(list)
-        const pick = instanceId
-          || list.find((i) => i.status !== 'connected' && i.status !== 'authenticated')?.id
-          || list[0]?.id
-          || null
-        setSelectedId(pick)
+        const pick = pickWhatsAppInstance(list, instanceId)
+        setSelectedId(pick?.id ?? null)
       })
       .catch(() => setInstances([]))
       .finally(() => setLoading(false))
@@ -98,6 +93,7 @@ export function WhatsAppConnectModal({
               </select>
             )}
             <WhatsAppPairingFlow
+              key={selectedId}
               instanceId={selectedId}
               instanceName={selected?.name}
               defaultPhone={selected?.phone}

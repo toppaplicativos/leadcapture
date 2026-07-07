@@ -11,6 +11,7 @@ import { GalleryBridgeProvider } from '@/lib/agent/GalleryBridgeContext'
 import { WorkspaceChat } from '@/components/agent/WorkspaceChat'
 import { AgentCanvas } from '@/components/agent/AgentCanvas'
 import { getHeaders, clearAdminAuth } from '@/lib/admin/helpers'
+import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
 import { WhatsAppConnectProvider } from '@/lib/whatsapp/WhatsAppConnectContext'
 import { WhatsAppConnectModal } from '@/components/whatsapp/WhatsAppConnectModal'
 
@@ -35,6 +36,7 @@ function ConversationalShellInner({ children }: { children?: ReactNode }) {
     campaignsModuleOpen, galleryModuleOpen,
   } = useAgentShell()
   const isImmersive = location.pathname === '/video-studio'
+  const isDesktop = useIsDesktop()
   const [brand, setBrand] = useState<{ name?: string; logo_url?: string }>({})
   const [brands, setBrands] = useState<any[]>([])
   const [activeBrandId, setActiveBrandId] = useState(localStorage.getItem('lead-system:active-brand-id') || '')
@@ -201,14 +203,16 @@ function ConversationalShellInner({ children }: { children?: ReactNode }) {
               ? 'is-open' : ''
           }`}
         >
-          <button
-            type="button"
-            className="agent-shell__canvas-close lg:hidden"
-            onClick={() => setMobileCanvasOpen(false)}
-            aria-label="Voltar ao chat"
-          >
-            <X size={18} />
-          </button>
+          {!isDesktop && (
+            <button
+              type="button"
+              className="agent-shell__canvas-close"
+              onClick={() => setMobileCanvasOpen(false)}
+              aria-label="Voltar ao chat"
+            >
+              <X size={18} />
+            </button>
+          )}
           <div key={activeBrandId} className="h-full min-h-0">
             <AgentCanvas>{children}</AgentCanvas>
           </div>

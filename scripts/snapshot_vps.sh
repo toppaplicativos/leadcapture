@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROJECT_DIR="${1:-/root/lead-system}"
+PROJECT_DIR="${1:-/root/leadcapture}"
 SNAPSHOT_ROOT="${2:-$PROJECT_DIR/snapshots}"
 STAMP="$(date +%Y%m%d_%H%M%S)"
 SNAPSHOT_DIR="$SNAPSHOT_ROOT/$STAMP"
@@ -27,10 +27,10 @@ cp -f "$PROJECT_DIR/package.json" "$SNAPSHOT_DIR/" 2>/dev/null || true
 cp -f "$PROJECT_DIR/package-lock.json" "$SNAPSHOT_DIR/" 2>/dev/null || true
 
 echo "[3/4] Compactando snapshot..."
-tar -C "$SNAPSHOT_ROOT" -czf "$SNAPSHOT_ROOT/lead-system_$STAMP.tar.gz" "$STAMP"
+tar -C "$SNAPSHOT_ROOT" -czf "$SNAPSHOT_ROOT/leadcapture_$STAMP.tar.gz" "$STAMP"
 
 echo "[4/4] Gerando checksum..."
-sha256sum "$SNAPSHOT_ROOT/lead-system_$STAMP.tar.gz" > "$SNAPSHOT_ROOT/lead-system_$STAMP.tar.gz.sha256"
+sha256sum "$SNAPSHOT_ROOT/leadcapture_$STAMP.tar.gz" > "$SNAPSHOT_ROOT/leadcapture_$STAMP.tar.gz.sha256"
 
-echo "Snapshot criado: $SNAPSHOT_ROOT/lead-system_$STAMP.tar.gz"
-echo "Checksum:        $SNAPSHOT_ROOT/lead-system_$STAMP.tar.gz.sha256"
+echo "Snapshot criado: $SNAPSHOT_ROOT/leadcapture_$STAMP.tar.gz"
+echo "Checksum:        $SNAPSHOT_ROOT/leadcapture_$STAMP.tar.gz.sha256"

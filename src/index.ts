@@ -933,6 +933,39 @@ app.get("/api/instances/:id/qr", authMiddleware, async (req: any, res) => {
   }
 });
 
+app.post("/api/instances/:id/pairing-code", authMiddleware, async (req: any, res) => {
+  try {
+    const userId = req.user?.userId as string | undefined;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+    const { phoneNumber } = req.body || {};
+    if (!phoneNumber || typeof phoneNumber !== "string") {
+      return res.status(400).json({ error: "Numero de telefone obrigatorio" });
+    }
+
+    const cleanPhone = String(phoneNumber).replace(/\D/g, "");
+    if (cleanPhone.length < 10 || cleanPhone.length > 15) {
+      return res.status(400).json({ error: "Numero de telefone invalido" });
+    }
+
+    const brandId = await brandUnitsService.resolveActiveBrandId(userId, getRequestedBrandId(req));
+    const id = String(req.params.id);
+    const allowed = await instanceBelongsToUser(id, userId, brandId);
+    if (!allowed) return res.status(404).json({ error: "Instance not found" });
+
+    const code = await instanceManager.connectWithPairingCode(id, cleanPhone);
+
+    res.json({
+      success: true,
+      code,
+      message: "Digite este codigo no WhatsApp para conectar.",
+    });
+  } catch (error: any) {
+    logger.error(`pairing-code error (${req.params.id}): ${error?.message}`);
+    res.status(500).json({ error: error?.message || "Erro ao gerar codigo de pareamento" });
+  }
+});
+
 app.post("/api/instances/:id/reconnect", authMiddleware, async (req: any, res) => {
   try {
     const userId = req.user?.userId as string | undefined;
@@ -1087,18 +1120,27 @@ app.get("/api/instances/:id", authMiddleware, async (req: any, res) => {
       ));
 
     if (!instance) return res.status(404).json({ error: "Instance not found" });
+
+    const live = instanceManager.getInstance(req.params.id, userId);
+    const liveStatus = live?.status;
+
     const normalizedInstance = instance.created_at
       ? {
           id: instance.id,
           name: instance.name,
-          phone: instance.phone || undefined,
-          status: instance.status,
+          phone: live?.phone || instance.phone || undefined,
+          status: liveStatus || instance.status,
           createdAt: instance.created_at,
           messagessSent: Number(instance.messages_sent || 0),
           messagesReceived: Number(instance.messages_received || 0),
         }
-      : instance;
-    res.json({ success: true, instance: normalizedInstance });
+      : { ...instance, status: liveStatus || instance.status, phone: live?.phone || instance.phone };
+
+    res.json({
+      success: true,
+      status: normalizedInstance.status,
+      instance: normalizedInstance,
+    });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }

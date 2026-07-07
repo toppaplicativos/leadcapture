@@ -1332,7 +1332,7 @@ export class StorefrontService {
     const verificationHost = `_leadcapture-verify.${domain}`;
     const verificationValue = `leadcapture-verification=${verificationToken}`;
     const publicHost = normalizePublicHost(String(publicHostInput || ""));
-    const serverIp = String(process.env.VPS_PUBLIC_IP || "109.176.198.123").trim();
+    const serverIp = String(process.env.VPS_PUBLIC_IP || "187.127.5.179").trim();
 
     const isWww = domain.startsWith("www.");
     /* Para subdomínios (www.x.com): CNAME pra plataforma.

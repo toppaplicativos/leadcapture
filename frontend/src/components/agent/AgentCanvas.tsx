@@ -3,7 +3,7 @@ import { Sparkles, MessageSquare } from 'lucide-react'
 import { AgentUIRenderer } from './AgentUIRenderer'
 import { AICampaignWizardModal } from '@/components/AICampaignWizardModal'
 import { SkillTrainerWizardModal } from '@/components/SkillTrainerWizardModal'
-import { CanvasPageEmbed } from '@/lib/agent/canvasPages'
+import { CanvasPageEmbed, isCanvasFlushRoute } from '@/lib/agent/canvasPages'
 import { useAgentShell } from '@/lib/agent/AgentShellContext'
 import { turnNeedsCanvas } from '@/lib/agent/canvasRegistry'
 import type { AgentModalId } from '@/lib/agent/types'
@@ -48,6 +48,7 @@ export function AgentCanvas({ children }: { children?: React.ReactNode }) {
   const showPage = canvasMode === 'page' && children
 
   const hasContent = showEmbed || showAgentUI || showPage
+  const flush = Boolean(showEmbed && embeddedRoute && isCanvasFlushRoute(embeddedRoute))
 
   if (!desktopCanvasOpen && !hasContent) {
     return null
@@ -55,7 +56,9 @@ export function AgentCanvas({ children }: { children?: React.ReactNode }) {
 
   return (
     <div className="agent-canvas flex flex-col h-full min-h-0">
-      <div className="agent-canvas__body flex-1 min-h-0 overflow-y-auto">
+      <div
+        className={`agent-canvas__body flex-1 min-h-0 overflow-y-auto${flush ? '' : ' agent-canvas__body--inset'}`}
+      >
         {showEmbed ? (
           <CanvasPageEmbed route={embeddedRoute!} />
         ) : showAgentUI ? (

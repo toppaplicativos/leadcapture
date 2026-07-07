@@ -600,137 +600,171 @@ export class InstanceManager {
     const instance = (await this.ensureInstanceLoaded(id)) || this.instances.get(id);
     if (!instance) throw new Error("Instance not found");
 
-    const existingSock = this.sockets.get(id);
-    if (instance.status === "connected" && existingSock) {
+    if (instance.status === "connected" && this.sockets.get(id)) {
       throw new Error("Instancia ja esta conectada");
     }
 
+    /* Cancela fluxo QR em andamento sem chamar logout (connectInstance permanece intacto). */
+    this.connectPromises.delete(id);
+
+    this.intentionalDisconnects.add(id);
     await this.cleanupSocket(id);
-
-    const authPath = path.join(config.authDir, id);
-    if (!fs.existsSync(authPath)) {
-      fs.mkdirSync(authPath, { recursive: true });
-    }
-
-    const { state, saveCreds } = await useMultiFileAuthState(authPath);
-    const { version } = await fetchLatestBaileysVersion();
-
-    instance.status = "connecting";
-    this.instances.set(id, instance);
-    await this.syncInstanceToDB(instance);
+    this.intentionalDisconnects.delete(id);
 
     const cleanPhone = phoneNumber.replace(/\D/g, "");
     if (cleanPhone.length < 10 || cleanPhone.length > 15) {
       throw new Error("Numero de telefone invalido");
     }
 
-    return new Promise((resolve, reject) => {
-      let resolved = false;
-      let pairingRequested = false;
+    /* Sessao limpa — pairing code exige creds nao registrados (Baileys). */
+    const authPath = path.join(config.authDir, id);
+    if (fs.existsSync(authPath)) {
+      fs.rmSync(authPath, { recursive: true, force: true });
+    }
+    fs.mkdirSync(authPath, { recursive: true });
 
-      const sock = makeWASocket({
-        version,
-        auth: state,
-        printQRInTerminal: false,
-        logger: pino({ level: "silent" }) as any,
-        browser: ["Lead System", "Chrome", "1.0.0"],
-        connectTimeoutMs: 60000,
-        defaultQueryTimeoutMs: 0,
-        keepAliveIntervalMs: 30000,
-        emitOwnEvents: true,
-        retryRequestDelayMs: 500,
-        markOnlineOnConnect: false,
+    const { state, saveCreds } = await useMultiFileAuthState(authPath);
+    const { version } = await fetchLatestBaileysVersion();
+
+    instance.status = "connecting";
+    instance.qrCode = undefined;
+    this.instances.set(id, instance);
+
+    const sock = makeWASocket({
+      version,
+      auth: state,
+      printQRInTerminal: false,
+      logger: pino({ level: "silent" }) as any,
+      browser: ["LeadCapture", "Chrome", "1.0.0"],
+      connectTimeoutMs: 60000,
+      defaultQueryTimeoutMs: 60000,
+      keepAliveIntervalMs: 30000,
+      emitOwnEvents: true,
+      retryRequestDelayMs: 500,
+      markOnlineOnConnect: false,
+      qrTimeout: 60000,
+    });
+
+    this.sockets.set(id, sock);
+    sock.ev.on("creds.update", saveCreds);
+    this.bindPairingSessionHandlers(id, instance, sock);
+
+    try {
+      if (state.creds.registered) {
+        throw new Error("Sessao ja registrada. Desconecte antes de gerar novo codigo.");
+      }
+
+      /* Baileys: aguardar handshake (evento qr) antes de requestPairingCode —
+         chamar cedo demais gera "Connection Closed" porque o WS ainda nao abriu. */
+      const code = await new Promise<string>((resolve, reject) => {
+        let settled = false;
+        const finish = (fn: () => void) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          sock.ev.off("connection.update", onPairingReady);
+          fn();
+        };
+
+        const timer = setTimeout(() => {
+          finish(() => reject(new Error("Timeout ao gerar codigo de pareamento")));
+        }, 45000);
+
+        const onPairingReady = async (update: {
+          connection?: string;
+          qr?: string;
+          lastDisconnect?: { error?: unknown };
+        }) => {
+          if (update.connection === "close") {
+            const boom = update.lastDisconnect?.error as Boom | undefined;
+            finish(() => reject(new Error(boom?.message || "Conexao fechada ao gerar codigo")));
+            return;
+          }
+          if (!update.qr) return;
+
+          try {
+            const pairingCode = await sock.requestPairingCode(cleanPhone);
+            finish(() => resolve(pairingCode));
+          } catch (err: any) {
+            finish(() => reject(new Error(err?.message || "Falha ao gerar codigo de pareamento")));
+          }
+        };
+
+        sock.ev.on("connection.update", onPairingReady);
       });
 
-      this.sockets.set(id, sock);
-      sock.ev.on("creds.update", saveCreds);
+      logger.info(`Pairing code generated for ${instance.name} (${cleanPhone.slice(-4)}): ${code}`);
+      return code;
+    } catch (err: any) {
+      logger.error(`Pairing code request failed for ${instance.name}: ${err?.message || err}`);
+      await this.cleanupSocket(id);
+      instance.status = "disconnected";
+      this.instances.set(id, instance);
+      await this.syncInstanceToDB(instance);
+      throw new Error(err?.message || "Falha ao gerar codigo de pareamento. Verifique o numero.");
+    }
+  }
 
-      sock.ev.on("connection.update", async (update) => {
-        const { connection, lastDisconnect, qr } = update;
+  private bindPairingSessionHandlers(id: string, instance: WhatsAppInstance, sock: WASocket): void {
+    sock.ev.on("connection.update", async (update) => {
+      const { connection } = update;
 
-        if (qr && !pairingRequested) {
-          pairingRequested = true;
-          try {
-            const code = await sock.requestPairingCode(cleanPhone);
-            logger.info(`Pairing code generated for ${instance.name}: ${code}`);
-            if (!resolved) {
-              resolved = true;
-              resolve(code);
-            }
-          } catch (err: any) {
-            logger.error(`Pairing code request failed for ${instance.name}: ${err.message}`);
-            if (!resolved) {
-              resolved = true;
-              reject(new Error("Falha ao gerar codigo de pareamento. Verifique o numero."));
-            }
-          }
-        }
+      if (connection === "open") {
+        const user = sock.user;
+        instance.status = "connected";
+        instance.phone = user?.id?.split(":")[0] || user?.id?.split("@")[0];
+        instance.qrCode = undefined;
+        this.instances.set(id, instance);
+        await this.syncInstanceToDB(instance);
+        this.connectedSince.set(id, Date.now());
+        this.retryCount.delete(id);
+        this.preconditionCloseCount.delete(id);
+        logger.info(`Instance connected via pairing code: ${instance.name} (${instance.phone})`);
+      }
 
-        if (connection === "close") {
-          const statusCode = (lastDisconnect?.error as Boom)?.output?.statusCode;
+      if (connection === "close") {
+        const live = this.instances.get(id);
+        if (live?.status === "connected") {
           instance.status = "disconnected";
           instance.qrCode = undefined;
           this.instances.set(id, instance);
           await this.syncInstanceToDB(instance);
           this.connectedSince.delete(id);
+        }
+      }
+    });
 
-          if (!resolved) {
-            resolved = true;
-            reject(new Error(`Conexao fechada (${statusCode || "unknown"})`));
+    sock.ev.on("messages.upsert", async ({ messages, type }) => {
+      if (type !== "notify") return;
+      for (const msg of messages) {
+        if (msg.key.fromMe) {
+          for (const handler of this.globalMessageHandlers) {
+            try { handler(id, msg); } catch (e) {}
+          }
+          continue;
+        }
+        instance.messagesReceived++;
+        this.instances.set(id, instance);
+        const handler = this.messageHandlers.get(id);
+        if (handler) handler(msg);
+        for (const gHandler of this.globalMessageHandlers) {
+          try { gHandler(id, msg); } catch (e) {}
+        }
+      }
+    });
+
+    sock.ev.on("messages.update", (updates) => {
+      for (const u of updates) {
+        if (u.update?.status && u.update.status >= 2 && u.key.id) {
+          const pending = this.pendingAcks.get(u.key.id);
+          if (pending) {
+            clearTimeout(pending.timer);
+            this.pendingAcks.delete(u.key.id);
+            this.consecutiveAckTimeouts.delete(pending.instanceId);
+            pending.resolve(true);
           }
         }
-
-        if (connection === "open") {
-          const user = sock.user;
-          instance.status = "connected";
-          instance.phone = user?.id?.split(":")[0] || user?.id?.split("@")[0];
-          instance.qrCode = undefined;
-          this.instances.set(id, instance);
-          await this.syncInstanceToDB(instance);
-          this.connectedSince.set(id, Date.now());
-          logger.info(`Instance connected via pairing code: ${instance.name} (${instance.phone})`);
-        }
-      });
-
-      sock.ev.on("messages.upsert", async ({ messages, type }) => {
-        if (type !== "notify") return;
-        for (const msg of messages) {
-          if (msg.key.fromMe) {
-            for (const handler of this.globalMessageHandlers) {
-              try { handler(id, msg); } catch (e) {}
-            }
-            continue;
-          }
-          instance.messagesReceived++;
-          this.instances.set(id, instance);
-          const handler = this.messageHandlers.get(id);
-          if (handler) handler(msg);
-          for (const gHandler of this.globalMessageHandlers) {
-            try { gHandler(id, msg); } catch (e) {}
-          }
-        }
-      });
-
-      sock.ev.on("messages.update", (updates) => {
-        for (const u of updates) {
-          if (u.update?.status && u.update.status >= 2 && u.key.id) {
-            const pending = this.pendingAcks.get(u.key.id);
-            if (pending) {
-              clearTimeout(pending.timer);
-              this.pendingAcks.delete(u.key.id);
-              this.consecutiveAckTimeouts.delete(pending.instanceId);
-              pending.resolve(true);
-            }
-          }
-        }
-      });
-
-      setTimeout(() => {
-        if (!resolved) {
-          resolved = true;
-          reject(new Error("Timeout ao gerar codigo de pareamento"));
-        }
-      }, 45000);
+      }
     });
   }
 

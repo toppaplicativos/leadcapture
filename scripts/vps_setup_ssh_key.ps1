@@ -3,7 +3,7 @@
 # Configura acesso sem senha ao VPS
 # ============================================
 
-$VPS_IP   = "187.77.230.211"
+$VPS_IP   = "187.127.5.179"
 $VPS_USER = "root"
 $KEY_PATH = "$env:USERPROFILE\.ssh\id_ed25519"
 

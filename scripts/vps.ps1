@@ -3,10 +3,8 @@
 # ============================================
 # Uso:
 #   .\scripts\vps.ps1           -> entra como root
-#   .\scripts\vps.ps1 leadcapture -> entra como leadcapture
 # ============================================
 
-$VPS_IP = "187.77.230.211"
-$USER   = if ($args[0]) { $args[0] } else { "root" }
+$VPS_IP = "187.127.5.179"
 
-ssh "${USER}@${VPS_IP}"
+ssh "root@${VPS_IP}"

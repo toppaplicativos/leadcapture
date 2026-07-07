@@ -22,6 +22,7 @@ export function WhatsAppConnectDock({ onConnected }: { onConnected?: () => void 
         </div>
       </div>
       <WhatsAppPairingFlow
+        key={primaryCritical.id}
         instanceId={primaryCritical.id}
         instanceName={primaryCritical.name}
         defaultPhone={primaryCritical.phone}

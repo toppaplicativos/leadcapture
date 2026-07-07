@@ -18,9 +18,10 @@ import { useCampaignsBridgeOptional } from './CampaignsBridgeContext'
 import { useGalleryBridgeOptional } from './GalleryBridgeContext'
 import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
 import { resolveTrigger } from './workspaceTriggers'
-import { isCampaignSkill, isLeadsSkill, isClientsSkill, isOrdersSkill, isDashboardSkill, isSkillsModuleSkill, isInstagramSkill, isFacebookSkill } from './composerAiActions'
+import { isCampaignSkill, isLeadsSkill, isClientsSkill, isOrdersSkill, isDashboardSkill, isSkillsModuleSkill, isInstagramSkill, isFacebookSkill, isAutomationSkill } from './composerAiActions'
 import { useInstagramBridgeOptional } from './InstagramBridgeContext'
 import { useFacebookBridgeOptional } from './FacebookBridgeContext'
+import { useAutomationsBridgeOptional } from './AutomationsBridgeContext'
 import { useLeadsBridgeOptional } from './LeadsBridgeContext'
 import { useClientsBridgeOptional } from './ClientsBridgeContext'
 import { useOrdersBridgeOptional } from './OrdersBridgeContext'
@@ -73,6 +74,8 @@ type AgentShellValue = {
   instagramModuleOpen: boolean
   closeFacebookModule: () => void
   facebookModuleOpen: boolean
+  closeAutomationsModule: () => void
+  automationsModuleOpen: boolean
 }
 
 const AgentShellContext = createContext<AgentShellValue | null>(null)
@@ -104,6 +107,7 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
   const skillsBridge = useSkillsBridgeOptional()
   const instagramBridge = useInstagramBridgeOptional()
   const facebookBridge = useFacebookBridgeOptional()
+  const automationsBridge = useAutomationsBridgeOptional()
   const isDesktop = useIsDesktop()
 
   const PRODUCT_SKILLS = useMemo(() => new Set(['catalog.products', 'catalog.products.table', 'catalog.products.create']), [])
@@ -230,6 +234,15 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
     setMobileCanvasOpen(false)
     setCanvasMode('agent')
   }, [facebookBridge])
+
+  const closeAutomationsModule = useCallback(() => {
+    automationsBridge?.setModuleOpen(false)
+    automationsBridge?.setModuleExpanded(false)
+    setDesktopCanvasOpen(false)
+    setEmbeddedRoute(null)
+    setMobileCanvasOpen(false)
+    setCanvasMode('agent')
+  }, [automationsBridge])
 
   const closeLeadsModule = useCallback(() => {
     leadsBridge?.setModuleOpen(false)
@@ -638,6 +651,35 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
     }
   }, [activeTurn, facebookBridge, isDesktop, closeFacebookModule])
 
+  /* Automações: chat = resumo; desktop = flow builder no canvas */
+  useEffect(() => {
+    if (!activeTurn || !isAutomationSkill(activeTurn.skill)) {
+      if (automationsBridge?.moduleOpen && activeTurn && !isAutomationSkill(activeTurn.skill)) {
+        closeAutomationsModule()
+      }
+      return
+    }
+    automationsBridge?.setModuleOpen(true)
+    automationsBridge?.setModuleExpanded(true)
+    if (activeTurn.skill !== 'flow.builder') {
+      openCatalogCanvas('/fluxos')
+    } else {
+      openCatalogCanvas('/fluxos')
+    }
+    const stats = activeTurn.components?.find((c) => c.type === 'automation_stats')
+    if (stats?.props) {
+      automationsBridge?.publishSnapshot({
+        total: Number(stats.props.total || 0),
+        reactive: Number(stats.props.reactive || 0),
+        proactive: Number(stats.props.proactive || 0),
+        flows: Array.isArray(stats.props.flows)
+          ? (stats.props.flows as Array<{ id: string; name: string; status: string; trigger?: string }>)
+          : [],
+        loading: false,
+      })
+    }
+  }, [activeTurn, automationsBridge, isDesktop, closeAutomationsModule])
+
   const send = useCallback(async (
     text: string,
     opts?: { componentEvent?: ComponentEvent; skillContext?: SkillContext; directSkill?: string },
@@ -686,6 +728,14 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
     }
     if (key === 'facebook' || raw === '/facebook') {
       chat.triggerSkill('facebook.open', { label: 'Facebook', assistantMessage: 'Sua página Facebook:' })
+      return
+    }
+    if (key === 'automacoes' || raw === '/automacoes') {
+      chat.triggerSkill('automation.open', { label: 'Automações', assistantMessage: 'Suas automações WhatsApp:' })
+      return
+    }
+    if (key === 'fluxos' || raw === '/fluxos') {
+      chat.triggerSkill('flow.builder', { label: 'Editor de fluxos', assistantMessage: 'Abrindo editor visual…' })
       return
     }
     if (key === 'leads' || raw === '/leads') {
@@ -768,6 +818,8 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
     instagramModuleOpen: !!instagramBridge?.moduleOpen,
     closeFacebookModule,
     facebookModuleOpen: !!facebookBridge?.moduleOpen,
+    closeAutomationsModule,
+    automationsModuleOpen: !!automationsBridge?.moduleOpen,
     closeLeadsModule,
     leadsModuleOpen: !!leadsBridge?.moduleOpen,
     closeClientsModule,

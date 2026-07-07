@@ -84,8 +84,8 @@ export const SKILL_META: Record<string, SkillMeta> = {
     inlineComponents: true,
   },
   "flow.builder": {
-    kind: "business",
-    objectives: ["editar fluxo", "criar fluxo", "automação visual"],
+    kind: "ui",
+    objectives: ["editor de fluxos", "configuração avançada"],
     requiresCanvas: true,
     canvasRoute: "/fluxos",
     inlineComponents: false,
@@ -228,6 +228,26 @@ export const SKILL_META: Record<string, SkillMeta> = {
     objectives: ["analisar facebook", "métricas fb"],
     requiresCanvas: false,
     canvasRoute: "/facebook",
+    inlineComponents: true,
+  },
+  "automation.open": {
+    kind: "business",
+    objectives: ["ver automações", "fluxos whatsapp"],
+    requiresCanvas: false,
+    canvasRoute: "/fluxos",
+    inlineComponents: true,
+  },
+  "automation.create": {
+    kind: "business",
+    objectives: ["criar fluxo pedido", "automação whatsapp", "comportamento reativo"],
+    requiresCanvas: false,
+    canvasRoute: "/fluxos",
+    inlineComponents: true,
+  },
+  "automation.confirm": {
+    kind: "business",
+    objectives: ["ativar fluxo", "salvar automação"],
+    requiresCanvas: false,
     inlineComponents: true,
   },
 };

@@ -21,6 +21,10 @@ export type ComponentType =
   | 'orders_stats'
   | 'instagram_stats'
   | 'instagram_post_preview'
+  | 'facebook_stats'
+  | 'facebook_post_preview'
+  | 'automation_stats'
+  | 'automation_flow_preview'
 
 export type PresentationMode = 'inline' | 'canvas'
 

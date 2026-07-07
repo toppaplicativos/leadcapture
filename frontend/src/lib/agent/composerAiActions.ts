@@ -61,6 +61,13 @@ export const INSTAGRAM_SKILLS = new Set([
   'instagram.messages',
 ])
 
+export const AUTOMATION_SKILLS = new Set([
+  'automation.open',
+  'automation.create',
+  'automation.confirm',
+  'flow.builder',
+])
+
 export const FACEBOOK_SKILLS = new Set([
   'facebook.open',
   'facebook.post.create',
@@ -114,4 +121,8 @@ export function isInstagramSkill(skill?: string) {
 
 export function isFacebookSkill(skill?: string) {
   return !!skill && FACEBOOK_SKILLS.has(skill)
+}
+
+export function isAutomationSkill(skill?: string) {
+  return !!skill && AUTOMATION_SKILLS.has(skill)
 }

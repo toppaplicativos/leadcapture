@@ -10,6 +10,7 @@ import { CampaignsBridgeProvider } from '@/lib/agent/CampaignsBridgeContext'
 import { GalleryBridgeProvider } from '@/lib/agent/GalleryBridgeContext'
 import { InstagramBridgeProvider } from '@/lib/agent/InstagramBridgeContext'
 import { FacebookBridgeProvider } from '@/lib/agent/FacebookBridgeContext'
+import { AutomationsBridgeProvider } from '@/lib/agent/AutomationsBridgeContext'
 import { LeadsBridgeProvider } from '@/lib/agent/LeadsBridgeContext'
 import { ClientsBridgeProvider } from '@/lib/agent/ClientsBridgeContext'
 import { OrdersBridgeProvider } from '@/lib/agent/OrdersBridgeContext'
@@ -40,7 +41,7 @@ function ConversationalShellInner({ children }: { children?: ReactNode }) {
   const {
     mobileCanvasOpen, setMobileCanvasOpen, desktopCanvasOpen,
     prospectModuleOpen, inboxModuleOpen, productsModuleOpen,
-    campaignsModuleOpen, galleryModuleOpen, instagramModuleOpen, facebookModuleOpen, leadsModuleOpen, clientsModuleOpen, ordersModuleOpen,
+    campaignsModuleOpen, galleryModuleOpen, instagramModuleOpen, facebookModuleOpen, automationsModuleOpen, leadsModuleOpen, clientsModuleOpen, ordersModuleOpen,
     dashboardModuleOpen, skillsModuleOpen,
   } = useAgentShell()
   const isImmersive = location.pathname === '/video-studio'
@@ -189,8 +190,6 @@ function ConversationalShellInner({ children }: { children?: ReactNode }) {
           )}
         </div>
 
-        <p className="agent-shell__tagline hidden sm:block">Workspace</p>
-
         <button type="button" onClick={logout} className="agent-shell__logout" aria-label="Sair">
           <LogOut size={16} strokeWidth={1.75} />
           <span className="hidden sm:inline">Sair</span>
@@ -200,14 +199,14 @@ function ConversationalShellInner({ children }: { children?: ReactNode }) {
 
       <div className={`agent-shell__body flex-1 min-h-0 flex ${desktopCanvasOpen ? 'has-canvas' : 'chat-only'}`}>
         <aside className="agent-shell__rail shrink-0">
-          <WorkspaceChat brandName={brand.name} />
+          <WorkspaceChat brandName={brand.name} brandLogoUrl={brand.logo_url} />
         </aside>
 
         <main
           className={`agent-shell__canvas flex-1 min-w-0 min-h-0 ${
             mobileCanvasOpen && desktopCanvasOpen
               && !prospectModuleOpen && !inboxModuleOpen
-              && !productsModuleOpen && !campaignsModuleOpen && !galleryModuleOpen && !instagramModuleOpen && !facebookModuleOpen && !leadsModuleOpen && !clientsModuleOpen && !ordersModuleOpen
+              && !productsModuleOpen && !campaignsModuleOpen && !galleryModuleOpen && !instagramModuleOpen && !facebookModuleOpen && !automationsModuleOpen && !leadsModuleOpen && !clientsModuleOpen && !ordersModuleOpen
               && !dashboardModuleOpen && !skillsModuleOpen
               ? 'is-open' : ''
           }`}
@@ -249,6 +248,7 @@ export function ConversationalShell({ children }: { children?: ReactNode }) {
               <GalleryBridgeProvider>
                 <InstagramBridgeProvider>
                 <FacebookBridgeProvider>
+                <AutomationsBridgeProvider>
                 <LeadsBridgeProvider>
                   <ClientsBridgeProvider>
                     <OrdersBridgeProvider>
@@ -262,6 +262,7 @@ export function ConversationalShell({ children }: { children?: ReactNode }) {
                     </OrdersBridgeProvider>
                   </ClientsBridgeProvider>
                 </LeadsBridgeProvider>
+                </AutomationsBridgeProvider>
                 </FacebookBridgeProvider>
                 </InstagramBridgeProvider>
               </GalleryBridgeProvider>

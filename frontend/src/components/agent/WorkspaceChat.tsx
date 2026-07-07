@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, type FormEvent } from 'react'
 import { AICampaignWizardModal } from '@/components/AICampaignWizardModal'
 import { SkillTrainerWizardModal } from '@/components/SkillTrainerWizardModal'
 import {
-  Send, Loader2, LayoutGrid, Search, MapPin, Zap,
+  Send, Loader2, LayoutGrid, Search, MapPin, Zap as ZapIcon,
   Maximize2, Sparkles, MessageSquare, Megaphone, ShoppingCart,
   PanelRight, X, Package, Images, Users, Building2, LayoutDashboard, Brain, Camera, Globe,
 } from 'lucide-react'
@@ -21,6 +21,7 @@ import { DashboardModuleBlock } from './dashboard/DashboardModuleBlock'
 import { SkillsModuleBlock } from './skills/SkillsModuleBlock'
 import { InstagramModuleBlock } from './instagram/InstagramModuleBlock'
 import { FacebookModuleBlock } from './facebook/FacebookModuleBlock'
+import { AutomationsModuleBlock } from './automations/AutomationsModuleBlock'
 import { CatalogComposerDock } from './catalog/CatalogComposerDock'
 import { useAgentShell } from '@/lib/agent/AgentShellContext'
 import { useProspectBridgeOptional } from '@/lib/agent/ProspectBridgeContext'
@@ -39,6 +40,7 @@ import {
   isSkillsModuleSkill,
   isInstagramSkill,
   isFacebookSkill,
+  isAutomationSkill,
   isProductSkill as isCatalogProductSkill,
 } from '@/lib/agent/composerAiActions'
 import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
@@ -64,6 +66,10 @@ const CATALOG_INLINE_SKILLS = new Set([
   'facebook.post.create',
   'facebook.post.confirm',
   'facebook.analyze',
+  'automation.open',
+  'automation.create',
+  'automation.confirm',
+  'flow.builder',
   'crm.leads.table',
   'crm.leads.list',
   'crm.leads.search',
@@ -116,6 +122,9 @@ function filterInlineComponents(turn?: AgentTurn): ComponentSpec[] | undefined {
   if (isFacebookSkill(turn.skill)) {
     return turn.components.filter((c) => c.type !== 'facebook_stats')
   }
+  if (isAutomationSkill(turn.skill)) {
+    return turn.components.filter((c) => c.type !== 'automation_stats')
+  }
   if (isLeadsSkill(turn.skill)) {
     return turn.components.filter((c) =>
       c.type !== 'leads_stats' && c.type !== 'kpi_row' && c.type !== 'table' && c.type !== 'lead_card',
@@ -140,7 +149,13 @@ function filterInlineComponents(turn?: AgentTurn): ComponentSpec[] | undefined {
   return turn.components
 }
 
-export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
+export function WorkspaceChat({
+  brandName,
+  brandLogoUrl,
+}: {
+  brandName?: string
+  brandLogoUrl?: string | null
+} = {}) {
   const {
     messages,
     loading,
@@ -162,6 +177,7 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
     galleryModuleOpen,
     instagramModuleOpen,
     facebookModuleOpen,
+    automationsModuleOpen,
     leadsModuleOpen,
     clientsModuleOpen,
     ordersModuleOpen,
@@ -195,7 +211,7 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
   useEffect(() => {
     const el = scrollRef.current
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
-  }, [messages, loading, prospectModuleOpen, inboxModuleOpen, productsModuleOpen, campaignsModuleOpen, galleryModuleOpen, instagramModuleOpen, facebookModuleOpen, leadsModuleOpen, clientsModuleOpen, ordersModuleOpen, dashboardModuleOpen, skillsModuleOpen])
+  }, [messages, loading, prospectModuleOpen, inboxModuleOpen, productsModuleOpen, campaignsModuleOpen, galleryModuleOpen, instagramModuleOpen, facebookModuleOpen, automationsModuleOpen, leadsModuleOpen, clientsModuleOpen, ordersModuleOpen, dashboardModuleOpen, skillsModuleOpen])
 
   useEffect(() => {
     if (!menuOpen) return
@@ -241,6 +257,9 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
   const lastFacebookMsg = [...display].reverse().find(
     (m) => m.role === 'assistant' && !m.loading && isFacebookSkill(m.turn?.skill),
   )
+  const lastAutomationsMsg = [...display].reverse().find(
+    (m) => m.role === 'assistant' && !m.loading && isAutomationSkill(m.turn?.skill),
+  )
   const lastLeadsMsg = [...display].reverse().find(
     (m) => m.role === 'assistant' && !m.loading && isLeadsSkill(m.turn?.skill),
   )
@@ -256,7 +275,7 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
   const lastSkillsMsg = [...display].reverse().find(
     (m) => m.role === 'assistant' && !m.loading && isSkillsModuleSkill(m.turn?.skill),
   )
-  const catalogModuleOpen = productsModuleOpen || campaignsModuleOpen || galleryModuleOpen || instagramModuleOpen || facebookModuleOpen || leadsModuleOpen || clientsModuleOpen || ordersModuleOpen || dashboardModuleOpen || skillsModuleOpen
+  const catalogModuleOpen = productsModuleOpen || campaignsModuleOpen || galleryModuleOpen || instagramModuleOpen || facebookModuleOpen || automationsModuleOpen || leadsModuleOpen || clientsModuleOpen || ordersModuleOpen || dashboardModuleOpen || skillsModuleOpen
   const showCanvasBtn = lastAssistant?.turn
     && turnNeedsCanvas(lastAssistant.turn)
     && !desktopCanvasOpen
@@ -295,7 +314,7 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
       id: 'capture',
       label: 'Capturar todos',
       desc: `${bridge?.snapshot.newCount ?? 0} novos no mapa`,
-      icon: Zap,
+      icon: ZapIcon,
       action: () => {
         setMenuOpen(false)
         ensureMapDesktop()
@@ -306,7 +325,7 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
       id: 'auto',
       label: bridge?.snapshot.autoCapture ? 'Auto-captura ON' : 'Auto-captura',
       desc: 'Captura ao arrastar o mapa',
-      icon: Zap,
+      icon: ZapIcon,
       action: () => {
         setMenuOpen(false)
         bridge?.dispatch({ type: 'toggle_auto_capture' })
@@ -433,6 +452,30 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
       },
     },
     {
+      id: 'automations',
+      label: 'Automações',
+      desc: 'Fluxos reativos e proativos',
+      icon: ZapIcon,
+      action: () => {
+        setMenuOpen(false)
+        triggerSkill('automation.open', { label: 'Automações', assistantMessage: 'Suas automações WhatsApp:' })
+      },
+    },
+    {
+      id: 'automation-order',
+      label: 'Fluxo pedido WA',
+      desc: 'Pedido completo no WhatsApp',
+      icon: ZapIcon,
+      action: () => {
+        setMenuOpen(false)
+        triggerSkill('automation.create', {
+          label: 'Fluxo pedido',
+          assistantMessage: 'Montando fluxo de pedidos…',
+          context: { brief: 'crie um fluxo de pedidos completo para whatsapp' },
+        })
+      },
+    },
+    {
       id: 'campaigns',
       label: 'Campanhas',
       desc: 'Ver e criar campanhas',
@@ -492,12 +535,21 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
 
   return (
     <div className="workspace-chat">
-      <div className="workspace-chat__header">
-        <WorkspaceNav />
-      </div>
-      <div ref={scrollRef} className="workspace-chat__scroll">
+      {!isEmpty && (
+        <div className="workspace-chat__header">
+          <WorkspaceNav />
+        </div>
+      )}
+      <div
+        ref={scrollRef}
+        className={`workspace-chat__scroll${isEmpty ? ' workspace-chat__scroll--empty' : ''}`}
+      >
         {isEmpty && (
-          <WorkspaceWelcome brandName={brandName} onTrigger={triggerSkill} />
+          <WorkspaceWelcome
+            brandName={brandName}
+            brandLogoUrl={brandLogoUrl}
+            onTrigger={triggerSkill}
+          />
         )}
         {display.map((msg) => {
           const isProspectActive = prospectModuleOpen
@@ -521,6 +573,9 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
           const isFacebookActive = facebookModuleOpen
             && msg.id === lastFacebookMsg?.id
             && isFacebookSkill(msg.turn?.skill)
+          const isAutomationsActive = automationsModuleOpen
+            && msg.id === lastAutomationsMsg?.id
+            && isAutomationSkill(msg.turn?.skill)
           const isLeadsActive = leadsModuleOpen
             && msg.id === lastLeadsMsg?.id
             && isLeadsSkill(msg.turn?.skill)
@@ -573,6 +628,9 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
                       )}
                       {isFacebookSkill(msg.turn?.skill) && (
                         <FacebookModuleBlock messageId={msg.id} isActive={!!isFacebookActive} />
+                      )}
+                      {isAutomationSkill(msg.turn?.skill) && (
+                        <AutomationsModuleBlock messageId={msg.id} isActive={!!isAutomationsActive} />
                       )}
                       {isLeadsSkill(msg.turn?.skill) && (
                         <LeadsModuleBlock messageId={msg.id} isActive={!!isLeadsActive} />

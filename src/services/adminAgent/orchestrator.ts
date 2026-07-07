@@ -21,6 +21,14 @@ import {
 } from "./actions";
 import { instagramService } from "../instagram";
 import { facebookService } from "../facebook";
+import {
+  countFlowsByMode,
+  createFlowFromTemplate,
+  detectTemplateFromBrief,
+  getAvailableTemplates,
+  listUserFlows,
+} from "../flowAutomation";
+import { getFlowTemplate } from "./flowTemplates";
 import { SKILLS, NAV_PATHS, buildSkillsCatalog } from "./squads";
 import { getSkillMeta } from "./skillMeta";
 import type {
@@ -63,6 +71,7 @@ export class AdminAgentOrchestrator {
       if (directSkill === "skills.train") turn.nextSkill = "skills.confirm";
       if (directSkill === "instagram.post.create") turn.nextSkill = "instagram.post.confirm";
       if (directSkill === "facebook.post.create") turn.nextSkill = "facebook.post.confirm";
+      if (directSkill === "automation.create") turn.nextSkill = "automation.confirm";
       return this.applyPresentation(directSkill, turn);
     }
 
@@ -111,7 +120,9 @@ export class AdminAgentOrchestrator {
       ? { ...ctx, skillContext: { ...ctx.skillContext, ...selection.context } }
       : ctx;
     if (
-      (selection.skill === "instagram.post.create" || selection.skill === "facebook.post.create")
+      (selection.skill === "instagram.post.create"
+        || selection.skill === "facebook.post.create"
+        || selection.skill === "automation.create")
       && !String(execCtx.skillContext?.brief || "").trim()
       && trimmed
     ) {
@@ -141,6 +152,9 @@ export class AdminAgentOrchestrator {
     }
     if (selection.skill === "facebook.post.create") {
       turn.nextSkill = "facebook.post.confirm";
+    }
+    if (selection.skill === "automation.create") {
+      turn.nextSkill = "automation.confirm";
     }
     if (selection.skill === "crm.lead.find" && selection.context?.search) {
       turn.nextSkill = "crm.lead.detail";
@@ -200,6 +214,13 @@ export class AdminAgentOrchestrator {
       turn.canvasRoute = "/facebook";
     }
     if (skillId === "facebook.post.confirm") {
+      turn.presentation = "inline";
+    }
+    if (skillId === "automation.open" || skillId === "automation.create") {
+      turn.presentation = "inline";
+      turn.canvasRoute = "/fluxos";
+    }
+    if (skillId === "automation.confirm") {
       turn.presentation = "inline";
     }
     if (skillId === "dashboard.overview" || skillId === "dashboard.show") {
@@ -357,6 +378,101 @@ Responda APENAS com JSON válido neste formato:
           tone: String(ev.payload?.tone || "").trim(),
         },
         nextSkill: "instagram.post.confirm",
+      };
+    }
+
+    if (ev?.action === "submit_form" && ev.componentId === "automation-brief-form") {
+      const brief = String(ev.payload?.brief || "").trim();
+      if (!brief) return null;
+      return {
+        skill: "automation.create",
+        squad: "automations",
+        message: "Montando automação a partir do seu briefing…",
+        context: { brief },
+        nextSkill: "automation.confirm",
+      };
+    }
+
+    if (ev?.action === "select_option" && ev.componentId === "auto-templates") {
+      const templateId = String(ev.payload?.optionId || "").trim();
+      if (!templateId) return null;
+      return {
+        skill: "automation.create",
+        squad: "automations",
+        message: "Carregando template…",
+        context: { templateId },
+        nextSkill: "automation.confirm",
+      };
+    }
+
+    if (ev?.action === "flow_activate" || ev?.action === "flow_save_draft") {
+      const templateId = String(ev.payload?.templateId || sk?.templateId || "").trim();
+      if (!templateId) return null;
+      return {
+        skill: "automation.confirm",
+        squad: "automations",
+        message: ev.action === "flow_activate" ? "Ativando fluxo…" : "Salvando rascunho…",
+        context: {
+          templateId,
+          flowName: String(ev.payload?.flowName || sk?.flowName || "").trim(),
+          action: ev.action,
+        },
+      };
+    }
+
+    if (ev?.action === "submit_form" && ev.componentId === "order-customer-form") {
+      const customer = String(ev.payload?.customer || "").trim();
+      if (!customer) return null;
+      return {
+        skill: "order.assisted",
+        squad: "catalog",
+        message: `Pedido para ${customer}. Escolha os produtos:`,
+        context: { customer, step: "items" },
+      };
+    }
+
+    if (ev?.action === "submit_form" && ev.componentId === "order-delivery-form") {
+      const address = String(ev.payload?.address || "").trim();
+      const deliveryType = String(ev.payload?.delivery_type || "").trim();
+      if (!address || !deliveryType) return null;
+      return {
+        skill: "order.assisted",
+        squad: "catalog",
+        message: "Como será o pagamento?",
+        context: {
+          customer: sk?.customer,
+          step: "payment",
+          address,
+          delivery_type: deliveryType,
+          cart: sk?.cart,
+        },
+      };
+    }
+
+    if (ev?.action === "select_option" && ev.componentId === "order-payment-picker") {
+      const payment = String(ev.payload?.optionId || ev.payload?.label || "").trim();
+      if (!payment) return null;
+      return {
+        skill: "order.assisted",
+        squad: "catalog",
+        message: "Revise o pedido antes de confirmar:",
+        context: {
+          customer: sk?.customer,
+          step: "review",
+          address: sk?.address,
+          delivery_type: sk?.delivery_type,
+          payment,
+          cart: sk?.cart,
+        },
+      };
+    }
+
+    if (ev?.action === "order_confirm_pdv") {
+      return {
+        skill: "order.assisted",
+        squad: "catalog",
+        message: "Abrindo PDV com os dados do pedido…",
+        context: { ...sk, step: "done" },
       };
     }
 
@@ -528,7 +644,22 @@ Responda APENAS com JSON válido neste formato:
     if (/pedido\s+para|fazer\s+pedido|tirar\s+pedido|preciso\s+fazer\s+um\s+pedido/i.test(lower)) {
       return { squad: "catalog", skill: "order.assisted", message: "Vamos montar esse pedido juntos." };
     }
-    if (/fluxo|automação\s+visual/i.test(lower)) {
+    if (
+      /cri(ar|e)\s+(um\s+)?(fluxo|automação|automacao)|fluxo\s+de\s+pedido|pedido\s+completo|comportamento\s+reativ/i.test(lower)
+      && /whatsapp|whats|zap/i.test(lower)
+    ) {
+      return {
+        squad: "automations",
+        skill: "automation.create",
+        message: "Vou montar a automação WhatsApp com as fases do fluxo…",
+        context: { brief: message },
+        nextSkill: "automation.confirm",
+      };
+    }
+    if (/automação|automacao|fluxo/i.test(lower) && /proativ|reativ|whatsapp/i.test(lower)) {
+      return { squad: "automations", skill: "automation.open", message: "Suas automações WhatsApp:" };
+    }
+    if (/fluxo|automação\s+visual|editor\s+de\s+fluxo/i.test(lower)) {
       return { squad: "automations", skill: "flow.builder", message: "Abrindo o editor de fluxos..." };
     }
     if (/criativo|gerar\s+imagem/i.test(lower)) {
@@ -1065,7 +1196,9 @@ Responda APENAS com JSON válido neste formato:
 
       case "order.assisted": {
         const customer = String(sk.customer || "").trim();
-        if (!customer) {
+        const step = String(sk.step || "").trim() || (customer ? "items" : "customer");
+
+        if (step === "customer" || !customer) {
           components.push({
             id: "order-customer-form",
             type: "form",
@@ -1073,45 +1206,283 @@ Responda APENAS com JSON válido neste formato:
               title: "Para quem é o pedido?",
               fields: [
                 { name: "customer", label: "Nome do cliente", type: "text", placeholder: "Ex: João Silva" },
+                { name: "phone", label: "WhatsApp (opcional)", type: "text", placeholder: "5511999999999" },
               ],
               submitLabel: "Continuar",
-              nextSkill: "order.assisted",
             },
           });
           break;
         }
-        const products = await fetchRecentProducts(ctx.userId, ctx.brandId);
+
+        if (step === "items") {
+          const products = await fetchRecentProducts(ctx.userId, ctx.brandId);
+          components.push({
+            id: "order-products",
+            type: "table",
+            props: {
+              title: `Produtos para ${customer}`,
+              columns: [
+                { key: "name", label: "Produto" },
+                { key: "sku", label: "SKU" },
+                { key: "stock", label: "Estoque" },
+                { key: "price", label: "Preço" },
+              ],
+              rows: products.rows,
+              rowType: "product",
+              emptyLabel: "Nenhum produto no catálogo.",
+            },
+          });
+          components.push({
+            id: "order-items-hint",
+            type: "text",
+            props: {
+              content: "Selecione itens na tabela ou diga no chat: \"adicionar 2x Produto X\". Depois informe entrega.",
+            },
+          });
+          components.push({
+            id: "order-delivery-form",
+            type: "form",
+            props: {
+              title: "Entrega",
+              fields: [
+                { name: "address", label: "Endereço", type: "text", placeholder: "Rua, número, bairro" },
+                {
+                  name: "delivery_type",
+                  label: "Tipo",
+                  type: "select",
+                  options: [
+                    { value: "retirada", label: "Retirada" },
+                    { value: "entrega", label: "Entrega padrão" },
+                    { value: "expressa", label: "Entrega expressa" },
+                  ],
+                },
+              ],
+              submitLabel: "Continuar para pagamento",
+            },
+          });
+          break;
+        }
+
+        if (step === "payment") {
+          components.push({
+            id: "order-payment-picker",
+            type: "option_picker",
+            props: {
+              title: "Forma de pagamento",
+              options: [
+                { id: "pix", label: "PIX", description: "Pagamento instantâneo" },
+                { id: "cartao", label: "Cartão", description: "Crédito ou débito na entrega" },
+                { id: "dinheiro", label: "Dinheiro", description: "Pagamento na entrega" },
+              ],
+            },
+          });
+          break;
+        }
+
+        if (step === "review") {
+          const payment = String(sk.payment || "");
+          const deliveryType = String(sk.delivery_type || "");
+          const address = String(sk.address || "");
+          components.push({
+            id: "order-review",
+            type: "confirmation",
+            props: {
+              title: `Pedido para ${customer}`,
+              description: [
+                deliveryType ? `Entrega: ${deliveryType}` : "",
+                address ? `Endereço: ${address}` : "",
+                payment ? `Pagamento: ${payment}` : "",
+              ].filter(Boolean).join(" · ") || "Revise os dados antes de finalizar.",
+              confirmLabel: "Abrir PDV e finalizar",
+            },
+          });
+          components.push({
+            id: "order-pdv-btn",
+            type: "button",
+            props: { label: "Abrir tirar pedido", path: "/tirar-pedido", variant: "primary" },
+          });
+          components.push({
+            id: "order-flow-suggest",
+            type: "text",
+            props: {
+              content: "Dica: diga \"crie um fluxo de pedidos completo para WhatsApp\" para automatizar este processo no chat do cliente.",
+            },
+          });
+          actions.push({ type: "navigate", payload: { path: "/tirar-pedido" } });
+          break;
+        }
+
         components.push({
-          id: "order-products",
-          type: "table",
-          props: {
-            title: `Produtos para ${customer}`,
-            columns: [
-              { key: "name", label: "Produto" },
-              { key: "sku", label: "SKU" },
-              { key: "stock", label: "Estoque" },
-            ],
-            rows: products.rows,
-            rowType: "product",
-            emptyLabel: "Nenhum produto no catálogo.",
-          },
-        });
-        components.push({
-          id: "order-confirm",
-          type: "confirmation",
-          props: {
-            title: "Confirmar pedido",
-            description: `Montar pedido assistido para ${customer}?`,
-            confirmLabel: "Ir para PDV",
-            action: "navigate",
-          },
-        });
-        components.push({
-          id: "order-pdv-btn",
-          type: "button",
-          props: { label: "Abrir tirar pedido", path: "/tirar-pedido", variant: "primary" },
+          id: "order-done",
+          type: "text",
+          props: { content: "Pedido encaminhado ao PDV. Registre venda, fatura e expedição no sistema." },
         });
         actions.push({ type: "navigate", payload: { path: "/tirar-pedido" } });
+        break;
+      }
+
+      case "automation.open": {
+        const counts = await countFlowsByMode(ctx.userId);
+        const flows = await listUserFlows(ctx.userId);
+        components.push({
+          id: "auto-stats",
+          type: "automation_stats",
+          props: {
+            total: counts.total,
+            reactive: counts.reactive,
+            proactive: counts.proactive,
+            flows: flows.slice(0, 6).map((f) => ({
+              id: f.id,
+              name: f.name,
+              status: f.status,
+              trigger: f.triggerSubtype,
+            })),
+            templates: getAvailableTemplates().map((t) => ({
+              id: t.id,
+              name: t.name,
+              mode: t.mode,
+            })),
+            live: true,
+          },
+        });
+        components.push(this.buildNavSuggestions(["fluxos", "automacoes"]));
+        actions.push({ type: "navigate", payload: { path: "/fluxos" } });
+        break;
+      }
+
+      case "automation.create": {
+        const templateIdDirect = String(sk.templateId || "").trim();
+        if (templateIdDirect) {
+          const template = detectTemplateFromBrief(templateIdDirect) || getFlowTemplate(templateIdDirect);
+          if (template) {
+            components.push({
+              id: "auto-flow-preview",
+              type: "automation_flow_preview",
+              props: {
+                draftId: `draft-${template.id}-${Date.now()}`,
+                templateId: template.id,
+                name: template.name,
+                description: template.description,
+                mode: template.mode,
+                channel: template.channel,
+                triggerSubtype: template.triggerSubtype,
+                phases: template.phases,
+                nodeCount: template.nodes.length,
+              },
+            });
+            break;
+          }
+        }
+
+        const brief = String(sk.brief || "").trim();
+        if (!brief) {
+          components.push({
+            id: "automation-brief-form",
+            type: "form",
+            props: {
+              title: "Qual automação você quer criar?",
+              fields: [
+                {
+                  name: "brief",
+                  label: "Descreva o comportamento",
+                  type: "textarea",
+                  placeholder: "Ex: fluxo de pedidos completo para WhatsApp com itens, entrega, pagamento e expedição",
+                },
+              ],
+              submitLabel: "Gerar fluxo",
+            },
+          });
+          break;
+        }
+
+        const template = detectTemplateFromBrief(brief);
+        if (!template) {
+          components.push({
+            id: "auto-no-template",
+            type: "text",
+            props: {
+              content: "Não identifiquei um template exato. Tente: \"fluxo de pedidos completo para WhatsApp\" ou \"boas-vindas proativa para novo lead\".",
+            },
+          });
+          components.push({
+            id: "auto-templates",
+            type: "option_picker",
+            props: {
+              title: "Templates disponíveis",
+              options: getAvailableTemplates().map((t) => ({
+                id: t.id,
+                label: t.name,
+                description: t.description,
+              })),
+            },
+          });
+          break;
+        }
+
+        const draftId = `draft-${template.id}-${Date.now()}`;
+        components.push({
+          id: "auto-flow-preview",
+          type: "automation_flow_preview",
+          props: {
+            draftId,
+            templateId: template.id,
+            name: template.name,
+            description: template.description,
+            mode: template.mode,
+            channel: template.channel,
+            triggerSubtype: template.triggerSubtype,
+            phases: template.phases,
+            nodeCount: template.nodes.length,
+          },
+        });
+        break;
+      }
+
+      case "automation.confirm": {
+        const templateId = String(sk.templateId || "").trim();
+        const action = String(sk.action || "flow_save_draft");
+        const flowName = String(sk.flowName || "").trim();
+
+        if (!templateId) {
+          components.push({
+            id: "auto-missing",
+            type: "text",
+            props: { content: "Fluxo não encontrado. Crie uma automação pelo chat primeiro." },
+          });
+          break;
+        }
+
+        try {
+          const { flowId, template } = await createFlowFromTemplate(ctx.userId, templateId, {
+            name: flowName || undefined,
+            activate: action === "flow_activate",
+          });
+          const statusLabel = action === "flow_activate" ? "ativado" : "salvo como rascunho";
+          components.push({
+            id: "auto-created",
+            type: "text",
+            props: {
+              content: `Fluxo "${template.name}" ${statusLabel}. ${template.phases.length} fases · ${template.nodes.length} nós. Edite detalhes no editor avançado.`,
+            },
+          });
+          components.push({
+            id: "auto-open-flow",
+            type: "button",
+            props: { label: "Abrir no editor", path: "/fluxos", variant: "primary" },
+          });
+          actions.push({ type: "navigate", payload: { path: "/fluxos" } });
+          components.push({
+            id: "auto-flow-meta",
+            type: "text",
+            props: { content: `ID: ${flowId}` },
+          });
+        } catch (err: any) {
+          components.push({
+            id: "auto-err",
+            type: "text",
+            props: { content: `Erro ao criar fluxo: ${err?.message || "falha"}` },
+          });
+        }
         break;
       }
 

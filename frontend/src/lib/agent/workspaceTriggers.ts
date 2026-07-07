@@ -93,9 +93,9 @@ const TRIGGERS: Record<string, WorkspaceTrigger> = {
     assistantMessage: 'Abrindo editor de fluxos…',
   },
   automacoes: {
-    skill: 'flow.builder',
+    skill: 'automation.open',
     userLabel: 'Automações',
-    assistantMessage: 'Abrindo automações…',
+    assistantMessage: 'Suas automações WhatsApp:',
   },
   whatsapp: {
     skill: 'workspace.overview',
@@ -160,6 +160,8 @@ export const OBJECTIVE_TRIGGERS: WorkspaceTrigger[] = [
   { skill: 'instagram.open', userLabel: 'Instagram', assistantMessage: 'Sua conta Instagram:' },
   { skill: 'instagram.post.create', userLabel: 'Criar post', assistantMessage: 'Sobre o que é o post?' },
   { skill: 'instagram.analyze', userLabel: 'Métricas IG', assistantMessage: 'Analisando sua conta Instagram:' },
+  { skill: 'automation.open', userLabel: 'Automações', assistantMessage: 'Fluxos reativos e proativos WhatsApp:' },
+  { skill: 'automation.create', userLabel: 'Criar fluxo', assistantMessage: 'Descreva a automação que você quer:' },
   { skill: 'facebook.open', userLabel: 'Facebook', assistantMessage: 'Sua página Facebook:' },
   { skill: 'facebook.post.create', userLabel: 'Post Facebook', assistantMessage: 'Sobre o que é o post no Facebook?' },
   { skill: 'facebook.analyze', userLabel: 'Métricas FB', assistantMessage: 'Analisando sua página Facebook:' },

@@ -75,17 +75,31 @@ try {
   async function openShortcut(label) {
     const welcome = page.locator('.workspace-welcome__card').filter({ hasText: label })
     if (await welcome.count()) {
-      await welcome.first().click()
+      await Promise.all([
+        welcome.first().click(),
+        page.waitForResponse(
+          (r) => r.url().includes('/api/admin-agent/chat') && r.status() === 200,
+          { timeout: 20000 },
+        ).catch(() => null),
+      ])
       return
     }
     await page.locator('.workspace-chat__menu-btn').click()
-    await page.locator('.workspace-chat__shortcut').filter({ hasText: label }).first().click()
+    await Promise.all([
+      page.locator('.workspace-chat__shortcut').filter({ hasText: label }).first().click(),
+      page.waitForResponse(
+        (r) => r.url().includes('/api/admin-agent/chat') && r.status() === 200,
+        { timeout: 20000 },
+      ).catch(() => null),
+    ])
   }
 
   for (const mod of MODULES) {
     consoleErrors.length = 0
+    await page.goto(`${BASE}/admin`, { waitUntil: 'networkidle', timeout: 45000 })
+    await page.waitForSelector('.workspace-welcome, .workspace-chat__messages', { timeout: 20000 })
     await openShortcut(mod.label)
-    await page.waitForTimeout(2500)
+    await page.waitForTimeout(800)
 
     const candidates = page.locator(mod.selector)
     let block = candidates.first()

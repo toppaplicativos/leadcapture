@@ -39,6 +39,15 @@ export const ORDERS_SKILLS = new Set([
   'catalog.orders',
 ])
 
+export const DASHBOARD_SKILLS = new Set([
+  'dashboard.overview',
+  'dashboard.show',
+])
+
+export const SKILLS_MODULE_SKILLS = new Set([
+  'skills.list',
+])
+
 export const PROSPECT_SKILLS = new Set([
   'lead.prospect',
   'crm.leads.search',
@@ -70,6 +79,14 @@ export function isClientsSkill(skill?: string) {
 
 export function isOrdersSkill(skill?: string) {
   return !!skill && ORDERS_SKILLS.has(skill)
+}
+
+export function isDashboardSkill(skill?: string) {
+  return !!skill && DASHBOARD_SKILLS.has(skill)
+}
+
+export function isSkillsModuleSkill(skill?: string) {
+  return !!skill && SKILLS_MODULE_SKILLS.has(skill)
 }
 
 export function isProspectSkill(skill?: string) {

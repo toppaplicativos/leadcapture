@@ -4,7 +4,7 @@ import { SkillTrainerWizardModal } from '@/components/SkillTrainerWizardModal'
 import {
   Send, Loader2, LayoutGrid, Search, MapPin, Zap,
   Maximize2, Sparkles, MessageSquare, Megaphone, ShoppingCart,
-  PanelRight, X, Package, Images, Users, Building2,
+  PanelRight, X, Package, Images, Users, Building2, LayoutDashboard, Brain,
 } from 'lucide-react'
 import { AgentUIRenderer } from './AgentUIRenderer'
 import { ProspectModuleBlock } from './prospect/ProspectModuleBlock'
@@ -17,6 +17,8 @@ import { GalleryModuleBlock } from './catalog/GalleryModuleBlock'
 import { LeadsModuleBlock } from './leads/LeadsModuleBlock'
 import { ClientsModuleBlock } from './clients/ClientsModuleBlock'
 import { OrdersModuleBlock } from './orders/OrdersModuleBlock'
+import { DashboardModuleBlock } from './dashboard/DashboardModuleBlock'
+import { SkillsModuleBlock } from './skills/SkillsModuleBlock'
 import { CatalogComposerDock } from './catalog/CatalogComposerDock'
 import { useAgentShell } from '@/lib/agent/AgentShellContext'
 import { useProspectBridgeOptional } from '@/lib/agent/ProspectBridgeContext'
@@ -31,6 +33,8 @@ import {
   isLeadsSkill,
   isClientsSkill,
   isOrdersSkill,
+  isDashboardSkill,
+  isSkillsModuleSkill,
   isProductSkill as isCatalogProductSkill,
 } from '@/lib/agent/composerAiActions'
 import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
@@ -55,6 +59,8 @@ const CATALOG_INLINE_SKILLS = new Set([
   'crm.clients.table',
   'crm.clients.list',
   'catalog.orders',
+  'dashboard.overview',
+  'skills.list',
   'lead.prospect',
 ])
 
@@ -106,6 +112,12 @@ function filterInlineComponents(turn?: AgentTurn): ComponentSpec[] | undefined {
       c.type !== 'orders_stats' && c.type !== 'kpi_row' && c.type !== 'table',
     )
   }
+  if (isDashboardSkill(turn.skill)) {
+    return turn.components.filter((c) => c.type !== 'kpi_row' && c.type !== 'nav_suggestions')
+  }
+  if (isSkillsModuleSkill(turn.skill)) {
+    return turn.components.filter((c) => c.type !== 'skill_list' && c.type !== 'nav_suggestions')
+  }
   return turn.components
 }
 
@@ -132,6 +144,8 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
     leadsModuleOpen,
     clientsModuleOpen,
     ordersModuleOpen,
+    dashboardModuleOpen,
+    skillsModuleOpen,
   } = useAgentShell()
 
   const bridge = useProspectBridgeOptional()
@@ -160,7 +174,7 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
   useEffect(() => {
     const el = scrollRef.current
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
-  }, [messages, loading, prospectModuleOpen, inboxModuleOpen, productsModuleOpen, campaignsModuleOpen, galleryModuleOpen, leadsModuleOpen, clientsModuleOpen, ordersModuleOpen])
+  }, [messages, loading, prospectModuleOpen, inboxModuleOpen, productsModuleOpen, campaignsModuleOpen, galleryModuleOpen, leadsModuleOpen, clientsModuleOpen, ordersModuleOpen, dashboardModuleOpen, skillsModuleOpen])
 
   useEffect(() => {
     if (!menuOpen) return
@@ -209,7 +223,13 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
   const lastOrdersMsg = [...display].reverse().find(
     (m) => m.role === 'assistant' && !m.loading && isOrdersSkill(m.turn?.skill),
   )
-  const catalogModuleOpen = productsModuleOpen || campaignsModuleOpen || galleryModuleOpen || leadsModuleOpen || clientsModuleOpen || ordersModuleOpen
+  const lastDashboardMsg = [...display].reverse().find(
+    (m) => m.role === 'assistant' && !m.loading && isDashboardSkill(m.turn?.skill),
+  )
+  const lastSkillsMsg = [...display].reverse().find(
+    (m) => m.role === 'assistant' && !m.loading && isSkillsModuleSkill(m.turn?.skill),
+  )
+  const catalogModuleOpen = productsModuleOpen || campaignsModuleOpen || galleryModuleOpen || leadsModuleOpen || clientsModuleOpen || ordersModuleOpen || dashboardModuleOpen || skillsModuleOpen
   const showCanvasBtn = lastAssistant?.turn
     && turnNeedsCanvas(lastAssistant.turn)
     && !desktopCanvasOpen
@@ -365,6 +385,26 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
       },
     },
     {
+      id: 'dashboard',
+      label: 'Painel',
+      desc: 'KPIs do negócio',
+      icon: LayoutDashboard,
+      action: () => {
+        setMenuOpen(false)
+        triggerNav('dashboard')
+      },
+    },
+    {
+      id: 'skills',
+      label: 'Habilidades',
+      desc: 'Skills do agente IA',
+      icon: Brain,
+      action: () => {
+        setMenuOpen(false)
+        triggerNav('habilidades')
+      },
+    },
+    {
       id: 'order',
       label: 'Fazer pedido',
       icon: ShoppingCart,
@@ -417,6 +457,12 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
           const isOrdersActive = ordersModuleOpen
             && msg.id === lastOrdersMsg?.id
             && isOrdersSkill(msg.turn?.skill)
+          const isDashboardActive = dashboardModuleOpen
+            && msg.id === lastDashboardMsg?.id
+            && isDashboardSkill(msg.turn?.skill)
+          const isSkillsActive = skillsModuleOpen
+            && msg.id === lastSkillsMsg?.id
+            && isSkillsModuleSkill(msg.turn?.skill)
           const inlineComponents = filterInlineComponents(msg.turn)
 
           return (
@@ -457,6 +503,12 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
                       )}
                       {isOrdersSkill(msg.turn?.skill) && (
                         <OrdersModuleBlock messageId={msg.id} isActive={!!isOrdersActive} />
+                      )}
+                      {isDashboardSkill(msg.turn?.skill) && (
+                        <DashboardModuleBlock messageId={msg.id} isActive={!!isDashboardActive} />
+                      )}
+                      {isSkillsModuleSkill(msg.turn?.skill) && (
+                        <SkillsModuleBlock messageId={msg.id} isActive={!!isSkillsActive} />
                       )}
                       {msg.turn && turnShowsInline(msg.turn) && inlineComponents && inlineComponents.length > 0 && (
                         <AgentUIRenderer

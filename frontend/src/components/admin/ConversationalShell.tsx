@@ -11,6 +11,8 @@ import { GalleryBridgeProvider } from '@/lib/agent/GalleryBridgeContext'
 import { LeadsBridgeProvider } from '@/lib/agent/LeadsBridgeContext'
 import { ClientsBridgeProvider } from '@/lib/agent/ClientsBridgeContext'
 import { OrdersBridgeProvider } from '@/lib/agent/OrdersBridgeContext'
+import { DashboardBridgeProvider } from '@/lib/agent/DashboardBridgeContext'
+import { SkillsBridgeProvider } from '@/lib/agent/SkillsBridgeContext'
 import { WorkspaceChat } from '@/components/agent/WorkspaceChat'
 import { AgentCanvas } from '@/components/agent/AgentCanvas'
 import { getHeaders, clearAdminAuth } from '@/lib/admin/helpers'
@@ -37,6 +39,7 @@ function ConversationalShellInner({ children }: { children?: ReactNode }) {
     mobileCanvasOpen, setMobileCanvasOpen, desktopCanvasOpen,
     prospectModuleOpen, inboxModuleOpen, productsModuleOpen,
     campaignsModuleOpen, galleryModuleOpen, leadsModuleOpen, clientsModuleOpen, ordersModuleOpen,
+    dashboardModuleOpen, skillsModuleOpen,
   } = useAgentShell()
   const isImmersive = location.pathname === '/video-studio'
   const isDesktop = useIsDesktop()
@@ -203,6 +206,7 @@ function ConversationalShellInner({ children }: { children?: ReactNode }) {
             mobileCanvasOpen && desktopCanvasOpen
               && !prospectModuleOpen && !inboxModuleOpen
               && !productsModuleOpen && !campaignsModuleOpen && !galleryModuleOpen && !leadsModuleOpen && !clientsModuleOpen && !ordersModuleOpen
+              && !dashboardModuleOpen && !skillsModuleOpen
               ? 'is-open' : ''
           }`}
         >
@@ -244,9 +248,13 @@ export function ConversationalShell({ children }: { children?: ReactNode }) {
                 <LeadsBridgeProvider>
                   <ClientsBridgeProvider>
                     <OrdersBridgeProvider>
-                      <AgentShellProvider>
-                        <ConversationalShellInner>{children}</ConversationalShellInner>
-                      </AgentShellProvider>
+                      <DashboardBridgeProvider>
+                        <SkillsBridgeProvider>
+                          <AgentShellProvider>
+                            <ConversationalShellInner>{children}</ConversationalShellInner>
+                          </AgentShellProvider>
+                        </SkillsBridgeProvider>
+                      </DashboardBridgeProvider>
                     </OrdersBridgeProvider>
                   </ClientsBridgeProvider>
                 </LeadsBridgeProvider>

@@ -1,5 +1,5 @@
 import {
-  Plus, Upload, Sparkles, Package, Images, Megaphone, Wand2, Brain, Users, Building2, ShoppingCart, ShieldCheck, Zap, MapPin,
+  Plus, Upload, Sparkles, Package, Images, Megaphone, Wand2, Brain, Users, Building2, ShoppingCart, ShieldCheck, Zap, MapPin, LayoutDashboard, RefreshCw,
 } from 'lucide-react'
 import { useAgentShell } from '@/lib/agent/AgentShellContext'
 import { useProductsBridgeOptional } from '@/lib/agent/ProductsBridgeContext'
@@ -9,11 +9,15 @@ import { useProspectBridgeOptional } from '@/lib/agent/ProspectBridgeContext'
 import { useLeadsBridgeOptional } from '@/lib/agent/LeadsBridgeContext'
 import { useClientsBridgeOptional } from '@/lib/agent/ClientsBridgeContext'
 import { useOrdersBridgeOptional } from '@/lib/agent/OrdersBridgeContext'
+import { useDashboardBridgeOptional } from '@/lib/agent/DashboardBridgeContext'
+import { useSkillsBridgeOptional } from '@/lib/agent/SkillsBridgeContext'
 import {
   isCampaignSkill,
   isLeadsSkill,
   isClientsSkill,
   isOrdersSkill,
+  isDashboardSkill,
+  isSkillsModuleSkill,
   isProductSkill,
   isCreativeSkill,
   isSkillTrainerSkill,
@@ -65,10 +69,13 @@ export function CatalogComposerDock() {
     leadsModuleOpen,
     clientsModuleOpen,
     ordersModuleOpen,
+    dashboardModuleOpen,
+    skillsModuleOpen,
     prospectModuleOpen,
     onOpenModal,
     openCanvas,
     triggerSkill,
+    triggerNav,
   } = useAgentShell()
 
   const products = useProductsBridgeOptional()
@@ -78,6 +85,8 @@ export function CatalogComposerDock() {
   const leads = useLeadsBridgeOptional()
   const clients = useClientsBridgeOptional()
   const orders = useOrdersBridgeOptional()
+  const dashboard = useDashboardBridgeOptional()
+  const skills = useSkillsBridgeOptional()
 
   const campaignContext = campaignsModuleOpen || isCampaignSkill(activeTurn?.skill)
   const ordersContext = ordersModuleOpen || isOrdersSkill(activeTurn?.skill)
@@ -87,6 +96,63 @@ export function CatalogComposerDock() {
   const galleryContext = galleryModuleOpen || activeTurn?.skill === 'gallery.open'
   const creativeContext = isCreativeSkill(activeTurn?.skill)
   const skillTrainerContext = isSkillTrainerSkill(activeTurn?.skill)
+  const dashboardContext = dashboardModuleOpen || isDashboardSkill(activeTurn?.skill)
+  const skillsContext = skillsModuleOpen || isSkillsModuleSkill(activeTurn?.skill)
+
+  if (dashboardContext) {
+    return (
+      <div className="workspace-chat__action-dock workspace-chat__action-dock--chips-only">
+        <div className="workspace-chat__action-chips">
+          <ActionChip
+            label="Painel completo"
+            icon={LayoutDashboard}
+            onClick={() => {
+              dashboard?.setModuleExpanded(true)
+              dashboard?.dispatch({ type: 'open_full' })
+            }}
+          />
+          <ActionChip
+            label="Atualizar"
+            icon={RefreshCw}
+            onClick={() => triggerNav('dashboard')}
+          />
+          <ActionChip label="Leads" icon={Users} onClick={() => triggerNav('leads')} />
+          <ActionChip label="Campanhas" icon={Megaphone} onClick={() => triggerNav('campanhas')} />
+        </div>
+      </div>
+    )
+  }
+
+  if (skillsContext) {
+    return (
+      <div className="workspace-chat__action-dock">
+        <AiPrimaryButton
+          label="Criar habilidade com IA"
+          onClick={() => onOpenModal('skill-trainer')}
+          icon={Brain}
+        />
+        <div className="workspace-chat__action-chips">
+          {skills?.isReady && (
+            <>
+              <ActionChip
+                label="Gerenciar"
+                icon={Brain}
+                onClick={() => {
+                  skills.setModuleExpanded(true)
+                  skills.dispatch({ type: 'open_full' })
+                }}
+              />
+              <ActionChip
+                label="Atualizar"
+                icon={RefreshCw}
+                onClick={() => skills.dispatch({ type: 'refresh' })}
+              />
+            </>
+          )}
+        </div>
+      </div>
+    )
+  }
 
   if (campaignContext) {
     const openAi = () => {

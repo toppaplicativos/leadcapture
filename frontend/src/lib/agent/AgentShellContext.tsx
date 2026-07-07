@@ -18,10 +18,12 @@ import { useCampaignsBridgeOptional } from './CampaignsBridgeContext'
 import { useGalleryBridgeOptional } from './GalleryBridgeContext'
 import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
 import { resolveTrigger } from './workspaceTriggers'
-import { isCampaignSkill, isLeadsSkill, isClientsSkill, isOrdersSkill } from './composerAiActions'
+import { isCampaignSkill, isLeadsSkill, isClientsSkill, isOrdersSkill, isDashboardSkill, isSkillsModuleSkill } from './composerAiActions'
 import { useLeadsBridgeOptional } from './LeadsBridgeContext'
 import { useClientsBridgeOptional } from './ClientsBridgeContext'
 import { useOrdersBridgeOptional } from './OrdersBridgeContext'
+import { useDashboardBridgeOptional } from './DashboardBridgeContext'
+import { useSkillsBridgeOptional } from './SkillsBridgeContext'
 import { useWhatsAppConnectOptional } from '@/lib/whatsapp/WhatsAppConnectContext'
 import type { AgentModalId, AgentTurn, ComponentEvent, SkillContext, TriggerSkillOptions } from './types'
 
@@ -61,6 +63,10 @@ type AgentShellValue = {
   clientsModuleOpen: boolean
   closeOrdersModule: () => void
   ordersModuleOpen: boolean
+  closeDashboardModule: () => void
+  dashboardModuleOpen: boolean
+  closeSkillsModule: () => void
+  skillsModuleOpen: boolean
 }
 
 const AgentShellContext = createContext<AgentShellValue | null>(null)
@@ -88,6 +94,8 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
   const leadsBridge = useLeadsBridgeOptional()
   const clientsBridge = useClientsBridgeOptional()
   const ordersBridge = useOrdersBridgeOptional()
+  const dashboardBridge = useDashboardBridgeOptional()
+  const skillsBridge = useSkillsBridgeOptional()
   const isDesktop = useIsDesktop()
 
   const PRODUCT_SKILLS = useMemo(() => new Set(['catalog.products', 'catalog.products.table', 'catalog.products.create']), [])
@@ -223,6 +231,24 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
     setMobileCanvasOpen(false)
     setCanvasMode('agent')
   }, [ordersBridge])
+
+  const closeDashboardModule = useCallback(() => {
+    dashboardBridge?.setModuleOpen(false)
+    dashboardBridge?.setModuleExpanded(false)
+    setDesktopCanvasOpen(false)
+    setEmbeddedRoute(null)
+    setMobileCanvasOpen(false)
+    setCanvasMode('agent')
+  }, [dashboardBridge])
+
+  const closeSkillsModule = useCallback(() => {
+    skillsBridge?.setModuleOpen(false)
+    skillsBridge?.setModuleExpanded(false)
+    setDesktopCanvasOpen(false)
+    setEmbeddedRoute(null)
+    setMobileCanvasOpen(false)
+    setCanvasMode('agent')
+  }, [skillsBridge])
 
   function openCatalogCanvas(route: string) {
     if (isDesktop) {
@@ -421,6 +447,61 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
     }
   }, [activeTurn, ordersBridge, isDesktop, closeOrdersModule])
 
+  /* Dashboard: desktop = canvas; mobile = inline KPIs */
+  useEffect(() => {
+    if (!activeTurn || !isDashboardSkill(activeTurn.skill)) {
+      if (dashboardBridge?.moduleOpen && activeTurn && !isDashboardSkill(activeTurn.skill)) {
+        closeDashboardModule()
+      }
+      return
+    }
+    dashboardBridge?.setModuleOpen(true)
+    dashboardBridge?.setModuleExpanded(true)
+    if (activeTurn.skill === 'dashboard.show' || isDesktop) {
+      openCatalogCanvas('/dashboard')
+    }
+    const kpi = activeTurn.components?.find((c) => c.type === 'kpi_row')
+    const items = (kpi?.props?.items as Array<{ label: string; value: number; icon?: string }>) || []
+    const byLabel = Object.fromEntries(items.map((i) => [String(i.label || '').toLowerCase(), Number(i.value || 0)]))
+    const subtitle = String(kpi?.props?.subtitle || '')
+    const campaignsActive = subtitle.match(/(\d+)\s+campanha/i)?.[1]
+    dashboardBridge?.publishSnapshot({
+      items,
+      leads: byLabel.leads ?? 0,
+      campaigns: byLabel.campanhas ?? 0,
+      orders: byLabel.pedidos ?? 0,
+      products: byLabel.produtos ?? 0,
+      campaignsActive: campaignsActive ? Number(campaignsActive) : 0,
+      subtitle,
+      loading: false,
+    })
+  }, [activeTurn, dashboardBridge, isDesktop, closeDashboardModule])
+
+  /* Habilidades: desktop = canvas; mobile = inline */
+  useEffect(() => {
+    if (!activeTurn || !isSkillsModuleSkill(activeTurn.skill)) {
+      if (skillsBridge?.moduleOpen && activeTurn && !isSkillsModuleSkill(activeTurn.skill)) {
+        closeSkillsModule()
+      }
+      return
+    }
+    skillsBridge?.setModuleOpen(true)
+    skillsBridge?.setModuleExpanded(true)
+    openCatalogCanvas('/habilidades')
+    const skillList = activeTurn.components?.find((c) => c.type === 'skill_list')
+    const skills = (skillList?.props?.skills as Array<{
+      id: string; name: string; type: string; active: boolean; confidence: number
+    }>) || []
+    if (skills.length || skillList) {
+      skillsBridge?.publishSnapshot({
+        skills,
+        total: Number(skillList?.props?.total ?? skills.length),
+        activeCount: skills.filter((s) => s.active).length,
+        loading: false,
+      })
+    }
+  }, [activeTurn, skillsBridge, isDesktop, closeSkillsModule])
+
   /* Galeria: desktop = canvas; mobile = inline com upload */
   useEffect(() => {
     if (!activeTurn || activeTurn.skill !== 'gallery.open') {
@@ -558,6 +639,10 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
     clientsModuleOpen: !!clientsBridge?.moduleOpen,
     closeOrdersModule,
     ordersModuleOpen: !!ordersBridge?.moduleOpen,
+    closeDashboardModule,
+    dashboardModuleOpen: !!dashboardBridge?.moduleOpen,
+    closeSkillsModule,
+    skillsModuleOpen: !!skillsBridge?.moduleOpen,
   }
 
   return (

@@ -16,6 +16,8 @@ import {
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { SkillTrainerWizardModal } from '@/components/SkillTrainerWizardModal'
+import { useSkillsBridgeOptional } from '@/lib/agent/SkillsBridgeContext'
+import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
 
 type SkillType = 'info' | 'calculator' | 'lookup' | 'flow' | 'policy'
 type TabId = 'skills' | 'gallery'
@@ -122,6 +124,8 @@ function fmtRelative(iso: string): string {
    ═══════════════════════════════════════════════════════════════════ */
 
 export function BrandSkillsPage() {
+  const skillsBridge = useSkillsBridgeOptional()
+  const isDesktop = useIsDesktop()
   const [tab, setTab] = useState<TabId>('skills')
   const [skills, setSkills] = useState<BrandSkill[]>([])
   const [templates, setTemplates] = useState<SkillTemplate[]>([])
@@ -169,6 +173,25 @@ export function BrandSkillsPage() {
   }, [showToast])
 
   useEffect(() => { loadSkills() }, [loadSkills])
+
+  useEffect(() => {
+    if (!skillsBridge?.publishSnapshot || !isDesktop || loading) return
+    const rows = skills.map((s) => ({
+      id: s.id,
+      name: s.name,
+      type: s.skill_type,
+      active: s.is_active,
+      confidence: s.confidence_score,
+    }))
+    skillsBridge.publishSnapshot({
+      skills: rows,
+      total: skills.length,
+      activeCount: skills.filter((s) => s.is_active).length,
+      selectedId: openSkillId,
+      selectedName: openSkillId ? (skills.find((s) => s.id === openSkillId)?.name || '') : '',
+      loading: false,
+    })
+  }, [skillsBridge, isDesktop, loading, skills, openSkillId])
 
   useEffect(() => {
     if (tab === 'gallery' && templates.length === 0) loadTemplates()

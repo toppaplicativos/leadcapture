@@ -22,9 +22,13 @@ import {
 } from '@/lib/admin/helpers'
 import type { ShowToast } from '@/lib/admin/types'
 import { Skeleton, KpiCard, EmptyState } from '@/components/admin/primitives'
+import { useDashboardBridgeOptional } from '@/lib/agent/DashboardBridgeContext'
+import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
 
 export function DashboardView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') => void }) {
   const navigate = useNavigate()
+  const dashboardBridge = useDashboardBridgeOptional()
+  const isDesktop = useIsDesktop()
   const [data, setData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
 
@@ -48,6 +52,25 @@ export function DashboardView({ showToast }: { showToast: (t: string, tp?: 'ok' 
       setLoading(false)
     })
   }, [])
+
+  useEffect(() => {
+    if (!dashboardBridge?.publishSnapshot || !isDesktop || loading) return
+    dashboardBridge.publishSnapshot({
+      leads: Number(data?.totalLeads || 0),
+      campaigns: Number(data?.totalCampaigns || 0),
+      orders: Number(data?.totalOrders || 0),
+      products: Number(data?.products || 0),
+      campaignsActive: Number(data?.activeCampaigns || 0),
+      subtitle: data?.activeCampaigns > 0 ? `${data.activeCampaigns} campanha(s) ativa(s)` : '',
+      items: [
+        { label: 'Leads', value: Number(data?.totalLeads || 0), icon: 'users' },
+        { label: 'Campanhas', value: Number(data?.totalCampaigns || 0), icon: 'megaphone' },
+        { label: 'Pedidos', value: Number(data?.totalOrders || 0), icon: 'cart' },
+        { label: 'Produtos', value: Number(data?.products || 0), icon: 'package' },
+      ],
+      loading: false,
+    })
+  }, [dashboardBridge, isDesktop, loading, data])
 
   if (loading) return <Skeleton rows={6} />
 

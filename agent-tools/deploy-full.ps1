@@ -22,6 +22,7 @@ if (-not $SkipBuild) {
   Push-Location "$Root\frontend"
   npm run build
   Pop-Location
+  Start-Sleep -Seconds 2
 }
 
 if (-not (Test-Path "$Root\frontend\dist\index.html")) {
@@ -34,13 +35,17 @@ if (-not (Test-Path "$Root\dist\index.js")) {
 }
 
 $frontendTar = Join-Path $PSScriptRoot "frontend-dist-full.tar.gz"
+Remove-Item $frontendTar -Force -ErrorAction SilentlyContinue
 Push-Location "$Root\frontend\dist"
-tar -czf $frontendTar .
+tar -czf $frontendTar *
+if ($LASTEXITCODE -ne 0) { throw "tar frontend falhou (exit $LASTEXITCODE)" }
 Pop-Location
 
 $backendTar = Join-Path $PSScriptRoot "backend-dist-full.tar.gz"
+Remove-Item $backendTar -Force -ErrorAction SilentlyContinue
 Push-Location "$Root\dist"
-tar -czf $backendTar .
+tar -czf $backendTar *
+if ($LASTEXITCODE -ne 0) { throw "tar backend falhou (exit $LASTEXITCODE)" }
 Pop-Location
 
 Write-Host ">> Enviando backend dist completo"

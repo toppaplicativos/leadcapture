@@ -56,9 +56,12 @@ import commerceRoutes, { commercePublicRoutes } from "./routes/commerce";
 import paymentsRoutes, { paymentPublicRoutes } from "./routes/payments";
 import storefrontRoutes, { storefrontPublicRoutes, reconcileNginxForVerifiedDomains } from "./routes/storefront";
 import stockAppRoutes from "./routes/stockApp";
+import affiliateAppRoutes from "./routes/affiliateApp";
+import affiliatesRoutes from "./routes/affiliates";
 import inventoryRoutes from "./routes/inventory";
 import publicOnboardingRoutes from "./routes/publicOnboarding";
 import publicPwaRoutes from "./routes/publicPwa";
+import publicAffiliateRoutes from "./routes/publicAffiliate";
 import landingChatRoutes from "./routes/landingChat";
 import adminAgentRoutes from "./routes/adminAgent";
 import masterRoutes from "./routes/master";
@@ -74,6 +77,7 @@ import { query, queryOne, getPool } from "./config/database";
 import { extractIncomingMessageData } from "./utils/whatsappMessage";
 import { createCampaignRoutes } from "./routes/campaigns";
 import { CampaignEngineService } from "./services/campaignEngine";
+import { processScheduledSocialPosts } from "./services/socialPostScheduler";
 import { memoryEngine } from "./services/memoryEngine";
 import leadsRoutes from "./routes/leads";
 import leadCategoriesRoutes from "./routes/leadCategories";
@@ -250,6 +254,7 @@ app.use("/api/landing", landingChatRoutes);
 app.use("/api/master", masterRoutes);
 app.use("/api/admin/emails", adminEmailsRoutes);
 app.use("/pwa", publicPwaRoutes);
+app.use("/api/public/affiliate", publicAffiliateRoutes);
 
 // Health check (public)
 app.get("/api/health", (req, res) => {
@@ -318,13 +323,20 @@ app.get("/app-estoque", (_req, res) => { serveCatalogSPA(res, "index.html"); });
 app.get("/app-estoque/:brand", (_req, res) => { serveCatalogSPA(res, "index.html"); });
 app.get("/app-estoque/:brand/painel", (_req, res) => { serveCatalogSPA(res, "index.html"); });
 
+// Central do Afiliado — PWA standalone
+app.get("/central-afiliado", (_req, res) => { serveCatalogSPA(res, "index.html"); });
+app.get("/central-afiliado/:brand", (_req, res) => { serveCatalogSPA(res, "index.html"); });
+app.get("/central-afiliado/:brand/painel", (_req, res) => { serveCatalogSPA(res, "index.html"); });
+app.get("/central-afiliado/:brand/painel/*", (_req, res) => { serveCatalogSPA(res, "index.html"); });
+app.get("/afiliado/:code", (_req, res) => { serveCatalogSPA(res, "index.html"); });
+
 // Admin panel routes (all serve React SPA)
 const adminPages = [
   "/login", "/admin", "/dashboard", "/busca", "/leads", "/clientes",
   "/mensagens", "/notificacoes", "/campanhas", "/campanha", "/automacoes",
   "/criativos", "/creative", "/agente", "/produtos", "/pedidos",
   "/whatsapp", "/design", "/pagamentos", "/frete", "/dominio", "/configuracoes",
-  "/estoque", "/estoque/app", "/inventario",
+  "/estoque", "/estoque/app", "/inventario", "/afiliados",
 ];
 for (const page of adminPages) {
   app.get(page, (_req, res) => { serveCatalogSPA(res, "index.html"); });
@@ -374,6 +386,8 @@ app.use("/api/commerce", authMiddleware, commerceRoutes);
 app.use("/api/payments", authMiddleware, paymentsRoutes);
 app.use("/api/storefront", authMiddleware, storefrontRoutes);
 app.use("/api/stock-app", authMiddleware, stockAppRoutes);
+app.use("/api/affiliate-app", authMiddleware, affiliateAppRoutes);
+app.use("/api/affiliates", authMiddleware, affiliatesRoutes);
 app.use("/api/inventory", authMiddleware, inventoryRoutes);
 app.use("/api/leads", authMiddleware, rateLimit({ name: "leads", max: 200, windowMs: 60_000 }), leadsRoutes);
 app.use("/api/lead-categories", leadCategoriesRoutes);
@@ -2505,14 +2519,18 @@ httpServer.listen(config.port, "0.0.0.0", () => {
     Promise.all([
       campaignEngine.processScheduledCampaigns(),
       campaignEngine.resumeRunningCampaigns(),
+      processScheduledSocialPosts(),
     ]).catch((err: any) => {
-      logger.error(`Campaign scheduler tick failed: ${formatError(err)}`);
+      logger.error(`Scheduler tick failed: ${formatError(err)}`);
     });
   }, 60_000);
 
   // Kick once on boot so running campaigns recover right away after restart
-  campaignEngine.resumeRunningCampaigns().catch((err: any) => {
-    logger.error(`Campaign auto-resume bootstrap failed: ${formatError(err)}`);
+  Promise.all([
+    campaignEngine.resumeRunningCampaigns(),
+    processScheduledSocialPosts(),
+  ]).catch((err: any) => {
+    logger.error(`Scheduler bootstrap failed: ${formatError(err)}`);
   });
 });
 

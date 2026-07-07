@@ -1307,7 +1307,7 @@ Responda APENAS com JSON válido neste formato:
           components.push({
             id: "ig-scheduled",
             type: "text",
-            props: { content: `Post agendado para ${when}. Você pode revisar no calendário do Instagram.` },
+            props: { content: `Post agendado para ${when}. Será publicado automaticamente nesse horário — revise no calendário do Instagram.` },
           });
           actions.push({ type: "navigate", payload: { path: "/instagram" } });
           break;
@@ -1570,7 +1570,7 @@ Responda APENAS com JSON válido neste formato:
           components.push({
             id: "fb-scheduled",
             type: "text",
-            props: { content: `Post agendado para ${when}. Revise no calendário do Facebook.` },
+            props: { content: `Post agendado para ${when}. Será publicado automaticamente nesse horário — revise no calendário do Facebook.` },
           });
           actions.push({ type: "navigate", payload: { path: "/facebook" } });
           break;

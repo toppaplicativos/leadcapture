@@ -16,6 +16,7 @@ import {
   fetchRecentProducts,
   fetchGalleryCount,
   generateProductDraftFromBrief,
+  generateInstagramPostFromBrief,
 } from "./actions";
 import { instagramService } from "../instagram";
 import { SKILLS, NAV_PATHS, buildSkillsCatalog } from "./squads";
@@ -58,6 +59,7 @@ export class AdminAgentOrchestrator {
       };
       if (directSkill === "campaigns.create") turn.nextSkill = "campaigns.confirm";
       if (directSkill === "skills.train") turn.nextSkill = "skills.confirm";
+      if (directSkill === "instagram.post.create") turn.nextSkill = "instagram.post.confirm";
       return this.applyPresentation(directSkill, turn);
     }
 
@@ -102,9 +104,19 @@ export class AdminAgentOrchestrator {
       };
     }
 
-    const execCtx: AdminAgentContext = selection.context
+    let execCtx: AdminAgentContext = selection.context
       ? { ...ctx, skillContext: { ...ctx.skillContext, ...selection.context } }
       : ctx;
+    if (
+      selection.skill === "instagram.post.create"
+      && !String(execCtx.skillContext?.brief || "").trim()
+      && trimmed
+    ) {
+      execCtx = {
+        ...execCtx,
+        skillContext: { ...execCtx.skillContext, brief: trimmed },
+      };
+    }
     const { components, actions } = await this.executeSkill(selection.skill, execCtx);
     const turn: AgentTurn = {
       message: selection.message,
@@ -120,6 +132,9 @@ export class AdminAgentOrchestrator {
     }
     if (selection.skill === "skills.train") {
       turn.nextSkill = "skills.confirm";
+    }
+    if (selection.skill === "instagram.post.create") {
+      turn.nextSkill = "instagram.post.confirm";
     }
     if (selection.skill === "crm.lead.find" && selection.context?.search) {
       turn.nextSkill = "crm.lead.detail";
@@ -167,9 +182,12 @@ export class AdminAgentOrchestrator {
       turn.presentation = "inline";
       turn.canvasRoute = "/galeria";
     }
-    if (skillId === "instagram.open") {
+    if (skillId === "instagram.open" || skillId === "instagram.post.create" || skillId === "instagram.analyze" || skillId === "instagram.messages") {
       turn.presentation = "inline";
       turn.canvasRoute = "/instagram";
+    }
+    if (skillId === "instagram.post.confirm") {
+      turn.presentation = "inline";
     }
     if (skillId === "dashboard.overview" || skillId === "dashboard.show") {
       turn.presentation = "inline";
@@ -313,6 +331,52 @@ Responda APENAS com JSON válido neste formato:
       };
     }
 
+    if (ev?.action === "submit_form" && ev.componentId === "ig-post-form") {
+      const brief = String(ev.payload?.brief || "").trim();
+      if (!brief) return null;
+      return {
+        skill: "instagram.post.create",
+        squad: "social",
+        message: "Gerando post com IA…",
+        context: {
+          brief,
+          objective: String(ev.payload?.objective || "").trim(),
+          tone: String(ev.payload?.tone || "").trim(),
+        },
+        nextSkill: "instagram.post.confirm",
+      };
+    }
+
+    if (ev?.action === "ig_publish_now" || ev?.action === "ig_schedule" || ev?.action === "ig_save_draft") {
+      const postId = String(ev.payload?.postId || sk?.postId || "").trim();
+      if (!postId) return null;
+      const action = ev.action;
+      if (action === "ig_publish_now") {
+        return {
+          skill: "instagram.post.confirm",
+          squad: "social",
+          message: "Publicando no Instagram…",
+          context: { postId, action },
+        };
+      }
+      if (action === "ig_schedule") {
+        const scheduledAt = String(ev.payload?.scheduledAt || "").trim();
+        if (!scheduledAt) return null;
+        return {
+          skill: "instagram.post.confirm",
+          squad: "social",
+          message: "Agendando post…",
+          context: { postId, action, scheduledAt },
+        };
+      }
+      return {
+        skill: "instagram.post.confirm",
+        squad: "social",
+        message: "Rascunho salvo.",
+        context: { postId, action },
+      };
+    }
+
     if (ev?.action === "submit_form" && ev.componentId === "product-create-form") {
       const name = String(ev.payload?.name || "").trim();
       const brief = String(ev.payload?.brief || "").trim();
@@ -431,6 +495,20 @@ Responda APENAS com JSON válido neste formato:
     }
     if (/galeria|minhas\s+imagens/i.test(lower)) {
       return { squad: "creative", skill: "gallery.open", message: "Abrindo sua galeria..." };
+    }
+    if (/cri(ar|e)\s+(um\s+)?post|postar\s+no\s+insta|publicar\s+no\s+instagram|fazer\s+(um\s+)?post|legenda\s+para/i.test(lower)) {
+      return {
+        squad: "social",
+        skill: "instagram.post.create",
+        message: "Vou montar o post com IA. Um momento…",
+        context: { brief: message },
+      };
+    }
+    if (/(analis|métricas?|performance|insights|engajamento)/i.test(lower) && /instagram|insta/i.test(lower)) {
+      return { squad: "social", skill: "instagram.analyze", message: "Analisando sua conta Instagram…" };
+    }
+    if (/(dm|direct|mensagens?)/i.test(lower) && /instagram|insta/i.test(lower)) {
+      return { squad: "social", skill: "instagram.messages", message: "Abrindo suas DMs do Instagram…" };
     }
     if (/instagram|insta\b|reels?\b|stories?\b/i.test(lower)) {
       return { squad: "social", skill: "instagram.open", message: "Abrindo o Instagram..." };
@@ -1043,6 +1121,246 @@ Responda APENAS com JSON válido neste formato:
           });
         }
         components.push(this.buildNavSuggestions(["instagram"]));
+        actions.push({ type: "navigate", payload: { path: "/instagram" } });
+        break;
+      }
+
+      case "instagram.post.create": {
+        const brandId = String(ctx.brandId || "").trim();
+        const brief = String(sk.brief || "").trim();
+
+        if (!brief) {
+          components.push({
+            id: "ig-post-form",
+            type: "form",
+            props: {
+              title: "Novo post Instagram",
+              fields: [
+                { name: "brief", label: "Sobre o que é o post?", type: "textarea", placeholder: "Ex: promoção de hidratação capilar com 20% off até sexta" },
+                { name: "objective", label: "Objetivo (opcional)", type: "text", placeholder: "Ex: gerar agendamentos" },
+                { name: "tone", label: "Tom (opcional)", type: "text", placeholder: "Ex: descontraído, profissional" },
+              ],
+              submitLabel: "Gerar post com IA",
+              nextSkill: "instagram.post.create",
+            },
+          });
+          break;
+        }
+
+        if (!brandId) {
+          components.push({ id: "ig-no-brand", type: "text", props: { content: "Selecione uma marca para criar posts." } });
+          break;
+        }
+
+        const draft = await generateInstagramPostFromBrief(ctx.userId, brandId, {
+          brief,
+          objective: String(sk.objective || "").trim() || undefined,
+          tone: String(sk.tone || "").trim() || undefined,
+        });
+
+        if ("error" in draft) {
+          components.push({ id: "ig-error", type: "text", props: { content: draft.error } });
+          if (draft.error.includes("não conectado")) {
+            components.push({
+              id: "ig-connect-btn",
+              type: "button",
+              props: { label: "Conectar Instagram", path: "/instagram", variant: "primary" },
+            });
+            actions.push({ type: "navigate", payload: { path: "/instagram" } });
+          }
+          break;
+        }
+
+        const previewCaption = draft.caption.length > 280
+          ? `${draft.caption.slice(0, 280)}…`
+          : draft.caption;
+
+        components.push({
+          id: "ig-post-preview",
+          type: "instagram_post_preview",
+          props: {
+            postId: draft.postId,
+            caption: draft.caption,
+            previewCaption,
+            mediaUrl: draft.mediaUrl,
+            brief: draft.brief,
+            imageSource: draft.imageSource,
+          },
+        });
+        components.push({
+          id: "ig-preview-hint",
+          type: "text",
+          props: { content: "Revise o preview. Quer publicar agora, agendar ou manter como rascunho?" },
+        });
+        actions.push({ type: "navigate", payload: { path: "/instagram" } });
+        break;
+      }
+
+      case "instagram.post.confirm": {
+        const brandId = String(ctx.brandId || "").trim();
+        const postId = String(sk.postId || "").trim();
+        const action = String(sk.action || "");
+
+        if (!brandId || !postId) {
+          components.push({ id: "ig-missing", type: "text", props: { content: "Post não encontrado. Crie um novo post pelo chat." } });
+          break;
+        }
+
+        if (action === "ig_publish_now") {
+          const result = await instagramService.publishPost(brandId, postId);
+          components.push({
+            id: "ig-publish-result",
+            type: "text",
+            props: {
+              content: result.ok
+                ? "Post publicado no Instagram com sucesso."
+                : `Não foi possível publicar: ${result.message}`,
+            },
+          });
+          if (result.ok) {
+            components.push({
+              id: "ig-stats",
+              type: "instagram_stats",
+              props: { connected: true, live: true },
+            });
+          }
+          break;
+        }
+
+        if (action === "ig_schedule") {
+          const scheduledAt = String(sk.scheduledAt || "").trim();
+          if (!scheduledAt) {
+            components.push({ id: "ig-sched-missing", type: "text", props: { content: "Informe data e hora para agendar." } });
+            break;
+          }
+          await instagramService.updatePost(postId, {
+            status: "scheduled",
+            scheduled_at: new Date(scheduledAt).toISOString(),
+          });
+          const when = new Date(scheduledAt).toLocaleString("pt-BR", {
+            dateStyle: "short",
+            timeStyle: "short",
+          });
+          components.push({
+            id: "ig-scheduled",
+            type: "text",
+            props: { content: `Post agendado para ${when}. Você pode revisar no calendário do Instagram.` },
+          });
+          actions.push({ type: "navigate", payload: { path: "/instagram" } });
+          break;
+        }
+
+        components.push({
+          id: "ig-draft-saved",
+          type: "text",
+          props: { content: "Rascunho salvo. Abra o studio para editar ou publicar quando quiser." },
+        });
+        actions.push({ type: "navigate", payload: { path: "/instagram" } });
+        break;
+      }
+
+      case "instagram.analyze": {
+        const brandId = String(ctx.brandId || "").trim();
+        if (!brandId) {
+          components.push({ id: "ig-no-brand", type: "text", props: { content: "Selecione uma marca." } });
+          break;
+        }
+        const profile = await instagramService.getProfile(brandId);
+        if (!profile?.is_connected) {
+          components.push({ id: "ig-not-connected", type: "text", props: { content: "Conecte o Instagram para ver métricas." } });
+          break;
+        }
+        const insights = await instagramService.fetchInsights(brandId, "days_28");
+        const media = await instagramService.fetchMedia(brandId, 6);
+
+        let reach = 0;
+        let impressions = 0;
+        let profileViews = 0;
+        if (insights?.data) {
+          for (const m of insights.data) {
+            const val = Number(m.values?.[0]?.value || 0);
+            if (m.name === "reach") reach = val;
+            if (m.name === "impressions") impressions = val;
+            if (m.name === "profile_views") profileViews = val;
+          }
+        }
+
+        components.push({
+          id: "ig-analyze-kpis",
+          type: "kpi_row",
+          props: {
+            items: [
+              { label: "Seguidores", value: Number(profile.followers_count || 0), icon: "users" },
+              { label: "Posts", value: Number(profile.media_count || 0), icon: "package" },
+              { label: "Alcance 28d", value: reach, icon: "megaphone" },
+              { label: "Views perfil", value: profileViews, icon: "zap" },
+            ],
+            subtitle: impressions > 0 ? `${impressions.toLocaleString("pt-BR")} impressões (28 dias)` : undefined,
+          },
+        });
+
+        if (media.length) {
+          components.push({
+            id: "ig-recent-posts",
+            type: "table",
+            props: {
+              title: "Posts recentes",
+              columns: ["Legenda", "Curtidas", "Comentários"],
+              rows: media.slice(0, 5).map((m: any) => ({
+                id: m.id,
+                cells: [
+                  String(m.caption || "(sem legenda)").slice(0, 60),
+                  String(m.like_count ?? "—"),
+                  String(m.comments_count ?? "—"),
+                ],
+              })),
+            },
+          });
+        }
+
+        components.push(this.buildNavSuggestions(["instagram"]));
+        actions.push({ type: "navigate", payload: { path: "/instagram" } });
+        break;
+      }
+
+      case "instagram.messages": {
+        const brandId = String(ctx.brandId || "").trim();
+        if (!brandId) {
+          components.push({ id: "ig-no-brand", type: "text", props: { content: "Selecione uma marca." } });
+          break;
+        }
+        const profile = await instagramService.getProfile(brandId);
+        if (!profile?.is_connected) {
+          components.push({ id: "ig-not-connected", type: "text", props: { content: "Conecte o Instagram para ver DMs." } });
+          break;
+        }
+        const conversations = await instagramService.getConversations(brandId);
+        if (!conversations.length) {
+          components.push({ id: "ig-no-dms", type: "text", props: { content: "Nenhuma conversa no Direct no momento." } });
+        } else {
+          components.push({
+            id: "ig-dms-table",
+            type: "table",
+            props: {
+              title: "Direct — conversas recentes",
+              columns: ["Conversa", "Última mensagem"],
+              rows: conversations.slice(0, 8).map((c: any, i: number) => {
+                const msg = c.messages?.data?.[0];
+                const from = msg?.from?.username || msg?.from?.id || "—";
+                const text = String(msg?.message || "").slice(0, 80) || "(mídia)";
+                return {
+                  id: String(c.id || i),
+                  cells: [`@${from}`, text],
+                };
+              }),
+            },
+          });
+        }
+        components.push({
+          id: "ig-dms-btn",
+          type: "button",
+          props: { label: "Responder no studio", path: "/instagram", variant: "primary" },
+        });
         actions.push({ type: "navigate", payload: { path: "/instagram" } });
         break;
       }

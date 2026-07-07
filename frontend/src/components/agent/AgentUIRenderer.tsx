@@ -2,6 +2,7 @@ import { useState } from 'react'
 import {
   Users, Megaphone, Package, ShoppingCart, Zap, AlertTriangle, Boxes,
   ArrowRight, CheckCircle2, Circle, Brain, Sparkles, Phone, MapPin, User,
+  Camera, Clock, Send, Loader2,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
@@ -12,6 +13,7 @@ import { useLeadsBridgeOptional } from '@/lib/agent/LeadsBridgeContext'
 import { useClientsBridgeOptional } from '@/lib/agent/ClientsBridgeContext'
 import { useOrdersBridgeOptional } from '@/lib/agent/OrdersBridgeContext'
 import { useProductsBridgeOptional } from '@/lib/agent/ProductsBridgeContext'
+import { useInstagramBridgeOptional } from '@/lib/agent/InstagramBridgeContext'
 
 const KPI_ICONS: Record<string, LucideIcon> = {
   users: Users,
@@ -548,6 +550,95 @@ function OptionPicker({ spec, callbacks }: { spec: ComponentSpec; callbacks: Age
   )
 }
 
+function InstagramPostPreview({ spec, callbacks }: { spec: ComponentSpec; callbacks: AgentCallbacks }) {
+  const props = spec.props
+  const postId = String(props?.postId || '')
+  const caption = String(props?.caption || '')
+  const previewCaption = String(props?.previewCaption || caption)
+  const mediaUrl = String(props?.mediaUrl || '')
+  const imageSource = String(props?.imageSource || '')
+  const instagramBridge = useInstagramBridgeOptional()
+  const [scheduling, setScheduling] = useState(false)
+  const [scheduledAt, setScheduledAt] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const emit = (action: string, extra?: Record<string, unknown>) => {
+    if (busy) return
+    setBusy(true)
+    callbacks.onComponentEvent?.({
+      componentId: spec.id,
+      action,
+      payload: { postId, ...extra },
+    }, { nextSkill: 'instagram.post.confirm', postId })
+    setTimeout(() => setBusy(false), 1200)
+  }
+
+  const openStudio = () => {
+    instagramBridge?.publishSnapshot?.({ activeTab: 'create' })
+    instagramBridge?.setModuleOpen?.(true)
+    instagramBridge?.setModuleExpanded?.(true)
+    callbacks.onNavigate('/instagram')
+  }
+
+  const sourceLabel = imageSource === 'gallery' ? 'Imagem da galeria' : imageSource === 'ai' ? 'Imagem gerada com IA' : ''
+
+  return (
+    <div className="catalog-ig-post-preview">
+      <div className="catalog-ig-post-preview__head">
+        <Camera size={14} className="text-rose-500 shrink-0" />
+        <div>
+          <p className="catalog-ig-post-preview__title">Preview do post</p>
+          {sourceLabel && <p className="catalog-ig-post-preview__meta">{sourceLabel}</p>}
+        </div>
+      </div>
+      {mediaUrl && (
+        <div className="catalog-ig-post-preview__media">
+          <img src={mediaUrl} alt="" loading="lazy" />
+        </div>
+      )}
+      <p className="catalog-ig-post-preview__caption">{previewCaption}</p>
+      <p className="catalog-ig-post-preview__question">Quer publicar?</p>
+      <div className="catalog-ig-post-preview__actions">
+        <button type="button" className="catalog-ig-post-preview__btn catalog-ig-post-preview__btn--primary" disabled={busy} onClick={() => emit('ig_publish_now')}>
+          {busy ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
+          Publicar agora
+        </button>
+        <button type="button" className="catalog-ig-post-preview__btn" disabled={busy} onClick={() => setScheduling((v) => !v)}>
+          <Clock size={13} />
+          Agendar
+        </button>
+        <button type="button" className="catalog-ig-post-preview__btn" disabled={busy} onClick={() => emit('ig_save_draft')}>
+          Rascunho
+        </button>
+        <button type="button" className="catalog-ig-post-preview__btn catalog-ig-post-preview__btn--ghost" onClick={openStudio}>
+          Editar no studio
+        </button>
+      </div>
+      {scheduling && (
+        <div className="catalog-ig-post-preview__schedule">
+          <label className="catalog-ig-post-preview__schedule-label">
+            Data e hora
+            <input
+              type="datetime-local"
+              value={scheduledAt}
+              onChange={(e) => setScheduledAt(e.target.value)}
+              className="catalog-ig-post-preview__schedule-input"
+            />
+          </label>
+          <button
+            type="button"
+            className="catalog-ig-post-preview__btn catalog-ig-post-preview__btn--primary"
+            disabled={!scheduledAt || busy}
+            onClick={() => emit('ig_schedule', { scheduledAt })}
+          >
+            Confirmar agendamento
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function Confirmation({ props, callbacks }: { props?: Record<string, unknown>; callbacks: AgentCallbacks }) {
   const productsBridge = useProductsBridgeOptional()
   const title = String(props?.title || '')
@@ -619,6 +710,8 @@ function renderComponent(spec: ComponentSpec, callbacks: AgentCallbacks, compact
       return <SkillList key={spec.id} props={spec.props} callbacks={callbacks} />
     case 'confirmation':
       return <Confirmation key={spec.id} props={spec.props} callbacks={callbacks} />
+    case 'instagram_post_preview':
+      return <InstagramPostPreview key={spec.id} spec={spec} callbacks={callbacks} />
     case 'option_picker':
       return <OptionPicker key={spec.id} spec={spec} callbacks={callbacks} />
     case 'prospect_stats':

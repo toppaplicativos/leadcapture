@@ -3,6 +3,8 @@ import { ClientsService } from "../clients";
 import { InventoryService } from "../inventory";
 import { galleryService } from "../gallery";
 import { aiRouter } from "../aiRouter";
+import { CreativeStudioService } from "../creativeStudio";
+import { instagramService } from "../instagram";
 import { query, queryOne } from "../../config/database";
 
 export type ProductDraft = {
@@ -16,6 +18,15 @@ export type ProductDraft = {
 const customersService = new CustomersService();
 const clientsService = new ClientsService();
 const inventoryService = new InventoryService();
+const creativeStudio = new CreativeStudioService();
+
+export type InstagramPostDraft = {
+  postId: string;
+  caption: string;
+  mediaUrl: string;
+  brief: string;
+  imageSource: "gallery" | "ai" | "none";
+};
 
 export async function fetchRecentLeads(
   userId: string,
@@ -359,4 +370,112 @@ export async function generateProductDraftFromBrief(
   } catch {
     return fallback;
   }
+}
+
+function parseInstagramCaption(text: string) {
+  const raw = String(text || "").trim();
+  const parts = raw.split(/\n\s*\n/);
+  let caption = parts[0] || raw;
+  const hashtagLine = parts[1] || "";
+  let hashtags = hashtagLine.match(/#[\wÀ-ɏà-ÿ]+/g) || [];
+  if (hashtags.length === 0) {
+    hashtags = caption.match(/#[\wÀ-ɏà-ÿ]+/g) || [];
+    if (hashtags.length > 0) caption = caption.replace(/#[\wÀ-ɏà-ÿ]+/g, "").trim();
+  }
+  const fullCaption = hashtags.length
+    ? `${caption}\n\n${hashtags.join(" ")}`
+    : caption;
+  return { caption: fullCaption.slice(0, 2200), hashtags };
+}
+
+export async function generateInstagramCaption(
+  userId: string,
+  brandId: string | null,
+  input: { brief: string; tone?: string; objective?: string },
+) {
+  const brief = String(input.brief || "").trim();
+  const prompt = [
+    "Gere uma legenda profissional e envolvente para um post no Instagram.",
+    "A legenda deve ter no maximo 2000 caracteres.",
+    "Inclua uma chamada para acao sutil.",
+    "Ao final, sugira de 5 a 10 hashtags relevantes em portugues, separadas por espaco.",
+    "Formato da resposta: primeiro a legenda, depois uma linha em branco, depois as hashtags.",
+    `Contexto: ${brief}`,
+    input.tone ? `Tom de voz: ${input.tone}` : "",
+    input.objective ? `Objetivo: ${input.objective}` : "",
+  ].filter(Boolean).join("\n");
+
+  const result = await creativeStudio.generateText(userId, {
+    prompt,
+    tone: input.tone || undefined,
+    objective: input.objective || undefined,
+    maxCharacters: 2200,
+  }, brandId || undefined);
+
+  return parseInstagramCaption(String(result?.text || brief));
+}
+
+async function resolveInstagramMediaUrl(
+  userId: string,
+  brandId: string,
+  brief: string,
+): Promise<{ url: string; source: InstagramPostDraft["imageSource"] }> {
+  try {
+    const { items } = await galleryService.listItems(userId, brandId, { limit: 24, page: 1 });
+    const image = (items || []).find((i) => i.type === "image" && (i.url || i.thumbnailUrl));
+    if (image?.url) return { url: image.url, source: "gallery" };
+  } catch { /* fallback to AI */ }
+
+  try {
+    const gen = await creativeStudio.generateImage(userId, {
+      prompt: `Post Instagram comercial, estética profissional para redes sociais: ${brief}`,
+      format: "square",
+      style: "fotografia de produto/serviço, luz natural, cores vibrantes",
+    }, brandId);
+    if (gen?.imageUrl) return { url: gen.imageUrl, source: "ai" };
+  } catch { /* no image */ }
+
+  return { url: "", source: "none" };
+}
+
+export async function generateInstagramPostFromBrief(
+  userId: string,
+  brandId: string | null,
+  input: { brief?: string; tone?: string; objective?: string },
+): Promise<InstagramPostDraft | { error: string }> {
+  const brief = String(input.brief || "").trim();
+  if (!brief) return { error: "Descreva o tema do post." };
+  if (!brandId) return { error: "Selecione uma marca." };
+
+  const profile = await instagramService.getProfile(brandId);
+  if (!profile?.is_connected) {
+    return { error: "Instagram não conectado. Conecte sua conta Business primeiro." };
+  }
+
+  const { caption } = await generateInstagramCaption(userId, brandId, {
+    brief,
+    tone: input.tone,
+    objective: input.objective,
+  });
+
+  const media = await resolveInstagramMediaUrl(userId, brandId, brief);
+  if (!media.url) {
+    return { error: "Não encontrei imagem na galeria e a geração com IA falhou. Envie uma mídia na Galeria e tente de novo." };
+  }
+
+  const post = await instagramService.createPost(brandId, {
+    media_type: "IMAGE",
+    media_url: media.url,
+    thumbnail_url: media.url,
+    caption,
+    status: "draft",
+  });
+
+  return {
+    postId: post.id,
+    caption,
+    mediaUrl: media.url,
+    brief,
+    imageSource: media.source,
+  };
 }

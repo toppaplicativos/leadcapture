@@ -1,4 +1,4 @@
-import { Search, MessageSquare, Megaphone, ShoppingCart, Sparkles, Package, Images, Users, Building2, LayoutDashboard, Brain, Camera } from 'lucide-react'
+import { Search, MessageSquare, Megaphone, ShoppingCart, Sparkles, Package, Images, Users, Building2, LayoutDashboard, Brain, Camera, BarChart3 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { OBJECTIVE_TRIGGERS } from '@/lib/agent/workspaceTriggers'
 import type { TriggerSkillOptions } from '@/lib/agent/types'
@@ -10,6 +10,8 @@ const CARD_ICONS: Record<string, LucideIcon> = {
   'catalog.products': Package,
   'gallery.open': Images,
   'instagram.open': Camera,
+  'instagram.post.create': Camera,
+  'instagram.analyze': BarChart3,
   'campaigns.list': Megaphone,
   'crm.leads.table': Users,
   'crm.clients.table': Building2,
@@ -25,6 +27,8 @@ const CARD_HINTS: Record<string, string> = {
   'catalog.products': 'Catálogo · criar e editar',
   'gallery.open': 'Mídia · upload no chat',
   'instagram.open': 'Posts · DMs · métricas',
+  'instagram.post.create': 'IA gera · publica no chat',
+  'instagram.analyze': 'Seguidores · alcance · posts',
   'campaigns.list': 'Campanhas · ver e criar',
   'crm.leads.table': 'Leads · CRM e importação',
   'crm.clients.table': 'Clientes · base convertida',

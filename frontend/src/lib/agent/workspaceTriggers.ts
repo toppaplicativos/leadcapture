@@ -152,6 +152,8 @@ export const OBJECTIVE_TRIGGERS: WorkspaceTrigger[] = [
   { skill: 'catalog.products.create', userLabel: 'Criar produto', assistantMessage: 'Vamos criar um produto. Preencha o formulário:' },
   { skill: 'gallery.open', userLabel: 'Galeria', assistantMessage: 'Assets da marca:' },
   { skill: 'instagram.open', userLabel: 'Instagram', assistantMessage: 'Sua conta Instagram:' },
+  { skill: 'instagram.post.create', userLabel: 'Criar post', assistantMessage: 'Sobre o que é o post?' },
+  { skill: 'instagram.analyze', userLabel: 'Métricas IG', assistantMessage: 'Analisando sua conta Instagram:' },
   { skill: 'campaigns.list', userLabel: 'Campanhas', assistantMessage: 'Suas campanhas:' },
   { skill: 'skills.list', userLabel: 'Habilidades', assistantMessage: 'Habilidades do agente:' },
   { skill: 'catalog.orders', userLabel: 'Pedidos', assistantMessage: 'Seus pedidos recentes:' },

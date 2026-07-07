@@ -176,6 +176,33 @@ export const SKILL_META: Record<string, SkillMeta> = {
     requiresCanvas: false,
     inlineComponents: true,
   },
+  "instagram.post.create": {
+    kind: "business",
+    objectives: ["criar post instagram", "gerar legenda", "publicar no insta"],
+    requiresCanvas: false,
+    canvasRoute: "/instagram",
+    inlineComponents: true,
+  },
+  "instagram.post.confirm": {
+    kind: "business",
+    objectives: ["confirmar publicação", "agendar post"],
+    requiresCanvas: false,
+    inlineComponents: true,
+  },
+  "instagram.analyze": {
+    kind: "business",
+    objectives: ["analisar instagram", "métricas", "performance"],
+    requiresCanvas: false,
+    canvasRoute: "/instagram",
+    inlineComponents: true,
+  },
+  "instagram.messages": {
+    kind: "business",
+    objectives: ["dms instagram", "mensagens direct"],
+    requiresCanvas: false,
+    canvasRoute: "/instagram",
+    inlineComponents: true,
+  },
 };
 
 export function getSkillMeta(skillId: string): SkillMeta | null {

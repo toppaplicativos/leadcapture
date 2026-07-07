@@ -26,7 +26,7 @@ import { useProspectBridgeOptional } from '@/lib/agent/ProspectBridgeContext'
 import { useInboxBridgeOptional } from '@/lib/agent/InboxBridgeContext'
 import { WorkspaceNav } from './WorkspaceNav'
 import { WorkspaceWelcome } from './WorkspaceWelcome'
-import { WhatsAppConnectDock } from './WhatsAppConnectDock'
+
 import { turnNeedsCanvas, turnShowsInline } from '@/lib/agent/canvasRegistry'
 import { OBJECTIVE_TRIGGERS } from '@/lib/agent/workspaceTriggers'
 import {
@@ -54,6 +54,10 @@ const CATALOG_INLINE_SKILLS = new Set([
   'campaign.builder',
   'gallery.open',
   'instagram.open',
+  'instagram.post.create',
+  'instagram.post.confirm',
+  'instagram.analyze',
+  'instagram.messages',
   'crm.leads.table',
   'crm.leads.list',
   'crm.leads.search',
@@ -386,6 +390,16 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
       },
     },
     {
+      id: 'instagram-post',
+      label: 'Criar post IG',
+      desc: 'IA gera legenda e imagem',
+      icon: Camera,
+      action: () => {
+        setMenuOpen(false)
+        triggerSkill('instagram.post.create', { label: 'Criar post', assistantMessage: 'Sobre o que é o post?' })
+      },
+    },
+    {
       id: 'campaigns',
       label: 'Campanhas',
       desc: 'Ver e criar campanhas',
@@ -600,10 +614,6 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
         )}
 
         <CatalogComposerDock />
-
-        {!prospectModuleOpen && !inboxModuleOpen && !catalogModuleOpen && (
-          <WhatsAppConnectDock />
-        )}
 
         <form className="workspace-chat__composer" onSubmit={submit}>
         <div className="workspace-chat__composer-actions" ref={menuRef}>

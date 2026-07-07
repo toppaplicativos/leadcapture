@@ -55,6 +55,10 @@ export const PROSPECT_SKILLS = new Set([
 
 export const INSTAGRAM_SKILLS = new Set([
   'instagram.open',
+  'instagram.post.create',
+  'instagram.post.confirm',
+  'instagram.analyze',
+  'instagram.messages',
 ])
 
 export function isCampaignSkill(skill?: string) {

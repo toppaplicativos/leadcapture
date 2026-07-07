@@ -1,9 +1,10 @@
-import { Search, MessageSquare, Megaphone, ShoppingCart, Sparkles, Package, Images, Users, Building2 } from 'lucide-react'
+import { Search, MessageSquare, Megaphone, ShoppingCart, Sparkles, Package, Images, Users, Building2, LayoutDashboard, Brain } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { OBJECTIVE_TRIGGERS } from '@/lib/agent/workspaceTriggers'
 import type { TriggerSkillOptions } from '@/lib/agent/types'
 
 const CARD_ICONS: Record<string, LucideIcon> = {
+  'dashboard.overview': LayoutDashboard,
   'lead.prospect': Search,
   'messages.inbox': MessageSquare,
   'catalog.products': Package,
@@ -13,9 +14,11 @@ const CARD_ICONS: Record<string, LucideIcon> = {
   'crm.clients.table': Building2,
   'catalog.orders': ShoppingCart,
   'order.assisted': ShoppingCart,
+  'skills.list': Brain,
 }
 
 const CARD_HINTS: Record<string, string> = {
+  'dashboard.overview': 'KPIs · visão geral',
   'lead.prospect': 'Mapa · segmento + cidade',
   'messages.inbox': 'WhatsApp · responder agora',
   'catalog.products': 'Catálogo · criar e editar',
@@ -25,6 +28,7 @@ const CARD_HINTS: Record<string, string> = {
   'crm.clients.table': 'Clientes · base convertida',
   'catalog.orders': 'Pedidos · vendas e status',
   'order.assisted': 'PDV · montar pedido',
+  'skills.list': 'Agente · brand skills',
 }
 
 type Props = {

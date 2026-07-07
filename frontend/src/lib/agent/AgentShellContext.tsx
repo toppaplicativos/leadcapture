@@ -335,6 +335,13 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
       lastInboxConvoKey.current = convId
       inboxBridge.queueCommand({ type: 'select_conversation', id: convId })
     }
+    if (stats?.props) {
+      inboxBridge?.publishSnapshot({
+        conversationCount: Number(stats.props.total ?? 0),
+        unreadTotal: Number(stats.props.unread ?? 0),
+        loadingConvos: false,
+      })
+    }
   }, [activeTurn, inboxBridge, isDesktop, closeInboxModule])
 
   /* Produtos: desktop = /produtos no canvas; mobile = painel inline */

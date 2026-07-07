@@ -137,6 +137,7 @@ const PATH_TO_KEY: Record<string, string> = {
 
 /** Chips e atalhos com skill dedicada */
 export const OBJECTIVE_TRIGGERS: WorkspaceTrigger[] = [
+  { skill: 'dashboard.overview', userLabel: 'Painel', assistantMessage: 'Resumo do seu negócio:' },
   { skill: 'lead.prospect', userLabel: 'Prospectar', assistantMessage: 'Vamos prospectar no mapa. Qual segmento e cidade?' },
   { skill: 'crm.leads.table', userLabel: 'Leads', assistantMessage: 'Seus leads recentes:' },
   { skill: 'crm.clients.table', userLabel: 'Clientes', assistantMessage: 'Sua base de clientes:' },
@@ -145,6 +146,7 @@ export const OBJECTIVE_TRIGGERS: WorkspaceTrigger[] = [
   { skill: 'catalog.products.create', userLabel: 'Criar produto', assistantMessage: 'Vamos criar um produto. Preencha o formulário:' },
   { skill: 'gallery.open', userLabel: 'Galeria', assistantMessage: 'Assets da marca:' },
   { skill: 'campaigns.list', userLabel: 'Campanhas', assistantMessage: 'Suas campanhas:' },
+  { skill: 'skills.list', userLabel: 'Habilidades', assistantMessage: 'Habilidades do agente:' },
   { skill: 'catalog.orders', userLabel: 'Pedidos', assistantMessage: 'Seus pedidos recentes:' },
   { skill: 'order.assisted', userLabel: 'Fazer pedido', assistantMessage: 'Vamos montar esse pedido. Para quem é?' },
 ]

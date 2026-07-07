@@ -1,8 +1,13 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, lazy, Suspense } from 'react'
 import { Loader2, Brain, ChevronRight, ExternalLink, Sparkles } from 'lucide-react'
 import { useSkillsBridgeOptional, type SkillRow } from '@/lib/agent/SkillsBridgeContext'
 import { useAgentShell } from '@/lib/agent/AgentShellContext'
 import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
+import { CatalogManagerSheet } from '@/components/agent/catalog/CatalogManagerSheet'
+
+const SkillsManager = lazy(() =>
+  import('@/pages/BrandSkillsPage').then((m) => ({ default: m.BrandSkillsPage })),
+)
 
 function getHeaders(): Record<string, string> {
   const h: Record<string, string> = { 'Content-Type': 'application/json' }
@@ -30,6 +35,7 @@ export function SkillsInlinePanel() {
   const snap = bridge?.snapshot
   const publishSnapshot = bridge?.publishSnapshot
   const [loading, setLoading] = useState(false)
+  const [managerOpen, setManagerOpen] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -51,11 +57,16 @@ export function SkillsInlinePanel() {
     }
   }, [publishSnapshot])
 
+  const openManager = useCallback(() => {
+    if (isDesktop) openCanvas('/habilidades')
+    else setManagerOpen(true)
+  }, [isDesktop, openCanvas])
+
   const registerHandlers = bridge?.registerHandlers
   useEffect(() => {
     if (!registerHandlers) return
     return registerHandlers({
-      openFull: () => openCanvas('/habilidades'),
+      openFull: () => openManager(),
       openTrainer: () => onOpenModal('skill-trainer'),
       refresh: () => { void load() },
       selectSkill: (id, name) => {
@@ -63,16 +74,11 @@ export function SkillsInlinePanel() {
         if (isDesktop) openCanvas('/habilidades')
       },
     })
-  }, [registerHandlers, openCanvas, onOpenModal, load, publishSnapshot, isDesktop])
+  }, [registerHandlers, openCanvas, onOpenModal, load, publishSnapshot, isDesktop, openManager])
 
   useEffect(() => {
     if (!snap?.skills.length && !loading) void load()
   }, [snap?.skills.length, loading, load])
-
-  const openManager = useCallback(() => {
-    if (isDesktop) openCanvas('/habilidades')
-    else bridge?.dispatch({ type: 'open_full' })
-  }, [isDesktop, openCanvas, bridge])
 
   const preview = (snap?.skills || []).slice(0, 6)
 
@@ -131,6 +137,17 @@ export function SkillsInlinePanel() {
         Gerenciar habilidades
         <ChevronRight size={13} />
       </button>
+
+      <CatalogManagerSheet
+        open={managerOpen}
+        onClose={() => setManagerOpen(false)}
+        title="Habilidades"
+        subtitle="Treinar e gerenciar brand skills"
+      >
+        <Suspense fallback={<div className="catalog-panel__loading"><Loader2 size={20} className="animate-spin text-gray-400" /></div>}>
+          <SkillsManager />
+        </Suspense>
+      </CatalogManagerSheet>
     </div>
   )
 }

@@ -1,11 +1,29 @@
-# Deploy completo — evita tela branca (sempre envia dist inteiro + verify)
+# Deploy completo — backend dist inteiro + frontend + verify + smoke opcional
 param(
   [string]$Vps = "root@187.127.5.179",
-  [string]$RemoteRoot = "/root/leadcapture"
+  [string]$RemoteRoot = "/root/leadcapture",
+  [switch]$SkipBuild,
+  [switch]$SkipSmoke
 )
 
 $ErrorActionPreference = "Stop"
 $Root = Split-Path $PSScriptRoot -Parent
+
+if (-not $SkipBuild) {
+  Write-Host ">> Bumping service worker cache (força refresh pós-deploy)"
+  node "$PSScriptRoot\bump-service-worker.mjs"
+
+  Write-Host ">> Build backend"
+  Push-Location $Root
+  npm run build
+  Pop-Location
+
+  Write-Host ">> Build frontend"
+  Push-Location "$Root\frontend"
+  npm run build
+  Pop-Location
+}
+
 if (-not (Test-Path "$Root\frontend\dist\index.html")) {
   Write-Host "Build frontend primeiro: npm -C frontend run build"
   exit 1
@@ -50,4 +68,23 @@ Write-Host ">> Aguardando serviços (15s)"
 Start-Sleep -Seconds 15
 Write-Host ">> Verificando deploy"
 node "$PSScriptRoot\verify-deploy.mjs"
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
 node "$PSScriptRoot\smoke-app.mjs"
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+if (-not $SkipSmoke -and $env:SMOKE_EMAIL -and $env:SMOKE_PASSWORD) {
+  Write-Host ">> Smoke autenticado (desktop)"
+  node "$PSScriptRoot\smoke-authenticated.mjs"
+  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+  Write-Host ">> Smoke autenticado (mobile)"
+  node "$PSScriptRoot\smoke-authenticated-mobile.mjs"
+  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+} elseif (-not $SkipSmoke) {
+  Write-Host ">> Smoke autenticado ignorado (defina SMOKE_EMAIL e SMOKE_PASSWORD)"
+}
+
+Write-Host ""
+Write-Host "Pos-deploy: PWA aberto pode precisar hard refresh (Ctrl+Shift+R) ou reabrir o app."
+Write-Host "Service worker versionado neste deploy."

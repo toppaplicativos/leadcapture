@@ -17,7 +17,7 @@ const EMAIL = process.env.SMOKE_EMAIL || ''
 const PASSWORD = process.env.SMOKE_PASSWORD || ''
 
 const MODULES = [
-  { label: 'Painel', selector: '.catalog-module--dashboard', titleRe: /painel|lead|campanha|produto|pedido/i },
+  { label: 'Painel', selector: '.catalog-module--dashboard', titleRe: /painel|resumo|lead|campanha|produto|pedido/i, minCount: 1 },
   { label: 'Leads', selector: '.catalog-module--leads', titleRe: /lead/i, minCount: 1 },
   { label: 'Produtos', selector: '.catalog-module.is-expanded', titleRe: /produto/i, minCount: 1 },
   { label: 'Campanhas', selector: '.catalog-module.is-expanded', titleRe: /campanha/i },

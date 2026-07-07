@@ -15,9 +15,9 @@ export function DashboardModuleBlock({ messageId, isActive }: Props) {
 
   if (!isActive || !bridge.moduleOpen) return null
 
-  const summary = snap.subtitle
-    ? snap.subtitle
-    : 'Resumo do negócio'
+  const summary = snap.leads > 0 || snap.products > 0
+    ? `Painel · ${snap.leads} leads`
+    : snap.subtitle || 'Resumo do negócio'
 
   return (
     <div className={`catalog-module catalog-module--dashboard ${expanded ? 'is-expanded' : 'is-collapsed'}`} data-msg={messageId}>

@@ -166,6 +166,10 @@ export class AdminAgentOrchestrator {
       turn.presentation = "inline";
       turn.canvasRoute = "/galeria";
     }
+    if (skillId === "dashboard.overview" || skillId === "dashboard.show") {
+      turn.presentation = "inline";
+      turn.canvasRoute = "/dashboard";
+    }
     if (!turn.presentation && turn.components?.length) {
       turn.presentation = "inline";
     }
@@ -962,10 +966,28 @@ Responda APENAS com JSON válido neste formato:
         break;
       }
 
-      case "dashboard.show":
+      case "dashboard.show": {
+        const dash = await this.buildDashboardKpiComponents(ctx);
+        components.push(...dash);
+        actions.push({ type: "navigate", payload: { path: "/dashboard" } });
+        break;
+      }
+
       case "flow.builder":
+        components.push(this.buildNavSuggestions(["fluxos"]));
+        actions.push({ type: "navigate", payload: { path: "/fluxos" } });
+        break;
+
       case "creative.generate":
+        components.push(this.buildNavSuggestions(["criativos"]));
+        actions.push({ type: "navigate", payload: { path: "/criativos" } });
+        break;
+
       case "video.create":
+        components.push(this.buildNavSuggestions(["video-studio"]));
+        actions.push({ type: "navigate", payload: { path: "/video-studio" } });
+        break;
+
       case "gallery.open": {
         const total = await fetchGalleryCount(ctx.userId, ctx.brandId);
         components.push({
@@ -1108,25 +1130,7 @@ Responda APENAS com JSON válido neste formato:
       }
 
       case "dashboard.overview": {
-        const [leads, inv, campaigns, orders] = await Promise.all([
-          this.countLeads(ctx.userId, ctx.brandId),
-          inventoryService.getOverview(ctx.userId, ctx.brandId),
-          this.countCampaigns(ctx.userId, ctx.brandId),
-          this.countOrders(ctx.userId, ctx.brandId),
-        ]);
-        components.push({
-          id: "kpis",
-          type: "kpi_row",
-          props: {
-            items: [
-              { label: "Leads", value: leads, icon: "users" },
-              { label: "Campanhas", value: campaigns.total, icon: "megaphone" },
-              { label: "Pedidos", value: orders, icon: "cart" },
-              { label: "Produtos", value: inv.total_products || 0, icon: "package" },
-            ],
-            subtitle: campaigns.active > 0 ? `${campaigns.active} campanha(s) ativa(s)` : undefined,
-          },
-        });
+        components.push(...(await this.buildDashboardKpiComponents(ctx)));
         components.push(this.buildHelpNav());
         break;
       }
@@ -1138,6 +1142,28 @@ Responda APENAS com JSON válido neste formato:
     }
 
     return { components, actions };
+  }
+
+  private async buildDashboardKpiComponents(ctx: AdminAgentContext): Promise<ComponentSpec[]> {
+    const [leads, inv, campaigns, orders] = await Promise.all([
+      this.countLeads(ctx.userId, ctx.brandId),
+      inventoryService.getOverview(ctx.userId, ctx.brandId),
+      this.countCampaigns(ctx.userId, ctx.brandId),
+      this.countOrders(ctx.userId, ctx.brandId),
+    ]);
+    return [{
+      id: "kpis",
+      type: "kpi_row",
+      props: {
+        items: [
+          { label: "Leads", value: leads, icon: "users" },
+          { label: "Campanhas", value: campaigns.total, icon: "megaphone" },
+          { label: "Pedidos", value: orders, icon: "cart" },
+          { label: "Produtos", value: inv.total_products || 0, icon: "package" },
+        ],
+        subtitle: campaigns.active > 0 ? `${campaigns.active} campanha(s) ativa(s)` : undefined,
+      },
+    }];
   }
 
   private buildHelpNav(): ComponentSpec {

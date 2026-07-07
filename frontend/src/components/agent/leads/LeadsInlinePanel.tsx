@@ -258,7 +258,7 @@ export function LeadsInlinePanel() {
           <button
             key={s || 'all'}
             type="button"
-            className={`catalog-panel__filter-chip ${statusFilter === s ? 'is-active' : ''}`}
+            className={`catalog-panel__filter-chip catalog-panel__filter-chip--leads ${statusFilter === s ? 'is-active' : ''}`}
             onClick={() => {
               setStatusFilter(s)
               void load({ status: s })

@@ -2217,9 +2217,32 @@ html.agent-workspace #root {
   border-color: var(--color-gray-900);
 }
 
+/* ── Leads (blue, sem side-stripe) ── */
+.catalog-module--leads {
+  border-color: #bfdbfe;
+  background: linear-gradient(180deg, #eff6ff 0%, white 2.5rem);
+}
+.catalog-module__badge--leads {
+  color: #1d4ed8;
+  background: #dbeafe;
+}
 .catalog-panel--leads .catalog-lead-grid,
 .catalog-panel--prospect .catalog-lead-list {
   margin-top: 0.25rem;
+}
+.catalog-panel__filter-chip--leads.is-active {
+  color: white;
+  background: #2563eb;
+  border-color: #2563eb;
+}
+.catalog-panel__action--leads {
+  color: white;
+  background: #2563eb;
+  border-color: #2563eb;
+}
+.catalog-panel__action--leads:hover {
+  background: #1d4ed8;
+  border-color: #1d4ed8;
 }
 
 .catalog-lead-grid {

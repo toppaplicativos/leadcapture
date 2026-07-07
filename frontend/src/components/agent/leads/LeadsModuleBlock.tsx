@@ -20,17 +20,17 @@ export function LeadsModuleBlock({ messageId, isActive }: Props) {
     : `${snap.total} lead${snap.total === 1 ? '' : 's'}`
 
   return (
-    <div className={`catalog-module ${expanded ? 'is-expanded' : 'is-collapsed'}`} data-msg={messageId}>
+    <div className={`catalog-module catalog-module--leads ${expanded ? 'is-expanded' : 'is-collapsed'}`} data-msg={messageId}>
       <div className="catalog-module__head">
         <button
           type="button"
           className="catalog-module__toggle"
           onClick={() => bridge.setModuleExpanded(!bridge.moduleExpanded)}
         >
-          <Users size={13} className="shrink-0 text-gray-500" />
+          <Users size={13} className="shrink-0 text-blue-600" />
           <span className="catalog-module__title">{summary}</span>
           {snap.newCount > 0 && (
-            <span className="catalog-module__badge">{snap.newCount} novo{snap.newCount === 1 ? '' : 's'}</span>
+            <span className="catalog-module__badge catalog-module__badge--leads">{snap.newCount} novo{snap.newCount === 1 ? '' : 's'}</span>
           )}
           {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
         </button>

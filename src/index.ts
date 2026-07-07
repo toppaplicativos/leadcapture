@@ -213,6 +213,10 @@ const hasReactBuild = require("fs").existsSync(reactIndexPath);
 if (hasReactBuild) {
   // Serve React static assets (JS, CSS, etc.)
   app.use("/assets", express.static(path.join(reactDistPath, "assets"), { maxAge: "30d", immutable: true }));
+  // Missing chunks must 404 — SPA HTML breaks ES module loading (white screen)
+  app.use("/assets", (_req, res) => {
+    res.status(404).type("text/plain").send("Asset not found");
+  });
 }
 
 // Service worker must never be cached — always serve fresh so version bumps take effect immediately
@@ -2418,7 +2422,7 @@ app.get("*", async (req, res) => {
   if (req.path.startsWith("/api")) {
     return res.status(404).json({ error: "API route not found" });
   }
-  if (req.path.startsWith("/uploads")) {
+  if (req.path.startsWith("/uploads") || req.path.startsWith("/assets")) {
     return res.status(404).end();
   }
   const host = extractHostname(req);

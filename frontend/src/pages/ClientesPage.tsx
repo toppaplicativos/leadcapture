@@ -8,6 +8,9 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui'
 import { SmartImportModal } from '@/components/SmartImportModal'
+import { useClientsBridgeOptional } from '@/lib/agent/ClientsBridgeContext'
+import { useAgentShellOptional } from '@/lib/agent/AgentShellContext'
+import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
 
 /* ── Auth helpers ── */
 function getHeaders(): Record<string, string> {
@@ -146,7 +149,7 @@ function Chip({
 /* ══════════════════════════════════════════════
    CLIENTES PAGE — Mesma estrutura do LeadsPage, aponta pra /api/clients.
    ══════════════════════════════════════════════ */
-export function ClientesPage() {
+export function ClientesPage({ embedded = false }: { embedded?: boolean } = {}) {
   const [leads, setLeads] = useState<Lead[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
@@ -180,6 +183,10 @@ export function ClientesPage() {
   const [showFilters, setShowFilters] = useState(true)
 
   const LIMIT = 50
+  const clientsBridge = useClientsBridgeOptional()
+  const agentShell = useAgentShellOptional()
+  const isDesktop = useIsDesktop()
+  const pendingSelectId = useRef<string | null>(null)
 
   /* ── Load filter options once on mount ── */
   useEffect(() => {
@@ -357,28 +364,86 @@ export function ClientesPage() {
     selStatus.length + selCategory.length + selCity.length +
     selTags.length + (minRating ? 1 : 0) + (hasWhatsapp !== null ? 1 : 0)
 
+  useEffect(() => {
+    if (!clientsBridge?.registerHandlers || (!embedded && !isDesktop)) return
+    return clientsBridge.registerHandlers({
+      search: (q) => {
+        setSearch(q)
+        setPage(1)
+        loadLeads(1)
+      },
+      filterStatus: (s) => {
+        setSelStatus(s ? [s] : [])
+        setPage(1)
+      },
+      selectClient: (id) => {
+        const found = leads.find((l) => String(l.id) === String(id))
+        if (found) setSelectedLead(found)
+        else pendingSelectId.current = id
+      },
+      openFull: () => { if (isDesktop) agentShell?.openCanvas('/clientes') },
+      openImport: () => setSmartImportOpen(true),
+      refresh: () => loadLeads(),
+    })
+  }, [clientsBridge, embedded, isDesktop, leads, agentShell])
+
+  useEffect(() => {
+    if (!isDesktop || !pendingSelectId.current) return
+    const found = leads.find((l) => String(l.id) === String(pendingSelectId.current))
+    if (found) {
+      setSelectedLead(found)
+      pendingSelectId.current = null
+    }
+  }, [leads, isDesktop])
+
+  useEffect(() => {
+    if (!clientsBridge?.publishSnapshot || (!embedded && !isDesktop)) return
+    const activeCount = filterOptions?.statuses
+      ?.filter((x) => ['converted', 'active', 'negotiating', 'replied'].includes(x.value))
+      .reduce((s, x) => s + x.count, 0)
+      ?? leads.filter((l) => ['converted', 'active', 'negotiating', 'replied'].includes(l.status)).length
+    clientsBridge.publishSnapshot({
+      total: total || filterOptions?.total || 0,
+      activeCount,
+      search,
+      statusFilter: selStatus[0] || '',
+      loading,
+      selectedId: selectedLead?.id ? String(selectedLead.id) : null,
+      selectedName: selectedLead?.name || '',
+    })
+  }, [clientsBridge, embedded, isDesktop, total, filterOptions, leads, search, selStatus, loading, selectedLead])
+
   /* ── Render ── */
   return (
     <div className="space-y-3">
 
       {/* ── Header slim — título + ações principais ── */}
       <header className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-baseline gap-3">
-          <h2 className="text-[24px] font-bold text-gray-900 tracking-[-0.02em]">Clientes</h2>
-          <p className="text-[12px] text-gray-400 tabular-nums">
-            {filterOptions ? `${Number(filterOptions.total ?? 0).toLocaleString('pt-BR')} registros` : '—'}
+        {embedded ? (
+          <p className="text-[12px] text-gray-500 tabular-nums">
+            {filterOptions ? `${filterOptions.total.toLocaleString('pt-BR')} clientes` : '—'}
+            {selStatus.length ? ` · ${selStatus.join(', ')}` : ''}
           </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setSmartImportOpen(true)}
-            title="Importar clientes via IA — texto, CSV/XLS, imagem ou foto"
-            className="ai-shimmer h-9 flex items-center gap-1.5 px-3.5 rounded-lg bg-gray-900 text-white text-[12px] font-semibold hover:bg-black hover:shadow-[0_4px_12px_rgba(0,0,0,0.25)] transition-all"
-          >
-            <Sparkles size={13} strokeWidth={2.25} />
-            <span className="hidden sm:inline">Importar</span>
-          </button>
-        </div>
+        ) : (
+          <>
+            <div className="flex items-baseline gap-3">
+              <h2 className="text-[24px] font-bold text-gray-900 tracking-[-0.02em]">Clientes</h2>
+              <p className="text-[12px] text-gray-400 tabular-nums">
+                {filterOptions ? `${Number(filterOptions.total ?? 0).toLocaleString('pt-BR')} registros` : '—'}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setSmartImportOpen(true)}
+                title="Importar clientes via IA — texto, CSV/XLS, imagem ou foto"
+                className="ai-shimmer h-9 flex items-center gap-1.5 px-3.5 rounded-lg bg-gray-900 text-white text-[12px] font-semibold hover:bg-black hover:shadow-[0_4px_12px_rgba(0,0,0,0.25)] transition-all"
+              >
+                <Sparkles size={13} strokeWidth={2.25} />
+                <span className="hidden sm:inline">Importar</span>
+              </button>
+            </div>
+          </>
+        )}
       </header>
 
       {/* ── KPI CARDS — métricas densas com info adicional ── */}

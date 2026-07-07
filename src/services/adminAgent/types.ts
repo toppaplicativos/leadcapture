@@ -16,7 +16,8 @@ export type ComponentType =
   | "products_stats"
   | "campaigns_stats"
   | "gallery_stats"
-  | "leads_stats";
+  | "leads_stats"
+  | "clients_stats";
 
 export type PresentationMode = "inline" | "canvas";
 

@@ -9,6 +9,7 @@ import { Card, CardBody } from '@/components/ui/Card'
 import type { AgentCallbacks, ComponentSpec } from '@/lib/agent/types'
 import { useProspectBridgeOptional } from '@/lib/agent/ProspectBridgeContext'
 import { useLeadsBridgeOptional } from '@/lib/agent/LeadsBridgeContext'
+import { useClientsBridgeOptional } from '@/lib/agent/ClientsBridgeContext'
 import { useProductsBridgeOptional } from '@/lib/agent/ProductsBridgeContext'
 
 const KPI_ICONS: Record<string, LucideIcon> = {
@@ -205,12 +206,14 @@ function SkillList({ props, callbacks }: { props?: Record<string, unknown>; call
 }
 
 function DataTable({ spec, callbacks }: { spec: ComponentSpec; callbacks: AgentCallbacks }) {
+  const clientsBridge = useClientsBridgeOptional()
   const props = spec.props
   const title = String(props?.title || '')
   const columns = (props?.columns as Array<{ key: string; label: string }>) || []
   const rows = (props?.rows as Array<Record<string, unknown>>) || []
   const rowType = String(props?.rowType || '')
   const emptyLabel = String(props?.emptyLabel || 'Nenhum registro.')
+  const rowClickable = rowType === 'lead' || rowType === 'client' || rowType === 'conversation' || rowType === 'product'
 
   if (!rows.length) {
     return (
@@ -246,7 +249,7 @@ function DataTable({ spec, callbacks }: { spec: ComponentSpec; callbacks: AgentC
               <tr
                 key={String(row.id || i)}
                 className={`border-b border-border-light last:border-0 ${
-                  rowType === 'lead' ? 'cursor-pointer hover:bg-gray-50 active:bg-gray-100' : ''
+                  rowClickable ? 'cursor-pointer hover:bg-gray-50 active:bg-gray-100' : ''
                 }`}
                 onClick={() => {
                   if (rowType === 'lead' && row.id) {
@@ -255,6 +258,18 @@ function DataTable({ spec, callbacks }: { spec: ComponentSpec; callbacks: AgentC
                       action: 'select_row',
                       payload: { leadId: row.id },
                     }, { leadId: String(row.id), nextSkill: 'crm.lead.detail' })
+                  } else if (rowType === 'client' && row.id) {
+                    if (clientsBridge?.isReady) {
+                      clientsBridge.setModuleExpanded(true)
+                      clientsBridge.dispatch({
+                        type: 'select_client',
+                        id: String(row.id),
+                        name: String(row.name || ''),
+                      })
+                      clientsBridge.dispatch({ type: 'open_full' })
+                    } else {
+                      callbacks.onNavigate('/clientes')
+                    }
                   } else if (rowType === 'conversation' && row.id) {
                     callbacks.onComponentEvent?.({
                       componentId: spec.id,

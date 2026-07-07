@@ -17,6 +17,7 @@ export type ComponentType =
   | 'campaigns_stats'
   | 'gallery_stats'
   | 'leads_stats'
+  | 'clients_stats'
 
 export type PresentationMode = 'inline' | 'canvas'
 

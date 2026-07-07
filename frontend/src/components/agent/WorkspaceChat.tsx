@@ -4,7 +4,7 @@ import { SkillTrainerWizardModal } from '@/components/SkillTrainerWizardModal'
 import {
   Send, Loader2, LayoutGrid, Search, MapPin, Zap,
   Maximize2, Sparkles, MessageSquare, Megaphone, ShoppingCart,
-  PanelRight, X, Package, Images, Users,
+  PanelRight, X, Package, Images, Users, Building2,
 } from 'lucide-react'
 import { AgentUIRenderer } from './AgentUIRenderer'
 import { ProspectModuleBlock } from './prospect/ProspectModuleBlock'
@@ -15,6 +15,7 @@ import { ProductsModuleBlock } from './catalog/ProductsModuleBlock'
 import { CampaignsModuleBlock } from './catalog/CampaignsModuleBlock'
 import { GalleryModuleBlock } from './catalog/GalleryModuleBlock'
 import { LeadsModuleBlock } from './leads/LeadsModuleBlock'
+import { ClientsModuleBlock } from './clients/ClientsModuleBlock'
 import { CatalogComposerDock } from './catalog/CatalogComposerDock'
 import { useAgentShell } from '@/lib/agent/AgentShellContext'
 import { useProspectBridgeOptional } from '@/lib/agent/ProspectBridgeContext'
@@ -27,6 +28,7 @@ import { OBJECTIVE_TRIGGERS } from '@/lib/agent/workspaceTriggers'
 import {
   isCampaignSkill,
   isLeadsSkill,
+  isClientsSkill,
   isProductSkill as isCatalogProductSkill,
 } from '@/lib/agent/composerAiActions'
 import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
@@ -48,6 +50,8 @@ const CATALOG_INLINE_SKILLS = new Set([
   'crm.leads.search',
   'crm.lead.find',
   'crm.lead.detail',
+  'crm.clients.table',
+  'crm.clients.list',
   'lead.prospect',
 ])
 
@@ -89,6 +93,11 @@ function filterInlineComponents(turn?: AgentTurn): ComponentSpec[] | undefined {
       c.type !== 'leads_stats' && c.type !== 'kpi_row' && c.type !== 'table' && c.type !== 'lead_card',
     )
   }
+  if (isClientsSkill(turn.skill)) {
+    return turn.components.filter((c) =>
+      c.type !== 'clients_stats' && c.type !== 'kpi_row' && c.type !== 'table',
+    )
+  }
   return turn.components
 }
 
@@ -113,6 +122,7 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
     campaignsModuleOpen,
     galleryModuleOpen,
     leadsModuleOpen,
+    clientsModuleOpen,
   } = useAgentShell()
 
   const bridge = useProspectBridgeOptional()
@@ -141,7 +151,7 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
   useEffect(() => {
     const el = scrollRef.current
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
-  }, [messages, loading, prospectModuleOpen, inboxModuleOpen, productsModuleOpen, campaignsModuleOpen, galleryModuleOpen, leadsModuleOpen])
+  }, [messages, loading, prospectModuleOpen, inboxModuleOpen, productsModuleOpen, campaignsModuleOpen, galleryModuleOpen, leadsModuleOpen, clientsModuleOpen])
 
   useEffect(() => {
     if (!menuOpen) return
@@ -184,7 +194,10 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
   const lastLeadsMsg = [...display].reverse().find(
     (m) => m.role === 'assistant' && !m.loading && isLeadsSkill(m.turn?.skill),
   )
-  const catalogModuleOpen = productsModuleOpen || campaignsModuleOpen || galleryModuleOpen || leadsModuleOpen
+  const lastClientsMsg = [...display].reverse().find(
+    (m) => m.role === 'assistant' && !m.loading && isClientsSkill(m.turn?.skill),
+  )
+  const catalogModuleOpen = productsModuleOpen || campaignsModuleOpen || galleryModuleOpen || leadsModuleOpen || clientsModuleOpen
   const showCanvasBtn = lastAssistant?.turn
     && turnNeedsCanvas(lastAssistant.turn)
     && !desktopCanvasOpen
@@ -281,6 +294,16 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
       },
     },
     {
+      id: 'clients',
+      label: 'Clientes',
+      desc: 'Base convertida e importação',
+      icon: Building2,
+      action: () => {
+        setMenuOpen(false)
+        triggerSkill('crm.clients.table', { label: 'Ver clientes', assistantMessage: 'Sua base de clientes:' })
+      },
+    },
+    {
       id: 'products',
       label: 'Produtos',
       desc: 'Catálogo no chat ou canvas',
@@ -366,6 +389,9 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
           const isLeadsActive = leadsModuleOpen
             && msg.id === lastLeadsMsg?.id
             && isLeadsSkill(msg.turn?.skill)
+          const isClientsActive = clientsModuleOpen
+            && msg.id === lastClientsMsg?.id
+            && isClientsSkill(msg.turn?.skill)
           const inlineComponents = filterInlineComponents(msg.turn)
 
           return (
@@ -400,6 +426,9 @@ export function WorkspaceChat({ brandName }: { brandName?: string } = {}) {
                       )}
                       {isLeadsSkill(msg.turn?.skill) && (
                         <LeadsModuleBlock messageId={msg.id} isActive={!!isLeadsActive} />
+                      )}
+                      {isClientsSkill(msg.turn?.skill) && (
+                        <ClientsModuleBlock messageId={msg.id} isActive={!!isClientsActive} />
                       )}
                       {msg.turn && turnShowsInline(msg.turn) && inlineComponents && inlineComponents.length > 0 && (
                         <AgentUIRenderer

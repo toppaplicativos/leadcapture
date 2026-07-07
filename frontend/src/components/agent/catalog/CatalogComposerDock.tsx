@@ -1,5 +1,5 @@
 import {
-  Plus, Upload, Sparkles, Package, Images, Megaphone, Wand2, Brain, Users, ShieldCheck, Zap, MapPin,
+  Plus, Upload, Sparkles, Package, Images, Megaphone, Wand2, Brain, Users, Building2, ShieldCheck, Zap, MapPin,
 } from 'lucide-react'
 import { useAgentShell } from '@/lib/agent/AgentShellContext'
 import { useProductsBridgeOptional } from '@/lib/agent/ProductsBridgeContext'
@@ -7,9 +7,11 @@ import { useCampaignsBridgeOptional } from '@/lib/agent/CampaignsBridgeContext'
 import { useGalleryBridgeOptional } from '@/lib/agent/GalleryBridgeContext'
 import { useProspectBridgeOptional } from '@/lib/agent/ProspectBridgeContext'
 import { useLeadsBridgeOptional } from '@/lib/agent/LeadsBridgeContext'
+import { useClientsBridgeOptional } from '@/lib/agent/ClientsBridgeContext'
 import {
   isCampaignSkill,
   isLeadsSkill,
+  isClientsSkill,
   isProductSkill,
   isCreativeSkill,
   isSkillTrainerSkill,
@@ -59,6 +61,7 @@ export function CatalogComposerDock() {
     campaignsModuleOpen,
     galleryModuleOpen,
     leadsModuleOpen,
+    clientsModuleOpen,
     prospectModuleOpen,
     onOpenModal,
     openCanvas,
@@ -70,8 +73,10 @@ export function CatalogComposerDock() {
   const gallery = useGalleryBridgeOptional()
   const prospect = useProspectBridgeOptional()
   const leads = useLeadsBridgeOptional()
+  const clients = useClientsBridgeOptional()
 
   const campaignContext = campaignsModuleOpen || isCampaignSkill(activeTurn?.skill)
+  const clientsContext = clientsModuleOpen || isClientsSkill(activeTurn?.skill)
   const leadsContext = leadsModuleOpen || isLeadsSkill(activeTurn?.skill)
   const productContext = productsModuleOpen || isProductSkill(activeTurn?.skill)
   const galleryContext = galleryModuleOpen || activeTurn?.skill === 'gallery.open'
@@ -102,6 +107,38 @@ export function CatalogComposerDock() {
                   campaigns.setModuleExpanded(true)
                   campaigns.dispatch({ type: 'open_full' })
                 }}
+              />
+            </>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  if (clientsContext) {
+    const openImport = () => {
+      if (clients?.isReady) clients.dispatch({ type: 'open_import' })
+      else openCanvas('/clientes')
+    }
+
+    return (
+      <div className="workspace-chat__action-dock">
+        <AiPrimaryButton label="Importar clientes com IA" onClick={openImport} />
+        <div className="workspace-chat__action-chips">
+          {clients?.isReady && (
+            <>
+              <ActionChip
+                label="Gerenciar"
+                icon={Building2}
+                onClick={() => {
+                  clients.setModuleExpanded(true)
+                  clients.dispatch({ type: 'open_full' })
+                }}
+              />
+              <ActionChip
+                label="Atualizar"
+                icon={Upload}
+                onClick={() => clients.dispatch({ type: 'refresh' })}
               />
             </>
           )}

@@ -9,6 +9,8 @@ import {
   fetchLeadStats,
   fetchRecentConversations,
   fetchRecentLeads,
+  fetchRecentClients,
+  fetchClientStats,
   fetchRecentProducts,
   fetchGalleryCount,
   generateProductDraftFromBrief,
@@ -145,6 +147,10 @@ export class AdminAgentOrchestrator {
     if (skillId === "catalog.products" || skillId === "catalog.products.table" || skillId === "catalog.products.create") {
       turn.presentation = "inline";
       turn.canvasRoute = "/produtos";
+    }
+    if (skillId === "crm.clients.table" || skillId === "crm.clients.list") {
+      turn.presentation = "inline";
+      turn.canvasRoute = "/clientes";
     }
     if (skillId === "campaigns.list") {
       turn.presentation = "inline";
@@ -510,6 +516,59 @@ Responda APENAS com JSON válido neste formato:
         if (skillId === "crm.leads.search") {
           components.push(this.buildNavSuggestions(["busca"]));
         }
+        break;
+      }
+
+      case "crm.clients.table":
+      case "crm.clients.list": {
+        const search = String(sk.search || "").trim();
+        const status = String(sk.status || "").trim();
+        const [stats, clients] = await Promise.all([
+          fetchClientStats(ctx.userId, ctx.brandId),
+          fetchRecentClients(ctx.userId, ctx.brandId, {
+            search: search || undefined,
+            status: status || undefined,
+            limit: 12,
+          }),
+        ]);
+        components.push({
+          id: "clients-stats",
+          type: "clients_stats",
+          props: {
+            total: stats.total || 0,
+            activeCount: stats.active_count || 0,
+            search: search || undefined,
+            status: status || undefined,
+            live: true,
+          },
+        });
+        components.push({
+          id: "client-stats-kpi",
+          type: "kpi_row",
+          props: {
+            items: [
+              { label: "Clientes", value: stats.total || 0, icon: "users" },
+              { label: "Ativos", value: stats.active_count || 0, icon: "zap" },
+            ],
+          },
+        });
+        components.push({
+          id: "clients-table",
+          type: "table",
+          props: {
+            title: "Clientes recentes",
+            columns: [
+              { key: "name", label: "Nome" },
+              { key: "phone", label: "Telefone" },
+              { key: "city", label: "Cidade" },
+              { key: "status", label: "Status" },
+            ],
+            rows: clients.rows,
+            rowType: "client",
+            emptyLabel: "Nenhum cliente encontrado.",
+          },
+        });
+        components.push(this.buildNavSuggestions(["clientes", "leads"]));
         break;
       }
 

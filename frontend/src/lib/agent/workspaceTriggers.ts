@@ -103,9 +103,9 @@ const TRIGGERS: Record<string, WorkspaceTrigger> = {
     assistantMessage: 'Vamos montar esse pedido. Para quem é?',
   },
   clientes: {
-    skill: 'crm.leads.table',
+    skill: 'crm.clients.table',
     userLabel: 'Ver clientes',
-    assistantMessage: 'Seus contatos recentes:',
+    assistantMessage: 'Sua base de clientes:',
   },
 }
 
@@ -139,6 +139,7 @@ const PATH_TO_KEY: Record<string, string> = {
 export const OBJECTIVE_TRIGGERS: WorkspaceTrigger[] = [
   { skill: 'lead.prospect', userLabel: 'Prospectar', assistantMessage: 'Vamos prospectar no mapa. Qual segmento e cidade?' },
   { skill: 'crm.leads.table', userLabel: 'Leads', assistantMessage: 'Seus leads recentes:' },
+  { skill: 'crm.clients.table', userLabel: 'Clientes', assistantMessage: 'Sua base de clientes:' },
   { skill: 'messages.inbox', userLabel: 'Responder cliente', assistantMessage: 'Últimas conversas:' },
   { skill: 'catalog.products', userLabel: 'Produtos', assistantMessage: 'Seu catálogo:' },
   { skill: 'catalog.products.create', userLabel: 'Criar produto', assistantMessage: 'Vamos criar um produto. Preencha o formulário:' },

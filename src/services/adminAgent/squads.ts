@@ -64,6 +64,24 @@ export const SKILLS: Record<string, SkillDefinition> = {
     permissions: ["leads.read"],
     ui: ["form", "table"],
   },
+  "crm.clients.table": {
+    id: "crm.clients.table",
+    name: "Ver clientes",
+    description: "Lista clientes convertidos e relacionamento ativo.",
+    squad: "crm",
+    intents: ["clientes", "ver clientes", "meus clientes", "base de clientes"],
+    permissions: ["clients.read"],
+    ui: ["clients_stats", "kpi_row", "table"],
+  },
+  "crm.clients.list": {
+    id: "crm.clients.list",
+    name: "Lista de clientes",
+    description: "Tabela de clientes com filtros.",
+    squad: "crm",
+    intents: ["lista de clientes", "tabela clientes"],
+    permissions: ["clients.read"],
+    ui: ["clients_stats", "table"],
+  },
   "crm.lead.detail": {
     id: "crm.lead.detail",
     name: "Detalhe do lead",
@@ -248,7 +266,7 @@ export const SQUADS: Record<string, SquadDefinition> = {
     id: "crm",
     name: "CRM",
     description: "Leads, clientes e prospecção.",
-    skills: ["lead.prospect", "crm.leads.list", "crm.leads.table", "crm.lead.find", "crm.lead.detail", "crm.leads.search"],
+    skills: ["lead.prospect", "crm.leads.list", "crm.leads.table", "crm.lead.find", "crm.lead.detail", "crm.leads.search", "crm.clients.table", "crm.clients.list"],
   },
   messages: {
     id: "messages",
@@ -303,6 +321,7 @@ export const SQUADS: Record<string, SquadDefinition> = {
 export const NAV_PATHS: Record<string, { path: string; label: string }> = {
   dashboard: { path: "/admin", label: "Painel" },
   leads: { path: "/leads", label: "Leads" },
+  clientes: { path: "/clientes", label: "Clientes" },
   busca: { path: "/busca", label: "Busca" },
   mensagens: { path: "/mensagens", label: "Mensagens" },
   campanhas: { path: "/campanhas", label: "Campanhas" },

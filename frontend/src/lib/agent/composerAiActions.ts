@@ -30,6 +30,11 @@ export const LEADS_SKILLS = new Set([
   'crm.lead.detail',
 ])
 
+export const CLIENTS_SKILLS = new Set([
+  'crm.clients.table',
+  'crm.clients.list',
+])
+
 export const PROSPECT_SKILLS = new Set([
   'lead.prospect',
   'crm.leads.search',
@@ -53,6 +58,10 @@ export function isSkillTrainerSkill(skill?: string) {
 
 export function isLeadsSkill(skill?: string) {
   return !!skill && LEADS_SKILLS.has(skill)
+}
+
+export function isClientsSkill(skill?: string) {
+  return !!skill && CLIENTS_SKILLS.has(skill)
 }
 
 export function isProspectSkill(skill?: string) {

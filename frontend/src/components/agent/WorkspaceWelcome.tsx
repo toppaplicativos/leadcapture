@@ -1,4 +1,4 @@
-import { Search, MessageSquare, Megaphone, ShoppingCart, Sparkles, Package, Images, Users } from 'lucide-react'
+import { Search, MessageSquare, Megaphone, ShoppingCart, Sparkles, Package, Images, Users, Building2 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { OBJECTIVE_TRIGGERS } from '@/lib/agent/workspaceTriggers'
 import type { TriggerSkillOptions } from '@/lib/agent/types'
@@ -10,6 +10,7 @@ const CARD_ICONS: Record<string, LucideIcon> = {
   'gallery.open': Images,
   'campaigns.list': Megaphone,
   'crm.leads.table': Users,
+  'crm.clients.table': Building2,
   'order.assisted': ShoppingCart,
 }
 
@@ -20,6 +21,7 @@ const CARD_HINTS: Record<string, string> = {
   'gallery.open': 'Mídia · upload no chat',
   'campaigns.list': 'Campanhas · ver e criar',
   'crm.leads.table': 'Leads · CRM e importação',
+  'crm.clients.table': 'Clientes · base convertida',
   'order.assisted': 'PDV · montar pedido',
 }
 

@@ -1,8 +1,9 @@
 import { CustomersService } from "../customers";
+import { ClientsService } from "../clients";
 import { InventoryService } from "../inventory";
 import { galleryService } from "../gallery";
 import { aiRouter } from "../aiRouter";
-import { query } from "../../config/database";
+import { query, queryOne } from "../../config/database";
 
 export type ProductDraft = {
   name: string;
@@ -13,6 +14,7 @@ export type ProductDraft = {
 };
 
 const customersService = new CustomersService();
+const clientsService = new ClientsService();
 const inventoryService = new InventoryService();
 
 export async function fetchRecentLeads(
@@ -127,6 +129,58 @@ export async function fetchLeadStats(userId: string, brandId: string | null) {
     return await customersService.getStats(userId, brandId);
   } catch {
     return null;
+  }
+}
+
+export async function fetchRecentClients(
+  userId: string,
+  brandId: string | null,
+  opts?: { search?: string; status?: string; limit?: number },
+) {
+  const result = await clientsService.getAll(userId, {
+    search: opts?.search,
+    status: opts?.status,
+    page: 1,
+    limit: opts?.limit || 12,
+    brand_id: brandId || undefined,
+  });
+
+  return {
+    total: result.total,
+    rows: (result.clients || []).map((c: any) => ({
+      id: c.id,
+      name: c.name || c.trade_name || "Sem nome",
+      phone: c.phone || "",
+      email: c.email || "",
+      city: c.city || "",
+      status: c.status || "",
+      source: c.source || "",
+    })),
+  };
+}
+
+export async function fetchClientStats(userId: string, brandId: string | null) {
+  try {
+    const params: any[] = [userId];
+    let where = "user_id = ? AND is_active = TRUE";
+    if (brandId) {
+      where += " AND brand_id = ?";
+      params.push(brandId);
+    } else {
+      where += " AND brand_id IS NULL";
+    }
+    const row = await queryOne<{ total: number; active_count: number }>(
+      `SELECT COUNT(*)::int AS total,
+        SUM(CASE WHEN status IN ('converted', 'active', 'negotiating', 'replied') THEN 1 ELSE 0 END)::int AS active_count
+       FROM clients WHERE ${where}`,
+      params,
+    );
+    return {
+      total: Number(row?.total ?? 0),
+      active_count: Number(row?.active_count ?? 0),
+    };
+  } catch {
+    return { total: 0, active_count: 0 };
   }
 }
 

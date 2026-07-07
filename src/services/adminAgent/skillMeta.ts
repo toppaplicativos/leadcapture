@@ -23,6 +23,20 @@ export const SKILL_META: Record<string, SkillMeta> = {
     requiresCanvas: false,
     inlineComponents: true,
   },
+  "crm.clients.table": {
+    kind: "business",
+    objectives: ["ver clientes", "relacionamento", "base de clientes"],
+    requiresCanvas: false,
+    canvasRoute: "/clientes",
+    inlineComponents: true,
+  },
+  "crm.clients.list": {
+    kind: "business",
+    objectives: ["lista de clientes"],
+    requiresCanvas: false,
+    canvasRoute: "/clientes",
+    inlineComponents: true,
+  },
   "lead.prospect": {
     kind: "business",
     objectives: ["prospectar leads", "buscar no mapa", "modo paleteiro"],

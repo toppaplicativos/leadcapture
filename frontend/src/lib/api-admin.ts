@@ -526,6 +526,11 @@ export const adminApi = {
     }
   },
 
+  customerStats: async () => {
+    const data = await authFetch<any>('/api/customers/stats', getAdminHeaders())
+    return data.stats || data
+  },
+
   clients: async (page = 1, limit = 30, search = '') => {
     const q = new URLSearchParams({ page: String(page), limit: String(limit) })
     if (search.trim()) q.set('search', search.trim())

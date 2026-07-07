@@ -36,15 +36,15 @@ export function DashboardView({ showToast }: { showToast: (t: string, tp?: 'ok' 
     setLoading(true)
     Promise.all([
       inventoryApi.overview().catch(() => ({})),
-      adminApi.clients(1, 1).catch(() => ({ total: 0 })),
+      adminApi.customerStats().catch(() => ({ total: 0 })),
       adminApi.campaigns().catch(() => ({ campaigns: [] })),
       adminApi.orders(1, 1).catch(() => ({ total: 0 })),
-    ]).then(([inv, clients, campaigns, orders]) => {
+    ]).then(([inv, leadStats, campaigns, orders]) => {
       setData({
         products: inv?.total_products || 0,
         totalStock: inv?.total_units || 0,
         outOfStock: inv?.out_of_stock || 0,
-        totalLeads: clients?.total || clients?.customers?.length || 0,
+        totalLeads: Number(leadStats?.total ?? 0),
         activeCampaigns: (campaigns?.campaigns || []).filter((c: any) => c.status === 'active' || c.status === 'running').length,
         totalCampaigns: (campaigns?.campaigns || []).length,
         totalOrders: orders?.total || orders?.orders?.length || 0,
@@ -55,18 +55,24 @@ export function DashboardView({ showToast }: { showToast: (t: string, tp?: 'ok' 
 
   useEffect(() => {
     if (!dashboardBridge?.publishSnapshot || !isDesktop || loading) return
+    const prev = dashboardBridge.snapshot
+    const leads = Math.max(Number(data?.totalLeads || 0), prev.leads || 0)
+    const campaigns = Math.max(Number(data?.totalCampaigns || 0), prev.campaigns || 0)
+    const orders = Math.max(Number(data?.totalOrders || 0), prev.orders || 0)
+    const products = Math.max(Number(data?.products || 0), prev.products || 0)
+    const campaignsActive = Math.max(Number(data?.activeCampaigns || 0), prev.campaignsActive || 0)
     dashboardBridge.publishSnapshot({
-      leads: Number(data?.totalLeads || 0),
-      campaigns: Number(data?.totalCampaigns || 0),
-      orders: Number(data?.totalOrders || 0),
-      products: Number(data?.products || 0),
-      campaignsActive: Number(data?.activeCampaigns || 0),
-      subtitle: data?.activeCampaigns > 0 ? `${data.activeCampaigns} campanha(s) ativa(s)` : '',
+      leads,
+      campaigns,
+      orders,
+      products,
+      campaignsActive,
+      subtitle: campaignsActive > 0 ? `${campaignsActive} campanha(s) ativa(s)` : prev.subtitle || '',
       items: [
-        { label: 'Leads', value: Number(data?.totalLeads || 0), icon: 'users' },
-        { label: 'Campanhas', value: Number(data?.totalCampaigns || 0), icon: 'megaphone' },
-        { label: 'Pedidos', value: Number(data?.totalOrders || 0), icon: 'cart' },
-        { label: 'Produtos', value: Number(data?.products || 0), icon: 'package' },
+        { label: 'Leads', value: leads, icon: 'users' },
+        { label: 'Campanhas', value: campaigns, icon: 'megaphone' },
+        { label: 'Pedidos', value: orders, icon: 'cart' },
+        { label: 'Produtos', value: products, icon: 'package' },
       ],
       loading: false,
     })

@@ -99,6 +99,14 @@ try {
     await page.goto(`${BASE}/admin`, { waitUntil: 'networkidle', timeout: 45000 })
     await page.waitForSelector('.workspace-welcome, .workspace-chat__messages', { timeout: 20000 })
     await openShortcut(mod.label)
+    if (mod.label === 'Painel') {
+      await page.waitForFunction(() => {
+        const stats = document.querySelector('.catalog-module--dashboard .catalog-module__stats')
+        if (!stats) return false
+        const n = parseInt(String(stats.textContent || '').match(/(\d+)\s*lead/i)?.[1] || '0', 10)
+        return n >= 1
+      }, { timeout: 15000 }).catch(() => null)
+    }
     await page.waitForTimeout(800)
 
     const candidates = page.locator(mod.selector)

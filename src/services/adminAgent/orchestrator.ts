@@ -474,7 +474,17 @@ Responda APENAS com JSON válido neste formato:
       }
 
       case "crm.leads.list": {
-        const total = await this.countLeads(ctx.userId, ctx.brandId);
+        const stats = await fetchLeadStats(ctx.userId, ctx.brandId);
+        const total = Number(stats?.total ?? 0);
+        components.push({
+          id: "leads-stats",
+          type: "leads_stats",
+          props: {
+            total,
+            newCount: Number(stats?.new_count ?? 0),
+            live: true,
+          },
+        });
         components.push({
           id: "kpis",
           type: "kpi_row",
@@ -1149,13 +1159,8 @@ Responda APENAS com JSON válido neste formato:
 
   private async countLeads(userId: string, brandId: string | null): Promise<number> {
     try {
-      const brandClause = brandId ? "AND brand_id = ?" : "";
-      const params = brandId ? [userId, brandId] : [userId];
-      const row = await queryOne<any>(
-        `SELECT COUNT(*)::int AS n FROM customers WHERE user_id = ? ${brandClause}`,
-        params,
-      );
-      return Number(row?.n ?? 0);
+      const stats = await fetchLeadStats(userId, brandId);
+      return Number(stats?.total ?? 0);
     } catch {
       return 0;
     }
@@ -1166,24 +1171,20 @@ Responda APENAS com JSON válido neste formato:
     brandId: string | null,
   ): Promise<{ total: number; active: number }> {
     try {
-      const brandClause = brandId ? "AND brand_id = ?" : "AND brand_id IS NULL";
-      const params = brandId ? [userId, brandId] : [userId];
-      const rows = await query<any[]>(
-        `SELECT status, COUNT(*)::int AS n FROM campaign_history
-         WHERE user_id = ? ${brandClause}
-         GROUP BY status`,
+      const normalizedBrandId = String(brandId || "").trim();
+      const brandClause = normalizedBrandId ? "AND brand_id = ?" : "AND brand_id IS NULL";
+      const params = normalizedBrandId ? [userId, normalizedBrandId] : [userId];
+      const row = await queryOne<any>(
+        `SELECT COUNT(*)::int AS total,
+          SUM(CASE WHEN status IN ('running', 'scheduled', 'active', 'sending') THEN 1 ELSE 0 END)::int AS active
+         FROM campaign_history
+         WHERE user_id = ? ${brandClause}`,
         params,
       );
-      const list = Array.isArray(rows) ? rows : [];
-      let total = 0;
-      let active = 0;
-      for (const row of list) {
-        const n = Number(row?.n ?? 0);
-        total += n;
-        const status = String(row?.status || "");
-        if (status === "running" || status === "scheduled") active += n;
-      }
-      return { total, active };
+      return {
+        total: Number(row?.total ?? 0),
+        active: Number(row?.active ?? 0),
+      };
     } catch {
       return { total: 0, active: 0 };
     }

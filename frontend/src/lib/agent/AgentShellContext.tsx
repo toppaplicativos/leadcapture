@@ -351,6 +351,13 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
     const stats = activeTurn.components?.find((c) => c.type === 'products_stats')
     const search = String(stats?.props?.search || '').trim()
     if (search) productsBridge?.queueCommand({ type: 'search', query: search })
+    if (stats?.props) {
+      productsBridge?.publishSnapshot({
+        total: Number(stats.props.total || 0),
+        active: Number(stats.props.active || 0),
+        loading: false,
+      })
+    }
 
   }, [activeTurn, productsBridge, isDesktop, closeProductsModule, isProductSkill])
 
@@ -366,6 +373,14 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
     campaignsBridge?.setModuleExpanded(true)
     if (activeTurn.skill === 'campaigns.list' || activeTurn.skill === 'campaign.builder') {
       openCatalogCanvas('/campanhas')
+    }
+    const stats = activeTurn.components?.find((c) => c.type === 'campaigns_stats')
+    if (stats?.props) {
+      campaignsBridge?.publishSnapshot({
+        total: Number(stats.props.total || 0),
+        active: Number(stats.props.active || 0),
+        loading: false,
+      })
     }
   }, [activeTurn, campaignsBridge, isDesktop, closeCampaignsModule])
 
@@ -388,6 +403,13 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
       lastLeadsFilterKey.current = filterKey
       if (search) leadsBridge?.queueCommand({ type: 'search', query: search })
       if (status) leadsBridge?.queueCommand({ type: 'filter_status', status })
+    }
+    if (stats?.props) {
+      leadsBridge?.publishSnapshot({
+        total: Number(stats.props.total || 0),
+        newCount: Number(stats.props.newCount ?? stats.props.new_count ?? 0),
+        loading: false,
+      })
     }
 
     const leadCard = activeTurn.components?.find((c) => c.type === 'lead_card')
@@ -423,6 +445,13 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
       if (search) clientsBridge?.queueCommand({ type: 'search', query: search })
       if (status) clientsBridge?.queueCommand({ type: 'filter_status', status })
     }
+    if (stats?.props) {
+      clientsBridge?.publishSnapshot({
+        total: Number(stats.props.total || 0),
+        activeCount: Number(stats.props.activeCount ?? stats.props.active_count ?? 0),
+        loading: false,
+      })
+    }
   }, [activeTurn, clientsBridge, isDesktop, closeClientsModule])
 
   /* Pedidos: desktop = canvas; mobile = inline */
@@ -444,6 +473,15 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
       lastOrdersFilterKey.current = filterKey
       if (search) ordersBridge?.queueCommand({ type: 'search', query: search })
       if (status) ordersBridge?.queueCommand({ type: 'filter_status', status })
+    }
+    if (stats?.props) {
+      ordersBridge?.publishSnapshot({
+        total: Number(stats.props.total || 0),
+        paidCount: Number(stats.props.paidCount ?? stats.props.paid_count ?? 0),
+        pendingCount: Number(stats.props.pendingCount ?? stats.props.pending_count ?? 0),
+        revenueTotal: Number(stats.props.revenueTotal ?? stats.props.revenue_total ?? 0),
+        loading: false,
+      })
     }
   }, [activeTurn, ordersBridge, isDesktop, closeOrdersModule])
 

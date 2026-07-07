@@ -17,7 +17,7 @@ import { cn } from '@/lib/cn'
 import { useGalleryBridgeOptional } from '@/lib/agent/GalleryBridgeContext'
 import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
 
-export function GaleriaPage() {
+export function GaleriaPage({ embedded = false }: { embedded?: boolean } = {}) {
   const [folders, setFolders] = useState<Awaited<ReturnType<typeof fetchGalleryFolders>>>([])
   const [items, setItems] = useState<GalleryItem[]>([])
   const [allTags, setAllTags] = useState<string[]>([])
@@ -126,18 +126,27 @@ export function GaleriaPage() {
   const hasFilters = Boolean(search || typeFilter || activeTags.length)
 
   return (
-    <div className="space-y-5">
-      <header className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900 tracking-tight">Galeria</h2>
-          <p className="text-sm text-gray-500 mt-0.5">
-            Todos os criativos, uploads e mídias da sua marca em um só lugar.
-          </p>
+    <div className={embedded ? 'space-y-4' : 'space-y-5'}>
+      {embedded ? (
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-[12px] text-gray-500 tabular-nums">{total} mídias</p>
+          <Button size="sm" iconLeft={<Upload size={14} />} onClick={() => setUploadOpen(true)}>
+            Upload
+          </Button>
         </div>
-        <Button iconLeft={<Upload size={16} />} onClick={() => setUploadOpen(true)}>
-          Upload
-        </Button>
-      </header>
+      ) : (
+        <header className="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <h2 className="text-2xl font-bold text-gray-900 tracking-tight">Galeria</h2>
+            <p className="text-sm text-gray-500 mt-0.5">
+              Todos os criativos, uploads e mídias da sua marca em um só lugar.
+            </p>
+          </div>
+          <Button iconLeft={<Upload size={16} />} onClick={() => setUploadOpen(true)}>
+            Upload
+          </Button>
+        </header>
+      )}
 
       <div className="flex flex-col lg:flex-row gap-5 min-h-[60vh]">
         <aside className="lg:w-[210px] shrink-0">

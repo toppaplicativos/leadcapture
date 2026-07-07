@@ -25,9 +25,16 @@ import { Skeleton, KpiCard, EmptyState } from '@/components/admin/primitives'
 import { MediaPickerModal } from '@/components/gallery/MediaPickerModal'
 import type { GalleryItem } from '@/lib/gallery/types'
 import { useProductsBridgeOptional } from '@/lib/agent/ProductsBridgeContext'
+import { useAgentShell } from '@/lib/agent/AgentShellContext'
 import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
 
-export function ProductsView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') => void }) {
+export function ProductsView({
+  showToast,
+  embedded = false,
+}: {
+  showToast: (t: string, tp?: 'ok' | 'err') => void
+  embedded?: boolean
+}) {
   const [products, setProducts] = useState<any[]>([])
   const [categories, setCategories] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -41,6 +48,7 @@ export function ProductsView({ showToast }: { showToast: (t: string, tp?: 'ok' |
   const productsBridge = useProductsBridgeOptional()
   const publishSnapshot = productsBridge?.publishSnapshot
   const registerHandlers = productsBridge?.registerHandlers
+  const { openCanvas } = useAgentShell()
   const isDesktop = useIsDesktop()
   const pendingSelectId = useRef<string | null>(null)
 
@@ -74,10 +82,10 @@ export function ProductsView({ showToast }: { showToast: (t: string, tp?: 'ok' |
         }
       },
       createNew: openCreate,
-      openFull: () => undefined,
+      openFull: () => { if (isDesktop) openCanvas('/produtos') },
       refresh: () => load(),
     })
-  }, [registerHandlers, isDesktop, products])
+  }, [registerHandlers, isDesktop, products, openCanvas])
 
   useEffect(() => {
     if (!isDesktop || !pendingSelectId.current) return
@@ -141,19 +149,36 @@ export function ProductsView({ showToast }: { showToast: (t: string, tp?: 'ok' |
   if (loading) return <Skeleton rows={6} />
 
   return (
-    <div className="space-y-5">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-[26px] font-bold text-gray-900 tracking-tight">Catálogo</h2>
-          <p className="text-[13px] text-gray-400 mt-0.5">{metrics.total} produtos · {metrics.active} ativos · {metrics.drafts} rascunhos</p>
+    <div className={embedded ? 'space-y-4' : 'space-y-5'}>
+      {embedded ? (
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-[12px] text-gray-500 tabular-nums">
+            {metrics.total} produtos · {metrics.active} ativos · {metrics.drafts} rascunhos
+          </p>
+          {subTab === 'products' && (
+            <button
+              type="button"
+              onClick={openCreate}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gray-900 text-white text-[11px] font-bold hover:bg-gray-800 transition-all shrink-0"
+            >
+              <Plus size={13} /> Novo
+            </button>
+          )}
         </div>
-        {subTab === 'products' && (
-          <button onClick={openCreate}
-            className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-gray-900 text-white text-xs font-bold hover:bg-gray-800 transition-all shadow-sm">
-            <Plus size={14} /> Novo Produto
-          </button>
-        )}
-      </div>
+      ) : (
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-[26px] font-bold text-gray-900 tracking-tight">Catálogo</h2>
+            <p className="text-[13px] text-gray-400 mt-0.5">{metrics.total} produtos · {metrics.active} ativos · {metrics.drafts} rascunhos</p>
+          </div>
+          {subTab === 'products' && (
+            <button onClick={openCreate}
+              className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-gray-900 text-white text-xs font-bold hover:bg-gray-800 transition-all shadow-sm">
+              <Plus size={14} /> Novo Produto
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Sub-tabs */}
       <div className="flex gap-1 bg-gray-100 p-0.5 rounded-xl w-fit">

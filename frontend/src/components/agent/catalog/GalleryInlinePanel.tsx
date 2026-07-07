@@ -1,77 +1,32 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
-import { Loader2, Upload, Images, Film, ChevronRight } from 'lucide-react'
+import { useEffect, useState, useCallback, useRef, lazy, Suspense } from 'react'
+import { Loader2, Upload, Images, Film, ExternalLink } from 'lucide-react'
 import { fetchGalleryItems } from '@/lib/gallery/api'
 import type { GalleryItem } from '@/lib/gallery/types'
 import { useGalleryBridgeOptional } from '@/lib/agent/GalleryBridgeContext'
+import { useAgentShell } from '@/lib/agent/AgentShellContext'
 import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
-import { dt } from '@/lib/admin/helpers'
+import { optimizedImage } from '@/lib/image'
 import { GalleryUploadZone } from '@/components/gallery/GalleryUploadZone'
 import { GalleryPreview } from '@/components/gallery/GalleryPreview'
+import { CatalogManagerSheet } from './CatalogManagerSheet'
 
-const FOLDER_LABEL: Record<string, string> = {
-  ia: 'IA',
-  uploads: 'Upload',
-  campanhas: 'Campanha',
-  posts: 'Post',
-  produtos: 'Produto',
-}
+const GalleryManager = lazy(() =>
+  import('@/pages/GaleriaPage').then((m) => ({ default: m.GaleriaPage })),
+)
 
-function GalleryChatCard({ item, onOpen }: { item: GalleryItem; onOpen: () => void }) {
-  const isVideo = item.type === 'video'
-  const thumb = item.thumbnailUrl || item.url
-  const [imgError, setImgError] = useState(false)
-
-  return (
-    <button
-      type="button"
-      className={`catalog-gallery-card ${isVideo ? 'is-video' : 'is-image'}`}
-      onClick={onOpen}
-    >
-      <div className="catalog-gallery-card__bar" />
-      <div className="catalog-gallery-card__body">
-        <div className="catalog-gallery-card__header">
-          <div className="catalog-gallery-card__thumb">
-            {thumb && !imgError && !isVideo ? (
-              <img src={thumb} alt="" onError={() => setImgError(true)} />
-            ) : isVideo ? (
-              <Film size={20} className="text-gray-400" strokeWidth={1.5} />
-            ) : (
-              <Images size={20} className="text-gray-300" strokeWidth={1.5} />
-            )}
-          </div>
-          <div className="catalog-gallery-card__headline">
-            <span className="catalog-gallery-card__title">{item.name || 'Mídia'}</span>
-            <div className="catalog-gallery-card__meta">
-              <span className={`catalog-gallery-card__type ${isVideo ? 'is-video' : 'is-image'}`}>
-                {isVideo ? 'Vídeo' : 'Imagem'}
-              </span>
-              <span className="catalog-gallery-card__folder">
-                {FOLDER_LABEL[item.folder] || item.folder}
-              </span>
-              <span className="catalog-gallery-card__date">{dt(item.createdAt)}</span>
-            </div>
-          </div>
-        </div>
-
-        <span className="catalog-gallery-card__cta">
-          Abrir mídia
-          <ChevronRight size={14} strokeWidth={2} />
-        </span>
-      </div>
-    </button>
-  )
-}
+const PREVIEW_LIMIT = 10
 
 export function GalleryInlinePanel() {
   const bridge = useGalleryBridgeOptional()
   const publishSnapshot = bridge?.publishSnapshot
   const registerHandlers = bridge?.registerHandlers
   const setModuleExpanded = bridge?.setModuleExpanded
+  const { openCanvas } = useAgentShell()
   const isDesktop = useIsDesktop()
   const [items, setItems] = useState<GalleryItem[]>([])
   const [loading, setLoading] = useState(true)
-  const [cardsOpen, setCardsOpen] = useState(false)
   const [uploadOpen, setUploadOpen] = useState(false)
+  const [managerOpen, setManagerOpen] = useState(false)
   const [preview, setPreview] = useState<GalleryItem | null>(null)
   const itemsRef = useRef<GalleryItem[]>([])
   const loadedRef = useRef(false)
@@ -91,15 +46,24 @@ export function GalleryInlinePanel() {
   }, [publishSnapshot])
 
   useEffect(() => {
-    if (isDesktop || loadedRef.current) return
+    if (loadedRef.current) return
     loadedRef.current = true
     void load()
-  }, [isDesktop, load])
+  }, [load])
 
   const openItem = useCallback((item: GalleryItem) => {
     setPreview(item)
     publishSnapshot?.({ selectedId: item.id, selectedTitle: item.name || '' })
   }, [publishSnapshot])
+
+  const openManager = useCallback(() => {
+    if (isDesktop) {
+      openCanvas('/galeria')
+    } else {
+      setManagerOpen(true)
+    }
+    setModuleExpanded?.(true)
+  }, [isDesktop, openCanvas, setModuleExpanded])
 
   useEffect(() => {
     if (!registerHandlers || !setModuleExpanded || isDesktop) return
@@ -110,17 +74,11 @@ export function GalleryInlinePanel() {
         if (item) setPreview(item)
       },
       openUpload: () => setUploadOpen(true),
-      setFolder: () => {
-        setModuleExpanded(true)
-        setCardsOpen(true)
-      },
-      openFull: () => {
-        setModuleExpanded(true)
-        setCardsOpen(true)
-      },
+      setFolder: () => openManager(),
+      openFull: () => openManager(),
       refresh: () => { void load() },
     })
-  }, [registerHandlers, setModuleExpanded, isDesktop, publishSnapshot, load])
+  }, [registerHandlers, setModuleExpanded, isDesktop, publishSnapshot, load, openManager])
 
   if (isDesktop) return null
 
@@ -132,40 +90,54 @@ export function GalleryInlinePanel() {
     )
   }
 
+  const previewItems = items.slice(0, PREVIEW_LIMIT)
+  const remaining = Math.max(0, items.length - previewItems.length)
+
   return (
     <div className="catalog-panel catalog-panel--gallery">
       <div className="catalog-panel__toolbar">
-        <button
-          type="button"
-          className="catalog-panel__action"
-          onClick={() => setUploadOpen(true)}
-        >
+        <button type="button" className="catalog-panel__action" onClick={() => setUploadOpen(true)}>
           <Upload size={14} /> Upload
         </button>
-        <button
-          type="button"
-          className="catalog-panel__action catalog-panel__action--ghost"
-          onClick={() => {
-            setModuleExpanded?.(true)
-            setCardsOpen(true)
-          }}
-        >
-          Ver todos
+        <button type="button" className="catalog-panel__open-manager" onClick={openManager}>
+          <ExternalLink size={12} />
+          Gerenciar
         </button>
       </div>
 
-      {!cardsOpen ? (
-        <p className="catalog-panel__empty">
-          Toque em <strong>Ver todos</strong> para listar mídias em cards.
-        </p>
-      ) : items.length === 0 ? (
+      {items.length === 0 ? (
         <p className="catalog-panel__empty">Galeria vazia. Envie mídia pelo botão Upload.</p>
       ) : (
-        <div className="catalog-gallery-grid">
-          {items.map((item) => (
-            <GalleryChatCard key={item.id} item={item} onOpen={() => openItem(item)} />
-          ))}
+        <div className="catalog-gallery-compact-strip">
+          {previewItems.map((item) => {
+            const thumb = item.thumbnailUrl || item.url
+            const imgSrc = item.type === 'image' ? optimizedImage(thumb, 160) : undefined
+            return (
+              <button
+                key={item.id}
+                type="button"
+                className="catalog-gallery-compact-tile"
+                onClick={() => openItem(item)}
+              >
+                {item.type === 'video' ? (
+                  <span className="catalog-gallery-compact-tile__video">
+                    <Film size={14} />
+                  </span>
+                ) : imgSrc ? (
+                  <img src={imgSrc} alt="" loading="lazy" />
+                ) : (
+                  <Images size={16} className="text-gray-300" />
+                )}
+              </button>
+            )
+          })}
         </div>
+      )}
+
+      {remaining > 0 && (
+        <button type="button" className="catalog-panel__more" onClick={openManager}>
+          +{remaining} mídia{remaining === 1 ? '' : 's'} · Ver galeria completa
+        </button>
       )}
 
       <GalleryUploadZone open={uploadOpen} onClose={() => setUploadOpen(false)} onUploaded={load} />
@@ -180,6 +152,17 @@ export function GalleryInlinePanel() {
           onDeleted={load}
         />
       )}
+
+      <CatalogManagerSheet
+        open={managerOpen}
+        onClose={() => setManagerOpen(false)}
+        title="Galeria"
+        subtitle="Pastas, filtros, upload e edição"
+      >
+        <Suspense fallback={<div className="catalog-panel__loading"><Loader2 size={20} className="animate-spin text-gray-400" /></div>}>
+          <GalleryManager embedded />
+        </Suspense>
+      </CatalogManagerSheet>
     </div>
   )
 }

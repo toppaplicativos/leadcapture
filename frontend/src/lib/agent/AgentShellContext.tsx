@@ -277,7 +277,7 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
     const stats = activeTurn.components?.find((c) => c.type === 'products_stats')
     const search = String(stats?.props?.search || '').trim()
     if (search) productsBridge?.queueCommand({ type: 'search', query: search })
-    if (!isDesktop) productsBridge?.queueCommand({ type: 'open_full' })
+
   }, [activeTurn, productsBridge, isDesktop, closeProductsModule, isProductSkill])
 
   /* Campanhas: desktop = canvas; mobile = inline */

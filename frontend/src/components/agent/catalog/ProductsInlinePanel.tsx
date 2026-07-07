@@ -1,10 +1,27 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
-import { Loader2, Package, Plus, Search, ChevronRight } from 'lucide-react'
+import { useEffect, useState, useCallback, useRef, lazy, Suspense } from 'react'
+import {
+  Loader2, Package, Plus, Search, ChevronRight,
+  LayoutGrid, List, Rows3, ExternalLink,
+} from 'lucide-react'
 import { getHeaders, money } from '@/lib/admin/helpers'
 import { useProductsBridgeOptional } from '@/lib/agent/ProductsBridgeContext'
+import { useAgentShell } from '@/lib/agent/AgentShellContext'
 import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
 import { useToast } from '@/components/Toast'
 import { ProductEditorModal } from '@/pages/admin/products/ProductsView'
+import { CatalogManagerSheet } from './CatalogManagerSheet'
+
+const ProductsManager = lazy(() =>
+  import('@/pages/admin/products/ProductsView').then((m) => ({ default: m.ProductsView })),
+)
+
+type ChatViewMode = 'compact' | 'list' | 'cards'
+
+const PREVIEW_LIMIT: Record<ChatViewMode, number> = {
+  compact: 8,
+  list: 5,
+  cards: 3,
+}
 
 function productStatus(product: any) {
   if (product?.metadata?.is_draft) return { label: 'Rascunho', tone: 'is-draft' as const }
@@ -43,13 +60,9 @@ function ProductChatCard({ product, onOpen }: { product: any; onOpen: () => void
               {product.category && (
                 <span className="catalog-product-card__category">{product.category}</span>
               )}
-              {product.unit && (
-                <span className="catalog-product-card__unit">{product.unit}</span>
-              )}
             </div>
           </div>
         </div>
-
         <div className="catalog-product-card__kpis">
           <div className="catalog-product-card__kpi">
             <strong>{money(product.price)}</strong>
@@ -64,11 +77,59 @@ function ProductChatCard({ product, onOpen }: { product: any; onOpen: () => void
             <span>Estoque</span>
           </div>
         </div>
-
         <span className="catalog-product-card__cta">
           Abrir produto
           <ChevronRight size={14} strokeWidth={2} />
         </span>
+      </div>
+    </button>
+  )
+}
+
+function ProductCompactTile({ product, onOpen }: { product: any; onOpen: () => void }) {
+  const img = product.imageUrl || product.image
+  const [imgError, setImgError] = useState(false)
+  const status = productStatus(product)
+
+  return (
+    <button type="button" className="catalog-product-compact-tile" onClick={onOpen}>
+      <div className="catalog-product-compact-tile__thumb">
+        {img && !imgError ? (
+          <img src={img} alt="" onError={() => setImgError(true)} />
+        ) : (
+          <Package size={16} className="text-gray-300" strokeWidth={1.5} />
+        )}
+        <span className={`catalog-product-compact-tile__dot ${status.tone}`} />
+      </div>
+      <span className="catalog-product-compact-tile__name">{product.name || 'Produto'}</span>
+      <span className="catalog-product-compact-tile__price">{money(product.price)}</span>
+    </button>
+  )
+}
+
+function ProductListRow({ product, onOpen }: { product: any; onOpen: () => void }) {
+  const status = productStatus(product)
+  const img = product.imageUrl || product.image
+  const [imgError, setImgError] = useState(false)
+
+  return (
+    <button type="button" className="catalog-product-list-row" onClick={onOpen}>
+      <div className="catalog-product-list-row__thumb">
+        {img && !imgError ? (
+          <img src={img} alt="" onError={() => setImgError(true)} />
+        ) : (
+          <Package size={14} className="text-gray-300" strokeWidth={1.5} />
+        )}
+      </div>
+      <div className="catalog-product-list-row__main">
+        <span className="catalog-product-list-row__name">{product.name || 'Produto'}</span>
+        <span className="catalog-product-list-row__meta">
+          {product.category || '—'} · {status.label}
+        </span>
+      </div>
+      <div className="catalog-product-list-row__price">
+        <strong>{money(product.price)}</strong>
+        <ChevronRight size={14} className="text-gray-300" />
       </div>
     </button>
   )
@@ -80,13 +141,15 @@ export function ProductsInlinePanel() {
   const registerHandlers = bridge?.registerHandlers
   const setModuleExpanded = bridge?.setModuleExpanded
   const dispatch = bridge?.dispatch
+  const { openCanvas } = useAgentShell()
   const isDesktop = useIsDesktop()
   const { showToast } = useToast()
   const [products, setProducts] = useState<any[]>([])
   const [categories, setCategories] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [cardsOpen, setCardsOpen] = useState(true)
+  const [chatView, setChatView] = useState<ChatViewMode>('compact')
+  const [managerOpen, setManagerOpen] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
   const [editProduct, setEditProduct] = useState<any>(null)
   const productsRef = useRef<any[]>([])
@@ -105,7 +168,6 @@ export function ProductsInlinePanel() {
       productsRef.current = list
       setProducts(list)
       setCategories(c.categories || [])
-      if (list.length > 0) setCardsOpen(true)
       const active = list.filter((item: any) => item.active !== false && item.is_active !== false).length
       const drafts = list.filter((item: any) => item?.metadata?.is_draft).length
       publishSnapshot?.({
@@ -136,29 +198,31 @@ export function ProductsInlinePanel() {
     }
   }, [publishSnapshot])
 
+  const openManager = useCallback(() => {
+    if (isDesktop) {
+      openCanvas('/produtos')
+    } else {
+      setManagerOpen(true)
+    }
+    setModuleExpanded?.(true)
+  }, [isDesktop, openCanvas, setModuleExpanded])
+
   useEffect(() => {
     if (!registerHandlers || !setModuleExpanded || isDesktop) return
     return registerHandlers({
       search: (q) => {
         setSearch(q)
-        setCardsOpen(true)
         publishSnapshot?.({ search: q })
       },
       selectProduct: (id) => {
         const found = productsRef.current.find((p) => String(p.id) === String(id))
         if (found) openProduct(found)
       },
-      createNew: () => {
-        setCardsOpen(true)
-        openProduct(null)
-      },
-      openFull: () => {
-        setModuleExpanded(true)
-        setCardsOpen(true)
-      },
+      createNew: () => openProduct(null),
+      openFull: () => openManager(),
       refresh: () => { void load() },
     })
-  }, [registerHandlers, setModuleExpanded, isDesktop, publishSnapshot, openProduct, load])
+  }, [registerHandlers, setModuleExpanded, isDesktop, publishSnapshot, openProduct, load, openManager])
 
   const filtered = products.filter((p) => {
     if (!search.trim()) return true
@@ -166,6 +230,10 @@ export function ProductsInlinePanel() {
     return (p.name || '').toLowerCase().includes(q)
       || (p.category || '').toLowerCase().includes(q)
   })
+
+  const limit = PREVIEW_LIMIT[chatView]
+  const preview = filtered.slice(0, limit)
+  const remaining = Math.max(0, filtered.length - preview.length)
 
   if (loading) {
     return (
@@ -185,7 +253,6 @@ export function ProductsInlinePanel() {
             value={search}
             onChange={(e) => {
               setSearch(e.target.value)
-              if (e.target.value.trim()) setCardsOpen(true)
               publishSnapshot?.({ search: e.target.value })
             }}
             placeholder="Buscar produto…"
@@ -194,26 +261,70 @@ export function ProductsInlinePanel() {
         <button type="button" className="catalog-panel__action" onClick={() => dispatch?.({ type: 'create_new' })}>
           <Plus size={14} /> Novo
         </button>
-        <button
-          type="button"
-          className="catalog-panel__action catalog-panel__action--ghost"
-          onClick={() => {
-            setModuleExpanded?.(true)
-            setCardsOpen(true)
-          }}
-        >
-          Ver todos
+      </div>
+
+      <div className="catalog-panel__viewbar">
+        <div className="catalog-panel__view-toggle" role="group" aria-label="Modo de visualização">
+          <button
+            type="button"
+            className={chatView === 'compact' ? 'is-active' : ''}
+            onClick={() => setChatView('compact')}
+            aria-pressed={chatView === 'compact'}
+            title="Miniatura"
+          >
+            <LayoutGrid size={13} />
+          </button>
+          <button
+            type="button"
+            className={chatView === 'list' ? 'is-active' : ''}
+            onClick={() => setChatView('list')}
+            aria-pressed={chatView === 'list'}
+            title="Lista"
+          >
+            <List size={13} />
+          </button>
+          <button
+            type="button"
+            className={chatView === 'cards' ? 'is-active' : ''}
+            onClick={() => setChatView('cards')}
+            aria-pressed={chatView === 'cards'}
+            title="Cards"
+          >
+            <Rows3 size={13} />
+          </button>
+        </div>
+        <button type="button" className="catalog-panel__open-manager" onClick={openManager}>
+          <ExternalLink size={12} />
+          Gerenciar
         </button>
       </div>
 
       {filtered.length === 0 ? (
         <p className="catalog-panel__empty">Nenhum produto encontrado. Crie um novo pelo botão acima.</p>
+      ) : chatView === 'compact' ? (
+        <div className="catalog-product-compact-grid">
+          {preview.map((p) => (
+            <ProductCompactTile key={p.id} product={p} onOpen={() => openProduct(p)} />
+          ))}
+        </div>
+      ) : chatView === 'list' ? (
+        <div className="catalog-product-list">
+          {preview.map((p) => (
+            <ProductListRow key={p.id} product={p} onOpen={() => openProduct(p)} />
+          ))}
+        </div>
       ) : (
-        <div className="catalog-product-grid">
-          {filtered.map((p) => (
+        <div className="catalog-product-grid catalog-product-grid--chat">
+          {preview.map((p) => (
             <ProductChatCard key={p.id} product={p} onOpen={() => openProduct(p)} />
           ))}
         </div>
+      )}
+
+      {remaining > 0 && (
+        <button type="button" className="catalog-panel__more" onClick={openManager}>
+          +{remaining} produto{remaining === 1 ? '' : 's'} · Ver catálogo completo
+        </button>
       )}
 
       {modalOpen && (
@@ -234,6 +345,20 @@ export function ProductsInlinePanel() {
           showToast={(msg, tp) => showToast(tp === 'err' ? `Erro: ${msg}` : msg)}
         />
       )}
+
+      <CatalogManagerSheet
+        open={managerOpen}
+        onClose={() => setManagerOpen(false)}
+        title="Catálogo"
+        subtitle="Grade, lista, categorias e edição completa"
+      >
+        <Suspense fallback={<div className="catalog-panel__loading"><Loader2 size={20} className="animate-spin text-gray-400" /></div>}>
+          <ProductsManager
+            embedded
+            showToast={(msg, tp) => showToast(tp === 'err' ? `Erro: ${msg}` : msg)}
+          />
+        </Suspense>
+      </CatalogManagerSheet>
     </div>
   )
 }

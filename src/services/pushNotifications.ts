@@ -243,34 +243,89 @@ export class PushNotificationService {
     }
   }
 
+  /**
+   * Chave pública VAPID URL-safe base64 deve decodificar em 65 bytes (uncompressed P-256 point).
+   * Placeholders do .env (ex.: "sua-chave-publica-aqui") quebram o subscribe do browser.
+   */
+  private isValidVapidPublicKey(raw: string | null | undefined): boolean {
+    const key = String(raw || "").trim()
+    if (!key || key.length < 80) return false
+    if (/sua-chave|your-|example|placeholder|changeme|xxx/i.test(key)) return false
+    try {
+      const pad = "=".repeat((4 - (key.length % 4)) % 4)
+      const b64 = (key + pad).replace(/-/g, "+").replace(/_/g, "/")
+      const buf = Buffer.from(b64, "base64")
+      return buf.length === 65 && buf[0] === 0x04
+    } catch {
+      return false
+    }
+  }
+
+  private isValidVapidPrivateKey(raw: string | null | undefined): boolean {
+    const key = String(raw || "").trim()
+    if (!key || key.length < 20) return false
+    if (/sua-chave|your-|example|placeholder|changeme|xxx/i.test(key)) return false
+    try {
+      const pad = "=".repeat((4 - (key.length % 4)) % 4)
+      const b64 = (key + pad).replace(/-/g, "+").replace(/_/g, "/")
+      const buf = Buffer.from(b64, "base64")
+      // private key is 32 bytes for P-256
+      return buf.length === 32
+    } catch {
+      return false
+    }
+  }
+
   private async ensureVapid(): Promise<{ publicKey: string; privateKey: string; subject: string }> {
+    const sub =
+      String(process.env.VAPID_SUBJECT || process.env.VAPID_EMAIL || "").trim()
+      || (await masterService.getSetting<string>("vapid_subject"))
+      || "mailto:admin@leadcapture.online"
+
     if (this.vapidReady) {
       const pub = process.env.VAPID_PUBLIC_KEY || (await masterService.getSetting<string>("vapid_public_key"))
       const priv = process.env.VAPID_PRIVATE_KEY || (await masterService.getSetting<string>("vapid_private_key"))
-      const sub = process.env.VAPID_SUBJECT || (await masterService.getSetting<string>("vapid_subject")) || "mailto:admin@leadcapture.online"
-      if (pub && priv) {
-        webpush.setVapidDetails(sub, pub, priv)
-        return { publicKey: pub, privateKey: priv, subject: sub }
+      if (this.isValidVapidPublicKey(pub) && this.isValidVapidPrivateKey(priv)) {
+        webpush.setVapidDetails(sub, String(pub).trim(), String(priv).trim())
+        return { publicKey: String(pub).trim(), privateKey: String(priv).trim(), subject: sub }
       }
+      // cache stale — revalida abaixo
+      this.vapidReady = false
     }
 
     let pub = process.env.VAPID_PUBLIC_KEY || (await masterService.getSetting<string>("vapid_public_key"))
     let priv = process.env.VAPID_PRIVATE_KEY || (await masterService.getSetting<string>("vapid_private_key"))
-    const sub = process.env.VAPID_SUBJECT || (await masterService.getSetting<string>("vapid_subject")) || "mailto:admin@leadcapture.online"
 
-    if (!pub || !priv) {
-      const keys = webpush.generateVAPIDKeys()
-      pub = keys.publicKey
-      priv = keys.privateKey
-      await masterService.setSetting("vapid_public_key", pub)
-      await masterService.setSetting("vapid_private_key", priv)
-      await masterService.setSetting("vapid_subject", sub)
-      logger.info("Generated VAPID keys for Web Push")
+    // Env com placeholder ou chave corrompida: ignora e usa DB / gera par novo
+    if (!this.isValidVapidPublicKey(pub) || !this.isValidVapidPrivateKey(priv)) {
+      const dbPub = await masterService.getSetting<string>("vapid_public_key")
+      const dbPriv = await masterService.getSetting<string>("vapid_private_key")
+      if (this.isValidVapidPublicKey(dbPub) && this.isValidVapidPrivateKey(dbPriv)) {
+        pub = dbPub
+        priv = dbPriv
+        logger.warn(
+          "VAPID env inválido/placeholder — usando chaves válidas do banco (system_settings)",
+        )
+      } else {
+        const keys = webpush.generateVAPIDKeys()
+        pub = keys.publicKey
+        priv = keys.privateKey
+        await masterService.setSetting("vapid_public_key", pub)
+        await masterService.setSetting("vapid_private_key", priv)
+        await masterService.setSetting("vapid_subject", sub)
+        logger.info("Generated valid VAPID keys for Web Push (previous keys were missing/invalid)")
+      }
     }
 
-    webpush.setVapidDetails(sub, pub!, priv!)
+    const publicKey = String(pub).trim()
+    const privateKey = String(priv).trim()
+    if (!this.isValidVapidPublicKey(publicKey) || !this.isValidVapidPrivateKey(privateKey)) {
+      throw new Error("Falha ao carregar chaves VAPID válidas para push")
+    }
+
+    webpush.setVapidDetails(sub, publicKey, privateKey)
     this.vapidReady = true
-    return { publicKey: pub!, privateKey: priv!, subject: sub }
+    return { publicKey, privateKey, subject: sub }
   }
 
   async getPublicVapidKey(): Promise<string> {

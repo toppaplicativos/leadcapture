@@ -4,9 +4,17 @@ import { detectBrowser, detectOS, resolvePushAppContext, type PushAppContext } f
 const DEVICE_ID_KEY = 'lead-system:push-device-id'
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
-  const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
-  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
+  const key = String(base64String || '').trim()
+  if (!key) throw new Error('Chave VAPID pública ausente')
+  const padding = '='.repeat((4 - (key.length % 4)) % 4)
+  const base64 = (key + padding).replace(/-/g, '+').replace(/_/g, '/')
   const raw = atob(base64)
+  // Web Push exige ponto P-256 não comprimido = 65 bytes (0x04 || x || y)
+  if (raw.length !== 65) {
+    throw new Error(
+      `Chave VAPID inválida no servidor (${raw.length} bytes; esperado 65). Contate o suporte ou regenere as chaves.`,
+    )
+  }
   const buffer = new ArrayBuffer(raw.length)
   const arr = new Uint8Array(buffer)
   for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i)
@@ -48,10 +56,20 @@ export async function subscribeToPush(opts?: {
   }
 
   const reg = await navigator.serviceWorker.ready
-  const { publicKey } = await pushApi.getVapidKey()
+  const vapidRes = await pushApi.getVapidKey()
+  const publicKey = String(vapidRes?.publicKey || '').trim()
+  if (!publicKey) {
+    return { ok: false, message: 'Chave VAPID pública indisponível. Tente novamente em instantes.' }
+  }
+  let applicationServerKey: Uint8Array<ArrayBuffer>
+  try {
+    applicationServerKey = urlBase64ToUint8Array(publicKey)
+  } catch (err: any) {
+    return { ok: false, message: err?.message || 'Chave VAPID inválida' }
+  }
   const sub = await reg.pushManager.subscribe({
     userVisibleOnly: true,
-    applicationServerKey: urlBase64ToUint8Array(publicKey),
+    applicationServerKey,
   })
 
   const json = sub.toJSON()

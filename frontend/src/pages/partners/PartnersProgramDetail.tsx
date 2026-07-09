@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import {
   ChevronLeft, Loader2, Building2, Sparkles, GraduationCap, Layers,
   Package, FileText, ChevronRight, Clock, CheckCircle2, Percent,
-  Users, ShieldCheck, Scale, BookOpen, BadgePercent,
+  Users, ShieldCheck, Scale, BookOpen, BadgePercent, Wallet, Banknote,
 } from 'lucide-react'
 import { partnersApi } from '@/lib/api-partners'
 
@@ -234,10 +234,61 @@ export function PartnersProgramDetail({ programRef, onBack, onOnboarding, showTo
           </div>
         ) : (
           <p className="partners-program__muted">
-            Detalhes de pagamento e apuração são confirmados no onboarding e nos termos.
+            Detalhes de apuração são confirmados no onboarding e nos termos.
           </p>
         )}
       </Section>
+
+      {/* ── Repasse ── */}
+      {(program.payout?.method_label || program.payout?.frequency_label || program.payout?.terms_text || program.payout_notes) && (
+        <Section icon={Wallet} title="Repasse e pagamento">
+          <div className="partners-program__onboard-grid">
+            <div className="partners-program__onboard-chip">
+              <Banknote size={14} />
+              <div>
+                <p className="partners-program__offer-title">{program.payout?.method_label || '—'}</p>
+                <p className="partners-program__muted">Forma de repasse</p>
+              </div>
+            </div>
+            <div className="partners-program__onboard-chip">
+              <Clock size={14} />
+              <div>
+                <p className="partners-program__offer-title">{program.payout?.frequency_label || '—'}</p>
+                <p className="partners-program__muted">Periodicidade</p>
+              </div>
+            </div>
+            <div className="partners-program__onboard-chip">
+              <BadgePercent size={14} />
+              <div>
+                <p className="partners-program__offer-title tabular-nums">
+                  R$ {Number(program.payout?.min_amount ?? program.payout_min_amount ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                </p>
+                <p className="partners-program__muted">Valor mínimo</p>
+              </div>
+            </div>
+            {(program.payout?.payment_days != null && Number(program.payout.payment_days) > 0) && (
+              <div className="partners-program__onboard-chip">
+                <Layers size={14} />
+                <div>
+                  <p className="partners-program__offer-title tabular-nums">{program.payout.payment_days} dias</p>
+                  <p className="partners-program__muted">Prazo de referência</p>
+                </div>
+              </div>
+            )}
+          </div>
+          {(program.payout?.notes || program.payout_notes) && (
+            <div className="partners-program__rules-box">
+              <p className="partners-program__rules-label">Condições de repasse</p>
+              <p className="partners-program__prose partners-program__prose--pre">
+                {program.payout?.notes || program.payout_notes}
+              </p>
+            </div>
+          )}
+          <p className="partners-program__muted">
+            Estas condições integram os termos da candidatura ao aceitar o programa.
+          </p>
+        </Section>
+      )}
 
       {/* ── Condições / elegibilidade ── */}
       {(program.eligibility_rules || hasPolicies) && (
@@ -269,12 +320,15 @@ export function PartnersProgramDetail({ programRef, onBack, onOnboarding, showTo
                 <span className="partners-program__offer-dot" style={{ backgroundColor: primary }} aria-hidden />
                 <div className="min-w-0">
                   <p className="partners-program__offer-title">{o.title || o.product_name || 'Oferta'}</p>
-                  {(o.product_name && o.title) || o.description ? (
-                    <p className="partners-program__muted">
-                      {[o.product_name && o.title ? o.product_name : null, o.description]
-                        .filter(Boolean)
-                        .join(' · ')}
-                    </p>
+                  <p className="partners-program__muted">
+                    {[
+                      o.product_type_label || null,
+                      o.product_category || null,
+                      o.product_name && o.title ? o.product_name : null,
+                    ].filter(Boolean).join(' · ') || 'Produto do programa'}
+                  </p>
+                  {o.description ? (
+                    <p className="partners-program__prose" style={{ marginTop: '0.25rem' }}>{o.description}</p>
                   ) : null}
                 </div>
               </li>

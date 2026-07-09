@@ -232,7 +232,115 @@ async function ensureAffiliateProgramsSchema(): Promise<void> {
   await query(`ALTER TABLE affiliate_program_applications ADD COLUMN accepted_terms_at TIMESTAMP NULL`).catch(() => undefined);
   await query(`ALTER TABLE affiliate_program_enrollments ADD COLUMN source VARCHAR(40) NULL`).catch(() => undefined);
 
+  // Repasse / pagamento do programa (exposto na candidatura)
+  await query(`ALTER TABLE affiliate_programs ADD COLUMN payout_method VARCHAR(40) NULL`).catch(() => undefined);
+  await query(`ALTER TABLE affiliate_programs ADD COLUMN payout_frequency VARCHAR(40) NULL`).catch(() => undefined);
+  await query(`ALTER TABLE affiliate_programs ADD COLUMN payout_min_amount DECIMAL(12,2) NULL`).catch(() => undefined);
+  await query(`ALTER TABLE affiliate_programs ADD COLUMN payout_notes TEXT NULL`).catch(() => undefined);
+
+  // Detalhes da oferta (tipo de produto comercializado)
+  await query(`ALTER TABLE affiliate_program_offers ADD COLUMN product_type VARCHAR(40) NULL`).catch(() => undefined);
+  await query(`ALTER TABLE affiliate_program_offers ADD COLUMN product_category VARCHAR(120) NULL`).catch(() => undefined);
+
   programsSchemaReady = true;
+}
+
+/** Labels canônicos — UI admin + exposição ao candidato */
+export const PAYOUT_METHOD_LABELS: Record<string, string> = {
+  pix_direct: "PIX direto",
+  bank_deposit: "Depósito em conta",
+  wallet: "Carteira interna",
+  other: "Outro",
+};
+
+export const PAYOUT_FREQUENCY_LABELS: Record<string, string> = {
+  daily: "Diário",
+  weekly: "Semanal",
+  biweekly: "Quinzenal",
+  monthly: "Mensal",
+  on_demand: "Sob demanda",
+};
+
+export const OFFER_PRODUCT_TYPE_LABELS: Record<string, string> = {
+  physical: "Produto físico",
+  digital: "Produto digital",
+  service: "Serviço",
+  subscription: "Assinatura",
+  package: "Pacote / combo",
+  course: "Curso / infoproduto",
+  other: "Outro",
+};
+
+export function normalizePayoutMethod(raw: unknown): string | null {
+  const v = String(raw || "").trim().toLowerCase();
+  if (!v) return null;
+  return PAYOUT_METHOD_LABELS[v] ? v : "other";
+}
+
+export function normalizePayoutFrequency(raw: unknown): string | null {
+  const v = String(raw || "").trim().toLowerCase();
+  if (!v) return null;
+  return PAYOUT_FREQUENCY_LABELS[v] ? v : "on_demand";
+}
+
+export function normalizeOfferProductType(raw: unknown): string | null {
+  const v = String(raw || "").trim().toLowerCase();
+  if (!v) return null;
+  return OFFER_PRODUCT_TYPE_LABELS[v] ? v : "other";
+}
+
+export function formatPayoutSummary(program: {
+  payout_method?: string | null;
+  payout_frequency?: string | null;
+  payout_min_amount?: number | null;
+  min_withdrawal?: number | null;
+  payment_days?: number | null;
+  payout_notes?: string | null;
+}): {
+  method: string | null;
+  method_label: string | null;
+  frequency: string | null;
+  frequency_label: string | null;
+  min_amount: number;
+  payment_days: number | null;
+  notes: string | null;
+  terms_text: string;
+} {
+  const method = program.payout_method ? String(program.payout_method) : null;
+  const frequency = program.payout_frequency ? String(program.payout_frequency) : null;
+  const minAmount = Number(
+    program.payout_min_amount != null && !Number.isNaN(Number(program.payout_min_amount))
+      ? program.payout_min_amount
+      : program.min_withdrawal ?? 0,
+  );
+  const paymentDays = program.payment_days != null ? Number(program.payment_days) : null;
+  const notes = program.payout_notes ? String(program.payout_notes).trim() : null;
+  const methodLabel = method ? (PAYOUT_METHOD_LABELS[method] || method) : null;
+  const frequencyLabel = frequency ? (PAYOUT_FREQUENCY_LABELS[frequency] || frequency) : null;
+
+  const parts: string[] = [];
+  if (methodLabel) parts.push(`Forma de repasse: ${methodLabel}.`);
+  if (frequencyLabel) parts.push(`Periodicidade: ${frequencyLabel}.`);
+  if (minAmount > 0) {
+    parts.push(
+      `Valor mínimo para saque/repasse: R$ ${minAmount.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.`,
+    );
+  }
+  if (paymentDays != null && paymentDays > 0 && frequency !== "on_demand") {
+    parts.push(`Prazo de referência para liberação: ${paymentDays} dia(s) após a confirmação.`);
+  }
+  if (notes) parts.push(notes);
+
+  return {
+    method,
+    method_label: methodLabel,
+    frequency,
+    frequency_label: frequencyLabel,
+    min_amount: minAmount,
+    payment_days: paymentDays,
+    notes,
+    terms_text: parts.join(" "),
+  };
 }
 
 export class AffiliateProgramsService {
@@ -243,9 +351,65 @@ export class AffiliateProgramsService {
     await ensureAffiliateProgramsSchema();
   }
 
+  /**
+   * Regra de negócio: programa ativo da marca = visível no mercado de afiliados.
+   * - is_enabled (config legada) → default program status active + marketplace
+   * - status active em qualquer campanha → marketplace_visible TRUE
+   * - desativar → some do mercado (status inactive / marketplace false)
+   */
+  async syncMarketplaceFromBrandConfig(ownerUserId: string, brandId: string) {
+    await this.ensureSchema();
+    const config = await this.affiliates.getOrCreateProgramConfig(ownerUserId, brandId);
+    const enabled = config.is_enabled !== false && config.is_enabled !== 0 as any;
+
+    // Garante programa principal
+    await this.syncLegacyDefaultProgram(ownerUserId, brandId);
+
+    if (enabled) {
+      // Ativo: default program no mercado + candidaturas alinhadas à config
+      await query(
+        `UPDATE affiliate_programs
+         SET status = 'active',
+             is_marketplace_visible = TRUE,
+             accept_applications = ?,
+             auto_approve_applications = ?,
+             commission_mode = COALESCE(?, commission_mode),
+             commission_value = COALESCE(?, commission_value),
+             updated_at = NOW()
+         WHERE brand_id = ? AND owner_user_id = ? AND is_default = TRUE`,
+        [
+          config.accept_new_affiliates !== false,
+          !!config.auto_approve_affiliates,
+          normalizeCommissionMode(config.default_commission_mode || "percentage"),
+          Number(config.default_commission_value ?? config.default_commission_pct ?? 10),
+          brandId,
+          ownerUserId,
+        ],
+      );
+      // Qualquer campanha já "active" permanece no mercado
+      await query(
+        `UPDATE affiliate_programs
+         SET is_marketplace_visible = TRUE, updated_at = NOW()
+         WHERE brand_id = ? AND owner_user_id = ? AND status = 'active'`,
+        [brandId, ownerUserId],
+      );
+    } else {
+      // Programa da marca desligado: remove do mercado (não encerra campanhas closed)
+      await query(
+        `UPDATE affiliate_programs
+         SET status = CASE WHEN status = 'closed' THEN 'closed' ELSE 'inactive' END,
+             is_marketplace_visible = FALSE,
+             updated_at = NOW()
+         WHERE brand_id = ? AND owner_user_id = ? AND status IN ('active', 'draft', 'inactive')`,
+        [brandId, ownerUserId],
+      );
+    }
+  }
+
   async syncLegacyDefaultProgram(ownerUserId: string, brandId: string) {
     await this.ensureSchema();
     const config = await this.affiliates.getOrCreateProgramConfig(ownerUserId, brandId);
+    const enabled = config.is_enabled !== false && config.is_enabled !== 0 as any;
 
     let program = await queryOne<any>(
       `SELECT * FROM affiliate_programs WHERE brand_id = ? AND is_default = TRUE LIMIT 1`,
@@ -263,7 +427,7 @@ export class AffiliateProgramsService {
           share_title, share_description, share_image_url, promotion_tone,
           accept_applications, auto_approve_applications, is_default, is_marketplace_visible,
           legacy_config_id, sort_order)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, TRUE, ?, 0)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, ?, ?, 0)`,
         [
           id,
           ownerUserId,
@@ -271,7 +435,7 @@ export class AffiliateProgramsService {
           slug,
           "Programa Principal",
           "Programa padrão da marca — todos os afiliados legados são vinculados aqui.",
-          config.is_enabled ? "active" : "inactive",
+          enabled ? "active" : "inactive",
           normalizeCommissionMode(config.default_commission_mode),
           Number(config.default_commission_value ?? config.default_commission_pct ?? 10),
           config.commission_rules || null,
@@ -286,6 +450,7 @@ export class AffiliateProgramsService {
           config.promotion_tone || null,
           config.accept_new_affiliates !== false,
           config.auto_approve_affiliates !== false,
+          enabled, // is_marketplace_visible = enabled
           config.id,
         ]
       );
@@ -298,6 +463,25 @@ export class AffiliateProgramsService {
            VALUES (?, ?, ?, ?, ?, ?, ?, TRUE)`,
           [randomUUID(), id, step.slug, step.title, step.description, step.step_type, step.sort_order]
         );
+      }
+    } else {
+      // Mantém default alinhado ao toggle da marca (sem sobrescrever closed)
+      if (String(program.status || "") !== "closed") {
+        await query(
+          `UPDATE affiliate_programs
+           SET status = ?,
+               is_marketplace_visible = ?,
+               accept_applications = ?,
+               updated_at = NOW()
+           WHERE id = ?`,
+          [
+            enabled ? "active" : "inactive",
+            enabled,
+            config.accept_new_affiliates !== false,
+            program.id,
+          ],
+        );
+        program = await queryOne<any>(`SELECT * FROM affiliate_programs WHERE id = ? LIMIT 1`, [program.id]);
       }
     }
 
@@ -347,6 +531,11 @@ export class AffiliateProgramsService {
 
   async listPrograms(ownerUserId: string, brandId: string, opts?: { status?: string; includeDraft?: boolean }) {
     await this.syncLegacyDefaultProgram(ownerUserId, brandId);
+    try {
+      await this.syncMarketplaceFromBrandConfig(ownerUserId, brandId);
+    } catch (err: any) {
+      console.error("[affiliatePrograms] syncMarketplace on list:", err?.message || err);
+    }
     const clauses = ["owner_user_id = ?", "brand_id = ?"];
     const values: any[] = [ownerUserId, brandId];
     if (!opts?.includeDraft) {
@@ -419,6 +608,20 @@ export class AffiliateProgramsService {
     const id = randomUUID();
     const mode = normalizeCommissionMode(payload.commission_mode || "percentage");
     const value = Number(payload.commission_value ?? payload.commission_pct ?? 10);
+    const status = String(payload.status || "draft");
+    const isActive = status === "active";
+    // Campanha ativa ⇒ sempre no mercado de afiliados
+    const marketplaceVisible = isActive ? true : payload.is_marketplace_visible !== false;
+    const acceptApps = isActive
+      ? payload.accept_applications !== false
+      : payload.accept_applications !== false;
+
+    const payoutMethod = normalizePayoutMethod(payload.payout_method);
+    const payoutFrequency = normalizePayoutFrequency(payload.payout_frequency);
+    const payoutMin = payload.payout_min_amount != null
+      ? Number(payload.payout_min_amount)
+      : Number(payload.min_withdrawal || 50);
+    const minWithdrawal = Number(payload.min_withdrawal ?? payoutMin ?? 50);
 
     await query(
       `INSERT INTO affiliate_programs
@@ -427,8 +630,9 @@ export class AffiliateProgramsService {
         terms_html, policies_html, orientation_html,
         cookie_days, min_withdrawal, payment_days,
         share_title, share_description, share_image_url, promotion_tone, cover_image_url,
-        accept_applications, auto_approve_applications, is_marketplace_visible, sort_order)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        accept_applications, auto_approve_applications, is_marketplace_visible, sort_order,
+        payout_method, payout_frequency, payout_min_amount, payout_notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         ownerUserId,
@@ -436,7 +640,7 @@ export class AffiliateProgramsService {
         slug,
         name,
         String(payload.description || "").trim() || null,
-        String(payload.status || "draft"),
+        status,
         mode,
         value,
         payload.commission_rules || null,
@@ -445,17 +649,21 @@ export class AffiliateProgramsService {
         payload.policies_html || null,
         payload.orientation_html || null,
         Number(payload.cookie_days || 30),
-        Number(payload.min_withdrawal || 50),
+        minWithdrawal,
         Number(payload.payment_days || 15),
         payload.share_title || null,
         payload.share_description || null,
         payload.share_image_url || null,
         payload.promotion_tone || null,
         payload.cover_image_url || null,
-        payload.accept_applications !== false,
+        acceptApps,
         !!payload.auto_approve_applications,
-        payload.is_marketplace_visible !== false,
+        marketplaceVisible,
         Number(payload.sort_order || 0),
+        payoutMethod,
+        payoutFrequency,
+        Number.isFinite(payoutMin) ? payoutMin : minWithdrawal,
+        payload.payout_notes ? String(payload.payout_notes).trim() || null : null,
       ]
     );
 
@@ -466,6 +674,18 @@ export class AffiliateProgramsService {
          VALUES (?, ?, ?, ?, ?, ?, ?, TRUE)`,
         [randomUUID(), id, step.slug, step.title, step.description, step.step_type, step.sort_order]
       );
+    }
+
+    // Qualquer campanha ativa exige programa da marca ligado (join no marketplace)
+    if (isActive) {
+      try {
+        await this.affiliates.updateProgramConfig(ownerUserId, brandId, {
+          is_enabled: true,
+          accept_new_affiliates: true,
+        });
+      } catch (err: any) {
+        console.error("[affiliatePrograms] enable brand on create active:", err?.message || err);
+      }
     }
 
     return this.getProgramBundle(ownerUserId, brandId, id);
@@ -479,6 +699,16 @@ export class AffiliateProgramsService {
       throw new Error("O programa principal não pode ser encerrado");
     }
 
+    // Ativo ⇒ sempre no mercado; inativo/encerrado/rascunho ⇒ some do mercado
+    const nextStatus = payload.status !== undefined ? String(payload.status) : String(program.status || "draft");
+    if (nextStatus === "active") {
+      payload.is_marketplace_visible = true;
+      // Candidaturas abertas: o mercado global filtra accept_applications
+      payload.accept_applications = true;
+    } else if (nextStatus === "inactive" || nextStatus === "closed" || nextStatus === "draft") {
+      payload.is_marketplace_visible = false;
+    }
+
     const fields: string[] = [];
     const values: any[] = [];
     const allowed = [
@@ -487,6 +717,7 @@ export class AffiliateProgramsService {
       "cookie_days", "min_withdrawal", "payment_days",
       "share_title", "share_description", "share_image_url", "promotion_tone", "cover_image_url",
       "accept_applications", "auto_approve_applications", "is_marketplace_visible", "sort_order", "slug",
+      "payout_method", "payout_frequency", "payout_min_amount", "payout_notes",
     ];
 
     for (const key of allowed) {
@@ -494,6 +725,26 @@ export class AffiliateProgramsService {
       if (key === "commission_mode") {
         fields.push(`${key} = ?`);
         values.push(normalizeCommissionMode(payload[key]));
+        continue;
+      }
+      if (key === "payout_method") {
+        fields.push(`${key} = ?`);
+        values.push(normalizePayoutMethod(payload[key]));
+        continue;
+      }
+      if (key === "payout_frequency") {
+        fields.push(`${key} = ?`);
+        values.push(normalizePayoutFrequency(payload[key]));
+        continue;
+      }
+      if (key === "payout_min_amount" || key === "min_withdrawal" || key === "payment_days" || key === "cookie_days") {
+        fields.push(`${key} = ?`);
+        values.push(Number(payload[key]));
+        continue;
+      }
+      if (key === "payout_notes") {
+        fields.push(`${key} = ?`);
+        values.push(payload[key] ? String(payload[key]).trim() || null : null);
         continue;
       }
       fields.push(`${key} = ?`);
@@ -508,6 +759,32 @@ export class AffiliateProgramsService {
       `UPDATE affiliate_programs SET ${fields.join(", ")} WHERE id = ? AND owner_user_id = ? AND brand_id = ?`,
       values
     );
+
+    // Alinha config da marca com a campanha principal; campanhas extras só ligam a marca
+    try {
+      if (program.is_default) {
+        if (nextStatus === "active") {
+          await this.affiliates.updateProgramConfig(ownerUserId, brandId, {
+            is_enabled: true,
+            accept_new_affiliates: true,
+          });
+        } else if (nextStatus === "inactive" || nextStatus === "draft") {
+          // Programa principal inativo ⇒ marca fora do mercado
+          await this.affiliates.updateProgramConfig(ownerUserId, brandId, {
+            is_enabled: false,
+          });
+        }
+      } else if (nextStatus === "active") {
+        // Campanha extra ativa exige join cfg.is_enabled no marketplace
+        await this.affiliates.updateProgramConfig(ownerUserId, brandId, {
+          is_enabled: true,
+          accept_new_affiliates: true,
+        });
+      }
+    } catch (err: any) {
+      console.error("[affiliatePrograms] brand config sync on program status:", err?.message || err);
+    }
+
     return this.getProgramBundle(ownerUserId, brandId, programId);
   }
 
@@ -608,19 +885,29 @@ export class AffiliateProgramsService {
     const title = String(payload.title || "").trim();
     if (!title) throw new Error("Título da oferta é obrigatório");
 
+    const productType = normalizeOfferProductType(payload.product_type || payload.offer_type);
+    const productCategory = payload.product_category
+      ? String(payload.product_category).trim().slice(0, 120) || null
+      : null;
+    const offerType = String(payload.offer_type || (productType ? "product" : "product")).trim() || "product";
+    const description = payload.description != null ? String(payload.description).trim() || null : null;
+
     const existing = await queryOne<any>(`SELECT id FROM affiliate_program_offers WHERE id = ? LIMIT 1`, [id]);
     if (existing) {
       await query(
         `UPDATE affiliate_program_offers
-         SET product_id = ?, offer_type = ?, title = ?, description = ?, sort_order = ?, is_active = ?, updated_at = NOW()
+         SET product_id = ?, offer_type = ?, title = ?, description = ?, sort_order = ?, is_active = ?,
+             product_type = ?, product_category = ?, updated_at = NOW()
          WHERE id = ? AND program_id = ?`,
         [
           payload.product_id || null,
-          String(payload.offer_type || "product"),
+          offerType,
           title,
-          payload.description || null,
+          description,
           Number(payload.sort_order || 0),
           payload.is_active !== false,
+          productType,
+          productCategory,
           id,
           programId,
         ]
@@ -628,17 +915,19 @@ export class AffiliateProgramsService {
     } else {
       await query(
         `INSERT INTO affiliate_program_offers
-         (id, program_id, product_id, offer_type, title, description, sort_order, is_active)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, program_id, product_id, offer_type, title, description, sort_order, is_active, product_type, product_category)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           id,
           programId,
           payload.product_id || null,
-          String(payload.offer_type || "product"),
+          offerType,
           title,
-          payload.description || null,
+          description,
           Number(payload.sort_order || 0),
           payload.is_active !== false,
+          productType,
+          productCategory,
         ]
       );
     }
@@ -812,10 +1101,23 @@ export class AffiliateProgramsService {
       [input.affiliateUserId, input.brandId]
     );
 
+    // Garante que config ativa ⇒ programa default no mercado
+    try {
+      await this.syncMarketplaceFromBrandConfig(input.ownerUserId, input.brandId);
+    } catch (err: any) {
+      console.error("[affiliatePrograms] syncMarketplace before list:", err?.message || err);
+    }
+
     const programs = (await query<any[]>(
-      `SELECT * FROM affiliate_programs
-       WHERE brand_id = ? AND status = 'active' AND is_marketplace_visible = TRUE
-       ORDER BY sort_order ASC, name ASC`,
+      `SELECT p.*
+       FROM affiliate_programs p
+       INNER JOIN affiliate_program_config cfg
+         ON cfg.brand_id = p.brand_id AND cfg.owner_user_id = p.owner_user_id
+       WHERE p.brand_id = ?
+         AND cfg.is_enabled = TRUE
+         AND p.status = 'active'
+         AND p.is_marketplace_visible = TRUE
+       ORDER BY p.sort_order ASC, p.name ASC`,
       [input.brandId]
     )) || [];
 

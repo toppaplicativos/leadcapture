@@ -655,13 +655,74 @@ export class AffiliateGlobalService {
     const limit = Math.min(Math.max(Number(input.limit) || 50, 1), 100);
     const q = String(input.q || "").trim().toLowerCase();
 
+    // Heal: marca com programa ativo (is_enabled) ⇒ default program no mercado
+    try {
+      await query(
+        `UPDATE affiliate_programs p
+         SET status = 'active',
+             is_marketplace_visible = TRUE,
+             accept_applications = TRUE,
+             updated_at = NOW()
+         FROM affiliate_program_config cfg
+         WHERE cfg.brand_id = p.brand_id
+           AND cfg.owner_user_id = p.owner_user_id
+           AND cfg.is_enabled = TRUE
+           AND p.is_default = TRUE
+           AND COALESCE(p.status, '') <> 'closed'
+           AND (
+             p.status IS DISTINCT FROM 'active'
+             OR p.is_marketplace_visible IS DISTINCT FROM TRUE
+             OR p.accept_applications IS DISTINCT FROM TRUE
+           )`
+      );
+
+      // Marcas com config ativa mas sem campanha publicada: cria/sincroniza o principal
+      const orphans = (await query<any[]>(
+        `SELECT cfg.owner_user_id, cfg.brand_id
+         FROM affiliate_program_config cfg
+         WHERE cfg.is_enabled = TRUE
+           AND NOT EXISTS (
+             SELECT 1 FROM affiliate_programs p
+             WHERE p.brand_id = cfg.brand_id
+               AND p.owner_user_id = cfg.owner_user_id
+               AND p.status = 'active'
+               AND p.is_marketplace_visible = TRUE
+           )
+         LIMIT 40`
+      )) || [];
+      if (orphans.length) {
+        const { affiliateProgramsService } = await import("./affiliatePrograms");
+        for (const row of orphans) {
+          try {
+            await affiliateProgramsService.syncMarketplaceFromBrandConfig(
+              String(row.owner_user_id),
+              String(row.brand_id),
+            );
+          } catch (syncErr: any) {
+            console.error(
+              "[affiliateGlobal] orphan marketplace sync:",
+              row?.brand_id,
+              syncErr?.message || syncErr,
+            );
+          }
+        }
+      }
+    } catch (err: any) {
+      console.error("[affiliateGlobal] marketplace heal:", err?.message || err);
+    }
+
     let programs = (await query<any[]>(
       `SELECT p.*, b.name AS organization_name, b.slug AS organization_slug,
               b.logo_url AS organization_logo_url, b.primary_color, b.secondary_color
        FROM affiliate_programs p
        INNER JOIN brand_units b ON b.id = p.brand_id
-       INNER JOIN affiliate_program_config cfg ON cfg.brand_id = p.brand_id AND cfg.is_enabled = TRUE
-       WHERE p.status = 'active' AND p.is_marketplace_visible = TRUE
+       INNER JOIN affiliate_program_config cfg
+         ON cfg.brand_id = p.brand_id
+        AND cfg.owner_user_id = p.owner_user_id
+        AND cfg.is_enabled = TRUE
+       WHERE p.status = 'active'
+         AND p.is_marketplace_visible = TRUE
+         AND COALESCE(p.accept_applications, TRUE) = TRUE
        ORDER BY p.sort_order ASC, p.name ASC
        LIMIT 200`
     )) || [];
@@ -822,7 +883,8 @@ export class AffiliateGlobalService {
 
     const [offers, steps, trainings] = await Promise.all([
       query<any[]>(
-        `SELECT o.id, o.title, o.description, o.offer_type, o.product_id, p.name AS product_name
+        `SELECT o.id, o.title, o.description, o.offer_type, o.product_id, o.product_type, o.product_category,
+                p.name AS product_name
          FROM affiliate_program_offers o
          LEFT JOIN products p ON p.id = o.product_id
          WHERE o.program_id = ? AND o.is_active = TRUE
@@ -873,13 +935,44 @@ export class AffiliateGlobalService {
     ).catch(() => null);
     const prospectsCaptured = Number(prospectsRow?.total || 0);
 
+    const {
+      formatPayoutSummary,
+      OFFER_PRODUCT_TYPE_LABELS,
+    } = await import("./affiliatePrograms");
+    const payout = formatPayoutSummary(program);
+
+    const offersMapped = (offers || []).map((o: any) => {
+      const pType = o.product_type ? String(o.product_type) : null;
+      return {
+        id: String(o.id),
+        title: String(o.title || ""),
+        description: o.description ? String(o.description) : null,
+        offer_type: String(o.offer_type || "product"),
+        product_id: o.product_id ? String(o.product_id) : null,
+        product_name: o.product_name ? String(o.product_name) : null,
+        product_type: pType,
+        product_type_label: pType ? (OFFER_PRODUCT_TYPE_LABELS[pType] || pType) : null,
+        product_category: o.product_category ? String(o.product_category) : null,
+      };
+    });
+
+    // Termos do programa + bloco automático de repasse (visível na candidatura)
+    const baseTerms = program.terms_html ? String(program.terms_html) : "";
+    const payoutTermsBlock = payout.terms_text
+      ? `<section class="program-payout-terms"><h3>Repasse e pagamento de comissões</h3><p>${payout.terms_text
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")}</p></section>`
+      : "";
+    const termsHtml = [baseTerms, payoutTermsBlock].filter(Boolean).join("\n");
+
     return {
       id: String(program.id),
       slug: String(program.slug || ""),
       name: String(program.name || ""),
       description: program.description ? String(program.description) : null,
       eligibility_rules: program.eligibility_rules ? String(program.eligibility_rules) : null,
-      terms_html: program.terms_html ? String(program.terms_html) : null,
+      terms_html: termsHtml || null,
       policies_html: program.policies_html ? String(program.policies_html) : null,
       orientation_html: program.orientation_html ? String(program.orientation_html) : null,
       commission_mode: String(program.commission_mode || "percentage"),
@@ -888,6 +981,22 @@ export class AffiliateGlobalService {
       accept_applications: program.accept_applications !== false,
       prospects_captured: prospectsCaptured,
       leads_captured: prospectsCaptured,
+      payout: {
+        method: payout.method,
+        method_label: payout.method_label,
+        frequency: payout.frequency,
+        frequency_label: payout.frequency_label,
+        min_amount: payout.min_amount,
+        payment_days: payout.payment_days,
+        notes: payout.notes,
+        terms_text: payout.terms_text,
+      },
+      payout_method: payout.method,
+      payout_frequency: payout.frequency,
+      payout_min_amount: payout.min_amount,
+      payout_notes: payout.notes,
+      payment_days: payout.payment_days,
+      min_withdrawal: Number(program.min_withdrawal || payout.min_amount || 0),
       organization: {
         id: String(program.brand_id),
         name: String(program.organization_name || ""),
@@ -899,7 +1008,7 @@ export class AffiliateGlobalService {
         prospects_captured: prospectsCaptured,
         leads_captured: prospectsCaptured,
       },
-      offers: offers || [],
+      offers: offersMapped,
       onboarding: {
         steps_count: (steps || []).length,
         required_steps_count: requiredSteps,

@@ -6,6 +6,12 @@ import {
 import { getHeaders } from '@/lib/admin/helpers'
 import { buildPartnersInviteUrl } from '@/lib/api-partners'
 import { COMMISSION_MODE_OPTIONS, commissionValueLabel, formatCommissionShort, normalizeCommissionMode } from '@/lib/affiliate-commission'
+import {
+  OFFER_PRODUCT_TYPE_OPTIONS,
+  PAYOUT_FREQUENCY_OPTIONS,
+  PAYOUT_METHOD_OPTIONS,
+  labelOf,
+} from '@/lib/affiliates/program-config'
 
 type Program = {
   id: string
@@ -15,6 +21,7 @@ type Program = {
   commission_mode: string
   commission_value: number
   is_default?: boolean
+  is_marketplace_visible?: boolean
   description?: string
 }
 
@@ -52,7 +59,13 @@ export function AffiliateProgramsSection({ showToast, saving, setSaving }: Props
   const [catalogProducts, setCatalogProducts] = useState<any[]>([])
   const [trainingForm, setTrainingForm] = useState({ title: '', description: '', content_html: '', step_id: '' })
   const [stepForm, setStepForm] = useState({ title: '', step_type: 'orientation', description: '', sort_order: 50 })
-  const [offerForm, setOfferForm] = useState({ product_id: '', title: '' })
+  const [offerForm, setOfferForm] = useState({
+    product_id: '',
+    title: '',
+    description: '',
+    product_type: 'physical',
+    product_category: '',
+  })
   const [invitations, setInvitations] = useState<any[]>([])
   const [inviteForm, setInviteForm] = useState({ label: '', email: '', max_uses: '', expires_in_days: '' })
   const [form, setForm] = useState({
@@ -61,6 +74,7 @@ export function AffiliateProgramsSection({ showToast, saving, setSaving }: Props
     status: 'draft',
     commission_mode: 'percentage',
     commission_value: 10,
+    commission_rules: '',
     accept_applications: true,
     auto_approve_applications: false,
     is_marketplace_visible: true,
@@ -68,6 +82,11 @@ export function AffiliateProgramsSection({ showToast, saving, setSaving }: Props
     terms_html: '',
     policies_html: '',
     orientation_html: '',
+    payout_method: 'pix_direct',
+    payout_frequency: 'monthly',
+    payout_min_amount: 50,
+    payment_days: 15,
+    payout_notes: '',
   })
 
   async function loadPrograms() {
@@ -108,6 +127,7 @@ export function AffiliateProgramsSection({ showToast, saving, setSaving }: Props
         status: p.status || 'draft',
         commission_mode: normalizeCommissionMode(p.commission_mode),
         commission_value: Number(p.commission_value || 10),
+        commission_rules: p.commission_rules || '',
         accept_applications: p.accept_applications !== false,
         auto_approve_applications: !!p.auto_approve_applications,
         is_marketplace_visible: p.is_marketplace_visible !== false,
@@ -115,6 +135,11 @@ export function AffiliateProgramsSection({ showToast, saving, setSaving }: Props
         terms_html: p.terms_html || '',
         policies_html: p.policies_html || '',
         orientation_html: p.orientation_html || '',
+        payout_method: p.payout_method || 'pix_direct',
+        payout_frequency: p.payout_frequency || 'monthly',
+        payout_min_amount: Number(p.payout_min_amount ?? p.min_withdrawal ?? 50),
+        payment_days: Number(p.payment_days ?? 15),
+        payout_notes: p.payout_notes || '',
       })
     } catch (e: unknown) {
       showToast(e instanceof Error ? e.message : 'Erro', 'err')
@@ -197,7 +222,11 @@ export function AffiliateProgramsSection({ showToast, saving, setSaving }: Props
       const r = await fetch('/api/affiliate-programs', {
         method: 'POST',
         headers: getHeaders(),
-        body: JSON.stringify({ ...form, brand_id: brandId }),
+        body: JSON.stringify({
+          ...form,
+          brand_id: brandId,
+          min_withdrawal: Number(form.payout_min_amount ?? 50),
+        }),
       })
       const d = await r.json()
       if (!r.ok) throw new Error(d.error || 'Erro ao criar')
@@ -211,18 +240,31 @@ export function AffiliateProgramsSection({ showToast, saving, setSaving }: Props
     }
   }
 
-  async function saveProgram() {
+  async function saveProgram(overrides?: Partial<typeof form>) {
     if (!selectedId) return
     setSaving(true)
+    const payload = { ...form, ...overrides }
     try {
       const r = await fetch(`/api/affiliate-programs/${encodeURIComponent(selectedId)}`, {
         method: 'PUT',
         headers: getHeaders(),
-        body: JSON.stringify({ ...form, brand_id: brandId }),
+        body: JSON.stringify({
+          ...payload,
+          brand_id: brandId,
+          // espelha valor mínimo no campo legado min_withdrawal
+          min_withdrawal: Number(payload.payout_min_amount ?? 50),
+        }),
       })
       const d = await r.json()
       if (!r.ok) throw new Error(d.error || 'Erro ao salvar')
-      showToast('Programa atualizado!')
+      if (overrides?.status === 'active') {
+        showToast('Campanha ativa no mercado de afiliados!')
+      } else if (overrides?.status === 'inactive') {
+        showToast('Campanha desativada e removida do mercado')
+      } else {
+        showToast('Programa atualizado!')
+      }
+      setForm((f) => ({ ...f, ...payload }))
       setBundle(d)
       await loadPrograms()
     } catch (e: unknown) {
@@ -230,6 +272,16 @@ export function AffiliateProgramsSection({ showToast, saving, setSaving }: Props
     } finally {
       setSaving(false)
     }
+  }
+
+  async function toggleCampaignLive() {
+    if (!selectedId) return
+    const goingLive = form.status !== 'active'
+    await saveProgram({
+      status: goingLive ? 'active' : 'inactive',
+      is_marketplace_visible: goingLive,
+      accept_applications: goingLive ? true : form.accept_applications,
+    })
   }
 
   async function saveStep() {
@@ -294,7 +346,7 @@ export function AffiliateProgramsSection({ showToast, saving, setSaving }: Props
     if (!selectedId) return
     const product = catalogProducts.find((p) => p.id === offerForm.product_id)
     const title = offerForm.title.trim() || product?.name
-    if (!title) return showToast('Selecione um produto ou informe o título', 'err')
+    if (!title) return showToast('Selecione um produto ou informe o título da oferta', 'err')
     setSaving(true)
     try {
       const r = await fetch(`/api/affiliate-programs/${encodeURIComponent(selectedId)}/offers`, {
@@ -303,14 +355,17 @@ export function AffiliateProgramsSection({ showToast, saving, setSaving }: Props
         body: JSON.stringify({
           product_id: offerForm.product_id || null,
           title,
+          description: offerForm.description.trim() || null,
           offer_type: 'product',
+          product_type: offerForm.product_type || 'other',
+          product_category: offerForm.product_category.trim() || null,
           brand_id: brandId,
         }),
       })
       const d = await r.json()
       if (!r.ok) throw new Error(d.error || 'Erro')
-      showToast('Oferta vinculada!')
-      setOfferForm({ product_id: '', title: '' })
+      showToast('Oferta salva!')
+      setOfferForm({ product_id: '', title: '', description: '', product_type: 'physical', product_category: '' })
       await loadBundle(selectedId)
     } catch (e: unknown) {
       showToast(e instanceof Error ? e.message : 'Erro', 'err')
@@ -414,25 +469,69 @@ export function AffiliateProgramsSection({ showToast, saving, setSaving }: Props
               <Plus size={14} /> Novo
             </button>
           </div>
-          {programs.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              className={`affiliates-programs__item${selectedId === p.id ? ' affiliates-programs__item--on' : ''}`}
-              onClick={() => setSelectedId(p.id)}
-            >
-              <div className="min-w-0">
-                <p className="font-semibold text-sm truncate">{p.name}</p>
-                <p className="text-[10px] text-gray-400">{p.status}{p.is_default ? ' · principal' : ''}</p>
-              </div>
-              <ChevronRight size={14} className="text-gray-300 shrink-0" />
-            </button>
-          ))}
+          {programs.map((p) => {
+            const live = p.status === 'active' && p.is_marketplace_visible !== false
+            return (
+              <button
+                key={p.id}
+                type="button"
+                className={`affiliates-programs__item${selectedId === p.id ? ' affiliates-programs__item--on' : ''}`}
+                onClick={() => setSelectedId(p.id)}
+              >
+                <div className="min-w-0">
+                  <p className="font-semibold text-sm truncate">{p.name}</p>
+                  <p className="text-[10px] text-gray-400">
+                    <span className={`affiliates-programs__dot${live ? ' is-on' : ''}`} />
+                    {live ? 'No mercado' : STATUS_OPTIONS.find((o) => o.value === p.status)?.label || p.status}
+                    {p.is_default ? ' · principal' : ''}
+                  </p>
+                </div>
+                <ChevronRight size={14} className="text-gray-300 shrink-0" />
+              </button>
+            )
+          })}
         </aside>
 
         <div className="affiliates-programs__detail space-y-4">
           <div className="affiliate-card p-4 affiliates-page__section">
             <p className="font-bold text-sm mb-3">{selectedId ? 'Editar programa' : 'Novo programa'}</p>
+            {selectedId && (
+              <div className={`affiliates-programs__live-bar${form.status === 'active' ? ' is-on' : ''}`}>
+                <div>
+                  <p className="affiliates-programs__live-bar-title">
+                    {form.status === 'active' ? 'Publicada no mercado de afiliados' : 'Fora do mercado'}
+                  </p>
+                  <p className="affiliates-programs__live-bar-desc">
+                    {form.status === 'active'
+                      ? (bundle?.program?.is_default
+                        ? 'Programa principal ativo: listado no app de afiliados enquanto “Programa ativo” estiver ligado.'
+                        : 'Afiliados veem esta campanha no app de afiliados e podem se candidatar.')
+                      : (bundle?.program?.is_default
+                        ? 'Ative para publicar o programa da marca no mercado. Desativar desliga o programa da marca.'
+                        : 'Ative para listar no mercado. Desativar remove da listagem (afiliados já inscritos continuam).')}
+                  </p>
+                </div>
+                <div className="affiliates-programs__live-actions">
+                  <button
+                    type="button"
+                    className={`affiliates-page__btn ${form.status === 'active' ? 'affiliates-page__btn--ghost' : 'affiliates-page__btn--primary'}`}
+                    disabled={saving || form.status === 'closed'}
+                    onClick={() => {
+                      if (
+                        form.status === 'active'
+                        && bundle?.program?.is_default
+                        && !confirm('Desativar o programa principal remove a marca do mercado de afiliados. Continuar?')
+                      ) {
+                        return
+                      }
+                      void toggleCampaignLive()
+                    }}
+                  >
+                    {form.status === 'active' ? 'Desativar' : 'Ativar no mercado'}
+                  </button>
+                </div>
+              </div>
+            )}
             <div className="affiliates-page__settings-grid">
               <label className="affiliates-page__field affiliates-page__field--wide">
                 <span>Nome</span>
@@ -443,10 +542,27 @@ export function AffiliateProgramsSection({ showToast, saving, setSaving }: Props
                 <textarea rows={3} value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} />
               </label>
               <label className="affiliates-page__field">
-                <span>Status</span>
-                <select value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}>
+                <span>Status da campanha</span>
+                <select
+                  value={form.status}
+                  onChange={(e) => {
+                    const status = e.target.value
+                    setForm((f) => ({
+                      ...f,
+                      status,
+                      // Ativo ⇒ mercado; demais ⇒ some do mercado
+                      is_marketplace_visible: status === 'active' ? true : false,
+                      accept_applications: status === 'active' ? true : f.accept_applications,
+                    }))
+                  }}
+                >
                   {STATUS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
+                <p className="affiliates-page__field-hint">
+                  {form.status === 'active'
+                    ? 'Campanha ativa aparece no mercado de afiliados.'
+                    : 'Só campanhas ativas entram no mercado.'}
+                </p>
               </label>
               <label className="affiliates-page__field">
                 <span>Modo comissão</span>
@@ -461,6 +577,72 @@ export function AffiliateProgramsSection({ showToast, saving, setSaving }: Props
               <p className="affiliates-page__field affiliates-page__field--wide text-sm text-gray-600">
                 Prévia: {formatCommissionShort(normalizeCommissionMode(form.commission_mode), form.commission_value)}
               </p>
+              <label className="affiliates-page__field affiliates-page__field--wide">
+                <span>Regras comerciais de comissão (texto livre)</span>
+                <textarea
+                  rows={2}
+                  value={form.commission_rules}
+                  onChange={(e) => setForm((f) => ({ ...f, commission_rules: e.target.value }))}
+                  placeholder="Ex.: Comissão só em pedidos pagos. Cancelamentos estornam."
+                />
+              </label>
+
+              <div className="affiliates-page__field affiliates-page__field--wide">
+                <p className="text-sm font-extrabold text-gray-900 mb-1">Repasse e pagamento</p>
+                <p className="text-[11px] text-gray-500 mb-2">
+                  Exibido no detalhe da candidatura e incluído automaticamente nos termos para o parceiro.
+                </p>
+              </div>
+              <label className="affiliates-page__field">
+                <span>Forma de repasse</span>
+                <select value={form.payout_method} onChange={(e) => setForm((f) => ({ ...f, payout_method: e.target.value }))}>
+                  {PAYOUT_METHOD_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </label>
+              <label className="affiliates-page__field">
+                <span>Periodicidade</span>
+                <select value={form.payout_frequency} onChange={(e) => setForm((f) => ({ ...f, payout_frequency: e.target.value }))}>
+                  {PAYOUT_FREQUENCY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </label>
+              <label className="affiliates-page__field">
+                <span>Valor mínimo (R$)</span>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={form.payout_min_amount}
+                  onChange={(e) => setForm((f) => ({ ...f, payout_min_amount: Number(e.target.value) }))}
+                />
+              </label>
+              <label className="affiliates-page__field">
+                <span>Prazo de referência (dias)</span>
+                <input
+                  type="number"
+                  min={0}
+                  value={form.payment_days}
+                  onChange={(e) => setForm((f) => ({ ...f, payment_days: Number(e.target.value) }))}
+                />
+                <p className="affiliates-page__field-hint">Dias após confirmação do pedido/pagamento para liberar o repasse.</p>
+              </label>
+              <label className="affiliates-page__field affiliates-page__field--wide">
+                <span>Notas de repasse (PIX, conta, condições extras)</span>
+                <textarea
+                  rows={2}
+                  value={form.payout_notes}
+                  onChange={(e) => setForm((f) => ({ ...f, payout_notes: e.target.value }))}
+                  placeholder="Ex.: PIX na chave cadastrada no perfil. Depósitos às sextas."
+                />
+              </label>
+              <p className="affiliates-page__field affiliates-page__field--wide text-xs text-gray-600 bg-gray-50 rounded-xl px-3 py-2">
+                Prévia para o candidato:{' '}
+                <strong>
+                  {labelOf(PAYOUT_METHOD_OPTIONS, form.payout_method)} · {labelOf(PAYOUT_FREQUENCY_OPTIONS, form.payout_frequency)} · mín. R${' '}
+                  {Number(form.payout_min_amount || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                  {form.payment_days ? ` · ${form.payment_days}d` : ''}
+                </strong>
+              </p>
+
               <label className="affiliates-page__check affiliates-page__field--wide">
                 <input type="checkbox" checked={form.accept_applications} onChange={(e) => setForm((f) => ({ ...f, accept_applications: e.target.checked }))} />
                 Aceitar candidaturas no mercado
@@ -470,8 +652,18 @@ export function AffiliateProgramsSection({ showToast, saving, setSaving }: Props
                 Aprovar candidaturas automaticamente (onboarding ainda obrigatório)
               </label>
               <label className="affiliates-page__check affiliates-page__field--wide">
-                <input type="checkbox" checked={form.is_marketplace_visible} onChange={(e) => setForm((f) => ({ ...f, is_marketplace_visible: e.target.checked }))} />
+                <input
+                  type="checkbox"
+                  checked={form.status === 'active' || form.is_marketplace_visible}
+                  disabled
+                  readOnly
+                />
                 Exibir no mercado de oportunidades
+                {form.status === 'active' ? (
+                  <span className="text-emerald-600 text-[11px] font-semibold ml-1">· automático ao ativar</span>
+                ) : (
+                  <span className="text-gray-400 text-[11px] ml-1">· ative a campanha para publicar</span>
+                )}
               </label>
               <label className="affiliates-page__field affiliates-page__field--wide">
                 <span>Requisitos de elegibilidade (exibidos no mercado)</span>
@@ -506,37 +698,88 @@ export function AffiliateProgramsSection({ showToast, saving, setSaving }: Props
             <>
               <div className="affiliate-card p-4">
                 <p className="font-bold text-sm flex items-center gap-2 mb-2">
-                  <Package size={14} /> Ofertas / produtos ({bundle.offers?.length || 0})
+                  <Package size={14} /> Ofertas do programa ({bundle.offers?.length || 0})
+                </p>
+                <p className="text-[11px] text-gray-500 mb-3">
+                  O que o afiliado pode promover. Cada oferta aparece no detalhe da candidatura com tipo de produto.
                 </p>
                 {(bundle.offers || []).length === 0 ? (
-                  <p className="text-xs text-gray-400 mb-2">Nenhuma oferta vinculada — catálogo completo será exibido</p>
+                  <p className="text-xs text-gray-400 mb-2">Nenhuma oferta — adicione produtos ou serviços que entram no programa.</p>
                 ) : (
                   <ul className="space-y-2 mb-3">
                     {(bundle.offers || []).map((o: any) => (
                       <li key={o.id} className="text-xs text-gray-600 flex justify-between gap-2 border-b border-gray-100 pb-2">
-                        <span><strong>{o.title}</strong>{o.product_name ? ` · ${o.product_name}` : ''}</span>
-                        <button type="button" className="text-red-500" onClick={() => removeOffer(o.id, o.title)}><Trash2 size={12} /></button>
+                        <span className="min-w-0">
+                          <strong className="text-gray-900">{o.title}</strong>
+                          {o.product_name ? ` · catálogo: ${o.product_name}` : ''}
+                          <span className="block text-[10px] text-gray-500 mt-0.5">
+                            {labelOf(OFFER_PRODUCT_TYPE_OPTIONS, o.product_type || o.offer_type)}
+                            {o.product_category ? ` · ${o.product_category}` : ''}
+                            {o.description ? ` · ${String(o.description).slice(0, 80)}` : ''}
+                          </span>
+                        </span>
+                        <button type="button" className="text-red-500 shrink-0" onClick={() => removeOffer(o.id, o.title)}><Trash2 size={12} /></button>
                       </li>
                     ))}
                   </ul>
                 )}
                 <div className="affiliates-page__settings-grid">
                   <label className="affiliates-page__field affiliates-page__field--wide">
-                    <span>Produto do catálogo</span>
+                    <span>Produto do catálogo (opcional)</span>
                     <select
                       value={offerForm.product_id}
                       onChange={(e) => {
                         const p = catalogProducts.find((x) => x.id === e.target.value)
-                        setOfferForm({ product_id: e.target.value, title: p?.name || '' })
+                        setOfferForm((f) => ({
+                          ...f,
+                          product_id: e.target.value,
+                          title: f.title || p?.name || '',
+                        }))
                       }}
                     >
-                      <option value="">Selecione…</option>
+                      <option value="">Sem vínculo no catálogo</option>
                       {catalogProducts.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                     </select>
                   </label>
+                  <label className="affiliates-page__field affiliates-page__field--wide">
+                    <span>Título da oferta</span>
+                    <input
+                      value={offerForm.title}
+                      onChange={(e) => setOfferForm((f) => ({ ...f, title: e.target.value }))}
+                      placeholder="Ex.: Kit skincare premium"
+                    />
+                  </label>
+                  <label className="affiliates-page__field">
+                    <span>Tipo de produto</span>
+                    <select
+                      value={offerForm.product_type}
+                      onChange={(e) => setOfferForm((f) => ({ ...f, product_type: e.target.value }))}
+                    >
+                      {OFFER_PRODUCT_TYPE_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>{o.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="affiliates-page__field">
+                    <span>Categoria (opcional)</span>
+                    <input
+                      value={offerForm.product_category}
+                      onChange={(e) => setOfferForm((f) => ({ ...f, product_category: e.target.value }))}
+                      placeholder="Ex.: Beleza, SaaS, Consultoria"
+                    />
+                  </label>
+                  <label className="affiliates-page__field affiliates-page__field--wide">
+                    <span>Detalhes da oferta</span>
+                    <textarea
+                      rows={2}
+                      value={offerForm.description}
+                      onChange={(e) => setOfferForm((f) => ({ ...f, description: e.target.value }))}
+                      placeholder="O que o afiliado vende, ticket médio, diferenciais…"
+                    />
+                  </label>
                 </div>
                 <button type="button" className="affiliates-page__btn affiliates-page__btn--ghost mt-2" disabled={saving} onClick={() => saveOffer()}>
-                  <Package size={14} /> Vincular oferta
+                  <Package size={14} /> Adicionar oferta
                 </button>
               </div>
 

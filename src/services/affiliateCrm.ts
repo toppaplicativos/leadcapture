@@ -152,80 +152,95 @@ export class AffiliateCrmService {
       assignmentParams
     );
 
+    const leadItems = (leadRows || []).map((row) => {
+      const pipelineType = classifyLeadPipeline(row.affiliate_status);
+      const temperature = classifyLeadTemperature(row.affiliate_status);
+      return {
+        id: `lead:${row.id}`,
+        ref_type: "affiliate_lead" as const,
+        ref_id: String(row.id),
+        name: String(row.customer_name || "Sem nome"),
+        phone: row.phone ? String(row.phone) : null,
+        email: row.email ? String(row.email) : null,
+        pipeline_type: pipelineType,
+        commercial_status: mapLeadStatusLabel(row.affiliate_status),
+        status_code: String(row.affiliate_status || "new"),
+        temperature,
+        source: "own_link" as const,
+        source_label: mapSourceType(row.source_type),
+        campaign_name: null,
+        program_name: null,
+        city: null as string | null,
+        region: null as string | null,
+        product_name: row.product_name ? String(row.product_name) : null,
+        message: row.message ? String(row.message) : null,
+        notes: row.affiliate_notes ? String(row.affiliate_notes) : null,
+        last_interaction_at: row.updated_at ? String(row.updated_at) : null,
+        next_followup_at: null as string | null,
+        next_action:
+          row.affiliate_status === "new"
+            ? "Enviar primeira mensagem"
+            : row.affiliate_status === "contacted"
+              ? "Aguardar resposta ou follow-up"
+              : "Avançar negociação",
+        received_at: row.created_at ? String(row.created_at) : String(row.updated_at || ""),
+        followup_due: false,
+        followup_count: 0,
+        cta_type: row.cta_type ? String(row.cta_type) : null,
+      };
+    });
+
+    const assignmentItems = (assignmentRows || []).map((row) => {
+      const stage = String(row.current_stage || "assigned_to_affiliate");
+      const pipelineType = classifyAssignmentPipeline(stage);
+      const temperature = classifyAssignmentTemperature(stage);
+      const followupDue = isFollowupDue(row.next_followup_at);
+      return {
+        id: `assignment:${row.id}`,
+        ref_type: "assignment" as const,
+        ref_id: String(row.id),
+        name: String(row.prospect_name || "Prospect"),
+        phone: row.prospect_phone ? String(row.prospect_phone) : null,
+        email: null as string | null,
+        pipeline_type: pipelineType,
+        commercial_status: mapStageLabel(stage),
+        status_code: stage,
+        temperature,
+        source: "organization" as const,
+        source_label: mapSourceType(row.source || "distribution"),
+        campaign_name: null,
+        program_name: null,
+        city: row.prospect_city ? String(row.prospect_city) : null,
+        region: row.prospect_region ? String(row.prospect_region) : null,
+        product_name: null as string | null,
+        message: row.notes ? String(row.notes) : null,
+        notes: row.notes ? String(row.notes) : null,
+        last_interaction_at: row.last_interaction_at ? String(row.last_interaction_at) : null,
+        next_followup_at: row.next_followup_at ? String(row.next_followup_at) : null,
+        next_action: followupDue
+          ? "Follow-up vencido — intervir agora"
+          : stage === "needs_human_attention"
+            ? "Intervir no atendimento"
+            : "Acompanhar régua de abordagem",
+        received_at: row.assigned_at ? String(row.assigned_at) : "",
+        followup_due: followupDue,
+        followup_count: Number(row.followup_count || 0),
+        cta_type: null as string | null,
+      };
+    });
+
+    // Preferir assignment da org quando o mesmo telefone existe como lead de link
+    const orgPhones = new Set(
+      assignmentItems
+        .map((i) => normalizePhone(i.phone).slice(-9))
+        .filter((p) => p.length >= 8)
+    );
     const items = [
-      ...(leadRows || []).map((row) => {
-        const pipelineType = classifyLeadPipeline(row.affiliate_status);
-        const temperature = classifyLeadTemperature(row.affiliate_status);
-        return {
-          id: `lead:${row.id}`,
-          ref_type: "affiliate_lead" as const,
-          ref_id: String(row.id),
-          name: String(row.customer_name || "Sem nome"),
-          phone: row.phone ? String(row.phone) : null,
-          email: row.email ? String(row.email) : null,
-          pipeline_type: pipelineType,
-          commercial_status: mapLeadStatusLabel(row.affiliate_status),
-          status_code: String(row.affiliate_status || "new"),
-          temperature,
-          source: "own_link" as const,
-          source_label: mapSourceType(row.source_type),
-          campaign_name: null,
-          program_name: null,
-          city: null,
-          region: null,
-          product_name: row.product_name ? String(row.product_name) : null,
-          message: row.message ? String(row.message) : null,
-          notes: row.affiliate_notes ? String(row.affiliate_notes) : null,
-          last_interaction_at: row.updated_at ? String(row.updated_at) : null,
-          next_followup_at: null,
-          next_action:
-            row.affiliate_status === "new"
-              ? "Enviar primeira mensagem"
-              : row.affiliate_status === "contacted"
-                ? "Aguardar resposta ou follow-up"
-                : "Avançar negociação",
-          received_at: row.created_at ? String(row.created_at) : String(row.updated_at || ""),
-          followup_due: false,
-          cta_type: row.cta_type ? String(row.cta_type) : null,
-        };
-      }),
-      ...(assignmentRows || []).map((row) => {
-        const stage = String(row.current_stage || "assigned_to_affiliate");
-        const pipelineType = classifyAssignmentPipeline(stage);
-        const temperature = classifyAssignmentTemperature(stage);
-        const followupDue = isFollowupDue(row.next_followup_at);
-        return {
-          id: `assignment:${row.id}`,
-          ref_type: "assignment" as const,
-          ref_id: String(row.id),
-          name: String(row.prospect_name || "Prospect"),
-          phone: row.prospect_phone ? String(row.prospect_phone) : null,
-          email: null,
-          pipeline_type: pipelineType,
-          commercial_status: mapStageLabel(stage),
-          status_code: stage,
-          temperature,
-          source: "organization" as const,
-          source_label: mapSourceType(row.source || "distribution"),
-          campaign_name: null,
-          program_name: null,
-          city: row.prospect_city ? String(row.prospect_city) : null,
-          region: row.prospect_region ? String(row.prospect_region) : null,
-          product_name: null,
-          message: row.notes ? String(row.notes) : null,
-          notes: row.notes ? String(row.notes) : null,
-          last_interaction_at: row.last_interaction_at ? String(row.last_interaction_at) : null,
-          next_followup_at: row.next_followup_at ? String(row.next_followup_at) : null,
-          next_action: followupDue
-            ? "Follow-up vencido — intervir agora"
-            : stage === "needs_human_attention"
-              ? "Intervir no atendimento"
-              : "Acompanhar régua de abordagem",
-          received_at: row.assigned_at ? String(row.assigned_at) : "",
-          followup_due: followupDue,
-          followup_count: Number(row.followup_count || 0),
-          cta_type: null,
-        };
+      ...assignmentItems,
+      ...leadItems.filter((lead) => {
+        const tail = normalizePhone(lead.phone).slice(-9);
+        if (tail.length >= 8 && orgPhones.has(tail)) return false;
+        return true;
       }),
     ];
 

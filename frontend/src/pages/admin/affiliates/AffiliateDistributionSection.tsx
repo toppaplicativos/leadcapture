@@ -46,6 +46,7 @@ export function AffiliateDistributionSection({ showToast, saving, setSaving }: P
     require_whatsapp_connected: true,
     require_training_complete: true,
     require_terms_accepted: true,
+    require_pix_key: false,
     allowed_regions_json: '',
   })
 
@@ -78,6 +79,7 @@ export function AffiliateDistributionSection({ showToast, saving, setSaving }: P
         require_whatsapp_connected: r.require_whatsapp_connected !== false && r.require_whatsapp_connected !== 0,
         require_training_complete: r.require_training_complete !== false && r.require_training_complete !== 0,
         require_terms_accepted: r.require_terms_accepted !== false && r.require_terms_accepted !== 0,
+        require_pix_key: r.require_pix_key === true || r.require_pix_key === 1,
         allowed_regions_json: String(r.allowed_regions_json || ''),
       })
     } catch (e: unknown) {
@@ -270,6 +272,16 @@ export function AffiliateDistributionSection({ showToast, saving, setSaving }: P
           >
             <span>Exigir treinamento / onboarding</span>
             {rulesForm.require_training_complete
+              ? <ToggleRight size={22} className="text-emerald-600" />
+              : <ToggleLeft size={22} className="text-gray-400" />}
+          </button>
+          <button
+            type="button"
+            className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm"
+            onClick={() => setRulesForm((f) => ({ ...f, require_pix_key: !f.require_pix_key }))}
+          >
+            <span>Exigir chave Pix para receber leads</span>
+            {rulesForm.require_pix_key
               ? <ToggleRight size={22} className="text-emerald-600" />
               : <ToggleLeft size={22} className="text-gray-400" />}
           </button>

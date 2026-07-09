@@ -696,6 +696,16 @@ export class AffiliateProgramsService {
       );
       if (affiliate) {
         await this.createEnrollmentFromApplication(app, affiliate);
+        const program = await queryOne<any>(
+          `SELECT name FROM affiliate_programs WHERE id = ? LIMIT 1`,
+          [app.program_id]
+        );
+        void this.emitAffiliateProgramEvent("affiliate.program.application_approved", {
+          affiliateUserId: String(app.affiliate_user_id),
+          brandId,
+          programName: String(program?.name || "programa"),
+          programId: String(app.program_id),
+        });
       }
     }
 
@@ -970,9 +980,66 @@ export class AffiliateProgramsService {
           [source, enrollment.id]
         ).catch(() => undefined);
       }
+      void this.emitAffiliateProgramEvent("affiliate.program.application_approved", {
+        affiliateUserId: input.affiliateUserId,
+        brandId: input.brandId,
+        programName: String(program.name || "programa"),
+        programId: input.programId,
+      });
+    } else {
+      void this.emitAffiliateProgramEvent("admin.affiliate.application_received", {
+        ownerUserId: input.ownerUserId,
+        brandId: input.brandId,
+        applicantName: String(affiliate.display_name || affiliate.code || "Afiliado"),
+        programId: input.programId,
+      });
     }
 
     return { application, enrollment, auto_approved: autoApprove };
+  }
+
+  private async emitAffiliateProgramEvent(
+    eventKey: string,
+    ctx: {
+      affiliateUserId?: string;
+      ownerUserId?: string;
+      brandId: string;
+      programName?: string;
+      programId?: string;
+      applicantName?: string;
+    }
+  ) {
+    try {
+      const { emitPlatformEventToUser } = await import("./notificationHub");
+      if (eventKey.startsWith("admin.") && ctx.ownerUserId) {
+        await emitPlatformEventToUser(eventKey, ctx.ownerUserId, {
+          organization_id: ctx.brandId,
+          role: "admin",
+          entity_type: "affiliate_program",
+          entity_id: ctx.programId || ctx.brandId,
+          deep_link: "/afiliados",
+          template_vars: {
+            applicant_name: ctx.applicantName || "Afiliado",
+            program_name: ctx.programName || "",
+            brand_id: ctx.brandId,
+          },
+        });
+      } else if (ctx.affiliateUserId) {
+        await emitPlatformEventToUser(eventKey, ctx.affiliateUserId, {
+          organization_id: ctx.brandId,
+          role: "affiliate",
+          entity_type: "affiliate_program",
+          entity_id: ctx.programId || ctx.brandId,
+          deep_link: "/contatos",
+          template_vars: {
+            program_name: ctx.programName || "programa",
+            brand_id: ctx.brandId,
+          },
+        });
+      }
+    } catch {
+      /* notificação não bloqueia candidatura */
+    }
   }
 
   async getEnrollmentOnboarding(enrollmentId: string, affiliateUserId: string) {

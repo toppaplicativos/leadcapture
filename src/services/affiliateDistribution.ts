@@ -191,6 +191,7 @@ async function ensureDistributionSchema(): Promise<void> {
     `ALTER TABLE lead_distribution_rules ADD COLUMN followup_enabled BOOLEAN NOT NULL DEFAULT TRUE`,
     `ALTER TABLE lead_distribution_rules ADD COLUMN followup_delays_hours_json TEXT NULL`,
     `ALTER TABLE lead_distribution_rules ADD COLUMN followup_message_template TEXT NULL`,
+    `ALTER TABLE lead_distribution_rules ADD COLUMN require_pix_key BOOLEAN NOT NULL DEFAULT FALSE`,
     `ALTER TABLE prospect_assignments ADD COLUMN followup_count INT NOT NULL DEFAULT 0`,
     `ALTER TABLE prospect_assignments ADD COLUMN last_followup_at TIMESTAMP NULL`,
   ]) {
@@ -393,6 +394,7 @@ export class AffiliateDistributionService {
       require_whatsapp_connected?: boolean;
       require_training_complete?: boolean;
       require_terms_accepted?: boolean;
+      require_pix_key?: boolean;
       allowed_regions_json?: string | null;
       program_id?: string | null;
     }
@@ -445,6 +447,10 @@ export class AffiliateDistributionService {
     if (patch.require_terms_accepted !== undefined) {
       fields.push("require_terms_accepted = ?");
       values.push(!!patch.require_terms_accepted);
+    }
+    if (patch.require_pix_key !== undefined) {
+      fields.push("require_pix_key = ?");
+      values.push(!!patch.require_pix_key);
     }
     if (patch.allowed_regions_json !== undefined) {
       fields.push("allowed_regions_json = ?");
@@ -615,6 +621,7 @@ export class AffiliateDistributionService {
     const requireTerms = rules?.require_terms_accepted !== 0 && rules?.require_terms_accepted !== false;
     const requireTraining = rules?.require_training_complete !== 0 && rules?.require_training_complete !== false;
     const requireWhatsapp = rules?.require_whatsapp_connected !== 0 && rules?.require_whatsapp_connected !== false;
+    const requirePix = rules?.require_pix_key === true || rules?.require_pix_key === 1;
 
     const health = await getHealthSnapshot({
       userId: input.ownerUserId,
@@ -657,6 +664,8 @@ export class AffiliateDistributionService {
     const trainingOk = !requireTraining || trainingComplete;
 
     const whatsappOk = !requireWhatsapp || whatsappStatus === "connected";
+    const hasPix = Boolean(String(affiliate?.pix_key || "").trim());
+    const pixOk = !requirePix || hasPix;
 
     const checklist: EligibilityChecklistItem[] = [
       {
@@ -688,6 +697,12 @@ export class AffiliateDistributionService {
         label: "WhatsApp conectado",
         ok: whatsappOk,
         action: whatsappOk ? null : "Conectar WhatsApp",
+      },
+      {
+        key: "pix",
+        label: "Chave Pix cadastrada",
+        ok: pixOk,
+        action: pixOk ? null : "Cadastre sua chave Pix em Carteira",
       },
     ];
 
@@ -1021,6 +1036,14 @@ export class AffiliateDistributionService {
             entity_type: "prospect_assignment",
             entity_id: input.assignmentId || input.affiliateId,
             deep_link: "/clientes",
+          });
+          break;
+        case "followup_needs_attention":
+          await emitPlatformEventToUser("affiliate.lead.followup_due", input.affiliateUserId, {
+            ...base,
+            entity_type: "prospect_assignment",
+            entity_id: input.assignmentId || input.affiliateId,
+            deep_link: "/contatos",
           });
           break;
         default:
@@ -1443,6 +1466,21 @@ export class AffiliateDistributionService {
           `UPDATE prospect_assignments SET current_stage = 'needs_human_attention' WHERE id = ?`,
           [row.id]
         );
+        await this.ensureAlert({
+          ownerUserId: String(row.owner_user_id),
+          brandId: String(row.brand_id),
+          affiliateId: String(row.affiliate_id),
+          affiliateUserId: String(row.affiliate_user_id),
+          alertType: "followup_needs_attention",
+          severity: "warning",
+          title: "Follow-up precisa de você",
+          body: row.prospect_name
+            ? `Não foi possível enviar follow-up para ${row.prospect_name}. Verifique o WhatsApp.`
+            : "Um follow-up falhou. Verifique o WhatsApp e interfira no contato.",
+          actionPath: "/contatos",
+          assignmentId: String(row.id),
+          customerName: row.prospect_name,
+        });
         continue;
       }
 
@@ -1475,6 +1513,21 @@ export class AffiliateDistributionService {
           `UPDATE prospect_assignments SET current_stage = 'needs_human_attention' WHERE id = ?`,
           [row.id]
         );
+        await this.ensureAlert({
+          ownerUserId: String(row.owner_user_id),
+          brandId: String(row.brand_id),
+          affiliateId: String(row.affiliate_id),
+          affiliateUserId: String(row.affiliate_user_id),
+          alertType: "followup_needs_attention",
+          severity: "warning",
+          title: "Follow-up não enviado",
+          body: row.prospect_name
+            ? `Falha ao enviar follow-up para ${row.prospect_name}. Intervenha manualmente.`
+            : "Falha no follow-up automático. Intervenha no Contatos.",
+          actionPath: "/contatos",
+          assignmentId: String(row.id),
+          customerName: row.prospect_name,
+        });
       }
     }
 

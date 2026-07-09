@@ -479,15 +479,31 @@ export class AffiliateGlobalService {
         ids
       );
       const leadCount = await queryOne<any>(
-        `SELECT COUNT(*) AS total FROM affiliate_leads WHERE affiliate_id IN (${placeholders})`,
+        `SELECT COUNT(*) AS total FROM affiliate_leads
+         WHERE affiliate_id IN (${placeholders})
+           AND affiliate_status NOT IN ('converted', 'lost')`,
         ids
       );
+      // Contatos da organização (distribuição) + contatos de link
+      let assignmentOpen = 0;
+      try {
+        const assignmentCount = await queryOne<any>(
+          `SELECT COUNT(*) AS total FROM prospect_assignments
+           WHERE affiliate_id IN (${placeholders})
+             AND conversion_status != 'converted'
+             AND assignment_status NOT IN ('converted', 'lost', 'recycled')`,
+          ids
+        );
+        assignmentOpen = Number(assignmentCount?.total || 0);
+      } catch {
+        assignmentOpen = 0;
+      }
 
       pendingCommission = Number(pending?.total || 0);
       approvedCommission = Number(approved?.total || 0);
       paidCommission = Number(paid?.total || 0);
       conversions = Number(conv?.total || 0);
-      leads = Number(leadCount?.total || 0);
+      leads = Number(leadCount?.total || 0) + assignmentOpen;
     }
 
     const memberships = await this.listMemberships(affiliateUserId);

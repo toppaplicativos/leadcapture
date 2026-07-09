@@ -440,6 +440,7 @@ router.put("/distribution/rules", requireRole(["admin", "operator"]), async (req
       require_whatsapp_connected: req.body?.require_whatsapp_connected,
       require_training_complete: req.body?.require_training_complete,
       require_terms_accepted: req.body?.require_terms_accepted,
+      require_pix_key: req.body?.require_pix_key,
       allowed_regions_json: req.body?.allowed_regions_json,
       program_id: String(req.body?.program_id || "").trim() || null,
     });

@@ -747,6 +747,45 @@ export class AffiliatesService {
       orderId: input.orderId,
       affiliateStatus: "converted",
     }).catch(() => undefined);
+
+    void this.emitAffiliateFinanceEvent("affiliate.commission.generated", {
+      brandId: input.brandId,
+      affiliateId: input.affiliateId,
+      amount: commission,
+      entityId: input.orderId,
+    });
+  }
+
+  private async emitAffiliateFinanceEvent(
+    eventKey: string,
+    ctx: { brandId: string; affiliateId: string; amount: number; entityId?: string; deepLink?: string }
+  ) {
+    try {
+      const affiliate = await queryOne<{ affiliate_user_id: string }>(
+        `SELECT affiliate_user_id FROM affiliates WHERE id = ? LIMIT 1`,
+        [ctx.affiliateId]
+      );
+      const userId = String(affiliate?.affiliate_user_id || "").trim();
+      if (!userId) return;
+      const amountLabel = Number(ctx.amount || 0).toLocaleString("pt-BR", {
+        style: "currency",
+        currency: "BRL",
+      });
+      const { emitPlatformEventToUser } = await import("./notificationHub");
+      await emitPlatformEventToUser(eventKey, userId, {
+        organization_id: ctx.brandId,
+        role: "affiliate",
+        entity_type: "affiliate_sale",
+        entity_id: ctx.entityId || ctx.affiliateId,
+        deep_link: ctx.deepLink || "/financeiro",
+        template_vars: {
+          amount: amountLabel,
+          brand_id: ctx.brandId,
+        },
+      });
+    } catch {
+      /* não bloquear venda */
+    }
   }
 
   async approveAffiliate(affiliateId: string, ownerUserId: string): Promise<void> {
@@ -950,6 +989,15 @@ export class AffiliatesService {
        VALUES (?, ?, ?, ?, ?, ?, 'requested')`,
       [id, input.ownerUserId, input.brandId, input.affiliateId, input.amount, input.pixKey]
     );
+
+    void this.emitAffiliateFinanceEvent("affiliate.payout.pending", {
+      brandId: input.brandId,
+      affiliateId: input.affiliateId,
+      amount: input.amount,
+      entityId: id,
+      deepLink: "/financeiro",
+    });
+
     return id;
   }
 
@@ -1781,7 +1829,8 @@ export class AffiliatesService {
   async approveSaleCommission(saleId: string, ownerUserId: string): Promise<void> {
     await ensureAffiliateSchema();
     const row = await queryOne<any>(
-      `SELECT id, commission_status FROM affiliate_sales WHERE id = ? AND owner_user_id = ? LIMIT 1`,
+      `SELECT id, commission_status, commission_amount, brand_id, affiliate_id
+       FROM affiliate_sales WHERE id = ? AND owner_user_id = ? LIMIT 1`,
       [saleId, ownerUserId]
     );
     if (!row) throw new Error("Venda não encontrada");
@@ -1791,6 +1840,13 @@ export class AffiliatesService {
       `UPDATE affiliate_sales SET commission_status = 'approved', updated_at = NOW() WHERE id = ?`,
       [saleId]
     );
+
+    void this.emitAffiliateFinanceEvent("affiliate.commission.approved", {
+      brandId: String(row.brand_id),
+      affiliateId: String(row.affiliate_id),
+      amount: Number(row.commission_amount || 0),
+      entityId: String(row.id),
+    });
   }
 
   async approvePendingCommissionsForPaidOrders(ownerUserId: string, brandId: string): Promise<number> {

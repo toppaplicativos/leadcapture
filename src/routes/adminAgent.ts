@@ -302,7 +302,7 @@ router.post("/chat", async (req: BrandRequest, res: Response) => {
     );
 
     const pendingContext = turn.nextSkill ? { nextSkill: turn.nextSkill } : undefined;
-    await adminAgentSessionStore.appendExchange(sessionId, userId, req.brandId, {
+    sessionId = await adminAgentSessionStore.appendExchange(sessionId, userId, req.brandId, {
       userContent: userContent || undefined,
       turn,
       pendingContext,
@@ -343,10 +343,11 @@ router.post("/chat", async (req: BrandRequest, res: Response) => {
       sessionSummary: updatedSession?.summary || sessionSummary || null,
     });
   } catch (error: any) {
-    logger.error({ err: error?.message }, "admin agent chat error");
+    logger.error({ err: error?.message, stack: error?.stack }, "admin agent chat error");
+    const msg = String(error?.message || "Falha ao processar mensagem.");
     res.status(500).json({
-      error: error?.message?.includes("API Key") ? "ai_not_configured" : "internal",
-      message: error?.message || "Falha ao processar mensagem.",
+      error: msg.includes("API Key") ? "ai_not_configured" : "internal",
+      message: msg,
     });
   }
 });

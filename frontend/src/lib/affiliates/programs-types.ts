@@ -66,6 +66,9 @@ export type MarketplaceOpportunity = AffiliateProgram & {
   can_apply: boolean
   can_continue: boolean
   resources_unlocked: boolean
+  /** Prospects/leads já captados pela marca (atrativo no mercado) */
+  prospects_captured?: number
+  leads_captured?: number
   enrollment?: { id: string; status: string } | null
   application?: { id: string; status: string } | null
 }

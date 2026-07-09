@@ -189,6 +189,14 @@ export class BrandUnitsService {
         await this.ensureTableColumn("brand_units", "whatsapp_phone", "VARCHAR(40) NULL");
         /* Panfleteiro V2: estado de busca isolado por brand (resolve vazamento entre operacoes) */
         await this.ensureTableColumn("brand_units", "last_search_state", "JSONB NULL");
+        /* Master org status: active | suspended | archived (VARCHAR, not ENUM) */
+        try {
+          await query(
+            `ALTER TABLE brand_units ALTER COLUMN status TYPE VARCHAR(20)`,
+          )
+        } catch {
+          /* ignore if already varchar or MySQL path */
+        }
 
         this.schemaReady = true;
       })().finally(() => {
@@ -604,12 +612,23 @@ export class BrandUnitsService {
 
     if (candidate) {
       const requested = await this.getById(userId, candidate);
-      if (!requested) {
-        // Marca alheia ou inválida — não lança 500; caller trata null (lista vazia / 400).
-        return null;
+      if (requested) {
+        await this.setActiveBrand(userId, candidate);
+        return candidate;
       }
-      await this.setActiveBrand(userId, candidate);
-      return candidate;
+      // Membro da equipe (user_brand_roles) — não é dono, mas tem acesso à brand
+      const membership = await queryOne<{ brand_id: string }>(
+        `SELECT brand_id FROM user_brand_roles
+         WHERE user_id = ? AND brand_id = ? AND COALESCE(is_blocked, FALSE) = FALSE
+         LIMIT 1`,
+        [userId, candidate],
+      ).catch(() => null);
+      if (membership?.brand_id) {
+        await this.setActiveBrand(userId, candidate);
+        return candidate;
+      }
+      // Marca alheia ou inválida — não lança 500; caller trata null (lista vazia / 400).
+      return null;
     }
 
     return this.getActiveBrandId(userId);

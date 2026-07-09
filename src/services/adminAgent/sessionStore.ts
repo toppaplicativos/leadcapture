@@ -128,10 +128,14 @@ export class AdminAgentSessionStore {
 
   async purgeEmptySessions(userId: string, brandId: string): Promise<number> {
     await this.ensureSchema();
+    // Nunca apagar is_active: evita race chat↔hydrate (sessão recém-criada
+    // sem mensagens ainda). Só limpa shells órfãos inativos e antigos.
     const rows = await query<any[]>(
       `SELECT s.id FROM admin_agent_sessions s
        WHERE s.user_id = ? AND s.brand_id = ?
+         AND s.is_active = FALSE
          AND s.last_message_at IS NULL
+         AND s.updated_at < (NOW() - INTERVAL '30 minutes')
          AND NOT EXISTS (
            SELECT 1 FROM admin_agent_messages m WHERE m.session_id = s.id
          )`,
@@ -345,16 +349,21 @@ export class AdminAgentSessionStore {
       currentPath?: string;
       titleHint?: string;
     },
-  ): Promise<void> {
-    const session = await this.getSession(sessionId, userId, brandId);
-    if (!session) throw new Error("Session not found");
+  ): Promise<string> {
+    let session = await this.getSession(sessionId, userId, brandId);
+    let effectiveId = sessionId;
+    // Recuperação: sessão apagada / brand trocada / race de purge
+    if (!session) {
+      session = await this.getOrCreateActiveSession(userId, brandId, input.currentPath);
+      effectiveId = session.id;
+    }
 
     const userContent = String(input.userContent || "").trim();
     if (userContent) {
       await query(
         `INSERT INTO admin_agent_messages (id, session_id, role, content, turn_json, skill)
          VALUES (?, ?, 'user', ?, NULL, NULL)`,
-        [randomUUID(), sessionId, userContent.slice(0, 4000)],
+        [randomUUID(), effectiveId, userContent.slice(0, 4000)],
       );
     }
 
@@ -365,7 +374,7 @@ export class AdminAgentSessionStore {
          VALUES (?, ?, 'assistant', ?, ?, ?)`,
         [
           randomUUID(),
-          sessionId,
+          effectiveId,
           assistantContent,
           JSON.stringify(input.turn),
           input.turn.skill || null,
@@ -383,15 +392,17 @@ export class AdminAgentSessionStore {
            current_path = COALESCE(?, current_path),
            pending_context = ?,
            last_message_at = NOW(),
-           updated_at = NOW()
+           updated_at = NOW(),
+           is_active = TRUE
        WHERE id = ?`,
       [
         title,
         input.currentPath?.slice(0, 200) || null,
         input.pendingContext ? JSON.stringify(input.pendingContext) : null,
-        sessionId,
+        effectiveId,
       ],
     );
+    return effectiveId;
   }
 
   async loadMemory(sessionId: string, userId: string, brandId: string): Promise<AdminAgentMemory> {

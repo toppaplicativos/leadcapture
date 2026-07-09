@@ -19,12 +19,41 @@ function resolveBrandId(req: AuthRequest): string {
   ).trim();
 }
 
+/** Dono da brand (config de afiliados) — pode diferir do user logado se for membro da equipe */
+async function resolveAffiliateOwner(req: AuthRequest): Promise<{ ownerUserId: string; brandId: string } | null> {
+  const userId = String(req.user?.userId || "").trim();
+  const brandId = resolveBrandId(req);
+  if (!userId || !brandId) return null;
+
+  const owned = await queryOne<{ id: string; user_id: string }>(
+    `SELECT id, user_id FROM brand_units WHERE id = ? AND user_id = ? LIMIT 1`,
+    [brandId, userId],
+  );
+  if (owned) return { ownerUserId: String(owned.user_id), brandId };
+
+  const member = await queryOne<{ brand_id: string }>(
+    `SELECT brand_id FROM user_brand_roles
+     WHERE user_id = ? AND brand_id = ? AND COALESCE(is_blocked, FALSE) = FALSE
+     LIMIT 1`,
+    [userId, brandId],
+  ).catch(() => null);
+  if (member) {
+    const brand = await queryOne<{ user_id: string }>(
+      `SELECT user_id FROM brand_units WHERE id = ? LIMIT 1`,
+      [brandId],
+    );
+    if (brand?.user_id) return { ownerUserId: String(brand.user_id), brandId };
+  }
+
+  // Fallback: user logado como owner (cria config sob a conta dele se for dono implícito)
+  return { ownerUserId: userId, brandId };
+}
+
 router.get("/stats", async (req: AuthRequest, res: Response) => {
   try {
-    const ownerUserId = String(req.user?.userId || "").trim();
-    const brandId = resolveBrandId(req);
-    if (!ownerUserId || !brandId) return res.status(400).json({ error: "brand_id obrigatório" });
-    const stats = await affiliatesService.getProgramStats(ownerUserId, brandId);
+    const ctx = await resolveAffiliateOwner(req);
+    if (!ctx) return res.status(400).json({ error: "brand_id obrigatório" });
+    const stats = await affiliatesService.getProgramStats(ctx.ownerUserId, ctx.brandId);
     res.json({ success: true, stats });
   } catch (e: any) {
     res.status(500).json({ error: e.message || "Falha ao carregar estatísticas" });
@@ -33,11 +62,10 @@ router.get("/stats", async (req: AuthRequest, res: Response) => {
 
 router.get("/sales", async (req: AuthRequest, res: Response) => {
   try {
-    const ownerUserId = String(req.user?.userId || "").trim();
-    const brandId = resolveBrandId(req);
-    if (!ownerUserId || !brandId) return res.status(400).json({ error: "brand_id obrigatório" });
+    const ctx = await resolveAffiliateOwner(req);
+    if (!ctx) return res.status(400).json({ error: "brand_id obrigatório" });
     const limit = Math.min(100, Math.max(1, Number(req.query?.limit) || 50));
-    const sales = await affiliatesService.listBrandSales(ownerUserId, brandId, limit);
+    const sales = await affiliatesService.listBrandSales(ctx.ownerUserId, ctx.brandId, limit);
     res.json({ success: true, sales });
   } catch (e: any) {
     res.status(500).json({ error: e.message || "Falha ao listar vendas" });
@@ -68,12 +96,11 @@ router.post("/sales/approve-paid", requireRole(["admin", "operator"]), async (re
 
 router.get("/program", async (req: AuthRequest, res: Response) => {
   try {
-    const ownerUserId = String(req.user?.userId || "").trim();
-    const brandId = resolveBrandId(req);
-    if (!ownerUserId || !brandId) return res.status(400).json({ error: "brand_id obrigatório" });
+    const ctx = await resolveAffiliateOwner(req);
+    if (!ctx) return res.status(400).json({ error: "brand_id obrigatório" });
 
-    const config = await affiliatesService.getOrCreateProgramConfig(ownerUserId, brandId);
-    const affiliates = await affiliatesService.listAffiliates(ownerUserId, brandId);
+    const config = await affiliatesService.getOrCreateProgramConfig(ctx.ownerUserId, ctx.brandId);
+    const affiliates = await affiliatesService.listAffiliates(ctx.ownerUserId, ctx.brandId);
     res.json({ success: true, program: config, affiliates, total: affiliates.length });
   } catch (e: any) {
     res.status(500).json({ error: e.message || "Falha ao carregar programa" });
@@ -113,10 +140,9 @@ router.put("/program", requireRole(["admin", "operator"]), async (req: AuthReque
 
 router.get("/materials", async (req: AuthRequest, res: Response) => {
   try {
-    const ownerUserId = String(req.user?.userId || "").trim();
-    const brandId = resolveBrandId(req);
-    if (!ownerUserId || !brandId) return res.status(400).json({ error: "brand_id obrigatório" });
-    const materials = await affiliatesService.listMaterials(ownerUserId, brandId);
+    const ctx = await resolveAffiliateOwner(req);
+    if (!ctx) return res.status(400).json({ error: "brand_id obrigatório" });
+    const materials = await affiliatesService.listMaterials(ctx.ownerUserId, ctx.brandId);
     res.json({ success: true, materials });
   } catch (e: any) {
     res.status(500).json({ error: e.message || "Falha ao listar materiais" });
@@ -223,10 +249,9 @@ router.delete("/materials/:id", requireRole(["admin", "operator"]), async (req: 
 
 router.get("/products", async (req: AuthRequest, res: Response) => {
   try {
-    const ownerUserId = String(req.user?.userId || "").trim();
-    const brandId = resolveBrandId(req);
-    if (!ownerUserId || !brandId) return res.status(400).json({ error: "brand_id obrigatório" });
-    const products = await affiliateProductLearningService.listCatalog(ownerUserId, brandId);
+    const ctx = await resolveAffiliateOwner(req);
+    if (!ctx) return res.status(400).json({ error: "brand_id obrigatório" });
+    const products = await affiliateProductLearningService.listCatalog(ctx.ownerUserId, ctx.brandId);
     res.json({ success: true, products });
   } catch (e: any) {
     res.status(500).json({ error: e.message || "Falha ao listar produtos" });
@@ -253,10 +278,9 @@ router.post("/products/:productId/generate-guide", requireRole(["admin", "operat
 
 router.get("/learning-modules", async (req: AuthRequest, res: Response) => {
   try {
-    const ownerUserId = String(req.user?.userId || "").trim();
-    const brandId = resolveBrandId(req);
-    if (!ownerUserId || !brandId) return res.status(400).json({ error: "brand_id obrigatório" });
-    const modules = await affiliatesService.listLearningModules(ownerUserId, brandId, false);
+    const ctx = await resolveAffiliateOwner(req);
+    if (!ctx) return res.status(400).json({ error: "brand_id obrigatório" });
+    const modules = await affiliatesService.listLearningModules(ctx.ownerUserId, ctx.brandId, false);
     res.json({ success: true, modules });
   } catch (e: any) {
     res.status(500).json({ error: e.message || "Falha ao listar módulos" });
@@ -291,9 +315,8 @@ router.put("/learning-modules", requireRole(["admin", "operator"]), async (req: 
 router.get("/payouts", async (req: AuthRequest, res: Response) => {
   try {
     await affiliatesService.ensureSchema();
-    const ownerUserId = String(req.user?.userId || "").trim();
-    const brandId = resolveBrandId(req);
-    if (!ownerUserId || !brandId) return res.status(400).json({ error: "brand_id obrigatório" });
+    const ctx = await resolveAffiliateOwner(req);
+    if (!ctx) return res.status(400).json({ error: "brand_id obrigatório" });
 
     const rows = await query<any[]>(
       `SELECT p.*, a.display_name, a.code, a.coupon_code
@@ -301,7 +324,7 @@ router.get("/payouts", async (req: AuthRequest, res: Response) => {
        INNER JOIN affiliates a ON a.id = p.affiliate_id
        WHERE p.owner_user_id = ? AND p.brand_id = ?
        ORDER BY p.created_at DESC`,
-      [ownerUserId, brandId]
+      [ctx.ownerUserId, ctx.brandId]
     );
     res.json({ success: true, payouts: rows });
   } catch (e: any) {
@@ -400,10 +423,9 @@ router.patch("/:id/commission", requireRole(["admin", "operator"]), async (req: 
 
 router.get("/distribution/overview", requireRole(["admin", "operator"]), async (req: AuthRequest, res: Response) => {
   try {
-    const ownerUserId = String(req.user?.userId || "").trim();
-    const brandId = resolveBrandId(req);
-    if (!ownerUserId || !brandId) return res.status(400).json({ error: "brand_id obrigatório" });
-    const overview = await affiliateDistributionService.getDistributionOverview(ownerUserId, brandId);
+    const ctx = await resolveAffiliateOwner(req);
+    if (!ctx) return res.status(400).json({ error: "brand_id obrigatório" });
+    const overview = await affiliateDistributionService.getDistributionOverview(ctx.ownerUserId, ctx.brandId);
     res.json({ success: true, ...overview });
   } catch (e: any) {
     res.status(500).json({ error: e.message || "Falha ao carregar distribuição" });
@@ -412,11 +434,10 @@ router.get("/distribution/overview", requireRole(["admin", "operator"]), async (
 
 router.get("/distribution/queue", requireRole(["admin", "operator"]), async (req: AuthRequest, res: Response) => {
   try {
-    const ownerUserId = String(req.user?.userId || "").trim();
-    const brandId = resolveBrandId(req);
-    if (!ownerUserId || !brandId) return res.status(400).json({ error: "brand_id obrigatório" });
-    const queue = await affiliateDistributionService.listQueueForAdmin(ownerUserId, brandId);
-    const rules = await affiliateDistributionService.getOrCreateRules(ownerUserId, brandId);
+    const ctx = await resolveAffiliateOwner(req);
+    if (!ctx) return res.status(400).json({ error: "brand_id obrigatório" });
+    const queue = await affiliateDistributionService.listQueueForAdmin(ctx.ownerUserId, ctx.brandId);
+    const rules = await affiliateDistributionService.getOrCreateRules(ctx.ownerUserId, ctx.brandId);
     res.json({ success: true, queue, rules });
   } catch (e: any) {
     res.status(500).json({ error: e.message || "Falha ao listar fila" });

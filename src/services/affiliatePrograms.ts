@@ -858,6 +858,12 @@ export class AffiliateProgramsService {
       offersByProgram.set(pid, list);
     }
 
+    const prospectsRow = await queryOne<any>(
+      `SELECT COUNT(*)::int AS total FROM customers WHERE brand_id = ?`,
+      [input.brandId],
+    ).catch(() => null);
+    const prospectsCaptured = Number(prospectsRow?.total || 0);
+
     return programs.map((p) => {
       const application = appMap.get(p.id) || null;
       const enrollment = enrollMap.get(p.id) || null;
@@ -887,6 +893,8 @@ export class AffiliateProgramsService {
         application,
         enrollment,
         participation_status,
+        prospects_captured: prospectsCaptured,
+        leads_captured: prospectsCaptured,
         can_apply:
           p.accept_applications &&
           !application &&

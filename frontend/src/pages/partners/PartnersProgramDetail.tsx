@@ -96,6 +96,19 @@ export function PartnersProgramDetail({ programRef, onBack, onOnboarding, showTo
           </div>
         </div>
         <p className="text-sm font-bold mt-3">Comissão: {program.commission_label}</p>
+        {(program.prospects_captured != null || program.leads_captured != null || program.organization?.prospects_captured != null) && (
+          <p className="text-sm text-[#636366] mt-1">
+            <strong className="text-[#1c1c1e]">
+              {Number(
+                program.prospects_captured
+                ?? program.leads_captured
+                ?? program.organization?.prospects_captured
+                ?? 0,
+              ).toLocaleString('pt-BR')}
+            </strong>
+            {' '}prospects/leads já captados pela marca
+          </p>
+        )}
       </div>
 
       {program.description && (

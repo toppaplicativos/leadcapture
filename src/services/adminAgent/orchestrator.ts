@@ -1569,19 +1569,26 @@ Responda APENAS com JSON válido neste formato:
         }
         try {
           const conn = await instagramService.getConnection(brandId);
-          const profile = await instagramService.getProfile(brandId);
-          const connected = !!conn && !!profile?.is_connected;
+          const profile = await instagramService.getProfile(brandId, { refresh: false });
+          // Mesma regra do /connection-status e InstagramPage: token/conta salva = conectado
+          const connected = !!(
+            conn?.access_token
+            || conn?.username
+            || conn?.account_id
+            || profile?.is_connected
+            || profile?.username
+          );
           components.push({
             id: "ig-stats",
             type: "instagram_stats",
             props: {
               connected,
-              username: profile?.username || "",
-              name: profile?.name || "",
-              followers: Number(profile?.followers_count || 0),
-              following: Number(profile?.follows_count || 0),
-              mediaCount: Number(profile?.media_count || 0),
-              avatarUrl: profile?.profile_picture_url || "",
+              username: profile?.username || conn?.username || "",
+              name: profile?.name || conn?.name || "",
+              followers: Number(profile?.followers_count || conn?.followers_count || 0),
+              following: Number(profile?.follows_count || conn?.follows_count || 0),
+              mediaCount: Number(profile?.media_count || conn?.media_count || 0),
+              avatarUrl: profile?.profile_picture_url || conn?.profile_picture_url || "",
               live: true,
             },
           });
@@ -2059,35 +2066,45 @@ Responda APENAS com JSON válido neste formato:
           components.push({ id: "aff-no-brand", type: "text", props: { content: "Selecione uma marca para gerenciar afiliados." } });
           break;
         }
-        const stats = await affiliatesService.getProgramStats(ctx.userId, brandId);
-        components.push({
-          id: "aff-stats",
-          type: "affiliate_stats",
-          props: {
-            enabled: !!stats.program?.is_enabled,
-            commissionPct: Number(stats.program?.default_commission_pct || 10),
-            affiliatesTotal: stats.affiliates_total,
-            affiliatesPending: stats.affiliates_pending,
-            affiliatesActive: stats.affiliates_active,
-            totalClicks: stats.total_clicks,
-            totalSales: stats.total_sales,
-            commissionPending: stats.commission_pending,
-            commissionApproved: stats.commission_approved,
-            payoutsRequested: stats.payouts_requested,
-            commissionsPendingCount: stats.commissions_pending_count,
-            materialsCount: stats.materials_count,
-            topAffiliates: (stats.top_affiliates || []).slice(0, 5).map((a: any) => ({
-              id: a.id,
-              name: a.display_name,
-              code: a.code,
-              status: a.status,
-              clicks: a.total_clicks,
-              sales: a.total_sales,
-              commission: a.total_commission,
-            })),
-            live: true,
-          },
-        });
+        try {
+          const stats = await affiliatesService.getProgramStats(ctx.userId, brandId);
+          components.push({
+            id: "aff-stats",
+            type: "affiliate_stats",
+            props: {
+              enabled: !!stats.program?.is_enabled,
+              commissionPct: Number(stats.program?.default_commission_pct || 10),
+              affiliatesTotal: stats.affiliates_total,
+              affiliatesPending: stats.affiliates_pending,
+              affiliatesActive: stats.affiliates_active,
+              totalClicks: stats.total_clicks,
+              totalSales: stats.total_sales,
+              commissionPending: stats.commission_pending,
+              commissionApproved: stats.commission_approved,
+              payoutsRequested: stats.payouts_requested,
+              commissionsPendingCount: stats.commissions_pending_count,
+              materialsCount: stats.materials_count,
+              topAffiliates: (stats.top_affiliates || []).slice(0, 5).map((a: any) => ({
+                id: a.id,
+                name: a.display_name,
+                code: a.code,
+                status: a.status,
+                clicks: a.total_clicks,
+                sales: a.total_sales,
+                commission: a.total_commission,
+              })),
+              live: true,
+            },
+          });
+        } catch (affErr: any) {
+          components.push({
+            id: "aff-stats-err",
+            type: "text",
+            props: {
+              content: `Não foi possível carregar estatísticas do programa (${affErr?.message || "erro"}). Abra a gestão para configurar.`,
+            },
+          });
+        }
         components.push(this.buildNavSuggestions(["afiliados"]));
         actions.push({ type: "navigate", payload: { path: "/afiliados" } });
         break;

@@ -427,6 +427,20 @@ export function PartnersAppPage() {
                             <p className="affiliate-market__stat-value">{op.commission_label || '—'}</p>
                           </div>
                         </div>
+                        <div className="affiliate-market__stat">
+                          <Users size={13} className="opacity-60" />
+                          <div>
+                            <p className="affiliate-market__stat-label">Prospects captados</p>
+                            <p className="affiliate-market__stat-value tabular-nums">
+                              {Number(
+                                op.prospects_captured
+                                ?? op.leads_captured
+                                ?? op.organization?.prospects_captured
+                                ?? 0,
+                              ).toLocaleString('pt-BR')}
+                            </p>
+                          </div>
+                        </div>
                       </div>
                       <div className="affiliate-market__actions" onClick={(e) => e.stopPropagation()}>
                         <button

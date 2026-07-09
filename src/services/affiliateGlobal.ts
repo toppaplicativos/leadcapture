@@ -716,6 +716,23 @@ export class AffiliateGlobalService {
       offersByProgram.set(pid, list);
     }
 
+    // Prospects/leads captados por brand — atrativo no mercado de afiliados
+    const brandIds = [...new Set(programs.map((p) => String(p.brand_id || "")).filter(Boolean))];
+    const prospectsByBrand = new Map<string, number>();
+    if (brandIds.length) {
+      const placeholders = brandIds.map(() => "?").join(",");
+      const countRows = (await query<any[]>(
+        `SELECT brand_id, COUNT(*)::int AS total
+         FROM customers
+         WHERE brand_id IN (${placeholders})
+         GROUP BY brand_id`,
+        brandIds,
+      ).catch(() => [] as any[])) || [];
+      for (const row of countRows) {
+        prospectsByBrand.set(String(row.brand_id), Number(row.total || 0));
+      }
+    }
+
     return programs.map((p) => {
       const application = appMap.get(String(p.id)) || null;
       const enrollment = enrollMap.get(String(p.id)) || null;
@@ -732,6 +749,9 @@ export class AffiliateGlobalService {
         participation_status = application.status === "pending" ? "pending" : String(application.status);
       }
 
+      const brandId = String(p.brand_id || "");
+      const prospectsCaptured = prospectsByBrand.get(brandId) || 0;
+
       return {
         id: String(p.id),
         slug: String(p.slug || ""),
@@ -739,13 +759,17 @@ export class AffiliateGlobalService {
         description: p.description ? String(p.description) : null,
         commission_mode: String(p.commission_mode || "percentage"),
         commission_value: Number(p.commission_value || 0),
+        prospects_captured: prospectsCaptured,
+        leads_captured: prospectsCaptured,
         organization: {
-          id: String(p.brand_id),
+          id: brandId,
           name: String(p.organization_name || ""),
           slug: String(p.organization_slug || ""),
           logo_url: p.organization_logo_url ? String(p.organization_logo_url) : null,
           primary_color: p.primary_color ? String(p.primary_color) : null,
           secondary_color: p.secondary_color ? String(p.secondary_color) : null,
+          prospects_captured: prospectsCaptured,
+          leads_captured: prospectsCaptured,
         },
         offers: offersByProgram.get(String(p.id)) || [],
         participation_status,
@@ -843,6 +867,12 @@ export class AffiliateGlobalService {
     const requiredSteps = (steps || []).filter((s) => s.is_required && s.step_type !== "resource_unlock").length;
     const requiredTrainings = (trainings || []).filter((t) => t.is_required).length;
 
+    const prospectsRow = await queryOne<any>(
+      `SELECT COUNT(*)::int AS total FROM customers WHERE brand_id = ?`,
+      [program.brand_id],
+    ).catch(() => null);
+    const prospectsCaptured = Number(prospectsRow?.total || 0);
+
     return {
       id: String(program.id),
       slug: String(program.slug || ""),
@@ -856,6 +886,8 @@ export class AffiliateGlobalService {
       commission_value: Number(program.commission_value || 0),
       commission_rules: program.commission_rules ? String(program.commission_rules) : null,
       accept_applications: program.accept_applications !== false,
+      prospects_captured: prospectsCaptured,
+      leads_captured: prospectsCaptured,
       organization: {
         id: String(program.brand_id),
         name: String(program.organization_name || ""),
@@ -864,6 +896,8 @@ export class AffiliateGlobalService {
         primary_color: program.primary_color ? String(program.primary_color) : null,
         secondary_color: program.secondary_color ? String(program.secondary_color) : null,
         slogan: program.slogan ? String(program.slogan) : null,
+        prospects_captured: prospectsCaptured,
+        leads_captured: prospectsCaptured,
       },
       offers: offers || [],
       onboarding: {

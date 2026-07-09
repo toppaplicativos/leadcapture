@@ -428,13 +428,15 @@ export function useAdminAgentChat(currentPath: string, brandId = '') {
     }
 
     try {
+      // Durante hydrate / troca de marca: não reenviar sessionId stale (causa 500 "Session not found")
+      const safeSessionId = sessionHydrating ? undefined : (sessionId || undefined)
       const res = await fetch('/api/admin-agent/chat', {
         method: 'POST',
         headers: getHeaders(),
         body: JSON.stringify({
           message: trimmed,
           currentPath,
-          sessionId: sessionId || undefined,
+          sessionId: safeSessionId,
           history: historyForApi
             .filter((m) => !m.loading && (m.role === 'user' || (m.role === 'assistant' && !!m.content)))
             .slice(-16)
@@ -448,11 +450,13 @@ export function useAdminAgentChat(currentPath: string, brandId = '') {
       const data = await res.json().catch(() => ({}))
 
       if (!res.ok) {
-        const msg = data.message || (
-          data.error === 'ai_not_configured'
+        const raw = String(data.message || data.error || '')
+        const msg =
+          data.error === 'ai_not_configured' || raw.includes('API Key')
             ? 'Configure um provedor de IA em Provedores IA.'
-            : 'Falha ao processar. Tente novamente.'
-        )
+            : raw && raw !== 'internal'
+              ? raw
+              : 'Falha ao processar. Tente novamente.'
         throw new Error(msg)
       }
 
@@ -479,7 +483,7 @@ export function useAdminAgentChat(currentPath: string, brandId = '') {
     } finally {
       setLoading(false)
     }
-  }, [loading, messages, currentPath, pendingContext, sessionId, sessionTitle, loadSessions])
+  }, [loading, messages, currentPath, pendingContext, sessionId, sessionTitle, sessionHydrating, loadSessions])
 
   const handleComponentEvent = useCallback((event: ComponentEvent, skillContext?: SkillContext) => {
     send('', { componentEvent: event, skillContext })

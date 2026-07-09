@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
   Briefcase, ChevronRight, Loader2, Sparkles, Clock, CheckCircle2, Ban,
-  Search, Store, Percent,
+  Search, Store, Percent, Users,
 } from 'lucide-react'
 import { affiliateApi } from '@/lib/api-affiliate'
 import { formatCommissionShort, normalizeCommissionMode } from '@/lib/affiliate-commission'
@@ -234,6 +234,15 @@ export function AffiliateMarketplace({ ctx }: Props) {
                     <div>
                       <p className="affiliate-market__stat-label">Comissão</p>
                       <p className="affiliate-market__stat-value" style={{ color: ctx.primary }}>{commission}</p>
+                    </div>
+                  </div>
+                  <div className="affiliate-market__stat">
+                    <Users size={13} className="opacity-60" />
+                    <div>
+                      <p className="affiliate-market__stat-label">Prospects captados</p>
+                      <p className="affiliate-market__stat-value tabular-nums">
+                        {Number(op.prospects_captured ?? op.leads_captured ?? 0).toLocaleString('pt-BR')}
+                      </p>
                     </div>
                   </div>
                   {op.offers?.length ? (

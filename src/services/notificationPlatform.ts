@@ -9,6 +9,7 @@ import type { PushAppContext, PushEventCategory, PushPriority } from "../config/
 import {
   NOTIFICATION_EVENT_REGISTRY,
   getNotificationEventDefinition,
+  resolveCanonicalEventKey,
   type NotificationEventType,
   type PlatformActionType,
 } from "../config/notification-events";
@@ -575,17 +576,18 @@ export class NotificationPlatformService {
 
   async resolveEventConfig(eventKey: string): Promise<ResolvedEventConfig | null> {
     await this.ensureSchema();
+    const canonical = resolveCanonicalEventKey(eventKey);
     const row = await queryOne<any>(
       `SELECT et.*, t.title_template, t.body_template, t.cta_label, t.deep_link_template, t.sound_type
        FROM notification_event_types et
        LEFT JOIN notification_templates t ON t.event_type_id = et.id AND t.locale = 'pt-BR'
        WHERE et.event_key = ? AND et.is_active = TRUE
        LIMIT 1`,
-      [eventKey],
+      [canonical],
     );
 
     if (row) {
-      const registry = getNotificationEventDefinition(eventKey);
+      const registry = getNotificationEventDefinition(canonical);
       const channels = String(row.default_channel || "in_app,push")
         .split(",")
         .map((c: string) => c.trim())

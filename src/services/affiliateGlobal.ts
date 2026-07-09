@@ -190,6 +190,82 @@ export class AffiliateGlobalService {
     return this.getOrCreateGlobalProfile(userId);
   }
 
+  /**
+   * Atualiza perfil global e propaga PIX (e telefone opcional) para perfis por marca.
+   * Marcas com pix_key vazio recebem o valor global; com forcePix=true sobrescreve todas.
+   */
+  async updateGlobalProfile(
+    userId: string,
+    patch: {
+      display_name?: string;
+      phone?: string | null;
+      document?: string | null;
+      pix_key?: string | null;
+      force_pix_sync?: boolean;
+    }
+  ): Promise<GlobalAffiliateProfile> {
+    await this.ensureSchema();
+    await this.getOrCreateGlobalProfile(userId);
+
+    const fields: string[] = [];
+    const values: any[] = [];
+    if (patch.display_name !== undefined) {
+      fields.push("display_name = ?");
+      values.push(String(patch.display_name || "").trim() || "Parceiro");
+    }
+    if (patch.phone !== undefined) {
+      fields.push("phone = ?");
+      values.push(patch.phone ? String(patch.phone).trim() : null);
+    }
+    if (patch.document !== undefined) {
+      fields.push("document = ?");
+      values.push(patch.document ? String(patch.document).trim() : null);
+    }
+    if (patch.pix_key !== undefined) {
+      fields.push("pix_key = ?");
+      values.push(patch.pix_key ? String(patch.pix_key).trim() : null);
+    }
+    if (fields.length) {
+      fields.push("updated_at = NOW()");
+      values.push(userId);
+      await query(
+        `UPDATE affiliate_global_profiles SET ${fields.join(", ")} WHERE user_id = ?`,
+        values
+      );
+    }
+
+    if (patch.pix_key !== undefined) {
+      const pix = patch.pix_key ? String(patch.pix_key).trim() : "";
+      if (pix) {
+        if (patch.force_pix_sync) {
+          await query(
+            `UPDATE affiliates SET pix_key = ?, updated_at = NOW()
+             WHERE affiliate_user_id = ?`,
+            [pix, userId]
+          ).catch(() => undefined);
+        } else {
+          await query(
+            `UPDATE affiliates SET pix_key = ?, updated_at = NOW()
+             WHERE affiliate_user_id = ?
+               AND (pix_key IS NULL OR TRIM(pix_key) = '')`,
+            [pix, userId]
+          ).catch(() => undefined);
+        }
+      }
+    }
+
+    if (patch.phone !== undefined && patch.phone) {
+      const phone = String(patch.phone).trim();
+      await query(
+        `UPDATE affiliates SET phone = COALESCE(NULLIF(TRIM(phone), ''), ?), updated_at = NOW()
+         WHERE affiliate_user_id = ?`,
+        [phone, userId]
+      ).catch(() => undefined);
+    }
+
+    return this.getOrCreateGlobalProfile(userId);
+  }
+
   async createGlobalAccount(input: {
     email: string;
     passwordHash: string;

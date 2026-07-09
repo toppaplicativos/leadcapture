@@ -86,6 +86,11 @@ import pushRoutes from "./routes/push";
 import stripeWebhookRoutes from "./routes/stripeWebhook";
 import publicSignupRoutes from "./routes/publicSignup";
 import adminEmailsRoutes from "./routes/adminEmails";
+import entitlementsRoutes from "./routes/entitlements";
+import rolesRoutes from "./routes/roles";
+import contentHubRoutes from "./routes/contentHub";
+import { enforceMaintenanceMode, enforceRouteModule } from "./middleware/platformGuard";
+import { requireModuleAndPlan } from "./middleware/planGuard";
 import { masterService } from "./services/master";
 import { getPushNotificationService } from "./services/pushNotifications";
 import { getNotificationPlatformService } from "./services/notificationPlatform";
@@ -342,10 +347,17 @@ app.use("/api/public", publicOnboardingRoutes);
 app.use("/api/public", publicSignupRoutes);
 app.use("/api/landing", landingChatRoutes);
 app.use("/api/master", masterRoutes);
+app.use("/api/entitlements", entitlementsRoutes);
+app.use("/api/roles", rolesRoutes);
+app.use("/api/content-hub", contentHubRoutes);
 app.use("/api/push", pushRoutes);
 app.use("/api/admin/emails", adminEmailsRoutes);
 app.use("/pwa", publicPwaRoutes);
 app.use("/api/public/affiliate", publicAffiliateRoutes);
+
+/* Global platform enforcement for tenant APIs (maintenance + module kill-switch by path) */
+app.use("/api", enforceMaintenanceMode as any);
+app.use("/api", enforceRouteModule as any);
 
 // Health check (public)
 app.get("/api/health", (req, res) => {
@@ -497,21 +509,21 @@ app.get("/brand-onboarding", (_req, res) => {
 app.use("/api/customers", authMiddleware, customersRoutes);
 app.use("/api/knowledge-base", authMiddleware, knowledgeBaseRoutes);
 app.use("/api/ai", authMiddleware, aiRoutes);
-app.use("/api/admin-agent", authMiddleware, adminAgentRoutes);
+app.use("/api/admin-agent", authMiddleware, requireModuleAndPlan("agent_workspace"), adminAgentRoutes);
 app.use("/api/media", authMiddleware, mediaRoutes);
 app.use("/api/gallery", authMiddleware, galleryRoutes);
 app.use("/api/companies", authMiddleware, companiesRoutes);
 app.use("/api/clients", authMiddleware, rateLimit({ name: "clients", max: 200, windowMs: 60_000 }), clientsRoutes);
-app.use("/api/lead-import", authMiddleware, leadImportRoutes);
+app.use("/api/lead-import", authMiddleware, requireModuleAndPlan("lead_import"), leadImportRoutes);
 app.use("/api/lead-ideas", authMiddleware, leadIdeasRoutes);
-app.use("/api/automations", authMiddleware, brandAutomationsRoutes);
-app.use("/api/automation-defs", authMiddleware, automationDefinitionsRoutes);
-app.use("/api/ai-campaign", authMiddleware, aiCampaignRoutes);
-app.use("/api/video-studio", videoStudioRoutes);
+app.use("/api/automations", authMiddleware, requireModuleAndPlan("automations"), brandAutomationsRoutes);
+app.use("/api/automation-defs", authMiddleware, requireModuleAndPlan("automations"), automationDefinitionsRoutes);
+app.use("/api/ai-campaign", authMiddleware, requireModuleAndPlan("campaigns"), aiCampaignRoutes);
+app.use("/api/video-studio", requireModuleAndPlan("video_studio"), videoStudioRoutes);
 app.use("/api/brand-skills", authMiddleware, brandSkillsRoutes);
 app.use("/api/client-types", authMiddleware, clientTypesRoutes);
 app.use("/api/sessions", authMiddleware, sessionsRoutes);
-app.use("/api/automations", authMiddleware, automationsRoutes);
+app.use("/api/automations", authMiddleware, requireModuleAndPlan("automations"), automationsRoutes);
 app.use("/api/brands", authMiddleware, brandsRoutes);
 app.use("/api/inbox", authMiddleware, inboxRoutes);
 app.use("/api/messages", authMiddleware, messagesRoutes);
@@ -536,18 +548,18 @@ app.use("/api/storefront", authMiddleware, storefrontRoutes);
 app.use("/api/stock-app", authMiddleware, stockAppRoutes);
 app.use("/api/affiliate-app", authMiddleware, affiliateAppRoutes);
 app.use("/api/partners-app", authMiddleware, partnersAppRoutes);
-app.use("/api/affiliates", authMiddleware, affiliatesRoutes);
-app.use("/api/affiliate-programs", authMiddleware, affiliateProgramsRoutes);
+app.use("/api/affiliates", authMiddleware, requireModuleAndPlan("affiliates"), affiliatesRoutes);
+app.use("/api/affiliate-programs", authMiddleware, requireModuleAndPlan("affiliates"), affiliateProgramsRoutes);
 app.use("/api/inventory", authMiddleware, inventoryRoutes);
 app.use("/api/leads", authMiddleware, rateLimit({ name: "leads", max: 200, windowMs: 60_000 }), leadsRoutes);
 app.use("/api/lead-categories", leadCategoriesRoutes);
-app.use("/api/flows", flowBuilderRoutes);
+app.use("/api/flows", requireModuleAndPlan("flow_builder"), flowBuilderRoutes);
 app.use("/api/notifications", notificationsRoutes);
 app.use("/api/actions", actionsRoutes);
 app.use("/api/support", supportRoutes);
 app.use("/api/integrations", authMiddleware, integrationsRoutes);
-app.use("/api/instagram", authMiddleware, instagramRoutes);
-app.use("/api/facebook", authMiddleware, facebookRoutes);
+app.use("/api/instagram", authMiddleware, requireModuleAndPlan("instagram"), instagramRoutes);
+app.use("/api/facebook", authMiddleware, requireModuleAndPlan("facebook"), facebookRoutes);
 app.use("/api/meta/privacy", metaPrivacyRoutes);
 app.use("/api/meta/webhook", metaWebhookRoutes);
 app.use("/api/meta/oauth", metaOAuthRoutes);
@@ -562,7 +574,7 @@ const automationRuntime = new AutomationRuntimeService(instanceManager, instance
 app.set("automationRuntime", automationRuntime);
 export const campaignEngine = new CampaignEngineService(instanceManager, instanceRotation);
 app.set("campaignEngine", campaignEngine);
-app.use("/api/campaigns-v2", authMiddleware, createCampaignRoutes(instanceManager, instanceRotation, campaignEngine));
+app.use("/api/campaigns-v2", authMiddleware, requireModuleAndPlan("campaigns"), createCampaignRoutes(instanceManager, instanceRotation, campaignEngine));
 const inboxService = new InboxService();
 inboxService.setMediaDownloader((instanceId, msg) => instanceManager.downloadIncomingMedia(instanceId, msg));
 inboxService.setMessageSender((instanceId, jid, message) => instanceManager.sendMessageByJid(instanceId, jid, message));
@@ -1623,7 +1635,9 @@ app.post("/api/leads/capture-manual", authMiddleware, async (req: any, res) => {
     }
 
     let distributionQueued: Record<string, unknown> | null = null;
-    if (createdLeadId && brandId) {
+    // Enfileira lead novo OU re-captura (customer já existente) para a distribuição
+    const prospectIdForQueue = createdLeadId || (dbLead?.id ? String(dbLead.id) : null);
+    if (prospectIdForQueue && brandId) {
       try {
         const { affiliateDistributionService } = await import("./services/affiliateDistribution");
         const rules = await affiliateDistributionService.getOrCreateRules(userId, brandId);
@@ -1631,10 +1645,15 @@ app.post("/api/leads/capture-manual", authMiddleware, async (req: any, res) => {
           distributionQueued = await affiliateDistributionService.enqueueProspect({
             ownerUserId: userId,
             brandId,
-            prospectId: createdLeadId,
-            source: "panfleteiro_capture",
-            priorityScore: 55,
-            metadata: { query: captureQuery, location: captureLocation },
+            prospectId: prospectIdForQueue,
+            source: createdLeadId ? "panfleteiro_capture" : "panfleteiro_recapture",
+            priorityScore: createdLeadId ? 55 : 50,
+            metadata: {
+              query: captureQuery,
+              location: captureLocation,
+              recapture: !createdLeadId,
+              place_id: placeId,
+            },
           });
         }
       } catch (distErr: any) {

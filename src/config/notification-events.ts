@@ -695,8 +695,63 @@ const REGISTRY_MAP = new Map(
   NOTIFICATION_EVENT_REGISTRY.map((e) => [e.event_key, e]),
 );
 
+/**
+ * Aliases push-events (snake_case legado) → notification-events (dotted canônico).
+ * Preferências e seeds antigos podem usar a chave curta; o hub resolve para a canônica.
+ */
+export const EVENT_KEY_ALIASES: Record<string, string> = {
+  // affiliate
+  whatsapp_disconnected: "affiliate.whatsapp.disconnected",
+  whatsapp_reconnect_required: "affiliate.whatsapp.disconnected",
+  message_undelivered: "affiliate.system.message_send_failed",
+  new_contact: "affiliate.lead.assigned",
+  new_prospect_assigned: "affiliate.lead.assigned",
+  hot_lead: "affiliate.lead.hot",
+  prospect_replied: "affiliate.lead.hot",
+  prospect_requested_price: "affiliate.lead.price_requested",
+  follow_up_due: "affiliate.lead.followup_due",
+  prospect_converted: "affiliate.customer.converted",
+  commission_generated: "affiliate.commission.generated",
+  commission_approved: "affiliate.commission.approved",
+  commission_disputed: "affiliate.commission.disputed",
+  payout_pending: "affiliate.payout.pending",
+  payout_available: "affiliate.payout.pending",
+  payout_completed: "affiliate.payout.sent",
+  program_invite: "affiliate.program.invited",
+  application_approved: "affiliate.program.application_approved",
+  sales_goal_reached: "affiliate.sales_goal.reached",
+  new_support_ticket: "affiliate.support.new_ticket",
+  intervention_requested: "affiliate.support.intervention_requested",
+  customer_complaint: "affiliate.support.customer_complaint",
+  integration_error: "affiliate.system.integration_error",
+  message_send_failed: "affiliate.system.message_send_failed",
+  automation_error: "affiliate.system.automation_error",
+  // admin affiliates
+  affiliate_application_received: "admin.affiliate.application_received",
+  affiliate_whatsapp_offline: "admin.affiliate.whatsapp_disconnected",
+  lead_no_affiliate: "admin.lead.no_affiliate",
+  // app ops (amostra)
+  task_assigned: "app.task.assigned",
+  new_conversation: "app.inbox.new_conversation",
+  client_registered: "app.client.registered",
+  order_created: "app.order.created",
+};
+
+/** Resolve alias → chave canônica do registry. */
+export function resolveCanonicalEventKey(eventKey: string): string {
+  const raw = String(eventKey || "").trim();
+  if (!raw) return raw;
+  if (REGISTRY_MAP.has(raw)) return raw;
+  const aliased = EVENT_KEY_ALIASES[raw];
+  if (aliased && REGISTRY_MAP.has(aliased)) return aliased;
+  // também: se alguém passar sem prefixo mas o alias mapeia
+  if (aliased) return aliased;
+  return raw;
+}
+
 export function getNotificationEventDefinition(eventKey: string): NotificationEventDefinition | null {
-  return REGISTRY_MAP.get(String(eventKey || "").trim()) || null;
+  const key = resolveCanonicalEventKey(eventKey);
+  return REGISTRY_MAP.get(key) || null;
 }
 
 export function renderTemplate(template: string, vars: Record<string, string | number | undefined | null>): string {

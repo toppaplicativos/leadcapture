@@ -64,6 +64,17 @@ export const partnersApi = {
     }),
 
   me: () => partnersFetch<any>('/api/partners-app/me'),
+  updateProfile: (payload: {
+    display_name?: string
+    phone?: string | null
+    document?: string | null
+    pix_key?: string | null
+    force_pix_sync?: boolean
+  }) =>
+    partnersFetch<any>('/api/partners-app/profile', {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
   dashboard: () => partnersFetch<any>('/api/partners-app/dashboard'),
   memberships: () => partnersFetch<any>('/api/partners-app/memberships'),
   alerts: () => partnersFetch<any>('/api/partners-app/alerts'),

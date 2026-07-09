@@ -71,6 +71,24 @@ router.get("/me", async (req: AuthRequest, res: Response) => {
   }
 });
 
+router.patch("/profile", async (req: AuthRequest, res: Response) => {
+  try {
+    const affiliateUserId = await requirePartnersGlobal(req, res);
+    if (!affiliateUserId) return;
+
+    const profile = await affiliateGlobalService.updateGlobalProfile(affiliateUserId, {
+      display_name: req.body?.display_name,
+      phone: req.body?.phone,
+      document: req.body?.document,
+      pix_key: req.body?.pix_key,
+      force_pix_sync: req.body?.force_pix_sync === true,
+    });
+    res.json({ success: true, profile });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message || "Falha ao atualizar perfil" });
+  }
+});
+
 router.get("/dashboard", async (req: AuthRequest, res: Response) => {
   try {
     const affiliateUserId = await requirePartnersGlobal(req, res);
@@ -272,9 +290,21 @@ router.post("/brands/:brandId/enter", async (req: AuthRequest, res: Response) =>
       return res.status(404).json({ error: "Você ainda não está vinculado a esta organização" });
     }
 
-    const affiliate = await affiliatesService.getAffiliateByCredential(String(credential.id), brandId);
+    let affiliate = await affiliatesService.getAffiliateByCredential(String(credential.id), brandId);
     if (String(affiliate?.status || "") === "pending" || !credential.is_active) {
       return res.status(403).json({ error: "Cadastro aguardando aprovação desta organização" });
+    }
+
+    // Propaga PIX global se a marca ainda não tem chave
+    try {
+      const globalProfile = await affiliateGlobalService.getOrCreateGlobalProfile(affiliateUserId);
+      const globalPix = String(globalProfile.pix_key || "").trim();
+      if (globalPix && !String(affiliate?.pix_key || "").trim() && affiliate?.id) {
+        await affiliatesService.updateProfile(String(affiliate.id), { pix_key: globalPix });
+        affiliate = await affiliatesService.getAffiliateByCredential(String(credential.id), brandId);
+      }
+    } catch {
+      /* não bloquear entrada no programa */
     }
 
     const email = String(req.user?.email || credential.email || "").trim();

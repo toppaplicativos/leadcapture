@@ -89,7 +89,8 @@ async function resolveChannelsForUser(
 }
 
 export async function emitPlatformEvent(input: EmitPlatformEventInput): Promise<EmitPlatformEventResult> {
-  const eventKey = String(input.event_key || "").trim();
+  const { resolveCanonicalEventKey } = await import("../config/notification-events");
+  const eventKey = resolveCanonicalEventKey(String(input.event_key || "").trim());
   const platform = getNotificationPlatformService();
   const definition = await platform.resolveEventConfig(eventKey);
 

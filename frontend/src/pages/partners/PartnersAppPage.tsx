@@ -554,6 +554,8 @@ export function PartnersAppPage() {
             user={user}
             onLogout={logout}
             onOpenAlerts={() => goTab('alertas')}
+            showToast={showToast}
+            onProfileUpdated={(p) => setProfile(p)}
           />
         )}
       </main>

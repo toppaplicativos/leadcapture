@@ -3,11 +3,10 @@ import { AICampaignWizardModal } from '@/components/AICampaignWizardModal'
 import { SkillTrainerWizardModal } from '@/components/SkillTrainerWizardModal'
 import {
   Send, Loader2, LayoutGrid, Search, MapPin, Zap as ZapIcon,
-  Maximize2, Sparkles, Megaphone, ShoppingCart,
-  PanelRight, X, Package, Images, Users, Building2, LayoutDashboard, Brain, Handshake,
-  Phone, Settings, SquarePen, History, ChevronDown, Trash2, Pencil, Pin, Copy,
+  Maximize2, Sparkles, Brain,
+  PanelRight, X, SquarePen, History, ChevronDown, Trash2, Pencil, Pin, Copy,
 } from 'lucide-react'
-import { FacebookIcon, InstagramIcon, WhatsAppIcon, type IconComponent } from '@/components/icons'
+import type { IconComponent } from '@/components/icons'
 import { AgentUIRenderer } from './AgentUIRenderer'
 import { ProspectModuleBlock } from './prospect/ProspectModuleBlock'
 import { ProspectSearchControls } from './prospect/ProspectSearchControls'
@@ -34,7 +33,7 @@ import { WorkspaceNav } from './WorkspaceNav'
 import { WorkspaceWelcome } from './WorkspaceWelcome'
 
 import { turnNeedsCanvas, turnShowsInline } from '@/lib/agent/canvasRegistry'
-import { OBJECTIVE_TRIGGERS } from '@/lib/agent/workspaceTriggers'
+import { OBJECTIVE_GROUPS, QUICK_STARTERS } from '@/lib/agent/workspaceTriggers'
 import {
   isCampaignSkill,
   isLeadsSkill,
@@ -218,6 +217,7 @@ export function WorkspaceChat({
     searchSessions,
     searchResults,
     searchLoading,
+    activeModuleLabel,
   } = useAgentShell()
 
   const bridge = useProspectBridgeOptional()
@@ -225,6 +225,7 @@ export function WorkspaceChat({
   const isDesktop = useIsDesktop()
   const [input, setInput] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
+  const [menuGroup, setMenuGroup] = useState<string | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [memoryOpen, setMemoryOpen] = useState(false)
   const [historySearch, setHistorySearch] = useState('')
@@ -422,278 +423,64 @@ export function WorkspaceChat({
     if (isDesktop) openCanvas('/busca')
   }
 
-  const shortcuts: Shortcut[] = [
-    {
-      id: 'prospect',
-      label: 'Buscar no mapa',
-      desc: 'Modo paleteiro — segmento + cidade',
-      icon: Search,
-      action: () => {
-        setMenuOpen(false)
-        triggerSkill('lead.prospect', { label: 'Prospectar no mapa', assistantMessage: 'Vamos prospectar no mapa. Qual segmento e cidade?' })
-      },
-    },
-    {
-      id: 'map',
-      label: isDesktop ? 'Abrir mapa' : 'Mapa no chat',
-      desc: isDesktop ? 'Canvas lateral' : 'Já embutido na conversa',
-      icon: MapPin,
-      action: () => {
-        setMenuOpen(false)
-        if (isDesktop) openCanvas('/busca')
-        else triggerSkill('lead.prospect', { label: 'Prospectar no mapa' })
-      },
-    },
-    {
-      id: 'capture',
-      label: 'Capturar todos',
-      desc: `${bridge?.snapshot.newCount ?? 0} novos no mapa`,
-      icon: ZapIcon,
-      action: () => {
-        setMenuOpen(false)
-        ensureMapDesktop()
-        bridge?.dispatch({ type: 'capture_batch' })
-      },
-    },
-    {
-      id: 'auto',
-      label: bridge?.snapshot.autoCapture ? 'Auto-captura ON' : 'Auto-captura',
-      desc: 'Captura ao arrastar o mapa',
-      icon: ZapIcon,
-      action: () => {
-        setMenuOpen(false)
-        bridge?.dispatch({ type: 'toggle_auto_capture' })
-      },
-    },
-    {
-      id: 'immersive',
-      label: 'Tela cheia',
-      desc: 'Modo imersivo do mapa',
-      icon: Maximize2,
-      action: () => {
-        setMenuOpen(false)
-        bridge?.dispatch({ type: 'set_immersive', value: true })
-      },
-    },
-    {
-      id: 'ideas',
-      label: 'Gerar ideias IA',
-      desc: 'Segmento e cidade sugeridos',
-      icon: Sparkles,
-      action: () => {
-        setMenuOpen(false)
-        ensureMapDesktop()
-        bridge?.dispatch({ type: 'open_ideas' })
-      },
-    },
-    {
-      id: 'messages',
-      label: 'Conversas',
-      icon: WhatsAppIcon,
-      action: () => {
-        setMenuOpen(false)
-        triggerNav('mensagens')
-      },
-    },
-    {
-      id: 'whatsapp',
-      label: 'Conectar WhatsApp',
-      desc: 'Hub de conexão — código de 8 caracteres',
-      icon: WhatsAppIcon,
-      action: () => {
-        setMenuOpen(false)
-        triggerSkill('whatsapp.connect', {
-          label: 'Conectar WhatsApp',
-          assistantMessage: 'Vamos vincular pelo código no seu número:',
-        })
-      },
-    },
-    {
-      id: 'settings',
-      label: 'Configurações',
-      desc: 'Conta, marca e sessões WhatsApp',
-      icon: Settings,
-      action: () => {
-        setMenuOpen(false)
-        triggerSkill('settings.open', {
-          label: 'Configurações',
-          assistantMessage: 'Abrindo configurações da conta…',
-        })
-      },
-    },
-    {
-      id: 'leads',
-      label: 'Leads',
-      desc: 'CRM e gestão',
-      icon: Users,
-      action: () => {
-        setMenuOpen(false)
-        triggerSkill('crm.leads.table', { label: 'Ver leads', assistantMessage: 'Seus leads recentes:' })
-      },
-    },
-    {
-      id: 'clients',
-      label: 'Clientes',
-      desc: 'Base convertida e importação',
-      icon: Building2,
-      action: () => {
-        setMenuOpen(false)
-        triggerSkill('crm.clients.table', { label: 'Ver clientes', assistantMessage: 'Sua base de clientes:' })
-      },
-    },
-    {
-      id: 'orders',
-      label: 'Pedidos',
-      desc: 'Vendas e expedição',
-      icon: ShoppingCart,
-      action: () => {
-        setMenuOpen(false)
-        triggerSkill('catalog.orders', { label: 'Ver pedidos', assistantMessage: 'Seus pedidos recentes:' })
-      },
-    },
-    {
-      id: 'products',
-      label: 'Produtos',
-      desc: 'Catálogo no chat ou canvas',
-      icon: Package,
-      action: () => {
-        setMenuOpen(false)
-        triggerSkill('catalog.products', { label: 'Produtos', assistantMessage: 'Seu catálogo:' })
-      },
-    },
-    {
-      id: 'gallery',
-      label: 'Galeria',
-      desc: 'Assets e upload inline',
-      icon: Images,
-      action: () => {
-        setMenuOpen(false)
-        triggerSkill('gallery.open', { label: 'Galeria', assistantMessage: 'Assets da marca:' })
-      },
-    },
-    {
-      id: 'instagram',
-      label: 'Instagram',
-      desc: 'Posts, DMs e métricas',
-      icon: InstagramIcon,
-      action: () => {
-        setMenuOpen(false)
-        triggerSkill('instagram.open', { label: 'Instagram', assistantMessage: 'Sua conta Instagram:' })
-      },
-    },
-    {
-      id: 'instagram-post',
-      label: 'Criar post IG',
-      desc: 'IA gera legenda e imagem',
-      icon: InstagramIcon,
-      action: () => {
-        setMenuOpen(false)
-        triggerSkill('instagram.post.create', { label: 'Criar post', assistantMessage: 'Sobre o que é o post?' })
-      },
-    },
-    {
-      id: 'facebook',
-      label: 'Facebook',
-      desc: 'Posts, mensagens e métricas',
-      icon: FacebookIcon,
-      action: () => {
-        setMenuOpen(false)
-        triggerSkill('facebook.open', { label: 'Facebook', assistantMessage: 'Sua página Facebook:' })
-      },
-    },
-    {
-      id: 'facebook-post',
-      label: 'Criar post FB',
-      desc: 'IA gera texto e imagem',
-      icon: FacebookIcon,
-      action: () => {
-        setMenuOpen(false)
-        triggerSkill('facebook.post.create', { label: 'Post Facebook', assistantMessage: 'Sobre o que é o post no Facebook?' })
-      },
-    },
-    {
-      id: 'automations',
-      label: 'Automações',
-      desc: 'Fluxos reativos e proativos',
-      icon: ZapIcon,
-      action: () => {
-        setMenuOpen(false)
-        triggerSkill('automation.open', { label: 'Automações', assistantMessage: 'Suas automações WhatsApp:' })
-      },
-    },
-    {
-      id: 'affiliates',
-      label: 'Afiliados',
-      desc: 'Parceiros, comissões e saques',
-      icon: Handshake,
-      action: () => {
-        setMenuOpen(false)
-        triggerSkill('affiliate.open', { label: 'Afiliados', assistantMessage: 'Seu programa de parceiros:' })
-      },
-    },
-    {
-      id: 'automation-order',
-      label: 'Fluxo pedido WA',
-      desc: 'Pedido completo no WhatsApp',
-      icon: ZapIcon,
-      action: () => {
-        setMenuOpen(false)
-        triggerSkill('automation.create', {
-          label: 'Fluxo pedido',
-          assistantMessage: 'Montando fluxo de pedidos…',
-          context: { brief: 'crie um fluxo de pedidos completo para whatsapp' },
-        })
-      },
-    },
-    {
-      id: 'campaigns',
-      label: 'Campanhas',
-      desc: 'Ver e criar campanhas',
-      icon: Megaphone,
-      action: () => {
-        setMenuOpen(false)
-        triggerNav('campanhas')
-      },
-    },
-    {
-      id: 'campaign',
-      label: 'Criar campanha',
-      icon: Megaphone,
-      action: () => {
-        setMenuOpen(false)
-        triggerSkill('campaigns.create', { label: 'Criar campanha', assistantMessage: 'Vamos criar sua campanha.' })
-      },
-    },
-    {
-      id: 'dashboard',
-      label: 'Painel',
-      desc: 'KPIs do negócio',
-      icon: LayoutDashboard,
-      action: () => {
-        setMenuOpen(false)
-        triggerNav('dashboard')
-      },
-    },
-    {
-      id: 'skills',
-      label: 'Habilidades',
-      desc: 'Skills do agente IA',
-      icon: Brain,
-      action: () => {
-        setMenuOpen(false)
-        triggerNav('habilidades')
-      },
-    },
-    {
-      id: 'order',
-      label: 'Fazer pedido',
-      icon: ShoppingCart,
-      action: () => {
-        setMenuOpen(false)
-        triggerSkill('order.assisted', { label: 'Fazer pedido', assistantMessage: 'Vamos montar esse pedido. Para quem é?' })
-      },
-    },
-  ]
+  /** Atalhos contextuais do mapa — só quando prospecção está aberta. */
+  const prospectShortcuts: Shortcut[] = prospectModuleOpen
+    ? [
+        {
+          id: 'capture',
+          label: 'Capturar todos',
+          desc: `${bridge?.snapshot.newCount ?? 0} novos no mapa`,
+          icon: ZapIcon,
+          action: () => {
+            setMenuOpen(false)
+            ensureMapDesktop()
+            bridge?.dispatch({ type: 'capture_batch' })
+          },
+        },
+        {
+          id: 'auto',
+          label: bridge?.snapshot.autoCapture ? 'Auto-captura ON' : 'Auto-captura',
+          desc: 'Captura ao arrastar o mapa',
+          icon: ZapIcon,
+          action: () => {
+            setMenuOpen(false)
+            bridge?.dispatch({ type: 'toggle_auto_capture' })
+          },
+        },
+        {
+          id: 'immersive',
+          label: 'Tela cheia',
+          desc: 'Modo imersivo do mapa',
+          icon: Maximize2,
+          action: () => {
+            setMenuOpen(false)
+            bridge?.dispatch({ type: 'set_immersive', value: true })
+          },
+        },
+        {
+          id: 'ideas',
+          label: 'Gerar ideias IA',
+          desc: 'Segmento e cidade sugeridos',
+          icon: Sparkles,
+          action: () => {
+            setMenuOpen(false)
+            ensureMapDesktop()
+            bridge?.dispatch({ type: 'open_ideas' })
+          },
+        },
+        {
+          id: 'map',
+          label: isDesktop ? 'Abrir mapa' : 'Mapa no chat',
+          desc: isDesktop ? 'Painel à direita' : 'Embutido na conversa',
+          icon: MapPin,
+          action: () => {
+            setMenuOpen(false)
+            if (isDesktop) openCanvas('/busca')
+            else triggerSkill('lead.prospect', { label: 'Prospectar no mapa' })
+          },
+        },
+      ]
+    : []
 
   function submit(e: FormEvent) {
     e.preventDefault()
@@ -1117,8 +904,8 @@ export function WorkspaceChat({
 
       <div className="workspace-chat__footer">
         {messages.length > 0 && messages.length < 6 && !prospectModuleOpen && !inboxModuleOpen && !catalogModuleOpen && (
-          <div className="workspace-chat__objectives">
-            {OBJECTIVE_TRIGGERS.map((chip) => (
+          <div className="workspace-chat__objectives" aria-label="Atalhos rápidos">
+            {QUICK_STARTERS.map((chip) => (
               <button
                 key={chip.userLabel}
                 type="button"
@@ -1155,36 +942,92 @@ export function WorkspaceChat({
           <button
             type="button"
             className={`workspace-chat__menu-btn ${menuOpen ? 'is-open' : ''}`}
-            onClick={() => setMenuOpen((v) => !v)}
-            aria-label="Atalhos"
+            onClick={() => {
+              setMenuOpen((v) => !v)
+              setMenuGroup(null)
+            }}
+            aria-label="Atalhos por área"
             aria-expanded={menuOpen}
+            aria-haspopup="menu"
           >
             {menuOpen ? <X size={16} /> : <LayoutGrid size={16} />}
           </button>
 
           {menuOpen && (
             <div className="workspace-chat__shortcuts" role="menu">
-              <p className="workspace-chat__shortcuts-title">Atalhos</p>
-              {shortcuts.map((s) => {
-                const Icon = s.icon
-                return (
-                  <button
-                    key={s.id}
-                    type="button"
-                    role="menuitem"
-                    className="workspace-chat__shortcut"
-                    onClick={s.action}
-                  >
-                    <span className="workspace-chat__shortcut-icon">
-                      <Icon size={14} strokeWidth={1.75} />
-                    </span>
-                    <span className="min-w-0">
-                      <span className="workspace-chat__shortcut-label">{s.label}</span>
-                      {s.desc && <span className="workspace-chat__shortcut-desc">{s.desc}</span>}
-                    </span>
-                  </button>
-                )
-              })}
+              <p className="workspace-chat__shortcuts-title">
+                {menuGroup
+                  ? OBJECTIVE_GROUPS.find((g) => g.id === menuGroup)?.label || 'Atalhos'
+                  : 'Áreas de trabalho'}
+              </p>
+              {menuGroup && (
+                <button
+                  type="button"
+                  className="workspace-chat__shortcut workspace-chat__shortcut--back"
+                  onClick={() => setMenuGroup(null)}
+                >
+                  <span className="workspace-chat__shortcut-label">← Voltar</span>
+                </button>
+              )}
+              {!menuGroup && prospectShortcuts.length > 0 && (
+                <>
+                  <p className="workspace-chat__shortcuts-subtitle">Mapa ativo</p>
+                  {prospectShortcuts.map((s) => {
+                    const Icon = s.icon
+                    return (
+                      <button
+                        key={s.id}
+                        type="button"
+                        role="menuitem"
+                        className="workspace-chat__shortcut"
+                        onClick={s.action}
+                      >
+                        <span className="workspace-chat__shortcut-icon">
+                          <Icon size={14} strokeWidth={1.75} />
+                        </span>
+                        <span className="min-w-0">
+                          <span className="workspace-chat__shortcut-label">{s.label}</span>
+                          {s.desc && <span className="workspace-chat__shortcut-desc">{s.desc}</span>}
+                        </span>
+                      </button>
+                    )
+                  })}
+                  <p className="workspace-chat__shortcuts-subtitle">Todas as áreas</p>
+                </>
+              )}
+              {!menuGroup && OBJECTIVE_GROUPS.map((group) => (
+                <button
+                  key={group.id}
+                  type="button"
+                  role="menuitem"
+                  className="workspace-chat__shortcut"
+                  onClick={() => setMenuGroup(group.id)}
+                >
+                  <span className="min-w-0">
+                    <span className="workspace-chat__shortcut-label">{group.label}</span>
+                    <span className="workspace-chat__shortcut-desc">{group.hint}</span>
+                  </span>
+                </button>
+              ))}
+              {menuGroup && OBJECTIVE_GROUPS.find((g) => g.id === menuGroup)?.items.map((item) => (
+                <button
+                  key={`${menuGroup}-${item.skill}-${item.userLabel}`}
+                  type="button"
+                  role="menuitem"
+                  className="workspace-chat__shortcut"
+                  onClick={() => {
+                    setMenuOpen(false)
+                    setMenuGroup(null)
+                    triggerSkill(item.skill, {
+                      label: item.userLabel,
+                      assistantMessage: item.assistantMessage,
+                      context: item.context,
+                    })
+                  }}
+                >
+                  <span className="workspace-chat__shortcut-label">{item.userLabel}</span>
+                </button>
+              ))}
             </div>
           )}
         </div>
@@ -1194,10 +1037,16 @@ export function WorkspaceChat({
             type="button"
             className="workspace-chat__canvas-btn lg:hidden"
             onClick={() => setMobileCanvasOpen(true)}
-            aria-label="Ver canvas"
+            aria-label="Abrir painel em tela cheia"
           >
             <PanelRight size={16} />
           </button>
+        )}
+
+        {desktopCanvasOpen && isDesktop && activeModuleLabel && (
+          <span className="workspace-chat__surface-pill" title="Modelo espacial">
+            Chat · {activeModuleLabel}
+          </span>
         )}
 
         <div className="workspace-chat__input-wrap">
@@ -1212,6 +1061,7 @@ export function WorkspaceChat({
             }}
             rows={1}
             placeholder="Ex: buscar pizzarias em Fortaleza"
+            aria-label="Mensagem para o assistente"
             disabled={loading}
             className="workspace-chat__input"
           />

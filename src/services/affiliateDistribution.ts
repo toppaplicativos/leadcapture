@@ -481,14 +481,21 @@ export class AffiliateDistributionService {
 
   async getOrCreateRules(ownerUserId: string, brandId: string, programId?: string | null) {
     await this.ensureSchema();
-    const prog = programId || null;
-    let row = await queryOne<any>(
-      `SELECT * FROM lead_distribution_rules
-       WHERE owner_user_id = ? AND brand_id = ?
-         AND (program_id = ? OR (? IS NULL AND program_id IS NULL))
-       LIMIT 1`,
-      [ownerUserId, brandId, prog, prog]
-    );
+    const prog = programId ? String(programId).trim() : "";
+    // Postgres: não usar `? IS NULL` com bind null (tipo indeterminado)
+    let row = prog
+      ? await queryOne<any>(
+          `SELECT * FROM lead_distribution_rules
+           WHERE owner_user_id = ? AND brand_id = ? AND program_id = ?
+           LIMIT 1`,
+          [ownerUserId, brandId, prog]
+        )
+      : await queryOne<any>(
+          `SELECT * FROM lead_distribution_rules
+           WHERE owner_user_id = ? AND brand_id = ? AND program_id IS NULL
+           LIMIT 1`,
+          [ownerUserId, brandId]
+        );
     if (row) return row;
 
     const id = randomUUID();
@@ -497,7 +504,7 @@ export class AffiliateDistributionService {
        (id, owner_user_id, brand_id, program_id, is_enabled, max_daily_per_affiliate, rotation_mode,
         require_whatsapp_connected, require_training_complete, require_terms_accepted, auto_enqueue_capture)
        VALUES (?, ?, ?, ?, TRUE, 20, 'round_robin', TRUE, TRUE, TRUE, TRUE)`,
-      [id, ownerUserId, brandId, prog]
+      [id, ownerUserId, brandId, prog || null]
     );
     row = await queryOne<any>(`SELECT * FROM lead_distribution_rules WHERE id = ? LIMIT 1`, [id]);
     return row;

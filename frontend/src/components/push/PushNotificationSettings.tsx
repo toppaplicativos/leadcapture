@@ -53,6 +53,11 @@ export function PushNotificationSettings({ dark = false }: { dark?: boolean }) {
       setEvents(evRes.events || [])
       setDevice(devRes.devices?.[0] || null)
       setPerm(pushPermission())
+    } catch (err: any) {
+      setEvents([])
+      setDevice(null)
+      setToast(err?.message || 'Não foi possível carregar preferências de push')
+      setTimeout(() => setToast(null), 4000)
     } finally {
       setLoading(false)
     }

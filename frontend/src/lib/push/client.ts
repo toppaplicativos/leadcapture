@@ -57,7 +57,10 @@ export async function subscribeToPush(opts?: {
   const json = sub.toJSON()
   await pushApi.subscribe({
     app_context: opts?.appContext || resolvePushAppContext(),
-    organization_id: opts?.organizationId || localStorage.getItem('lead-system:active-brand-id'),
+    organization_id: opts?.organizationId
+      || localStorage.getItem('lead-system:active-brand-id-afiliado')
+      || localStorage.getItem('lead-system:active-brand-id')
+      || null,
     device_id: getOrCreateDeviceId(),
     browser: detectBrowser(),
     operating_system: detectOS(),

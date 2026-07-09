@@ -276,21 +276,46 @@ export class PushNotificationService {
     }
   }
 
+  private normalizeVapidSubject(raw: string | null | undefined): string {
+    let s = String(raw || "").trim()
+    if (!s || /seu-email|example\.com|placeholder|changeme|@example/i.test(s)) {
+      return "mailto:admin@leadcapture.online"
+    }
+    if (!/^mailto:/i.test(s) && !/^https?:\/\//i.test(s)) {
+      // web-push exige mailto: ou URL http(s)
+      s = `mailto:${s}`
+    }
+    try {
+      // valida URL
+      // eslint-disable-next-line no-new
+      new URL(s)
+      return s
+    } catch {
+      return "mailto:admin@leadcapture.online"
+    }
+  }
+
   private async ensureVapid(): Promise<{ publicKey: string; privateKey: string; subject: string }> {
-    const sub =
-      String(process.env.VAPID_SUBJECT || process.env.VAPID_EMAIL || "").trim()
-      || (await masterService.getSetting<string>("vapid_subject"))
-      || "mailto:admin@leadcapture.online"
+    const sub = this.normalizeVapidSubject(
+      process.env.VAPID_SUBJECT
+        || process.env.VAPID_EMAIL
+        || (await masterService.getSetting<string>("vapid_subject"))
+        || "mailto:admin@leadcapture.online",
+    )
 
     if (this.vapidReady) {
       const pub = process.env.VAPID_PUBLIC_KEY || (await masterService.getSetting<string>("vapid_public_key"))
       const priv = process.env.VAPID_PRIVATE_KEY || (await masterService.getSetting<string>("vapid_private_key"))
       if (this.isValidVapidPublicKey(pub) && this.isValidVapidPrivateKey(priv)) {
-        webpush.setVapidDetails(sub, String(pub).trim(), String(priv).trim())
-        return { publicKey: String(pub).trim(), privateKey: String(priv).trim(), subject: sub }
+        try {
+          webpush.setVapidDetails(sub, String(pub).trim(), String(priv).trim())
+          return { publicKey: String(pub).trim(), privateKey: String(priv).trim(), subject: sub }
+        } catch {
+          this.vapidReady = false
+        }
+      } else {
+        this.vapidReady = false
       }
-      // cache stale — revalida abaixo
-      this.vapidReady = false
     }
 
     let pub = process.env.VAPID_PUBLIC_KEY || (await masterService.getSetting<string>("vapid_public_key"))

@@ -119,7 +119,7 @@ export const NOTIFICATION_EVENT_REGISTRY: NotificationEventDefinition[] = [
     {
       default_priority: "high",
       cta_label: "Ver contato",
-      deep_link_template: "/leads",
+      deep_link_template: "/contatos",
       sound_key: "new_lead",
       group_key: "affiliate_leads",
     }),
@@ -129,7 +129,7 @@ export const NOTIFICATION_EVENT_REGISTRY: NotificationEventDefinition[] = [
     {
       default_priority: "critical",
       cta_label: "Responder agora",
-      deep_link_template: "/leads",
+      deep_link_template: "/contatos",
       sound_key: "new_lead",
       auto_action: {
         action_type: "reply_lead",
@@ -153,7 +153,7 @@ export const NOTIFICATION_EVENT_REGISTRY: NotificationEventDefinition[] = [
     "Você foi aprovado no programa {{program_name}}.",
     {
       cta_label: "Ver programa",
-      deep_link_template: "/oportunidades",
+      deep_link_template: "/contatos",
     }),
 
   /* ── Admin marca ── */
@@ -226,7 +226,7 @@ export const NOTIFICATION_EVENT_REGISTRY: NotificationEventDefinition[] = [
     {
       default_priority: "high",
       cta_label: "Responder",
-      deep_link_template: "/oportunidades",
+      deep_link_template: "/contatos",
       sound_key: "new_lead",
     }),
   def("affiliate", "leads", "affiliate.lead.followup_due", "action_required",
@@ -235,7 +235,7 @@ export const NOTIFICATION_EVENT_REGISTRY: NotificationEventDefinition[] = [
     {
       default_priority: "high",
       cta_label: "Fazer follow-up",
-      deep_link_template: "/oportunidades",
+      deep_link_template: "/contatos",
       group_key: "affiliate_followups",
       auto_action: {
         action_type: "reply_lead",
@@ -250,7 +250,7 @@ export const NOTIFICATION_EVENT_REGISTRY: NotificationEventDefinition[] = [
     {
       default_priority: "high",
       cta_label: "Ver follow-ups",
-      deep_link_template: "/oportunidades",
+      deep_link_template: "/contatos",
       group_key: "affiliate_followups",
     }),
   def("affiliate", "clients", "affiliate.customer.converted", "commercial_event",
@@ -354,7 +354,7 @@ export const NOTIFICATION_EVENT_REGISTRY: NotificationEventDefinition[] = [
     "Você foi convidado para {{program_name}}.",
     {
       cta_label: "Ver convite",
-      deep_link_template: "/oportunidades",
+      deep_link_template: "/contatos",
     }),
 
   /* ── Admin — afiliados e campanhas ── */

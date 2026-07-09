@@ -1556,7 +1556,7 @@ export class AffiliatesService {
         role: "affiliate",
         entity_type: "affiliate_lead",
         entity_id: input.leadId,
-        deep_link: "/oportunidades",
+        deep_link: "/contatos",
         template_vars: {
           customer_name: input.customerName,
           product_suffix: productSuffix,

@@ -338,8 +338,9 @@ export class AffiliateDistributionService {
         body: input.prospectName
           ? `Não foi possível enviar a primeira mensagem para ${input.prospectName}. Abra o WhatsApp e inicie manualmente.`
           : "Não foi possível enviar a primeira mensagem. Inicie o contato manualmente.",
-        actionPath: "/oportunidades",
+        actionPath: "/contatos",
         assignmentId: input.assignmentId,
+        customerName: input.prospectName,
       });
       return { sent: false, reason: "send_failed" };
     }
@@ -544,12 +545,45 @@ export class AffiliateDistributionService {
       input.brandId,
       input.affiliateUserId
     );
+    // membership.organization_id = brand_id (ver affiliateGlobal.syncMemberships)
     const membership = await queryOne<any>(
       `SELECT * FROM affiliate_program_memberships
        WHERE affiliate_user_id = ? AND organization_id = ?
-       ORDER BY updated_at DESC LIMIT 1`,
-      [input.affiliateUserId, input.ownerUserId]
+         AND (? IS NULL OR program_id = ?)
+       ORDER BY
+         CASE status WHEN 'approved' THEN 0 WHEN 'pre_approved' THEN 1 WHEN 'active' THEN 0 ELSE 2 END,
+         updated_at DESC
+       LIMIT 1`,
+      [
+        input.affiliateUserId,
+        input.brandId,
+        enrollment?.program_id || null,
+        enrollment?.program_id || null,
+      ]
     );
+
+    const application = await queryOne<any>(
+      `SELECT accepted_terms_at, status, program_id
+       FROM affiliate_program_applications
+       WHERE affiliate_user_id = ? AND brand_id = ?
+         AND (? IS NULL OR program_id = ?)
+       ORDER BY updated_at DESC LIMIT 1`,
+      [
+        input.affiliateUserId,
+        input.brandId,
+        enrollment?.program_id || null,
+        enrollment?.program_id || null,
+      ]
+    );
+
+    const rules = await this.getOrCreateRules(
+      input.ownerUserId,
+      input.brandId,
+      enrollment?.program_id || null
+    );
+    const requireTerms = rules?.require_terms_accepted !== 0 && rules?.require_terms_accepted !== false;
+    const requireTraining = rules?.require_training_complete !== 0 && rules?.require_training_complete !== false;
+    const requireWhatsapp = rules?.require_whatsapp_connected !== 0 && rules?.require_whatsapp_connected !== false;
 
     const health = await getHealthSnapshot({
       userId: input.ownerUserId,
@@ -567,16 +601,31 @@ export class AffiliateDistributionService {
     const onboardingDone = Boolean(
       enrollment?.onboarding_completed_at || enrollment?.resources_unlocked_at
     );
+
+    // Termos: só timestamps reais de aceite — NUNCA approved_at do enrollment.
+    // Se o programa não tem terms_html, não bloqueia.
+    let programRequiresTerms = false;
+    if (enrollment?.program_id) {
+      const progTerms = await queryOne<{ terms_html?: string | null }>(
+        `SELECT terms_html FROM affiliate_programs WHERE id = ? LIMIT 1`,
+        [enrollment.program_id]
+      );
+      programRequiresTerms = Boolean(String(progTerms?.terms_html || "").trim());
+    }
     const termsAccepted = Boolean(
       membership?.accepted_terms_at
-      || enrollment?.approved_at
-      || onboardingDone
+      || application?.accepted_terms_at
     );
+    const termsOk = !requireTerms || !programRequiresTerms || termsAccepted;
+
+    // Treinamento: progresso real ou onboarding concluído — não atalho por status active
     const trainingComplete = Boolean(
       membership?.training_status === "completed"
       || onboardingDone
-      || enrollmentActive
     );
+    const trainingOk = !requireTraining || trainingComplete;
+
+    const whatsappOk = !requireWhatsapp || whatsappStatus === "connected";
 
     const checklist: EligibilityChecklistItem[] = [
       {
@@ -594,20 +643,20 @@ export class AffiliateDistributionService {
       {
         key: "terms",
         label: "Termos aceitos",
-        ok: termsAccepted,
-        action: termsAccepted ? null : "Aceite os termos no onboarding",
+        ok: termsOk,
+        action: termsOk ? null : "Aceite os termos no onboarding",
       },
       {
         key: "training",
         label: "Treinamento concluído",
-        ok: trainingComplete,
-        action: trainingComplete ? null : "Conclua o treinamento em Aprender",
+        ok: trainingOk,
+        action: trainingOk ? null : "Conclua o treinamento em Aprender",
       },
       {
         key: "whatsapp",
         label: "WhatsApp conectado",
-        ok: whatsappStatus === "connected",
-        action: whatsappStatus === "connected" ? null : "Conectar WhatsApp",
+        ok: whatsappOk,
+        action: whatsappOk ? null : "Conectar WhatsApp",
       },
     ];
 
@@ -625,7 +674,8 @@ export class AffiliateDistributionService {
       distributionStatus = "available";
     }
 
-    if (whatsappStatus === "disconnected" || whatsappStatus === "none") {
+    // WA desconectado: pausa recebimento mesmo se os demais gates ok
+    if (requireWhatsapp && (whatsappStatus === "disconnected" || whatsappStatus === "none")) {
       if (distributionStatus === "available") {
         distributionStatus = "paused";
         pauseReason = "WhatsApp desconectado";
@@ -666,16 +716,17 @@ export class AffiliateDistributionService {
         distributionStatus,
         whatsappStatus,
         enrollment?.status || membership?.status || null,
-        termsAccepted,
-        trainingComplete,
+        termsOk,
+        trainingOk,
         pauseReason,
         eligibleAt,
       ]
     );
 
     if (
-      (whatsappStatus === "disconnected" || whatsappStatus === "none")
-      && distributionStatus === "paused"
+      requireWhatsapp
+      && (whatsappStatus === "disconnected" || whatsappStatus === "none")
+      && (distributionStatus === "paused" || distributionStatus === "ineligible")
     ) {
       await this.ensureAlert({
         ownerUserId: input.ownerUserId,
@@ -685,7 +736,7 @@ export class AffiliateDistributionService {
         alertType: "whatsapp_disconnected",
         severity: "warning",
         title: "WhatsApp desconectado",
-        body: "Reconecte para voltar a receber oportunidades. Novos leads ficam em pausa.",
+        body: "Reconecte para voltar a receber contatos. Novos leads ficam em pausa.",
         actionPath: "/conexoes",
       });
     }
@@ -795,6 +846,11 @@ export class AffiliateDistributionService {
     );
   }
 
+  /** Alertas de infraestrutura: dedupe por tipo. Comerciais: por assignment. */
+  private static readonly INFRA_ALERT_TYPES = new Set([
+    "whatsapp_disconnected",
+  ]);
+
   private async ensureAlert(input: {
     ownerUserId: string;
     brandId: string;
@@ -806,15 +862,36 @@ export class AffiliateDistributionService {
     body?: string;
     actionPath?: string;
     assignmentId?: string;
+    /** Nome do prospect/cliente para templates de notificação */
+    customerName?: string | null;
   }) {
-    const recent = await queryOne<any>(
-      `SELECT id FROM affiliate_alerts
-       WHERE affiliate_user_id = ? AND brand_id = ? AND alert_type = ? AND is_read = FALSE
-         AND created_at >= DATE_SUB(NOW(), INTERVAL 6 HOUR)
-       LIMIT 1`,
-      [input.affiliateUserId, input.brandId, input.alertType]
-    );
-    if (recent?.id) return;
+    const assignmentId = input.assignmentId ? String(input.assignmentId).trim() : "";
+    const isInfra = AffiliateDistributionService.INFRA_ALERT_TYPES.has(input.alertType);
+
+    if (assignmentId) {
+      // Nunca engolir um lead/reply distinto: dedupe só no mesmo assignment + tipo
+      const recent = await queryOne<any>(
+        `SELECT id FROM affiliate_alerts
+         WHERE affiliate_user_id = ? AND brand_id = ? AND alert_type = ?
+           AND assignment_id = ? AND is_read = FALSE
+           AND created_at >= DATE_SUB(NOW(), INTERVAL 6 HOUR)
+         LIMIT 1`,
+        [input.affiliateUserId, input.brandId, input.alertType, assignmentId]
+      );
+      if (recent?.id) return;
+    } else if (isInfra) {
+      // WA offline etc.: um unread por tipo basta
+      const recent = await queryOne<any>(
+        `SELECT id FROM affiliate_alerts
+         WHERE affiliate_user_id = ? AND brand_id = ? AND alert_type = ? AND is_read = FALSE
+           AND created_at >= DATE_SUB(NOW(), INTERVAL 6 HOUR)
+         LIMIT 1`,
+        [input.affiliateUserId, input.brandId, input.alertType]
+      );
+      if (recent?.id) return;
+    }
+
+    const actionPath = input.actionPath || "/contatos";
 
     await query(
       `INSERT INTO affiliate_alerts
@@ -830,33 +907,96 @@ export class AffiliateDistributionService {
         input.severity,
         input.title,
         input.body || null,
-        input.actionPath || null,
-        input.assignmentId || null,
+        actionPath,
+        assignmentId || null,
       ]
     );
 
-    if (input.alertType === "whatsapp_disconnected") {
-      void this.emitWhatsappDisconnectedNotification(input);
-    }
+    void this.emitAlertPlatformNotification({
+      ...input,
+      actionPath,
+      assignmentId: assignmentId || undefined,
+    });
   }
 
-  private async emitWhatsappDisconnectedNotification(input: {
+  private async emitAlertPlatformNotification(input: {
     brandId: string;
     affiliateId: string;
     affiliateUserId: string;
+    alertType: string;
+    actionPath?: string;
+    assignmentId?: string;
+    customerName?: string | null;
+    body?: string;
+    title?: string;
   }): Promise<void> {
     try {
       const { emitPlatformEventToUser } = await import("./notificationHub");
-      await emitPlatformEventToUser("affiliate.whatsapp.disconnected", input.affiliateUserId, {
+      const customerName = String(input.customerName || "Contato").trim() || "Contato";
+      const deepLink = input.actionPath || "/contatos";
+
+      const base = {
         organization_id: input.brandId,
-        role: "affiliate",
-        entity_type: "affiliate",
-        entity_id: input.affiliateId,
-        deep_link: "/conexoes",
-        template_vars: { brand_id: input.brandId },
-      });
+        role: "affiliate" as const,
+        deep_link: deepLink,
+        template_vars: {
+          brand_id: input.brandId,
+          customer_name: customerName,
+          product_suffix: "",
+          message_suffix: "",
+          amount_suffix: "",
+        },
+      };
+
+      switch (input.alertType) {
+        case "whatsapp_disconnected":
+          await emitPlatformEventToUser("affiliate.whatsapp.disconnected", input.affiliateUserId, {
+            ...base,
+            entity_type: "affiliate",
+            entity_id: input.affiliateId,
+            deep_link: "/conexoes",
+          });
+          break;
+        case "new_prospect":
+          await emitPlatformEventToUser("affiliate.lead.assigned", input.affiliateUserId, {
+            ...base,
+            entity_type: "prospect_assignment",
+            entity_id: input.assignmentId || input.affiliateId,
+          });
+          break;
+        case "prospect_replied":
+          await emitPlatformEventToUser("affiliate.lead.hot", input.affiliateUserId, {
+            ...base,
+            entity_type: "prospect_assignment",
+            entity_id: input.assignmentId || input.affiliateId,
+            template_vars: {
+              ...base.template_vars,
+              message_suffix: " no WhatsApp",
+              body_preview: input.body || input.title || "",
+            },
+          });
+          break;
+        case "initial_message_failed":
+          await emitPlatformEventToUser("affiliate.system.message_send_failed", input.affiliateUserId, {
+            ...base,
+            entity_type: "prospect_assignment",
+            entity_id: input.assignmentId || input.affiliateId,
+            deep_link: "/contatos",
+          });
+          break;
+        case "prospect_converted":
+          await emitPlatformEventToUser("affiliate.customer.converted", input.affiliateUserId, {
+            ...base,
+            entity_type: "prospect_assignment",
+            entity_id: input.assignmentId || input.affiliateId,
+            deep_link: "/clientes",
+          });
+          break;
+        default:
+          break;
+      }
     } catch {
-      /* não bloquear fluxo de distribuição */
+      /* notificação não deve bloquear distribuição */
     }
   }
 
@@ -944,6 +1084,8 @@ export class AffiliateDistributionService {
     rules?: any
   ) {
     await this.ensureSchema();
+    const prog = programId ? String(programId).trim() : "";
+    // Multi-programa: só afiliados com enrollment active no program_id da fila
     const affiliates = await query<any[]>(
       `SELECT a.id, a.affiliate_user_id, a.region, d.distribution_status, d.whatsapp_status,
               d.daily_assigned_count, d.daily_assigned_on, d.last_assigned_at, d.last_rotation_at
@@ -951,8 +1093,16 @@ export class AffiliateDistributionService {
        INNER JOIN affiliate_distribution_status d ON d.affiliate_id = a.id AND d.brand_id = a.brand_id
        WHERE a.owner_user_id = ? AND a.brand_id = ? AND a.status = 'active'
          AND d.distribution_status = 'available' AND d.whatsapp_status = 'connected'
+         AND (
+           ? = ''
+           OR EXISTS (
+             SELECT 1 FROM affiliate_program_enrollments e
+             WHERE e.affiliate_id = a.id AND e.brand_id = a.brand_id
+               AND e.program_id = ? AND e.status = 'active'
+           )
+         )
        ORDER BY COALESCE(d.last_rotation_at, d.last_assigned_at, '1970-01-01') ASC`,
-      [ownerUserId, brandId]
+      [ownerUserId, brandId, prog, prog]
     );
 
     const maxDaily = Number(rules?.max_daily_per_affiliate || 20);
@@ -1084,7 +1234,7 @@ export class AffiliateDistributionService {
         affiliateUserId: pick.affiliate_user_id,
         alertType: "new_prospect",
         severity: "info",
-        title: "Nova oportunidade recebida",
+        title: "Novo contato recebido",
         body: initialSend.sent
           ? (item.prospect_name
             ? `${item.prospect_name} foi atribuído(a) a você. A primeira mensagem já foi enviada pelo seu WhatsApp.`
@@ -1092,8 +1242,9 @@ export class AffiliateDistributionService {
           : (item.prospect_name
             ? `${item.prospect_name} foi atribuído(a) a você. Inicie o contato no WhatsApp.`
             : "Um novo prospect foi atribuído a você."),
-        actionPath: "/oportunidades",
+        actionPath: "/contatos",
         assignmentId,
+        customerName: item.prospect_name,
       });
 
       results.push({
@@ -1187,8 +1338,9 @@ export class AffiliateDistributionService {
       body: assignment.prospect_name
         ? `${assignment.prospect_name} respondeu no WhatsApp. Retome a conversa.`
         : "Um prospect respondeu no WhatsApp.",
-      actionPath: "/oportunidades",
+      actionPath: "/contatos",
       assignmentId: String(assignment.id),
+      customerName: assignment.prospect_name,
     });
 
     return { matched: true, assignment_id: String(assignment.id) };
@@ -1326,12 +1478,13 @@ export class AffiliateDistributionService {
       affiliateUserId: String(row.affiliate_user_id),
       alertType: "prospect_converted",
       severity: "info",
-      title: "Oportunidade convertida",
+      title: "Contato convertido",
       body: row.prospect_name
         ? `${row.prospect_name} foi marcado(a) como convertido(a).`
-        : "Uma oportunidade foi convertida.",
-      actionPath: "/oportunidades",
+        : "Um contato foi convertido.",
+      actionPath: "/clientes",
       assignmentId: input.assignmentId,
+      customerName: row.prospect_name,
     });
 
     return {

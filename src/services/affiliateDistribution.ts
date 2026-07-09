@@ -470,12 +470,16 @@ export class AffiliateDistributionService {
 
   async getDistributionOverview(ownerUserId: string, brandId: string) {
     await this.ensureSchema();
+    // Atualiza elegibilidade antes de reportar KPIs (evita número stale)
+    await this.refreshAllDistributionStatuses(ownerUserId, brandId).catch(() => undefined);
+
     const rules = await this.getOrCreateRules(ownerUserId, brandId);
     const counts = await queryOne<any>(
       `SELECT
          SUM(CASE WHEN queue_status = 'pending' THEN 1 ELSE 0 END) AS pending,
          SUM(CASE WHEN queue_status = 'processing' THEN 1 ELSE 0 END) AS processing,
          SUM(CASE WHEN queue_status = 'assigned' THEN 1 ELSE 0 END) AS assigned,
+         SUM(CASE WHEN queue_status = 'pending' AND error_message IS NOT NULL AND TRIM(error_message) != '' THEN 1 ELSE 0 END) AS stuck,
          COUNT(*) AS total
        FROM lead_distribution_queue
        WHERE owner_user_id = ? AND brand_id = ?`,
@@ -487,21 +491,84 @@ export class AffiliateDistributionService {
          AND distribution_status = 'available' AND whatsapp_status = 'connected'`,
       [ownerUserId, brandId]
     );
+    const distStatus = await queryOne<any>(
+      `SELECT
+         SUM(CASE WHEN distribution_status = 'available' THEN 1 ELSE 0 END) AS available,
+         SUM(CASE WHEN distribution_status = 'ineligible' THEN 1 ELSE 0 END) AS ineligible,
+         SUM(CASE WHEN distribution_status = 'paused' THEN 1 ELSE 0 END) AS paused,
+         SUM(CASE WHEN distribution_status = 'blocked' THEN 1 ELSE 0 END) AS blocked,
+         SUM(CASE WHEN whatsapp_status = 'connected' THEN 1 ELSE 0 END) AS wa_connected,
+         COUNT(*) AS total_tracked
+       FROM affiliate_distribution_status
+       WHERE owner_user_id = ? AND brand_id = ?`,
+      [ownerUserId, brandId]
+    );
     const assignmentsOpen = await queryOne<{ total: number }>(
       `SELECT COUNT(*) AS total FROM prospect_assignments
        WHERE owner_user_id = ? AND brand_id = ? AND conversion_status = 'open'`,
       [ownerUserId, brandId]
     );
+    const assignmentsNeedAttention = await queryOne<{ total: number }>(
+      `SELECT COUNT(*) AS total FROM prospect_assignments
+       WHERE owner_user_id = ? AND brand_id = ? AND conversion_status = 'open'
+         AND current_stage = 'needs_human_attention'`,
+      [ownerUserId, brandId]
+    );
+    const convertedWeek = await queryOne<{ total: number }>(
+      `SELECT COUNT(*) AS total FROM prospect_assignments
+       WHERE owner_user_id = ? AND brand_id = ? AND conversion_status = 'converted'
+         AND updated_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)`,
+      [ownerUserId, brandId]
+    );
+    const oldestPending = await queryOne<{ queued_at?: string | null }>(
+      `SELECT queued_at FROM lead_distribution_queue
+       WHERE owner_user_id = ? AND brand_id = ? AND queue_status = 'pending'
+       ORDER BY queued_at ASC LIMIT 1`,
+      [ownerUserId, brandId]
+    );
+    const unreadAlerts = await queryOne<{ total: number }>(
+      `SELECT COUNT(*) AS total FROM affiliate_alerts
+       WHERE owner_user_id = ? AND brand_id = ? AND is_read = FALSE`,
+      [ownerUserId, brandId]
+    );
+
+    const pending = Number(counts?.pending || 0);
+    const stuck = Number(counts?.stuck || 0);
+    const eligibleCount = Number(eligible?.total || 0);
+
     return {
       rules,
       queue: {
-        pending: Number(counts?.pending || 0),
+        pending,
         processing: Number(counts?.processing || 0),
         assigned: Number(counts?.assigned || 0),
+        stuck,
         total: Number(counts?.total || 0),
+        oldest_pending_at: oldestPending?.queued_at ? String(oldestPending.queued_at) : null,
       },
-      eligible_affiliates: Number(eligible?.total || 0),
+      eligible_affiliates: eligibleCount,
       open_assignments: Number(assignmentsOpen?.total || 0),
+      needs_attention: Number(assignmentsNeedAttention?.total || 0),
+      converted_week: Number(convertedWeek?.total || 0),
+      alerts_unread: Number(unreadAlerts?.total || 0),
+      network: {
+        available: Number(distStatus?.available || 0),
+        ineligible: Number(distStatus?.ineligible || 0),
+        paused: Number(distStatus?.paused || 0),
+        blocked: Number(distStatus?.blocked || 0),
+        wa_connected: Number(distStatus?.wa_connected || 0),
+        total_tracked: Number(distStatus?.total_tracked || 0),
+      },
+      health: {
+        ok: !(pending > 0 && eligibleCount === 0),
+        stuck_queue: stuck > 0 || (pending > 0 && eligibleCount === 0),
+        message:
+          pending > 0 && eligibleCount === 0
+            ? "Fila com prospects e nenhum afiliado elegível"
+            : stuck > 0
+              ? "Itens na fila com erro de distribuição"
+              : "Rede operacional",
+      },
     };
   }
 

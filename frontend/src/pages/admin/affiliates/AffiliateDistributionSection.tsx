@@ -175,26 +175,59 @@ export function AffiliateDistributionSection({ showToast, saving, setSaving }: P
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         <div className="affiliates-page__kpi">
           <span className="affiliates-page__kpi-label flex items-center gap-1"><Inbox size={12} /> Na fila</span>
           <p className="affiliates-page__kpi-value tabular-nums">{q.pending ?? 0}</p>
+        </div>
+        <div className="affiliates-page__kpi">
+          <span className="affiliates-page__kpi-label flex items-center gap-1"><AlertTriangle size={12} /> Travados</span>
+          <p className={`affiliates-page__kpi-value tabular-nums${(q.stuck || 0) > 0 ? ' text-amber-700' : ''}`}>{q.stuck ?? 0}</p>
         </div>
         <div className="affiliates-page__kpi">
           <span className="affiliates-page__kpi-label flex items-center gap-1"><Users size={12} /> Elegíveis</span>
           <p className="affiliates-page__kpi-value tabular-nums">{overview?.eligible_affiliates ?? 0}</p>
         </div>
         <div className="affiliates-page__kpi">
-          <span className="affiliates-page__kpi-label flex items-center gap-1"><CheckCircle2 size={12} /> Atribuídos</span>
+          <span className="affiliates-page__kpi-label flex items-center gap-1"><CheckCircle2 size={12} /> Em aberto</span>
           <p className="affiliates-page__kpi-value tabular-nums">{overview?.open_assignments ?? 0}</p>
         </div>
         <div className="affiliates-page__kpi">
-          <span className="affiliates-page__kpi-label flex items-center gap-1"><Clock size={12} /> Processando</span>
-          <p className="affiliates-page__kpi-value tabular-nums">{q.processing ?? 0}</p>
+          <span className="affiliates-page__kpi-label flex items-center gap-1"><Clock size={12} /> Intervir</span>
+          <p className={`affiliates-page__kpi-value tabular-nums${(overview?.needs_attention || 0) > 0 ? ' text-amber-700' : ''}`}>
+            {overview?.needs_attention ?? 0}
+          </p>
+        </div>
+        <div className="affiliates-page__kpi">
+          <span className="affiliates-page__kpi-label flex items-center gap-1"><CheckCircle2 size={12} /> Conv. 7d</span>
+          <p className="affiliates-page__kpi-value tabular-nums">{overview?.converted_week ?? 0}</p>
         </div>
       </div>
 
-      {!overview?.eligible_affiliates && rulesForm.is_enabled && (
+      {overview?.network && (
+        <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-xs text-gray-700 flex flex-wrap gap-x-4 gap-y-1">
+          <span><strong className="text-gray-900">{overview.network.wa_connected ?? 0}</strong> WA conectado</span>
+          <span><strong className="text-gray-900">{overview.network.available ?? 0}</strong> disponíveis</span>
+          <span><strong className="text-gray-900">{overview.network.ineligible ?? 0}</strong> inelegíveis</span>
+          <span><strong className="text-gray-900">{overview.network.paused ?? 0}</strong> pausados</span>
+          <span><strong className="text-gray-900">{overview.alerts_unread ?? 0}</strong> alertas não lidos</span>
+          {q.oldest_pending_at && (
+            <span className="text-gray-500">Fila desde {dt(q.oldest_pending_at)}</span>
+          )}
+        </div>
+      )}
+
+      {overview?.health?.stuck_queue && rulesForm.is_enabled && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 flex gap-2">
+          <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+          <span>
+            {overview.health.message || 'Fila com problemas.'}
+            {' '}Verifique WhatsApp, termos, treinamento e Pix dos afiliados — ou processe a fila manualmente.
+          </span>
+        </div>
+      )}
+
+      {!overview?.eligible_affiliates && rulesForm.is_enabled && !overview?.health?.stuck_queue && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 flex gap-2">
           <AlertTriangle size={16} className="shrink-0 mt-0.5" />
           <span>Nenhum afiliado elegível no momento. Verifique WhatsApp conectado, termos e treinamento.</span>

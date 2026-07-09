@@ -138,7 +138,9 @@ router.get("/profile", async (req: BrandRequest, res: Response) => {
   const brandId = requireBrand(req, res);
   if (!brandId) return;
   try {
-    const profile = await instagramService.getProfile(brandId);
+    // refresh=1 força Graph; default usa connection no DB (canvas/chat abrem rápido)
+    const refresh = String(req.query.refresh || "") === "1" || String(req.query.refresh || "") === "true";
+    const profile = await instagramService.getProfile(brandId, { refresh });
     res.json({ success: true, profile });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -206,7 +208,12 @@ router.get("/analytics", async (req: BrandRequest, res: Response) => {
   if (!brandId) return;
   try {
     const days = parseInt(String(req.query.days || "7"), 10);
-    const analytics = await instagramService.fetchAnalytics(brandId, days);
+    // Performance tab: mediaLimit maior; profile refresh só se pedido
+    const refreshProfile = String(req.query.refresh || "") === "1" || String(req.query.refresh || "") === "true";
+    const analytics = await instagramService.fetchAnalytics(brandId, days, {
+      refreshProfile,
+      mediaLimit: 50,
+    });
     if (!analytics) {
       return res.json({ success: false, error: "Instagram nao conectado ou token invalido" });
     }
@@ -350,11 +357,13 @@ router.get("/metrics", async (req: BrandRequest, res: Response) => {
   const brandId = requireBrand(req, res);
   if (!brandId) return;
   try {
-    const days = parseInt(String(req.query.days || "30"));
+    const days = parseInt(String(req.query.days || "30"), 10);
     const metrics = await instagramService.getMetrics(brandId, days);
-    res.json({ success: true, metrics });
+    res.json({ success: true, metrics: metrics || [] });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    // Nunca derrubar a aba de performance por métricas históricas ausentes
+    logger.warn(`[Instagram] metrics error brand=${brandId}: ${err?.message || err}`);
+    res.json({ success: true, metrics: [], warning: err?.message || "metrics_unavailable" });
   }
 });
 
@@ -765,9 +774,14 @@ router.get("/connection-status", async (req: BrandRequest, res: Response) => {
   if (!brandId) return;
   try {
     const conn = await instagramService.getConnection(brandId);
+    // Alinhado com InstagramPage: se há token salvo, está "conectado".
+    // is_active pode ficar stale em updates antigos e gerava header deslogado vs studio logado.
+    const hasToken = !!(conn?.access_token && String(conn.access_token).trim());
+    const linked = hasToken || !!(conn?.username || conn?.account_id || conn?.ig_user_id);
     res.json({
       success: true,
-      connected: !!(conn?.access_token && conn?.is_active),
+      connected: linked,
+      is_active: conn?.is_active !== false,
       username: conn?.username || null,
       profilePicture: conn?.profile_picture_url || null,
     });

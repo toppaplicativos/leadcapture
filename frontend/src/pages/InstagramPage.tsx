@@ -20,6 +20,7 @@ import { InstagramAiTab } from '@/components/instagram/InstagramAiTab'
 import { PostMediaThumb } from '@/components/instagram/PostMediaThumb'
 import { useInstagramQueueAlerts } from '@/lib/instagram/useInstagramQueueAlerts'
 import { instagramApi, fmtIgMetric, getInstagramHeaders } from '@/lib/instagram/pageApi'
+import { fetchInstagramSnapshot, invalidateInstagramSnapshotCache } from '@/lib/instagram/client'
 import { useToast } from '@/components/Toast'
 import type { InstagramTabKey } from '@/lib/instagram/nav'
 
@@ -54,28 +55,68 @@ export function InstagramPage({ embedded = false, initialTab = 'overview' }: Ins
   const brandId =
     typeof window !== 'undefined' ? localStorage.getItem('lead-system:active-brand-id') || undefined : undefined
 
-  const loadProfile = useCallback(async () => {
+  const loadProfile = useCallback(async (opts?: { force?: boolean }) => {
     setLoading(true)
     try {
-      const [connRes, dashRes] = await Promise.all([api('/connection'), api('/dashboard')])
-      if (connRes.success) setConnection(connRes.connection)
-      if (dashRes.success && dashRes.dashboard) {
-        setDashboard(dashRes.dashboard)
+      if (opts?.force) invalidateInstagramSnapshotCache()
+      // Uma única fonte: snapshot já traz /dashboard (sem segundo round-trip)
+      const snap = await fetchInstagramSnapshot(opts?.force ? { force: true } : undefined)
+      const conn = snap.connection || null
+      setConnection(conn)
+
+      if (snap.connected) {
+        const prof = snap.profile || (conn ? {
+          username: conn.username,
+          name: conn.name,
+          profile_picture_url: conn.profile_picture_url,
+          followers_count: conn.followers_count,
+          media_count: conn.media_count,
+        } : null)
         setProfile({
-          ...dashRes.dashboard.profile,
+          ...(prof || {}),
           is_connected: true,
-          token_valid: dashRes.dashboard.token_valid,
+          token_valid: prof?.token_valid !== false,
         })
+
+        if (snap.dashboard) {
+          setDashboard(snap.dashboard)
+          if (snap.dashboard.profile) {
+            setProfile({
+              ...snap.dashboard.profile,
+              is_connected: true,
+              token_valid: snap.dashboard.token_valid !== false,
+            })
+          }
+        } else if (snap.analytics || (snap.media && snap.media.length > 0)) {
+          // Fallback parcial se /dashboard falhou no snapshot
+          setDashboard({
+            profile: prof,
+            analytics: snap.analytics,
+            recent_media: snap.media || [],
+            post_counts: null,
+            conversations_count: 0,
+            token_valid: prof?.token_valid !== false,
+          })
+        } else {
+          setDashboard(null)
+        }
       } else {
-        const profRes = await api('/profile')
-        if (profRes.success) setProfile(profRes.profile)
+        setConnection(null)
+        setProfile(null)
         setDashboard(null)
       }
-    } catch {}
+    } catch {
+      /* keep previous if any */
+    }
     setLoading(false)
   }, [])
 
-  useEffect(() => { loadProfile() }, [loadProfile])
+  const refreshProfile = useCallback(() => loadProfile({ force: true }), [loadProfile])
+
+  // Um único load no mount / troca de marca (antes: 2 useEffects = 2 waterfalls)
+  useEffect(() => {
+    void loadProfile()
+  }, [brandId, loadProfile])
   useEffect(() => { setTab(initialTab) }, [initialTab])
 
   useEffect(() => {
@@ -86,7 +127,7 @@ export function InstagramPage({ embedded = false, initialTab = 'overview' }: Ins
     if (oauthSuccess) {
       const username = params.get('username')
       showToast(username ? `@${username} conectado via Instagram!` : 'Instagram conectado!', 'success')
-      void loadProfile()
+      void refreshProfile()
     }
     if (oauthError) {
       showToast(decodeURIComponent(oauthError.replace(/\+/g, ' ')), 'error')
@@ -94,7 +135,7 @@ export function InstagramPage({ embedded = false, initialTab = 'overview' }: Ins
     }
     const clean = window.location.pathname + window.location.hash
     window.history.replaceState({}, '', clean)
-  }, [loadProfile, showToast])
+  }, [refreshProfile, showToast])
 
   useInstagramQueueAlerts(
     Boolean(connection),
@@ -102,28 +143,33 @@ export function InstagramPage({ embedded = false, initialTab = 'overview' }: Ins
       const snippet = (post.caption || 'Post').slice(0, 48)
       if (kind === 'failed') {
         showToast(`Falha ao publicar: ${snippet}`, 'error')
-        loadProfile()
+        void refreshProfile()
         setPostsRefreshToken(Date.now())
         return
       }
       showToast(`Post publicado: ${snippet}`, 'success')
-      loadProfile()
+      void refreshProfile()
     },
     90_000,
   )
 
-  const isConnected = profile?.is_connected
+  const isConnected = !!(
+    connection
+    || profile?.is_connected
+    || profile?.username
+  )
 
   if (loading) {
     return <PageSplash variant={embedded ? 'canvas' : 'page'} label="Instagram" />
   }
 
-  if (!connection) {
+  // Só "desconectado" se não há connection E não há profile/username
+  if (!isConnected) {
     return (
       <>
         <NotConnectedView embedded={embedded} onConnect={() => setShowConnectModal(true)} />
         {showConnectModal && (
-          <ConnectModal onClose={() => setShowConnectModal(false)} onConnected={() => { setShowConnectModal(false); loadProfile() }} />
+          <ConnectModal onClose={() => setShowConnectModal(false)} onConnected={() => { setShowConnectModal(false); void refreshProfile() }} />
         )}
       </>
     )
@@ -139,8 +185,10 @@ export function InstagramPage({ embedded = false, initialTab = 'overview' }: Ins
   const handleReconnect = async () => {
     if (!confirm('Desconectar a conta atual e reconectar?')) return
     await api('/connection', { method: 'DELETE' })
+    invalidateInstagramSnapshotCache()
     setConnection(null)
     setProfile(null)
+    setDashboard(null)
     setShowConnectModal(true)
   }
 
@@ -158,14 +206,14 @@ export function InstagramPage({ embedded = false, initialTab = 'overview' }: Ins
           is_connected: isConnected,
         }}
         stats={stats}
-        onRefresh={loadProfile}
+        onRefresh={refreshProfile}
         onReconnect={handleReconnect}
       >
         {tab === 'overview' && (
           <InstagramOverviewTab
             profile={profile}
             dashboard={dashboard}
-            onRefresh={loadProfile}
+            onRefresh={refreshProfile}
             onNavigate={setTab}
           />
         )}
@@ -184,7 +232,7 @@ export function InstagramPage({ embedded = false, initialTab = 'overview' }: Ins
             onEditCancel={() => setCreateNav(null)}
             onEditComplete={() => {
               setCreateNav(null)
-              loadProfile()
+              void refreshProfile()
             }}
           />
         )}
@@ -214,7 +262,7 @@ export function InstagramPage({ embedded = false, initialTab = 'overview' }: Ins
               setTab('create')
             }}
             onPostsChanged={() => {
-              loadProfile()
+              void refreshProfile()
               setPostsRefreshToken(Date.now())
             }}
           />
@@ -223,7 +271,7 @@ export function InstagramPage({ embedded = false, initialTab = 'overview' }: Ins
       </InstagramStudioShell>
 
       {showConnectModal && (
-        <ConnectModal onClose={() => setShowConnectModal(false)} onConnected={() => { setShowConnectModal(false); loadProfile() }} />
+        <ConnectModal onClose={() => setShowConnectModal(false)} onConnected={() => { setShowConnectModal(false); void refreshProfile() }} />
       )}
 
       <InstagramPostQueueSheet
@@ -236,7 +284,7 @@ export function InstagramPage({ embedded = false, initialTab = 'overview' }: Ins
           setTab('create')
         }}
         onRefresh={async () => {
-          loadProfile()
+          void refreshProfile()
           setPostsRefreshToken(Date.now())
           if (!queuePost?.id) return
           const res = await api(`/posts/${queuePost.id}`)

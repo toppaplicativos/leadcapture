@@ -4,7 +4,7 @@ import {
   ChevronRight, ExternalLink, Plus,
 } from 'lucide-react'
 import { InstagramIcon } from '@/components/icons'
-import { fetchInstagramSnapshot, type InstagramTab } from '@/lib/instagram/client'
+import { fetchInstagramSnapshot, invalidateInstagramSnapshotCache, type InstagramTab } from '@/lib/instagram/client'
 import { PageSplash } from '@/components/PageSplash'
 import { useInstagramBridgeOptional } from '@/lib/agent/InstagramBridgeContext'
 import { useAgentShell } from '@/lib/agent/AgentShellContext'
@@ -38,36 +38,50 @@ export function InstagramInlinePanel() {
   const [managerTab, setManagerTab] = useState<InstagramTab>('overview')
   const [analysisPostId, setAnalysisPostId] = useState<string | null>(null)
   const [analysisPreview, setAnalysisPreview] = useState<typeof media[number] | null>(null)
-  const loadedRef = useRef(false)
+  const brandId = typeof window !== 'undefined'
+    ? (localStorage.getItem('lead-system:active-brand-id') || '')
+    : ''
+  const lastBrandRef = useRef<string>('')
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
     setLoading(true)
+    publishSnapshot?.({ loading: true })
     try {
-      const data = await fetchInstagramSnapshot()
+      if (force) invalidateInstagramSnapshotCache()
+      const data = await fetchInstagramSnapshot(force ? { force: true } : undefined)
       setMedia(data.media || [])
       setReach7d(data.analytics?.account?.reach ?? null)
+      const username = data.profile?.username
+        || data.connection?.username
+        || ''
       publishSnapshot?.({
-        connected: data.connected,
-        username: data.profile?.username || '',
-        name: data.profile?.name || '',
-        followers: Number(data.profile?.followers_count || 0),
-        following: Number(data.profile?.follows_count || 0),
-        mediaCount: Number(data.profile?.media_count || 0),
-        avatarUrl: data.profile?.profile_picture_url || '',
+        connected: !!data.connected,
+        username,
+        name: data.profile?.name || data.connection?.name || '',
+        followers: Number(data.profile?.followers_count || data.connection?.followers_count || 0),
+        following: Number(data.profile?.follows_count || data.connection?.follows_count || 0),
+        mediaCount: Number(data.profile?.media_count || data.connection?.media_count || 0),
+        avatarUrl: data.profile?.profile_picture_url
+          || data.connection?.profile_picture_url
+          || '',
         loading: false,
       })
     } catch {
-      publishSnapshot?.({ loading: false })
+      publishSnapshot?.({ loading: false, connected: false })
     } finally {
       setLoading(false)
     }
   }, [publishSnapshot])
 
+  // Sempre recarrega ao montar e ao trocar de marca
   useEffect(() => {
-    if (loadedRef.current) return
-    loadedRef.current = true
+    if (lastBrandRef.current && lastBrandRef.current !== brandId) {
+      setMedia([])
+      setReach7d(null)
+    }
+    lastBrandRef.current = brandId
     void load()
-  }, [load])
+  }, [brandId, load])
 
   const openManager = useCallback((tab: InstagramTab = 'overview') => {
     setManagerTab(tab)
@@ -84,13 +98,14 @@ export function InstagramInlinePanel() {
     if (!registerHandlers) return
     return registerHandlers({
       openFull: () => openManager(snap?.activeTab || 'overview'),
-      refresh: () => { void load() },
+      refresh: () => { void load(true) },
       setTab: (tab) => openManager(tab),
       connect: () => openManager('overview'),
     })
   }, [registerHandlers, openManager, load, snap?.activeTab])
 
-  if ((loading || snap?.loading) && !snap?.username) {
+  // Enquanto carrega, nunca mostre "desconectado" (evita flash falso)
+  if (loading || snap?.loading) {
     return (
       <PageSplash variant="panel" label="Instagram" />
     )
@@ -101,13 +116,19 @@ export function InstagramInlinePanel() {
       <div className="catalog-panel catalog-panel--instagram">
         <div className="catalog-instagram-connect">
           <InstagramIcon size={20} className="text-rose-500" />
-          <p className="catalog-instagram-connect__title">Conta não conectada</p>
+          <p className="catalog-instagram-connect__title">Conta não conectada nesta marca</p>
           <p className="catalog-instagram-connect__desc">
-            Vincule uma conta Instagram Business para publicar, responder DMs e ver métricas.
+            Confirme a marca <b>Alho Pronto</b> no topo (não CE). Se o token já existia e ainda falhar,
+            atualize a página após o backend reiniciar — status de conexão não deve mais ser bloqueado pelo plano.
           </p>
-          <button type="button" className="catalog-panel__action catalog-panel__action--instagram" onClick={() => openManager('overview')}>
-            Conectar Instagram
-          </button>
+          <div className="flex flex-wrap gap-2 justify-center">
+            <button type="button" className="catalog-panel__action catalog-panel__action--instagram" onClick={() => openManager('overview')}>
+              Conectar Instagram
+            </button>
+            <button type="button" className="catalog-panel__action catalog-panel__action--ghost" onClick={() => void load()}>
+              Atualizar status
+            </button>
+          </div>
         </div>
         {!isDesktop && (
           <CatalogManagerSheet

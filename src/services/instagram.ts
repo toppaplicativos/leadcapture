@@ -766,11 +766,12 @@ class InstagramService {
     if (existing) {
       await update(
         `UPDATE instagram_connections
-         SET access_token = ?, account_id = ?, app_id = ?, app_secret = ?, updated_at = NOW()
+         SET access_token = ?, account_id = ?, app_id = ?, app_secret = ?,
+             is_active = true, updated_at = NOW()
          WHERE brand_id = ?`,
         [data.access_token, data.account_id, data.app_id, data.app_secret, brandId]
       );
-      return { ...existing, ...data };
+      return { ...existing, ...data, is_active: true };
     }
 
     const id = randomUUID();
@@ -855,48 +856,53 @@ class InstagramService {
     const conn = await this.getConnection(brandId);
     if (!conn) return null;
 
-    const shouldRefresh = opts?.refresh !== false && !!conn.access_token;
+    const fromConn = () => ({
+      id: conn.ig_user_id || conn.account_id,
+      username: conn.username || "",
+      name: conn.name || "",
+      profile_picture_url: conn.profile_picture_url || "",
+      followers_count: conn.followers_count || 0,
+      follows_count: conn.follows_count || 0,
+      media_count: conn.media_count || 0,
+      biography: conn.biography || "",
+      website: conn.website || "",
+      // Conta vinculada se há token — não exige is_active (campo pode estar stale)
+      is_connected: !!(conn.access_token && String(conn.access_token).trim()),
+      token_valid: true,
+    });
+
+    if (!conn.access_token) {
+      return { ...fromConn(), is_connected: false, token_valid: false };
+    }
+
+    const shouldRefresh = opts?.refresh !== false;
     if (shouldRefresh) {
       const test = await this.testConnection(brandId);
       if (test.ok && test.profile) {
         return {
-          id: test.profile.id || test.profile.user_id || conn.ig_user_id,
+          id: test.profile.id || test.profile.user_id || conn.ig_user_id || conn.account_id,
           username: test.profile.username || conn.username,
           name: test.profile.name || conn.name,
           profile_picture_url: test.profile.profile_picture_url || conn.profile_picture_url,
-          followers_count: test.profile.followers_count || 0,
-          follows_count: test.profile.follows_count || 0,
-          media_count: test.profile.media_count || 0,
+          followers_count: test.profile.followers_count ?? conn.followers_count ?? 0,
+          follows_count: test.profile.follows_count ?? conn.follows_count ?? 0,
+          media_count: test.profile.media_count ?? conn.media_count ?? 0,
           biography: test.profile.biography || conn.biography,
           website: test.profile.website || conn.website,
           is_connected: true,
           token_valid: true,
         };
       }
-      if (!conn.username) {
-        return { is_connected: false, token_valid: false, error: test.message };
-      }
-    }
-
-    if (conn.username) {
+      // Token no banco mas Graph falhou: ainda é "conectado" (link salvo), token_valid=false
       return {
-        id: conn.ig_user_id,
-        username: conn.username,
-        name: conn.name,
-        profile_picture_url: conn.profile_picture_url,
-        followers_count: conn.followers_count || 0,
-        follows_count: conn.follows_count || 0,
-        media_count: conn.media_count || 0,
-        biography: conn.biography,
-        website: conn.website,
+        ...fromConn(),
         is_connected: true,
-        token_valid: true,
+        token_valid: false,
+        error: test.message,
       };
     }
 
-    const test = await this.testConnection(brandId);
-    if (!test.ok) return { is_connected: false, token_valid: false };
-    return { ...test.profile, is_connected: true, token_valid: true };
+    return fromConn();
   }
 
   async fetchMedia(brandId: string, limit = 12): Promise<any[]> {
@@ -1141,21 +1147,34 @@ class InstagramService {
     }
   }
 
-  async fetchAnalytics(brandId: string, days = 7): Promise<InstagramAnalytics | null> {
-    const profile = await this.getProfile(brandId, { refresh: true });
+  async fetchAnalytics(
+    brandId: string,
+    days = 7,
+    opts?: { refreshProfile?: boolean; mediaLimit?: number },
+  ): Promise<InstagramAnalytics | null> {
+    // refreshProfile default false: evita Meta Graph em todo paint do canvas.
+    // snapshotMetrics / refresh manual ainda pedem refresh explícito.
+    const refreshProfile = opts?.refreshProfile === true;
+    const mediaLimit = Math.max(1, Math.min(50, Number(opts?.mediaLimit || 12)));
+
+    const [profile, insights, media] = await Promise.all([
+      this.getProfile(brandId, { refresh: refreshProfile }),
+      this.fetchInsights(brandId, { days }).catch(() => null),
+      this.fetchMedia(brandId, mediaLimit).catch(() => [] as any[]),
+    ]);
+
     if (!profile?.is_connected) return null;
 
-    const insights = await this.fetchInsights(brandId, { days });
     const account = insights?.parsed || emptyAccountInsights();
-    const media = await this.fetchMedia(brandId, 50);
+    const list = Array.isArray(media) ? media : [];
 
     let totalLikes = 0;
     let totalComments = 0;
-    for (const item of media) {
+    for (const item of list) {
       totalLikes += Number(item.like_count || 0);
       totalComments += Number(item.comments_count || 0);
     }
-    const postsAnalyzed = media.length;
+    const postsAnalyzed = list.length;
     const followers = Number(profile.followers_count || 0);
     const engagementRate = followers > 0 && postsAnalyzed > 0
       ? Number((((totalLikes + totalComments) / postsAnalyzed) / followers) * 100).toFixed(2)
@@ -1186,7 +1205,7 @@ class InstagramService {
   }
 
   async snapshotMetrics(brandId: string): Promise<void> {
-    const analytics = await this.fetchAnalytics(brandId, 1);
+    const analytics = await this.fetchAnalytics(brandId, 1, { refreshProfile: true, mediaLimit: 1 });
     if (!analytics) return;
 
     const today = new Date().toISOString().slice(0, 10);
@@ -1223,12 +1242,24 @@ class InstagramService {
 
   async getMetrics(brandId: string, days = 30): Promise<InstagramMetrics[]> {
     await init();
+    const safeDays = Math.max(1, Math.min(365, Number(days) || 30));
+    // Postgres-compatible (DATE_SUB/CURDATE é MySQL e gerava 500)
     const rows = await query<any[]>(
       `SELECT * FROM instagram_metrics
-       WHERE brand_id = ? AND date >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
+       WHERE brand_id = ?
+         AND date >= (CURRENT_DATE - (?::text || ' days')::interval)
        ORDER BY date ASC`,
-      [brandId, days]
-    );
+      [brandId, safeDays]
+    ).catch(async () => {
+      // Fallback se coluna date tiver outro tipo/nome
+      return query<any[]>(
+        `SELECT * FROM instagram_metrics
+         WHERE brand_id = ?
+         ORDER BY date ASC
+         LIMIT 90`,
+        [brandId],
+      ).catch(() => [] as any[]);
+    });
     return (rows || []).map((row) => ({
       ...row,
       reach: Number(row.reach ?? row.reach_count ?? 0),
@@ -1262,14 +1293,62 @@ class InstagramService {
   }
 
   async fetchDashboard(brandId: string): Promise<InstagramDashboard | null> {
-    const analytics = await this.fetchAnalytics(brandId, 7);
-    if (!analytics) return null;
+    const conn = await this.getConnection(brandId);
+    if (!conn?.access_token && !conn?.username) return null;
 
-    const [postCounts, conversationsResult, recentMedia] = await Promise.all([
-      this.getPostCounts(brandId),
-      this.getConversations(brandId),
-      this.fetchMedia(brandId, 9),
+    // Tudo em paralelo: profile DB + insights + media + counts + DMs locais.
+    // Antes era waterfall sequencial (analytics → media×50 → media×9 + conversas Meta).
+    const emptyCounts = {
+      published_ig: 0, scheduled: 0, drafts: 0, failed: 0, publishing: 0, total_local: 0,
+    };
+
+    const [profile, insights, media, postCounts, localThreads] = await Promise.all([
+      this.getProfile(brandId, { refresh: false }),
+      this.fetchInsights(brandId, { days: 7 }).catch(() => null),
+      this.fetchMedia(brandId, 12).catch(() => [] as any[]),
+      this.getPostCounts(brandId).catch(() => emptyCounts),
+      // Contagem de DMs via threads locais — evita round-trip Meta só pelo badge do overview
+      this.listLocalMessageThreads(brandId).catch(() => [] as any[]),
     ]);
+
+    if (!profile?.is_connected && !conn.access_token) return null;
+
+    const list = Array.isArray(media) ? media : [];
+    let totalLikes = 0;
+    let totalComments = 0;
+    for (const item of list) {
+      totalLikes += Number(item.like_count || 0);
+      totalComments += Number(item.comments_count || 0);
+    }
+    const postsAnalyzed = list.length;
+    const baseProfile = {
+      username: profile?.username || conn.username || "",
+      name: profile?.name || conn.name || "",
+      followers_count: Number(profile?.followers_count || conn.followers_count || 0),
+      follows_count: Number(profile?.follows_count || conn.follows_count || 0),
+      media_count: Number(profile?.media_count || conn.media_count || 0),
+      profile_picture_url: profile?.profile_picture_url || conn.profile_picture_url || "",
+      biography: profile?.biography || conn.biography || "",
+      website: profile?.website || conn.website || "",
+    };
+    const followers = baseProfile.followers_count;
+    const engagementRate = followers > 0 && postsAnalyzed > 0
+      ? Number((((totalLikes + totalComments) / postsAnalyzed) / followers) * 100).toFixed(2)
+      : 0;
+
+    const analytics: InstagramAnalytics = {
+      period_days: 7,
+      profile: baseProfile,
+      account: insights?.parsed || emptyAccountInsights(),
+      media_summary: {
+        total_likes: totalLikes,
+        total_comments: totalComments,
+        posts_analyzed: postsAnalyzed,
+        engagement_rate: Number(engagementRate),
+      },
+      fetched_at: new Date().toISOString(),
+      source: "instagram_api",
+    };
 
     return {
       profile: analytics.profile,
@@ -1278,9 +1357,9 @@ class InstagramService {
         ...postCounts,
         published_ig: analytics.profile.media_count || postCounts.published_ig,
       },
-      conversations_count: conversationsResult.conversations.length,
-      recent_media: recentMedia,
-      token_valid: true,
+      conversations_count: Array.isArray(localThreads) ? localThreads.length : 0,
+      recent_media: list.slice(0, 9),
+      token_valid: profile?.token_valid !== false,
     };
   }
 

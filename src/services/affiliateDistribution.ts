@@ -546,35 +546,39 @@ export class AffiliateDistributionService {
       input.affiliateUserId
     );
     // membership.organization_id = brand_id (ver affiliateGlobal.syncMemberships)
-    const membership = await queryOne<any>(
-      `SELECT * FROM affiliate_program_memberships
-       WHERE affiliate_user_id = ? AND organization_id = ?
-         AND (? IS NULL OR program_id = ?)
-       ORDER BY
-         CASE status WHEN 'approved' THEN 0 WHEN 'pre_approved' THEN 1 WHEN 'active' THEN 0 ELSE 2 END,
-         updated_at DESC
-       LIMIT 1`,
-      [
-        input.affiliateUserId,
-        input.brandId,
-        enrollment?.program_id || null,
-        enrollment?.program_id || null,
-      ]
-    );
+    const programIdForScope = enrollment?.program_id ? String(enrollment.program_id) : "";
+    const membership = programIdForScope
+      ? await queryOne<any>(
+          `SELECT * FROM affiliate_program_memberships
+           WHERE affiliate_user_id = ? AND organization_id = ? AND program_id = ?
+           ORDER BY updated_at DESC LIMIT 1`,
+          [input.affiliateUserId, input.brandId, programIdForScope]
+        )
+      : await queryOne<any>(
+          `SELECT * FROM affiliate_program_memberships
+           WHERE affiliate_user_id = ? AND organization_id = ?
+           ORDER BY
+             CASE status WHEN 'approved' THEN 0 WHEN 'pre_approved' THEN 1 WHEN 'active' THEN 0 ELSE 2 END,
+             updated_at DESC
+           LIMIT 1`,
+          [input.affiliateUserId, input.brandId]
+        );
 
-    const application = await queryOne<any>(
-      `SELECT accepted_terms_at, status, program_id
-       FROM affiliate_program_applications
-       WHERE affiliate_user_id = ? AND brand_id = ?
-         AND (? IS NULL OR program_id = ?)
-       ORDER BY updated_at DESC LIMIT 1`,
-      [
-        input.affiliateUserId,
-        input.brandId,
-        enrollment?.program_id || null,
-        enrollment?.program_id || null,
-      ]
-    );
+    const application = programIdForScope
+      ? await queryOne<any>(
+          `SELECT accepted_terms_at, status, program_id
+           FROM affiliate_program_applications
+           WHERE affiliate_user_id = ? AND brand_id = ? AND program_id = ?
+           ORDER BY updated_at DESC LIMIT 1`,
+          [input.affiliateUserId, input.brandId, programIdForScope]
+        )
+      : await queryOne<any>(
+          `SELECT accepted_terms_at, status, program_id
+           FROM affiliate_program_applications
+           WHERE affiliate_user_id = ? AND brand_id = ?
+           ORDER BY updated_at DESC LIMIT 1`,
+          [input.affiliateUserId, input.brandId]
+        );
 
     const rules = await this.getOrCreateRules(
       input.ownerUserId,
@@ -1086,24 +1090,32 @@ export class AffiliateDistributionService {
     await this.ensureSchema();
     const prog = programId ? String(programId).trim() : "";
     // Multi-programa: só afiliados com enrollment active no program_id da fila
-    const affiliates = await query<any[]>(
-      `SELECT a.id, a.affiliate_user_id, a.region, d.distribution_status, d.whatsapp_status,
-              d.daily_assigned_count, d.daily_assigned_on, d.last_assigned_at, d.last_rotation_at
-       FROM affiliates a
-       INNER JOIN affiliate_distribution_status d ON d.affiliate_id = a.id AND d.brand_id = a.brand_id
-       WHERE a.owner_user_id = ? AND a.brand_id = ? AND a.status = 'active'
-         AND d.distribution_status = 'available' AND d.whatsapp_status = 'connected'
-         AND (
-           ? = ''
-           OR EXISTS (
-             SELECT 1 FROM affiliate_program_enrollments e
-             WHERE e.affiliate_id = a.id AND e.brand_id = a.brand_id
-               AND e.program_id = ? AND e.status = 'active'
-           )
-         )
-       ORDER BY COALESCE(d.last_rotation_at, d.last_assigned_at, '1970-01-01') ASC`,
-      [ownerUserId, brandId, prog, prog]
-    );
+    const affiliates = prog
+      ? await query<any[]>(
+          `SELECT a.id, a.affiliate_user_id, a.region, d.distribution_status, d.whatsapp_status,
+                  d.daily_assigned_count, d.daily_assigned_on, d.last_assigned_at, d.last_rotation_at
+           FROM affiliates a
+           INNER JOIN affiliate_distribution_status d ON d.affiliate_id = a.id AND d.brand_id = a.brand_id
+           WHERE a.owner_user_id = ? AND a.brand_id = ? AND a.status = 'active'
+             AND d.distribution_status = 'available' AND d.whatsapp_status = 'connected'
+             AND EXISTS (
+               SELECT 1 FROM affiliate_program_enrollments e
+               WHERE e.affiliate_id = a.id AND e.brand_id = a.brand_id
+                 AND e.program_id = ? AND e.status = 'active'
+             )
+           ORDER BY COALESCE(d.last_rotation_at, d.last_assigned_at, '1970-01-01') ASC`,
+          [ownerUserId, brandId, prog]
+        )
+      : await query<any[]>(
+          `SELECT a.id, a.affiliate_user_id, a.region, d.distribution_status, d.whatsapp_status,
+                  d.daily_assigned_count, d.daily_assigned_on, d.last_assigned_at, d.last_rotation_at
+           FROM affiliates a
+           INNER JOIN affiliate_distribution_status d ON d.affiliate_id = a.id AND d.brand_id = a.brand_id
+           WHERE a.owner_user_id = ? AND a.brand_id = ? AND a.status = 'active'
+             AND d.distribution_status = 'available' AND d.whatsapp_status = 'connected'
+           ORDER BY COALESCE(d.last_rotation_at, d.last_assigned_at, '1970-01-01') ASC`,
+          [ownerUserId, brandId]
+        );
 
     const maxDaily = Number(rules?.max_daily_per_affiliate || 20);
     const today = todayDateOnly();

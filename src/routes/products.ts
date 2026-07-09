@@ -617,6 +617,38 @@ router.post("/", async (req: BrandRequest, res: Response) => {
   }
 });
 
+// POST bulk actions on multiple products
+router.post("/bulk", async (req: BrandRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId as string | undefined;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
+    const action = String(req.body?.action || "").trim().toLowerCase();
+    const allowed = new Set(["delete", "set_category", "draft", "activate", "deactivate", "remove_category"]);
+
+    if (!ids.length) return res.status(400).json({ error: "Informe ao menos um produto (ids)" });
+    if (!allowed.has(action)) {
+      return res.status(400).json({ error: "Ação inválida" });
+    }
+
+    const result = await productsService.bulkAction(userId, req.brandId, {
+      ids,
+      action: action as any,
+      category: req.body?.category,
+    });
+
+    if (req.brandId && result.ok > 0) {
+      await invalidateCatalogCacheByBrand(String(req.brandId));
+    }
+
+    res.json({ success: true, ...result });
+  } catch (error: any) {
+    logger.error(error, "Error in bulk product action");
+    res.status(500).json({ error: error.message || "Falha na ação em massa" });
+  }
+});
+
 // PUT update product
 router.put("/:id", async (req: BrandRequest, res: Response) => {
   try {

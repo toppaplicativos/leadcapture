@@ -1,0 +1,33 @@
+---
+pid: 26512
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd \"C:\\Users\\Public\\Projetos\\leadcapture\\frontend\"; npm run build 2>&1 | Select-Object -Last 25"
+started_at: 2026-07-09T02:35:24.013Z
+running_for_ms: 695000   
+---
+dist/assets/CriativosPage-W4ty1AxI.js                   41.34 kB │ gzip:  10.14 kB
+dist/assets/AgentShellContext-DLTkfKk-.js               43.50 kB │ gzip:   9.86 kB
+dist/assets/BrandImageGeneratorPage-BnedJWI5.js         48.09 kB │ gzip:  13.43 kB
+dist/assets/InventoryPage-Cb1SJk2I.js                   51.63 kB │ gzip:  11.97 kB
+dist/assets/ClientesPage-CJ6InhxT.js                    61.08 kB │ gzip:  14.17 kB
+dist/assets/LeadsPage-Cxnz_Shc.js                       67.27 kB │ gzip:  15.67 kB
+dist/assets/AutomationsPage-CaYlguJD.js                 67.49 kB │ gzip:  16.51 kB
+dist/assets/LeadSearchPage-CWSsD7Qi.js                  70.08 kB │ gzip:  17.90 kB
+dist/assets/ProductsView-CSBR1TX-.js                    78.99 kB │ gzip:  17.24 kB
+dist/assets/AffiliatesPage-BdCHajDk.js                  85.72 kB │ gzip:  17.42 kB
+dist/assets/CampaignsView-C4vesjEd.js                   88.21 kB │ gzip:  21.55 kB
+dist/assets/InstagramPage-C51p4pN-.js                  122.70 kB │ gzip:  31.08 kB
+dist/assets/AffiliateAppPage-CILv0Q9u.js               134.72 kB │ gzip:  30.73 kB
+dist/assets/AdminShell-Bz-kb6ay.js                     218.27 kB │ gzip:  43.42 kB
+dist/assets/LandingPage-CtBkeD-p.js                    227.38 kB │ gzip:  63.81 kB
+dist/assets/index-BWnURmFB.js                          278.81 kB │ gzip:  85.04 kB
+dist/assets/VideoStudioPage-DAB_1Ogi.js                403.40 kB │ gzip: 121.31 kB
+dist/assets/mapbox-gl-Bc4g_hNa.js                    1,763.50 kB │ gzip: 480.83 kB
+
+✓ built in 13.14s
+[plugin builtin:vite-reporter] 
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: 
+https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.

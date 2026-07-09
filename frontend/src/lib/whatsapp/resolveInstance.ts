@@ -1,4 +1,4 @@
-import { getHeaders } from '@/lib/admin/helpers'
+import { getWhatsAppHeaders } from '@/lib/whatsapp/headers'
 
 export type WhatsAppInstanceRow = {
   id: string
@@ -26,10 +26,12 @@ export function pickWhatsAppInstance(
 }
 
 export async function fetchWhatsAppInstances(): Promise<WhatsAppInstanceRow[]> {
-  const r = await fetch('/api/instances', { headers: getHeaders() })
+  const r = await fetch('/api/instances', { headers: getWhatsAppHeaders() })
   if (!r.ok) return []
   const d = await r.json()
-  return Array.isArray(d.instances) ? d.instances : []
+  if (Array.isArray(d.instances)) return d.instances
+  if (Array.isArray(d)) return d
+  return []
 }
 
 export async function resolveWhatsAppInstance(

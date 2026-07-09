@@ -14,6 +14,7 @@ const NotificationsView = lazy(() => import('@/pages/admin/notifications/Notific
 const DomainView = lazy(() => import('@/pages/admin/domain/DomainView').then(m => ({ default: m.DomainView })))
 const FreteView = lazy(() => import('@/pages/admin/frete/FreteView').then(m => ({ default: m.FreteView })))
 const EstoqueAccessView = lazy(() => import('@/pages/admin/estoque/EstoqueAccessView').then(m => ({ default: m.EstoqueAccessView })))
+const AffiliatesView = lazy(() => import('@/pages/admin/affiliates/AffiliatesView').then(m => ({ default: m.AffiliatesView })))
 const CouponsView = lazy(() => import('@/pages/admin/coupons/CouponsView').then(m => ({ default: m.CouponsView })))
 const ReviewsView = lazy(() => import('@/pages/admin/reviews/ReviewsView').then(m => ({ default: m.ReviewsView })))
 const PaymentConfigView = lazy(() => import('@/pages/admin/payments/PaymentConfigView').then(m => ({ default: m.PaymentConfigView })))
@@ -29,7 +30,7 @@ const FlowBuilderPage = lazy(() => import('@/pages/FlowBuilderPage').then(m => (
 const BrandSkillsPage = lazy(() => import('@/pages/BrandSkillsPage').then(m => ({ default: m.BrandSkillsPage })))
 const AgentConfigPage = lazy(() => import('@/pages/AgentConfigPage').then(m => ({ default: m.AgentConfigPage })))
 const AgentPDVPage = lazy(() => import('@/pages/AgentPDVPage').then(m => ({ default: m.AgentPDVPage })))
-const DesignPage = lazy(() => import('@/pages/DesignPage').then(m => ({ default: m.DesignPage })))
+const StoreStudioPage = lazy(() => import('@/pages/admin/store/StoreStudioPage').then(m => ({ default: m.StoreStudioPage })))
 const BrandImageGeneratorPage = lazy(() => import('@/pages/BrandImageGeneratorPage').then(m => ({ default: m.BrandImageGeneratorPage })))
 const CriativosPage = lazy(() => import('@/pages/CriativosPage').then(m => ({ default: m.CriativosPage })))
 const GaleriaPage = lazy(() => import('@/pages/GaleriaPage').then(m => ({ default: m.GaleriaPage })))
@@ -102,9 +103,11 @@ export const adminRouteElements = (
       <Route path="/produtos" element={<AdminPage><ProductsInline /></AdminPage>} />
       <Route path="/pedidos" element={<AdminPage><OrdersInline /></AdminPage>} />
       <Route path="/estoque" element={<AdminPage><EstoqueAccessView showToast={noop} /></AdminPage>} />
+      <Route path="/afiliados" element={<AdminPage><AffiliatesView showToast={noop} /></AdminPage>} />
       <Route path="/cupons" element={<AdminPage><CouponsView showToast={noop} /></AdminPage>} />
       <Route path="/avaliacoes" element={<AdminPage><ReviewsView showToast={noop} /></AdminPage>} />
-      <Route path="/design" element={<AdminPage><DesignPage /></AdminPage>} />
+      <Route path="/loja" element={<AdminPage><StoreStudioPage /></AdminPage>} />
+      <Route path="/design" element={<Navigate to="/loja" replace />} />
       <Route path="/pagamentos" element={<AdminPage><PaymentConfigView showToast={noop} /></AdminPage>} />
       <Route path="/frete" element={<AdminPage><FreteView showToast={noop} /></AdminPage>} />
       <Route path="/dominio" element={<AdminPage><DomainView showToast={noop} /></AdminPage>} />

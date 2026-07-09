@@ -7,6 +7,13 @@ import { logger } from '../core/logger';
 import { AuthRequest } from '../middleware/auth';
 import { attachBrandContext, BrandRequest } from '../middleware/brandContext';
 import { getPool } from '../config/database';
+import {
+  buildInstanceAccessFilter,
+  buildOwnerMetaForCreate,
+  ensureWhatsAppInstanceOwnerSchema,
+  instanceBelongsToScope,
+  resolveInstanceAuthScope,
+} from '../services/instanceOwnership';
 
 const router = Router();
 
@@ -25,19 +32,21 @@ function getInstanceManager(req: Request) {
  */
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.user?.userId;
-    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    const scope = resolveInstanceAuthScope(req);
+    if (!scope) return res.status(401).json({ error: 'Unauthorized' });
+    await ensureWhatsAppInstanceOwnerSchema();
 
     const instanceManager = getInstanceManager(req);
+    const brandId = (req as BrandRequest).brandId || scope.brandId || null;
+    const accessFilter = buildInstanceAccessFilter(scope, brandId, 'wi');
 
-    // Busca instâncias do banco de dados
     const pool = getPool();
     const [rows] = await pool.execute<any[]>(
-      `SELECT id, name, phone, status, created_at, last_connected_at
-       FROM whatsapp_instances
-       WHERE created_by = ?
+      `SELECT id, name, phone, status, created_at, last_connected_at, owner_type, owner_actor_id
+       FROM whatsapp_instances wi
+       WHERE ${accessFilter.whereSql}
        ORDER BY created_at DESC`,
-      [userId]
+      accessFilter.params
     );
 
     // Enriquece com status em memória (mais atualizado)
@@ -67,8 +76,9 @@ router.get('/', async (req: AuthRequest, res: Response) => {
  */
 router.post('/', async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.user?.userId;
-    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    const scope = resolveInstanceAuthScope(req);
+    if (!scope) return res.status(401).json({ error: 'Unauthorized' });
+    await ensureWhatsAppInstanceOwnerSchema();
 
     const { name } = req.body;
     if (!name) return res.status(400).json({ error: 'Nome da instância é obrigatório' });
@@ -76,10 +86,9 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     const instanceManager = getInstanceManager(req);
     if (!instanceManager) return res.status(500).json({ error: 'InstanceManager não disponível' });
 
-    /* Herda brand_id do contexto. Mesma logica das campanhas:
-       quem cria, dita o brand. Sem chute. */
-    const brandId = (req as BrandRequest).brandId || null;
-    const instance = await instanceManager.createInstance(name, userId, brandId);
+    const brandId = (req as BrandRequest).brandId || scope.brandId || null;
+    const ownerMeta = buildOwnerMetaForCreate(scope);
+    const instance = await instanceManager.createInstance(name, scope.ownerUserId, brandId, ownerMeta);
     const qrCode = await instanceManager.connectInstance(instance.id);
 
     res.status(201).json({
@@ -103,13 +112,16 @@ router.post('/', async (req: AuthRequest, res: Response) => {
 router.get('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
-    const userId = req.user?.userId;
-    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    const scope = resolveInstanceAuthScope(req);
+    if (!scope) return res.status(401).json({ error: 'Unauthorized' });
+    const brandId = (req as BrandRequest).brandId || scope.brandId || null;
+    const allowed = await instanceBelongsToScope(String(id), scope, brandId);
+    if (!allowed) return res.status(404).json({ error: 'Instância não encontrada' });
 
     const pool = getPool();
     const [rows] = await pool.execute<any[]>(
-      'SELECT * FROM whatsapp_instances WHERE id = ? AND created_by = ? LIMIT 1',
-      [id, userId]
+      'SELECT * FROM whatsapp_instances WHERE id = ? LIMIT 1',
+      [id]
     );
 
     if (!rows.length) return res.status(404).json({ error: 'Instância não encontrada' });
@@ -140,13 +152,16 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
 router.get('/:id/qr', async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
-    const userId = req.user?.userId;
-    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    const scope = resolveInstanceAuthScope(req);
+    if (!scope) return res.status(401).json({ error: 'Unauthorized' });
+    const brandId = (req as BrandRequest).brandId || scope.brandId || null;
+    const allowed = await instanceBelongsToScope(String(id), scope, brandId);
+    if (!allowed) return res.status(404).json({ error: 'Instância não encontrada' });
 
     const instanceManager = getInstanceManager(req);
     if (!instanceManager) return res.status(500).json({ error: 'InstanceManager não disponível' });
 
-    const qr = instanceManager.getInstanceQR(id, userId);
+    const qr = instanceManager.getInstanceQR(id, scope.ownerUserId);
 
     if (!qr) {
       const live = instanceManager.instances?.get(id);
@@ -171,17 +186,19 @@ router.get('/:id/qr', async (req: AuthRequest, res: Response) => {
 router.post('/:id/reconnect', async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
-    const userId = req.user?.userId;
-    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    const scope = resolveInstanceAuthScope(req);
+    if (!scope) return res.status(401).json({ error: 'Unauthorized' });
+    const brandId = (req as BrandRequest).brandId || scope.brandId || null;
+    const allowed = await instanceBelongsToScope(String(id), scope, brandId);
+    if (!allowed) return res.status(404).json({ error: 'Instância não encontrada' });
 
     const instanceManager = getInstanceManager(req);
     if (!instanceManager) return res.status(500).json({ error: 'InstanceManager não disponível' });
 
-    // Verifica se a instância pertence ao usuário
     const pool = getPool();
     const [rows] = await pool.execute<any[]>(
-      'SELECT id, name FROM whatsapp_instances WHERE id = ? AND created_by = ? LIMIT 1',
-      [id, userId]
+      'SELECT id, name FROM whatsapp_instances WHERE id = ? LIMIT 1',
+      [id]
     );
     if (!rows.length) return res.status(404).json({ error: 'Instância não encontrada' });
 
@@ -209,38 +226,54 @@ router.post('/:id/reconnect', async (req: AuthRequest, res: Response) => {
  * POST /api/instances/:id/pairing-code
  * Gera codigo de pareamento como alternativa ao QR code
  */
+router.post('/:id/reset-pairing', async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const scope = resolveInstanceAuthScope(req);
+    if (!scope) return res.status(401).json({ error: 'Unauthorized' });
+    const brandId = (req as BrandRequest).brandId || scope.brandId || null;
+    const allowed = await instanceBelongsToScope(String(id), scope, brandId);
+    if (!allowed) return res.status(404).json({ error: 'Instância não encontrada' });
+
+    const instanceManager = getInstanceManager(req);
+    if (!instanceManager) return res.status(500).json({ error: 'InstanceManager não disponível' });
+
+    await instanceManager.resetSessionForPairing(id);
+    res.json({ success: true, message: 'Sessao encerrada. Pode gerar um novo codigo.' });
+  } catch (error: any) {
+    logger.error('Erro ao resetar pairing:', error);
+    res.status(500).json({ error: error.message || 'Erro ao resetar sessao' });
+  }
+});
+
 router.post('/:id/pairing-code', async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
-    const userId = req.user?.userId;
-    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    const scope = resolveInstanceAuthScope(req);
+    if (!scope) return res.status(401).json({ error: 'Unauthorized' });
+    const brandId = (req as BrandRequest).brandId || scope.brandId || null;
+    const allowed = await instanceBelongsToScope(String(id), scope, brandId);
+    if (!allowed) return res.status(404).json({ error: 'Instância não encontrada' });
 
     const { phoneNumber } = req.body;
     if (!phoneNumber || typeof phoneNumber !== 'string') {
       return res.status(400).json({ error: 'Numero de telefone obrigatorio' });
     }
 
-    const cleanPhone = phoneNumber.replace(/\D/g, '');
+    const instanceManager = getInstanceManager(req);
+    if (!instanceManager) return res.status(500).json({ error: 'InstanceManager não disponível' });
+
+    const cleanPhone = instanceManager.normalizePairingPhoneNumber(phoneNumber);
     if (cleanPhone.length < 10 || cleanPhone.length > 15) {
       return res.status(400).json({ error: 'Numero de telefone invalido' });
     }
 
-    const instanceManager = getInstanceManager(req);
-    if (!instanceManager) return res.status(500).json({ error: 'InstanceManager não disponível' });
-
-    const pool = getPool();
-    const [rows] = await pool.execute<any[]>(
-      'SELECT id, name FROM whatsapp_instances WHERE id = ? AND created_by = ? LIMIT 1',
-      [id, userId]
-    );
-    if (!rows.length) return res.status(404).json({ error: 'Instância não encontrada' });
-
-    await instanceManager.disconnectInstance(id).catch(() => {});
-
-    const code = await instanceManager.connectWithPairingCode(id, cleanPhone);
+    const pairing = await instanceManager.connectWithPairingCode(id, cleanPhone);
 
     res.json({
-      code,
+      success: true,
+      code: pairing.code,
+      phone: pairing.phone,
       message: 'Digite este codigo no WhatsApp para conectar.',
     });
   } catch (error: any) {
@@ -256,19 +289,19 @@ router.post('/:id/pairing-code', async (req: AuthRequest, res: Response) => {
 router.delete('/:id', async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
-    const userId = req.user?.userId;
-    if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+    const scope = resolveInstanceAuthScope(req);
+    if (!scope) return res.status(401).json({ error: 'Unauthorized' });
+    const brandId = (req as BrandRequest).brandId || scope.brandId || null;
+    const allowed = await instanceBelongsToScope(String(id), scope, brandId);
+    if (!allowed) return res.status(404).json({ error: 'Instância não encontrada' });
 
     const instanceManager = getInstanceManager(req);
     if (instanceManager) {
-      await instanceManager.disconnectInstance(id).catch(() => {});
+      await instanceManager.deleteInstance(id).catch(() => {});
+    } else {
+      const pool = getPool();
+      await pool.execute('DELETE FROM whatsapp_instances WHERE id = ?', [id]);
     }
-
-    const pool = getPool();
-    await pool.execute(
-      'DELETE FROM whatsapp_instances WHERE id = ? AND created_by = ?',
-      [id, userId]
-    );
 
     res.json({ message: 'Instância removida com sucesso' });
   } catch (error) {

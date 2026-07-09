@@ -97,13 +97,18 @@ const TRIGGERS: Record<string, WorkspaceTrigger> = {
     userLabel: 'Automações',
     assistantMessage: 'Suas automações WhatsApp:',
   },
+  afiliados: {
+    skill: 'affiliate.open',
+    userLabel: 'Afiliados',
+    assistantMessage: 'Seu programa de parceiros:',
+  },
   whatsapp: {
-    skill: 'workspace.overview',
+    skill: 'whatsapp.connect',
     userLabel: 'Conectar WhatsApp',
     assistantMessage: 'Vamos vincular pelo código no seu número:',
   },
   configuracoes: {
-    skill: 'workspace.navigate',
+    skill: 'settings.open',
     userLabel: 'Configurações',
     assistantMessage: 'Abrindo configurações…',
   },
@@ -142,6 +147,7 @@ const PATH_TO_KEY: Record<string, string> = {
   '/video-studio': 'video-studio',
   '/fluxos': 'fluxos',
   '/automacoes': 'automacoes',
+  '/afiliados': 'afiliados',
   '/whatsapp': 'whatsapp',
   '/configuracoes': 'configuracoes',
   '/tirar-pedido': 'tirar-pedido',
@@ -162,6 +168,9 @@ export const OBJECTIVE_TRIGGERS: WorkspaceTrigger[] = [
   { skill: 'instagram.analyze', userLabel: 'Métricas IG', assistantMessage: 'Analisando sua conta Instagram:' },
   { skill: 'automation.open', userLabel: 'Automações', assistantMessage: 'Fluxos reativos e proativos WhatsApp:' },
   { skill: 'automation.create', userLabel: 'Criar fluxo', assistantMessage: 'Descreva a automação que você quer:' },
+  { skill: 'affiliate.open', userLabel: 'Afiliados', assistantMessage: 'Seu programa de parceiros:' },
+  { skill: 'affiliate.create', userLabel: 'Novo afiliado', assistantMessage: 'Dados do parceiro:' },
+  { skill: 'affiliate.config', userLabel: 'Config afiliados', assistantMessage: 'Ajustes do programa:' },
   { skill: 'facebook.open', userLabel: 'Facebook', assistantMessage: 'Sua página Facebook:' },
   { skill: 'facebook.post.create', userLabel: 'Post Facebook', assistantMessage: 'Sobre o que é o post no Facebook?' },
   { skill: 'facebook.analyze', userLabel: 'Métricas FB', assistantMessage: 'Analisando sua página Facebook:' },
@@ -169,6 +178,8 @@ export const OBJECTIVE_TRIGGERS: WorkspaceTrigger[] = [
   { skill: 'skills.list', userLabel: 'Habilidades', assistantMessage: 'Habilidades do agente:' },
   { skill: 'catalog.orders', userLabel: 'Pedidos', assistantMessage: 'Seus pedidos recentes:' },
   { skill: 'order.assisted', userLabel: 'Fazer pedido', assistantMessage: 'Vamos montar esse pedido. Para quem é?' },
+  { skill: 'whatsapp.connect', userLabel: 'WhatsApp', assistantMessage: 'Hub de conexão — vincule pelo código:' },
+  { skill: 'settings.open', userLabel: 'Configurações', assistantMessage: 'Abrindo configurações da conta…' },
 ]
 
 export function resolveTrigger(navKeyOrPath: string): WorkspaceTrigger | null {

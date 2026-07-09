@@ -38,7 +38,8 @@ export function AgentHomePage() {
   const [input, setInput] = useState('')
   const [campaignModal, setCampaignModal] = useState(false)
   const [skillModal, setSkillModal] = useState(false)
-  const { messages, loading, error, send, triggerSkill, handleComponentEvent } = useAdminAgentChat('/assistente')
+  const brandId = String(localStorage.getItem('lead-system:active-brand-id') || '').trim()
+  const { messages, loading, error, send, triggerSkill, handleComponentEvent } = useAdminAgentChat('/assistente', brandId)
 
   const callbacks = {
     onNavigate: (path: string) => navigate(path),

@@ -9,6 +9,7 @@ import {
   CreditCard, QrCode, Banknote, User, BadgeCheck, Headphones, Brain,
   Boxes, Store, Laptop, CheckCircle2, Copy, Info, AlertTriangle, Star,
   Camera, Ticket, Percent, MessageSquareQuote, ThumbsUp, ThumbsDown, Film, ShoppingBag,
+  CheckSquare, Square, FolderOpen, Power, PowerOff, XCircle,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { adminApi, inventoryApi } from '@/lib/api-admin'
@@ -19,6 +20,7 @@ import { WhatsAppHealthBanner } from '@/components/WhatsAppHealthBanner'
 import {
   getHeaders, clearAdminAuth, money, num, dt, dtFull,
   toBrandSlug, pickStockBrandSlug, buildStockAppUrl,
+  buildCatalogProductUrl, slugifyCatalogProduct,
 } from '@/lib/admin/helpers'
 import type { ShowToast } from '@/lib/admin/types'
 import { Skeleton, KpiCard, EmptyState } from '@/components/admin/primitives'
@@ -44,6 +46,11 @@ export function ProductsView({
   const [editProduct, setEditProduct] = useState<any>(null)
   const [showCreate, setShowCreate] = useState(false)
   const [subTab, setSubTab] = useState<'products' | 'collections' | 'attributes'>('products')
+  const [bulkMode, setBulkMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkBusy, setBulkBusy] = useState(false)
+  const [bulkCategoryOpen, setBulkCategoryOpen] = useState(false)
+  const [bulkCategory, setBulkCategory] = useState('')
   const { confirm } = useConfirm()
   const productsBridge = useProductsBridgeOptional()
   const publishSnapshot = productsBridge?.publishSnapshot
@@ -141,6 +148,89 @@ export function ProductsView({
     return { total, active, drafts, withImage, avgPrice, catCounts }
   }, [products])
 
+  const selectionActive = bulkMode || selectedIds.size > 0
+
+  function toggleSelected(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function selectAllFiltered() {
+    setSelectedIds(new Set(filtered.map((p) => String(p.id))))
+    setBulkMode(true)
+  }
+
+  function clearSelection() {
+    setSelectedIds(new Set())
+    setBulkMode(false)
+    setBulkCategoryOpen(false)
+  }
+
+  async function runBulkAction(
+    action: 'delete' | 'set_category' | 'draft' | 'activate' | 'deactivate' | 'remove_category',
+    extra?: { category?: string },
+  ) {
+    const ids = Array.from(selectedIds)
+    if (!ids.length) return
+
+    if (action === 'delete') {
+      const ok = await confirm({
+        title: `Excluir ${ids.length} produto(s)?`,
+        message: 'Os itens serão removidos do catálogo. Pedidos antigos são mantidos.',
+        confirmLabel: 'Excluir todos',
+        cancelLabel: 'Cancelar',
+        variant: 'danger',
+      })
+      if (!ok) return
+    }
+
+    setBulkBusy(true)
+    try {
+      const r = await fetch('/api/products/bulk', {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({
+          ids,
+          action,
+          category: extra?.category,
+        }),
+      })
+      const d = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(d.error || `Erro ${r.status}`)
+
+      const okCount = Number(d.ok || 0)
+      const failCount = Number(d.failed || 0)
+      if (failCount > 0) {
+        const firstErr = (d.results || []).find((x: any) => !x.ok)?.error
+        showToast(
+          `${okCount} ok · ${failCount} falha(s)${firstErr ? ` — ${firstErr}` : ''}`,
+          failCount === ids.length ? 'err' : 'ok',
+        )
+      } else {
+        const labels: Record<string, string> = {
+          delete: 'excluídos',
+          set_category: 'categoria atualizada',
+          draft: 'em rascunho',
+          activate: 'ativados',
+          deactivate: 'desativados',
+          remove_category: 'sem categoria',
+        }
+        showToast(`${okCount} produto(s) ${labels[action] || 'atualizados'}`)
+      }
+      clearSelection()
+      load()
+    } catch (e: unknown) {
+      showToast(e instanceof Error ? e.message : 'Falha na ação em massa', 'err')
+    } finally {
+      setBulkBusy(false)
+      setBulkCategoryOpen(false)
+    }
+  }
+
   async function deleteProduct(id: string) {
     const product = products.find(p => p.id === id)
     const ok = await confirm({
@@ -210,7 +300,7 @@ export function ProductsView({
         <CollectionsManager products={products} showToast={showToast} />
       ) : subTab === 'attributes' ? (
         <AttributeDefinitionsManager showToast={showToast} />
-      ) : (<>
+      ) : (<div className={selectedIds.size > 0 ? 'pb-28' : ''}>
 
       {/* KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
@@ -237,15 +327,37 @@ export function ProductsView({
         </div>
       )}
 
-      {/* Search + View toggle */}
-      <div className="flex items-center gap-3">
-        <div className="flex-1 relative">
+      {/* Search + bulk + view toggle */}
+      <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+        <div className="flex-1 min-w-[12rem] relative">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input type="text" value={search} onChange={e => setSearch(e.target.value)}
             placeholder="Buscar produto..."
             className="w-full pl-9 pr-3 py-2.5 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900 placeholder:text-gray-300" />
         </div>
-        <div className="flex gap-0.5 bg-gray-100 p-0.5 rounded-lg">
+        <button
+          type="button"
+          onClick={() => {
+            if (bulkMode && selectedIds.size === 0) setBulkMode(false)
+            else setBulkMode((v) => !v)
+          }}
+          className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-[11px] font-bold border transition shrink-0 ${
+            bulkMode ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
+          }`}
+        >
+          <CheckSquare size={13} />
+          {bulkMode ? 'Seleção ativa' : 'Selecionar'}
+        </button>
+        {selectionActive && filtered.length > 0 && (
+          <button
+            type="button"
+            onClick={selectAllFiltered}
+            className="px-3 py-2 rounded-xl text-[11px] font-semibold text-gray-600 border border-gray-200 hover:bg-gray-50 shrink-0"
+          >
+            Todos ({filtered.length})
+          </button>
+        )}
+        <div className="flex gap-0.5 bg-gray-100 p-0.5 rounded-lg shrink-0">
           <button onClick={() => setViewMode('grid')} className={`p-1.5 rounded-md transition ${viewMode === 'grid' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-400'}`}>
             <Package size={14} />
           </button>
@@ -258,25 +370,48 @@ export function ProductsView({
       {/* Grid view */}
       {viewMode === 'grid' && (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-          {filtered.map((p: any) => (
-            <div key={p.id} className="bg-white rounded-2xl border border-border-light overflow-hidden group hover:shadow-md transition-all cursor-pointer"
-              onClick={() => openEdit(p)}>
+          {filtered.map((p: any) => {
+            const isSelected = selectedIds.has(String(p.id))
+            return (
+            <div
+              key={p.id}
+              className={`bg-white rounded-2xl border overflow-hidden group hover:shadow-md transition-all cursor-pointer ${
+                isSelected ? 'border-blue-400 ring-2 ring-blue-200' : 'border-border-light'
+              }`}
+              onClick={() => {
+                if (selectionActive) toggleSelected(String(p.id))
+                else openEdit(p)
+              }}
+            >
               <div className="aspect-square bg-gray-100 relative overflow-hidden">
                 {(p.imageUrl || p.image) ? (
                   <img src={p.imageUrl || p.image} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform"
                     onError={(e) => { e.currentTarget.style.display = 'none'; const fb = e.currentTarget.nextElementSibling as HTMLElement; if (fb) fb.style.display = 'flex' }} />
                 ) : null}
                 <div className="w-full h-full flex items-center justify-center" style={{ display: (p.imageUrl || p.image) ? 'none' : 'flex' }}><Package size={32} className="text-gray-300" /></div>
-                {isProductDraft(p) ? (
+                {selectionActive ? (
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); toggleSelected(String(p.id)) }}
+                    className={`absolute top-2 left-2 p-1 rounded-lg shadow-sm transition ${
+                      isSelected ? 'bg-blue-600 text-white' : 'bg-white/90 text-gray-500 hover:bg-white'
+                    }`}
+                    aria-label={isSelected ? 'Desmarcar' : 'Selecionar'}
+                  >
+                    {isSelected ? <CheckSquare size={14} /> : <Square size={14} />}
+                  </button>
+                ) : isProductDraft(p) ? (
                   <div className="absolute top-2 left-2 bg-amber-500 text-white text-[8px] font-bold px-1.5 py-0.5 rounded">RASCUNHO</div>
                 ) : p.active === false ? (
                   <div className="absolute top-2 left-2 bg-red-500 text-white text-[8px] font-bold px-1.5 py-0.5 rounded">INATIVO</div>
                 ) : null}
-                <button onClick={e => { e.stopPropagation(); deleteProduct(p.id) }}
-                  className="absolute top-2 right-2 p-1.5 rounded-lg bg-white/80 backdrop-blur-sm opacity-0 group-hover:opacity-100 hover:bg-red-50 transition-all shadow-sm"
-                  title="Excluir produto">
-                  <Trash2 size={13} className="text-gray-400 hover:text-red-500" />
-                </button>
+                {!selectionActive && (
+                  <button onClick={e => { e.stopPropagation(); deleteProduct(p.id) }}
+                    className="absolute top-2 right-2 p-1.5 rounded-lg bg-white/80 backdrop-blur-sm opacity-0 group-hover:opacity-100 hover:bg-red-50 transition-all shadow-sm"
+                    title="Excluir produto">
+                    <Trash2 size={13} className="text-gray-400 hover:text-red-500" />
+                  </button>
+                )}
               </div>
               <div className="p-3">
                 <p className="text-xs font-bold text-gray-900 truncate">{p.name}</p>
@@ -287,7 +422,7 @@ export function ProductsView({
                 </div>
               </div>
             </div>
-          ))}
+          )})}
         </div>
       )}
 
@@ -297,6 +432,24 @@ export function ProductsView({
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-gray-50/80 border-b border-gray-100">
+                {selectionActive && (
+                  <th className="w-10 px-2 py-2.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const allSelected = filtered.every((p) => selectedIds.has(String(p.id)))
+                        if (allSelected) setSelectedIds(new Set())
+                        else selectAllFiltered()
+                      }}
+                      className="p-1 rounded-md hover:bg-gray-100"
+                      aria-label="Selecionar todos"
+                    >
+                      {filtered.length > 0 && filtered.every((p) => selectedIds.has(String(p.id)))
+                        ? <CheckSquare size={14} className="text-blue-600" />
+                        : <Square size={14} className="text-gray-400" />}
+                    </button>
+                  </th>
+                )}
                 <th className="text-left px-4 py-2.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Produto</th>
                 <th className="text-left px-4 py-2.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider hidden sm:table-cell">Categoria</th>
                 <th className="text-right px-4 py-2.5 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Preco</th>
@@ -305,9 +458,30 @@ export function ProductsView({
               </tr>
             </thead>
             <tbody>
-              {filtered.map((p: any) => (
-                <tr key={p.id} className="border-b border-gray-100 last:border-0 hover:bg-blue-50/30 transition cursor-pointer"
-                  onClick={() => openEdit(p)}>
+              {filtered.map((p: any) => {
+                const isSelected = selectedIds.has(String(p.id))
+                return (
+                <tr
+                  key={p.id}
+                  className={`border-b border-gray-100 last:border-0 hover:bg-blue-50/30 transition cursor-pointer ${
+                    isSelected ? 'bg-blue-50/50' : ''
+                  }`}
+                  onClick={() => {
+                    if (selectionActive) toggleSelected(String(p.id))
+                    else openEdit(p)
+                  }}
+                >
+                  {selectionActive && (
+                    <td className="px-2 py-2.5">
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); toggleSelected(String(p.id)) }}
+                        className="p-1 rounded-md"
+                      >
+                        {isSelected ? <CheckSquare size={14} className="text-blue-600" /> : <Square size={14} className="text-gray-400" />}
+                      </button>
+                    </td>
+                  )}
                   <td className="px-4 py-2.5">
                     <div className="flex items-center gap-2.5">
                       {(p.imageUrl || p.image)
@@ -335,12 +509,14 @@ export function ProductsView({
                     </span>
                   </td>
                   <td className="px-2 py-2.5">
-                    <button onClick={e => { e.stopPropagation(); deleteProduct(p.id) }} className="p-1.5 rounded-lg hover:bg-red-50 transition">
-                      <Trash2 size={13} className="text-gray-400 hover:text-red-500" />
-                    </button>
+                    {!selectionActive && (
+                      <button onClick={e => { e.stopPropagation(); deleteProduct(p.id) }} className="p-1.5 rounded-lg hover:bg-red-50 transition">
+                        <Trash2 size={13} className="text-gray-400 hover:text-red-500" />
+                      </button>
+                    )}
                   </td>
                 </tr>
-              ))}
+              )})}
             </tbody>
           </table>
         </div>
@@ -348,7 +524,99 @@ export function ProductsView({
 
       {filtered.length === 0 && <EmptyState icon={Package} text="Nenhum produto encontrado" />}
 
-      </>)}
+      {selectedIds.size > 0 && (
+        <div className="sticky bottom-2 z-20 mt-2">
+          <div className="bg-gray-900 text-white rounded-2xl shadow-xl border border-gray-800 px-3 py-3 sm:px-4 flex flex-col sm:flex-row sm:items-center gap-3">
+            <div className="flex items-center justify-between sm:justify-start gap-2 min-w-0">
+              <p className="text-xs font-bold tabular-nums shrink-0">
+                {selectedIds.size} selecionado{selectedIds.size !== 1 ? 's' : ''}
+              </p>
+              <button
+                type="button"
+                onClick={clearSelection}
+                className="text-[10px] font-semibold text-white/60 hover:text-white"
+              >
+                Limpar
+              </button>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5 sm:ml-auto">
+              <button
+                type="button"
+                disabled={bulkBusy}
+                onClick={() => setBulkCategoryOpen((v) => !v)}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 text-[11px] font-semibold disabled:opacity-50"
+              >
+                <FolderOpen size={12} /> Categoria
+              </button>
+              <button
+                type="button"
+                disabled={bulkBusy}
+                onClick={() => runBulkAction('draft')}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 text-[11px] font-semibold disabled:opacity-50"
+              >
+                <FileText size={12} /> Rascunho
+              </button>
+              <button
+                type="button"
+                disabled={bulkBusy}
+                onClick={() => runBulkAction('activate')}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 text-[11px] font-semibold disabled:opacity-50"
+              >
+                <Power size={12} /> Ativar
+              </button>
+              <button
+                type="button"
+                disabled={bulkBusy}
+                onClick={() => runBulkAction('deactivate')}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 text-[11px] font-semibold disabled:opacity-50"
+              >
+                <PowerOff size={12} /> Desativar
+              </button>
+              <button
+                type="button"
+                disabled={bulkBusy}
+                onClick={() => runBulkAction('remove_category')}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 text-[11px] font-semibold disabled:opacity-50"
+              >
+                <XCircle size={12} /> Sem categoria
+              </button>
+              <button
+                type="button"
+                disabled={bulkBusy}
+                onClick={() => runBulkAction('delete')}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-red-500/90 hover:bg-red-500 text-[11px] font-bold disabled:opacity-50"
+              >
+                {bulkBusy ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+                Excluir
+              </button>
+            </div>
+            {bulkCategoryOpen && (
+              <div className="w-full sm:w-auto flex flex-wrap items-center gap-2 pt-1 sm:pt-0 border-t sm:border-t-0 border-white/10 sm:ml-2">
+                <select
+                  value={bulkCategory}
+                  onChange={(e) => setBulkCategory(e.target.value)}
+                  className="flex-1 min-w-[10rem] text-xs text-gray-900 rounded-lg px-2 py-1.5 border-0"
+                >
+                  <option value="">Escolha a categoria…</option>
+                  {categories.map((c: any) => (
+                    <option key={c.id} value={c.name}>{c.name}</option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  disabled={bulkBusy || !bulkCategory}
+                  onClick={() => runBulkAction('set_category', { category: bulkCategory })}
+                  className="px-3 py-1.5 rounded-lg bg-blue-500 hover:bg-blue-400 text-[11px] font-bold disabled:opacity-50"
+                >
+                  Aplicar
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      </div>)}
 
       {/* ── Product Editor Modal ── */}
       {showCreate && (
@@ -387,6 +655,15 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
     fetch('/api/categories', { headers: getHeaders() })
       .then(r => r.json())
       .then(d => setCategories(d.categories || []))
+      .catch(() => {})
+    fetch('/api/storefront/stores', { headers: getHeaders() })
+      .then(r => r.json())
+      .then(d => {
+        const stores = Array.isArray(d?.stores) ? d.stores : []
+        if (stores[0]?.slug) setCatalogStoreSlug(String(stores[0].slug))
+        const domain = String(stores[0]?.primary_domain || '').trim()
+        setCatalogPrimaryDomain(domain || null)
+      })
       .catch(() => {})
   }, [])
 
@@ -447,6 +724,8 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
   const [variantAttrDraft, setVariantAttrDraft] = useState<Record<number, { key: string; value: string } | null>>({})
   /* SEO (Fase 6) */
   const [seoValues, setSeoValues] = useState<Record<string, any>>(product?.seo || {})
+  const [catalogStoreSlug, setCatalogStoreSlug] = useState('')
+  const [catalogPrimaryDomain, setCatalogPrimaryDomain] = useState<string | null>(null)
   /* Bundle items (Fase 11) — only meaningful when type='bundle' */
   const [bundleItems, setBundleItems] = useState<Array<{ product_id: string; quantity: number; note?: string }>>(
     Array.isArray(product?.bundle_items) ? product!.bundle_items! : []
@@ -1579,6 +1858,35 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
               <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">SEO</p>
               <p className="text-[10px] text-gray-400 mt-0.5">Como o produto aparece em buscas e quando compartilhado.</p>
             </div>
+            {isEdit && catalogStoreSlug && name.trim() && (
+              <div className="mb-3 rounded-xl border border-gray-200 bg-gray-50 p-3">
+                <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1.5">Link público do produto</p>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    readOnly
+                    value={buildCatalogProductUrl(catalogStoreSlug, slugifyCatalogProduct(name), { primaryDomain: catalogPrimaryDomain })}
+                    className="flex-1 min-w-0 text-[11px] font-mono text-gray-700 bg-white border border-gray-200 rounded-lg px-2.5 py-2"
+                  />
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const url = buildCatalogProductUrl(catalogStoreSlug, slugifyCatalogProduct(name), { primaryDomain: catalogPrimaryDomain })
+                      try {
+                        await navigator.clipboard.writeText(url)
+                        showToast('Link copiado!')
+                      } catch {
+                        showToast('Não foi possível copiar', 'err')
+                      }
+                    }}
+                    className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white border border-gray-200 text-[11px] font-semibold text-gray-700 hover:bg-gray-100 transition"
+                  >
+                    <Copy size={12} /> Copiar
+                  </button>
+                </div>
+                <p className="text-[9px] text-gray-400 mt-1.5">Use no Instagram Shop — abre a página deste produto, não o catálogo geral.</p>
+              </div>
+            )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className={labelCls}>Título (meta)</label>

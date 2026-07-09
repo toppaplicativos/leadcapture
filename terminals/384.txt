@@ -1,0 +1,7 @@
+---
+pid: 35200
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd C:\\Users\\Public\\Projetos\\leadcapture\\frontend; npx tsc -b --pretty false 2>&1 | findstr /i \"instagram Instagram createForm Queue Calendar\""
+started_at: 2026-07-08T14:37:42.546Z
+running_for_ms: 43760013 
+---

@@ -64,8 +64,8 @@ async function main() {
   await masterService.promoteUser(user.email)
   console.log(`✔ Promoted to super admin: ${user.email}`)
   console.log("")
-  console.log("Login: https://adm.leadcapture.online or app.leadcapture.online/login")
-  console.log("Após o login, será redirecionado automaticamente para /master")
+  console.log("Login: https://adm.leadcapture.online/admin")
+  console.log("Ou: app.leadcapture.online/login (super-admin → /master)")
 
   process.exit(0)
 }

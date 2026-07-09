@@ -1,0 +1,11 @@
+---
+pid: 31212
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "$r = Invoke-WebRequest -Uri \"https://app.leadcapture.online/api/storefront/public/stores/alhopronto/catalog\" -UseBasicParsing; $j = $r.Content | ConvertFrom-Json; $p = $j.all_products[0]; Write-Output \"Product: $($p.name) slug=$($p.slug)\"; $url = \"https://app.leadcapture.online/catalogo/alhopronto/produto/$($p.slug)\"; $html = (Invoke-WebRequest -Uri $url -UseBasicParsing).Content; if ($html -match 'og:type.*product') { 'OK og:type product' } else { 'MISSING og:type' }; if ($html -match 'application/ld\\+json') { 'OK JSON-LD' } else { 'MISSING JSON-LD' }; if ($html -match '<title>([^<]+)</title>') { \"Title: $($matches[1])\" }"
+started_at: 2026-07-08T12:36:34.283Z
+running_for_ms: 51024988 
+---
+Product: Alho Descascado Tipo A - 1kg slug=alho-descascado-tipo-a-1kg
+OK og:type product
+OK JSON-LD
+Title: Alho Descascado Tipo A - 1kg � Alho Pronto

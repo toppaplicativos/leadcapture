@@ -1,4 +1,5 @@
-import { ChevronDown, ChevronUp, Globe, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, X } from 'lucide-react'
+import { FacebookIcon } from '@/components/icons'
 import { useFacebookBridge } from '@/lib/agent/FacebookBridgeContext'
 import { useAgentShell } from '@/lib/agent/AgentShellContext'
 import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
@@ -29,7 +30,7 @@ export function FacebookModuleBlock({ messageId, isActive }: Props) {
           className="catalog-module__toggle"
           onClick={() => bridge.setModuleExpanded(!bridge.moduleExpanded)}
         >
-          <Globe size={13} className="shrink-0 text-blue-600" />
+          <FacebookIcon size={13} className="shrink-0 text-blue-600" />
           <span className="catalog-module__title">{summary}</span>
           {snap.connected && snap.fans > 0 && (
             <span className="catalog-module__badge catalog-module__badge--facebook">

@@ -21,9 +21,15 @@ export type InboxSnapshot = {
   loadingMsgs: boolean
 }
 
+export type InteractiveMessagePayload = {
+  body: string
+  message_type: string
+}
+
 export type InboxCommand =
   | { type: 'select_conversation'; id: string }
   | { type: 'send_message'; text: string }
+  | { type: 'interactive_sent'; message: InteractiveMessagePayload }
   | { type: 'toggle_ai_mode' }
   | { type: 'back_to_list' }
   | { type: 'refresh' }
@@ -31,6 +37,7 @@ export type InboxCommand =
 export type InboxHandlers = {
   selectConversation: (id: string) => void
   sendMessage: (text: string) => void | Promise<void>
+  onInteractiveSent?: (message: InteractiveMessagePayload) => void
   toggleAiMode: () => void
   backToList: () => void
   refresh: () => void
@@ -135,6 +142,9 @@ function runCommand(cmd: InboxCommand, handlers: InboxHandlers) {
       break
     case 'send_message':
       handlers.sendMessage(cmd.text)
+      break
+    case 'interactive_sent':
+      handlers.onInteractiveSent?.(cmd.message)
       break
     case 'toggle_ai_mode':
       handlers.toggleAiMode()

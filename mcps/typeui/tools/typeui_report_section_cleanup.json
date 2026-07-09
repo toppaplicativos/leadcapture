@@ -1,0 +1,84 @@
+{
+  "name": "typeui_report_section_cleanup",
+  "description": "Report the cleanup receipt for the current TypeUI workflow section. The server validates section order, cleanup loop count, and fundamentals files before releasing the next section.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "generationId": {
+        "description": "Generation ID returned by typeui_start_ui_generation.",
+        "type": "string"
+      },
+      "sectionId": {
+        "description": "Section ID returned by typeui_get_next_section.",
+        "type": "string"
+      },
+      "loopsCompleted": {
+        "description": "Cleanup loop count completed for this section.",
+        "type": "integer"
+      },
+      "fundamentalsFilesRead": {
+        "anyOf": [
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Fundamentals guardrail files read before cleanup. Use an empty list when cleanup is disabled."
+      },
+      "issuesFound": {
+        "anyOf": [
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Fundamentals issues found during section cleanup."
+      },
+      "fixesMade": {
+        "anyOf": [
+          {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Fundamentals fixes made during section cleanup."
+      },
+      "blockedReason": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Reason cleanup could not be completed, for example unreadable fundamentals files."
+      }
+    },
+    "required": [
+      "generationId",
+      "sectionId",
+      "loopsCompleted"
+    ],
+    "type": "object"
+  }
+}

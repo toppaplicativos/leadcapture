@@ -1,0 +1,7 @@
+---
+pid: 29764
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "Start-Sleep -Seconds 120"
+started_at: 2026-07-07T17:52:47.332Z
+running_for_ms: 40006    
+---

@@ -1,0 +1,554 @@
+warning: in the working copy of 'frontend/src/App.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/components/admin/ConversationalShell.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/components/agent/AgentUIRenderer.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/components/agent/WorkspaceChat.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/components/agent/WorkspaceWelcome.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/components/agent/inbox/InboxComposerDock.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/components/whatsapp/WhatsAppPairingFlow.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/index.css', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/lib/admin/helpers.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/lib/admin/nav.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/lib/agent/AgentShellContext.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/lib/agent/InboxBridgeContext.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/lib/agent/composerAiActions.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/lib/agent/types.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/lib/agent/workspaceTriggers.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/lib/whatsapp/countryCodes.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/lib/whatsapp/resolveInstance.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/main.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/pages/MessagesPage.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/routes/adminRoutes.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'public/service-worker.js', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/core/instanceManager.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/index.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/routes/auth.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/routes/inbox.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/routes/instances.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/services/adminAgent/orchestrator.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/services/adminAgent/skillMeta.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/services/adminAgent/squads.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/services/adminAgent/types.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of '.playwright-captures/manifest.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of '.playwright-captures/store-redesign-v2/manifest.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of '.playwright-captures/store-redesign/manifest.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent-tools/a334341a-14f4-4628-bebd-78f0175af783.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'agent-tools/f6ad2f58-6ce8-4769-bdc6-1022a5577b8e.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/GALERIA_IMPLEMENTATION_PLAN.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/components/agent/automations/AutomationsInlinePanel.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/components/agent/automations/AutomationsModuleBlock.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/components/whatsapp/WhatsAppInteractiveComposer.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/lib/agent/AutomationsBridgeContext.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/lib/api-affiliate.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/lib/automations/client.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/lib/whatsapp/formatMessageBody.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/pages/AffiliateLoginPage.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/pages/AffiliateRedirectPage.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/pages/admin/affiliates/AffiliateAccessManageModal.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/pages/admin/affiliates/AffiliatesView.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/pages/affiliate/AffiliateAppPage.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/pages/affiliate/AffiliateConnections.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/pages/affiliate/types.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mcps/playwright/tools/browser_click.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mcps/playwright/tools/browser_close.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mcps/playwright/tools/browser_console_messages.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mcps/playwright/tools/browser_drag.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mcps/playwright/tools/browser_drop.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mcps/playwright/tools/browser_evaluate.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mcps/playwright/tools/browser_file_upload.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mcps/playwright/tools/browser_fill_form.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mcps/playwright/tools/browser_handle_dialog.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mcps/playwright/tools/browser_hover.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mcps/playwright/tools/browser_mouse_click_xy.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mcps/playwright/tools/browser_mouse_down.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mcps/playwright/tools/browser_mouse_drag_xy.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mcps/playwright/tools/browser_mouse_move_xy.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mcps/playwright/tools/browser_mouse_up.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mcps/playwright/tools/browser_mouse_wheel.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mcps/playwright/tools/browser_navigate.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mcps/playwright/tools/browser_navigate_back.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mcps/playwright/tools/browser_network_request.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mcps/playwright/tools/browser_network_requests.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mcps/playwright/tools/browser_press_key.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mcps/playwright/tools/browser_resize.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mcps/playwright/tools/browser_run_code_unsafe.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mcps/playwright/tools/browser_select_option.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mcps/playwright/tools/browser_snapshot.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mcps/playwright/tools/browser_tabs.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mcps/playwright/tools/browser_take_screenshot.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mcps/playwright/tools/browser_type.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mcps/playwright/tools/browser_wait_for.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mcps/typeui/tools/typeui_check_access.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mcps/typeui/tools/typeui_finalize_ui_generation.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mcps/typeui/tools/typeui_get_next_section.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mcps/typeui/tools/typeui_get_section_prompt.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mcps/typeui/tools/typeui_get_started.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mcps/typeui/tools/typeui_get_usage.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mcps/typeui/tools/typeui_install_design_system.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mcps/typeui/tools/typeui_install_fundamentals.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mcps/typeui/tools/typeui_install_workspace_design_system.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mcps/typeui/tools/typeui_list_design_systems.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mcps/typeui/tools/typeui_list_prompt_sections.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mcps/typeui/tools/typeui_list_workspace_design_system_versions.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mcps/typeui/tools/typeui_list_workspace_design_systems.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mcps/typeui/tools/typeui_report_section_cleanup.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mcps/typeui/tools/typeui_setup_workflow.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'mcps/typeui/tools/typeui_start_ui_generation.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/routes/affiliateApp.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/routes/affiliates.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/routes/publicAffiliate.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/services/adminAgent/flowTemplates.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/services/affiliates.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/services/flowAutomation.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/1.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/10.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/100.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/101.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/102.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/103.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/104.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/105.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/106.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/107.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/108.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/109.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/11.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/110.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/111.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/112.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/113.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/114.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/115.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/116.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/117.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/118.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/119.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/12.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/120.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/121.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/122.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/123.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/124.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/125.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/126.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/127.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/128.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/129.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/13.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/130.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/131.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/132.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/133.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/134.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/135.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/136.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/137.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/138.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/139.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/14.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/140.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/141.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/142.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/143.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/144.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/145.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/146.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/147.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/148.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/149.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/15.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/150.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/151.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/152.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/153.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/154.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/155.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/156.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/157.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/158.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/159.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/16.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/160.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/161.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/162.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/163.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/164.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/165.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/166.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/167.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/168.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/169.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/17.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/170.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/171.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/18.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/19.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/2.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/20.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/21.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/22.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/23.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/24.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/25.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/26.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/27.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/28.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/29.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/3.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/30.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/31.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/32.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/33.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/34.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/35.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/36.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/37.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/38.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/39.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/4.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/40.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/41.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/42.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/43.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/44.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/45.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/46.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/47.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/48.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/49.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/5.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/50.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/51.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/52.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/53.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/54.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/55.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/56.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/57.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/58.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/59.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/6.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/60.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/61.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/62.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/63.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/64.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/65.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/66.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/67.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/68.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/69.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/7.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/70.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/71.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/72.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/73.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/74.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/75.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/76.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/77.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/78.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/79.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/8.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/80.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/81.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/82.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/83.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/84.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/85.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/86.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/87.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/88.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/89.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/9.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/90.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/91.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/92.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/93.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/94.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/95.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/96.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/97.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/98.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'terminals/99.txt', LF will be replaced by CRLF the next time Git touches it
+A  .playwright-captures/manifest.json
+A  .playwright-captures/screenshots/desktop/default/page.png
+A  .playwright-captures/screenshots/iphone14/default/page.png
+A  .playwright-captures/store-redesign-v2/manifest.json
+A  .playwright-captures/store-redesign-v2/screenshots/desktop/default/page.png
+A  .playwright-captures/store-redesign-v2/screenshots/iphone14/default/page.png
+A  .playwright-captures/store-redesign/manifest.json
+A  .playwright-captures/store-redesign/screenshots/desktop/default/page.png
+A  .playwright-captures/store-redesign/screenshots/iphone14/default/page.png
+A  admin-after-fix.png
+A  agent-tools/a334341a-14f4-4628-bebd-78f0175af783.txt
+A  agent-tools/f6ad2f58-6ce8-4769-bdc6-1022a5577b8e.txt
+A  agent-tools/pairing-body.json
+A  docs/GALERIA_IMPLEMENTATION_PLAN.md
+M  frontend/public/service-worker.js
+M  frontend/src/App.tsx
+M  frontend/src/components/admin/ConversationalShell.tsx
+M  frontend/src/components/agent/AgentUIRenderer.tsx
+M  frontend/src/components/agent/WorkspaceChat.tsx
+M  frontend/src/components/agent/WorkspaceWelcome.tsx
+A  frontend/src/components/agent/automations/AutomationsInlinePanel.tsx
+A  frontend/src/components/agent/automations/AutomationsModuleBlock.tsx
+M  frontend/src/components/agent/inbox/InboxComposerDock.tsx
+A  frontend/src/components/whatsapp/WhatsAppInteractiveComposer.tsx
+M  frontend/src/components/whatsapp/WhatsAppPairingFlow.tsx
+M  frontend/src/index.css
+M  frontend/src/lib/admin/helpers.ts
+M  frontend/src/lib/admin/nav.ts
+M  frontend/src/lib/agent/AgentShellContext.tsx
+A  frontend/src/lib/agent/AutomationsBridgeContext.tsx
+M  frontend/src/lib/agent/InboxBridgeContext.tsx
+M  frontend/src/lib/agent/composerAiActions.ts
+M  frontend/src/lib/agent/types.ts
+M  frontend/src/lib/agent/workspaceTriggers.ts
+A  frontend/src/lib/api-affiliate.ts
+A  frontend/src/lib/automations/client.ts
+M  frontend/src/lib/whatsapp/countryCodes.ts
+A  frontend/src/lib/whatsapp/formatMessageBody.ts
+M  frontend/src/lib/whatsapp/resolveInstance.ts
+M  frontend/src/main.tsx
+A  frontend/src/pages/AffiliateLoginPage.tsx
+A  frontend/src/pages/AffiliateRedirectPage.tsx
+M  frontend/src/pages/MessagesPage.tsx
+A  frontend/src/pages/admin/affiliates/AffiliateAccessManageModal.tsx
+A  frontend/src/pages/admin/affiliates/AffiliatesView.tsx
+A  frontend/src/pages/affiliate/AffiliateAppPage.tsx
+A  frontend/src/pages/affiliate/AffiliateConnections.tsx
+A  frontend/src/pages/affiliate/types.ts
+M  frontend/src/routes/adminRoutes.tsx
+A  mcps/playwright/tools/browser_click.json
+A  mcps/playwright/tools/browser_close.json
+A  mcps/playwright/tools/browser_console_messages.json
+A  mcps/playwright/tools/browser_drag.json
+A  mcps/playwright/tools/browser_drop.json
+A  mcps/playwright/tools/browser_evaluate.json
+A  mcps/playwright/tools/browser_file_upload.json
+A  mcps/playwright/tools/browser_fill_form.json
+A  mcps/playwright/tools/browser_handle_dialog.json
+A  mcps/playwright/tools/browser_hover.json
+A  mcps/playwright/tools/browser_mouse_click_xy.json
+A  mcps/playwright/tools/browser_mouse_down.json
+A  mcps/playwright/tools/browser_mouse_drag_xy.json
+A  mcps/playwright/tools/browser_mouse_move_xy.json
+A  mcps/playwright/tools/browser_mouse_up.json
+A  mcps/playwright/tools/browser_mouse_wheel.json
+A  mcps/playwright/tools/browser_navigate.json
+A  mcps/playwright/tools/browser_navigate_back.json
+A  mcps/playwright/tools/browser_network_request.json
+A  mcps/playwright/tools/browser_network_requests.json
+A  mcps/playwright/tools/browser_press_key.json
+A  mcps/playwright/tools/browser_resize.json
+A  mcps/playwright/tools/browser_run_code_unsafe.json
+A  mcps/playwright/tools/browser_select_option.json
+A  mcps/playwright/tools/browser_snapshot.json
+A  mcps/playwright/tools/browser_tabs.json
+A  mcps/playwright/tools/browser_take_screenshot.json
+A  mcps/playwright/tools/browser_type.json
+A  mcps/playwright/tools/browser_wait_for.json
+A  mcps/typeui/tools/typeui_check_access.json
+A  mcps/typeui/tools/typeui_finalize_ui_generation.json
+A  mcps/typeui/tools/typeui_get_next_section.json
+A  mcps/typeui/tools/typeui_get_section_prompt.json
+A  mcps/typeui/tools/typeui_get_started.json
+A  mcps/typeui/tools/typeui_get_usage.json
+A  mcps/typeui/tools/typeui_install_design_system.json
+A  mcps/typeui/tools/typeui_install_fundamentals.json
+A  mcps/typeui/tools/typeui_install_workspace_design_system.json
+A  mcps/typeui/tools/typeui_list_design_systems.json
+A  mcps/typeui/tools/typeui_list_prompt_sections.json
+A  mcps/typeui/tools/typeui_list_workspace_design_system_versions.json
+A  mcps/typeui/tools/typeui_list_workspace_design_systems.json
+A  mcps/typeui/tools/typeui_report_section_cleanup.json
+A  mcps/typeui/tools/typeui_setup_workflow.json
+A  mcps/typeui/tools/typeui_start_ui_generation.json
+M  public/service-worker.js
+M  src/core/instanceManager.ts
+M  src/index.ts
+A  src/routes/affiliateApp.ts
+A  src/routes/affiliates.ts
+M  src/routes/auth.ts
+M  src/routes/inbox.ts
+M  src/routes/instances.ts
+A  src/routes/publicAffiliate.ts
+A  src/services/adminAgent/flowTemplates.ts
+M  src/services/adminAgent/orchestrator.ts
+M  src/services/adminAgent/skillMeta.ts
+M  src/services/adminAgent/squads.ts
+M  src/services/adminAgent/types.ts
+A  src/services/affiliates.ts
+A  src/services/flowAutomation.ts
+A  terminals/.next-id
+A  terminals/1.txt
+A  terminals/10.txt
+A  terminals/100.txt
+A  terminals/101.txt
+A  terminals/102.txt
+A  terminals/103.txt
+A  terminals/104.txt
+A  terminals/105.txt
+A  terminals/106.txt
+A  terminals/107.txt
+A  terminals/108.txt
+A  terminals/109.txt
+A  terminals/11.txt
+A  terminals/110.txt
+A  terminals/111.txt
+A  terminals/112.txt
+A  terminals/113.txt
+A  terminals/114.txt
+A  terminals/115.txt
+A  terminals/116.txt
+A  terminals/117.txt
+A  terminals/118.txt
+A  terminals/119.txt
+A  terminals/12.txt
+A  terminals/120.txt
+A  terminals/121.txt
+A  terminals/122.txt
+A  terminals/123.txt
+A  terminals/124.txt
+A  terminals/125.txt
+A  terminals/126.txt
+A  terminals/127.txt
+A  terminals/128.txt
+A  terminals/129.txt
+A  terminals/13.txt
+A  terminals/130.txt
+A  terminals/131.txt
+A  terminals/132.txt
+A  terminals/133.txt
+A  terminals/134.txt
+A  terminals/135.txt
+A  terminals/136.txt
+A  terminals/137.txt
+A  terminals/138.txt
+A  terminals/139.txt
+A  terminals/14.txt
+A  terminals/140.txt
+A  terminals/141.txt
+A  terminals/142.txt
+A  terminals/143.txt
+A  terminals/144.txt
+A  terminals/145.txt
+A  terminals/146.txt
+A  terminals/147.txt
+A  terminals/148.txt
+A  terminals/149.txt
+A  terminals/15.txt
+A  terminals/150.txt
+A  terminals/151.txt
+A  terminals/152.txt
+A  terminals/153.txt
+A  terminals/154.txt
+A  terminals/155.txt
+A  terminals/156.txt
+A  terminals/157.txt
+A  terminals/158.txt
+A  terminals/159.txt
+A  terminals/16.txt
+A  terminals/160.txt
+A  terminals/161.txt
+A  terminals/162.txt
+A  terminals/163.txt
+A  terminals/164.txt
+A  terminals/165.txt
+A  terminals/166.txt
+A  terminals/167.txt
+A  terminals/168.txt
+A  terminals/169.txt
+A  terminals/17.txt
+A  terminals/170.txt
+A  terminals/171.txt
+A  terminals/18.txt
+A  terminals/19.txt
+A  terminals/2.txt
+A  terminals/20.txt
+A  terminals/21.txt
+A  terminals/22.txt
+A  terminals/23.txt
+A  terminals/24.txt
+A  terminals/25.txt
+A  terminals/26.txt
+A  terminals/27.txt
+A  terminals/28.txt
+A  terminals/29.txt
+A  terminals/3.txt
+A  terminals/30.txt
+A  terminals/31.txt
+A  terminals/32.txt
+A  terminals/33.txt
+A  terminals/34.txt
+A  terminals/35.txt
+A  terminals/36.txt
+A  terminals/37.txt
+A  terminals/38.txt
+A  terminals/39.txt
+A  terminals/4.txt
+A  terminals/40.txt
+A  terminals/41.txt
+A  terminals/42.txt
+A  terminals/43.txt
+A  terminals/44.txt
+A  terminals/45.txt
+A  terminals/46.txt
+A  terminals/47.txt
+A  terminals/48.txt
+A  terminals/49.txt
+A  terminals/5.txt
+A  terminals/50.txt
+A  terminals/51.txt
+A  terminals/52.txt
+A  terminals/53.txt
+A  terminals/54.txt
+A  terminals/55.txt
+A  terminals/56.txt
+A  terminals/57.txt
+A  terminals/58.txt
+A  terminals/59.txt
+A  terminals/6.txt
+A  terminals/60.txt
+A  terminals/61.txt
+A  terminals/62.txt
+A  terminals/63.txt
+A  terminals/64.txt
+A  terminals/65.txt
+A  terminals/66.txt
+A  terminals/67.txt
+A  terminals/68.txt
+A  terminals/69.txt
+A  terminals/7.txt
+A  terminals/70.txt
+A  terminals/71.txt
+A  terminals/72.txt
+A  terminals/73.txt
+A  terminals/74.txt
+A  terminals/75.txt
+A  terminals/76.txt
+A  terminals/77.txt
+A  terminals/78.txt
+A  terminals/79.txt
+A  terminals/8.txt
+A  terminals/80.txt
+A  terminals/81.txt
+A  terminals/82.txt
+A  terminals/83.txt
+A  terminals/84.txt
+A  terminals/85.txt
+A  terminals/86.txt
+A  terminals/87.txt
+A  terminals/88.txt
+A  terminals/89.txt
+A  terminals/9.txt
+A  terminals/90.txt
+A  terminals/91.txt
+A  terminals/92.txt
+A  terminals/93.txt
+A  terminals/94.txt
+A  terminals/95.txt
+A  terminals/96.txt
+A  terminals/97.txt
+A  terminals/98.txt
+A  terminals/99.txt

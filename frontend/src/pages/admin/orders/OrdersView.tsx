@@ -15,6 +15,7 @@ import { adminApi, inventoryApi } from '@/lib/api-admin'
 import { useConfirm } from '@/components/ConfirmModal'
 import { AICampaignWizardModal } from '@/components/AICampaignWizardModal'
 import { BrandSkillsPage } from '@/pages/BrandSkillsPage'
+import { WhatsAppIcon } from '@/components/icons'
 import { WhatsAppHealthBanner } from '@/components/WhatsAppHealthBanner'
 import {
   getHeaders, clearAdminAuth, money, num, dt, dtFull,
@@ -252,7 +253,7 @@ export function OrdersView({
                   {selectedOrder.customer_phone && (
                     <div className="flex items-center justify-between bg-gray-50 rounded-xl p-3">
                       <div className="flex items-center gap-2.5"><Phone size={14} className="text-gray-400" /><span className="text-sm font-mono text-gray-700">{selectedOrder.customer_phone}</span></div>
-                      <a href={`https://wa.me/${(selectedOrder.customer_phone||'').replace(/\D/g,'')}`} target="_blank" rel="noreferrer" className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-500 text-white text-[11px] font-bold hover:bg-emerald-600 transition shadow-sm"><MessageSquare size={12} /> WhatsApp</a>
+                      <a href={`https://wa.me/${(selectedOrder.customer_phone||'').replace(/\D/g,'')}`} target="_blank" rel="noreferrer" className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-500 text-white text-[11px] font-bold hover:bg-emerald-600 transition shadow-sm"><WhatsAppIcon size={12} /> WhatsApp</a>
                     </div>
                   )}
                   {selectedOrder.customer_email && (<div className="flex items-center gap-2.5 bg-gray-50 rounded-xl p-3"><Mail size={14} className="text-gray-400" /><span className="text-sm text-gray-700">{selectedOrder.customer_email}</span></div>)}

@@ -1,32 +1,37 @@
 /* ── Store slug resolution (same logic as the vanilla JS) ── */
 
-const pathParts = window.location.pathname.split('/').filter(Boolean)
-const query = new URLSearchParams(window.location.search)
-
 export const isCustomDomain = !!window.__CUSTOM_DOMAIN__
 
-const slugFromPath =
-  (pathParts[0] === 'catalogo' || pathParts[0] === 'loja') && pathParts[1]
-    ? pathParts[1]
-    : ''
+/** Resolve o slug da loja a partir da URL atual (sempre dinâmico). */
+export function getStoreSlug(): string {
+  if (typeof window === 'undefined') return ''
+  const pathParts = window.location.pathname.split('/').filter(Boolean)
+  const query = new URLSearchParams(window.location.search)
+  const slugFromPath =
+    (pathParts[0] === 'catalogo' || pathParts[0] === 'loja') && pathParts[1]
+      ? pathParts[1]
+      : ''
+  return String(query.get('slug') || slugFromPath || window.__STORE_SLUG__ || '').trim()
+}
 
-export const storeSlug = String(
-  query.get('slug') || slugFromPath || window.__STORE_SLUG__ || '',
-).trim()
+/** @deprecated Prefer getStoreSlug() — mantido para imports legados. */
+export const storeSlug = getStoreSlug()
 
-const basePath = isCustomDomain
-  ? ''
-  : pathParts[0] === 'loja'
-    ? 'loja'
-    : 'catalogo'
+export function getStoreChannel(): 'catalogo' | 'loja' {
+  if (typeof window === 'undefined') return 'catalogo'
+  const first = window.location.pathname.split('/').filter(Boolean)[0] || ''
+  return first === 'loja' ? 'loja' : 'catalogo'
+}
 
-export function storeUrl(subpath?: string): string {
+export function storeUrl(subpath?: string, catalogSlug?: string): string {
   if (isCustomDomain) return subpath ? '/' + subpath : '/'
+  const channel = getStoreChannel()
+  const slug = catalogSlug || getStoreSlug()
   return (
     '/' +
-    basePath +
+    channel +
     '/' +
-    encodeURIComponent(storeSlug) +
+    encodeURIComponent(slug) +
     (subpath ? '/' + subpath : '')
   )
 }

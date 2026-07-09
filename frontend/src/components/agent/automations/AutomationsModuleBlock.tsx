@@ -39,12 +39,20 @@ export function AutomationsModuleBlock({ messageId, isActive }: Props) {
       {expanded && (
         <div className="catalog-module__body">
           <AutomationsInlinePanel />
-          {isDesktop && (
+          {isDesktop ? (
             <p className="catalog-module__hint">
-              Editor visual no canvas.{' '}
-              <button type="button" className="catalog-module__link" onClick={() => openCanvas('/fluxos')}>
-                Expandir
+              Hub e editor no canvas.{' '}
+              <button type="button" className="catalog-module__link" onClick={() => openCanvas('/automacoes')}>
+                Hub
               </button>
+              {' · '}
+              <button type="button" className="catalog-module__link" onClick={() => openCanvas('/fluxos')}>
+                Editor
+              </button>
+            </p>
+          ) : (
+            <p className="catalog-module__hint">
+              Use os botões acima para abrir o hub ou o editor em tela cheia.
             </p>
           )}
         </div>

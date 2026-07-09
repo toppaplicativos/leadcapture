@@ -1,0 +1,31 @@
+---
+pid: 27068
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "Set-Location C:\\Users\\Public\\Projetos\\leadcapture\\frontend; npm run build"
+started_at: 2026-07-07T17:51:45.060Z
+running_for_ms: 86400011 
+---
+
+> leadcapture-frontend@1.0.0 build
+> tsc -b && vite build
+
+src/pages/affiliate/AffiliateAppPage.tsx(632,49): error TS2322: Type 'AppContext | null' is not assignable to type 'AppContext'.
+  Type 'null' is not assignable to type 'AppContext'.
+src/pages/affiliate/AffiliateAppPage.tsx(633,45): error TS2322: Type 'AppContext | null' is not assignable to type 'AppContext'.
+  Type 'null' is not assignable to type 'AppContext'.
+src/pages/affiliate/AffiliateAppPage.tsx(634,54): error TS2322: Type 'AppContext | null' is not assignable to type 'AppContext'.
+  Type 'null' is not assignable to type 'AppContext'.
+src/pages/affiliate/AffiliateAppPage.tsx(635,51): error TS2322: Type 'AppContext | null' is not assignable to type 'AppContext'.
+  Type 'null' is not assignable to type 'AppContext'.
+src/pages/affiliate/AffiliateAppPage.tsx(636,53): error TS2322: Type 'AppContext | null' is not assignable to type 'AppContext'.
+  Type 'null' is not assignable to type 'AppContext'.
+src/pages/affiliate/AffiliateAppPage.tsx(637,47): error TS2322: Type 'AppContext | null' is not assignable to type 'AppContext'.
+  Type 'null' is not assignable to type 'AppContext'.
+src/pages/affiliate/AffiliateAppPage.tsx(648,35): error TS2322: Type 'AppContext | null' is not assignable to type 'AppContext'.
+  Type 'null' is not assignable to type 'AppContext'.
+
+---
+exit_code: -1
+elapsed_ms: 86400011
+ended_at: 2026-07-08T17:51:51.449Z
+---

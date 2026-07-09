@@ -27,10 +27,17 @@ import agentSilencesRoutes from "./routes/agentSilences";
 import leadImportRoutes from "./routes/leadImport";
 import leadIdeasRoutes from "./routes/leadIdeas";
 import brandAutomationsRoutes from "./routes/brandAutomations";
+import automationDefinitionsRoutes from "./routes/automationDefinitions";
 import aiCampaignRoutes from "./routes/aiCampaign";
 import brandSkillsRoutes from "./routes/brandSkills";
 import { startAutomationScheduler } from "./services/automationScheduler";
+import { startActionEscalationMonitor } from "./services/actionEscalation";
 import { startWhatsAppHealthMonitor, getHealthSnapshot, setInstanceManagerRef } from "./services/whatsappHealth";
+import {
+  affiliateDistributionService,
+  setDistributionInstanceManagerRef,
+  startDistributionFollowupMonitor,
+} from "./services/affiliateDistribution";
 import clientTypesRoutes from "./routes/clientTypes";
 import sessionsRoutes from "./routes/sessions";
 import automationsRoutes from "./routes/automations";
@@ -38,6 +45,13 @@ import brandsRoutes from "./routes/brands";
 import { AutomationsService } from "./services/automations";
 import { CustomersService } from "./services/customers";
 import { BrandUnitsService } from "./services/brandUnits";
+import {
+  buildInstanceAccessFilter,
+  buildOwnerMetaForCreate,
+  ensureWhatsAppInstanceOwnerSchema,
+  instanceBelongsToScope,
+  resolveInstanceAuthScope,
+} from "./services/instanceOwnership";
 import { KnowledgeBaseService } from "./services/knowledgeBase";
 import { authMiddleware, AuthRequest, requireRole } from "./middleware/auth";
 
@@ -57,7 +71,9 @@ import paymentsRoutes, { paymentPublicRoutes } from "./routes/payments";
 import storefrontRoutes, { storefrontPublicRoutes, reconcileNginxForVerifiedDomains } from "./routes/storefront";
 import stockAppRoutes from "./routes/stockApp";
 import affiliateAppRoutes from "./routes/affiliateApp";
+import partnersAppRoutes from "./routes/partnersApp";
 import affiliatesRoutes from "./routes/affiliates";
+import affiliateProgramsRoutes from "./routes/affiliatePrograms";
 import inventoryRoutes from "./routes/inventory";
 import publicOnboardingRoutes from "./routes/publicOnboarding";
 import publicPwaRoutes from "./routes/publicPwa";
@@ -65,10 +81,13 @@ import publicAffiliateRoutes from "./routes/publicAffiliate";
 import landingChatRoutes from "./routes/landingChat";
 import adminAgentRoutes from "./routes/adminAgent";
 import masterRoutes from "./routes/master";
+import pushRoutes from "./routes/push";
 import stripeWebhookRoutes from "./routes/stripeWebhook";
 import publicSignupRoutes from "./routes/publicSignup";
 import adminEmailsRoutes from "./routes/adminEmails";
 import { masterService } from "./services/master";
+import { getPushNotificationService } from "./services/pushNotifications";
+import { getNotificationPlatformService } from "./services/notificationPlatform";
 import { emailService } from "./services/email";
 import { InboxService } from "./services/inbox";
 import { AutomationRuntimeService } from "./services/automationRuntime";
@@ -84,16 +103,21 @@ import leadCategoriesRoutes from "./routes/leadCategories";
 import flowBuilderRoutes from "./routes/flowBuilder";
 import { FlowExecutorService } from "./services/flowExecutor";
 import notificationsRoutes from "./routes/notifications";
+import actionsRoutes from "./routes/actions";
 import videoStudioRoutes from "./routes/videoStudio";
 import supportRoutes from "./routes/support";
 import integrationsRoutes from "./routes/integrations";
 import instagramRoutes from "./routes/instagram";
+import { instagramService } from "./services/instagram";
 import facebookRoutes from "./routes/facebook";
 import metaPrivacyRoutes from "./routes/metaPrivacy";
 import metaWebhookRoutes from "./routes/metaWebhook";
 import metaOAuthRoutes from "./routes/metaOAuth";
 import { getNotificationService } from "./services/notifications";
 import { socketManager } from "./core/socketManager";
+import { StorefrontService } from "./services/storefront";
+import { buildAffiliatePageHeadForSlug, injectAffiliateMetaIntoHtml } from "./services/affiliatePageMeta";
+import { buildProductPageHeadMarkup, injectProductMetaIntoHtml } from "./services/productPageMeta";
 
 const app = express();
 const httpServer = createServer(app);
@@ -115,7 +139,12 @@ app.use(
   })
 );
 // ==================== CUSTOM DOMAIN MIDDLEWARE ====================
-const PRIMARY_DOMAINS = new Set(["app.leadcapture.online", "www.app.leadcapture.online"]);
+const PRIMARY_DOMAINS = new Set([
+  "app.leadcapture.online",
+  "www.app.leadcapture.online",
+  "adm.leadcapture.online",
+  "www.adm.leadcapture.online",
+]);
 const _domainSlugCache = new Map<string, { slug: string; expires: number }>();
 const DOMAIN_SLUG_CACHE_TTL = 120_000;
 
@@ -153,6 +182,11 @@ async function resolveSlugByDomain(host: string): Promise<string | null> {
   return null;
 }
 
+const storefrontService = new StorefrontService();
+const reactDistPath = path.join(__dirname, "../frontend/dist");
+const reactIndexPath = path.join(reactDistPath, "index.html");
+const hasReactBuild = require("fs").existsSync(reactIndexPath);
+
 const _htmlFileCache = new Map<string, string>();
 function readCatalogHtml(filename: string): string {
   if (_htmlFileCache.has(filename)) return _htmlFileCache.get(filename)!;
@@ -160,6 +194,59 @@ function readCatalogHtml(filename: string): string {
   _htmlFileCache.set(filename, content);
   setTimeout(() => _htmlFileCache.delete(filename), 300_000);
   return content;
+}
+
+function requestOrigin(req: express.Request): string {
+  const host = extractHostname(req);
+  const proto = String(req.headers["x-forwarded-proto"] || "https").split(",")[0].trim() || "https";
+  return `${proto}://${host}`;
+}
+
+async function serveProductPage(
+  req: express.Request,
+  res: express.Response,
+  opts: { storeSlug: string; productSlug: string; canonicalPath: string; customDomain?: boolean }
+) {
+  if (!hasReactBuild) {
+    return res.sendFile(path.join(__dirname, "../public", "catalogo-produto.html"));
+  }
+
+  try {
+    let html = readFileSync(reactIndexPath, "utf-8");
+    const origin = requestOrigin(req);
+    const bundle = await storefrontService.resolvePublicStore({
+      slug: opts.storeSlug,
+      host: opts.customDomain ? extractHostname(req) : null,
+    });
+    const product = await storefrontService.getPublicProduct(opts.storeSlug, opts.productSlug);
+
+    if (bundle && product) {
+      const brand = (bundle.store as any)?.brand || {};
+      const storeName = String(brand.name || bundle.store.name || opts.storeSlug).trim();
+      const primaryDomain = String((bundle.store as any)?.primary_domain || "").trim();
+      const canonicalOrigin = primaryDomain
+        ? `https://${primaryDomain.replace(/^https?:\/\//i, "").replace(/\/+$/, "")}`
+        : origin;
+      const headMarkup = buildProductPageHeadMarkup({
+        origin: canonicalOrigin,
+        canonicalPath: opts.canonicalPath,
+        storeName,
+        product,
+      });
+      html = injectProductMetaIntoHtml(html, headMarkup);
+    }
+
+    if (opts.customDomain) {
+      const injection = `<script>window.__STORE_SLUG__=${JSON.stringify(opts.storeSlug)};window.__CUSTOM_DOMAIN__=true;</script>`;
+      html = html.replace("</head>", `${injection}\n</head>`);
+    }
+
+    res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
+    return res.type("html").send(html);
+  } catch (err: any) {
+    logger.error(`serveProductPage error: ${err.message || err}`);
+    return res.sendFile(reactIndexPath);
+  }
 }
 
 function serveCatalogWithSlug(res: express.Response, filename: string, slug: string) {
@@ -200,7 +287,13 @@ app.use(async (req: express.Request, res: express.Response, next: express.NextFu
     return serveCatalogWithSlug(res, CUSTOM_DOMAIN_PAGES[normalized], slug);
   }
   if (/^\/produto\/[^/]+$/.test(normalized)) {
-    return serveCatalogWithSlug(res, "catalogo-produto.html", slug);
+    const productSlug = decodeURIComponent(normalized.split("/")[2] || "");
+    return serveProductPage(req, res, {
+      storeSlug: slug,
+      productSlug,
+      canonicalPath: normalized,
+      customDomain: true,
+    });
   }
   next();
 });
@@ -210,10 +303,6 @@ app.get("/site-workspace", (_req, res) => res.redirect(301, "/admin"));
 app.get("/site-workspace/*", (_req, res) => res.redirect(301, "/admin"));
 
 // ── Serve React frontend build (catalog SPA) ──
-const reactDistPath = path.join(__dirname, "../frontend/dist");
-const reactIndexPath = path.join(reactDistPath, "index.html");
-const hasReactBuild = require("fs").existsSync(reactIndexPath);
-
 if (hasReactBuild) {
   // Serve React static assets (JS, CSS, etc.)
   app.use("/assets", express.static(path.join(reactDistPath, "assets"), { maxAge: "30d", immutable: true }));
@@ -252,6 +341,7 @@ app.use("/api/public", publicOnboardingRoutes);
 app.use("/api/public", publicSignupRoutes);
 app.use("/api/landing", landingChatRoutes);
 app.use("/api/master", masterRoutes);
+app.use("/api/push", pushRoutes);
 app.use("/api/admin/emails", adminEmailsRoutes);
 app.use("/pwa", publicPwaRoutes);
 app.use("/api/public/affiliate", publicAffiliateRoutes);
@@ -274,6 +364,33 @@ function serveCatalogSPA(res: express.Response, legacyFile: string) {
   return res.sendFile(path.join(__dirname, "../public", legacyFile));
 }
 
+async function serveAffiliateSPA(
+  req: express.Request,
+  res: express.Response,
+  brandSlug?: string
+) {
+  if (!hasReactBuild) {
+    return res.sendFile(path.join(__dirname, "../public", "index.html"));
+  }
+
+  try {
+    let html = readFileSync(reactIndexPath, "utf-8");
+    const slug = String(brandSlug || "").trim();
+    if (slug) {
+      const origin = requestOrigin(req);
+      const headMarkup = await buildAffiliatePageHeadForSlug(slug, origin);
+      if (headMarkup) {
+        html = injectAffiliateMetaIntoHtml(html, headMarkup);
+      }
+    }
+    res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
+    return res.type("html").send(html);
+  } catch (err: any) {
+    logger.error(`serveAffiliateSPA error: ${err.message || err}`);
+    return res.sendFile(reactIndexPath);
+  }
+}
+
 app.get("/catalogo/:slug", (_req, res) => {
   serveCatalogSPA(res, "catalogo-publico.html");
 });
@@ -294,12 +411,20 @@ app.get("/loja/:slug/historico", (_req, res) => {
   serveCatalogSPA(res, "catalogo-historico.html");
 });
 
-app.get("/loja/:slug/produto/:productSlug", (_req, res) => {
-  serveCatalogSPA(res, "catalogo-produto.html");
+app.get("/loja/:slug/produto/:productSlug", async (req, res) => {
+  await serveProductPage(req, res, {
+    storeSlug: String(req.params.slug || ""),
+    productSlug: String(req.params.productSlug || ""),
+    canonicalPath: `/loja/${req.params.slug}/produto/${req.params.productSlug}`,
+  });
 });
 
-app.get("/catalogo/:slug/produto/:productSlug", (_req, res) => {
-  serveCatalogSPA(res, "catalogo-produto.html");
+app.get("/catalogo/:slug/produto/:productSlug", async (req, res) => {
+  await serveProductPage(req, res, {
+    storeSlug: String(req.params.slug || ""),
+    productSlug: String(req.params.productSlug || ""),
+    canonicalPath: `/catalogo/${req.params.slug}/produto/${req.params.productSlug}`,
+  });
 });
 
 app.get("/catalogo/:slug/checkout", (_req, res) => {
@@ -323,11 +448,17 @@ app.get("/app-estoque", (_req, res) => { serveCatalogSPA(res, "index.html"); });
 app.get("/app-estoque/:brand", (_req, res) => { serveCatalogSPA(res, "index.html"); });
 app.get("/app-estoque/:brand/painel", (_req, res) => { serveCatalogSPA(res, "index.html"); });
 
-// Central do Afiliado — PWA standalone
+// LeadCapture Parceiros — app global do afiliado
+app.get("/parceiros", (_req, res) => { serveCatalogSPA(res, "index.html"); });
+app.get("/parceiros/entrar", (_req, res) => { serveCatalogSPA(res, "index.html"); });
+app.get("/parceiros/painel", (_req, res) => { serveCatalogSPA(res, "index.html"); });
+app.get("/parceiros/painel/*", (_req, res) => { serveCatalogSPA(res, "index.html"); });
+
+// Central do Afiliado — PWA standalone (OG meta injetado no servidor para preview WhatsApp)
 app.get("/central-afiliado", (_req, res) => { serveCatalogSPA(res, "index.html"); });
-app.get("/central-afiliado/:brand", (_req, res) => { serveCatalogSPA(res, "index.html"); });
-app.get("/central-afiliado/:brand/painel", (_req, res) => { serveCatalogSPA(res, "index.html"); });
-app.get("/central-afiliado/:brand/painel/*", (_req, res) => { serveCatalogSPA(res, "index.html"); });
+app.get("/central-afiliado/:brand", async (req, res) => { await serveAffiliateSPA(req, res, String(req.params.brand || "")); });
+app.get("/central-afiliado/:brand/painel", async (req, res) => { await serveAffiliateSPA(req, res, String(req.params.brand || "")); });
+app.get("/central-afiliado/:brand/painel/*", async (req, res) => { await serveAffiliateSPA(req, res, String(req.params.brand || "")); });
 app.get("/afiliado/:code", (_req, res) => { serveCatalogSPA(res, "index.html"); });
 
 // Admin panel routes (all serve React SPA)
@@ -341,6 +472,21 @@ const adminPages = [
 for (const page of adminPages) {
   app.get(page, (_req, res) => { serveCatalogSPA(res, "index.html"); });
 }
+
+// Master admin (adm.leadcapture.online) — sub-rotas em /admin/*
+const masterAdminPages = [
+  "/admin/integracoes", "/admin/planos", "/admin/emails", "/admin/usuarios",
+  "/admin/organizacoes", "/admin/providers", "/admin/ferramentas",
+  "/admin/push-notificacoes", "/admin/configuracoes", "/admin/audit-log",
+];
+for (const page of masterAdminPages) {
+  app.get(page, (_req, res) => { serveCatalogSPA(res, "index.html"); });
+}
+app.get("/admin/*", (_req, res) => { serveCatalogSPA(res, "index.html"); });
+
+// Legacy master paths (redirect handled client-side)
+app.get("/master", (_req, res) => { serveCatalogSPA(res, "index.html"); });
+app.get("/master/*", (_req, res) => { serveCatalogSPA(res, "index.html"); });
 
 app.get("/brand-onboarding", (_req, res) => {
   serveCatalogSPA(res, "brand-onboarding.html");
@@ -358,6 +504,7 @@ app.use("/api/clients", authMiddleware, rateLimit({ name: "clients", max: 200, w
 app.use("/api/lead-import", authMiddleware, leadImportRoutes);
 app.use("/api/lead-ideas", authMiddleware, leadIdeasRoutes);
 app.use("/api/automations", authMiddleware, brandAutomationsRoutes);
+app.use("/api/automation-defs", authMiddleware, automationDefinitionsRoutes);
 app.use("/api/ai-campaign", authMiddleware, aiCampaignRoutes);
 app.use("/api/video-studio", videoStudioRoutes);
 app.use("/api/brand-skills", authMiddleware, brandSkillsRoutes);
@@ -387,12 +534,15 @@ app.use("/api/payments", authMiddleware, paymentsRoutes);
 app.use("/api/storefront", authMiddleware, storefrontRoutes);
 app.use("/api/stock-app", authMiddleware, stockAppRoutes);
 app.use("/api/affiliate-app", authMiddleware, affiliateAppRoutes);
+app.use("/api/partners-app", authMiddleware, partnersAppRoutes);
 app.use("/api/affiliates", authMiddleware, affiliatesRoutes);
+app.use("/api/affiliate-programs", authMiddleware, affiliateProgramsRoutes);
 app.use("/api/inventory", authMiddleware, inventoryRoutes);
 app.use("/api/leads", authMiddleware, rateLimit({ name: "leads", max: 200, windowMs: 60_000 }), leadsRoutes);
 app.use("/api/lead-categories", leadCategoriesRoutes);
 app.use("/api/flows", flowBuilderRoutes);
 app.use("/api/notifications", notificationsRoutes);
+app.use("/api/actions", actionsRoutes);
 app.use("/api/support", supportRoutes);
 app.use("/api/integrations", authMiddleware, integrationsRoutes);
 app.use("/api/instagram", authMiddleware, instagramRoutes);
@@ -415,6 +565,16 @@ app.use("/api/campaigns-v2", authMiddleware, createCampaignRoutes(instanceManage
 const inboxService = new InboxService();
 inboxService.setMediaDownloader((instanceId, msg) => instanceManager.downloadIncomingMedia(instanceId, msg));
 inboxService.setMessageSender((instanceId, jid, message) => instanceManager.sendMessageByJid(instanceId, jid, message));
+instagramService.setWhatsappNotifier(async (userId, phone, message) => {
+  const result = await instanceRotation.sendTextWithFailover({
+    userId,
+    phone,
+    message,
+    automationCode: "ig_publish_failed",
+    maxAttempts: 2,
+  });
+  return result.ok;
+});
 instanceManager.onGlobalMessage(async (instanceId, msg) => {
   await inboxService.handleIncomingMessage(instanceId, msg);
   try {
@@ -500,6 +660,18 @@ instanceManager.onGlobalMessage(async (instanceId, msg) => {
         FlowExecutorService.get()
           .fire("message_received", ownerUserId, { phone, message: String(parsed.body) })
           .catch(() => {});
+
+        affiliateDistributionService
+          .processInboundReply({
+            ownerUserId,
+            brandId: ownerBrandId,
+            instanceId,
+            phone,
+            message: String(parsed.body),
+          })
+          .catch((err: any) => {
+            logger.warn(`[affiliateDistribution] inbound reply skipped: ${err?.message || err}`);
+          });
       }
     }
   } catch (error: any) {
@@ -573,27 +745,29 @@ async function resolvePrimaryOutboundAutomationState(
   }
 }
 
-async function instanceBelongsToUser(instanceId: string, userId: string, brandId?: string | null): Promise<boolean> {
-  const normalizedBrandId = String(brandId || "").trim();
-  if (normalizedBrandId) {
-    try {
-      const scoped = await queryOne<{ id: string }>(
-        `SELECT id FROM whatsapp_instances
-         WHERE id = ? AND created_by = ? AND brand_id = ?
-         LIMIT 1`,
-        [instanceId, userId, normalizedBrandId]
-      );
-      if (scoped) return true;
-    } catch {
-      // Fall back to user ownership check below.
-    }
-  }
+function resolveAuthUserId(req: any): string | undefined {
+  const raw = req?.userId || req?.user?.userId || req?.user?.sub;
+  const userId = String(raw || "").trim();
+  return userId || undefined;
+}
 
-  const row = await queryOne<{ id: string }>(
-    "SELECT id FROM whatsapp_instances WHERE id = ? AND created_by = ? LIMIT 1",
-    [instanceId, userId]
+async function resolveInstanceBrandId(
+  scope: import("./services/instanceOwnership").InstanceAuthScope,
+  req: any,
+): Promise<string | null> {
+  if (scope.brandId) return scope.brandId;
+  return brandUnitsService
+    .resolveActiveBrandId(scope.ownerUserId, getRequestedBrandId(req))
+    .catch(() => null);
+}
+
+/** Rotas legadas admin (campanhas, envio manual) — escopo admin, não afiliado. */
+async function instanceBelongsToUser(instanceId: string, userId: string, brandId?: string | null): Promise<boolean> {
+  return instanceBelongsToScope(
+    instanceId,
+    { actorUserId: userId, ownerUserId: userId, brandId: brandId || null, isAffiliate: false },
+    brandId,
   );
-  return !!row;
 }
 
 type OwnedInstanceRow = {
@@ -890,10 +1064,16 @@ function sanitizeLeadSearchText(value: unknown, maxLength: number): string {
    conectado (drift), tempo desconectado, criticidade (ok/warning/critical). */
 app.get("/api/instances/health", authMiddleware, async (req: any, res) => {
   try {
-    const userId = req.user?.userId as string | undefined;
-    if (!userId) return res.status(401).json({ error: "Unauthorized" });
-    const brandId = await brandUnitsService.resolveActiveBrandId(userId, getRequestedBrandId(req)).catch(() => null);
-    const snapshot = await getHealthSnapshot({ userId, brandId });
+    const authScope = resolveInstanceAuthScope(req);
+    if (!authScope) return res.status(401).json({ error: "Unauthorized" });
+    const brandId = authScope.brandId
+      || await brandUnitsService.resolveActiveBrandId(authScope.ownerUserId, getRequestedBrandId(req)).catch(() => null);
+    const snapshot = await getHealthSnapshot({
+      userId: authScope.ownerUserId,
+      brandId,
+      isAffiliate: authScope.isAffiliate,
+      ownerActorId: authScope.isAffiliate ? authScope.actorUserId : null,
+    });
     res.json({ success: true, ...snapshot });
   } catch (e: any) {
     logger.error(`/api/instances/health error: ${e?.message}`);
@@ -903,14 +1083,15 @@ app.get("/api/instances/health", authMiddleware, async (req: any, res) => {
 
 app.post("/api/instances", authMiddleware, async (req: any, res) => {
   try {
-    const userId = req.user?.userId as string | undefined;
-    if (!userId) return res.status(401).json({ error: "Unauthorized" });
-    const brandId = await brandUnitsService.resolveActiveBrandId(userId, getRequestedBrandId(req));
+    const scope = resolveInstanceAuthScope(req);
+    if (!scope) return res.status(401).json({ error: "Unauthorized" });
+    const brandId = await resolveInstanceBrandId(scope, req);
     const { name } = req.body;
     if (!name) return res.status(400).json({ error: "Name is required" });
-    /* Passa brandId direto — instanceManager.createInstance ja persiste no INSERT */
-    const instance = await instanceManager.createInstance(name, userId, brandId);
-    res.json({ success: true, instance });
+    await ensureWhatsAppInstanceOwnerSchema();
+    const ownerMeta = buildOwnerMetaForCreate(scope);
+    const instance = await instanceManager.createInstance(name, scope.ownerUserId, brandId, ownerMeta);
+    res.json({ success: true, instance, id: instance.id });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -918,10 +1099,10 @@ app.post("/api/instances", authMiddleware, async (req: any, res) => {
 
 app.post("/api/instances/:id/connect", authMiddleware, async (req: any, res) => {
   try {
-    const userId = req.user?.userId as string | undefined;
-    if (!userId) return res.status(401).json({ error: "Unauthorized" });
-    const brandId = await brandUnitsService.resolveActiveBrandId(userId, getRequestedBrandId(req));
-    const allowed = await instanceBelongsToUser(req.params.id, userId, brandId);
+    const scope = resolveInstanceAuthScope(req);
+    if (!scope) return res.status(401).json({ error: "Unauthorized" });
+    const brandId = await resolveInstanceBrandId(scope, req);
+    const allowed = await instanceBelongsToScope(String(req.params.id), scope, brandId);
     if (!allowed) return res.status(404).json({ error: "Instance not found" });
     // Start connection asynchronously — return immediately so the frontend can poll /qr
     instanceManager.connectInstance(req.params.id).catch((err: any) => {
@@ -935,12 +1116,12 @@ app.post("/api/instances/:id/connect", authMiddleware, async (req: any, res) => 
 
 app.get("/api/instances/:id/qr", authMiddleware, async (req: any, res) => {
   try {
-    const userId = req.user?.userId as string | undefined;
-    if (!userId) return res.status(401).json({ error: "Unauthorized" });
-    const brandId = await brandUnitsService.resolveActiveBrandId(userId, getRequestedBrandId(req));
-    const allowed = await instanceBelongsToUser(req.params.id, userId, brandId);
+    const scope = resolveInstanceAuthScope(req);
+    if (!scope) return res.status(401).json({ error: "Unauthorized" });
+    const brandId = await resolveInstanceBrandId(scope, req);
+    const allowed = await instanceBelongsToScope(String(req.params.id), scope, brandId);
     if (!allowed) return res.status(404).json({ error: "Instance not found" });
-    const qr = instanceManager.getInstanceQR(req.params.id, userId);
+    const qr = instanceManager.getInstanceQR(req.params.id, scope.ownerUserId);
     if (qr) {
       res.json({ success: true, qrCode: qr });
     } else {
@@ -953,29 +1134,30 @@ app.get("/api/instances/:id/qr", authMiddleware, async (req: any, res) => {
 
 app.post("/api/instances/:id/pairing-code", authMiddleware, async (req: any, res) => {
   try {
-    const userId = req.user?.userId as string | undefined;
-    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const scope = resolveInstanceAuthScope(req);
+    if (!scope) return res.status(401).json({ error: "Unauthorized" });
 
     const { phoneNumber } = req.body || {};
     if (!phoneNumber || typeof phoneNumber !== "string") {
       return res.status(400).json({ error: "Numero de telefone obrigatorio" });
     }
 
-    const cleanPhone = String(phoneNumber).replace(/\D/g, "");
+    const cleanPhone = instanceManager.normalizePairingPhoneNumber(String(phoneNumber));
     if (cleanPhone.length < 10 || cleanPhone.length > 15) {
       return res.status(400).json({ error: "Numero de telefone invalido" });
     }
 
-    const brandId = await brandUnitsService.resolveActiveBrandId(userId, getRequestedBrandId(req));
+    const brandId = await resolveInstanceBrandId(scope, req);
     const id = String(req.params.id);
-    const allowed = await instanceBelongsToUser(id, userId, brandId);
+    const allowed = await instanceBelongsToScope(id, scope, brandId);
     if (!allowed) return res.status(404).json({ error: "Instance not found" });
 
-    const code = await instanceManager.connectWithPairingCode(id, cleanPhone);
+    const pairing = await instanceManager.connectWithPairingCode(id, cleanPhone);
 
     res.json({
       success: true,
-      code,
+      code: pairing.code,
+      phone: pairing.phone,
       message: "Digite este codigo no WhatsApp para conectar.",
     });
   } catch (error: any) {
@@ -984,12 +1166,29 @@ app.post("/api/instances/:id/pairing-code", authMiddleware, async (req: any, res
   }
 });
 
+app.post("/api/instances/:id/reset-pairing", authMiddleware, async (req: any, res) => {
+  try {
+    const scope = resolveInstanceAuthScope(req);
+    if (!scope) return res.status(401).json({ error: "Unauthorized" });
+
+    const brandId = await resolveInstanceBrandId(scope, req);
+    const id = String(req.params.id);
+    const allowed = await instanceBelongsToScope(id, scope, brandId);
+    if (!allowed) return res.status(404).json({ error: "Instance not found" });
+
+    await instanceManager.resetSessionForPairing(id);
+    res.json({ success: true, message: "Sessao encerrada. Pode gerar um novo codigo." });
+  } catch (error: any) {
+    res.status(500).json({ error: error?.message || "Erro ao resetar sessao" });
+  }
+});
+
 app.post("/api/instances/:id/reconnect", authMiddleware, async (req: any, res) => {
   try {
-    const userId = req.user?.userId as string | undefined;
-    if (!userId) return res.status(401).json({ error: "Unauthorized" });
-    const brandId = await brandUnitsService.resolveActiveBrandId(userId, getRequestedBrandId(req));
-    const allowed = await instanceBelongsToUser(req.params.id, userId, brandId);
+    const scope = resolveInstanceAuthScope(req);
+    if (!scope) return res.status(401).json({ error: "Unauthorized" });
+    const brandId = await resolveInstanceBrandId(scope, req);
+    const allowed = await instanceBelongsToScope(String(req.params.id), scope, brandId);
     if (!allowed) return res.status(404).json({ error: "Instance not found" });
 
     const id = req.params.id;
@@ -1007,7 +1206,7 @@ app.post("/api/instances/:id/reconnect", authMiddleware, async (req: any, res) =
     }
 
     // Sem QR → provavelmente reconectou com sessão salva
-    const liveInst = instanceManager.getAllInstances(userId).find((i: any) => i.id === id);
+    const liveInst = instanceManager.getAllInstances(scope.ownerUserId).find((i: any) => i.id === id);
     const status = liveInst?.status || "connecting";
     res.json({ success: true, qr: null, status, message: status === "connected" ? "Reconectado com sessao salva!" : "Conectando..." });
   } catch (error: any) {
@@ -1017,10 +1216,10 @@ app.post("/api/instances/:id/reconnect", authMiddleware, async (req: any, res) =
 
 app.post("/api/instances/:id/disconnect", authMiddleware, async (req: any, res) => {
   try {
-    const userId = req.user?.userId as string | undefined;
-    if (!userId) return res.status(401).json({ error: "Unauthorized" });
-    const brandId = await brandUnitsService.resolveActiveBrandId(userId, getRequestedBrandId(req));
-    const allowed = await instanceBelongsToUser(req.params.id, userId, brandId);
+    const scope = resolveInstanceAuthScope(req);
+    if (!scope) return res.status(401).json({ error: "Unauthorized" });
+    const brandId = await resolveInstanceBrandId(scope, req);
+    const allowed = await instanceBelongsToScope(String(req.params.id), scope, brandId);
     if (!allowed) return res.status(404).json({ error: "Instance not found" });
     await instanceManager.disconnectInstance(req.params.id);
     res.json({ success: true });
@@ -1031,10 +1230,10 @@ app.post("/api/instances/:id/disconnect", authMiddleware, async (req: any, res) 
 
 app.delete("/api/instances/:id", authMiddleware, async (req: any, res) => {
   try {
-    const userId = req.user?.userId as string | undefined;
-    if (!userId) return res.status(401).json({ error: "Unauthorized" });
-    const brandId = await brandUnitsService.resolveActiveBrandId(userId, getRequestedBrandId(req));
-    const allowed = await instanceBelongsToUser(req.params.id, userId, brandId);
+    const authScope = resolveInstanceAuthScope(req);
+    if (!authScope) return res.status(401).json({ error: "Unauthorized" });
+    const brandId = await resolveInstanceBrandId(authScope, req);
+    const allowed = await instanceBelongsToScope(String(req.params.id), authScope, brandId);
     if (!allowed) return res.status(404).json({ error: "Instance not found" });
     await instanceManager.deleteInstance(req.params.id);
     res.json({ success: true });
@@ -1045,61 +1244,79 @@ app.delete("/api/instances/:id", authMiddleware, async (req: any, res) => {
 
 app.get("/api/instances", authMiddleware, async (req: any, res) => {
   try {
-    const userId = req.user?.userId as string | undefined;
-    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const authScope = resolveInstanceAuthScope(req);
+    if (!authScope) return res.status(401).json({ error: "Unauthorized" });
+    await ensureWhatsAppInstanceOwnerSchema();
 
     const scope = String(req.query?.scope || "all").trim().toLowerCase();
-    const requestedBrandId = getRequestedBrandId(req);
-    const activeBrandId = await brandUnitsService.resolveActiveBrandId(userId, requestedBrandId);
-    const brandScoped = scope === "brand" || scope === "active-brand";
+    const brandScoped = scope === "brand" || scope === "active-brand" || authScope.isAffiliate;
+    let activeBrandId: string | null = authScope.brandId || null;
+    if (brandScoped) {
+      if (!activeBrandId) {
+        activeBrandId = await brandUnitsService
+          .resolveActiveBrandId(authScope.ownerUserId, getRequestedBrandId(req))
+          .catch(() => null);
+      }
+    } else if (!authScope.isAffiliate) {
+      activeBrandId = await brandUnitsService.getActiveBrandId(authScope.ownerUserId).catch(() => null);
+    }
+    if (brandScoped && !activeBrandId) {
+      return res.json({
+        success: true,
+        instances: [],
+        scope: "brand",
+        brand_id: null,
+        actor_scope: authScope.isAffiliate ? "affiliate_own" : "admin_all",
+      });
+    }
+    const listBrandId = brandScoped ? activeBrandId : null;
+    const ownerFilter = String(req.query?.owner_type || "").trim().toLowerCase();
+    const listScope = { ...authScope } as import("./services/instanceOwnership").InstanceAuthScope;
+    if (!authScope.isAffiliate && (ownerFilter === "admin" || ownerFilter === "affiliate")) {
+      listScope.ownerTypeFilter = ownerFilter;
+    }
+    const accessFilter = buildInstanceAccessFilter(listScope, listBrandId, "wi");
 
     const runtimeMap = new Map(
-      instanceManager.getAllInstances(userId).map((instance) => [instance.id, instance])
+      instanceManager.getAllInstances(authScope.ownerUserId).map((instance) => [instance.id, instance])
     );
 
     let dbInstances: any[] = [];
     try {
-      const brandWhere = brandScoped
-        ? activeBrandId
-          ? " AND wi.brand_id = ?"
-          : " AND wi.brand_id IS NULL"
-        : "";
-      const brandParams = brandScoped && activeBrandId ? [activeBrandId] : [];
       dbInstances = await query<any[]>(
         `SELECT wi.id, wi.name, wi.phone, wi.status, wi.created_at, wi.messages_sent, wi.messages_received,
-                wi.brand_id, bu.name AS brand_name
+                wi.brand_id, wi.owner_type, wi.owner_actor_id, bu.name AS brand_name
          FROM whatsapp_instances wi
          LEFT JOIN brand_units bu ON bu.id = wi.brand_id AND bu.user_id = wi.created_by
-         WHERE wi.created_by = ?
-         ${brandWhere}
-         ORDER BY created_at DESC`,
-        [userId, ...brandParams]
+         WHERE ${accessFilter.whereSql}
+         ORDER BY wi.created_at DESC`,
+        accessFilter.params
       );
-    } catch {
-      const brandWhere = brandScoped
-        ? activeBrandId
-          ? " AND brand_id = ?"
-          : " AND brand_id IS NULL"
-        : "";
-      const brandParams = brandScoped && activeBrandId ? [activeBrandId] : [];
+    } catch (listErr: any) {
+      logger.warn(`GET /api/instances fallback query: ${listErr?.message || listErr}`);
       dbInstances = await query<any[]>(
-        `SELECT id, name, phone, status, created_at, messages_sent, messages_received,
-                brand_id, NULL AS brand_name
-         FROM whatsapp_instances
-         WHERE created_by = ?
-         ${brandWhere}
-         ORDER BY created_at DESC`,
-        [userId, ...brandParams]
+        `SELECT wi.id, wi.name, wi.phone, wi.status, wi.created_at, wi.messages_sent, wi.messages_received,
+                wi.brand_id, wi.owner_type, wi.owner_actor_id, NULL AS brand_name
+         FROM whatsapp_instances wi
+         WHERE ${accessFilter.whereSql}
+         ORDER BY wi.created_at DESC`,
+        accessFilter.params
       );
     }
 
     const instances = dbInstances.map((row) => {
       const runtime = runtimeMap.get(row.id);
+      const ownerMeta = {
+        owner_type: row.owner_type === "affiliate" ? "affiliate" : "admin",
+        owner_actor_id: row.owner_actor_id ? String(row.owner_actor_id) : null,
+        owner_label: row.owner_type === "affiliate" ? "Afiliado" : "Sistema",
+      };
       if (runtime) {
         return {
           ...runtime,
           brand_id: row.brand_id ? String(row.brand_id) : null,
           brand_name: row.brand_name ? String(row.brand_name) : null,
+          ...ownerMeta,
         };
       }
       return {
@@ -1112,9 +1329,16 @@ app.get("/api/instances", authMiddleware, async (req: any, res) => {
         messagesReceived: Number(row.messages_received || 0),
         brand_id: row.brand_id ? String(row.brand_id) : null,
         brand_name: row.brand_name ? String(row.brand_name) : null,
+        ...ownerMeta,
       };
     });
-    res.json({ success: true, instances, scope: brandScoped ? "brand" : "all", brand_id: activeBrandId || null });
+    res.json({
+      success: true,
+      instances,
+      scope: brandScoped ? "brand" : "all",
+      brand_id: activeBrandId || null,
+      actor_scope: authScope.isAffiliate ? "affiliate_own" : "admin_all",
+    });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -1122,16 +1346,18 @@ app.get("/api/instances", authMiddleware, async (req: any, res) => {
 
 app.get("/api/instances/:id", authMiddleware, async (req: any, res) => {
   try {
-    const userId = req.user?.userId as string | undefined;
-    if (!userId) return res.status(401).json({ error: "Unauthorized" });
-    const brandId = await brandUnitsService.resolveActiveBrandId(userId, getRequestedBrandId(req));
-    const allowed = await instanceBelongsToUser(req.params.id, userId, brandId);
+    const authScope = resolveInstanceAuthScope(req);
+    if (!authScope) return res.status(401).json({ error: "Unauthorized" });
+    const userId = authScope.ownerUserId;
+    const brandId = await resolveInstanceBrandId(authScope, req);
+    const allowed = await instanceBelongsToScope(String(req.params.id), authScope, brandId);
     if (!allowed) return res.status(404).json({ error: "Instance not found" });
 
     const instance =
       instanceManager.getInstance(req.params.id, userId) ||
       (await queryOne<any>(
-        `SELECT id, name, phone, status, created_at, messages_sent, messages_received
+        `SELECT id, name, phone, status, created_at, messages_sent, messages_received,
+                owner_type, owner_actor_id
          FROM whatsapp_instances
          WHERE id = ? AND created_by = ?`,
         [req.params.id, userId]
@@ -1157,7 +1383,11 @@ app.get("/api/instances/:id", authMiddleware, async (req: any, res) => {
     res.json({
       success: true,
       status: normalizedInstance.status,
-      instance: normalizedInstance,
+      pairing_active: instanceManager.isPairingActive(req.params.id),
+      instance: {
+        ...normalizedInstance,
+        pairing_active: instanceManager.isPairingActive(req.params.id),
+      },
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -1391,6 +1621,26 @@ app.post("/api/leads/capture-manual", authMiddleware, async (req: any, res) => {
       dbLead = await findLeadByGooglePlaceId(placeId, userId, brandId);
     }
 
+    let distributionQueued: Record<string, unknown> | null = null;
+    if (createdLeadId && brandId) {
+      try {
+        const { affiliateDistributionService } = await import("./services/affiliateDistribution");
+        const rules = await affiliateDistributionService.getOrCreateRules(userId, brandId);
+        if (rules?.auto_enqueue_capture) {
+          distributionQueued = await affiliateDistributionService.enqueueProspect({
+            ownerUserId: userId,
+            brandId,
+            prospectId: createdLeadId,
+            source: "panfleteiro_capture",
+            priorityScore: 55,
+            metadata: { query: captureQuery, location: captureLocation },
+          });
+        }
+      } catch (distErr: any) {
+        logger.warn(`Panfleteiro distribution enqueue skipped: ${distErr?.message || distErr}`);
+      }
+    }
+
     let automationQueuedJobs = 0;
     let automationWarning: string | null = null;
     if (createdLeadId && shouldExecuteAutomation) {
@@ -1475,6 +1725,7 @@ app.post("/api/leads/capture-manual", authMiddleware, async (req: any, res) => {
         triggered: automationQueuedJobs > 0,
       },
       automation_warning: automationWarning,
+      distribution: distributionQueued,
       brand_id: brandId,
       validation,
       validation_warning: validationWarning,
@@ -2452,6 +2703,9 @@ app.get("*", async (req, res) => {
 
 httpServer.listen(config.port, "0.0.0.0", () => {
   if (!usingPostgresMode) {
+    ensureWhatsAppInstanceOwnerSchema().catch((err: any) => {
+      logger.error(`WhatsApp instance owner schema failed: ${formatError(err)}`);
+    });
     brandUnitsService.ensureSchema().catch((err: any) => {
       logger.error(`Brand schema bootstrap failed: ${formatError(err)}`);
     });
@@ -2461,6 +2715,8 @@ httpServer.listen(config.port, "0.0.0.0", () => {
   }
   // Master/super-admin schema (postgres-only — uses JSONB / partial indexes)
   masterService.ensureSchema()
+    .then(() => getPushNotificationService().ensureSchema())
+    .then(() => getNotificationPlatformService().ensureSchema())
     .then(() => emailService.seedSystemTemplates())
     .then(() => emailService.seedTenantTemplates())
     .catch((err: any) => {
@@ -2484,10 +2740,17 @@ httpServer.listen(config.port, "0.0.0.0", () => {
   } catch (err: any) {
     logger.error(`AutomationScheduler start failed: ${formatError(err)}`);
   }
+  try {
+    startActionEscalationMonitor();
+  } catch (err: any) {
+    logger.error(`ActionEscalation start failed: ${formatError(err)}`);
+  }
   /* WhatsApp Health Monitor — tick a cada 2min, detecta drift (DB diz connected
      mas socket morreu) e corrige. Tambem alimenta /api/instances/health pra banner UI. */
   try {
     setInstanceManagerRef(instanceManager);
+    setDistributionInstanceManagerRef(instanceManager);
+    startDistributionFollowupMonitor();
     startWhatsAppHealthMonitor();
   } catch (err: any) {
     logger.error(`WhatsAppHealth start failed: ${formatError(err)}`);

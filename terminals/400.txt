@@ -1,0 +1,122 @@
+---
+pid: 24244
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "powershell -ExecutionPolicy Bypass -File \"C:\\Users\\Public\\Projetos\\leadcapture\\agent-tools\\deploy-full.ps1\" -SkipBuild"
+started_at: 2026-07-08T14:50:04.701Z
+running_for_ms: 43030012 
+---
+>> Enviando backend dist completo
+>> Enviando frontend completo
+Use --update-env to update environment variables
+[PM2][ERROR] Process 2 not found
+[PM2] Applying action restartProcessId on app [leadcapture-api](ids: [ 2 ])
+>> Aguardando servi��os (25s)
+>> Verificando deploy
+Verificando https://app.leadcapture.online
+
+OK    index.html
+OK    missing chunk → 404 (not HTML)
+OK    admin-agent route
+OK    /admin SPA
+
+Tudo OK
+Smoke test: https://app.leadcapture.online
+
+OK    / → HTTP 200
+OK    / → conteúdo renderizado (141 chars)
+OK    / → sem erros de chunk
+OK    /login → HTTP 200
+OK    /login → conteúdo renderizado (141 chars)
+OK    /login → sem erros de chunk
+OK    /admin → HTTP 200
+OK    /admin → conteúdo renderizado (141 chars)
+OK    /admin → sem erros de chunk
+OK    /inicio → HTTP 200
+OK    /inicio → conteúdo renderizado (7120 chars)
+OK    /inicio → sem erros de chunk
+
+Tudo OK
+>> Smoke autenticado (desktop)
+Smoke autenticado: https://app.leadcapture.online
+
+OK    login → /admin
+OK    workspace carregado
+OK    sem erros de chunk pós-login
+OK    Painel → módulo aberto ("Painel · 522 leads")
+OK    Painel → KPI 522
+OK    Leads → módulo aberto ("522 leads")
+OK    Leads → KPI 522
+OK    Produtos → módulo aberto ("25 produtos")
+OK    Produtos → KPI 25
+OK    Campanhas → módulo aberto ("10 campanhas")
+OK    Habilidades → módulo aberto ("9 habilidades")
+OK    Habilidades → KPI 9
+OK    Pedidos → módulo aberto ("0 pedidos")
+OK    Instagram → módulo aberto ("Instagram · conectar conta")
+OK    Instagram → hint canvas desktop
+OK    Instagram → canvas embed visível
+OK    Facebook → módulo aberto ("Facebook · conectar página")
+OK    Facebook → hint canvas desktop
+OK    Facebook → canvas embed visível
+
+Tudo OK
+>> Smoke autenticado (mobile)
+Smoke mobile (iPhone 14): https://app.leadcapture.online
+
+OK    login → /admin (mobile)
+OK    workspace carregado
+OK    footer do chat visível
+OK    footer safe-area padding (8px)
+OK    Painel → inline ("Painel · 522 leads")
+OK    Painel → KPI 522
+OK    Painel → painel expandido
+OK    Painel → CatalogManagerSheet aberto (head pad 12px)
+OK    Leads → inline ("522 leads")
+OK    Leads → KPI 522
+OK    Leads → painel expandido
+OK    Produtos → inline ("25 produtos")
+OK    Produtos → KPI 25
+OK    Produtos → painel expandido
+OK    Produtos → CatalogManagerSheet aberto (head pad 12px)
+OK    Campanhas → inline ("10 campanhas")
+OK    Campanhas → painel expandido
+OK    Habilidades → inline ("9 habilidades")
+OK    Habilidades → KPI 9
+OK    Habilidades → painel expandido
+OK    Habilidades → CatalogManagerSheet aberto (head pad 12px)
+OK    Pedidos → inline ("0 pedidos")
+OK    Pedidos → painel expandido
+OK    Instagram → inline ("Instagram · conectar conta")
+OK    Instagram → painel expandido
+OK    Instagram → CatalogManagerSheet aberto (head pad 12px)
+OK    Facebook → inline ("Facebook · conectar página")
+OK    Facebook → painel expandido
+OK    Facebook → CatalogManagerSheet aberto (head pad 12px)
+OK    Afiliados → inline ("Afiliados · 0 ativos · 10%")
+OK    Afiliados → painel expandido
+OK    Afiliados → composer dock visível
+OK    Afiliados → composer Gerenciar abre CatalogManagerSheet
+OK    Afiliados → CatalogManagerSheet aberto (head pad 12px)
+OK    sem canvas fullscreen residual no mobile
+
+Tudo OK (mobile)
+>> Smoke ownership afiliado (credenciais padrǜo embutidas)
+Smoke affiliate ownership: https://app.leadcapture.online brand=alhopronto
+
+OK    affiliate-login (afiliado.real.teste@gmail.com) owner=9ebbc422…
+OK    afiliado criou instância 9f22089c…
+OK    afiliado lista só próprias (6 sessão(ões))
+OK    admin-login (eleniceventura72@gmail.com)
+OK    admin list HTTP 200 (sem x-brand-id estranho)
+OK    isolamento entre tenants: admin não vê sessão de outra marca
+>> Retry smoke affiliate-ownership (2/2) ap��s 12sFAIL  admin com x-brand-id alheio HTTP 500: Brand not found for this user
+
+Smoke affiliate ownership: https://app.leadcapture.online brand=alhopronto
+
+OK    affiliate-login (afiliado.real.teste@gmail.com) owner=9ebbc422…
+OK    afiliado criou instância a4ef195c…
+OK    afiliado lista só próprias (8 sessão(ões))
+OK    admin-login (eleniceventura72@gmail.com)
+OK    admin list HTTP 200 (sem x-brand-id estranho)
+OK    isolamento entre tenants: admin não vê sessão de outra marca
+FAIL  admin com x-brand-id alheio HTTP 500: Brand not found for this user

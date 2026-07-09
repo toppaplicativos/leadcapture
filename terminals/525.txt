@@ -1,0 +1,13 @@
+---
+pid: 5344
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd C:\\Users\\Public\\Projetos\\leadcapture\\frontend; npm run build"
+started_at: 2026-07-09T02:17:05.924Z
+running_for_ms: 1794999  
+---
+
+> leadcapture-frontend@1.0.0 build
+> tsc -b && vite build
+
+src/pages/partners/PartnersProfilePanel.tsx(58,35): error TS2322: Type '{ getHeaders: () => Record<string, string>; appContext: string; }' is not assignable to type 'IntrinsicAttributes & { dark?: boolean | undefined; }'.
+  Property 'getHeaders' does not exist on type 'IntrinsicAttributes & { dark?: boolean | undefined; }'.

@@ -5,14 +5,10 @@ import {
   Map, MessageSquare, Brain, ShoppingCart, Package, Store,
   Crosshair, Zap, Workflow, Users, Building2, TrendingUp,
   Sparkles, Target, Layers, Send, Image as ImageIcon, Globe, Mail,
-  Shield, Infinity as InfinityIcon, Phone, Code, Camera, ThumbsUp,
+  Shield, Infinity as InfinityIcon, Phone, Code,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
-
-/* lucide-react removeu logos de marca por politica - usamos proxies neutros:
-   Camera ~= Instagram, ThumbsUp ~= Facebook. Visualmente claros no contexto. */
-const Instagram = Camera
-const Facebook = ThumbsUp
+import { FacebookIcon, InstagramIcon, WhatsAppIcon, type IconComponent } from '@/components/icons'
 import { PanfleteiroPreview } from '@/components/PanfleteiroPreview'
 import { LandingMapHero } from '@/components/LandingMapHero'
 import { LandingRadarHero } from '@/components/LandingRadarHero'
@@ -849,7 +845,7 @@ function Differential() {
   /* Matriz comparativa real - linhas = features, colunas = planos.
      "Custom" sempre verde porque tudo eh negociavel.  */
   type Cell = boolean | string
-  const matrix: Array<{ group: string; rows: Array<{ label: string; Icon: LucideIcon; starter: Cell; pro: Cell; custom: Cell }> }> = [
+  const matrix: Array<{ group: string; rows: Array<{ label: string; Icon: IconComponent | LucideIcon; starter: Cell; pro: Cell; custom: Cell }> }> = [
     {
       group: 'Captação',
       rows: [
@@ -865,7 +861,7 @@ function Differential() {
       rows: [
         { label: 'CRM com tags e funil', Icon: Layers, starter: true, pro: true, custom: true },
         { label: 'Brands (multi-operação)', Icon: Building2, starter: '1', pro: '3', custom: 'Ilimitado' },
-        { label: 'Números WhatsApp conectados', Icon: Phone, starter: '1', pro: '3', custom: 'Ilimitado' },
+        { label: 'Números WhatsApp conectados', Icon: WhatsAppIcon, starter: '1', pro: '3', custom: 'Ilimitado' },
         { label: 'Campanhas e automações', Icon: Workflow, starter: false, pro: true, custom: true },
         { label: 'Disparos em massa', Icon: Send, starter: '500/mês', pro: 'Ilimitado', custom: 'Ilimitado' },
         { label: 'Vendas, catálogo e checkout', Icon: ShoppingCart, starter: false, pro: true, custom: true },
@@ -875,8 +871,8 @@ function Differential() {
       group: 'IA & Presença digital',
       rows: [
         { label: 'Criativo IA (posts, anúncios, copy)', Icon: ImageIcon, starter: false, pro: true, custom: true },
-        { label: 'Integração Instagram', Icon: Instagram, starter: false, pro: true, custom: true },
-        { label: 'Integração Facebook', Icon: Facebook, starter: false, pro: true, custom: true },
+        { label: 'Integração Instagram', Icon: InstagramIcon, starter: false, pro: true, custom: true },
+        { label: 'Integração Facebook', Icon: FacebookIcon, starter: false, pro: true, custom: true },
         { label: 'Domínio customizado', Icon: Globe, starter: false, pro: true, custom: true },
         { label: 'Emails corporativos (@seudominio)', Icon: Mail, starter: false, pro: true, custom: true },
       ],

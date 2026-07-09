@@ -1,0 +1,30 @@
+---
+pid: 21884
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cmd.exe /c \"taskkill /F /IM node.exe 2>nul & cd /d C:\\Users\\Public\\Projetos\\leadcapture && npx tsc && echo BACKEND_BUILD_EXIT=%ERRORLEVEL%\""
+started_at: 2026-07-07T17:46:50.654Z
+running_for_ms: 395033   
+---
+�XITO: o processo "node.exe" com PID 11408 foi finalizado.
+�XITO: o processo "node.exe" com PID 2176 foi finalizado.
+�XITO: o processo "node.exe" com PID 21964 foi finalizado.
+�XITO: o processo "node.exe" com PID 10716 foi finalizado.
+�XITO: o processo "node.exe" com PID 2380 foi finalizado.
+�XITO: o processo "node.exe" com PID 21580 foi finalizado.
+�XITO: o processo "node.exe" com PID 9508 foi finalizado.
+�XITO: o processo "node.exe" com PID 19200 foi finalizado.
+�XITO: o processo "node.exe" com PID 1120 foi finalizado.
+�XITO: o processo "node.exe" com PID 14360 foi finalizado.
+�XITO: o processo "node.exe" com PID 24340 foi finalizado.
+�XITO: o processo "node.exe" com PID 18648 foi finalizado.
+�XITO: o processo "node.exe" com PID 28668 foi finalizado.
+�XITO: o processo "node.exe" com PID 19156 foi finalizado.
+�XITO: o processo "node.exe" com PID 24760 foi finalizado.
+�XITO: o processo "node.exe" com PID 10392 foi finalizado.
+�XITO: o processo "node.exe" com PID 10964 foi finalizado.
+�XITO: o processo "node.exe" com PID 29652 foi finalizado.
+�XITO: o processo "node.exe" com PID 26892 foi finalizado.
+�XITO: o processo "node.exe" com PID 28508 foi finalizado.
+�XITO: o processo "node.exe" com PID 17312 foi finalizado.
+�XITO: o processo "node.exe" com PID 10732 foi finalizado.
+BACKEND_BUILD_EXIT=0

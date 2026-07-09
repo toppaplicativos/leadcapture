@@ -1,0 +1,18 @@
+---
+pid: 1444
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd C:\\Users\\Public\\Projetos\\leadcapture\\frontend; npm run build"
+started_at: 2026-07-04T13:25:27.249Z
+running_for_ms: 86400017 
+---
+
+> leadcapture-frontend@1.0.0 build
+> tsc -b && vite build
+
+src/pages/CriativosPage.tsx(786,10): error TS2304: Cannot find name 'GalleryPreview'.
+
+---
+exit_code: -1
+elapsed_ms: 86400017
+ended_at: 2026-07-05T13:25:44.510Z
+---

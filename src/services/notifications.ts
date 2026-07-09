@@ -3,6 +3,8 @@ import { getPool, queryOne } from "../config/database";
 import { config } from "../config";
 import { logger } from "../utils/logger";
 import { socketManager } from "../core/socketManager";
+import { getPushNotificationService } from "./pushNotifications";
+import type { PushAppContext, PushPriority } from "../config/push-events";
 
 export type NotificationType = "system" | "user" | "support";
 export type NotificationPriority = "low" | "medium" | "high" | "critical";
@@ -21,6 +23,18 @@ export type NotificationPayload = {
   store_id?: string | null;
   created_at: string;
   metadata: Record<string, any>;
+  app_target?: string | null;
+  brand_id?: string | null;
+  category?: string | null;
+  event_type?: string | null;
+  deep_link?: string | null;
+  entity_type?: string | null;
+  entity_id?: string | null;
+  action_required?: boolean;
+  cta_label?: string | null;
+  related_action_id?: string | null;
+  is_archived?: boolean;
+  group_key?: string | null;
 };
 
 export type CreateNotificationInput = {
@@ -35,12 +49,38 @@ export type CreateNotificationInput = {
   metadata?: Record<string, any>;
 };
 
+export type CreatePlatformNotificationInput = {
+  user_id: string;
+  event_key: string;
+  title: string;
+  message: string;
+  priority?: NotificationPriority;
+  channels?: NotificationChannel[];
+  app_target?: string | null;
+  brand_id?: string | null;
+  category?: string | null;
+  event_type?: string | null;
+  deep_link?: string | null;
+  entity_type?: string | null;
+  entity_id?: string | null;
+  action_required?: boolean;
+  cta_label?: string | null;
+  group_key?: string | null;
+  sound_key?: string | null;
+  metadata?: Record<string, any>;
+};
+
 export type NotificationListFilters = {
   user_id: string;
   type?: NotificationType;
   priority?: NotificationPriority;
   read?: boolean;
   store_id?: string;
+  app_target?: string;
+  category?: string;
+  action_required?: boolean;
+  critical_only?: boolean;
+  archived?: boolean;
   q?: string;
   limit?: number;
   offset?: number;
@@ -88,6 +128,8 @@ export class NotificationService {
       await pool.execute(`
         CREATE INDEX IF NOT EXISTS idx_notifications_store ON notifications (store_id)
       `);
+
+      await this.ensureHubColumns();
 
       await pool.execute(`
         CREATE TABLE IF NOT EXISTS notification_deliveries (
@@ -169,7 +211,47 @@ export class NotificationService {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
 
+    await this.ensureHubColumns();
+
     this.schemaReady = true;
+  }
+
+  private async ensureHubColumns(): Promise<void> {
+    const pool = getPool();
+    const columns: Array<[string, string]> = [
+      ["app_target", "app_target VARCHAR(32) NULL"],
+      ["brand_id", "brand_id VARCHAR(64) NULL"],
+      ["category", "category VARCHAR(64) NULL"],
+      ["event_type", "event_type VARCHAR(64) NULL"],
+      ["deep_link", "deep_link VARCHAR(500) NULL"],
+      ["entity_type", "entity_type VARCHAR(64) NULL"],
+      ["entity_id", "entity_id VARCHAR(64) NULL"],
+      ["action_required", "action_required BOOLEAN NOT NULL DEFAULT FALSE"],
+      ["cta_label", "cta_label VARCHAR(120) NULL"],
+      ["related_action_id", "related_action_id VARCHAR(64) NULL"],
+      ["is_archived", "is_archived BOOLEAN NOT NULL DEFAULT FALSE"],
+      ["group_key", "group_key VARCHAR(120) NULL"],
+      ["expires_at", "expires_at TIMESTAMP NULL"],
+    ];
+
+    for (const [name, ddl] of columns) {
+      try {
+        const [rows] = await pool.query<any[]>(
+          `SELECT 1 FROM information_schema.columns
+           WHERE table_schema = DATABASE() AND table_name = 'notifications' AND column_name = ?
+           LIMIT 1`,
+          [name],
+        );
+        if (!rows?.length) {
+          await pool.execute(`ALTER TABLE notifications ADD COLUMN ${ddl}`);
+        }
+      } catch {
+        await pool.execute(`ALTER TABLE notifications ADD COLUMN ${ddl}`).catch(() => undefined);
+      }
+    }
+
+    await pool.execute(`CREATE INDEX idx_notifications_hub ON notifications (user_id, is_archived, is_read)`).catch(() => undefined);
+    await pool.execute(`CREATE INDEX idx_notifications_action ON notifications (user_id, action_required)`).catch(() => undefined);
   }
 
   private normalizeChannels(channels?: NotificationChannel[]): NotificationChannel[] {
@@ -277,8 +359,33 @@ export class NotificationService {
       }
 
       if (channel === "push") {
-        await this.recordDelivery(notification.notification_id, channel, "sent", notification.user_id);
-        logger.info(`[Notification] push sent placeholder: ${notification.event} -> ${notification.user_id}`);
+        const push = getPushNotificationService();
+        const priorityMap: Record<string, PushPriority> = {
+          critical: "critical",
+          high: "high",
+          medium: "normal",
+          low: "low",
+        };
+        const appContext = (notification.metadata?.app_context || "admin") as PushAppContext;
+        const result = await push.sendToUser({
+          userId: notification.user_id,
+          appContext,
+          eventKey: notification.event,
+          title: notification.title,
+          body: notification.message,
+          priority: priorityMap[notification.priority] || "normal",
+          url: notification.metadata?.url ? String(notification.metadata.url) : undefined,
+          notificationId: notification.notification_id,
+          metadata: notification.metadata,
+        });
+        const status = result.sent > 0 ? "sent" : result.failed > 0 ? "failed" : "skipped";
+        await this.recordDelivery(
+          notification.notification_id,
+          channel,
+          status,
+          notification.user_id,
+          status === "failed" ? `failed=${result.failed}` : status === "skipped" ? `skipped=${result.skipped}` : null,
+        );
         return;
       }
 
@@ -369,6 +476,128 @@ export class NotificationService {
     return payload;
   }
 
+  async createPlatformNotification(input: CreatePlatformNotificationInput): Promise<NotificationPayload> {
+    await this.ensureSchema();
+
+    const userId = String(input.user_id || "").trim();
+    const eventKey = String(input.event_key || "").trim();
+    if (!userId) throw new Error("user_id is required");
+    if (!eventKey) throw new Error("event_key is required");
+
+    const priority: NotificationPriority = (["low", "medium", "high", "critical"] as NotificationPriority[]).includes(
+      input.priority as NotificationPriority,
+    )
+      ? (input.priority as NotificationPriority)
+      : "medium";
+
+    const channels = await this.resolveChannelsForUser(userId, eventKey, input.channels);
+    const notificationId = `ntf_${randomUUID()}`;
+    const metadata = {
+      ...(input.metadata && typeof input.metadata === "object" ? input.metadata : {}),
+      sound_key: input.sound_key || undefined,
+    };
+
+    const payload: NotificationPayload = {
+      notification_id: notificationId,
+      type: "system",
+      event: eventKey,
+      title: String(input.title || "Notificação").trim() || "Notificação",
+      message: String(input.message || "").trim(),
+      priority,
+      channels,
+      read: false,
+      user_id: userId,
+      store_id: input.brand_id ? String(input.brand_id) : null,
+      created_at: new Date().toISOString(),
+      metadata,
+      app_target: input.app_target || null,
+      brand_id: input.brand_id || null,
+      category: input.category || null,
+      event_type: input.event_type || null,
+      deep_link: input.deep_link || null,
+      entity_type: input.entity_type || null,
+      entity_id: input.entity_id || null,
+      action_required: Boolean(input.action_required),
+      cta_label: input.cta_label || null,
+      is_archived: false,
+      group_key: input.group_key || null,
+    };
+
+    const pool = getPool();
+    await pool.execute(
+      `INSERT INTO notifications (
+        id, user_id, type, event, title, message, priority,
+        channels_json, metadata_json, store_id, is_read,
+        app_target, brand_id, category, event_type, deep_link,
+        entity_type, entity_id, action_required, cta_label, group_key
+      ) VALUES (?, ?, 'system', ?, ?, ?, ?, ?, ?, ?, FALSE, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        payload.notification_id,
+        payload.user_id,
+        payload.event,
+        payload.title,
+        payload.message,
+        payload.priority,
+        JSON.stringify(payload.channels),
+        JSON.stringify(payload.metadata || {}),
+        payload.store_id ?? null,
+        payload.app_target ?? null,
+        payload.brand_id ?? null,
+        payload.category ?? null,
+        payload.event_type ?? null,
+        payload.deep_link ?? null,
+        payload.entity_type ?? null,
+        payload.entity_id ?? null,
+        payload.action_required ? 1 : 0,
+        payload.cta_label ?? null,
+        payload.group_key ?? null,
+      ],
+    );
+
+    for (const channel of payload.channels) {
+      await this.dispatchChannel(channel, payload);
+    }
+
+    socketManager.emitNotification(userId, {
+      id: payload.notification_id,
+      type: payload.type,
+      event: payload.event,
+      title: payload.title,
+      message: payload.message,
+      priority: payload.priority,
+      read: payload.read,
+      created_at: payload.created_at,
+      metadata: payload.metadata,
+      deep_link: payload.deep_link,
+      action_required: payload.action_required,
+      cta_label: payload.cta_label,
+    });
+
+    const unread = await this.getUnreadCount(userId);
+    socketManager.emitNotificationBadge(userId, unread);
+
+    return payload;
+  }
+
+  async linkAction(notificationId: string, actionId: string): Promise<void> {
+    await this.ensureSchema();
+    const pool = getPool();
+    await pool.execute(
+      `UPDATE notifications SET related_action_id = ?, updated_at = NOW() WHERE id = ?`,
+      [actionId, notificationId],
+    );
+  }
+
+  async archiveNotification(userId: string, notificationId: string): Promise<boolean> {
+    await this.ensureSchema();
+    const pool = getPool();
+    const [result] = await pool.execute<any>(
+      `UPDATE notifications SET is_archived = 1, updated_at = NOW() WHERE id = ? AND user_id = ?`,
+      [notificationId, userId],
+    );
+    return Number(result?.affectedRows || 0) > 0;
+  }
+
   private mapRow(row: any): NotificationPayload {
     return {
       notification_id: String(row.id),
@@ -383,6 +612,18 @@ export class NotificationService {
       store_id: row.store_id ? String(row.store_id) : null,
       created_at: new Date(row.created_at).toISOString(),
       metadata: this.parseJson<Record<string, any>>(row.metadata_json, {}),
+      app_target: row.app_target ? String(row.app_target) : null,
+      brand_id: row.brand_id ? String(row.brand_id) : null,
+      category: row.category ? String(row.category) : null,
+      event_type: row.event_type ? String(row.event_type) : null,
+      deep_link: row.deep_link ? String(row.deep_link) : null,
+      entity_type: row.entity_type ? String(row.entity_type) : null,
+      entity_id: row.entity_id ? String(row.entity_id) : null,
+      action_required: Boolean(row.action_required),
+      cta_label: row.cta_label ? String(row.cta_label) : null,
+      related_action_id: row.related_action_id ? String(row.related_action_id) : null,
+      is_archived: Boolean(row.is_archived),
+      group_key: row.group_key ? String(row.group_key) : null,
     };
   }
 
@@ -391,6 +632,13 @@ export class NotificationService {
 
     const where: string[] = ["user_id = ?"];
     const params: any[] = [filters.user_id];
+
+    if (typeof filters.archived === "boolean") {
+      where.push("is_archived = ?");
+      params.push(filters.archived ? 1 : 0);
+    } else {
+      where.push("is_archived = 0");
+    }
 
     if (filters.type) {
       where.push("type = ?");
@@ -407,6 +655,21 @@ export class NotificationService {
     if (filters.store_id) {
       where.push("store_id = ?");
       params.push(filters.store_id);
+    }
+    if (filters.app_target) {
+      where.push("app_target = ?");
+      params.push(filters.app_target);
+    }
+    if (filters.category) {
+      where.push("category = ?");
+      params.push(filters.category);
+    }
+    if (typeof filters.action_required === "boolean") {
+      where.push("action_required = ?");
+      params.push(filters.action_required ? 1 : 0);
+    }
+    if (filters.critical_only) {
+      where.push("(priority = 'critical' OR event_type = 'critical_alert')");
     }
     if (filters.q) {
       where.push("(title LIKE ? OR message LIKE ? OR event LIKE ?)");
@@ -437,7 +700,7 @@ export class NotificationService {
   async getUnreadCount(userId: string): Promise<number> {
     await this.ensureSchema();
     const row = await queryOne<{ total: number }>(
-      "SELECT COUNT(*) AS total FROM notifications WHERE user_id = ? AND is_read = 0",
+      "SELECT COUNT(*) AS total FROM notifications WHERE user_id = ? AND is_read = 0 AND is_archived = 0",
       [userId]
     );
     return Number(row?.total || 0);

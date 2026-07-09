@@ -1,0 +1,123 @@
+---
+pid: 30980
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "powershell -File C:\\Users\\Public\\Projetos\\leadcapture\\agent-tools\\deploy-full.ps1 -SkipBuild"
+started_at: 2026-07-07T22:34:29.247Z
+running_for_ms: 86400006 
+---
+>> Enviando backend dist completo
+>> Enviando frontend completo
+Use --update-env to update environment variables
+[PM2] Applying action restartProcessId on app [leadcapture-api](ids: [ 2 ])
+[PM2] [leadcapture-api](2) ✓
+Use --update-env to update environment variables
+[PM2] Applying action restartProcessId on app [leadcapture-web](ids: [ 1 ])
+[PM2] [leadcapture-web](1) ✓
+┌────┬────────────────────┬─────────────┬─────────┬─────────┬──────────┬────────┬──────┬───────────┬──────────┬──────────┬──────────┬──────────┐
+│ id │ name               │ namespace   │ version │ mode    │ pid      │ uptime │ ↺    │ status    │ cpu      │ mem      │ user     │ watching │
+├────┼────────────────────┼─────────────┼─────────┼─────────┼──────────┼────────┼──────┼───────────┼──────────┼──────────┼──────────┼──────────┤
+│ 2  │ leadcapture-api    │ default     │ 1.0.0   │ fork    │ 362294   │ 0s     │ 132  │ online    │ 76.9%    │ 53.2mb   │ root     │ disabled │
+│ 1  │ leadcapture-web    │ default     │ N/A     │ fork    │ 362306   │ 0s     │ 103  │ online    │ 0%       │ 4.0mb    │ root     │ disabled │
+└────┴────────────────────┴─────────────┴─────────┴─────────┴──────────┴────────┴──────┴───────────┴──────────┴──────────┴──────────┴──────────┘
+[PM2] Saving current process list...
+[PM2] Successfully saved in /root/.pm2/dump.pm2
+OK deploy
+>> Aguardando servi��os (25s)
+>> Verificando deploy
+Verificando https://app.leadcapture.online
+
+OK    index.html
+OK    missing chunk → 404 (not HTML)
+OK    admin-agent route
+OK    /admin SPA
+
+Tudo OK
+Smoke test: https://app.leadcapture.online
+
+OK    / → HTTP 200
+OK    / → conteúdo renderizado (141 chars)
+OK    / → sem erros de chunk
+OK    /login → HTTP 200
+OK    /login → conteúdo renderizado (141 chars)
+OK    /login → sem erros de chunk
+OK    /admin → HTTP 200
+OK    /admin → conteúdo renderizado (141 chars)
+OK    /admin → sem erros de chunk
+OK    /inicio → HTTP 200
+OK    /inicio → conteúdo renderizado (7131 chars)
+OK    /inicio → sem erros de chunk
+
+Tudo OK
+>> Smoke autenticado (desktop)
+Smoke autenticado: https://app.leadcapture.online
+
+OK    login → /admin
+OK    workspace carregado
+OK    sem erros de chunk pós-login
+OK    Painel → módulo aberto ("Painel · 522 leads")
+OK    Painel → KPI 522
+OK    Leads → módulo aberto ("522 leads")
+OK    Leads → KPI 522
+OK    Produtos → módulo aberto ("25 produtos")
+OK    Produtos → KPI 25
+OK    Campanhas → módulo aberto ("10 campanhas")
+OK    Habilidades → módulo aberto ("9 habilidades")
+OK    Habilidades → KPI 9
+OK    Pedidos → módulo aberto ("0 pedidos")
+OK    Instagram → módulo aberto ("Instagram · conectar conta")
+OK    Instagram → hint canvas desktop
+OK    Instagram → canvas embed visível
+OK    Facebook → módulo aberto ("Facebook · conectar página")
+OK    Facebook → hint canvas desktop
+OK    Facebook → canvas embed visível
+
+Tudo OK
+>> Smoke autenticado (mobile)
+Smoke mobile (iPhone 14): https://app.leadcapture.online
+
+OK    login → /admin (mobile)
+OK    workspace carregado
+OK    footer do chat visível
+OK    footer safe-area padding (8px)
+OK    Painel → inline ("Painel · 522 leads")
+OK    Painel → KPI 522
+OK    Painel → painel expandido
+OK    Painel → CatalogManagerSheet aberto (head pad 12px)
+OK    Leads → inline ("522 leads")
+OK    Leads → KPI 522
+OK    Leads → painel expandido
+OK    Produtos → inline ("25 produtos")
+OK    Produtos → KPI 25
+OK    Produtos → painel expandido
+OK    Produtos → CatalogManagerSheet aberto (head pad 12px)
+OK    Campanhas → inline ("10 campanhas")
+OK    Campanhas → painel expandido
+OK    Habilidades → inline ("9 habilidades")
+OK    Habilidades → KPI 9
+OK    Habilidades → painel expandido
+OK    Habilidades → CatalogManagerSheet aberto (head pad 12px)
+OK    Pedidos → inline ("0 pedidos")
+OK    Pedidos → painel expandido
+OK    Instagram → inline ("Instagram · conectar conta")
+OK    Instagram → painel expandido
+OK    Instagram → CatalogManagerSheet aberto (head pad 12px)
+OK    Facebook → inline ("Facebook · conectar página")
+OK    Facebook → painel expandido
+OK    Facebook → CatalogManagerSheet aberto (head pad 12px)
+OK    Afiliados → inline ("Afiliados · 0 ativos · 10%")
+OK    Afiliados → painel expandido
+OK    Afiliados → composer dock visível
+OK    Afiliados → composer Gerenciar abre CatalogManagerSheet
+OK    Afiliados → CatalogManagerSheet aberto (head pad 12px)
+OK    sem canvas fullscreen residual no mobile
+
+Tudo OK (mobile)
+
+Pos-deploy: PWA aberto pode precisar hard refresh (Ctrl+Shift+R) ou reabrir o app.
+Service worker versionado neste deploy.
+
+---
+exit_code: -1
+elapsed_ms: 86400006
+ended_at: 2026-07-08T22:34:42.333Z
+---

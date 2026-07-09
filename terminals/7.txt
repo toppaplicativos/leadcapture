@@ -1,0 +1,7 @@
+---
+pid: 57612
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd \"C:\\Users\\Public\\Projetos\\leadcapture\"; npx tsc --skipLibCheck 2>&1 | Select-Object -Last 15"
+started_at: 2026-07-03T21:03:58.480Z
+running_for_ms: 19875010 
+---

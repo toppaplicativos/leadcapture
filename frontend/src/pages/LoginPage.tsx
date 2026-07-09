@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Eye, EyeOff, Mail, Lock, ArrowRight, User, Building2 } from 'lucide-react'
 import { Button, Input } from '@/components/ui'
 import { BrandMark } from '@/components/BrandMark'
+import { isMasterHost, masterAdminBase } from '@/lib/master-host'
 
 type Mode = 'login' | 'register'
 
@@ -28,9 +29,7 @@ export function LoginPage() {
 
   function postLoginPath(): string {
     if (redirect && redirect.startsWith('/')) return redirect
-    if (typeof window !== 'undefined' && window.location.hostname.startsWith('adm.')) {
-      return '/master'
-    }
+    if (isMasterHost()) return masterAdminBase()
     return '/admin'
   }
 

@@ -1,0 +1,13 @@
+---
+pid: 6104
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd C:\\Users\\Public\\Projetos\\leadcapture; npx tsc --skipLibCheck --pretty false"
+started_at: 2026-07-06T19:32:39.994Z
+running_for_ms: 86400006 
+---
+
+---
+exit_code: -1
+elapsed_ms: 86400006
+ended_at: 2026-07-07T19:32:48.384Z
+---

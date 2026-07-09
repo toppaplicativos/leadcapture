@@ -1,0 +1,11 @@
+---
+pid: 2372
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cmd.exe /c \"cd /d C:\\Users\\Public\\Projetos\\leadcapture\\frontend && npm run build\""
+started_at: 2026-07-07T17:44:27.784Z
+running_for_ms: 534990   
+---
+
+> leadcapture-frontend@1.0.0 build
+> tsc -b && vite build
+

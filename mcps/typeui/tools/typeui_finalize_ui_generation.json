@@ -1,0 +1,17 @@
+{
+  "name": "typeui_finalize_ui_generation",
+  "description": "Finalize a TypeUI UI generation workflow. Returns incomplete unless every section has an accepted cleanup receipt with the configured loop count and fundamentals files listed.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "generationId": {
+        "description": "Generation ID returned by typeui_start_ui_generation.",
+        "type": "string"
+      }
+    },
+    "required": [
+      "generationId"
+    ],
+    "type": "object"
+  }
+}

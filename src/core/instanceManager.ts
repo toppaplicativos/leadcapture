@@ -1,6 +1,9 @@
 import makeWASocket, {
+  Browsers,
   DisconnectReason,
   downloadMediaMessage,
+  generateWAMessageFromContent,
+  proto,
   useMultiFileAuthState,
   WASocket,
   fetchLatestBaileysVersion,
@@ -17,10 +20,23 @@ import { getPool } from "../config/database";
 import pino from "pino";
 
 export type PollDeliveryMode = "auto" | "native_only" | "text_only";
+export type InteractiveDeliveryMode = PollDeliveryMode;
 
 export type PollSendResult = {
   ok: boolean;
   mode: "native_poll" | "text_fallback";
+  error?: string;
+  nativeError?: string;
+};
+
+export type PairingCodeResult = {
+  code: string;
+  phone: string;
+};
+
+export type InteractiveSendResult = {
+  ok: boolean;
+  mode: "native" | "text_fallback";
   error?: string;
   nativeError?: string;
 };
@@ -38,6 +54,8 @@ export class InstanceManager {
   private instances: Map<string, WhatsAppInstance> = new Map();
   private instanceOwners: Map<string, string | null> = new Map();
   private instanceBrands: Map<string, string | null> = new Map();
+  private instanceOwnerTypes: Map<string, "admin" | "affiliate"> = new Map();
+  private instanceOwnerActors: Map<string, string | null> = new Map();
   private sockets: Map<string, WASocket> = new Map();
   private connectPromises: Map<string, Promise<string | null>> = new Map();
   private messageHandlers: Map<string, (msg: any) => void> = new Map();
@@ -60,6 +78,12 @@ export class InstanceManager {
   private static readonly DEFAULT_ACK_TIMEOUT_MS = Math.max(1000, Math.min(60000, Number(process.env.WHATSAPP_ACK_TIMEOUT_MS) || 15000));
   private static readonly MAX_CONSECUTIVE_ACK_TIMEOUTS = 4;
   private intentionalDisconnects: Set<string> = new Set();
+  /* Sessoes aguardando usuario digitar o codigo no celular — bloqueia reconnect/QR paralelo. */
+  private pairingSessions: Set<string> = new Set();
+  private pairingSessionTimers: Map<string, NodeJS.Timeout> = new Map();
+  private pairingLocks: Map<string, Promise<PairingCodeResult>> = new Map();
+  private pairingReconnecting: Set<string> = new Set();
+  private static readonly PAIRING_SESSION_TTL_MS = 10 * 60 * 1000;
   private mediaLogger = pino({ level: "silent" }) as any;
   private static MAX_RETRIES = 5;
   private static BASE_DELAY = 5000; // 5s base, exponential backoff
@@ -76,7 +100,7 @@ export class InstanceManager {
     try {
       const pool = getPool();
       const [rows] = await pool.execute<any[]>(
-        "SELECT id, name, phone, status, created_by, created_at FROM whatsapp_instances WHERE id = ? LIMIT 1",
+        "SELECT id, name, phone, status, created_by, owner_type, owner_actor_id, created_at FROM whatsapp_instances WHERE id = ? LIMIT 1",
         [id]
       );
 
@@ -94,6 +118,8 @@ export class InstanceManager {
       };
 
       this.instanceOwners.set(row.id, row.created_by || null);
+      this.instanceOwnerTypes.set(row.id, row.owner_type === "affiliate" ? "affiliate" : "admin");
+      this.instanceOwnerActors.set(row.id, row.owner_actor_id || row.created_by || null);
       this.instances.set(id, loaded);
       return loaded;
     } catch (error: any) {
@@ -150,7 +176,7 @@ export class InstanceManager {
     try {
       const pool = getPool();
       const [rows] = await pool.execute<any[]>(
-        "SELECT id, name, phone, status, created_by FROM whatsapp_instances WHERE status IN ('connected', 'connecting', 'qr_ready')"
+        "SELECT id, name, phone, status, created_by, owner_type, owner_actor_id FROM whatsapp_instances WHERE status IN ('connected', 'connecting', 'qr_ready')"
       );
 
       if (rows.length === 0) {
@@ -166,12 +192,25 @@ export class InstanceManager {
           // Check if these exist in DB at all (even disconnected)
           for (const dirId of authDirs) {
             const [dbRows] = await pool.execute<any[]>(
-              "SELECT id, name, phone, status, created_by FROM whatsapp_instances WHERE id = ?",
+              "SELECT id, name, phone, status, created_by, owner_type, owner_actor_id FROM whatsapp_instances WHERE id = ?",
               [dirId]
             );
             if (dbRows.length > 0) {
               const inst = dbRows[0];
+              const credsPath = path.join(config.authDir, dirId, "creds.json");
+              try {
+                const creds = JSON.parse(fs.readFileSync(credsPath, "utf8"));
+                if (!creds?.registered) {
+                  logger.info(`Skipping orphan restore for ${inst.name} — creds not registered (pairing parcial).`);
+                  continue;
+                }
+              } catch {
+                logger.info(`Skipping orphan restore for ${inst.name} — creds unreadable.`);
+                continue;
+              }
               this.instanceOwners.set(inst.id, inst.created_by || null);
+              this.instanceOwnerTypes.set(inst.id, inst.owner_type === "affiliate" ? "affiliate" : "admin");
+              this.instanceOwnerActors.set(inst.id, inst.owner_actor_id || inst.created_by || null);
               logger.info(`Restoring orphaned instance: ${inst.name} (${inst.id})`);
               this.instances.set(inst.id, {
                 id: inst.id,
@@ -204,6 +243,8 @@ export class InstanceManager {
 
         // Load into memory
         this.instanceOwners.set(row.id, row.created_by || null);
+        this.instanceOwnerTypes.set(row.id, row.owner_type === "affiliate" ? "affiliate" : "admin");
+        this.instanceOwnerActors.set(row.id, row.owner_actor_id || row.created_by || null);
         this.instances.set(row.id, {
           id: row.id,
           name: row.name,
@@ -225,6 +266,10 @@ export class InstanceManager {
 
   // Safe connect wrapper with error handling
   private async safeConnect(id: string): Promise<void> {
+    if (this.pairingSessions.size > 0) {
+      logger.info(`Skipping safeConnect for ${id} — pairing em andamento no servidor.`);
+      return;
+    }
     try {
       await this.connectInstance(id);
     } catch (err: any) {
@@ -263,6 +308,8 @@ export class InstanceManager {
       const pool = getPool();
       const ownerUserId = this.instanceOwners.get(instance.id) || null;
       const brandId = this.instanceBrands.get(instance.id) || null;
+      const ownerType = this.instanceOwnerTypes.get(instance.id) || "admin";
+      const ownerActorId = this.instanceOwnerActors.get(instance.id) || ownerUserId;
       const [existing] = await pool.execute<any[]>(
         "SELECT id FROM whatsapp_instances WHERE id = ?",
         [instance.id]
@@ -275,15 +322,17 @@ export class InstanceManager {
           `UPDATE whatsapp_instances SET name = ?, phone = ?, status = ?,
            created_by = COALESCE(created_by, ?),
            brand_id = COALESCE(brand_id, ?),
+           owner_type = COALESCE(owner_type, ?),
+           owner_actor_id = COALESCE(owner_actor_id, ?),
            last_connected_at = CASE WHEN ? = 'connected' THEN NOW() ELSE last_connected_at END,
            updated_at = NOW() WHERE id = ?`,
-          [instance.name, instance.phone || null, instance.status, ownerUserId, brandId, instance.status, instance.id]
+          [instance.name, instance.phone || null, instance.status, ownerUserId, brandId, ownerType, ownerActorId, instance.status, instance.id]
         );
       } else {
         await pool.execute(
-          `INSERT INTO whatsapp_instances (id, name, phone, status, created_by, brand_id, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())`,
-          [instance.id, instance.name, instance.phone || null, instance.status, ownerUserId, brandId]
+          `INSERT INTO whatsapp_instances (id, name, phone, status, created_by, brand_id, owner_type, owner_actor_id, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+          [instance.id, instance.name, instance.phone || null, instance.status, ownerUserId, brandId, ownerType, ownerActorId]
         );
       }
     } catch (err: any) {
@@ -292,8 +341,15 @@ export class InstanceManager {
   }
 
   // ==================== INSTANCE LIFECYCLE ====================
-  async createInstance(name: string, ownerUserId?: string, brandId?: string | null): Promise<WhatsAppInstance> {
+  async createInstance(
+    name: string,
+    ownerUserId?: string,
+    brandId?: string | null,
+    ownerMeta?: { ownerType?: "admin" | "affiliate"; ownerActorId?: string },
+  ): Promise<WhatsAppInstance> {
     const id = uuidv4();
+    const ownerType = ownerMeta?.ownerType === "affiliate" ? "affiliate" : "admin";
+    const ownerActorId = ownerMeta?.ownerActorId || ownerUserId || null;
     const instance: WhatsAppInstance = {
       id,
       name,
@@ -304,9 +360,13 @@ export class InstanceManager {
     };
     this.instanceOwners.set(id, ownerUserId || null);
     this.instanceBrands.set(id, brandId || null);
+    this.instanceOwnerTypes.set(id, ownerType);
+    this.instanceOwnerActors.set(id, ownerActorId);
     this.instances.set(id, instance);
     await this.syncInstanceToDB(instance);
-    logger.info(`Instance created: ${name} (${id}) ownerUserId=${ownerUserId || "(none)"} brandId=${brandId || "(none)"}`);
+    logger.info(
+      `Instance created: ${name} (${id}) ownerUserId=${ownerUserId || "(none)"} brandId=${brandId || "(none)"} ownerType=${ownerType} ownerActorId=${ownerActorId || "(none)"}`,
+    );
     return instance;
   }
 
@@ -325,9 +385,138 @@ export class InstanceManager {
     return connectTask;
   }
 
+  isPairingActive(id: string): boolean {
+    return this.pairingSessions.has(id);
+  }
+
+  /** Código Baileys: 8 caracteres alfanuméricos (ex: ABNF6HHJ). */
+  normalizePairingCodeValue(code: string): string {
+    return String(code || "")
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, "")
+      .slice(0, 8);
+  }
+
+  /** Normaliza E.164 para pairing — BR mobile ganha o 9 quando faltar. */
+  normalizePairingPhoneNumber(phoneNumber: string): string {
+    let digits = String(phoneNumber || "").replace(/\D/g, "");
+    if (!digits) return digits;
+
+    /* 55 + DDD + 9 duplicado + 8 dígitos (13) → remove 9 extra após DDD */
+    const dupMobile = digits.match(/^55(\d{2})9(\d{9})$/);
+    if (dupMobile && dupMobile[2].startsWith("9")) {
+      digits = `55${dupMobile[1]}9${dupMobile[2].slice(1)}`;
+    }
+
+    /* Local BR sem +55: 11 dígitos com 9 duplicado → corrige antes de prefixar */
+    const localDup = digits.match(/^(\d{2})9(\d{9})$/);
+    if (localDup && localDup[2].startsWith("9")) {
+      digits = `55${localDup[1]}9${localDup[2].slice(1)}`;
+    } else if (/^\d{10,11}$/.test(digits) && !digits.startsWith("55")) {
+      const local = digits;
+      if (local.length === 10) {
+        const legacy = local.match(/^(\d{2})(\d{8})$/);
+        if (legacy) {
+          digits = legacy[2].startsWith("99")
+            ? `55${legacy[1]}${legacy[2]}`
+            : `55${legacy[1]}9${legacy[2]}`;
+        }
+      } else if (local.length === 11) {
+        const modern = local.match(/^(\d{2})9(\d{8})$/);
+        if (modern) digits = `55${modern[1]}9${modern[2]}`;
+      }
+    }
+
+    /* Só promove legado 8 dígitos (sem 9 móvel) ao formato 11 — nunca duplica 9. */
+    const legacyEight = digits.match(/^55(\d{2})(\d{8})$/);
+    if (legacyEight && !legacyEight[2].startsWith("99")) {
+      const variants = this.brazilianVariants(digits);
+      const modern = variants.find((v) => /^55\d{2}9\d{8}$/.test(v));
+      if (modern) return modern;
+    }
+    return digits;
+  }
+
+  private clearPairingSessionGuard(id: string): void {
+    this.pairingSessions.delete(id);
+    const timer = this.pairingSessionTimers.get(id);
+    if (timer) {
+      clearTimeout(timer);
+      this.pairingSessionTimers.delete(id);
+    }
+  }
+
+  private armPairingSessionGuard(id: string): void {
+    this.clearPairingSessionGuard(id);
+    this.pairingSessions.add(id);
+    this.pauseAllReconnectsForPairing();
+    const timer = setTimeout(() => {
+      if (!this.pairingSessions.has(id)) return;
+      logger.warn(`Pairing session TTL expired for ${id} — releasing guard and cleaning socket.`);
+      this.clearPairingSessionGuard(id);
+      this.cleanupSocket(id).catch(() => {});
+      const instance = this.instances.get(id);
+      if (instance && instance.status !== "connected") {
+        instance.status = "disconnected";
+        instance.qrCode = undefined;
+        this.instances.set(id, instance);
+        this.syncInstanceToDB(instance).catch(() => {});
+      }
+    }, InstanceManager.PAIRING_SESSION_TTL_MS);
+    this.pairingSessionTimers.set(id, timer);
+  }
+
+  /** Encerra socket, timers, auth e estado antes de um novo pairing ou QR. */
+  async resetSessionForPairing(id: string, opts?: { keepGuard?: boolean }): Promise<void> {
+    if (!opts?.keepGuard) this.clearPairingSessionGuard(id);
+    const pendingConnect = this.connectPromises.get(id);
+    this.connectPromises.delete(id);
+    if (pendingConnect) {
+      await Promise.race([
+        pendingConnect.catch(() => {}),
+        new Promise((resolve) => setTimeout(resolve, 2500)),
+      ]);
+    }
+
+    this.intentionalDisconnects.add(id);
+    const timer = this.reconnectTimers.get(id);
+    if (timer) {
+      clearTimeout(timer);
+      this.reconnectTimers.delete(id);
+    }
+
+    await this.cleanupSocket(id);
+    this.intentionalDisconnects.delete(id);
+
+    this.retryCount.delete(id);
+    this.preconditionCloseCount.delete(id);
+    this.consecutiveAckTimeouts.delete(id);
+    this.rejectPendingAcksForInstance(id, "pairing-reset");
+
+    const authPath = path.join(config.authDir, id);
+    if (fs.existsSync(authPath)) {
+      fs.rmSync(authPath, { recursive: true, force: true });
+    }
+    fs.mkdirSync(authPath, { recursive: true });
+
+    const instance = (await this.ensureInstanceLoaded(id)) || this.instances.get(id);
+    if (instance) {
+      instance.status = "disconnected";
+      instance.qrCode = undefined;
+      instance.phone = undefined;
+      this.instances.set(id, instance);
+      await this.syncInstanceToDB(instance);
+    }
+  }
+
   private async connectInstanceInternal(id: string): Promise<string | null> {
     const instance = (await this.ensureInstanceLoaded(id)) || this.instances.get(id);
     if (!instance) throw new Error("Instance not found");
+
+    if (this.pairingSessions.has(id)) {
+      logger.info(`Instance ${instance.name} is waiting for pairing code. Skipping QR/reconnect flow.`);
+      return null;
+    }
 
     const existingSock = this.sockets.get(id);
     if (instance.status === "connected" && existingSock) {
@@ -425,8 +614,8 @@ export class InstanceManager {
              pode marcar como failed_dropped. */
           this.rejectPendingAcksForInstance(id, `disconnect status=${statusCode}`);
 
-          if (this.intentionalDisconnects.has(id)) {
-            logger.info(`Intentional disconnect for ${instance.name}. Skipping reconnect.`);
+          if (this.intentionalDisconnects.has(id) || this.pairingSessions.has(id)) {
+            logger.info(`Intentional disconnect or pairing in progress for ${instance.name}. Skipping reconnect.`);
             this.retryCount.delete(id);
             this.preconditionCloseCount.delete(id);
             if (!resolved) { resolved = true; resolve(null); }
@@ -435,6 +624,13 @@ export class InstanceManager {
 
           // Handle specific disconnect reasons
           if (statusCode === DisconnectReason.loggedOut) {
+            if (this.pairingSessions.has(id)) {
+              logger.info(`Instance ${instance.name} logged out during pairing — skipping QR auto-restart.`);
+              this.retryCount.delete(id);
+              this.preconditionCloseCount.delete(id);
+              if (!resolved) { resolved = true; resolve(null); }
+              return;
+            }
             /* WhatsApp invalidou a sessao (401). Auth files nao valem mais.
                TIER 2: limpar auth + auto-restart pra gerar NOVO QR + notificar admin.
                Antes: so limpava e desistia. Agora QR aparece pronto no painel. */
@@ -461,6 +657,20 @@ export class InstanceManager {
               });
             }, 3000);
 
+            if (!resolved) { resolved = true; resolve(null); }
+            return;
+          }
+
+          if (statusCode === 403) {
+            logger.warn(`Instance ${instance.name} forbidden by WhatsApp (403). Stopping reconnects.`);
+            this.retryCount.set(id, 9999);
+            this.preconditionCloseCount.delete(id);
+            const existingTimer403 = this.reconnectTimers.get(id);
+            if (existingTimer403) {
+              clearTimeout(existingTimer403);
+              this.reconnectTimers.delete(id);
+            }
+            await this.invalidateAuthState(id, instance);
             if (!resolved) { resolved = true; resolve(null); }
             return;
           }
@@ -512,6 +722,10 @@ export class InstanceManager {
 
           const timer = setTimeout(async () => {
             this.reconnectTimers.delete(id);
+            if (this.pairingSessions.size > 0) {
+              logger.info(`Reconnect adiado para ${instance.name} — pairing em andamento.`);
+              return;
+            }
             try {
               await this.connectInstance(id);
             } catch (err: any) {
@@ -596,7 +810,162 @@ export class InstanceManager {
     });
   }
 
-  async connectWithPairingCode(id: string, phoneNumber: string): Promise<string> {
+  async connectWithPairingCode(id: string, phoneNumber: string): Promise<PairingCodeResult> {
+    const pending = this.pairingLocks.get(id);
+    if (pending) return pending;
+
+    const task = this.connectWithPairingCodeInternal(id, phoneNumber)
+      .finally(() => {
+        this.pairingLocks.delete(id);
+      });
+    this.pairingLocks.set(id, task);
+    return task;
+  }
+
+  private makePairingSocket(version: any, state: any) {
+    return makeWASocket({
+      version,
+      auth: state,
+      printQRInTerminal: false,
+      logger: pino({ level: "silent" }) as any,
+      browser: Browsers.macOS("Desktop"),
+      connectTimeoutMs: 60000,
+      defaultQueryTimeoutMs: 0,
+      keepAliveIntervalMs: 30000,
+      emitOwnEvents: true,
+      retryRequestDelayMs: 500,
+      markOnlineOnConnect: false,
+      qrTimeout: 120000,
+      syncFullHistory: false,
+    });
+  }
+
+  private pauseAllReconnectsForPairing(): void {
+    for (const [instId, timer] of this.reconnectTimers) {
+      clearTimeout(timer);
+      this.reconnectTimers.delete(instId);
+      logger.info(`Reconnect pausado (${instId}) — pairing em andamento.`);
+    }
+  }
+
+  /** Escolhe o E.164 que o WhatsApp reconhece antes de gerar o código. */
+  private async resolvePairingPhoneForRequest(sock: WASocket, cleanPhone: string): Promise<string> {
+    const normalized = this.normalizePairingPhoneNumber(cleanPhone);
+    const variants = [...new Set([normalized, ...this.brazilianVariants(normalized)])];
+    const probeMs = 2_500;
+    for (const variant of variants) {
+      try {
+        const results = await Promise.race([
+          sock.onWhatsApp(variant),
+          new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), probeMs)),
+        ]);
+        if (!results) {
+          logger.warn(`onWhatsApp probe timeout (${probeMs}ms) for ${variant}`);
+          continue;
+        }
+        const hit = results?.[0];
+        if (hit?.exists) {
+          const digits = String(variant).replace(/\D/g, "");
+          logger.info(`Pairing phone resolved via onWhatsApp: ${digits}`);
+          return digits;
+        }
+      } catch (err: any) {
+        const msg = String(err?.message || err);
+        if (/connection closed|connection failure|logged out/i.test(msg)) {
+          logger.warn(`onWhatsApp skipped (socket unstable) — using normalized phone`);
+          return normalized;
+        }
+        logger.warn(`onWhatsApp probe failed for ${variant}: ${msg}`);
+      }
+    }
+    logger.info(`Pairing phone fallback normalize: ${normalized}`);
+    return normalized;
+  }
+
+  private async bootstrapPairingSocket(
+    id: string,
+    instance: WhatsAppInstance,
+    authPath: string,
+  ): Promise<WASocket> {
+    await this.cleanupSocket(id);
+
+    let { state, saveCreds } = await useMultiFileAuthState(authPath);
+    if (state.creds.registered) {
+      if (fs.existsSync(authPath)) {
+        fs.rmSync(authPath, { recursive: true, force: true });
+      }
+      fs.mkdirSync(authPath, { recursive: true });
+      ({ state, saveCreds } = await useMultiFileAuthState(authPath));
+    }
+
+    const { version } = await fetchLatestBaileysVersion();
+    const sock = this.makePairingSocket(version, state);
+    this.sockets.set(id, sock);
+    sock.ev.on("creds.update", saveCreds);
+    sock.ev.on("creds.update", (creds) => {
+      if (this.pairingSessions.has(id) && creds.registered && instance.status !== "connected") {
+        setTimeout(() => {
+          if (instance.status !== "connected" && this.pairingSessions.has(id)) {
+            logger.info(`Pairing creds registered for ${instance.name} — ensuring reconnect.`);
+            void this.completePairingReconnect(id, instance);
+          }
+        }, 2000);
+      }
+    });
+    this.bindPairingSessionHandlers(id, instance, sock);
+    return sock;
+  }
+
+  /** Após o usuário digitar o código, WhatsApp envia restartRequired — reconecta com creds salvas. */
+  private async completePairingReconnect(id: string, instance: WhatsAppInstance): Promise<void> {
+    if (this.pairingReconnecting.has(id)) return;
+    this.pairingReconnecting.add(id);
+    try {
+      await this.cleanupSocket(id);
+      const authPath = path.join(config.authDir, id);
+      const { state, saveCreds } = await useMultiFileAuthState(authPath);
+      if (!state.creds.registered) {
+        logger.warn(`completePairingReconnect: creds not registered yet for ${instance.name}`);
+        return;
+      }
+
+      const { version } = await fetchLatestBaileysVersion();
+      const sock = this.makePairingSocket(version, state);
+      this.sockets.set(id, sock);
+      sock.ev.on("creds.update", saveCreds);
+      instance.status = "connecting";
+      this.instances.set(id, instance);
+
+      sock.ev.on("connection.update", async (update) => {
+        const { connection, lastDisconnect } = update;
+        if (connection === "open") {
+          this.clearPairingSessionGuard(id);
+          const user = sock.user;
+          instance.status = "connected";
+          instance.phone = user?.id?.split(":")[0] || user?.id?.split("@")[0];
+          instance.qrCode = undefined;
+          this.instances.set(id, instance);
+          await this.syncInstanceToDB(instance);
+          this.connectedSince.set(id, Date.now());
+          this.retryCount.delete(id);
+          this.preconditionCloseCount.delete(id);
+          logger.info(`Instance connected after pairing reconnect: ${instance.name} (${instance.phone})`);
+        }
+        if (connection === "close") {
+          const statusCode = (lastDisconnect?.error as Boom | undefined)?.output?.statusCode;
+          if (instance.status !== "connected") {
+            logger.warn(`Post-pairing reconnect closed for ${instance.name}: status=${statusCode}`);
+          }
+        }
+      });
+    } catch (err: any) {
+      logger.error(`completePairingReconnect failed for ${instance.name}: ${err?.message || err}`);
+    } finally {
+      this.pairingReconnecting.delete(id);
+    }
+  }
+
+  private async connectWithPairingCodeInternal(id: string, phoneNumber: string): Promise<PairingCodeResult> {
     const instance = (await this.ensureInstanceLoaded(id)) || this.instances.get(id);
     if (!instance) throw new Error("Instance not found");
 
@@ -604,112 +973,219 @@ export class InstanceManager {
       throw new Error("Instancia ja esta conectada");
     }
 
-    /* Cancela fluxo QR em andamento sem chamar logout (connectInstance permanece intacto). */
-    this.connectPromises.delete(id);
-
-    this.intentionalDisconnects.add(id);
-    await this.cleanupSocket(id);
-    this.intentionalDisconnects.delete(id);
-
-    const cleanPhone = phoneNumber.replace(/\D/g, "");
+    const cleanPhone = this.normalizePairingPhoneNumber(phoneNumber);
     if (cleanPhone.length < 10 || cleanPhone.length > 15) {
       throw new Error("Numero de telefone invalido");
     }
 
-    /* Sessao limpa — pairing code exige creds nao registrados (Baileys). */
-    const authPath = path.join(config.authDir, id);
-    if (fs.existsSync(authPath)) {
-      fs.rmSync(authPath, { recursive: true, force: true });
-    }
-    fs.mkdirSync(authPath, { recursive: true });
+    this.armPairingSessionGuard(id);
+    await this.resetSessionForPairing(id, { keepGuard: true });
 
-    const { state, saveCreds } = await useMultiFileAuthState(authPath);
-    const { version } = await fetchLatestBaileysVersion();
+    const authPath = path.join(config.authDir, id);
 
     instance.status = "connecting";
     instance.qrCode = undefined;
     this.instances.set(id, instance);
 
-    const sock = makeWASocket({
-      version,
-      auth: state,
-      printQRInTerminal: false,
-      logger: pino({ level: "silent" }) as any,
-      browser: ["LeadCapture", "Chrome", "1.0.0"],
-      connectTimeoutMs: 60000,
-      defaultQueryTimeoutMs: 60000,
-      keepAliveIntervalMs: 30000,
-      emitOwnEvents: true,
-      retryRequestDelayMs: 500,
-      markOnlineOnConnect: false,
-      qrTimeout: 60000,
-    });
-
-    this.sockets.set(id, sock);
-    sock.ev.on("creds.update", saveCreds);
-    this.bindPairingSessionHandlers(id, instance, sock);
+    let sock = await this.bootstrapPairingSocket(id, instance, authPath);
 
     try {
-      if (state.creds.registered) {
-        throw new Error("Sessao ja registrada. Desconecte antes de gerar novo codigo.");
-      }
-
-      /* Baileys: aguardar handshake (evento qr) antes de requestPairingCode —
-         chamar cedo demais gera "Connection Closed" porque o WS ainda nao abriu. */
-      const code = await new Promise<string>((resolve, reject) => {
+      /* Baileys: aguardar open ou qr antes de requestPairingCode.
+         Nunca regerar código após o primeiro ter sido emitido (invalida no celular). */
+      const result = await new Promise<PairingCodeResult>((resolve, reject) => {
         let settled = false;
+        let inFlight = false;
+        let codeIssued = false;
+        let attempts = 0;
+        let socketRebuilds = 0;
+        let resolvedPhone = cleanPhone;
+        const maxAttempts = 6;
+        const maxSocketRebuilds = 3;
+        let fallbackTimer: NodeJS.Timeout | null = null;
+        let onPairingReady: ((update: {
+          connection?: string;
+          qr?: string;
+          lastDisconnect?: { error?: unknown };
+        }) => void) | null = null;
+        let requestDebounce: NodeJS.Timeout | null = null;
+
+        const scheduleRequestCode = (delayMs = 1500) => {
+          if (settled || codeIssued) return;
+          if (requestDebounce) clearTimeout(requestDebounce);
+          requestDebounce = setTimeout(() => {
+            requestDebounce = null;
+            if (!settled) requestCode().catch(() => {});
+          }, delayMs);
+        };
+
+        const detachReady = () => {
+          if (onPairingReady) {
+            sock.ev.off("connection.update", onPairingReady);
+            onPairingReady = null;
+          }
+        };
+
         const finish = (fn: () => void) => {
           if (settled) return;
           settled = true;
           clearTimeout(timer);
-          sock.ev.off("connection.update", onPairingReady);
+          if (fallbackTimer) clearTimeout(fallbackTimer);
+          if (requestDebounce) clearTimeout(requestDebounce);
+          detachReady();
           fn();
         };
 
-        const timer = setTimeout(() => {
-          finish(() => reject(new Error("Timeout ao gerar codigo de pareamento")));
-        }, 45000);
+        const attachReady = () => {
+          detachReady();
+          onPairingReady = async (update) => {
+            if (codeIssued) return;
+            logger.info(
+              `Pairing connection.update [${instance.name}]: connection=${update.connection || "-"} qr=${update.qr ? "yes" : "no"}`,
+            );
 
-        const onPairingReady = async (update: {
-          connection?: string;
-          qr?: string;
-          lastDisconnect?: { error?: unknown };
-        }) => {
-          if (update.connection === "close") {
-            const boom = update.lastDisconnect?.error as Boom | undefined;
-            finish(() => reject(new Error(boom?.message || "Conexao fechada ao gerar codigo")));
-            return;
-          }
-          if (!update.qr) return;
+            if (update.connection === "close") {
+              const boom = update.lastDisconnect?.error as Boom | undefined;
+              const statusCode = (boom as Boom | undefined)?.output?.statusCode;
+              if (!settled && !codeIssued && (attempts < maxAttempts || socketRebuilds < maxSocketRebuilds)) {
+                inFlight = false;
+                const needsRebuild =
+                  statusCode === DisconnectReason.loggedOut
+                  || statusCode === DisconnectReason.connectionClosed
+                  || statusCode === DisconnectReason.connectionLost;
+                if (needsRebuild && socketRebuilds < maxSocketRebuilds) {
+                  socketRebuilds += 1;
+                  logger.info(
+                    `Pairing socket rebuild ${socketRebuilds}/${maxSocketRebuilds} for ${instance.name} (status=${statusCode})`,
+                  );
+                  setTimeout(() => {
+                    if (settled) return;
+                    this.bootstrapPairingSocket(id, instance, authPath)
+                      .then((nextSock) => {
+                        if (settled) return;
+                        sock = nextSock;
+                        attachReady();
+                        scheduleRequestCode(2000);
+                      })
+                      .catch((err: any) => {
+                        logger.warn(`Pairing socket rebuild failed: ${err?.message || err}`);
+                        scheduleRequestCode(2500);
+                      });
+                  }, 800);
+                  return;
+                }
+                scheduleRequestCode(2000);
+                return;
+              }
+              if (!codeIssued) {
+                finish(() => reject(new Error(boom?.message || "Conexao fechada ao gerar codigo")));
+              }
+              return;
+            }
+            if (update.qr) {
+              if (requestDebounce) clearTimeout(requestDebounce);
+              requestDebounce = null;
+              void requestCode();
+              return;
+            }
+            if (update.connection === "connecting" || update.connection === "open") {
+              scheduleRequestCode(1200);
+            }
+          };
+          sock.ev.on("connection.update", onPairingReady);
+        };
 
+        const requestCode = async () => {
+          if (settled || inFlight || codeIssued || attempts >= maxAttempts) return;
+          inFlight = true;
+          attempts += 1;
           try {
-            const pairingCode = await sock.requestPairingCode(cleanPhone);
-            finish(() => resolve(pairingCode));
+            const fallbackPhone = this.normalizePairingPhoneNumber(cleanPhone);
+            resolvedPhone = await Promise.race([
+              this.resolvePairingPhoneForRequest(sock, cleanPhone),
+              new Promise<string>((resolve) => {
+                setTimeout(() => resolve(fallbackPhone), 6_000);
+              }),
+            ]);
+            logger.info(`Pairing requestPairingCode phone for ${instance.name}: ${resolvedPhone}`);
+            const pairingCode = await Promise.race([
+              sock.requestPairingCode(resolvedPhone),
+              new Promise<never>((_, reject) => {
+                setTimeout(() => reject(new Error("requestPairingCode timeout")), 30_000);
+              }),
+            ]);
+            codeIssued = true;
+            finish(() => resolve({ code: pairingCode, phone: resolvedPhone }));
           } catch (err: any) {
-            finish(() => reject(new Error(err?.message || "Falha ao gerar codigo de pareamento")));
+            inFlight = false;
+            const message = String(err?.message || "Falha ao gerar codigo de pareamento");
+            logger.warn(`Pairing attempt ${attempts}/${maxAttempts} failed for ${instance.name}: ${message}`);
+            if (attempts >= maxAttempts && socketRebuilds >= maxSocketRebuilds) {
+              finish(() => reject(new Error(message)));
+              return;
+            }
+            const unstable = /connection closed|connection failure|logged out|timed out/i.test(message);
+            if (unstable && socketRebuilds < maxSocketRebuilds) {
+              socketRebuilds += 1;
+              logger.info(`Pairing rebuild after error for ${instance.name} (${socketRebuilds}/${maxSocketRebuilds})`);
+              try {
+                sock = await this.bootstrapPairingSocket(id, instance, authPath);
+                attachReady();
+              } catch (rebuildErr: any) {
+                logger.warn(`Pairing rebuild failed: ${rebuildErr?.message || rebuildErr}`);
+              }
+            }
+            scheduleRequestCode(3000);
           }
         };
 
-        sock.ev.on("connection.update", onPairingReady);
+        const timer = setTimeout(() => {
+          if (!codeIssued) {
+            finish(() => reject(new Error("Timeout ao gerar codigo de pareamento")));
+          }
+        }, 90000);
+
+        fallbackTimer = setTimeout(() => {
+          if (!settled && !codeIssued) {
+            logger.info(`Pairing fallback for ${instance.name} — requesting code on timer.`);
+            scheduleRequestCode(500);
+          }
+        }, 10000);
+
+        attachReady();
       });
 
-      logger.info(`Pairing code generated for ${instance.name} (${cleanPhone.slice(-4)}): ${code}`);
-      return code;
+      const normalizedCode = this.normalizePairingCodeValue(result.code);
+      if (normalizedCode.length !== 8) {
+        throw new Error(`Codigo de pareamento invalido (${normalizedCode.length}/8 caracteres)`);
+      }
+      logger.info(`Pairing code generated for ${instance.name} (+${result.phone.slice(0, 4)}…${result.phone.slice(-4)})`);
+      return { code: normalizedCode, phone: result.phone };
     } catch (err: any) {
       logger.error(`Pairing code request failed for ${instance.name}: ${err?.message || err}`);
+      this.clearPairingSessionGuard(id);
       await this.cleanupSocket(id);
       instance.status = "disconnected";
       this.instances.set(id, instance);
       await this.syncInstanceToDB(instance);
-      throw new Error(err?.message || "Falha ao gerar codigo de pareamento. Verifique o numero.");
+      const raw = String(err?.message || "");
+      const friendly = /connection failure|connection closed|timeout/i.test(raw)
+        ? "Nao foi possivel falar com o WhatsApp agora. Aguarde alguns segundos e tente gerar o codigo de novo."
+        : raw || "Falha ao gerar codigo de pareamento. Verifique o numero.";
+      throw new Error(friendly);
     }
   }
 
   private bindPairingSessionHandlers(id: string, instance: WhatsAppInstance, sock: WASocket): void {
     sock.ev.on("connection.update", async (update) => {
-      const { connection } = update;
+      const { connection, lastDisconnect } = update;
 
       if (connection === "open") {
+        const credsRegistered = Boolean(sock.authState?.creds?.registered);
+        if (this.pairingSessions.has(id) && !credsRegistered) {
+          logger.info(`Pairing socket open (awaiting code) for ${instance.name} — not marking connected yet.`);
+          return;
+        }
+        this.clearPairingSessionGuard(id);
         const user = sock.user;
         instance.status = "connected";
         instance.phone = user?.id?.split(":")[0] || user?.id?.split("@")[0];
@@ -724,7 +1200,22 @@ export class InstanceManager {
 
       if (connection === "close") {
         const live = this.instances.get(id);
+        const statusCode = (lastDisconnect?.error as Boom | undefined)?.output?.statusCode;
+        if (this.pairingSessions.has(id) && live?.status !== "connected") {
+          if (statusCode === DisconnectReason.restartRequired) {
+            logger.info(`Pairing restartRequired for ${instance.name} — completing auth reconnect.`);
+            void this.completePairingReconnect(id, instance);
+            return;
+          }
+          if (statusCode === DisconnectReason.loggedOut) {
+            logger.warn(`Pairing logged out for ${instance.name} (pre-link).`);
+            return;
+          }
+          logger.warn(`Pairing socket closed for ${instance.name} before link completed. status=${statusCode}`);
+          return;
+        }
         if (live?.status === "connected") {
+          this.clearPairingSessionGuard(id);
           instance.status = "disconnected";
           instance.qrCode = undefined;
           this.instances.set(id, instance);
@@ -1297,6 +1788,267 @@ export class InstanceManager {
     }
   }
 
+  private async sendProtoMessageByJid(
+    instanceId: string,
+    jid: string,
+    content: proto.IMessage
+  ): Promise<boolean> {
+    const sock = this.sockets.get(instanceId);
+    const instance = this.instances.get(instanceId);
+    if (!sock || !instance || instance.status !== "connected") {
+      throw new Error("Instance not connected");
+    }
+
+    const targetJid = await this.resolveSendTargetJid(sock, jid);
+    const userJid = sock.user?.id;
+    if (!userJid) throw new Error("Socket user not available");
+
+    const fullMsg = generateWAMessageFromContent(targetJid, content, { userJid });
+    const messageId = fullMsg.key?.id;
+    if (!fullMsg.message || !messageId) {
+      throw new Error("Failed to build WhatsApp message");
+    }
+
+    await sock.relayMessage(targetJid, fullMsg.message, { messageId });
+
+    let ackOk = true;
+    ackOk = await this.waitForAck(messageId, instanceId);
+    if (!ackOk) {
+      logger.warn(
+        `Proto message to ${targetJid} sent locally but NO WhatsApp ack in ${InstanceManager.DEFAULT_ACK_TIMEOUT_MS}ms (instance=${instance.name}, mid=${messageId})`
+      );
+      return false;
+    }
+
+    instance.messagessSent++;
+    this.instances.set(instanceId, instance);
+    return true;
+  }
+
+  async sendButtonsByJid(
+    instanceId: string,
+    jid: string,
+    input: {
+      body: string;
+      footer?: string;
+      buttons: Array<{ id: string; text: string }>;
+      deliveryMode?: InteractiveDeliveryMode;
+    }
+  ): Promise<InteractiveSendResult> {
+    const deliveryMode: InteractiveDeliveryMode = input.deliveryMode || "auto";
+    const normalizedButtons = (input.buttons || [])
+      .map((button, index) => ({
+        id: String(button.id || `btn_${index + 1}`).trim(),
+        text: String(button.text || "").trim(),
+      }))
+      .filter((button) => button.id && button.text)
+      .slice(0, 3);
+
+    if (!String(input.body || "").trim()) {
+      return { ok: false, mode: "native", error: "body_required" };
+    }
+    if (normalizedButtons.length < 1) {
+      return { ok: false, mode: "native", error: "buttons_required" };
+    }
+
+    const fallbackText = [
+      String(input.body).trim(),
+      "",
+      ...normalizedButtons.map((button, index) => `${index + 1}) ${button.text}`),
+      "",
+      "Responda com o numero da opcao escolhida.",
+    ]
+      .join("\n")
+      .trim();
+
+    const buttonsPayload = {
+      buttonsMessage: {
+        contentText: String(input.body).trim(),
+        footerText: input.footer ? String(input.footer).trim() : undefined,
+        headerType: proto.Message.ButtonsMessage.HeaderType.EMPTY,
+        buttons: normalizedButtons.map((button) => ({
+          buttonId: button.id,
+          buttonText: { displayText: button.text },
+          type: proto.Message.ButtonsMessage.Button.Type.RESPONSE,
+        })),
+      },
+    } satisfies proto.IMessage;
+
+    try {
+      if (deliveryMode !== "text_only") {
+        const sent = await this.sendProtoMessageByJid(instanceId, jid, buttonsPayload);
+        if (!sent) {
+          if (deliveryMode === "native_only") {
+            return { ok: false, mode: "native", error: "native_send_failed" };
+          }
+          throw new Error("native_send_failed");
+        }
+        logger.info(`Buttons message sent from instance ${instanceId} to ${jid}`);
+        return { ok: true, mode: "native" };
+      }
+    } catch (error: any) {
+      const nativeError = String(error?.message || "unknown_native_buttons_error");
+      logger.error(`Error sending buttons by JID: ${nativeError}`);
+      if (deliveryMode === "native_only") {
+        return { ok: false, mode: "native", error: nativeError };
+      }
+
+      try {
+        const sentFallback = await this.sendMessageByJid(instanceId, jid, fallbackText);
+        if (!sentFallback) {
+          return { ok: false, mode: "text_fallback", error: "fallback_send_failed", nativeError };
+        }
+        logger.warn(`Buttons fallback text sent from instance ${instanceId} to ${jid}`);
+        return { ok: true, mode: "text_fallback", nativeError };
+      } catch (fallbackError: any) {
+        return {
+          ok: false,
+          mode: "text_fallback",
+          error: String(fallbackError?.message || "unknown_fallback_error"),
+          nativeError,
+        };
+      }
+    }
+
+    try {
+      const sentTextOnly = await this.sendMessageByJid(instanceId, jid, fallbackText);
+      if (!sentTextOnly) {
+        return { ok: false, mode: "text_fallback", error: "text_only_send_failed" };
+      }
+      logger.info(`Text-only buttons sent from instance ${instanceId} to ${jid}`);
+      return { ok: true, mode: "text_fallback" };
+    } catch (error: any) {
+      return { ok: false, mode: "text_fallback", error: String(error?.message || "unknown_text_only_error") };
+    }
+  }
+
+  async sendListByJid(
+    instanceId: string,
+    jid: string,
+    input: {
+      title: string;
+      description: string;
+      buttonText: string;
+      footer?: string;
+      sections: Array<{
+        title?: string;
+        rows: Array<{ id: string; title: string; description?: string }>;
+      }>;
+      deliveryMode?: InteractiveDeliveryMode;
+    }
+  ): Promise<InteractiveSendResult> {
+    const deliveryMode: InteractiveDeliveryMode = input.deliveryMode || "auto";
+    const normalizedSections = (input.sections || [])
+      .map((section) => ({
+        title: section.title ? String(section.title).trim() : undefined,
+        rows: (section.rows || [])
+          .map((row, index) => ({
+            id: String(row.id || `row_${index + 1}`).trim(),
+            title: String(row.title || "").trim(),
+            description: row.description ? String(row.description).trim() : undefined,
+          }))
+          .filter((row) => row.id && row.title),
+      }))
+      .filter((section) => section.rows.length > 0);
+
+    const flatRows = normalizedSections.flatMap((section) => section.rows).slice(0, 10);
+    if (!String(input.title || "").trim()) {
+      return { ok: false, mode: "native", error: "title_required" };
+    }
+    if (!String(input.description || "").trim()) {
+      return { ok: false, mode: "native", error: "description_required" };
+    }
+    if (!String(input.buttonText || "").trim()) {
+      return { ok: false, mode: "native", error: "button_text_required" };
+    }
+    if (flatRows.length < 1) {
+      return { ok: false, mode: "native", error: "rows_required" };
+    }
+
+    const fallbackText = [
+      `*${String(input.title).trim()}*`,
+      String(input.description).trim(),
+      "",
+      ...normalizedSections.flatMap((section) => [
+        section.title ? `*${section.title}*` : null,
+        ...section.rows.map((row, index) =>
+          row.description
+            ? `${index + 1}) ${row.title} — ${row.description}`
+            : `${index + 1}) ${row.title}`
+        ),
+      ].filter(Boolean) as string[]),
+      "",
+      "Responda com o numero da opcao escolhida.",
+    ]
+      .join("\n")
+      .trim();
+
+    const listPayload = {
+      listMessage: {
+        title: String(input.title).trim(),
+        description: String(input.description).trim(),
+        buttonText: String(input.buttonText).trim(),
+        footerText: input.footer ? String(input.footer).trim() : undefined,
+        listType: proto.Message.ListMessage.ListType.SINGLE_SELECT,
+        sections: normalizedSections.map((section) => ({
+          title: section.title,
+          rows: section.rows.map((row) => ({
+            rowId: row.id,
+            title: row.title,
+            description: row.description,
+          })),
+        })),
+      },
+    } satisfies proto.IMessage;
+
+    try {
+      if (deliveryMode !== "text_only") {
+        const sent = await this.sendProtoMessageByJid(instanceId, jid, listPayload);
+        if (!sent) {
+          if (deliveryMode === "native_only") {
+            return { ok: false, mode: "native", error: "native_send_failed" };
+          }
+          throw new Error("native_send_failed");
+        }
+        logger.info(`List message sent from instance ${instanceId} to ${jid}`);
+        return { ok: true, mode: "native" };
+      }
+    } catch (error: any) {
+      const nativeError = String(error?.message || "unknown_native_list_error");
+      logger.error(`Error sending list by JID: ${nativeError}`);
+      if (deliveryMode === "native_only") {
+        return { ok: false, mode: "native", error: nativeError };
+      }
+
+      try {
+        const sentFallback = await this.sendMessageByJid(instanceId, jid, fallbackText);
+        if (!sentFallback) {
+          return { ok: false, mode: "text_fallback", error: "fallback_send_failed", nativeError };
+        }
+        logger.warn(`List fallback text sent from instance ${instanceId} to ${jid}`);
+        return { ok: true, mode: "text_fallback", nativeError };
+      } catch (fallbackError: any) {
+        return {
+          ok: false,
+          mode: "text_fallback",
+          error: String(fallbackError?.message || "unknown_fallback_error"),
+          nativeError,
+        };
+      }
+    }
+
+    try {
+      const sentTextOnly = await this.sendMessageByJid(instanceId, jid, fallbackText);
+      if (!sentTextOnly) {
+        return { ok: false, mode: "text_fallback", error: "text_only_send_failed" };
+      }
+      logger.info(`Text-only list sent from instance ${instanceId} to ${jid}`);
+      return { ok: true, mode: "text_fallback" };
+    } catch (error: any) {
+      return { ok: false, mode: "text_fallback", error: String(error?.message || "unknown_text_only_error") };
+    }
+  }
+
   async downloadIncomingMedia(
     instanceId: string,
     msg: any
@@ -1416,6 +2168,10 @@ export class InstanceManager {
 
   onGlobalMessage(handler: (instanceId: string, msg: any) => void): void {
     this.globalMessageHandlers.push(handler);
+  }
+
+  getInstanceOwnerType(id: string): "admin" | "affiliate" {
+    return this.instanceOwnerTypes.get(id) || "admin";
   }
 
   getInstance(id: string, ownerUserId?: string): WhatsAppInstance | undefined {

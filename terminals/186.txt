@@ -1,0 +1,46 @@
+---
+pid: 21804
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd \"C:\\Users\\Public\\Projetos\\leadcapture\"; npx tsx agent-tools/test-ig-analytics-service.mjs"
+started_at: 2026-07-07T17:05:29.306Z
+running_for_ms: 86400027 
+---
+[14:05:32.394] INFO (1956): PostgreSQL connection pool created
+{
+  "period_days": 7,
+  "profile": {
+    "username": "alhopronto_",
+    "name": "Alho Pronto",
+    "followers_count": 227,
+    "follows_count": 182,
+    "media_count": 24,
+    "profile_picture_url": "https://scontent.cdninstagram.com/v/t51.82787-19/590413534_17861988723545508_3624432553264868233_n.jpg?stp=dst-jpg_s206x206_tt6&_nc_cat=104&ccb=7-5&_nc_sid=bf7eb4&efg=eyJ2ZW5jb2RlX3RhZyI6InByb2ZpbGVfcGljLnd3dy4xMDgwLkMzIn0%3D&_nc_ohc=H3tciTLje2kQ7kNvwG07fS_&_nc_oc=AdobrcLJIrzDXUx1gAwKOtw2ChBOcw7JNOwfS4iCnY8PEViFfvccMPxpEXzPTRFkNQo&_nc_zt=24&_nc_ht=scontent.cdninstagram.com&edm=AP4hL3IEAAAA&_nc_gid=tWJK7kHwOUgKGoqGfE15vg&_nc_tpa=Q5bMBQG0rcL3zSFs5AAVmUA3Z1krmVZMDph130rOJqNSImmoR0qkr3k-qVCDURyXxwQwTmF6cXMYcubfkk4&oh=00_AQBNzQ7aKd6GF4I3HH2h1hBu0TMR2EuQfzzFHHU-9makdA&oe=6A530928",
+    "biography": "Alho descascado e pasta de alho premium 🧄\nFrescor e praticidade para o seu negócio. Peça no direct!\n🧄O Sabor do Alho Sem Trabalho",
+    "website": "http://alhopronto.online"
+  },
+  "account": {
+    "reach": 25,
+    "views": 44,
+    "profile_views": 8,
+    "accounts_engaged": 0,
+    "total_interactions": 0,
+    "likes": 0,
+    "comments": 0,
+    "saves": 0,
+    "shares": 0
+  },
+  "media_summary": {
+    "total_likes": 97,
+    "total_comments": 29,
+    "posts_analyzed": 24,
+    "engagement_rate": 2.31
+  },
+  "fetched_at": "2026-07-07T17:05:35.737Z",
+  "source": "instagram_api"
+}
+
+---
+exit_code: -1
+elapsed_ms: 86400027
+ended_at: 2026-07-08T17:05:35.636Z
+---

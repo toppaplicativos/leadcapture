@@ -1,10 +1,11 @@
 import {
-  LayoutDashboard, Users, MessageSquare, Megaphone, ShoppingCart,
+  LayoutDashboard, Users, Megaphone, ShoppingCart,
   Package, Palette, Search, Mail, Truck, Globe, Bot, Zap,
-  BarChart3, Receipt, Ticket, Star, Sparkles, Film, Camera, Images,
-  GitBranch, Brain, Headphones, Bell, Settings,
+  BarChart3, Receipt, Ticket, Star, Sparkles, Film, Images,
+  GitBranch, Brain, Headphones, Bell, Settings, Handshake, Store,
 } from 'lucide-react'
-import type { LucideIcon } from 'lucide-react'
+import { FacebookIcon, InstagramIcon, WhatsAppIcon } from '@/components/icons'
+import type { IconComponent } from '@/components/icons'
 
 export const ROUTE_MAP: Record<string, string> = {
   '/admin': 'dashboard',
@@ -28,9 +29,11 @@ export const ROUTE_MAP: Record<string, string> = {
   '/produtos': 'produtos',
   '/pedidos': 'pedidos',
   '/estoque': 'estoque',
+  '/afiliados': 'afiliados',
   '/cupons': 'cupons',
   '/avaliacoes': 'avaliacoes',
-  '/design': 'design',
+  '/loja': 'loja',
+  '/design': 'loja',
   '/whatsapp': 'whatsapp',
   '/instagram': 'instagram',
   '/facebook': 'facebook',
@@ -52,7 +55,7 @@ export function resolveSection(pathname: string): string {
 export type NavItem = {
   key: string
   path: string
-  icon: LucideIcon
+  icon: IconComponent
   label: string
   group: string
   badge?: string
@@ -63,7 +66,7 @@ export const NAV_ITEMS: NavItem[] = [
   { key: 'leads', path: '/leads', icon: Users, label: 'Leads', group: 'main' },
   { key: 'clientes', path: '/clientes', icon: Users, label: 'Clientes', group: 'main' },
   { key: 'busca', path: '/busca', icon: Search, label: 'Busca', group: 'main' },
-  { key: 'mensagens', path: '/mensagens', icon: MessageSquare, label: 'Mensagens', group: 'main' },
+  { key: 'mensagens', path: '/mensagens', icon: WhatsAppIcon, label: 'Mensagens', group: 'main' },
   { key: 'campanhas', path: '/campanhas', icon: Megaphone, label: 'Campanhas', group: 'main' },
   { key: 'automacoes', path: '/automacoes', icon: Zap, label: 'Automações', group: 'main', badge: 'Novo' },
   { key: 'fluxos', path: '/fluxos', icon: GitBranch, label: 'Fluxos', group: 'main' },
@@ -74,21 +77,23 @@ export const NAV_ITEMS: NavItem[] = [
   { key: 'agente', path: '/agente', icon: Bot, label: 'Agente IA', group: 'main' },
   { key: 'atendente', path: '/atendente', icon: Headphones, label: 'Atendente', group: 'main' },
   { key: 'notificacoes', path: '/notificacoes', icon: Bell, label: 'Notificações', group: 'main' },
-  { key: 'instagram', path: '/instagram', icon: Camera, label: 'Instagram', group: 'main', badge: 'Beta' },
-  { key: 'facebook', path: '/facebook', icon: Globe, label: 'Facebook', group: 'main', badge: 'Beta' },
+  { key: 'instagram', path: '/instagram', icon: InstagramIcon, label: 'Instagram', group: 'main', badge: 'Beta' },
+  { key: 'facebook', path: '/facebook', icon: FacebookIcon, label: 'Facebook', group: 'main', badge: 'Beta' },
   { key: 'produtos', path: '/produtos', icon: Package, label: 'Produtos', group: 'loja' },
   { key: 'pedidos', path: '/pedidos', icon: ShoppingCart, label: 'Pedidos', group: 'loja' },
   { key: 'tirar-pedido', path: '/tirar-pedido', icon: Receipt, label: 'Tirar Pedido', group: 'loja' },
   { key: 'estoque', path: '/estoque', icon: BarChart3, label: 'Estoque', group: 'loja' },
+  { key: 'afiliados', path: '/afiliados', icon: Handshake, label: 'Afiliados', group: 'loja', badge: 'Novo' },
   { key: 'cupons', path: '/cupons', icon: Ticket, label: 'Cupons', group: 'loja' },
   { key: 'avaliacoes', path: '/avaliacoes', icon: Star, label: 'Avaliações', group: 'loja' },
-  { key: 'design', path: '/design', icon: Palette, label: 'Design', group: 'loja' },
+  { key: 'loja', path: '/loja', icon: Store, label: 'Loja', group: 'loja' },
   { key: 'pagamentos', path: '/pagamentos', icon: ShoppingCart, label: 'Pagamentos', group: 'loja' },
   { key: 'frete', path: '/frete', icon: Truck, label: 'Frete', group: 'loja' },
   { key: 'dominio', path: '/dominio', icon: Globe, label: 'Dominio', group: 'loja' },
+  { key: 'whatsapp', path: '/configuracoes?tab=whatsapp', icon: WhatsAppIcon, label: 'WhatsApp', group: 'config' },
   { key: 'configuracoes', path: '/configuracoes', icon: Settings, label: 'Configurações', group: 'config' },
   { key: 'emails', path: '/emails', icon: Mail, label: 'Emails', group: 'config' },
   { key: 'provedores-ia', path: '/provedores-ia', icon: Sparkles, label: 'Provedores IA', group: 'config' },
 ]
 
-export const MOBILE_NAV = ['dashboard', 'leads', 'busca', 'mensagens', 'campanhas']
+export const MOBILE_NAV = ['dashboard', 'leads', 'mensagens', 'whatsapp', 'configuracoes']

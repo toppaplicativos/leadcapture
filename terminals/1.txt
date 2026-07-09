@@ -1,0 +1,14 @@
+---
+pid: 26404
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd \"C:\\Users\\Public\\Projetos\\leadcapture\\frontend\" && npm run dev"
+started_at: 2026-07-03T20:58:25.822Z
+running_for_ms: 20219990 
+---
+No linha:1 caractere:52
++ cd "C:\Users\Public\Projetos\leadcapture\frontend" && npm run dev
++                                                    ~~
+O token '&&' n�o  um separador de instru�es v�lido nesta vers�o.
+    + CategoryInfo          : ParserError: (:) [], ParentContainsErrorRecordException
+    + FullyQualifiedErrorId : InvalidEndOfLine
+ 

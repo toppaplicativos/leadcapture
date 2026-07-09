@@ -22,52 +22,39 @@ import {
 } from '@/lib/admin/helpers'
 import type { ShowToast } from '@/lib/admin/types'
 import { Skeleton, KpiCard, EmptyState } from '@/components/admin/primitives'
+import { PushNotificationSettings } from '@/components/push/PushNotificationSettings'
+import { NotificationCenter } from '@/components/notifications/NotificationCenter'
 
-export function NotificationsView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') => void }) {
-  const [notifications, setNotifications] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    setLoading(true)
-    fetch('/api/notifications', { headers: getHeaders() })
-      .then(r => r.json()).then(d => {
-        setNotifications(d.notifications || [])
-        setLoading(false)
-      }).catch(() => setLoading(false))
-  }, [])
-
-  if (loading) return <Skeleton rows={4} />
-
-  const priorityIcon = (p: string) => {
-    if (p === 'high' || p === 'urgent') return 'bg-red-50 text-red-500'
-    if (p === 'medium') return 'bg-amber-50 text-amber-500'
-    return 'bg-blue-50 text-blue-500'
-  }
+export function NotificationsView({ showToast: _showToast }: { showToast: (t: string, tp?: 'ok' | 'err') => void }) {
+  const [tab, setTab] = useState<'inbox' | 'push'>('inbox')
 
   return (
     <div className="space-y-5">
-      <div>
-        <h2 className="text-[26px] font-bold text-gray-900 tracking-tight">Notificacoes</h2>
-        <p className="text-[13px] text-gray-400 mt-0.5">{notifications.length} notificacoes</p>
+      <div className="flex gap-1 p-1 rounded-xl bg-gray-100 w-fit">
+        <button
+          type="button"
+          onClick={() => setTab('inbox')}
+          className={`h-8 px-4 rounded-lg text-[12px] font-semibold transition ${
+            tab === 'inbox' ? 'bg-white shadow text-gray-900' : 'text-gray-500'
+          }`}
+        >
+          Central in-app
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab('push')}
+          className={`h-8 px-4 rounded-lg text-[12px] font-semibold transition ${
+            tab === 'push' ? 'bg-white shadow text-gray-900' : 'text-gray-500'
+          }`}
+        >
+          Push nativo
+        </button>
       </div>
-      {notifications.length === 0 ? (
-        <EmptyState icon={Bell} text="Nenhuma notificacao" />
-      ) : (
-        <div className="space-y-2">
-          {notifications.map((n: any, i: number) => (
-            <div key={n.notification_id || i} className={`bg-white rounded-2xl border shadow-[0_1px_3px_rgba(0,0,0,0.06)] p-4 flex items-start gap-3 ${n.read ? 'border-gray-100' : 'border-blue-200 bg-blue-50/30'}`}>
-              <div className={`w-9 h-9 rounded-xl grid place-items-center shrink-0 ${priorityIcon(n.priority)}`}>
-                <Bell size={16} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-sm text-gray-900">{n.title}</p>
-                <p className="text-xs text-gray-500 mt-0.5">{n.message}</p>
-                <p className="text-[10px] text-gray-400 mt-1">{dtFull(n.created_at)}</p>
-              </div>
-              {!n.read && <div className="w-2 h-2 rounded-full bg-blue-500 shrink-0 mt-2" />}
-            </div>
-          ))}
-        </div>
+
+      {tab === 'push' && <PushNotificationSettings />}
+
+      {tab === 'inbox' && (
+        <NotificationCenter getHeaders={getHeaders} appContext="admin" />
       )}
     </div>
   )

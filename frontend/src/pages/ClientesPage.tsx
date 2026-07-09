@@ -2,10 +2,11 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import {
   Search, Filter, Star, Phone, MapPin, Tag, X,
   ChevronLeft, ChevronRight, Users, Loader2,
-  MessageSquare, Mail, Globe, ExternalLink, Trash2, Send,
+  Mail, Globe, ExternalLink, Trash2, Send,
   CheckCircle2, Edit3, CheckSquare, Square, Sparkles, AlertTriangle,
   SlidersHorizontal, ChevronDown, Check, Building2,
 } from 'lucide-react'
+import { WhatsAppIcon } from '@/components/icons'
 import { Button } from '@/components/ui'
 import { SmartImportModal } from '@/components/SmartImportModal'
 import { useClientsBridgeOptional } from '@/lib/agent/ClientsBridgeContext'
@@ -640,7 +641,7 @@ export function ClientesPage({ embedded = false }: { embedded?: boolean } = {}) 
               : 'bg-gray-50 text-gray-600 hover:bg-gray-100 border border-transparent'
           }`}
         >
-          <MessageSquare size={12} strokeWidth={2.25} /> WhatsApp
+          <WhatsAppIcon size={12} className="brand-icon--wa" /> WhatsApp
         </button>
       </div>
 
@@ -666,7 +667,7 @@ export function ClientesPage({ embedded = false }: { embedded?: boolean } = {}) 
               <ActiveChip label={`${minRating}+`} icon={<Star size={10} strokeWidth={2} className="fill-current" />} onRemove={() => { setMinRating(null); setPage(1) }} />
             )}
             {hasWhatsapp === true && (
-              <ActiveChip label="WhatsApp" icon={<MessageSquare size={10} strokeWidth={2} />} onRemove={() => { setHasWhatsapp(null); setPage(1) }} />
+              <ActiveChip label="WhatsApp" icon={<WhatsAppIcon size={10} className="brand-icon--wa" />} onRemove={() => { setHasWhatsapp(null); setPage(1) }} />
             )}
             <button
               onClick={clearFilters}
@@ -1461,7 +1462,7 @@ function LeadDetailModal({
                   rel="noreferrer"
                   className="flex items-center justify-center gap-1.5 h-10 flex-1 px-3 rounded-xl bg-emerald-600 text-white text-[13px] font-medium hover:bg-emerald-700 active:scale-[0.98] transition"
                 >
-                  <MessageSquare size={14} strokeWidth={1.75} /> WhatsApp
+                  <WhatsAppIcon size={14} className="brand-icon--wa" /> WhatsApp
                 </a>
               )}
               {lead.email && (
@@ -1841,7 +1842,7 @@ function LeadDetailModal({
                   {phone && (
                     <a href={`https://wa.me/${phone}`} target="_blank" rel="noreferrer"
                       className="flex items-center justify-center gap-2 h-11 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-[13px] active:scale-[0.98] transition">
-                      <MessageSquare size={15} strokeWidth={1.75} /> WhatsApp
+                      <WhatsAppIcon size={15} className="brand-icon--wa" /> WhatsApp
                     </a>
                   )}
                   {lead.email && (

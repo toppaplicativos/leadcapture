@@ -1,0 +1,9 @@
+{
+  "name": "typeui_get_usage",
+  "description": "Show the current TypeUI request usage status and access requirement.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {},
+    "type": "object"
+  }
+}

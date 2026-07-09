@@ -1,0 +1,19 @@
+---
+pid: 29164
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd \"C:\\Users\\Public\\Projetos\\leadcapture\\frontend\"; npm run build"
+started_at: 2026-07-08T18:40:29.506Z
+running_for_ms: 29190000 
+---
+
+> leadcapture-frontend@1.0.0 build
+> tsc -b && vite build
+
+src/lib/affiliates/share-destinations.ts(3,37): error TS2305: Module '"lucide-react"' has no exported member 'Instagram'.
+src/pages/affiliate/AffiliateLinksHub.tsx(35,10): error TS2300: Duplicate identifier 'shareProduct'.
+src/pages/affiliate/AffiliateLinksHub.tsx(106,12): error TS2300: Duplicate identifier 'shareProduct'.
+src/pages/affiliate/AffiliateLinksHub.tsx(121,28): error TS2339: Property 'id' does not exist on type '(p: AffiliateProductCatalogItem) => void'.
+src/pages/affiliate/AffiliateLinksHub.tsx(124,35): error TS2339: Property 'image_url' does not exist on type '(p: AffiliateProductCatalogItem) => void'.
+src/pages/affiliate/AffiliateLinksHub.tsx(125,31): error TS2339: Property 'price' does not exist on type '(p: AffiliateProductCatalogItem) => void'.
+src/pages/affiliate/AffiliateLinksHub.tsx(126,37): error TS2339: Property 'promo_price' does not exist on type '(p: AffiliateProductCatalogItem) => void'.
+src/pages/affiliate/AffiliateShareStudio.tsx(4,18): error TS2305: Module '"lucide-react"' has no exported member 'Instagram'.

@@ -1,0 +1,28 @@
+---
+pid: 20952
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "scp C:\\Users\\Public\\Projetos\\leadcapture\\dist\\index.js root@187.127.5.179:/root/leadcapture/dist/index.js; scp -r C:\\Users\\Public\\Projetos\\leadcapture\\dist\\services\\adminAgent root@187.127.5.179:/root/leadcapture/dist/services/; ssh root@187.127.5.179 \"pm2 restart leadcapture-api && sleep 12 && pm2 list | head -8\""
+started_at: 2026-07-07T04:41:07.975Z
+running_for_ms: 86400002 
+---
+Use --update-env to update environment variables
+[PM2] Applying action restartProcessId on app [leadcapture-api](ids: [ 2 ])
+[PM2] [leadcapture-api](2) ✓
+┌────┬────────────────────┬─────────────┬─────────┬─────────┬──────────┬────────┬──────┬───────────┬──────────┬──────────┬──────────┬──────────┐
+│ id │ name               │ namespace   │ version │ mode    │ pid      │ uptime │ ↺    │ status    │ cpu      │ mem      │ user     │ watching │
+├────┼────────────────────┼─────────────┼─────────┼─────────┼──────────┼────────┼──────┼───────────┼──────────┼──────────┼──────────┼──────────┤
+│ 2  │ leadcapture-api    │ default     │ 1.0.0   │ fork    │ 340652   │ 0s     │ 75   │ online    │ 0%       │ 11.1mb   │ root     │ disabled │
+│ 1  │ leadcapture-web    │ default     │ N/A     │ fork    │ 340292   │ 4m     │ 43   │ online    │ 0%       │ 62.8mb   │ root     │ disabled │
+└────┴────────────────────┴─────────────┴─────────┴─────────┴──────────┴────────┴──────┴───────────┴──────────┴──────────┴──────────┴──────────┘
+┌────┬────────────────────┬─────────────┬─────────┬─────────┬──────────┬────────┬──────┬───────────┬──────────┬──────────┬──────────┬──────────┐
+│ id │ name               │ namespace   │ version │ mode    │ pid      │ uptime │ ↺    │ status    │ cpu      │ mem      │ user     │ watching │
+├────┼────────────────────┼─────────────┼─────────┼─────────┼──────────┼────────┼──────┼───────────┼──────────┼──────────┼──────────┼──────────┤
+│ 2  │ leadcapture-api    │ default     │ 1.0.0   │ fork    │ 340652   │ 12s    │ 75   │ online    │ 0%       │ 194.5mb  │ root     │ disabled │
+│ 1  │ leadcapture-web    │ default     │ N/A     │ fork    │ 340292   │ 4m     │ 43   │ online    │ 0%       │ 63.3mb   │ root     │ disabled │
+└────┴────────────────────┴─────────────┴─────────┴─────────┴──────────┴────────┴──────┴───────────┴──────────┴──────────┴──────────┴──────────┘
+
+---
+exit_code: -1
+elapsed_ms: 86400002
+ended_at: 2026-07-08T04:41:17.697Z
+---

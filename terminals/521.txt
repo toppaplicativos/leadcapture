@@ -1,0 +1,7 @@
+---
+pid: 23532
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd \"C:\\Users\\Public\\Projetos\\leadcapture\"; npx tsc --noEmit -p tsconfig.json 2>&1 | Select-Object -First 40"
+started_at: 2026-07-09T02:05:31.342Z
+running_for_ms: 2489984  
+---

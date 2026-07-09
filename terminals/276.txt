@@ -1,0 +1,24 @@
+---
+pid: 27312
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "$env:SMOKE_EMAIL='eleniceventura72@gmail.com'; $env:SMOKE_PASSWORD='salao1234'; $env:BRAND_SLUG='alhopronto'; node \"C:\\Users\\Public\\Projetos\\leadcapture\\agent-tools\\verify-custom-domain.mjs\" \"alhopronto.online\" 2>&1"
+started_at: 2026-07-07T21:19:12.327Z
+running_for_ms: 86400010 
+---
+Verificando domínio: alhopronto.online
+
+OK    brand ativa: Macramê Vó Nina (macrame-vo-nina)
+Domínio não listado — tentando adicionar em Macramê Vó Nina…
+node : ERRO  Domain already linked to another store
+No linha:1 caractere:111
++ ... lhopronto'; node "C:\Users\Public\Projetos\leadcapture\agent-tools\ve ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (ERRO  Domain al...o another store:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+
+---
+exit_code: -1
+elapsed_ms: 86400010
+ended_at: 2026-07-08T21:19:22.136Z
+---

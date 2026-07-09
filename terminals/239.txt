@@ -1,0 +1,39 @@
+---
+pid: 23092
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "Set-Location C:\\Users\\Public\\Projetos\\leadcapture\\frontend; npm run build 2>&1 | Select-Object -Last 25"
+started_at: 2026-07-07T17:58:42.634Z
+running_for_ms: 86400010 
+---
+dist/assets/SmartImportModal-CqlnRHTb.js                26.95 kB │ gzip:   7.13 kB
+dist/assets/AffiliatesPage-C_ny0C_9.js                  28.08 kB │ gzip:   6.53 kB
+dist/assets/AgentPDVPage-D9q9OXf2.js                    28.80 kB │ gzip:   7.22 kB
+dist/assets/AgentShellContext-DEjOhIIO.js               36.19 kB │ gzip:   8.03 kB
+dist/assets/CriativosPage-BMTG1JbN.js                   41.41 kB │ gzip:  10.19 kB
+dist/assets/BrandImageGeneratorPage-B251ChYi.js         47.95 kB │ gzip:  13.39 kB
+dist/assets/InventoryPage-LgsQOOY4.js                   51.35 kB │ gzip:  11.91 kB
+dist/assets/ClientesPage-CHu8x0uY.js                    60.84 kB │ gzip:  14.08 kB
+dist/assets/InstagramPage-DSPx3upK.js                   61.56 kB │ gzip:  13.38 kB
+dist/assets/LeadsPage-B7GaK1Fu.js                       67.04 kB │ gzip:  15.56 kB
+dist/assets/LeadSearchPage-DyXw6-or.js                  69.76 kB │ gzip:  17.77 kB
+dist/assets/ProductsView-CVtX1Sis.js                    70.76 kB │ gzip:  15.36 kB
+dist/assets/CampaignsView-CA75ahlG.js                   88.42 kB │ gzip:  21.72 kB
+dist/assets/AdminShell-ChIaP9EU.js                     201.83 kB │ gzip:  39.03 kB
+dist/assets/LandingPage-DzE6TRFm.js                    227.17 kB │ gzip:  63.74 kB
+dist/assets/index-DVw7BYWQ.js                          341.27 kB │ gzip: 103.00 kB
+dist/assets/VideoStudioPage-MW76tCMo.js                403.35 kB │ gzip: 121.30 kB
+dist/assets/mapbox-gl-t5YEFVvG.js                    1,763.51 kB │ gzip: 480.83 kB
+
+✓ built in 2.67s
+[plugin builtin:vite-reporter] 
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: 
+https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+
+---
+exit_code: -1
+elapsed_ms: 86400010
+ended_at: 2026-07-08T17:58:48.954Z
+---

@@ -1,0 +1,13 @@
+---
+pid: 28612
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd C:\\Users\\Public\\Projetos\\leadcapture; npx tsc --pretty false 2>&1 | Select-String \"error\""
+started_at: 2026-07-06T23:44:03.453Z
+running_for_ms: 86400008 
+---
+
+---
+exit_code: -1
+elapsed_ms: 86400008
+ended_at: 2026-07-07T23:44:13.109Z
+---

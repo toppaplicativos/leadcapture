@@ -1,11 +1,13 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Minus, Plus, Trash2, ShoppingBag, ArrowLeft, ArrowRight, CreditCard, ImageOff, User, MapPin, CheckCircle2, MessageCircle, QrCode, FileText, Banknote, Truck, Clock, PartyPopper, Ticket, X as XIcon, Loader2 } from 'lucide-react'
+import { Minus, Plus, Trash2, ShoppingBag, ArrowLeft, ArrowRight, CreditCard, ImageOff, User, MapPin, CheckCircle2, QrCode, FileText, Banknote, Truck, Clock, PartyPopper, Ticket, X as XIcon, Loader2 } from 'lucide-react'
+import { WhatsAppIcon } from '@/components/icons'
 import { useNavigate } from 'react-router-dom'
 import { fetchCatalog, createOrder, validateCoupon, type Product } from '@/lib/api'
 import { useCartStore } from '@/lib/store'
 import { getCustomer, setCustomer } from '@/lib/store'
 import { money, storeUrl, normalizePhone } from '@/lib/store-context'
 import { useToast } from '@/components/Toast'
+import { getAffiliateCoupon, getAffiliateOrderMeta } from '@/lib/affiliate-tracking'
 
 type Step = 'cart' | 'customer' | 'delivery' | 'payment'
 
@@ -99,6 +101,38 @@ export function CheckoutPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [total])
 
+  /* Auto-aplica cupom do link de afiliado (?cupom= / ?ref=) */
+  useEffect(() => {
+    if (loading || couponApplied || couponApplying) return
+    const stored = getAffiliateCoupon()
+    if (!stored || total <= 0) return
+    setCouponInput(stored)
+    const code = stored.toUpperCase()
+    setCouponApplying(true)
+    setCouponError('')
+    validateCoupon({
+      code,
+      subtotal: total,
+      productIds: cartKeys.map(k => items[k]?.productId).filter(Boolean) as string[],
+      customerId: phone || undefined,
+    })
+      .then((res) => {
+        if (res.valid && res.coupon) {
+          setCouponApplied({
+            code: res.coupon.code,
+            discount_amount: res.discount_amount,
+            description: res.coupon.description,
+          })
+          setCouponInput('')
+          showToast(`Cupom do afiliado ${res.coupon.code} aplicado`)
+        } else {
+          setCouponError(res.reason || 'Cupom do afiliado inválido.')
+        }
+      })
+      .catch((e: Error) => setCouponError(e.message || 'Erro ao validar cupom do afiliado'))
+      .finally(() => setCouponApplying(false))
+  }, [loading, total, couponApplied, couponApplying, cartKeys.length])
+
   async function applyCoupon() {
     const code = couponInput.trim().toUpperCase()
     if (!code) return
@@ -163,6 +197,7 @@ export function CheckoutPage() {
         notes: [establishmentName ? `Estabelecimento: ${establishmentName}` : '', whatsappNotify && phone ? `WhatsApp: ${phone}` : '', notes].filter(Boolean).join(' | '),
         /* Fase 13 — forward the validated coupon code; server re-validates */
         cupom_codigo: couponApplied?.code || undefined,
+        ...getAffiliateOrderMeta(),
       })
       clear()
       if (result.checkout_url) { window.location.href = result.checkout_url; return }
@@ -438,7 +473,7 @@ export function CheckoutPage() {
                 <div className="flex items-center justify-between bg-emerald-50 border border-emerald-100 rounded-xl p-3.5">
                   <div className="flex items-center gap-2.5">
                     <span className="w-9 h-9 rounded-full bg-white grid place-items-center text-emerald-600 shrink-0">
-                      <MessageCircle size={18} strokeWidth={1.75} />
+                      <WhatsAppIcon size={18} />
                     </span>
                     <div>
                       <p className="text-sm font-semibold text-gray-800">Notificacoes por WhatsApp</p>

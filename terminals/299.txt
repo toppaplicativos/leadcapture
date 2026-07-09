@@ -1,0 +1,22 @@
+---
+pid: 21520
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd C:\\Users\\Public\\Projetos\\leadcapture; npm run build; if ($LASTEXITCODE -eq 0) { .\\agent-tools\\deploy-full.ps1 -SkipBuild -SkipSmoke }"
+started_at: 2026-07-07T21:46:59.033Z
+running_for_ms: 86400010 
+---
+
+> lead-captation-system@1.0.0 build
+> tsc
+
+src/services/whatsappHealth.ts(337,9): error TS2322: Type '{ id: string; name: string; phone: any; brand_id: any; status_db: string; status_runtime: "disconnected" | "connecting" | "connected" | "unknown" | "pairing"; drift: boolean; last_connected_at: string | null; seconds_since_connected: number | null; criticality: InstanceHealthCriticality; human_reason: string; has_pe...' is not assignable to type 'InstanceHealthRow[]'.
+  Type '{ id: string; name: string; phone: any; brand_id: any; status_db: string; status_runtime: "disconnected" | "connecting" | "connected" | "unknown" | "pairing"; drift: boolean; last_connected_at: string | null; seconds_since_connected: number | null; criticality: InstanceHealthCriticality; human_reason: string; has_pe...' is not assignable to type 'InstanceHealthRow'.
+    Types of property 'status_runtime' are incompatible.
+      Type '"disconnected" | "connecting" | "connected" | "unknown" | "pairing"' is not assignable to type '"disconnected" | "connected" | "unknown"'.
+        Type '"connecting"' is not assignable to type '"disconnected" | "connected" | "unknown"'.
+
+---
+exit_code: -1
+elapsed_ms: 86400010
+ended_at: 2026-07-08T21:47:08.774Z
+---

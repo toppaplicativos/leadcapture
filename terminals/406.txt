@@ -1,0 +1,20 @@
+---
+pid: 8612
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cmd /c \"cd /d C:\\Users\\Public\\Projetos\\leadcapture && node agent-tools/cleanup-affiliate-smoke-sessions.mjs\""
+started_at: 2026-07-08T14:59:49.652Z
+running_for_ms: 42430002 
+---
+Encontradas 10 sessões de smoke (de 10 total)
+OK    removida: Smoke Iso 1783522752618
+OK    removida: Smoke Iso 1783522464929
+OK    removida: Smoke Iso 1783522464514
+OK    removida: Smoke Iso 1783522449032
+OK    removida: Smoke Iso 1783522448482
+OK    removida: Smoke Iso 1783522264987
+OK    removida: Smoke Iso 1783522208828
+OK    removida: Smoke Iso 1783522192640
+OK    removida: Smoke Iso 1783522008046
+OK    removida: Smoke Iso 1783521991787
+
+Removidas 10/10 sessões de teste

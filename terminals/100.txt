@@ -1,0 +1,20 @@
+---
+pid: 27300
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd \"C:\\Users\\Public\\Projetos\\leadcapture\\frontend\"; npm run build 2>&1"
+started_at: 2026-07-07T02:19:33.194Z
+running_for_ms: 86400015 
+---
+
+> leadcapture-frontend@1.0.0 build
+> tsc -b && vite build
+
+src/components/agent/prospect/ProspectInlinePanel.tsx(122,63): error TS2322: Type '(opts?: { status?: string; }) => void' is not assignable to type 'MouseEventHandler<HTMLButtonElement>'.
+  Types of parameters 'opts' and 'event' are incompatible.
+    Type 'MouseEvent<HTMLButtonElement, MouseEvent>' has no properties in common with type '{ status?: string | undefined; }'.
+
+---
+exit_code: -1
+elapsed_ms: 86400015
+ended_at: 2026-07-08T02:19:42.916Z
+---

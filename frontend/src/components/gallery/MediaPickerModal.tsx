@@ -11,6 +11,9 @@ export interface MediaPickerModalProps {
   open: boolean
   onClose: () => void
   onSelect: (item: GalleryItem) => void
+  onSelectMultiple?: (items: GalleryItem[]) => void
+  multiple?: boolean
+  maxItems?: number
   accept?: GalleryItemType[]
   folder?: string
   title?: string
@@ -22,6 +25,9 @@ export function MediaPickerModal({
   open,
   onClose,
   onSelect,
+  onSelectMultiple,
+  multiple = false,
+  maxItems,
   accept = ['image', 'video'],
   folder: initialFolder,
   title = 'Escolher da galeria',
@@ -34,6 +40,7 @@ export function MediaPickerModal({
   const [activeFolder, setActiveFolder] = useState(initialFolder || 'all')
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<GalleryItem | null>(null)
+  const [selectedMany, setSelectedMany] = useState<GalleryItem[]>([])
   const [confirming, setConfirming] = useState(false)
 
   const load = useCallback(async () => {
@@ -61,6 +68,7 @@ export function MediaPickerModal({
     if (!open) return
     setActiveFolder(initialFolder || 'all')
     setSelected(null)
+    setSelectedMany([])
     setSearch('')
   }, [open, initialFolder])
 
@@ -70,17 +78,38 @@ export function MediaPickerModal({
     return () => clearTimeout(t)
   }, [open, load, search])
 
+  function toggleMulti(item: GalleryItem) {
+    setSelectedMany((prev) => {
+      const exists = prev.some((i) => i.id === item.id)
+      if (exists) return prev.filter((i) => i.id !== item.id)
+      const cap = maxItems && maxItems > 0 ? maxItems : 10
+      if (prev.length >= cap) return prev
+      return [...prev, item]
+    })
+  }
+
   async function handleConfirm() {
-    if (!selected) return
+    const picks = multiple ? selectedMany : selected ? [selected] : []
+    if (!picks.length) return
     setConfirming(true)
     try {
       if (useContext) {
-        await markGalleryItemUsed(selected.id, useContext, contextId)
+        for (const item of picks) {
+          await markGalleryItemUsed(item.id, useContext, contextId)
+        }
       }
-      onSelect(selected)
+      if (multiple && onSelectMultiple) {
+        onSelectMultiple(picks)
+      } else if (picks[0]) {
+        onSelect(picks[0])
+      }
       onClose()
     } catch {
-      onSelect(selected)
+      if (multiple && onSelectMultiple) {
+        onSelectMultiple(picks)
+      } else if (picks[0]) {
+        onSelect(picks[0])
+      }
       onClose()
     } finally {
       setConfirming(false)
@@ -147,10 +176,10 @@ export function MediaPickerModal({
                     <GalleryThumb
                       key={item.id}
                       item={item}
-                      selected={selected?.id === item.id}
+                      selected={multiple ? selectedMany.some((i) => i.id === item.id) : selected?.id === item.id}
                       selectable
-                      onOpen={() => setSelected(item)}
-                      onSelect={() => setSelected(item)}
+                      onOpen={() => (multiple ? toggleMulti(item) : setSelected(item))}
+                      onSelect={() => (multiple ? toggleMulti(item) : setSelected(item))}
                     />
                   ))}
                 </div>
@@ -159,17 +188,27 @@ export function MediaPickerModal({
           </div>
         </div>
 
-        <footer className="flex items-center justify-end gap-2 px-5 py-4 bg-white border-t border-gray-100">
-          <Button variant="secondary" onClick={onClose}>
-            Cancelar
-          </Button>
-          <Button
-            disabled={!selected}
-            loading={confirming}
-            onClick={handleConfirm}
-          >
-            Usar selecionado
-          </Button>
+        <footer className="flex items-center justify-between gap-2 px-5 py-4 bg-white border-t border-gray-100">
+          {multiple ? (
+            <span className="text-xs text-gray-500">
+              {selectedMany.length} selecionada{selectedMany.length === 1 ? '' : 's'}
+              {maxItems ? ` (max ${maxItems})` : ''}
+            </span>
+          ) : (
+            <span />
+          )}
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" onClick={onClose}>
+              Cancelar
+            </Button>
+            <Button
+              disabled={multiple ? selectedMany.length === 0 : !selected}
+              loading={confirming}
+              onClick={handleConfirm}
+            >
+              {multiple ? 'Adicionar selecionadas' : 'Usar selecionado'}
+            </Button>
+          </div>
         </footer>
       </div>
     </div>

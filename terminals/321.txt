@@ -1,0 +1,16 @@
+---
+pid: 26768
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd C:\\Users\\Public\\Projetos\\leadcapture; npx tsx agent-tools/test-ig-conversations.mjs"
+started_at: 2026-07-07T22:38:10.092Z
+running_for_ms: 86400017 
+---
+[19:38:19.785] INFO (16240): PostgreSQL connection pool created
+meta: { api_count: 0, local_count: 0, api_error: undefined }
+threads: 0
+
+---
+exit_code: -1
+elapsed_ms: 86400017
+ended_at: 2026-07-08T22:38:23.271Z
+---

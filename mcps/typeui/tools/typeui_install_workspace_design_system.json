@@ -1,0 +1,17 @@
+{
+  "name": "typeui_install_workspace_design_system",
+  "description": "Prepare a project-local skill package from the latest saved workspace project package. Pass the designSystemId returned by typeui_list_workspace_design_systems.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "designSystemId": {
+        "description": "Workspace project UUID. Kept as designSystemId for compatibility.",
+        "type": "string"
+      }
+    },
+    "required": [
+      "designSystemId"
+    ],
+    "type": "object"
+  }
+}

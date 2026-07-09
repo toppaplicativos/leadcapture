@@ -1,0 +1,36 @@
+---
+pid: 28244
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd C:\\Users\\Public\\Projetos\\leadcapture; Get-Content agent-tools\\.env.smoke | ForEach-Object { if ($_ -match '^([^#=]+)=(.*)$') { Set-Item -Path \"Env:$($matches[1])\" -Value $matches[2] } }; node agent-tools\\smoke-authenticated.mjs 2>&1 | Select-Object -Last 30"
+started_at: 2026-07-07T22:20:38.553Z
+running_for_ms: 86400005 
+---
+Smoke autenticado: https://app.leadcapture.online
+
+OK    login → /admin
+OK    workspace carregado
+OK    sem erros de chunk pós-login
+OK    Painel → módulo aberto ("Painel · 522 leads")
+OK    Painel → KPI 522
+OK    Leads → módulo aberto ("522 leads")
+OK    Leads → KPI 522
+OK    Produtos → módulo aberto ("25 produtos")
+OK    Produtos → KPI 25
+OK    Campanhas → módulo aberto ("10 campanhas")
+OK    Habilidades → módulo aberto ("9 habilidades")
+OK    Habilidades → KPI 9
+OK    Pedidos → módulo aberto ("0 pedidos")
+OK    Instagram → módulo aberto ("Instagram · conectar conta")
+OK    Instagram → hint canvas desktop
+OK    Instagram → canvas embed visível
+OK    Facebook → módulo aberto ("Facebook · conectar página")
+OK    Facebook → hint canvas desktop
+OK    Facebook → canvas embed visível
+
+Tudo OK
+
+---
+exit_code: -1
+elapsed_ms: 86400005
+ended_at: 2026-07-08T22:20:51.695Z
+---

@@ -1,0 +1,116 @@
+leadcapture.online, www.leadcapture.online {
+    handle {
+        reverse_proxy 127.0.0.1:3001
+        header Cache-Control "no-cache, no-store, must-revalidate"
+    }
+}
+
+app.leadcapture.online {
+    handle /socket.io/* {
+        reverse_proxy 127.0.0.1:3001
+    }
+    handle /api/* {
+        reverse_proxy 127.0.0.1:3001 {
+            transport http {
+                read_timeout 5m
+                write_timeout 5m
+                dial_timeout 30s
+            }
+        }
+    }
+    handle /uploads/* {
+        reverse_proxy 127.0.0.1:3001
+    }
+    handle {
+        reverse_proxy 127.0.0.1:3001
+        header Cache-Control "no-cache, no-store, must-revalidate"
+    }
+}
+# leadcapture:parceiros.leadcapture.online
+parceiros.leadcapture.online, afiliados.leadcapture.online {
+    handle /socket.io/* {
+        reverse_proxy 127.0.0.1:3001
+    }
+    handle /api/* {
+        reverse_proxy 127.0.0.1:3001 {
+            transport http {
+                read_timeout 5m
+                write_timeout 5m
+                dial_timeout 30s
+            }
+        }
+    }
+    handle /uploads/* {
+        reverse_proxy 127.0.0.1:3001
+    }
+    handle {
+        reverse_proxy 127.0.0.1:3001
+        header Cache-Control "no-cache, no-store, must-revalidate"
+    }
+}
+
+
+# leadcapture:adm.leadcapture.online — admin master SaaS
+adm.leadcapture.online, www.adm.leadcapture.online {
+    handle /socket.io/* {
+        reverse_proxy 127.0.0.1:3001
+    }
+    handle /api/* {
+        reverse_proxy 127.0.0.1:3001 {
+            transport http {
+                read_timeout 5m
+                write_timeout 5m
+                dial_timeout 30s
+            }
+        }
+    }
+    handle /uploads/* {
+        reverse_proxy 127.0.0.1:3001
+    }
+    handle {
+        reverse_proxy 127.0.0.1:3001
+        header Cache-Control "no-cache, no-store, must-revalidate"
+    }
+}
+
+# ai-model-studio:toppaimodel.online
+toppaimodel.online, www.toppaimodel.online, app.toppaimodel.online, adm.toppaimodel.online {
+    encode gzip
+
+    reverse_proxy 127.0.0.1:5000 {
+        transport http {
+            read_timeout 5m
+            write_timeout 5m
+            dial_timeout 30s
+        }
+    }
+
+    header Cache-Control "no-cache, no-store, must-revalidate"
+}
+
+
+
+# LeadCapture — Alho Pronto (loja + afiliados)
+alhopronto.online, www.alhopronto.online {
+    encode gzip
+    reverse_proxy 127.0.0.1:3001 {
+        transport http {
+            read_timeout 5m
+            write_timeout 5m
+            dial_timeout 30s
+        }
+    }
+    header Cache-Control no-cache, no-store, must-revalidate
+}
+
+parceiros.alhopronto.online {
+    encode gzip
+    reverse_proxy 127.0.0.1:3001 {
+        transport http {
+            read_timeout 5m
+            write_timeout 5m
+            dial_timeout 30s
+        }
+    }
+    header Cache-Control no-cache, no-store, must-revalidate
+}

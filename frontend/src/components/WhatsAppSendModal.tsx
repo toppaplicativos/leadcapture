@@ -12,9 +12,10 @@
 import { useState, useCallback, useMemo, useEffect } from 'react'
 import {
   X, Copy, ExternalLink, ChevronLeft, ChevronRight,
-  CheckCircle2, MessageSquare, Smartphone, Monitor,
+  CheckCircle2, Smartphone, Monitor,
   Edit3, RotateCcw, Phone, AlertCircle, Sparkles, Loader2,
 } from 'lucide-react'
+import { WhatsAppIcon } from '@/components/icons'
 
 /* ─────────────────────────────────────────────────────────────
    Types
@@ -369,7 +370,7 @@ export function WhatsAppSendModal({ leads, onClose, onSent }: WhatsAppSendModalP
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <MessageSquare size={16} className="text-emerald-600 shrink-0" />
+                <WhatsAppIcon size={16} className="brand-icon--wa shrink-0" />
                 <h2 className="text-[16px] font-bold text-gray-900">Enviar pelo WhatsApp</h2>
               </div>
               <p className="text-[12px] text-gray-500 mt-0.5 truncate">
@@ -569,7 +570,7 @@ export function WhatsAppSendModal({ leads, onClose, onSent }: WhatsAppSendModalP
                 {currentSent ? (
                   <><CheckCircle2 size={16} strokeWidth={2} /> Enviado — abrir novamente</>
                 ) : (
-                  <><MessageSquare size={16} strokeWidth={2} /> Copiar e abrir WhatsApp</>
+                  <><WhatsAppIcon size={16} className="brand-icon--wa" /> Copiar e abrir WhatsApp</>
                 )}
               </button>
 

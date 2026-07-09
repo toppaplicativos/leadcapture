@@ -1,0 +1,59 @@
+---
+pid: 27496
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "powershell -ExecutionPolicy Bypass -File C:\\Users\\Public\\Projetos\\leadcapture\\agent-tools\\deploy-full.ps1"
+started_at: 2026-07-07T04:36:23.685Z
+running_for_ms: 86400012 
+---
+>> Enviando backend dist/index.js
+>> Enviando frontend completo
+Use --update-env to update environment variables
+[PM2] Applying action restartProcessId on app [leadcapture-api](ids: [ 2 ])
+[PM2] [leadcapture-api](2) ✓
+Use --update-env to update environment variables
+[PM2] Applying action restartProcessId on app [leadcapture-web](ids: [ 1 ])
+[PM2] [leadcapture-web](1) ✓
+┌────┬────────────────────┬─────────────┬─────────┬─────────┬──────────┬────────┬──────┬───────────┬──────────┬──────────┬──────────┬──────────┐
+│ id │ name               │ namespace   │ version │ mode    │ pid      │ uptime │ ↺    │ status    │ cpu      │ mem      │ user     │ watching │
+├────┼────────────────────┼─────────────┼─────────┼─────────┼──────────┼────────┼──────┼───────────┼──────────┼──────────┼──────────┼──────────┤
+│ 2  │ leadcapture-api    │ default     │ 1.0.0   │ fork    │ 340280   │ 0s     │ 74   │ online    │ 69.2%    │ 53.5mb   │ root     │ disabled │
+│ 1  │ leadcapture-web    │ default     │ N/A     │ fork    │ 340292   │ 0s     │ 43   │ online    │ 0%       │ 6.5mb    │ root     │ disabled │
+└────┴────────────────────┴─────────────┴─────────┴─────────┴──────────┴────────┴──────┴───────────┴──────────┴──────────┴──────────┴──────────┘
+[PM2] Saving current process list...
+[PM2] Successfully saved in /root/.pm2/dump.pm2
+OK deploy
+>> Verificando deploy
+Verificando https://app.leadcapture.online
+
+FAIL  index.html — status 502
+FAIL  missing chunk → 404 (not HTML) — status 502 ct=
+
+4 falha(s)
+FAIL  admin-agent route — status 502
+FAIL  /admin SPA — status 502
+Smoke test: https://app.leadcapture.online
+
+FAIL  / → page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://app.leadcapture.online/
+Call log:
+  - navigating to "https://app.leadcapture.online/", waiting until "networkidle"
+
+FAIL  /login → page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://app.leadcapture.online/login
+Call log:
+  - navigating to "https://app.leadcapture.online/login", waiting until "networkidle"
+
+FAIL  /admin → page.goto: Navigation to "https://app.leadcapture.online/admin" is interrupted by another navigation to "chrome-error://chromewebdata/"
+Call log:
+  - navigating to "https://app.leadcapture.online/admin", waiting until "networkidle"
+
+FAIL  /inicio → page.goto: Navigation to "https://app.leadcapture.online/inicio" is interrupted by another navigation to "https://app.leadcapture.online/admin"
+Call log:
+  - navigating to "https://app.leadcapture.online/inicio", waiting until "networkidle"
+
+
+4 falha(s)
+
+---
+exit_code: -1
+elapsed_ms: 86400012
+ended_at: 2026-07-08T04:36:33.302Z
+---

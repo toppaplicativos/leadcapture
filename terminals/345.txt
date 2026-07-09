@@ -1,0 +1,13 @@
+---
+pid: 26540
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "npx tsc -p C:\\Users\\Public\\Projetos\\leadcapture\\tsconfig.json"
+started_at: 2026-07-08T01:47:50.135Z
+running_for_ms: 86400057 
+---
+
+---
+exit_code: -1
+elapsed_ms: 86400057
+ended_at: 2026-07-09T01:48:02.068Z
+---

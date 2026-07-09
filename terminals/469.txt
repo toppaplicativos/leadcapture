@@ -1,0 +1,22 @@
+---
+pid: 8244
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd C:\\Users\\Public\\Projetos\\leadcapture; npx tsc --noEmit src/services/affiliates.ts src/routes/affiliateApp.ts 2>&1 | Select-Object -First 30"
+started_at: 2026-07-08T22:59:51.420Z
+running_for_ms: 13630004 
+---
+node_modules/@types/dom-webcodecs/webcodecs.generated.d.ts(13,5): error TS2717: Subsequent property declarations must have the same type.  Property 'data' must be of type 'BufferSource', but here has type 'AllowSharedBufferSource'.
+node_modules/@types/dom-webcodecs/webcodecs.generated.d.ts(355,5): error TS2374: Duplicate index signature for type 'number'.
+node_modules/@types/dom-webcodecs/webcodecs.generated.d.ts(505,6): error TS2300: Duplicate identifier 'ImageBufferSource'.
+node_modules/typescript/lib/lib.dom.d.ts(18876,5): error TS2374: Duplicate index signature for type 'number'.
+node_modules/typescript/lib/lib.dom.d.ts(39206,6): error TS2300: Duplicate identifier 'ImageBufferSource'.
+src/config/index.ts(1,8): error TS1192: Module '"C:/Users/Public/Projetos/leadcapture/node_modules/dotenv/lib/main"' has no default export.
+src/middleware/auth.ts(6,8): error TS1192: Module '"C:/Users/Public/Projetos/leadcapture/node_modules/@types/jsonwebtoken/index"' has no default export.
+src/services/creativeStudio.ts(4,8): error TS1259: Module '"path"' can only be default-imported using the 'esModuleInterop' flag
+src/services/integrations.ts(224,16): error TS2802: Type 'Set<string>' can only be iterated through when using the '--downlevelIteration' flag or with a '--target' of 'es2015' or higher.
+src/services/integrations.ts(732,27): error TS2802: Type 'MapIterator<string>' can only be iterated through when using the '--downlevelIteration' flag or with a '--target' of 'es2015' or higher.
+src/services/products.ts(433,18): error TS2802: Type 'Set<string>' can only be iterated through when using the '--downlevelIteration' flag or with a '--target' of 'es2015' or higher.
+src/services/products.ts(440,20): error TS2802: Type 'Set<string>' can only be iterated through when using the '--downlevelIteration' flag or with a '--target' of 'es2015' or higher.
+src/services/products.ts(445,16): error TS2802: Type 'Set<string>' can only be iterated through when using the '--downlevelIteration' flag or with a '--target' of 'es2015' or higher.
+src/services/products.ts(474,16): error TS2802: Type 'Set<string>' can only be iterated through when using the '--downlevelIteration' flag or with a '--target' of 'es2015' or higher.
+src/utils/logger.ts(1,8): error TS1259: Module '"C:/Users/Public/Projetos/leadcapture/node_modules/pino/pino"' can only be default-imported using the 'esModuleInterop' flag

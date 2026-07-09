@@ -1,0 +1,62 @@
+---
+pid: 8248
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd C:\\Users\\Public\\Projetos\\leadcapture; node agent-tools\\bump-service-worker.mjs; powershell -File agent-tools\\deploy-full.ps1 -SkipBuild -SkipSmoke"
+started_at: 2026-07-07T21:40:07.686Z
+running_for_ms: 86400011 
+---
+OK    C:\Users\Public\Projetos\leadcapture\frontend\public\service-worker.js
+OK    C:\Users\Public\Projetos\leadcapture\public\service-worker.js
+      shell=lead-system-shell-v52-20260707 runtime=lead-system-runtime-v44-20260707
+>> Enviando backend dist completo
+>> Enviando frontend completo
+Use --update-env to update environment variables
+[PM2] Applying action restartProcessId on app [leadcapture-api](ids: [ 2 ])
+[PM2] [leadcapture-api](2) ✓
+Use --update-env to update environment variables
+[PM2] Applying action restartProcessId on app [leadcapture-web](ids: [ 1 ])
+[PM2] [leadcapture-web](1) ✓
+┌────┬────────────────────┬─────────────┬─────────┬─────────┬──────────┬────────┬──────┬───────────┬──────────┬──────────┬──────────┬──────────┐
+│ id │ name               │ namespace   │ version │ mode    │ pid      │ uptime │ ↺    │ status    │ cpu      │ mem      │ user     │ watching │
+├────┼────────────────────┼─────────────┼─────────┼─────────┼──────────┼────────┼──────┼───────────┼──────────┼──────────┼──────────┼──────────┤
+│ 2  │ leadcapture-api    │ default     │ 1.0.0   │ fork    │ 358607   │ 0s     │ 120  │ online    │ 76.9%    │ 52.3mb   │ root     │ disabled │
+│ 1  │ leadcapture-web    │ default     │ N/A     │ fork    │ 358619   │ 0s     │ 91   │ online    │ 0%       │ 8.8mb    │ root     │ disabled │
+└────┴────────────────────┴─────────────┴─────────┴─────────┴──────────┴────────┴──────┴───────────┴──────────┴──────────┴──────────┴──────────┘
+[PM2] Saving current process list...
+[PM2] Successfully saved in /root/.pm2/dump.pm2
+OK deploy
+>> Aguardando servi��os (15s)
+>> Verificando deploy
+Verificando https://app.leadcapture.online
+
+OK    index.html
+OK    missing chunk → 404 (not HTML)
+OK    admin-agent route
+OK    /admin SPA
+
+Tudo OK
+Smoke test: https://app.leadcapture.online
+
+OK    / → HTTP 200
+OK    / → conteúdo renderizado (141 chars)
+OK    / → sem erros de chunk
+OK    /login → HTTP 200
+OK    /login → conteúdo renderizado (141 chars)
+OK    /login → sem erros de chunk
+OK    /admin → HTTP 200
+OK    /admin → conteúdo renderizado (141 chars)
+OK    /admin → sem erros de chunk
+OK    /inicio → HTTP 200
+OK    /inicio → conteúdo renderizado (7131 chars)
+OK    /inicio → sem erros de chunk
+
+Tudo OK
+
+Pos-deploy: PWA aberto pode precisar hard refresh (Ctrl+Shift+R) ou reabrir o app.
+Service worker versionado neste deploy.
+
+---
+exit_code: -1
+elapsed_ms: 86400011
+ended_at: 2026-07-08T21:40:17.515Z
+---

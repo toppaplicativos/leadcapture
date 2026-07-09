@@ -1,0 +1,78 @@
+---
+pid: 24388
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd C:\\Users\\Public\\Projetos\\leadcapture; .\\agent-tools\\deploy-full.ps1 -SkipBuild"
+started_at: 2026-07-07T21:35:05.865Z
+running_for_ms: 86400014 
+---
+>> Enviando backend dist completo
+>> Enviando frontend completo
+Use --update-env to update environment variables
+[PM2] Applying action restartProcessId on app [leadcapture-api](ids: [ 2 ])
+[PM2] [leadcapture-api](2) ✓
+Use --update-env to update environment variables
+[PM2] Applying action restartProcessId on app [leadcapture-web](ids: [ 1 ])
+[PM2] [leadcapture-web](1) ✓
+┌────┬────────────────────┬─────────────┬─────────┬─────────┬──────────┬────────┬──────┬───────────┬──────────┬──────────┬──────────┬──────────┐
+│ id │ name               │ namespace   │ version │ mode    │ pid      │ uptime │ ↺    │ status    │ cpu      │ mem      │ user     │ watching │
+├────┼────────────────────┼─────────────┼─────────┼─────────┼──────────┼────────┼──────┼───────────┼──────────┼──────────┼──────────┼──────────┤
+│ 2  │ leadcapture-api    │ default     │ 1.0.0   │ fork    │ 358136   │ 0s     │ 118  │ online    │ 76.9%    │ 53.2mb   │ root     │ disabled │
+│ 1  │ leadcapture-web    │ default     │ N/A     │ fork    │ 358148   │ 0s     │ 89   │ online    │ 0%       │ 3.8mb    │ root     │ disabled │
+└────┴────────────────────┴─────────────┴─────────┴─────────┴──────────┴────────┴──────┴───────────┴──────────┴──────────┴──────────┴──────────┘
+[PM2] Saving current process list...
+[PM2] Successfully saved in /root/.pm2/dump.pm2
+OK deploy
+>> Aguardando servi��os (15s)
+>> Verificando deploy
+Verificando https://app.leadcapture.online
+
+OK    index.html
+OK    missing chunk → 404 (not HTML)
+OK    admin-agent route
+OK    /admin SPA
+
+Tudo OK
+Smoke test: https://app.leadcapture.online
+
+OK    / → HTTP 200
+OK    / → conteúdo renderizado (141 chars)
+OK    / → sem erros de chunk
+OK    /login → HTTP 200
+OK    /login → conteúdo renderizado (141 chars)
+OK    /login → sem erros de chunk
+OK    /admin → HTTP 200
+OK    /admin → conteúdo renderizado (141 chars)
+OK    /admin → sem erros de chunk
+OK    /inicio → HTTP 200
+OK    /inicio → conteúdo renderizado (7065 chars)
+OK    /inicio → sem erros de chunk
+
+Tudo OK
+>> Smoke autenticado (desktop)
+Smoke autenticado: https://app.leadcapture.online
+
+OK    login → /admin
+OK    workspace carregado
+OK    sem erros de chunk pós-login
+OK    Painel → módulo aberto ("Painel · 522 leads")
+OK    Painel → KPI 522
+OK    Leads → módulo aberto ("522 leads")
+OK    Leads → KPI 522
+OK    Produtos → módulo aberto ("25 produtos")
+OK    Produtos → KPI 25
+OK    Campanhas → módulo aberto ("10 campanhas")
+OK    Habilidades → módulo aberto ("9 habilidades")
+OK    Habilidades → KPI 9
+OK    Pedidos → módulo aberto ("0 pedidos")
+FAIL  Instagram → módulo não visível (.catalog-module--instagram)
+OK    Facebook → módulo aberto ("Facebook · conectar página")
+OK    Facebook → hint canvas desktop
+OK    Facebook → canvas embed visível
+
+1 falha(s)
+
+---
+exit_code: -1
+elapsed_ms: 86400014
+ended_at: 2026-07-08T21:35:15.674Z
+---

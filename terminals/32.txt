@@ -1,0 +1,13 @@
+---
+pid: 18732
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd C:\\Users\\Public\\Projetos\\leadcapture; npx tsc 2>&1 | Select-String \"gallery\""
+started_at: 2026-07-04T13:40:13.596Z
+running_for_ms: 86400007 
+---
+
+---
+exit_code: -1
+elapsed_ms: 86400007
+ended_at: 2026-07-05T13:40:30.885Z
+---

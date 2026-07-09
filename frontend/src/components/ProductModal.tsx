@@ -1,7 +1,8 @@
-import { X, Minus, Plus, ImageOff, MessageCircle, Calendar, FileText, MapPin, Calculator, Repeat, Star, BadgeCheck } from 'lucide-react'
+import { X, Minus, Plus, ImageOff, Calendar, FileText, MapPin, Calculator, Repeat, Star, BadgeCheck } from 'lucide-react'
+import { WhatsAppIcon, type IconComponent } from '@/components/icons'
 import { useEffect, useState } from 'react'
 import type { OfferCta, Product } from '@/lib/api'
-import { fetchProductReviews, submitProductReview } from '@/lib/api'
+import { ProductReviewsSection } from '@/components/product/ProductReviewsSection'
 import { money } from '@/lib/store-context'
 import { Button } from '@/components/ui'
 import { optimizedImage, optimizedSrcset } from '@/lib/image'
@@ -31,15 +32,15 @@ interface ProductModalProps {
   onSelectProduct?: (product: Product) => void
 }
 
-const CTA_LABELS: Record<OfferCta, { label: string; Icon: typeof MessageCircle }> = {
+const CTA_LABELS: Record<OfferCta, { label: string; Icon: IconComponent }> = {
   buy: { label: 'Adicionar', Icon: Plus },
   quote: { label: 'Solicitar orçamento', Icon: FileText },
-  whatsapp: { label: 'Conversar no WhatsApp', Icon: MessageCircle },
+  whatsapp: { label: 'Conversar no WhatsApp', Icon: WhatsAppIcon },
   schedule: { label: 'Agendar', Icon: Calendar },
   visit: { label: 'Solicitar visita', Icon: MapPin },
   simulate: { label: 'Simular', Icon: Calculator },
   subscribe: { label: 'Assinar', Icon: Repeat },
-  custom: { label: 'Saiba mais', Icon: MessageCircle },
+  custom: { label: 'Saiba mais', Icon: FileText },
 }
 
 function openWhatsApp(phone: string, productName: string) {
@@ -590,159 +591,4 @@ export function ProductModal({ product, onClose, onAddToCart, whatsappPhone, all
   )
 }
 
-/* ──────────────────────────────────────────────────────────────────────────────
- * Reviews section (Fase 14)
- * Loads approved reviews + aggregates lazily when the modal opens. Bottom of the
- * modal so it doesn't push the price/CTA below the fold on first paint.
- * Submit form lives inline; new reviews land as `pending` and don't appear
- * immediately — the success toast explains that.
- * ────────────────────────────────────────────────────────────────────────────── */
-function ProductReviewsSection({ product }: { product: Product }) {
-  const [reviews, setReviews] = useState<Array<{
-    id: string; customer_name: string; rating: number; comment: string | null;
-    verified_purchase: boolean; created_at: string;
-  }>>([])
-  const [aggregates, setAggregates] = useState<{ count: number; avg: number; distribution: Record<string, number> } | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [showForm, setShowForm] = useState(false)
-  const [submitting, setSubmitting] = useState(false)
-  const [submitMsg, setSubmitMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
-  /* form fields */
-  const [name, setName] = useState('')
-  const [phone, setPhone] = useState('')
-  const [rating, setRating] = useState(5)
-  const [comment, setComment] = useState('')
 
-  useEffect(() => {
-    let cancelled = false
-    setLoading(true)
-    fetchProductReviews(product.id, 20)
-      .then((d) => {
-        if (cancelled) return
-        setReviews(d.reviews || [])
-        setAggregates(d.aggregates || null)
-      })
-      .catch(() => {})
-      .finally(() => { if (!cancelled) setLoading(false) })
-    return () => { cancelled = true }
-  }, [product.id])
-
-  async function submit() {
-    const n = name.trim()
-    if (!n) { setSubmitMsg({ kind: 'err', text: 'Informe seu nome' }); return }
-    if (rating < 1 || rating > 5) { setSubmitMsg({ kind: 'err', text: 'Escolha de 1 a 5 estrelas' }); return }
-    setSubmitting(true); setSubmitMsg(null)
-    try {
-      const res = await submitProductReview(product.id, {
-        name: n, phone: phone.trim() || undefined, rating, comment: comment.trim() || undefined,
-      })
-      setSubmitMsg({ kind: 'ok', text: res.message || 'Avaliação enviada!' })
-      setName(''); setPhone(''); setRating(5); setComment('')
-      setShowForm(false)
-    } catch (e: any) {
-      setSubmitMsg({ kind: 'err', text: e?.message || 'Não foi possível enviar.' })
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  const hasReviews = (aggregates?.count || 0) > 0
-
-  return (
-    <div className="border-t border-border-light pt-4">
-      <div className="flex items-center justify-between mb-3">
-        <p className="store-section-title">Avaliações</p>
-        {!showForm && (
-          <button type="button" onClick={() => setShowForm(true)}
-            className="text-[12px] font-semibold text-brand hover:opacity-80 transition">
-            Deixar avaliação
-          </button>
-        )}
-      </div>
-
-      {hasReviews && aggregates && (
-        <div className="flex items-center gap-3 mb-3">
-          <div className="flex items-center gap-1">
-            <div className="flex gap-0.5">
-              {[1,2,3,4,5].map(n => (
-                <Star key={n} size={14}
-                  className={n <= Math.round(aggregates.avg) ? 'text-amber-400 fill-amber-400' : 'text-gray-200 fill-gray-100'}
-                  strokeWidth={1.5} />
-              ))}
-            </div>
-            <span className="text-sm font-bold text-gray-900 tabular-nums">{aggregates.avg.toFixed(1)}</span>
-          </div>
-          <span className="text-[11px] text-gray-500">de {aggregates.count} {aggregates.count === 1 ? 'avaliação' : 'avaliações'}</span>
-        </div>
-      )}
-
-      {showForm && (
-        <div className="bg-gray-50 rounded-2xl p-4 space-y-3 mb-3 ring-1 ring-black/[0.03]">
-          <div className="flex gap-1.5">
-            {[1,2,3,4,5].map(n => (
-              <button key={n} type="button" onClick={() => setRating(n)}
-                aria-label={`${n} estrela${n === 1 ? '' : 's'}`}
-                className="p-1 rounded-lg transition active:scale-95">
-                <Star size={22}
-                  className={n <= rating ? 'text-amber-400 fill-amber-400' : 'text-gray-300'}
-                  strokeWidth={1.5} />
-              </button>
-            ))}
-          </div>
-          <input type="text" value={name} onChange={e => setName(e.target.value)}
-            placeholder="Seu nome *"
-            className="store-search w-full !pl-3.5 !pr-3.5 !h-auto py-2.5 bg-white" />
-          <input type="tel" value={phone} onChange={e => setPhone(e.target.value)}
-            placeholder="Telefone (opcional, pra marcar como verificada)"
-            className="store-search w-full !pl-3.5 !pr-3.5 !h-auto py-2.5 bg-white" />
-          <textarea value={comment} onChange={e => setComment(e.target.value)} rows={3}
-            placeholder="Conte sua experiência..."
-            className="store-search w-full !pl-3.5 !pr-3.5 !h-auto py-2.5 bg-white resize-none" />
-          {submitMsg && (
-            <p className={`text-[12px] font-semibold ${submitMsg.kind === 'ok' ? 'text-emerald-600' : 'text-red-600'}`}>
-              {submitMsg.text}
-            </p>
-          )}
-          <div className="flex justify-end gap-2 pt-1">
-            <button type="button" onClick={() => { setShowForm(false); setSubmitMsg(null) }}
-              className="px-3 py-1.5 text-[12px] font-semibold text-gray-600 hover:text-gray-900 transition">
-              Cancelar
-            </button>
-            <Button onClick={submit} disabled={submitting} variant="brand" size="sm">
-              {submitting ? 'Enviando...' : 'Enviar'}
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {!loading && !hasReviews && !showForm && (
-        <p className="text-[12px] text-gray-400">Esse produto ainda não tem avaliações. Seja o primeiro!</p>
-      )}
-
-      {hasReviews && (
-        <div className="space-y-2.5">
-          {reviews.slice(0, 5).map((r) => (
-            <div key={r.id} className="rounded-xl bg-gray-50 p-3 ring-1 ring-black/[0.03]">
-              <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
-                <div className="flex gap-0.5">
-                  {[1,2,3,4,5].map(n => (
-                    <Star key={n} size={11}
-                      className={n <= r.rating ? 'text-amber-400 fill-amber-400' : 'text-gray-200'}
-                      strokeWidth={2} />
-                  ))}
-                </div>
-                <span className="text-[12px] font-semibold text-gray-900">{r.customer_name}</span>
-                {r.verified_purchase && (
-                  <BadgeCheck size={12} className="text-emerald-600" strokeWidth={2.5} aria-label="Compra verificada" />
-                )}
-              </div>
-              {r.comment && (
-                <p className="text-[12px] text-gray-700 leading-relaxed whitespace-pre-wrap">{r.comment}</p>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}

@@ -1,0 +1,21 @@
+---
+pid: 31684
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd \"C:\\Users\\Public\\Projetos\\leadcapture\"; $env:SMOKE_EMAIL=\"eleniceventura72@gmail.com\"; $env:SMOKE_PASSWORD=\"salao1234\"; node agent-tools\\smoke-authenticated.mjs"
+started_at: 2026-07-07T14:25:37.230Z
+running_for_ms: 86400014 
+---
+Smoke autenticado: https://app.leadcapture.online
+
+FAIL  fluxo: page.fill: Timeout 30000ms exceeded.
+Call log:
+  - waiting for locator('input[type="email"]')
+
+
+1 falha(s)
+
+---
+exit_code: -1
+elapsed_ms: 86400014
+ended_at: 2026-07-08T14:25:43.752Z
+---

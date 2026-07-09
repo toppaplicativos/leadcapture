@@ -1,0 +1,44 @@
+---
+pid: 26232
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "Set-Location C:\\Users\\Public\\Projetos\\leadcapture\\frontend; npm run build 2>&1 | Select-Object -Last 30"
+started_at: 2026-07-07T20:09:31.209Z
+running_for_ms: 86400043 
+---
+dist/assets/MasterIntegracoes-DOvKsAF8.js               21.38 kB │ gzip:   5.49 kB
+dist/assets/OrdersView-Cb2z1HW-.js                      22.69 kB │ gzip:   5.95 kB
+dist/assets/SkillTrainerWizardModal-CABtdH_H.js         22.81 kB │ gzip:   7.20 kB
+dist/assets/AgentView-DfxnaY6u.js                       24.94 kB │ gzip:   6.41 kB
+dist/assets/BrandSkillsPage-CILyIGSZ.js                 25.08 kB │ gzip:   6.96 kB
+dist/assets/AffiliateAppPage-CElVm7F-.js                25.62 kB │ gzip:   7.07 kB
+dist/assets/SmartImportModal-D2p4nkYw.js                26.95 kB │ gzip:   7.13 kB
+dist/assets/AgentPDVPage-RlZS6LmR.js                    28.80 kB │ gzip:   7.22 kB
+dist/assets/AffiliatesPage-CvdReoFu.js                  31.60 kB │ gzip:   7.15 kB
+dist/assets/AgentShellContext-y1hUdRee.js               36.77 kB │ gzip:   8.17 kB
+dist/assets/CriativosPage-DFUaGhFa.js                   41.41 kB │ gzip:  10.19 kB
+dist/assets/BrandImageGeneratorPage-CjvYp1hG.js         47.95 kB │ gzip:  13.39 kB
+dist/assets/InventoryPage-BL2XCuL2.js                   51.35 kB │ gzip:  11.91 kB
+dist/assets/ClientesPage-CNe3bePm.js                    60.84 kB │ gzip:  14.08 kB
+dist/assets/InstagramPage-C4PSuAp8.js                   61.56 kB │ gzip:  13.38 kB
+dist/assets/LeadsPage-Byucepqs.js                       67.04 kB │ gzip:  15.56 kB
+dist/assets/LeadSearchPage-Blkcji1e.js                  69.76 kB │ gzip:  17.76 kB
+dist/assets/ProductsView-DSTvzo5E.js                    70.76 kB │ gzip:  15.36 kB
+dist/assets/CampaignsView-DxUbeTao.js                   88.42 kB │ gzip:  21.72 kB
+dist/assets/AdminShell-BuCdXxtk.js                     204.12 kB │ gzip:  39.61 kB
+dist/assets/LandingPage-JyaEHZPs.js                    227.17 kB │ gzip:  63.74 kB
+dist/assets/index-DBwXadVS.js                          341.47 kB │ gzip: 103.11 kB
+dist/assets/VideoStudioPage-BUCHJm6H.js                403.35 kB │ gzip: 121.30 kB
+dist/assets/mapbox-gl-t5YEFVvG.js                    1,763.51 kB │ gzip: 480.83 kB
+
+✓ built in 1.78s
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: 
+https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+
+---
+exit_code: -1
+elapsed_ms: 86400043
+ended_at: 2026-07-08T20:09:44.553Z
+---

@@ -1,0 +1,13 @@
+---
+pid: 11188
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd C:\\Users\\Public\\Projetos\\leadcapture; npx tsc --pretty false 2>&1 | Select-Object -Last 15"
+started_at: 2026-07-04T13:33:12.626Z
+running_for_ms: 86400004 
+---
+
+---
+exit_code: -1
+elapsed_ms: 86400004
+ended_at: 2026-07-05T13:33:29.905Z
+---

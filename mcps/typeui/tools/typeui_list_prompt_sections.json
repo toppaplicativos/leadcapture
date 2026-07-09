@@ -1,0 +1,9 @@
+{
+  "name": "typeui_list_prompt_sections",
+  "description": "List TypeUI prompt sections, such as hero, pricing, FAQ, navbars, sidebars, shells, tables, and widgets.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {},
+    "type": "object"
+  }
+}

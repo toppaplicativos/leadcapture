@@ -1,0 +1,17 @@
+{
+  "name": "typeui_get_next_section",
+  "description": "Return the next TypeUI section prompt for a started UI generation workflow. The next section is not released until the previous section cleanup report is accepted.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "generationId": {
+        "description": "Generation ID returned by typeui_start_ui_generation.",
+        "type": "string"
+      }
+    },
+    "required": [
+      "generationId"
+    ],
+    "type": "object"
+  }
+}

@@ -1,0 +1,7 @@
+---
+pid: 14748
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd \"C:\\Users\\Public\\Projetos\\leadcapture\"; npx tsc --noEmit --pretty false 2>&1 | Select-String \"error TS\" | Select-Object -First 20"
+started_at: 2026-07-09T02:00:21.845Z
+running_for_ms: 2800014  
+---

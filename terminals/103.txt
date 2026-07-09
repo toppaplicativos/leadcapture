@@ -1,0 +1,30 @@
+---
+pid: 20784
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "ssh -o BatchMode=yes root@187.127.5.179 \"cd /root/leadcapture && npm run build 2>&1 | tail -8 && pm2 restart leadcapture-api\""
+started_at: 2026-07-07T02:32:56.044Z
+running_for_ms: 86400010 
+---
+src/services/adminAgent/orchestrator.ts(15,55): error TS2307: Cannot find module './squads' or its corresponding type declarations.
+src/services/adminAgent/orchestrator.ts(16,30): error TS2307: Cannot find module './skillMeta' or its corresponding type declarations.
+src/services/adminAgent/orchestrator.ts(24,8): error TS2307: Cannot find module './types' or its corresponding type declarations.
+src/services/adminAgent/orchestrator.ts(342,11): error TS18046: 'skill' is of type 'unknown'.
+src/services/adminAgent/orchestrator.ts(342,31): error TS7006: Parameter 'i' implicitly has an 'any' type.
+src/services/adminAgent/orchestrator.ts(344,18): error TS18046: 'skill' is of type 'unknown'.
+src/services/adminAgent/orchestrator.ts(345,18): error TS18046: 'skill' is of type 'unknown'.
+src/services/adminAgent/orchestrator.ts(346,42): error TS18046: 'skill' is of type 'unknown'.
+Use --update-env to update environment variables
+[PM2] Applying action restartProcessId on app [leadcapture-api](ids: [ 2 ])
+[PM2] [leadcapture-api](2) ✓
+┌────┬────────────────────┬─────────────┬─────────┬─────────┬──────────┬────────┬──────┬───────────┬──────────┬──────────┬──────────┬──────────┐
+│ id │ name               │ namespace   │ version │ mode    │ pid      │ uptime │ ↺    │ status    │ cpu      │ mem      │ user     │ watching │
+├────┼────────────────────┼─────────────┼─────────┼─────────┼──────────┼────────┼──────┼───────────┼──────────┼──────────┼──────────┼──────────┤
+│ 2  │ leadcapture-api    │ default     │ 1.0.0   │ fork    │ 335420   │ 0s     │ 66   │ online    │ 0%       │ 18.6mb   │ root     │ disabled │
+│ 1  │ leadcapture-web    │ default     │ N/A     │ fork    │ 334568   │ 19m    │ 37   │ online    │ 0%       │ 63.4mb   │ root     │ disabled │
+└────┴────────────────────┴─────────────┴─────────┴─────────┴──────────┴────────┴──────┴───────────┴──────────┴──────────┴──────────┴──────────┘
+
+---
+exit_code: -1
+elapsed_ms: 86400010
+ended_at: 2026-07-08T02:33:05.700Z
+---

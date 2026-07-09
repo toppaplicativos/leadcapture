@@ -1,4 +1,5 @@
-import { ChevronDown, ChevronUp, Camera, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, X } from 'lucide-react'
+import { InstagramIcon } from '@/components/icons'
 import { useInstagramBridge } from '@/lib/agent/InstagramBridgeContext'
 import { useAgentShell } from '@/lib/agent/AgentShellContext'
 import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
@@ -29,7 +30,7 @@ export function InstagramModuleBlock({ messageId, isActive }: Props) {
           className="catalog-module__toggle"
           onClick={() => bridge.setModuleExpanded(!bridge.moduleExpanded)}
         >
-          <Camera size={13} className="shrink-0 text-rose-600" />
+          <InstagramIcon size={13} className="shrink-0 text-rose-600" />
           <span className="catalog-module__title">{summary}</span>
           {snap.connected && snap.mediaCount > 0 && (
             <span className="catalog-module__badge catalog-module__badge--instagram">

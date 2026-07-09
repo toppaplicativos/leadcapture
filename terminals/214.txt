@@ -1,0 +1,13 @@
+---
+pid: 28536
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "Get-Item \"C:\\Users\\Public\\Projetos\\leadcapture\\dist\\index.js\" | Select-Object LastWriteTime, Length"
+started_at: 2026-07-07T17:46:12.587Z
+running_for_ms: 445000   
+---
+
+LastWriteTime       Length
+-------------       ------
+07/07/2026 14:43:07 112793
+
+

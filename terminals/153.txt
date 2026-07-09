@@ -1,0 +1,22 @@
+---
+pid: 1996
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd \"C:\\Users\\Public\\Projetos\\leadcapture\\frontend\\dist\"; tar -czf \"C:\\Users\\Public\\Projetos\\leadcapture\\agent-tools\\frontend-dist.tar.gz\" .; scp -o BatchMode=yes \"C:\\Users\\Public\\Projetos\\leadcapture\\agent-tools\\frontend-dist.tar.gz\" root@187.127.5.179:/tmp/frontend-dist.tar.gz; ssh -o BatchMode=yes root@187.127.5.179 \"cd /root/leadcapture/frontend/dist && tar xzf /tmp/frontend-dist.tar.gz && rm /tmp/frontend-dist.tar.gz && cp -r /root/leadcapture/frontend/dist/* /root/leadcapture/public/ && pm2 restart leadcapture-web\""
+started_at: 2026-07-07T14:44:42.964Z
+running_for_ms: 86400034 
+---
+Use --update-env to update environment variables
+[PM2] Applying action restartProcessId on app [leadcapture-web](ids: [ 1 ])
+[PM2] [leadcapture-web](1) ✓
+┌────┬────────────────────┬─────────────┬─────────┬─────────┬──────────┬────────┬──────┬───────────┬──────────┬──────────┬──────────┬──────────┐
+│ id │ name               │ namespace   │ version │ mode    │ pid      │ uptime │ ↺    │ status    │ cpu      │ mem      │ user     │ watching │
+├────┼────────────────────┼─────────────┼─────────┼─────────┼──────────┼────────┼──────┼───────────┼──────────┼──────────┼──────────┼──────────┤
+│ 2  │ leadcapture-api    │ default     │ 1.0.0   │ fork    │ 347112   │ 20m    │ 88   │ online    │ 0%       │ 180.6mb  │ root     │ disabled │
+│ 1  │ leadcapture-web    │ default     │ N/A     │ fork    │ 347648   │ 0s     │ 60   │ online    │ 0%       │ 10.0mb   │ root     │ disabled │
+└────┴────────────────────┴─────────────┴─────────┴─────────┴──────────┴────────┴──────┴───────────┴──────────┴──────────┴──────────┴──────────┘
+
+---
+exit_code: -1
+elapsed_ms: 86400034
+ended_at: 2026-07-08T14:44:49.387Z
+---

@@ -1,0 +1,7 @@
+---
+pid: 59188
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd \"C:\\Users\\Public\\Projetos\\leadcapture\"; scp -o StrictHostKeyChecking=accept-new -r dist root@187.127.5.179:/root/leadcapture/dist_new"
+started_at: 2026-07-03T21:08:46.127Z
+running_for_ms: 19585000 
+---

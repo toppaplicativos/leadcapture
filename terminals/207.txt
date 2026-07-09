@@ -1,0 +1,16 @@
+---
+pid: 26544
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cmd.exe /c \"set SMOKE_EMAIL=eleniceventura72@gmail.com&& set SMOKE_PASSWORD=salao1234&& powershell -NoProfile -ExecutionPolicy Bypass -File C:\\Users\\Public\\Projetos\\leadcapture\\agent-tools\\deploy-full.ps1 -SkipBuild\""
+started_at: 2026-07-07T17:43:43.130Z
+running_for_ms: 585001   
+---
+tar.exe: assets/MasterAuditLog-y8eytP19.js: Cannot stat: No such file or directory
+tar.exe: Error exit delayed from previous errors.
+tar frontend falhou (exit 1)
+No C:\Users\Public\Projetos\leadcapture\agent-tools\deploy-full.ps1:41 caractere:28
++ ... TEXITCODE -ne 0) { throw "tar frontend falhou (exit $LASTEXITCODE)" }
++                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : OperationStopped: (tar frontend falhou (exit 1):String) [], RuntimeException
+    + FullyQualifiedErrorId : tar frontend falhou (exit 1)
+ 

@@ -3,6 +3,7 @@ import {
   Loader2, Package, Plus, Search, ChevronRight,
   LayoutGrid, List, Rows3, ExternalLink,
 } from 'lucide-react'
+import { PageSplash } from '@/components/PageSplash'
 import { getHeaders, money } from '@/lib/admin/helpers'
 import { useProductsBridgeOptional, type ProductDraft } from '@/lib/agent/ProductsBridgeContext'
 import { useAgentShell } from '@/lib/agent/AgentShellContext'
@@ -251,9 +252,7 @@ export function ProductsInlinePanel() {
 
   if (loading) {
     return (
-      <div className="catalog-panel__loading">
-        <Loader2 size={18} className="animate-spin text-gray-400" />
-      </div>
+      <PageSplash variant="panel" label="Produtos" />
     )
   }
 
@@ -366,7 +365,7 @@ export function ProductsInlinePanel() {
         title="Catálogo"
         subtitle="Grade, lista, categorias e edição completa"
       >
-        <Suspense fallback={<div className="catalog-panel__loading"><Loader2 size={20} className="animate-spin text-gray-400" /></div>}>
+        <Suspense fallback={<PageSplash variant="panel" label="Produtos" />}>
           <ProductsManager
             embedded
             showToast={(msg, tp) => showToast(tp === 'err' ? `Erro: ${msg}` : msg)}

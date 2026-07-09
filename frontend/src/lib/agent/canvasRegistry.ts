@@ -26,7 +26,7 @@ export const CANVAS_ROUTES: Record<string, string> = {
   'campaign.builder': '/campanhas',
   'automation.create': '/automacoes',
   'dashboard.show': '/dashboard',
-  'design.edit': '/design',
+  'design.edit': '/loja',
 }
 
 export function skillNeedsCanvas(skillId?: string): boolean {

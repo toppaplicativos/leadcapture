@@ -59,19 +59,21 @@ export async function fetchGalleryTags(): Promise<string[]> {
   return d.tags || []
 }
 
-export async function uploadGalleryFile(file: File, tags?: string[]): Promise<GalleryItem> {
+export async function uploadGalleryFile(file: File, tags?: string[], folder?: string): Promise<GalleryItem> {
   const fd = new FormData()
   fd.append('file', file)
   if (tags?.length) fd.append('tags', tags.join(','))
+  if (folder) fd.append('folder', folder)
   const r = await fetch(`${BASE}/upload`, { method: 'POST', headers: authHeaders(), body: fd })
   const d = await r.json()
   if (!r.ok) throw new Error(d.error || 'Falha no upload')
   return d.item
 }
 
-export async function uploadGalleryFiles(files: File[]): Promise<GalleryItem[]> {
+export async function uploadGalleryFiles(files: File[], folder?: string): Promise<GalleryItem[]> {
   const fd = new FormData()
   files.forEach((f) => fd.append('files', f))
+  if (folder) fd.append('folder', folder)
   const r = await fetch(`${BASE}/upload-multiple`, { method: 'POST', headers: authHeaders(), body: fd })
   const d = await r.json()
   if (!r.ok) throw new Error(d.error || 'Falha no upload')

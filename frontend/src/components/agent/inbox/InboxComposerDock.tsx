@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import {
-  Send, Loader2, Bot, Zap, X, ChevronLeft,
+  Send, Loader2, Bot, Zap, X, ChevronLeft, LayoutGrid,
   Hand, Hourglass, CheckCircle2, DollarSign, Truck, Package,
   Heart, Calendar, BookOpen, ArrowLeftRight,
 } from 'lucide-react'
+import { WhatsAppInteractiveComposer } from '@/components/whatsapp/WhatsAppInteractiveComposer'
 import type { LucideIcon } from 'lucide-react'
 import { useInboxBridge } from '@/lib/agent/InboxBridgeContext'
 import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
@@ -27,6 +28,7 @@ export function InboxComposerDock() {
   const isDesktop = useIsDesktop()
   const [text, setText] = useState('')
   const [showCommands, setShowCommands] = useState(false)
+  const [showInteractive, setShowInteractive] = useState(false)
 
   if (!snap.activeId) return null
 
@@ -62,6 +64,20 @@ export function InboxComposerDock() {
         </button>
       </div>
 
+      {showInteractive && snap.activeId && (
+        <WhatsAppInteractiveComposer
+          conversationId={snap.activeId}
+          onClose={() => setShowInteractive(false)}
+          onSent={(result) => {
+            bridge.dispatch({
+              type: 'interactive_sent',
+              message: { body: result.body, message_type: result.message_type },
+            })
+            setShowInteractive(false)
+          }}
+        />
+      )}
+
       {showCommands && (
         <div className="inbox-dock__commands">
           <div className="inbox-dock__commands-head">
@@ -88,10 +104,24 @@ export function InboxComposerDock() {
         <button
           type="button"
           className={`inbox-dock__zap ${showCommands ? 'is-on' : ''}`}
-          onClick={() => setShowCommands((v) => !v)}
+          onClick={() => {
+            setShowInteractive(false)
+            setShowCommands((v) => !v)
+          }}
           aria-label="Respostas rápidas"
         >
           <Zap size={13} />
+        </button>
+        <button
+          type="button"
+          className={`inbox-dock__zap ${showInteractive ? 'is-on is-interactive' : ''}`}
+          onClick={() => {
+            setShowCommands(false)
+            setShowInteractive((v) => !v)
+          }}
+          aria-label="Botões, listas e enquetes"
+        >
+          <LayoutGrid size={13} />
         </button>
         <textarea
           value={text}

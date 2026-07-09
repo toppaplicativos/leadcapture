@@ -1,0 +1,51 @@
+{
+  "name": "typeui_start_ui_generation",
+  "description": "Start a section-by-section TypeUI UI generation workflow. Returns an ordered plan only; call typeui_get_next_section to receive the first section prompt.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "request": {
+        "description": "The page, workflow, screen, or section to build.",
+        "type": "string"
+      },
+      "target": {
+        "default": "auto",
+        "description": "Whether to treat the request as a page or single section. Defaults to auto.",
+        "enum": [
+          "auto",
+          "page",
+          "section"
+        ],
+        "type": "string"
+      },
+      "sections": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Optional comma-separated TypeUI sections for page workflows, for example 'navbar, hero, pricing, faq'."
+      },
+      "designSystem": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Optional installed TypeUI design skill slug to reference in section prompts."
+      }
+    },
+    "required": [
+      "request"
+    ],
+    "type": "object"
+  }
+}

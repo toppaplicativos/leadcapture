@@ -3,6 +3,7 @@ import {
   Loader2, Upload, Images, Film, ExternalLink, Search,
   LayoutGrid, List, Rows3, ChevronRight,
 } from 'lucide-react'
+import { PageSplash } from '@/components/PageSplash'
 import { fetchGalleryItems } from '@/lib/gallery/api'
 import type { GalleryItem } from '@/lib/gallery/types'
 import { useGalleryBridgeOptional } from '@/lib/agent/GalleryBridgeContext'
@@ -206,9 +207,7 @@ export function GalleryInlinePanel() {
 
   if (loading && items.length === 0) {
     return (
-      <div className="catalog-panel__loading">
-        <Loader2 size={18} className="animate-spin text-gray-400" />
-      </div>
+      <PageSplash variant="panel" label="Galeria" />
     )
   }
 
@@ -316,7 +315,7 @@ export function GalleryInlinePanel() {
         title="Galeria"
         subtitle="Pastas, filtros, grade/lista e upload"
       >
-        <Suspense fallback={<div className="catalog-panel__loading"><Loader2 size={20} className="animate-spin text-gray-400" /></div>}>
+        <Suspense fallback={<PageSplash variant="panel" label="Galeria" />}>
           <GalleryManager embedded />
         </Suspense>
       </CatalogManagerSheet>

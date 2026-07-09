@@ -1,9 +1,11 @@
 import { useEffect, useState, useCallback, useRef, lazy, Suspense } from 'react'
 import {
-  Loader2, Globe, Users, ThumbsUp, Image,
+  Loader2, Users, ThumbsUp, Image,
   ChevronRight, ExternalLink, Plus,
 } from 'lucide-react'
+import { FacebookIcon } from '@/components/icons'
 import { fetchFacebookSnapshot, type FacebookTab } from '@/lib/facebook/client'
+import { PageSplash } from '@/components/PageSplash'
 import { useFacebookBridgeOptional } from '@/lib/agent/FacebookBridgeContext'
 import { useAgentShell } from '@/lib/agent/AgentShellContext'
 import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
@@ -85,9 +87,7 @@ export function FacebookInlinePanel() {
 
   if ((loading || snap?.loading) && !snap?.pageName) {
     return (
-      <div className="catalog-panel__loading">
-        <Loader2 size={18} className="animate-spin text-gray-400" />
-      </div>
+      <PageSplash variant="panel" label="Facebook" />
     )
   }
 
@@ -95,7 +95,7 @@ export function FacebookInlinePanel() {
     return (
       <div className="catalog-panel catalog-panel--facebook">
         <div className="catalog-facebook-connect">
-          <Globe size={20} className="text-blue-500" strokeWidth={1.75} />
+          <FacebookIcon size={20} className="text-blue-500" />
           <p className="catalog-facebook-connect__title">Página não conectada</p>
           <p className="catalog-facebook-connect__desc">
             Vincule uma página Facebook para publicar posts, ver métricas e responder mensagens.
@@ -111,7 +111,7 @@ export function FacebookInlinePanel() {
             title="Facebook"
             subtitle="Conectar e gerenciar página"
           >
-            <Suspense fallback={<div className="catalog-panel__loading"><Loader2 size={20} className="animate-spin text-gray-400" /></div>}>
+            <Suspense fallback={<PageSplash variant="panel" label="Facebook" />}>
               <FacebookManager embedded initialTab="overview" />
             </Suspense>
           </CatalogManagerSheet>
@@ -129,7 +129,7 @@ export function FacebookInlinePanel() {
           {snap.avatarUrl ? (
             <img src={snap.avatarUrl} alt="" />
           ) : (
-            <Globe size={16} className="text-blue-400" />
+            <FacebookIcon size={16} className="text-blue-400" />
           )}
         </div>
         <div className="catalog-facebook-profile__meta">
@@ -216,7 +216,7 @@ export function FacebookInlinePanel() {
             title="Facebook"
             subtitle={snap.pageName || 'Gerenciar página'}
           >
-            <Suspense fallback={<div className="catalog-panel__loading"><Loader2 size={20} className="animate-spin text-gray-400" /></div>}>
+            <Suspense fallback={<PageSplash variant="panel" label="Facebook" />}>
               <FacebookManager embedded initialTab={managerTab} />
             </Suspense>
           </CatalogManagerSheet>

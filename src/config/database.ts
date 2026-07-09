@@ -121,10 +121,23 @@ function convertOnDuplicateKey(sql: string): string {
 
   const insertCols = insertMatch[1].split(",").map(c => c.replace(/["`]/g, "").trim());
 
-  // Determine conflict target: for campaign_leads it's (campaign_id, lead_id)
+  const tableMatch = prefix.match(/INSERT\s+INTO\s+(\w+)/i);
+  const tableName = tableMatch?.[1] || "";
+
+  // Determine conflict target per table unique constraints
   let conflictCols: string[] = [];
   if (/campaign_leads/i.test(prefix)) {
     conflictCols = ["campaign_id", "lead_id"];
+  } else if (/affiliate_distribution_status/i.test(prefix)) {
+    conflictCols = ["affiliate_id", "brand_id"];
+  } else if (/affiliate_program_memberships/i.test(prefix)) {
+    conflictCols = ["program_id", "affiliate_user_id"];
+  } else if (/affiliate_program_applications/i.test(prefix)) {
+    conflictCols = ["program_id", "affiliate_user_id"];
+  } else if (/affiliate_global_profiles/i.test(prefix)) {
+    conflictCols = ["user_id"];
+  } else if (/affiliate_app_credentials/i.test(prefix)) {
+    conflictCols = ["brand_id", "affiliate_user_id"];
   } else {
     // Fallback: try to use first column as conflict target (usually PK)
     if (insertCols.length > 0) {
@@ -140,6 +153,12 @@ function convertOnDuplicateKey(sql: string): string {
   let pgUpdatePart = updatePart.replace(/VALUES\s*\(\s*(\w+)\s*\)/gi, "EXCLUDED.$1");
   // Convert NOW() → CURRENT_TIMESTAMP
   pgUpdatePart = pgUpdatePart.replace(/\bNOW\(\)/gi, "CURRENT_TIMESTAMP");
+  if (tableName) {
+    pgUpdatePart = pgUpdatePart.replace(
+      /COALESCE\s*\(\s*EXCLUDED\.(\w+)\s*,\s*\1\s*\)/gi,
+      `COALESCE(EXCLUDED.$1, ${tableName}.$1)`
+    );
+  }
 
   return `${prefix} ON CONFLICT (${conflictCols.join(", ")}) DO UPDATE SET ${pgUpdatePart}`;
 }

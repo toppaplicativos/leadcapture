@@ -1,0 +1,15 @@
+---
+pid: 58896
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd \"C:\\Users\\Public\\Projetos\\leadcapture\\frontend\"; npm run build 2>&1 | Select-Object -Last 30"
+started_at: 2026-07-03T20:58:34.962Z
+running_for_ms: 20195008 
+---
+
+> leadcapture-frontend@1.0.0 build
+> tsc -b && vite build
+
+src/components/SmartImportModal.tsx(253,11): error TS2561: Object literal may only specify known properties, but 'withPhone' does not exist in type '{ total: number; newLeads: number; duplicates: number; withoutPhone: number; withInterest: number; }'. Did you mean to write 'withoutPhone'?
+src/pages/AdminDashboard.tsx(6604,19): error TS2322: Type '(activeBrandId?: string | undefined) => Promise<any>' is not assignable to type 'MouseEventHandler<HTMLButtonElement>'.
+  Types of parameters 'activeBrandId' and 'event' are incompatible.
+    Type 'MouseEvent<HTMLButtonElement, MouseEvent>' is not assignable to type 'string'.

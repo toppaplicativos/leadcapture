@@ -1,0 +1,20 @@
+---
+pid: 1672
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd C:\\Users\\Public\\Projetos\\leadcapture; npm run build; cd frontend; npm run build"
+started_at: 2026-07-08T14:34:30.153Z
+running_for_ms: 43949997 
+---
+
+> lead-captation-system@1.0.0 build
+> tsc
+
+src/services/instagram.ts(1459,11): error TS2322: Type 'null' is not assignable to type 'string | undefined'.
+
+> leadcapture-frontend@1.0.0 build
+> tsc -b && vite build
+
+src/components/agent/WorkspaceChat.tsx(5,30): error TS2300: Duplicate identifier 'Search'.
+src/components/agent/WorkspaceChat.tsx(7,70): error TS2300: Duplicate identifier 'Brain'.
+src/components/agent/WorkspaceChat.tsx(8,69): error TS2300: Duplicate identifier 'Brain'.
+src/components/agent/WorkspaceChat.tsx(8,76): error TS2300: Duplicate identifier 'Search'.

@@ -1,0 +1,27 @@
+---
+pid: 22696
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd C:\\Users\\Public\\Projetos\\leadcapture\\frontend; npm run build"
+started_at: 2026-07-07T21:34:50.450Z
+running_for_ms: 86400005 
+---
+
+> leadcapture-frontend@1.0.0 build
+> tsc -b && vite build
+
+src/components/agent/AdminAgentChat.tsx(64,95): error TS2554: Expected 2 arguments, but got 1.
+src/components/agent/WorkspaceChat.tsx(385,7): error TS2741: Property '$$typeof' is missing in type '(props: BrandIconProps) => Element' but required in type 'ForwardRefExoticComponent<Omit<LucideProps, "ref"> & RefAttributes<SVGSVGElement>>'.
+src/components/agent/WorkspaceChat.tsx(461,7): error TS2741: Property '$$typeof' is missing in type '(props: BrandIconProps) => Element' but required in type 'ForwardRefExoticComponent<Omit<LucideProps, "ref"> & RefAttributes<SVGSVGElement>>'.
+src/components/agent/WorkspaceChat.tsx(471,7): error TS2741: Property '$$typeof' is missing in type '(props: BrandIconProps) => Element' but required in type 'ForwardRefExoticComponent<Omit<LucideProps, "ref"> & RefAttributes<SVGSVGElement>>'.
+src/components/agent/WorkspaceChat.tsx(481,7): error TS2741: Property '$$typeof' is missing in type '(props: BrandIconProps) => Element' but required in type 'ForwardRefExoticComponent<Omit<LucideProps, "ref"> & RefAttributes<SVGSVGElement>>'.
+src/components/agent/WorkspaceChat.tsx(491,7): error TS2741: Property '$$typeof' is missing in type '(props: BrandIconProps) => Element' but required in type 'ForwardRefExoticComponent<Omit<LucideProps, "ref"> & RefAttributes<SVGSVGElement>>'.
+src/pages/admin/agent/AgentHomePage.tsx(41,82): error TS2554: Expected 2 arguments, but got 1.
+src/pages/LandingPage.tsx(864,49): error TS2741: Property '$$typeof' is missing in type '(props: BrandIconProps) => Element' but required in type 'ForwardRefExoticComponent<Omit<LucideProps, "ref"> & RefAttributes<SVGSVGElement>>'.
+src/pages/LandingPage.tsx(874,42): error TS2741: Property '$$typeof' is missing in type '(props: BrandIconProps) => Element' but required in type 'ForwardRefExoticComponent<Omit<LucideProps, "ref"> & RefAttributes<SVGSVGElement>>'.
+src/pages/LandingPage.tsx(875,41): error TS2741: Property '$$typeof' is missing in type '(props: BrandIconProps) => Element' but required in type 'ForwardRefExoticComponent<Omit<LucideProps, "ref"> & RefAttributes<SVGSVGElement>>'.
+
+---
+exit_code: -1
+elapsed_ms: 86400005
+ended_at: 2026-07-08T21:35:00.486Z
+---

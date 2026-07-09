@@ -138,7 +138,18 @@ function normalizePublicHost(value: string): string | null {
   return host;
 }
 
-function defaultStoreSettings(): Record<string, any> {
+export function defaultMarketingWhatsAppSettings(): Record<string, any> {
+  return {
+    enabled: false,
+    show_in_hero: true,
+    show_fab: false,
+    fab_position: "bottom-right",
+    prefilled_message: "Olá! Vim pelo catálogo e gostaria de mais informações.",
+    show_on_pages: "all",
+  };
+}
+
+export function defaultStoreSettings(): Record<string, any> {
   return {
     checkout: { collect_email: true, collect_address: true },
     notifications: { admin: true, whatsapp: null, email: null, webhook_url: null },
@@ -174,6 +185,45 @@ function defaultStoreSettings(): Record<string, any> {
       },
     },
     seo: { auto_index: true },
+    design: {
+      categories_carousel: {
+        enabled: true,
+        shape: "rounded",
+      },
+    },
+    marketing: {
+      whatsapp: defaultMarketingWhatsAppSettings(),
+      announcement_bar: { enabled: false, text: "", link_url: null, dismissible: true },
+      widgets: [],
+      popups: [],
+    },
+  };
+}
+
+export function sanitizePublicMarketingSettings(settings: Record<string, any> | null | undefined): Record<string, any> {
+  const marketing = (settings || {}).marketing || {};
+  const whatsapp = marketing.whatsapp || {};
+  return {
+    whatsapp: {
+      enabled: whatsapp.enabled === true,
+      show_in_hero: whatsapp.show_in_hero !== false,
+      show_fab: whatsapp.show_fab === true,
+      fab_position: whatsapp.fab_position === "bottom-left" ? "bottom-left" : "bottom-right",
+      prefilled_message: String(whatsapp.prefilled_message || "").trim().slice(0, 500),
+      show_on_pages: ["all", "home_only", "product_only"].includes(String(whatsapp.show_on_pages || ""))
+        ? String(whatsapp.show_on_pages)
+        : "all",
+    },
+  };
+}
+
+export function sanitizePublicDesignSettings(settings: Record<string, any> | null | undefined): Record<string, any> {
+  const carousel = ((settings || {}).design || {}).categories_carousel || {};
+  return {
+    categories_carousel: {
+      enabled: carousel.enabled !== false,
+      shape: carousel.shape === "round" ? "round" : "rounded",
+    },
   };
 }
 
@@ -202,6 +252,32 @@ function mergeStoreSettings(input: Record<string, any> | null | undefined): Reco
         ...base.automation.order_flow,
         ...((next.automation || {}).order_flow || {}),
       },
+    },
+    seo: {
+      ...base.seo,
+      ...(next.seo || {}),
+    },
+    design: {
+      ...base.design,
+      ...(next.design || {}),
+      categories_carousel: {
+        ...base.design.categories_carousel,
+        ...((next.design || {}).categories_carousel || {}),
+      },
+    },
+    marketing: {
+      ...base.marketing,
+      ...(next.marketing || {}),
+      whatsapp: {
+        ...base.marketing.whatsapp,
+        ...((next.marketing || {}).whatsapp || {}),
+      },
+      announcement_bar: {
+        ...base.marketing.announcement_bar,
+        ...((next.marketing || {}).announcement_bar || {}),
+      },
+      widgets: Array.isArray((next.marketing || {}).widgets) ? (next.marketing || {}).widgets : base.marketing.widgets,
+      popups: Array.isArray((next.marketing || {}).popups) ? (next.marketing || {}).popups : base.marketing.popups,
     },
   };
 }
@@ -238,6 +314,32 @@ function mergeStoreSettingsWithPatch(
     seo: {
       ...(current.seo || {}),
       ...(patch.seo || {}),
+    },
+    design: {
+      ...(current.design || {}),
+      ...(patch.design || {}),
+      categories_carousel: {
+        ...((current.design || {}).categories_carousel || {}),
+        ...((patch.design || {}).categories_carousel || {}),
+      },
+    },
+    marketing: {
+      ...(current.marketing || {}),
+      ...(patch.marketing || {}),
+      whatsapp: {
+        ...((current.marketing || {}).whatsapp || {}),
+        ...((patch.marketing || {}).whatsapp || {}),
+      },
+      announcement_bar: {
+        ...((current.marketing || {}).announcement_bar || {}),
+        ...((patch.marketing || {}).announcement_bar || {}),
+      },
+      widgets: patch.marketing?.widgets !== undefined
+        ? (Array.isArray(patch.marketing.widgets) ? patch.marketing.widgets : [])
+        : (current.marketing?.widgets || []),
+      popups: patch.marketing?.popups !== undefined
+        ? (Array.isArray(patch.marketing.popups) ? patch.marketing.popups : [])
+        : (current.marketing?.popups || []),
     },
   });
 }

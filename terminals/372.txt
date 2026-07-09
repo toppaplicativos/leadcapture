@@ -1,0 +1,7 @@
+---
+pid: 26008
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd C:\\Users\\Public\\Projetos\\leadcapture\\frontend; npx tsc --noEmit 2>&1 | Select-Object -First 40"
+started_at: 2026-07-08T13:45:53.350Z
+running_for_ms: 46865002 
+---

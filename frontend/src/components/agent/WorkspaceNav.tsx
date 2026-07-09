@@ -2,6 +2,13 @@ import { Loader2 } from 'lucide-react'
 import { MOBILE_NAV, NAV_ITEMS } from '@/lib/admin/nav'
 import { useAgentShell } from '@/lib/agent/AgentShellContext'
 
+const BRAND_ICON_CLASS: Record<string, string> = {
+  whatsapp: 'brand-icon--wa',
+  instagram: 'brand-icon--ig',
+  facebook: 'brand-icon--fb',
+  mensagens: 'brand-icon--wa',
+}
+
 export function WorkspaceNav() {
   const { triggerNav, loading } = useAgentShell()
 
@@ -25,7 +32,7 @@ export function WorkspaceNav() {
             {loading ? (
               <Loader2 size={14} className="animate-spin text-gray-400" />
             ) : (
-              <Icon size={14} strokeWidth={1.75} />
+              <Icon size={14} strokeWidth={1.75} className={BRAND_ICON_CLASS[item.key]} />
             )}
             <span>{item.label}</span>
           </button>

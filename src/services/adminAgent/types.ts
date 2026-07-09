@@ -24,7 +24,11 @@ export type ComponentType =
   | "facebook_stats"
   | "facebook_post_preview"
   | "automation_stats"
-  | "automation_flow_preview";
+  | "automation_flow_preview"
+  | "affiliate_stats"
+  | "affiliate_create_preview"
+  | "affiliate_config_preview"
+  | "affiliate_payout_preview";
 
 export type PresentationMode = "inline" | "canvas";
 
@@ -91,6 +95,13 @@ export interface ComponentEvent {
   payload?: Record<string, unknown>;
 }
 
+export interface AdminAgentMemoryContext {
+  facts?: string[];
+  preferences?: Record<string, string>;
+  last_topics?: string[];
+  turn_count?: number;
+}
+
 export interface AdminAgentContext {
   userId: string;
   brandId: string | null;
@@ -99,6 +110,12 @@ export interface AdminAgentContext {
   componentEvent?: ComponentEvent;
   /** Dispara skill direto — pula seleção LLM (gatilhos de navegação). */
   directSkill?: string;
+  sessionId?: string;
+  sessionMemory?: AdminAgentMemoryContext;
+  brandMemory?: AdminAgentMemoryContext;
+  sessionSummary?: string | null;
+  /** Trechos de conversas anteriores relevantes (RAG entre sessões). */
+  pastSessionContext?: string | null;
 }
 
 export interface SkillSelection {

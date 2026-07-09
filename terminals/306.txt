@@ -1,0 +1,19 @@
+---
+pid: 11688
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "node C:\\Users\\Public\\Projetos\\leadcapture\\agent-tools\\smoke-affiliate-pairing.mjs"
+started_at: 2026-07-07T21:58:45.015Z
+running_for_ms: 86400001 
+---
+Smoke affiliate pairing: https://app.leadcapture.online brand=alhopronto
+
+OK    affiliate-login (afiliado.real.teste@gmail.com)
+OK    instances: 5 sessão(ões)
+OK    instância criada: 4b81da77…
+FAIL  pairing-code HTTP 502: {}
+
+---
+exit_code: -1
+elapsed_ms: 86400001
+ended_at: 2026-07-08T21:58:58.092Z
+---

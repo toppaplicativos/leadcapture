@@ -1,0 +1,19 @@
+---
+pid: 28804
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "node C:\\Users\\Public\\Projetos\\leadcapture\\agent-tools\\smoke-affiliate-pairing.mjs"
+started_at: 2026-07-07T21:55:21.615Z
+running_for_ms: 86400017 
+---
+Smoke affiliate pairing: https://app.leadcapture.online brand=alhopronto
+
+OK    affiliate-login (afiliado.real.teste@gmail.com)
+OK    instances: 4 sessão(ões)
+OK    instância criada: cb29102b…
+FAIL  pairing-code HTTP 500: Nao foi possivel falar com o WhatsApp agora. Aguarde alguns segundos e tente gerar o codigo de novo.
+
+---
+exit_code: -1
+elapsed_ms: 86400017
+ended_at: 2026-07-08T21:55:34.713Z
+---

@@ -1,0 +1,14 @@
+---
+pid: 31192
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd C:\\Users\\Public\\Projetos\\leadcapture; npx tsc --pretty false 2>&1; echo EXIT:$LASTEXITCODE"
+started_at: 2026-07-07T14:23:38.468Z
+running_for_ms: 86400001 
+---
+EXIT:0
+
+---
+exit_code: -1
+elapsed_ms: 86400001
+ended_at: 2026-07-08T14:23:44.835Z
+---

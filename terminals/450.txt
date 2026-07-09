@@ -1,0 +1,26 @@
+---
+pid: 28252
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\Public\\Projetos\\leadcapture\\agent-tools\\run-deploy-verified.ps1\""
+started_at: 2026-07-08T20:04:54.235Z
+running_for_ms: 24125007 
+---
+>> Bumping service worker cache
+OK    C:\Users\Public\Projetos\leadcapture\frontend\public\service-worker.js
+OK    C:\Users\Public\Projetos\leadcapture\public\service-worker.js
+      shell=lead-system-shell-v79-20260708 runtime=lead-system-runtime-v71-20260708
+>> Build backend
+
+> lead-captation-system@1.0.0 build
+> tsc
+
+src/routes/instagram.ts(404,46): error TS2339: Property 'listCaptionTemplates' does not exist on type 'InstagramService'.
+src/routes/instagram.ts(417,45): error TS2339: Property 'saveCaptionTemplate' does not exist on type 'InstagramService'.
+src/routes/instagram.ts(431,28): error TS2339: Property 'deleteCaptionTemplate' does not exist on type 'InstagramService'.
+src/routes/instagram.ts(442,48): error TS2339: Property 'getPostingSuggestions' does not exist on type 'InstagramService'.
+src/routes/instagram.ts(453,45): error TS2339: Property 'getAiSettings' does not exist on type 'InstagramService'.
+src/routes/instagram.ts(464,45): error TS2339: Property 'saveAiSettings' does not exist on type 'InstagramService'.
+src/routes/instagram.ts(477,45): error TS2339: Property 'seedAiSettings' does not exist on type 'InstagramService'.
+src/routes/instagram.ts(492,45): error TS2339: Property 'getAiSettings' does not exist on type 'InstagramService'.
+src/routes/instagram.ts(493,37): error TS2339: Property 'buildAiReplyPrompt' does not exist on type 'InstagramService'.
+ABORT: backend build falhou (exit 2)

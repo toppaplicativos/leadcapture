@@ -10,6 +10,7 @@ import { RowDataPacket } from "mysql2";
 import { ProductsService } from "../services/products";
 import { WhatsAppAgentService } from "../services/whatsappAgent";
 import { CampaignEngineService } from "../services/campaignEngine";
+import { buildInboxInstanceClause, resolveInstanceAuthScope } from "../services/instanceOwnership";
 
 const router = Router();
 router.use(authMiddleware, requireBrandContext);
@@ -125,6 +126,26 @@ async function resolveInstanceBrandScope(pool: any, brandId?: string | null): Pr
   const normalized = String(brandId || "").trim();
   if (!normalized) return { clause: " AND 1 = 0", params: [] };
   return { clause: " AND i.brand_id = ?", params: [normalized] };
+}
+
+function resolveInboxTenantUserId(req: BrandRequest): string | undefined {
+  const scope = resolveInstanceAuthScope(req);
+  return scope?.ownerUserId || (req.user?.userId as string | undefined);
+}
+
+async function resolveInboxInstanceScope(req: BrandRequest): Promise<{ clause: string; params: any[] }> {
+  const scope = resolveInstanceAuthScope(req);
+  if (!scope) return { clause: " AND 1 = 0", params: [] };
+  const pool = getPool();
+  const hasOwnerType = await hasColumn(pool, "whatsapp_instances", "owner_type");
+  if (!hasOwnerType) {
+    const brandScope = await resolveInstanceBrandScope(pool, req.brandId);
+    return {
+      clause: ` AND i.created_by = ?${brandScope.clause}`,
+      params: [scope.ownerUserId, ...brandScope.params],
+    };
+  }
+  return buildInboxInstanceClause(scope, req.brandId, "i");
 }
 
 function normalizeAIMode(value: unknown): ConversationAIMode {
@@ -332,18 +353,17 @@ async function logAIDecision(
 async function getOwnedConversation(
   pool: any,
   conversationId: string,
-  userId: string,
-  brandId?: string | null,
+  req: BrandRequest,
 ) {
   await ensureAIConversationSchema(pool);
-  const instanceBrandScope = await resolveInstanceBrandScope(pool, brandId);
+  const instanceScope = await resolveInboxInstanceScope(req);
   const [rows] = await pool.execute(
     `SELECT c.*
      FROM whatsapp_conversations c
      JOIN whatsapp_instances i ON i.id = c.instance_id
-     WHERE c.id = ? AND i.created_by = ?${instanceBrandScope.clause}
+     WHERE c.id = ?${instanceScope.clause}
      LIMIT 1`,
-    [conversationId, userId, ...instanceBrandScope.params]
+    [conversationId, ...instanceScope.params]
   );
   return (rows?.[0] as any) || null;
 }
@@ -404,11 +424,11 @@ async function getGlobalAIState(pool: any, brandId?: string | null) {
 // GET /api/inbox/conversations - List conversations with last message
 router.get("/conversations", async (req: BrandRequest, res: Response) => {
   try {
-    const userId = req.user?.userId as string | undefined;
+    const userId = resolveInboxTenantUserId(req);
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
     const pool = getPool();
-    const instanceBrandScope = await resolveInstanceBrandScope(pool, req.brandId);
+    const instanceBrandScope = await resolveInboxInstanceScope(req);
     const { instance_id, status, search, limit, offset } = req.query;
     
     let query = `
@@ -417,9 +437,9 @@ router.get("/conversations", async (req: BrandRequest, res: Response) => {
         i.phone as instance_phone
       FROM whatsapp_conversations c
       JOIN whatsapp_instances i ON c.instance_id = i.id
-      WHERE i.created_by = ?${instanceBrandScope.clause}
+      WHERE 1=1${instanceBrandScope.clause}
     `;
-    const params: any[] = [userId, ...instanceBrandScope.params];
+    const params: any[] = [...instanceBrandScope.params];
 
     if (instance_id) {
       query += " AND c.instance_id = ?";
@@ -455,9 +475,9 @@ router.get("/conversations", async (req: BrandRequest, res: Response) => {
       SELECT COUNT(*) as total
       FROM whatsapp_conversations c
       JOIN whatsapp_instances i ON c.instance_id = i.id
-      WHERE i.created_by = ?${instanceBrandScope.clause}
+      WHERE 1=1${instanceBrandScope.clause}
     `;
-    const countParams: any[] = [userId, ...instanceBrandScope.params];
+    const countParams: any[] = [...instanceBrandScope.params];
     if (instance_id) { countQuery += " AND c.instance_id = ?"; countParams.push(instance_id); }
     if (status) { countQuery += " AND c.status = ?"; countParams.push(status); }
     if (search) {
@@ -485,11 +505,11 @@ router.get("/conversations", async (req: BrandRequest, res: Response) => {
 // GET /api/inbox/conversations/:id/messages - Get messages for a conversation
 router.get("/conversations/:id/messages", async (req: BrandRequest, res: Response) => {
   try {
-    const userId = req.user?.userId as string | undefined;
+    const userId = resolveInboxTenantUserId(req);
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
     const pool = getPool();
-    const instanceBrandScope = await resolveInstanceBrandScope(pool, req.brandId);
+    const instanceBrandScope = await resolveInboxInstanceScope(req);
     const { limit, before_timestamp } = req.query;
     const lim = Math.min(parseInt(limit as string) || 50, 200);
 
@@ -497,9 +517,9 @@ router.get("/conversations/:id/messages", async (req: BrandRequest, res: Respons
       SELECT m.* FROM whatsapp_messages m
       JOIN whatsapp_conversations c ON c.id = m.conversation_id
       JOIN whatsapp_instances i ON i.id = c.instance_id
-      WHERE m.conversation_id = ? AND i.created_by = ?${instanceBrandScope.clause}
+      WHERE m.conversation_id = ?${instanceBrandScope.clause}
     `;
-    const params: any[] = [req.params.id, userId, ...instanceBrandScope.params];
+    const params: any[] = [req.params.id, ...instanceBrandScope.params];
 
     if (before_timestamp) {
       query += " AND m.message_timestamp < ?";
@@ -525,17 +545,17 @@ router.get("/conversations/:id/messages", async (req: BrandRequest, res: Respons
 // GET /api/inbox/conversations/:id/avatar - Get avatar URL for the conversation JID
 router.get("/conversations/:id/avatar", async (req: BrandRequest, res: Response) => {
   try {
-    const userId = req.user?.userId as string | undefined;
+    const userId = resolveInboxTenantUserId(req);
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
     const pool = getPool();
-    const instanceBrandScope = await resolveInstanceBrandScope(pool, req.brandId);
+    const instanceBrandScope = await resolveInboxInstanceScope(req);
     const [convRows] = await pool.execute<RowDataPacket[]>(
       `SELECT c.instance_id, c.remote_jid
        FROM whatsapp_conversations c
        JOIN whatsapp_instances i ON i.id = c.instance_id
-       WHERE c.id = ? AND i.created_by = ?${instanceBrandScope.clause}`,
-      [req.params.id, userId, ...instanceBrandScope.params]
+       WHERE c.id = ?${instanceBrandScope.clause}`,
+      [req.params.id, ...instanceBrandScope.params]
     );
 
     const conv = convRows[0] as any;
@@ -556,17 +576,17 @@ router.get("/conversations/:id/avatar", async (req: BrandRequest, res: Response)
 // GET /api/inbox/conversations/:id/participants - Resolve group participants with optional names/photos
 router.get("/conversations/:id/participants", async (req: BrandRequest, res: Response) => {
   try {
-    const userId = req.user?.userId as string | undefined;
+    const userId = resolveInboxTenantUserId(req);
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
     const pool = getPool();
-    const instanceBrandScope = await resolveInstanceBrandScope(pool, req.brandId);
+    const instanceBrandScope = await resolveInboxInstanceScope(req);
     const [convRows] = await pool.execute<RowDataPacket[]>(
       `SELECT c.id, c.instance_id, c.remote_jid, c.is_group
        FROM whatsapp_conversations c
        JOIN whatsapp_instances i ON i.id = c.instance_id
-       WHERE c.id = ? AND i.created_by = ?${instanceBrandScope.clause}`,
-      [req.params.id, userId, ...instanceBrandScope.params]
+       WHERE c.id = ?${instanceBrandScope.clause}`,
+      [req.params.id, ...instanceBrandScope.params]
     );
 
     const conv = convRows[0] as any;
@@ -630,14 +650,14 @@ router.get("/conversations/:id/participants", async (req: BrandRequest, res: Res
 // POST /api/inbox/conversations/:id/send - Send a message in a conversation
 router.post("/conversations/:id/send", async (req: BrandRequest, res: Response) => {
   try {
-    const userId = req.user?.userId as string | undefined;
+    const userId = resolveInboxTenantUserId(req);
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
     const pool = getPool();
-    const { message } = req.body;
+    const message = String(req.body?.message || req.body?.text || "").trim();
     if (!message) return res.status(400).json({ error: "Message is required" });
 
-    const conv = await getOwnedConversation(pool, String(req.params.id), userId, req.brandId);
+    const conv = await getOwnedConversation(pool, String(req.params.id), req);
     if (!conv) return res.status(404).json({ error: "Conversation not found" });
     if (isHumanReplyBlocked(conv)) {
       await logAIDecision(pool, {
@@ -699,14 +719,14 @@ router.post("/conversations/:id/send", async (req: BrandRequest, res: Response) 
 // POST /api/inbox/conversations/:id/send-product - Send product card with image/caption
 router.post("/conversations/:id/send-product", async (req: BrandRequest, res: Response) => {
   try {
-    const userId = req.user?.userId as string | undefined;
+    const userId = resolveInboxTenantUserId(req);
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
     const { productId } = req.body || {};
     if (!productId) return res.status(400).json({ error: "productId is required" });
 
     const pool = getPool();
-    const conv = await getOwnedConversation(pool, String(req.params.id), userId, req.brandId);
+    const conv = await getOwnedConversation(pool, String(req.params.id), req);
     if (!conv) return res.status(404).json({ error: "Conversation not found" });
     if (isHumanReplyBlocked(conv)) {
       return res.status(409).json({
@@ -851,7 +871,7 @@ router.post(
   uploadInboxMedia.single("file"),
   async (req: BrandRequest, res: Response) => {
     try {
-      const userId = req.user?.userId as string | undefined;
+      const userId = resolveInboxTenantUserId(req);
       if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
       const file = req.file;
@@ -862,7 +882,7 @@ router.post(
       const voiceNoteRaw = String(req.body?.voiceNote || "").trim().toLowerCase();
       const voiceNote = ["1", "true", "yes", "on"].includes(voiceNoteRaw);
 
-      const conv = await getOwnedConversation(pool, String(req.params.id), userId, req.brandId);
+      const conv = await getOwnedConversation(pool, String(req.params.id), req);
       if (!conv) return res.status(404).json({ error: "Conversation not found" });
       if (isHumanReplyBlocked(conv)) {
         return res.status(409).json({
@@ -952,7 +972,7 @@ router.post(
 // POST /api/inbox/conversations/:id/send-poll - Send poll in a conversation
 router.post("/conversations/:id/send-poll", async (req: BrandRequest, res: Response) => {
   try {
-    const userId = req.user?.userId as string | undefined;
+    const userId = resolveInboxTenantUserId(req);
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
     const { question, options, selectableCount, deliveryMode } = req.body || {};
@@ -969,7 +989,7 @@ router.post("/conversations/:id/send-poll", async (req: BrandRequest, res: Respo
     }
 
     const pool = getPool();
-    const conv = await getOwnedConversation(pool, String(req.params.id), userId, req.brandId);
+    const conv = await getOwnedConversation(pool, String(req.params.id), req);
     if (!conv) return res.status(404).json({ error: "Conversation not found" });
     if (isHumanReplyBlocked(conv)) {
       return res.status(409).json({
@@ -1035,14 +1055,214 @@ router.post("/conversations/:id/send-poll", async (req: BrandRequest, res: Respo
   }
 });
 
+// POST /api/inbox/conversations/:id/send-buttons - Send quick-reply buttons
+router.post("/conversations/:id/send-buttons", async (req: BrandRequest, res: Response) => {
+  try {
+    const userId = resolveInboxTenantUserId(req);
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+    const { body, footer, buttons, deliveryMode } = req.body || {};
+    const normalizedBody = String(body || "").trim();
+    const normalizedButtons = Array.isArray(buttons)
+      ? buttons
+          .map((item: any, index: number) => ({
+            id: String(item?.id || `btn_${index + 1}`).trim(),
+            text: String(item?.text || item?.label || "").trim(),
+          }))
+          .filter((item: { id: string; text: string }) => item.id && item.text)
+      : [];
+    const normalizedDeliveryMode =
+      deliveryMode === "native_only" || deliveryMode === "text_only" ? deliveryMode : "auto";
+
+    if (!normalizedBody) return res.status(400).json({ error: "Texto da mensagem obrigatorio" });
+    if (normalizedButtons.length < 1) {
+      return res.status(400).json({ error: "Envie pelo menos 1 botao (maximo 3)" });
+    }
+    if (normalizedButtons.length > 3) {
+      return res.status(400).json({ error: "WhatsApp permite no maximo 3 botoes" });
+    }
+
+    const pool = getPool();
+    const conv = await getOwnedConversation(pool, String(req.params.id), req);
+    if (!conv) return res.status(404).json({ error: "Conversation not found" });
+    if (isHumanReplyBlocked(conv)) {
+      return res.status(409).json({
+        error: "Atendimento Automatico ativo para esta conversa. Use 'Assumir Atendimento' para takeover manual.",
+        code: "AI_AUTONOMOUS_LOCKED",
+      });
+    }
+
+    const instanceManager = req.app.get("instanceManager");
+    if (!instanceManager) return res.status(500).json({ error: "Instance manager not available" });
+
+    const result = await instanceManager.sendButtonsByJid(conv.instance_id, conv.remote_jid, {
+      body: normalizedBody,
+      footer: footer ? String(footer).trim() : undefined,
+      buttons: normalizedButtons,
+      deliveryMode: normalizedDeliveryMode,
+    });
+
+    if (!result.ok) {
+      return res.status(500).json({
+        error: result.error || "Failed to send buttons",
+        mode: result.mode,
+        nativeError: result.nativeError || null,
+      });
+    }
+
+    const now = Math.floor(Date.now() / 1000);
+    const msgId = `sent_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const encodedBody = `[buttons] ${normalizedBody}\n${normalizedButtons
+      .map((button: { id: string; text: string }) => `- ${button.text} (id:${button.id})`)
+      .join("\n")}`;
+
+    await pool.execute(
+      `INSERT INTO whatsapp_messages (id, conversation_id, instance_id, remote_jid, from_me, message_type, body, status, message_timestamp, created_at)
+       VALUES (?, ?, ?, ?, TRUE, 'text', ?, 'sent', ?, NOW())`,
+      [msgId, conv.id, conv.instance_id, conv.remote_jid, encodedBody, now]
+    );
+
+    await pool.execute(
+      `UPDATE whatsapp_conversations
+       SET last_message_text = ?, last_message_at = NOW(), last_message_from_me = TRUE, updated_at = NOW()
+       WHERE id = ?`,
+      [`🔘 Botoes: ${normalizedBody.slice(0, 120)}`, conv.id]
+    );
+
+    res.json({
+      success: true,
+      message: {
+        id: msgId,
+        conversation_id: conv.id,
+        from_me: true,
+        body: encodedBody,
+        message_type: "buttons",
+        status: "sent",
+        message_timestamp: now,
+        delivery_mode: result.mode,
+        native_error: result.nativeError || null,
+      },
+    });
+  } catch (error: any) {
+    logger.error(error, "Error sending buttons");
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/inbox/conversations/:id/send-list - Send list message
+router.post("/conversations/:id/send-list", async (req: BrandRequest, res: Response) => {
+  try {
+    const userId = resolveInboxTenantUserId(req);
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+    const { title, description, buttonText, footer, sections, deliveryMode } = req.body || {};
+    const normalizedTitle = String(title || "").trim();
+    const normalizedDescription = String(description || "").trim();
+    const normalizedButtonText = String(buttonText || "Ver opcoes").trim();
+    const normalizedSections = Array.isArray(sections)
+      ? sections
+          .map((section: any) => ({
+            title: section?.title ? String(section.title).trim() : undefined,
+            rows: Array.isArray(section?.rows)
+              ? section.rows
+                  .map((row: any, index: number) => ({
+                    id: String(row?.id || `row_${index + 1}`).trim(),
+                    title: String(row?.title || row?.label || "").trim(),
+                    description: row?.description ? String(row.description).trim() : undefined,
+                  }))
+                  .filter((row: { id: string; title: string }) => row.id && row.title)
+              : [],
+          }))
+          .filter((section: { rows: Array<{ id: string; title: string }> }) => section.rows.length > 0)
+      : [];
+    const normalizedDeliveryMode =
+      deliveryMode === "native_only" || deliveryMode === "text_only" ? deliveryMode : "auto";
+
+    if (!normalizedTitle) return res.status(400).json({ error: "Titulo obrigatorio" });
+    if (!normalizedDescription) return res.status(400).json({ error: "Descricao obrigatoria" });
+    if (normalizedSections.length < 1) {
+      return res.status(400).json({ error: "Envie pelo menos 1 secao com itens" });
+    }
+
+    const pool = getPool();
+    const conv = await getOwnedConversation(pool, String(req.params.id), req);
+    if (!conv) return res.status(404).json({ error: "Conversation not found" });
+    if (isHumanReplyBlocked(conv)) {
+      return res.status(409).json({
+        error: "Atendimento Automatico ativo para esta conversa. Use 'Assumir Atendimento' para takeover manual.",
+        code: "AI_AUTONOMOUS_LOCKED",
+      });
+    }
+
+    const instanceManager = req.app.get("instanceManager");
+    if (!instanceManager) return res.status(500).json({ error: "Instance manager not available" });
+
+    const result = await instanceManager.sendListByJid(conv.instance_id, conv.remote_jid, {
+      title: normalizedTitle,
+      description: normalizedDescription,
+      buttonText: normalizedButtonText,
+      footer: footer ? String(footer).trim() : undefined,
+      sections: normalizedSections,
+      deliveryMode: normalizedDeliveryMode,
+    });
+
+    if (!result.ok) {
+      return res.status(500).json({
+        error: result.error || "Failed to send list",
+        mode: result.mode,
+        nativeError: result.nativeError || null,
+      });
+    }
+
+    const now = Math.floor(Date.now() / 1000);
+    const msgId = `sent_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const encodedBody = `[list] ${normalizedTitle}\n${normalizedDescription}\n${normalizedSections
+      .flatMap((section: { title?: string; rows: Array<{ id: string; title: string }> }) =>
+        section.rows.map((row) => `- ${row.title} (id:${row.id})`)
+      )
+      .join("\n")}`;
+
+    await pool.execute(
+      `INSERT INTO whatsapp_messages (id, conversation_id, instance_id, remote_jid, from_me, message_type, body, status, message_timestamp, created_at)
+       VALUES (?, ?, ?, ?, TRUE, 'text', ?, 'sent', ?, NOW())`,
+      [msgId, conv.id, conv.instance_id, conv.remote_jid, encodedBody, now]
+    );
+
+    await pool.execute(
+      `UPDATE whatsapp_conversations
+       SET last_message_text = ?, last_message_at = NOW(), last_message_from_me = TRUE, updated_at = NOW()
+       WHERE id = ?`,
+      [`📋 Lista: ${normalizedTitle}`, conv.id]
+    );
+
+    res.json({
+      success: true,
+      message: {
+        id: msgId,
+        conversation_id: conv.id,
+        from_me: true,
+        body: encodedBody,
+        message_type: "list",
+        status: "sent",
+        message_timestamp: now,
+        delivery_mode: result.mode,
+        native_error: result.nativeError || null,
+      },
+    });
+  } catch (error: any) {
+    logger.error(error, "Error sending list");
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // PATCH /api/inbox/conversations/:id - Update conversation (status, notes, tags)
 router.patch("/conversations/:id", async (req: BrandRequest, res: Response) => {
   try {
-    const userId = req.user?.userId as string | undefined;
+    const userId = resolveInboxTenantUserId(req);
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
     const pool = getPool();
-    const instanceBrandScope = await resolveInstanceBrandScope(pool, req.brandId);
+    const instanceBrandScope = await resolveInboxInstanceScope(req);
     const { status, notes, tags, pipeline_stage } = req.body;
     const [statusExists, notesExists, tagsExists, pipelineExists] = await Promise.all([
       hasColumn(pool, "whatsapp_conversations", "status"),
@@ -1073,13 +1293,13 @@ router.patch("/conversations/:id", async (req: BrandRequest, res: Response) => {
     }
 
     updates.push("c.updated_at = NOW()");
-    params.push(req.params.id, userId, ...instanceBrandScope.params);
+    params.push(req.params.id, ...instanceBrandScope.params);
 
     const [result] = await pool.execute(
       `UPDATE whatsapp_conversations c
        JOIN whatsapp_instances i ON i.id = c.instance_id
        SET ${updates.join(", ")}
-       WHERE c.id = ? AND i.created_by = ?${instanceBrandScope.clause}`,
+       WHERE c.id = ?${instanceBrandScope.clause}`,
       params
     );
 
@@ -1097,7 +1317,7 @@ router.patch("/conversations/:id", async (req: BrandRequest, res: Response) => {
 // GET /api/inbox/conversations/:id/ai-state
 router.get("/ai-global-state", async (req: BrandRequest, res: Response) => {
   try {
-    const userId = req.user?.userId as string | undefined;
+    const userId = resolveInboxTenantUserId(req);
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
     const pool = getPool();
@@ -1114,7 +1334,7 @@ router.get("/ai-global-state", async (req: BrandRequest, res: Response) => {
 
 router.patch("/ai-global-state", async (req: BrandRequest, res: Response) => {
   try {
-    const userId = req.user?.userId as string | undefined;
+    const userId = resolveInboxTenantUserId(req);
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
     const pool = getPool();
@@ -1158,7 +1378,7 @@ router.patch("/ai-global-state", async (req: BrandRequest, res: Response) => {
  */
 router.get("/ai-diagnostics", async (req: BrandRequest, res: Response) => {
   try {
-    const userId = req.user?.userId as string | undefined;
+    const userId = resolveInboxTenantUserId(req);
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
     if (!req.brandId) return res.status(400).json({ error: "brand_id is required" });
 
@@ -1300,7 +1520,7 @@ router.get("/ai-diagnostics", async (req: BrandRequest, res: Response) => {
     let conversation: any = null;
     if (conversationId) {
       try {
-        const conv = await getOwnedConversation(pool, conversationId, userId, req.brandId);
+        const conv = await getOwnedConversation(pool, conversationId, req);
         if (!conv) {
           gates.push({
             name: "Conversa especifica",
@@ -1437,10 +1657,10 @@ router.get("/ai-diagnostics", async (req: BrandRequest, res: Response) => {
 
 router.get("/conversations/:id/ai-state", async (req: BrandRequest, res: Response) => {
   try {
-    const userId = req.user?.userId as string | undefined;
+    const userId = resolveInboxTenantUserId(req);
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
     const pool = getPool();
-    const conv = await getOwnedConversation(pool, String(req.params.id), userId, req.brandId);
+    const conv = await getOwnedConversation(pool, String(req.params.id), req);
     if (!conv) return res.status(404).json({ error: "Conversation not found" });
 
     return res.json({
@@ -1464,10 +1684,10 @@ router.get("/conversations/:id/ai-state", async (req: BrandRequest, res: Respons
 // PATCH /api/inbox/conversations/:id/ai-state
 router.patch("/conversations/:id/ai-state", async (req: BrandRequest, res: Response) => {
   try {
-    const userId = req.user?.userId as string | undefined;
+    const userId = resolveInboxTenantUserId(req);
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
     const pool = getPool();
-    const conv = await getOwnedConversation(pool, String(req.params.id), userId, req.brandId);
+    const conv = await getOwnedConversation(pool, String(req.params.id), req);
     if (!conv) return res.status(404).json({ error: "Conversation not found" });
 
     const mode = normalizeAIMode(req.body?.mode);
@@ -1517,10 +1737,10 @@ router.patch("/conversations/:id/ai-state", async (req: BrandRequest, res: Respo
 // POST /api/inbox/conversations/:id/ai-takeover
 router.post("/conversations/:id/ai-takeover", async (req: BrandRequest, res: Response) => {
   try {
-    const userId = req.user?.userId as string | undefined;
+    const userId = resolveInboxTenantUserId(req);
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
     const pool = getPool();
-    const conv = await getOwnedConversation(pool, String(req.params.id), userId, req.brandId);
+    const conv = await getOwnedConversation(pool, String(req.params.id), req);
     if (!conv) return res.status(404).json({ error: "Conversation not found" });
 
     const decisionPayload = {
@@ -1558,10 +1778,10 @@ router.post("/conversations/:id/ai-takeover", async (req: BrandRequest, res: Res
 // GET /api/inbox/conversations/:id/ai-decisions
 router.get("/conversations/:id/ai-decisions", async (req: BrandRequest, res: Response) => {
   try {
-    const userId = req.user?.userId as string | undefined;
+    const userId = resolveInboxTenantUserId(req);
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
     const pool = getPool();
-    const conv = await getOwnedConversation(pool, String(req.params.id), userId, req.brandId);
+    const conv = await getOwnedConversation(pool, String(req.params.id), req);
     if (!conv) return res.status(404).json({ error: "Conversation not found" });
 
     const limit = Math.min(Math.max(Number(req.query.limit || 30), 1), 100);
@@ -1593,11 +1813,11 @@ router.get("/conversations/:id/ai-decisions", async (req: BrandRequest, res: Res
 // GET /api/inbox/conversations/:id/ai-insights
 router.get("/conversations/:id/ai-insights", async (req: BrandRequest, res: Response) => {
   try {
-    const userId = req.user?.userId as string | undefined;
+    const userId = resolveInboxTenantUserId(req);
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
     const pool = getPool();
-    const conv = await getOwnedConversation(pool, String(req.params.id), userId, req.brandId);
+    const conv = await getOwnedConversation(pool, String(req.params.id), req);
     if (!conv) return res.status(404).json({ error: "Conversation not found" });
 
     const [decisionRows] = await pool.query(
@@ -1697,11 +1917,11 @@ router.get("/conversations/:id/ai-insights", async (req: BrandRequest, res: Resp
 // POST /api/inbox/conversations/:id/ai-respond
 router.post("/conversations/:id/ai-respond", async (req: BrandRequest, res: Response) => {
   try {
-    const userId = req.user?.userId as string | undefined;
+    const userId = resolveInboxTenantUserId(req);
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
     const pool = getPool();
-    const conv = await getOwnedConversation(pool, String(req.params.id), userId, req.brandId);
+    const conv = await getOwnedConversation(pool, String(req.params.id), req);
     if (!conv) return res.status(404).json({ error: "Conversation not found" });
 
     const globalState = await getGlobalAIState(pool, req.brandId);

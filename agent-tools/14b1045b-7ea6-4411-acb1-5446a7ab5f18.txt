@@ -1,0 +1,178 @@
+
+const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["assets/AdminShell-kS99xn_O.js","assets/chunk-BEqpzyXh.js","as
+sets/preload-helper-pQeO1pMZ.js","assets/createLucideIcon-1zp5-kTN.js","assets/jsx-runtime-iFSM2NCI.js","assets/arrow-l
+eft-right-Dp0y9Alc.js","assets/book-open-oAKqgxKx.js","assets/InstagramPostAnalysisModal-BJIPvRL6.js","assets/camera-DM
+SZbUjk.js","assets/chart-column-BIYPHwAf.js","assets/circle-alert-C8LJep1m.js","assets/external-link-BvvmyH4B.js","asse
+ts/heart-cft3W9sN.js","assets/loader-circle-CSAmdomS.js","assets/message-square-B437LDbC.js","assets/refresh-cw-HaBjsQZ
+t.js","assets/sparkles-C7Z9jqyD.js","assets/trending-up-aAf89SyH.js","assets/x-C6Q7YigJ.js","assets/bot-DkU5jOMx.js","a
+ssets/boxes-CXU0sIr2.js","assets/brain-oa4OKs7C.js","assets/mouse-pointer-click-BcVOeekK.js","assets/chevron-down-s9fNB
+2eH.js","assets/chevron-left-C1CAJRzh.js","assets/chevron-right-xWNP4E0Q.js","assets/chevron-up-DSGdTtXf.js","assets/ci
+rcle-check-Cfvtk-Jg.js","assets/copy-DI-Gjzr9.js","assets/credit-card-Bpnugegs.js","assets/dollar-sign-CST9tw1A.js","as
+sets/film-BGkuoqTX.js","assets/funnel-2tNiVcwe.js","assets/git-branch-gHlNZi1i.js","assets/WhatsAppInteractiveComposer-
+DeM0K7Cd.js","assets/list-KdACBDXU.js","assets/trash-2-DUDHKlxd.js","assets/handshake-CSr39Uhc.js","assets/hash-BaOLl-L
+z.js","assets/history-BWZvpArJ.js","assets/image-Dla9IpA4.js","assets/log-out-C-_irSGb.js","assets/map-pin-BvrS6Eat.js"
+,"assets/maximize-2-DU20MyF0.js","assets/message-circle-D-3x3Z-s.js","assets/pause-CBsSIyho.js","assets/pencil-BOi1wUON
+.js","assets/phone-BE6oNXkF.js","assets/send-Bc3KO_vf.js","assets/shield-check-BNFrwBKR.js","assets/SkillTrainerWizardM
+odal-Czc93P9r.js","assets/circle-x-BdXvISMZ.js","assets/gauge-BxDytWZM.js","assets/file-text-DnMN647O.js","assets/light
+bulb-uK0klIuF.js","assets/upload-C8GEImtt.js","assets/thumbs-up-oRiEz42I.js","assets/triangle-alert-CV3rLXBw.js","asset
+s/CampaignsView-CrCVFOti.js","assets/activity-BG17Zb2f.js","assets/ban-_iLt7wb-.js","assets/link-2-uHqBCSs3.js","assets
+/target-W7BtoOZX.js","assets/primitives-DiMItETX.js","assets/MediaPickerModal-DDIiNW10.js","assets/GalleryThumb-bBpPQ41
+v.js","assets/cn-DKJsVDIo.js","assets/Button-DWMTDP6W.js","assets/Input-nKDWvk3f.js","assets/api-BBFMoIAT.js","assets/h
+elpers-QyxCfUeB.js","assets/api-admin-B6GVHzxF.js","assets/wallet-C-CXyn08.js","assets/wand-sparkles-DCUK8ERQ.js","asse
+ts/chunk-UVKPFVEO-D5TJkq9A.js","assets/GalleryPreview-CErjP8xN.js","assets/download-B8B27SC-.js","assets/tag-emBs7SLe.j
+s","assets/GalleryUploadZone-uGb9adAM.js","assets/detectFileKind-BsxbKFVy.js","assets/Card-CdWQibFH.js","assets/WhatsAp
+pConnectModal-C4Lhr33m.js","assets/arrow-left-DiUThiad.js","assets/api-affiliate-BTk34ZZK.js","assets/headers-CVimw7r_.
+js","assets/ProductsView-gA5BGacy.js","assets/DashboardView-B9gWWzps.js","assets/CampaignsView-DB9pbgVJ.js","assets/Ord
+ersView-BRWa_Tpf.js","assets/ProductsView-DJBUrmsq.js","assets/AgentView-INNm-XRj.js","assets/BrandSkillsPage-BOr_H-Sp.
+js","assets/circle-question-mark-8g3ZXknF.js","assets/layers-jBiyrfXE.js","assets/rotate-ccw-B4UR237Y.js","assets/shiel
+d-DfYSoSCk.js","assets/user-check-DAHA2R_9.js","assets/NotificationsView-D_n3xw7N.js","assets/bell-DpsqYD9F.js","assets
+/DomainView-nrbsGVwt.js","assets/globe-6Kuu70HB.js","assets/info-BJxcgL2A.js","assets/FreteView-CQhLudOU.js","assets/Es
+toqueAccessView-B1kD1PTy.js","assets/AffiliatesView-Weq7AuN4.js","assets/AffiliatesPage-B5zS9vJH.js","assets/affiliate-
+commission-ybX99b0g.js","assets/copy-template-DBUTdbkt.js","assets/CouponsView-CTNSumON.js","assets/ReviewsView-DtID6xs
+t.js","assets/badge-check-DJqYbSbR.js","assets/message-square-quote-CwodHbi3.js","assets/thumbs-down-DaAMFD45.js","asse
+ts/PaymentConfigView-pK51rMAO.js","assets/qr-code-CnekduwA.js","assets/WhatsAppManagerView-BqtWXzMJ.js","assets/Setting
+sView-DwbKQRnT.js","assets/WhatsAppInstancesPanel-C3zomC-_.js","assets/MessagesView-DThmQh32.js","assets/MessagesPage-4
+SCk7dM8.js","assets/AutomationsView-BOWRT_52.js","assets/AutomationsPage-61qfCv93.js","assets/grip-vertical-B1tvOfU8.js
+","assets/play-DnFCKI0B.js","assets/settings-2-DcL1Tdz6.js","assets/type-Fi3h6uXy.js","assets/ClientesPage-C-BYn4ah.js"
+,"assets/pen-line-DMD607Kl.js","assets/SmartImportModal-DI17a0UI.js","assets/file-spreadsheet-BU4pP5n2.js","assets/squa
+re-BDgrU3cr.js","assets/LeadsPage-CUiofc4u.js","assets/WhatsAppSendModal-C7zd2L53.js","assets/LeadSearchPage-erzSDEQU.j
+s","assets/mapbox-gl-DN8qeT2q.js","assets/mapbox-gl-DMS8r9PF.css","assets/scale-CosB6sMM.js","assets/wrench-tH9IcIgV.js
+","assets/FlowBuilderPage-CcU9mSou.js","assets/AgentConfigPage-CgmnVz9Z.js","assets/AgentPDVPage-CoI6jHvm.js","assets/m
+inus-vVIby8-G.js","assets/StoreStudioPage-ByVffm_g.js","assets/grid-3x3-BNb0-RLL.js","assets/BrandImageGeneratorPage-CB
+7MUqir.js","assets/CriativosPage-Cjta4tHe.js","assets/rocket-BbEIn9OW.js","assets/GaleriaPage-DWsUGoAa.js","assets/Vide
+oStudioPage-CLf1JQ4X.js","assets/AIProvidersPage-B0PUuK5H.js","assets/plug-D0_1Snts.js","assets/test-tube-BMjHoCEF.js",
+"assets/video-BTm5alBB.js","assets/AdminEmailsPage-LfWzDuvz.js","assets/code-MVTu-P0T.js","assets/scroll-text-B5o4dSNP.
+js","assets/variable-CAeZgWYc.js","assets/InstagramPage-OoVCbqLs.js","assets/calendar-days-CNIwSZ6f.js","assets/ellipsi
+s-CXP-Rb45.js","assets/FacebookPage-DmGJo-TO.js","assets/MasterShell-CmfstdNO.js","assets/menu-DLed6iJ5.js","assets/Bra
+ndMark-BwcvY7Cf.js","assets/MasterDashboard-DCyEWQc2.js","assets/MasterIntegracoes-B1Dnm0RF.js","assets/MasterPlanos-DK
+3MBXvQ.js","assets/MasterClientes-vzqIH_Kc.js","assets/MasterOrganizacoes-CoPa_WSI.js","assets/MasterProviders-DqmrpUR9
+.js","assets/MasterFerramentas-B6ZMjbwu.js","assets/MasterConfiguracoes-DvkIQJJZ.js","assets/MasterAuditLog-DHVehguz.js
+","assets/MasterEmails-C8t7y_eP.js","assets/CheckoutPage-TORpItZJ.js","assets/store-context-DTxkiuNs.js","assets/OrderP
+age-CyJ_GzFj.js","assets/HistoryPage-tetQPaUx.js","assets/OnboardingPage-BGoyZlgQ.js","assets/briefcase-DMUmm9Eq.js","a
+ssets/StockLoginPage-CcodGvPN.js","assets/log-in-CQmEhpdv.js","assets/InventoryPage-DO2j03t6.js","assets/AffiliateLogin
+Page-oybBHYNZ.js","assets/user-plus-Cod18yTg.js","assets/AffiliateAppPage-BwxljLch.js","assets/affiliate-app-cache-D6ZQ
+ZSiJ.js","assets/AffiliateRedirectPage-DCR2Okpp.js","assets/ProductDetailPage-CJ4EfNPe.js","assets/LandingPage-CRu1nlCq
+.js","assets/CadastroPage-CqM2kTG_.js","assets/CadastroSucessoPage-B4lg6C9P.js","assets/PrivacyPolicyPage-C5Wh5gH_.js",
+"assets/DataDeletionPage-BkUT6fiF.js","assets/TermsOfServicePage-B_PZldQm.js"])))=>i.map(i=>d[i]);
+`).replace(Ad,``)}function Md(e,t){return t=jd(t),jd(e)===t}function $(e,t,n,r,i,o){switch(n){case`children`:typeof 
+r==`string`?t===`body`||t===`textarea`&&r===``||Xt(e,r):(typeof r==`number`||typeof r==`bigint`)&&t!==`body`&&Xt(e,``+r
+);break;case`className`:Pt(e,`class`,r);break;case`tabIndex`:Pt(e,`tabindex`,r);break;case`dir`:case`role`:case`viewBox
+`:case`width`:case`height`:Pt(e,n,r);break;case`style`:$t(e,r,o);break;case`data`:if(t!==`object`){Pt(e,`data`,r);break
+}case`src`:case`href`:if(r===``&&(t!==`a`||n!==`href`)){e.removeAttribute(n);break}if(r==null||typeof 
+r==`function`||typeof r==`symbol`||typeof 
+r==`boolean`){e.removeAttribute(n);break}r=rn(``+r),e.setAttribute(n,r);break;case`action`:case`formAction`:if(typeof 
+r==`function`){e.setAttribute(n,`javascript:throw new Error('A React form was unexpectedly submitted. If you called 
+form.submit() manually, consider using form.requestSubmit() instead. If you\\'re trying to use event.stopPropagation() 
+in a submit event handler, consider also calling event.preventDefault().')`);break}else typeof o==`function`&&(n===`for
+mAction`?(t!==`input`&&$(e,t,`name`,i.name,i,null),$(e,t,`formEncType`,i.formEncType,i,null),$(e,t,`formMethod`,i.formM
+ethod,i,null),$(e,t,`formTarget`,i.formTarget,i,null)):($(e,t,`encType`,i.encType,i,null),$(e,t,`method`,i.method,i,nul
+l),$(e,t,`target`,i.target,i,null)));if(r==null||typeof r==`symbol`||typeof r==`boolean`){e.removeAttribute(n);break}r=
+rn(``+r),e.setAttribute(n,r);break;case`onClick`:r!=null&&(e.onclick=an);break;case`onScroll`:r!=null&&Q(`scroll`,e);br
+eak;case`onScrollEnd`:r!=null&&Q(`scrollend`,e);break;case`dangerouslySetInnerHTML`:if(r!=null){if(typeof 
+r!=`object`||!(`__html`in r))throw Error(a(61));if(n=r.__html,n!=null){if(i.children!=null)throw 
+Error(a(60));e.innerHTML=n}}break;case`multiple`:e.multiple=r&&typeof r!=`function`&&typeof 
+r!=`symbol`;break;case`muted`:e.muted=r&&typeof r!=`function`&&typeof r!=`symbol`;break;case`suppressContentEditableWar
+ning`:case`suppressHydrationWarning`:case`defaultValue`:case`defaultChecked`:case`innerHTML`:case`ref`:break;case`autoF
+ocus`:break;case`xlinkHref`:if(r==null||typeof r==`function`||typeof r==`boolean`||typeof r==`symbol`){e.removeAttribut
+e(`xlink:href`);break}n=rn(``+r),e.setAttributeNS(`http://www.w3.org/1999/xlink`,`xlink:href`,n);break;case`contentEdit
+able`:case`spellCheck`:case`draggable`:case`value`:case`autoReverse`:case`externalResourcesRequired`:case`focusable`:ca
+se`preserveAlpha`:r!=null&&typeof r!=`function`&&typeof r!=`symbol`?e.setAttribute(n,``+r):e.removeAttribute(n);break;c
+ase`inert`:case`allowFullScreen`:case`async`:case`autoPlay`:case`controls`:case`default`:case`defer`:case`disabled`:cas
+e`disablePictureInPicture`:case`disableRemotePlayback`:case`formNoValidate`:case`hidden`:case`loop`:case`noModule`:case
+`noValidate`:case`open`:case`playsInline`:case`readOnly`:case`required`:case`reversed`:case`scoped`:case`seamless`:case
+`itemScope`:r&&typeof r!=`function`&&typeof r!=`symbol`?e.setAttribute(n,``):e.removeAttribute(n);break;case`capture`:c
+ase`download`:!0===r?e.setAttribute(n,``):!1!==r&&r!=null&&typeof r!=`function`&&typeof 
+r!=`symbol`?e.setAttribute(n,r):e.removeAttribute(n);break;case`cols`:case`rows`:case`size`:case`span`:r!=null&&typeof 
+r!=`function`&&typeof 
+r!=`symbol`&&!isNaN(r)&&1
+
+... (output truncated) ...
+
+42,141,36,18,74,2,175]))),Fo=(0,M.lazy)(()=>a(()=>import(`./OrderPage-CyJ
+_GzFj.js`).then(e=>({default:e.OrderPage})),__vite__mapDeps([176,1,82,3,4,51,13,74,2,175]))),Io=(0,M.lazy)(()=>a(()=>im
+port(`./HistoryPage-tetQPaUx.js`).then(e=>({default:e.HistoryPage})),__vite__mapDeps([177,1,82,3,4,74,2,175]))),Lo=(0,M
+.lazy)(()=>a(()=>import(`./OnboardingPage-BGoyZlgQ.js`).then(e=>({default:e.OnboardingPage})),__vite__mapDeps([178,1,82
+,3,4,179,146,71]))),Ro=(0,M.lazy)(()=>a(()=>import(`./StockLoginPage-CcodGvPN.js`).then(e=>({default:e.StockLoginPage})
+),__vite__mapDeps([180,1,20,3,4,13,181,74,2,71]))),zo=(0,M.lazy)(()=>a(()=>import(`./InventoryPage-DO2j03t6.js`).then(e
+=>({default:e.InventoryPage})),__vite__mapDeps([182,1,3,4,5,9,24,25,39,13,41,162,46,15,136,57,55,18,74,2,67,66,68,71]))
+),Bo=(0,M.lazy)(()=>a(()=>import(`./AffiliateLoginPage-oybBHYNZ.js`).then(e=>({default:e.AffiliateLoginPage})),__vite__
+mapDeps([183,1,37,3,4,13,181,184,74,2,106,83]))),Vo=(0,M.lazy)(()=>a(()=>import(`./AffiliateAppPage-BwxljLch.js`).then(
+e=>({default:e.AffiliateAppPage})),__vite__mapDeps([185,1,3,4,114,6,22,8,9,119,5,19,24,27,30,34,35,13,36,18,12,47,48,25
+,10,92,28,40,93,54,61,41,44,155,49,95,16,77,62,17,72,73,74,2,81,82,15,83,84,70,117,63,186,106,107]))),Ho=(0,M.lazy)(()=
+>a(()=>import(`./AffiliateRedirectPage-DCR2Okpp.js`).then(e=>({default:e.AffiliateRedirectPage})),__vite__mapDeps([187,
+1,13,3,4,74,2]))),Uo=(0,M.lazy)(()=>a(()=>import(`./ProductDetailPage-CJ4EfNPe.js`).then(e=>({default:e.ProductDetailPa
+ge})),__vite__mapDeps([188,1,3,4,82,110,24,25,61,111,141,74,2,67,13,66,175]))),Wo=(0,M.lazy)(()=>a(()=>import(`./Landin
+gPage-CRu1nlCq.js`).then(e=>({default:e.LandingPage})),__vite__mapDeps([189,1,134,2,3,4,135,21,179,23,27,154,129,32,100
+,40,93,42,14,47,48,95,16,62,17,184,137,18,74,163,66]))),Go=(0,M.lazy)(()=>a(()=>import(`./CadastroPage-CqM2kTG_.js`).th
+en(e=>({default:e.CadastroPage})),__vite__mapDeps([190,1,27,3,4,29,13,49,74,2,163,66]))),Ko=(0,M.lazy)(()=>a(()=>import
+(`./CadastroSucessoPage-B4lg6C9P.js`).then(e=>({default:e.CadastroSucessoPage})),__vite__mapDeps([191,1,10,3,4,27,13,74
+,2,163,66]))),qo=(0,M.lazy)(()=>a(()=>import(`./PrivacyPolicyPage-C5Wh5gH_.js`).then(e=>({default:e.PrivacyPolicyPage})
+),__vite__mapDeps([192,82,3,1,4,95,74,2]))),Jo=(0,M.lazy)(()=>a(()=>import(`./DataDeletionPage-BkUT6fiF.js`).then(e=>({
+default:e.DataDeletionPage})),__vite__mapDeps([193,1,82,3,4,27,95,36,74,2]))),Yo=(0,M.lazy)(()=>a(()=>import(`./TermsOf
+ServicePage-B_PZldQm.js`).then(e=>({default:e.TermsOfServicePage})),__vite__mapDeps([194,82,3,1,4,53,74,2])));function 
+Xo(){return(0,N.jsx)(Yr,{variant:`route`})}function Zo(){let[e,t]=(0,M.useState)(`catalogo`),[n,r]=(0,M.useState)(`Loja
+`),[i,a]=(0,M.useState)(),o=(0,M.useCallback)(e=>{let 
+t=e.brand,n=e.theme;r(t?.name||e.name||`Loja`),a(t?.logo_url||n?.logo_url||void 
+0)},[]);return(0,N.jsxs)(`div`,{className:`store-page min-h-screen pb-16`,children:[(0,N.jsx)(ut,{storeName:n,logoUrl:i
+}),(0,N.jsxs)(`main`,{children:[e===`catalogo`&&(0,N.jsx)(Nn,{onStoreLoaded:o}),e===`pedidos`&&(0,N.jsx)(Pn,{}),e===`pe
+rfil`&&(0,N.jsx)(Fn,{})]}),(0,N.jsx)(ft,{activeTab:e,onTabChange:t})]})}var Qo=new 
+Set([`leadcapture.online`,`www.leadcapture.online`]),$o=new Set([`parceiros.alhopronto.online`,`afiliados.alhopronto.on
+line`,`parceiros.leadcapture.online`,`afiliados.leadcapture.online`]);function es(){return typeof 
+window>`u`?!1:Qo.has(window.location.hostname)}function ts(){return typeof 
+window>`u`?!1:$o.has(window.location.hostname)}function ns(){let e=f(),t=es();return Ln()?(0,N.jsx)(d,{to:`/admin`,repl
+ace:!0}):ts()?(0,N.jsx)(d,{to:`/central-afiliado/alhopronto`,replace:!0}):t?(0,N.jsx)(Wo,{}):b?(0,N.jsx)(Zo,{}):((0,M.u
+seEffect)(()=>{if(localStorage.getItem(`lead-system-token`)){e(`/admin`,{replace:!0});return}let t=localStorage.getItem
+(`lead-system-token-estoque`),n=localStorage.getItem(`lead-system:active-brand-ref-estoque`);if(t&&n){e(`/app-estoque/$
+{n}/painel`,{replace:!0});return}let r=localStorage.getItem(`lead-system-token-afiliado`),i=localStorage.getItem(`lead-
+system:active-brand-ref-afiliado`);if(r&&i){e(`/central-afiliado/${i}/painel`,{replace:!0});return}e(`/login`,{replace:
+!0})},[e]),(0,N.jsx)(Xo,{}))}var rs=`lead-system:chunk-reload-at`;function is(){if(typeof window>`u`)return;let 
+e=e=>{let t=e.reason||e.error,n=String(t?.message||t||``);if(!(String(t?.name||``)===`ChunkLoadError`||/Loading chunk 
+\S+ failed/i.test(n)||/Failed to fetch dynamically imported module/i.test(n)||/Importing a module script 
+failed/i.test(n)))return;let r=Number(sessionStorage.getItem(rs)||0);Date.now()-r<1e4||(sessionStorage.setItem(rs,Strin
+g(Date.now())),console.warn(`[App] ChunkLoadError detected, reloading…`,n),window.location.reload())};window.addEvent
+Listener(`error`,e),window.addEventListener(`unhandledrejection`,e)}is();function as(){let e=Ln();return(0,N.jsxs)(N.Fr
+agment,{children:[(0,N.jsx)(No,{skipAdminRoutes:!e}),(0,N.jsx)(M.Suspense,{fallback:(0,N.jsx)(Xo,{}),children:(0,N.jsxs
+)(o,{children:[!e&&(0,N.jsx)(s,{path:`/inicio`,element:(0,N.jsx)(Wo,{})}),!e&&(0,N.jsx)(s,{path:`/lp`,element:(0,N.jsx)
+(Wo,{})}),Hr(),(0,N.jsx)(s,{path:`/privacy`,element:(0,N.jsx)(qo,{})}),(0,N.jsx)(s,{path:`/privacy/policy`,element:(0,N
+.jsx)(qo,{})}),(0,N.jsx)(s,{path:`/privacy/data-deletion`,element:(0,N.jsx)(Jo,{})}),(0,N.jsx)(s,{path:`/privacy/deleti
+on-status`,element:(0,N.jsx)(Jo,{})}),(0,N.jsx)(s,{path:`/terms`,element:(0,N.jsx)(Yo,{})}),(0,N.jsx)(s,{path:`/terms-o
+f-service`,element:(0,N.jsx)(Yo,{})}),!e&&(0,N.jsx)(s,{path:`/cadastro`,element:(0,N.jsx)(Go,{})}),!e&&(0,N.jsx)(s,{pat
+h:`/cadastro/sucesso`,element:(0,N.jsx)(Ko,{})}),(0,N.jsx)(s,{path:`/login`,element:(0,N.jsx)(zn,{})}),!e&&Or,!e&&(0,N.
+jsx)(s,{path:`/estoque/app`,element:(0,N.jsx)(zo,{})}),!e&&(0,N.jsx)(s,{path:`/inventario`,element:(0,N.jsx)(zo,{})}),!
+e&&(0,N.jsxs)(N.Fragment,{children:[(0,N.jsx)(s,{path:`/app-estoque`,element:(0,N.jsx)(Ro,{})}),(0,N.jsx)(s,{path:`/app
+-estoque/:slug`,element:(0,N.jsx)(Ro,{})}),(0,N.jsx)(s,{path:`/app-estoque/:slug/painel`,element:(0,N.jsx)(zo,{})}),(0,
+N.jsx)(s,{path:`/app-estoque/painel`,element:(0,N.jsx)(zo,{})}),(0,N.jsx)(s,{path:`/central-afiliado`,element:(0,N.jsx)
+(Bo,{})}),(0,N.jsx)(s,{path:`/central-afiliado/:slug`,element:(0,N.jsx)(Bo,{})}),(0,N.jsx)(s,{path:`/central-afiliado/:
+slug/painel/*`,element:(0,N.jsx)(Vo,{})}),(0,N.jsx)(s,{path:`/afiliado/:code`,element:(0,N.jsx)(Ho,{})}),(0,N.jsx)(s,{p
+ath:`/brand-onboarding`,element:(0,N.jsx)(Lo,{})}),(0,N.jsx)(s,{path:`/catalogo/:slug/produto/:productSlug`,element:(0,
+N.jsx)(Uo,{})}),(0,N.jsx)(s,{path:`/loja/:slug/produto/:productSlug`,element:(0,N.jsx)(Uo,{})}),(0,N.jsx)(s,{path:`/cat
+alogo/:slug/checkout`,element:(0,N.jsx)(Po,{})}),(0,N.jsx)(s,{path:`/loja/:slug/checkout`,element:(0,N.jsx)(Po,{})}),(0
+,N.jsx)(s,{path:`/catalogo/:slug/pedido`,element:(0,N.jsx)(Fo,{})}),(0,N.jsx)(s,{path:`/loja/:slug/pedido`,element:(0,N
+.jsx)(Fo,{})}),(0,N.jsx)(s,{path:`/catalogo/:slug/historico`,element:(0,N.jsx)(Io,{})}),(0,N.jsx)(s,{path:`/loja/:slug/
+historico`,element:(0,N.jsx)(Io,{})}),(0,N.jsx)(s,{path:`/catalogo/:slug`,element:(0,N.jsx)(Zo,{})}),(0,N.jsx)(s,{path:
+`/loja/:slug`,element:(0,N.jsx)(Zo,{})}),(0,N.jsx)(s,{path:`/checkout`,element:(0,N.jsx)(Po,{})}),(0,N.jsx)(s,{path:`/p
+edido`,element:(0,N.jsx)(Fo,{})}),(0,N.jsx)(s,{path:`/historico`,element:(0,N.jsx)(Io,{})}),(0,N.jsx)(s,{path:`/produto
+/:productSlug`,element:(0,N.jsx)(Uo,{})})]}),(0,N.jsx)(s,{path:`/`,element:(0,N.jsx)(ns,{})})]})}),(0,N.jsx)(gt,{}),(0,
+N.jsx)(xt,{}),(0,N.jsx)(Hn,{})]})}try{let e=localStorage.getItem(`lead-system:brand-colors`);if(e){let{primary:t,second
+ary:n}=JSON.parse(e),r=document.documentElement;t&&r.style.setProperty(`--brand-primary`,t),n&&(r.style.setProperty(`--
+brand-secondary`,n),r.style.setProperty(`--brand-secondary-soft`,n+`1a`),r.style.setProperty(`--brand-secondary-light`,
+n+`26`))}}catch{}function os(){let e=window.__LC_SPLASH__;if(!e)return;let t=Date.now()-e.startedAt,n=Math.max(0,200-t)
+;window.setTimeout(()=>{window.requestAnimationFrame(()=>e.dismiss())},n)}if(`serviceWorker`in navigator){let 
+e=(()=>{if(y)return`/`;let e=window.location.pathname.split(`/`).filter(Boolean),t=e[0]||``;return(t===`catalogo`||t===
+`loja`)&&(e[1]||b)?`/${t}/${encodeURIComponent(e[1]||b)}/`:t===`app-estoque`&&e[1]||t===`central-afiliado`&&e[1]?`/${t}
+/${encodeURIComponent(e[1])}/`:`/`})();window.addEventListener(`load`,()=>{navigator.serviceWorker.register(`/service-w
+orker.js`,{scope:e}).then(e=>e.update().catch(()=>void 0)).catch(()=>void 0)})}(0,tt.createRoot)(document.getElementByI
+d(`root`)).render((0,N.jsx)(M.StrictMode,{children:(0,N.jsx)(p,{children:(0,N.jsx)(as,{})})})),os();export{Ui as $,Ke 
+as $t,za as A,me as An,$t as At,Ca as B,Et as Bt,Xa as C,Se as Cn,xn as Ct,Ga as D,_e as Dn,sn as Dt,Wa as E,ve as 
+En,mn as Et,Oa as F,Ht as Ft,_a as G,At as Gt,Ta as H,Dt as Ht,Da as I,Ut as It,na as J,mt as Jt,ya as K,kt as Kt,ga 
+as L,Rt as Lt,Ma as M,Zt as Mt,Na as N,Jt as Nt,Ka as O,ge as On,en as Ot,Pa as P,Yt as Pt,Zi as Q,Je as Qt,xa as R,It 
+as Rt,io as S,Ce as Sn,kn as St,Qa as T,ye as Tn,pn as Tt,ba as U,Ct as Ut,Ea as V,jt as Vt,Sa as W,wt as Wt,Yi as 
+X,lt as Xt,$i as Y,ct as Yt,Xi as Z,ot as Zt,co as _,Oe as _n,Gr as _t,Do as a,Be as an,Mi as at,no as b,Te as bn,Dn 
+as bt,Co as c,Le as cn,Ei as ct,vo as d,Pe as dn,Si as dt,Ge as en,Wi as et,yo as f,Ne as fn,Ci as ft,B as g,ke as 
+gn,Jr as gt,z as h,Ae as hn,Yr as ht,H as i,Ve as in,zi as it,Ba as j,de as jn,Qt as jt,Ra as k,he as kn,tn as kt,wo 
+as l,Ie as ln,Oi as lt,mo as m,je as mn,Xr as mt,Mo as n,Ue as nn,I as nt,Oo as o,ze as on,Pi as ot,bo as p,Me as 
+pn,Zr as pt,wa as q,yt as qt,jo as r,He as rn,Ri as rt,ko as s,Re as sn,Fi as st,No as t,We as tn,Gi as tt,To as u,Fe 
+as un,ki as ut,lo as v,De as vn,Rn as vt,Za as w,be as wn,jn as wt,ro as x,we as xn,En as xt,uo as y,Ee as yn,Tn as 
+yt,va as z,Ot as zt};
+
+

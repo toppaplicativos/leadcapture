@@ -25,6 +25,10 @@ export type ComponentType =
   | 'facebook_post_preview'
   | 'automation_stats'
   | 'automation_flow_preview'
+  | 'affiliate_stats'
+  | 'affiliate_create_preview'
+  | 'affiliate_config_preview'
+  | 'affiliate_payout_preview'
 
 export type PresentationMode = 'inline' | 'canvas'
 

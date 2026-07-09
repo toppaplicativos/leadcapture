@@ -1,6 +1,7 @@
 import { query, queryOne, update, insert } from "../config/database";
 import { logger } from "../utils/logger";
 import { randomUUID } from "crypto";
+import { galleryService } from "./gallery";
 
 export type FacebookConnection = {
   id: string;
@@ -317,11 +318,24 @@ class FacebookService {
 
       if (result.id || result.post_id) {
         const fbPostId = result.id || result.post_id;
+        const publishedAt = new Date().toISOString();
         await this.updatePost(postId, {
           status: "published",
           fb_post_id: fbPostId,
-          published_at: new Date().toISOString(),
+          published_at: publishedAt,
         });
+        if (post.media_url) {
+          try {
+            await galleryService.markPublishedFromPost(conn.user_id, brandId, {
+              postId,
+              channel: "facebook",
+              publishedAt,
+              items: [{ url: post.media_url }],
+            });
+          } catch (err: any) {
+            logger.warn(`[Facebook] Falha ao marcar midia publicada na galeria: ${err?.message || err}`);
+          }
+        }
         return { ok: true, message: "Publicado com sucesso" };
       } else {
         await this.updatePost(postId, { status: "failed" });

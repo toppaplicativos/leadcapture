@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, lazy, Suspense } from 'react'
 import { Loader2, Brain, ChevronRight, ExternalLink, Sparkles } from 'lucide-react'
+import { PageSplash } from '@/components/PageSplash'
 import { useSkillsBridgeOptional, type SkillRow } from '@/lib/agent/SkillsBridgeContext'
 import { useAgentShell } from '@/lib/agent/AgentShellContext'
 import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
@@ -84,9 +85,7 @@ export function SkillsInlinePanel() {
 
   if ((loading || snap?.loading) && !preview.length) {
     return (
-      <div className="catalog-panel__loading">
-        <Loader2 size={18} className="animate-spin text-gray-400" />
-      </div>
+      <PageSplash variant="panel" label="Habilidades" />
     )
   }
 
@@ -144,7 +143,7 @@ export function SkillsInlinePanel() {
         title="Habilidades"
         subtitle="Treinar e gerenciar brand skills"
       >
-        <Suspense fallback={<div className="catalog-panel__loading"><Loader2 size={20} className="animate-spin text-gray-400" /></div>}>
+        <Suspense fallback={<PageSplash variant="panel" label="Habilidades" />}>
           <SkillsManager />
         </Suspense>
       </CatalogManagerSheet>

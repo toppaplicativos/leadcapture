@@ -1,0 +1,21 @@
+---
+pid: 57108
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "node \"C:\\Users\\LENOVO\\.grok\\skills\\playwright\\scripts\\capture.mjs\" --url \"http://localhost:5173/inicio\" --devices desktop,iphone14 --output \"C:\\Users\\Public\\Projetos\\leadcapture\\.playwright-captures\" --wait-for \"h1\" --dpr 2"
+started_at: 2026-07-03T21:00:34.860Z
+running_for_ms: 20074966 
+---
+
+Playwright capture
+  output:  C:\Users\Public\Projetos\leadcapture\.playwright-captures
+  devices: desktop, iphone14
+  themes:  default
+  dpr:     2
+  targets: 1
+
+•   ✓ page @ desktop/default
+•   ✓ page @ iphone14/default
+
+Done: 2 ok, 0 failed
+Manifest: C:\Users\Public\Projetos\leadcapture\.playwright-captures\manifest.json
+

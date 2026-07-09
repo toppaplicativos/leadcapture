@@ -78,7 +78,7 @@ export function MasterDashboard() {
     <>
       <MasterPageHeader
         title="Painel"
-        subtitle="Visão geral do SaaS — receita, clientes, assinaturas. Atualizado em tempo real."
+        subtitle="Visão geral do SaaS — receita, clientes, assinaturas. Painel em adm.leadcapture.online/admin."
       />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">

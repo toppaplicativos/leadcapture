@@ -1,0 +1,12 @@
+---
+pid: 26224
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "Set-Location \"C:\\Users\\Public\\Projetos\\leadcapture\\frontend\"; npm run build"
+started_at: 2026-07-07T17:38:28.162Z
+running_for_ms: 899996   
+---
+
+> leadcapture-frontend@1.0.0 build
+> tsc -b && vite build
+
+src/components/agent/affiliates/AffiliatesInlinePanel.tsx(134,62): error TS18048: 'snap' is possibly 'undefined'.

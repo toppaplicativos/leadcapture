@@ -1,0 +1,12 @@
+---
+pid: 30612
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd C:\\Users\\Public\\Projetos\\leadcapture; npm run build 2>&1"
+started_at: 2026-07-08T04:25:43.628Z
+running_for_ms: 80479999 
+---
+
+> lead-captation-system@1.0.0 build
+> tsc
+
+src/services/affiliateProductLearning.ts(93,20): error TS7006: Parameter 'o' implicitly has an 'any' type.

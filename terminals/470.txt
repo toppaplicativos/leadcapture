@@ -1,0 +1,7 @@
+---
+pid: 33156
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd C:\\Users\\Public\\Projetos\\leadcapture; npx tsc --noEmit -p tsconfig.json 2>&1 | Select-String -Pattern \"affiliateGlobal|partnersApp|partners/\" | Select-Object -First 20"
+started_at: 2026-07-08T23:00:06.632Z
+running_for_ms: 13614971 
+---

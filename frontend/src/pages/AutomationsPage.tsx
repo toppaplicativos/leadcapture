@@ -21,6 +21,7 @@
  * Tudo POR BRAND ATIVO (header x-brand-id).
  */
 import { useState, useEffect, useCallback } from 'react'
+import { AutomationDefinitionsHub } from '@/components/automations/AutomationDefinitionsHub'
 import {
   Zap, Play, Pause, RefreshCw, Plus, Clock, CheckCircle2, XCircle, Loader2,
   ChevronRight, History, Settings2, Share2, FileText, Activity, Shield,
@@ -167,7 +168,8 @@ function humanizeCron(cron: string | null | undefined, fallback: string): string
    Página
    ──────────────────────────────────────────────────────────── */
 
-export function AutomationsPage() {
+export function AutomationsPage({ embedded = false }: { embedded?: boolean } = {}) {
+  const [mainTab, setMainTab] = useState<'defs' | 'catalog'>('defs')
   const [items, setItems] = useState<CatalogItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -280,7 +282,7 @@ export function AutomationsPage() {
   }
 
   return (
-    <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 space-y-6">
+    <div className={`max-w-6xl mx-auto px-4 sm:px-6 space-y-6 ${embedded ? 'py-2' : 'py-6'}`}>
       {/* Header */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div className="min-w-0">
@@ -289,18 +291,41 @@ export function AutomationsPage() {
             Automações
           </h1>
           <p className="text-[12.5px] text-gray-500 mt-0.5">
-            14 automações pré-configuradas. Ative as que fazem sentido pro seu brand — IA + cron rodando 24/7.
+            Automações compostas com gatilhos e pipeline — ou ative tarefas prontas do catálogo.
           </p>
         </div>
+        {mainTab === 'catalog' && (
+          <button
+            onClick={load}
+            className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg bg-white border border-gray-200 hover:border-gray-300 text-[12.5px] font-semibold text-gray-700 transition"
+          >
+            <RefreshCw size={13} strokeWidth={2.25} className={loading ? 'animate-spin' : ''} />
+            Atualizar
+          </button>
+        )}
+      </div>
+
+      <div className="flex gap-1 p-1 bg-gray-100 rounded-xl w-fit">
         <button
-          onClick={load}
-          className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg bg-white border border-gray-200 hover:border-gray-300 text-[12.5px] font-semibold text-gray-700 transition"
+          type="button"
+          onClick={() => setMainTab('defs')}
+          className={`px-4 py-2 rounded-lg text-[12px] font-semibold transition ${mainTab === 'defs' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500'}`}
         >
-          <RefreshCw size={13} strokeWidth={2.25} className={loading ? 'animate-spin' : ''} />
-          Atualizar
+          Minhas automações
+        </button>
+        <button
+          type="button"
+          onClick={() => setMainTab('catalog')}
+          className={`px-4 py-2 rounded-lg text-[12px] font-semibold transition ${mainTab === 'catalog' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500'}`}
+        >
+          Catálogo de tarefas
         </button>
       </div>
 
+      {mainTab === 'defs' ? (
+        <AutomationDefinitionsHub />
+      ) : (
+        <>
       {/* Stats cards */}
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
         {[
@@ -347,9 +372,11 @@ export function AutomationsPage() {
           ))}
         </div>
       )}
+        </>
+      )}
 
-      {/* Modal de histórico */}
-      {selectedRunsFor && (
+      {/* Modal de histórico (catálogo) */}
+      {mainTab === 'catalog' && selectedRunsFor && (
         <RunsModal
           slug={selectedRunsFor}
           itemName={items.find((i) => i.slug === selectedRunsFor)?.name || ''}

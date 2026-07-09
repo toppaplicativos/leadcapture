@@ -1,0 +1,11 @@
+---
+pid: 32524
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "$max = 20; for ($i = 1; $i -le $max; $i++) { if (-not (Test-Path \"C:\\Users\\Public\\Projetos\\leadcapture\\agent-tools\\.deploy.lock\")) { Write-Host \"Lock cleared\"; break }; $p = Get-Process -Id 33460 -ErrorAction SilentlyContinue; if (-not $p) { Write-Host \"PID gone, removing stale lock\"; Remove-Item \"C:\\Users\\Public\\Projetos\\leadcapture\\agent-tools\\.deploy.lock\" -Force; break }; Write-Host \"Waiting deploy ($i/$max)...\"; Start-Sleep -Seconds 30 }; if (Test-Path \"C:\\Users\\Public\\Projetos\\leadcapture\\agent-tools\\.deploy.lock\") { Get-Content \"C:\\Users\\Public\\Projetos\\leadcapture\\agent-tools\\.deploy.lock\" }"
+started_at: 2026-07-08T20:30:07.709Z
+running_for_ms: 22615004 
+---
+Waiting deploy (1/20)...
+Waiting deploy (2/20)...
+Waiting deploy (3/20)...
+Lock cleared

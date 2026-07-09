@@ -1,0 +1,12 @@
+---
+pid: 15364
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd \"C:\\Users\\Public\\Projetos\\leadcapture\\frontend\"; npm run build 2>&1 | Select-Object -Last 40"
+started_at: 2026-07-08T19:11:13.096Z
+running_for_ms: 27345011 
+---
+
+> leadcapture-frontend@1.0.0 build
+> tsc -b && vite build
+
+src/pages/admin/affiliates/AffiliateProgramsSection.tsx(216,48): error TS2345: Argument of type 'string' is not assignable to parameter of type 'CommissionMode'.

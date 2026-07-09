@@ -1,17 +1,20 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Plus, ImageOff, Star } from 'lucide-react'
 import type { Product } from '@/lib/api'
 import { money } from '@/lib/store-context'
+import { productUrl } from '@/lib/product-url'
 import { optimizedImage, optimizedSrcset } from '@/lib/image'
 
 interface ProductCardProps {
   product: Product
-  onOpen: (product: Product) => void
+  catalogSlug: string
   onQuickAdd: (productId: string) => void
   priority?: boolean
 }
 
-export function ProductCard({ product, onOpen, onQuickAdd, priority = false }: ProductCardProps) {
+export function ProductCard({ product, catalogSlug, onQuickAdd, priority = false }: ProductCardProps) {
+  const href = productUrl(product, catalogSlug)
   const rawSrc = product.image || product.images?.[0] || ''
   const imgSrc = optimizedImage(rawSrc, 320)
   const imgSrcset = optimizedSrcset(rawSrc, [240, 320, 480, 640])
@@ -29,9 +32,11 @@ export function ProductCard({ product, onOpen, onQuickAdd, priority = false }: P
   const isLowStock = stockStatus === 'low_stock' && stockQty !== null && stockQty > 0
 
   return (
-    <article
-      onClick={() => onOpen(product)}
-      className="group relative cursor-pointer flex flex-col"
+    <Link
+      to={href}
+      state={{ fromCatalog: true }}
+      className="group relative cursor-pointer flex flex-col no-underline text-inherit"
+      aria-label={`Ver ${product.name || 'produto'}`}
     >
       <div className="relative aspect-[4/5] rounded-2xl overflow-hidden bg-gray-100 ring-1 ring-black/[0.04] transition-[box-shadow,transform] duration-200 md:group-hover:shadow-[var(--shadow-elevated)] md:group-hover:-translate-y-0.5">
         {imgSrc && imgState !== 'error' && (
@@ -85,6 +90,7 @@ export function ProductCard({ product, onOpen, onQuickAdd, priority = false }: P
         {(!product.cta_type || product.cta_type === 'buy') && !isOutOfStock && (
           <button
             onClick={(e) => {
+              e.preventDefault()
               e.stopPropagation()
               onQuickAdd(product.id)
             }}
@@ -122,6 +128,6 @@ export function ProductCard({ product, onOpen, onQuickAdd, priority = false }: P
           </div>
         )}
       </div>
-    </article>
+    </Link>
   )
 }

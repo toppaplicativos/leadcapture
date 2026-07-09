@@ -1,0 +1,7 @@
+---
+pid: 14880
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd \"C:\\Users\\Public\\Projetos\\leadcapture\"; npx tsc --noEmit 2>&1 | Select-Object -Last 15"
+started_at: 2026-07-08T20:09:05.384Z
+running_for_ms: 23874946 
+---

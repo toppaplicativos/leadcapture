@@ -1,0 +1,9 @@
+---
+pid: 7304
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd C:\\Users\\Public\\Projetos\\leadcapture\\frontend; npx tsc --noEmit 2>&1 | Select-Object -First 20"
+started_at: 2026-07-08T14:11:24.292Z
+running_for_ms: 45335013 
+---
+src/components/automations/AutomationDetailModal.tsx(104,18): error TS2345: Argument of type 'AutomacaoInput | null' is not assignable to parameter of type 'AutomacaoInput'.
+  Type 'null' is not assignable to type 'AutomacaoInput'.

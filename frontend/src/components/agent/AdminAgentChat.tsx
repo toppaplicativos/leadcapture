@@ -61,8 +61,10 @@ export function AdminAgentChat() {
   const [campaignModal, setCampaignModal] = useState(false)
   const [skillModal, setSkillModal] = useState(false)
 
+  const brandId = String(localStorage.getItem('lead-system:active-brand-id') || '').trim()
   const { messages, setMessages, loading, error, send, triggerSkill, handleComponentEvent } = useAdminAgentChat(
     location.pathname,
+    brandId,
   )
 
   useEffect(() => {

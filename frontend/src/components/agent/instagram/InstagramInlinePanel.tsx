@@ -1,13 +1,16 @@
 import { useEffect, useState, useCallback, useRef, lazy, Suspense } from 'react'
 import {
-  Loader2, Camera, Users, Image, MessageCircle,
+  Loader2, Users, Image, MessageCircle,
   ChevronRight, ExternalLink, Plus,
 } from 'lucide-react'
+import { InstagramIcon } from '@/components/icons'
 import { fetchInstagramSnapshot, type InstagramTab } from '@/lib/instagram/client'
+import { PageSplash } from '@/components/PageSplash'
 import { useInstagramBridgeOptional } from '@/lib/agent/InstagramBridgeContext'
 import { useAgentShell } from '@/lib/agent/AgentShellContext'
 import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
 import { CatalogManagerSheet } from '@/components/agent/catalog/CatalogManagerSheet'
+import { InstagramPostAnalysisModal } from '@/components/instagram/InstagramPostAnalysisModal'
 
 const InstagramManager = lazy(() =>
   import('@/pages/InstagramPage').then((m) => ({ default: m.InstagramPage })),
@@ -29,9 +32,12 @@ export function InstagramInlinePanel() {
   const isDesktop = useIsDesktop()
   const snap = bridge?.snapshot
   const [media, setMedia] = useState<Array<{ id: string; media_url?: string; thumbnail_url?: string; permalink?: string }>>([])
+  const [reach7d, setReach7d] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [managerOpen, setManagerOpen] = useState(false)
   const [managerTab, setManagerTab] = useState<InstagramTab>('overview')
+  const [analysisPostId, setAnalysisPostId] = useState<string | null>(null)
+  const [analysisPreview, setAnalysisPreview] = useState<typeof media[number] | null>(null)
   const loadedRef = useRef(false)
 
   const load = useCallback(async () => {
@@ -39,6 +45,7 @@ export function InstagramInlinePanel() {
     try {
       const data = await fetchInstagramSnapshot()
       setMedia(data.media || [])
+      setReach7d(data.analytics?.account?.reach ?? null)
       publishSnapshot?.({
         connected: data.connected,
         username: data.profile?.username || '',
@@ -85,9 +92,7 @@ export function InstagramInlinePanel() {
 
   if ((loading || snap?.loading) && !snap?.username) {
     return (
-      <div className="catalog-panel__loading">
-        <Loader2 size={18} className="animate-spin text-gray-400" />
-      </div>
+      <PageSplash variant="panel" label="Instagram" />
     )
   }
 
@@ -95,7 +100,7 @@ export function InstagramInlinePanel() {
     return (
       <div className="catalog-panel catalog-panel--instagram">
         <div className="catalog-instagram-connect">
-          <Camera size={20} className="text-rose-500" strokeWidth={1.75} />
+          <InstagramIcon size={20} className="text-rose-500" />
           <p className="catalog-instagram-connect__title">Conta não conectada</p>
           <p className="catalog-instagram-connect__desc">
             Vincule uma conta Instagram Business para publicar, responder DMs e ver métricas.
@@ -111,7 +116,7 @@ export function InstagramInlinePanel() {
             title="Instagram"
             subtitle="Conectar e gerenciar conta"
           >
-            <Suspense fallback={<div className="catalog-panel__loading"><Loader2 size={20} className="animate-spin text-gray-400" /></div>}>
+            <Suspense fallback={<PageSplash variant="panel" label="Instagram" />}>
               <InstagramManager embedded initialTab="overview" />
             </Suspense>
           </CatalogManagerSheet>
@@ -129,7 +134,7 @@ export function InstagramInlinePanel() {
           {snap.avatarUrl ? (
             <img src={snap.avatarUrl} alt="" />
           ) : (
-            <Camera size={16} className="text-rose-400" />
+            <InstagramIcon size={16} className="text-rose-400" />
           )}
         </div>
         <div className="catalog-instagram-profile__meta">
@@ -152,23 +157,23 @@ export function InstagramInlinePanel() {
         </div>
         <div className="catalog-instagram-kpi">
           <MessageCircle size={12} className="text-gray-400" />
-          <p className="catalog-instagram-kpi__value tabular-nums">—</p>
-          <span className="catalog-instagram-kpi__label">DMs</span>
+          <p className="catalog-instagram-kpi__value tabular-nums">{reach7d != null ? reach7d.toLocaleString('pt-BR') : '—'}</p>
+          <span className="catalog-instagram-kpi__label">Alcance 7d</span>
         </div>
       </div>
 
       {media.length > 0 && (
         <div className="catalog-instagram-media-strip">
           {media.slice(0, 4).map((m) => (
-            <a
+            <button
               key={m.id}
-              href={m.permalink || '#'}
-              target="_blank"
-              rel="noreferrer"
+              type="button"
               className="catalog-instagram-media-tile"
+              onClick={() => { setAnalysisPostId(m.id); setAnalysisPreview(m) }}
+              aria-label="Analisar post"
             >
               <img src={m.thumbnail_url || m.media_url} alt="" loading="lazy" />
-            </a>
+            </button>
           ))}
         </div>
       )}
@@ -212,12 +217,18 @@ export function InstagramInlinePanel() {
             title="Instagram"
             subtitle={snap.username ? `@${snap.username}` : 'Gerenciar conta'}
           >
-            <Suspense fallback={<div className="catalog-panel__loading"><Loader2 size={20} className="animate-spin text-gray-400" /></div>}>
+            <Suspense fallback={<PageSplash variant="panel" label="Instagram" />}>
               <InstagramManager embedded initialTab={managerTab} />
             </Suspense>
           </CatalogManagerSheet>
         </>
       )}
+      <InstagramPostAnalysisModal
+        open={Boolean(analysisPostId)}
+        mediaId={analysisPostId}
+        preview={analysisPreview || undefined}
+        onClose={() => { setAnalysisPostId(null); setAnalysisPreview(null) }}
+      />
     </div>
   )
 }

@@ -1,0 +1,29 @@
+{
+  "name": "typeui_get_section_prompt",
+  "description": "Resolve natural language UI section requests like 'hero section', 'pricing section', 'navbar', 'sidebar', 'application shell', 'shell layout', or 'data table' to the best TypeUI prompt and return an augmented AI prompt for better UI generation. Call this before generating UI sections and app layouts.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "request": {
+        "description": "The user's UI request, for example 'I want a hero section', 'create a pricing section', or 'give me shell layouts'.",
+        "type": "string"
+      },
+      "designSystem": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Optional installed TypeUI design skill slug to reference in the generated prompt."
+      }
+    },
+    "required": [
+      "request"
+    ],
+    "type": "object"
+  }
+}

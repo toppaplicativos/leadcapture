@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  X, Camera, Send, Megaphone, Sparkles, Loader2, MapPin,
+  X, Send, Megaphone, Sparkles, Loader2, MapPin,
   Check, AlertCircle, ImageIcon, BookImage, Search, Hash, Eye,
-  MessageCircle,
 } from 'lucide-react'
+import { InstagramIcon, WhatsAppIcon } from '@/components/icons'
 import { Button } from '@/components/ui'
 
 /* ── types ── */
@@ -189,8 +189,8 @@ export function PublishModal({ open, onClose, imageUrl, captionContext }: Props)
         {/* destination tabs */}
         <div className="flex gap-1 px-6 pt-4">
           {([
-            { key: 'instagram' as const, icon: Camera, label: 'Instagram', enabled: true },
-            { key: 'whatsapp' as const, icon: MessageCircle, label: 'WhatsApp', enabled: false },
+            { key: 'instagram' as const, icon: InstagramIcon, label: 'Instagram', enabled: true },
+            { key: 'whatsapp' as const, icon: WhatsAppIcon, label: 'WhatsApp', enabled: false },
             { key: 'campaign' as const, icon: Megaphone, label: 'Campanha', enabled: false },
           ]).map(d => (
             <button
@@ -426,7 +426,7 @@ export function PublishModal({ open, onClose, imageUrl, captionContext }: Props)
           {/* Placeholder for future destinations */}
           {destination === 'whatsapp' && (
             <div className="text-center py-12 text-gray-400">
-              <MessageCircle size={32} className="mx-auto mb-3 opacity-50" />
+              <WhatsAppIcon size={32} className="mx-auto mb-3 opacity-50" />
               <p className="text-[14px] font-semibold">Envio por WhatsApp</p>
               <p className="text-[12px] mt-1">Em breve disponivel.</p>
             </div>

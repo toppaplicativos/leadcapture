@@ -1,0 +1,8 @@
+---
+pid: 25752
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "Stop-Process -Id 29176 -Force -ErrorAction SilentlyContinue; cd \"C:\\Users\\Public\\Projetos\\leadcapture\"; npm run build *> build-out.txt; echo EXIT:$LASTEXITCODE"
+started_at: 2026-07-09T02:28:40.419Z
+running_for_ms: 1100000  
+---
+EXIT:0

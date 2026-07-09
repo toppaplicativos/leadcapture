@@ -1,0 +1,8 @@
+---
+pid: 60480
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "node C:\\Users\\LENOVO\\.grok\\skills\\playwright\\scripts\\capture.mjs http://localhost:5173/catalogo/alhopronto --devices iphone14,desktop --out C:\\Users\\Public\\Projetos\\leadcapture\\.playwright-captures\\store-redesign"
+started_at: 2026-07-04T01:53:43.101Z
+running_for_ms: 2484974  
+---
+Provide --url or --config routes.json --base URL

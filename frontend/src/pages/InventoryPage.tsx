@@ -8,6 +8,8 @@ import {
 } from 'lucide-react'
 import { inventoryApi } from '@/lib/api-admin'
 import { Button, Input } from '@/components/ui'
+import { NotificationBellButton } from '@/components/notifications/NotificationCenter'
+import { PushActivationCard } from '@/components/push/PushActivationCard'
 
 /* ── Types ── */
 interface InventoryProduct {
@@ -89,6 +91,12 @@ export function InventoryPage() {
   const token = localStorage.getItem('lead-system-token')
   useEffect(() => { if (!token) navigate('/', { replace: true }) }, [token])
 
+  const getHeaders = () => ({
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${token}`,
+    'x-brand-id': localStorage.getItem('lead-system:active-brand-id') || '',
+  })
+
   // Bootstrap
   useEffect(() => {
     // brands
@@ -157,6 +165,12 @@ export function InventoryPage() {
             </h1>
           </div>
           <div className="flex items-center gap-1">
+            <NotificationBellButton
+              getHeaders={getHeaders}
+              appContext="stock"
+              onNavigate={(path) => navigate(path)}
+              className="text-gray-500 hover:bg-gray-100"
+            />
             <button
               onClick={handleSync}
               aria-label="Sincronizar"
@@ -262,6 +276,7 @@ export function InventoryPage() {
         {/* ── Main ── */}
         <main className="flex-1 lg:ml-[240px] overflow-y-auto">
           <div className="max-w-4xl mx-auto px-4 pt-5 pb-24 lg:pb-10 lg:px-8 page-enter">
+            <PushActivationCard className="mb-4" />
             {view === 'overview' && <OverviewView showToast={showToast} onAlertCount={setAlertCount} refreshKey={refreshKey} />}
             {view === 'products' && <ProductsView showToast={showToast} categories={categories} refreshKey={refreshKey} onRefresh={() => setRefreshKey(k => k + 1)} />}
             {view === 'movements' && <MovementsView showToast={showToast} />}

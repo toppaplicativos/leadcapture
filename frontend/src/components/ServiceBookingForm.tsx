@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { X, Loader2, Check, Calendar, Clock } from 'lucide-react'
 import type { Product, ServiceSlot } from '@/lib/api'
 import { fetchAvailability, createBooking } from '@/lib/api'
+import { getAffiliateOrderMeta } from '@/lib/affiliate-tracking'
 import { Button } from '@/components/ui'
 
 interface ServiceBookingFormProps {
@@ -85,6 +86,7 @@ export function ServiceBookingForm({ product, onClose }: ServiceBookingFormProps
         email: email.trim() || undefined,
         address: address.trim() || undefined,
         message: message.trim() || undefined,
+        ...getAffiliateOrderMeta(),
       })
       setDone(true)
     } catch (e: any) {

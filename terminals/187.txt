@@ -1,0 +1,16 @@
+---
+pid: 22572
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd \"C:\\Users\\Public\\Projetos\\leadcapture\\frontend\"; npx tsc -b --noEmit 2>&1"
+started_at: 2026-07-07T17:05:49.539Z
+running_for_ms: 86400006 
+---
+src/components/agent/AgentUIRenderer.tsx(586,9): error TS2322: Type 'unknown' is not assignable to type 'ReactNode'.
+src/components/agent/AgentUIRenderer.tsx(587,9): error TS2322: Type 'unknown' is not assignable to type 'ReactNode'.
+src/components/agent/AgentUIRenderer.tsx(588,9): error TS2322: Type 'unknown' is not assignable to type 'ReactNode'.
+
+---
+exit_code: -1
+elapsed_ms: 86400006
+ended_at: 2026-07-08T17:05:55.921Z
+---

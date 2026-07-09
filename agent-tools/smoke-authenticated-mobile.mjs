@@ -7,6 +7,7 @@
 import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { gotoAdminWorkspace, openWorkspaceShortcut, waitForWorkspaceReady } from './smoke-workspace-helpers.mjs'
 
 const require = createRequire(import.meta.url)
 const pwRoot = join(homedir(), '.grok', 'skills', 'playwright', 'scripts', 'node_modules', 'playwright')
@@ -19,12 +20,13 @@ const PASSWORD = process.env.SMOKE_PASSWORD || ''
 const MODULES = [
   { label: 'Painel', selector: '.catalog-module--dashboard', titleRe: /painel|resumo|lead/i, minCount: 1, sheetBtn: /painel completo/i },
   { label: 'Leads', selector: '.catalog-module--leads', titleRe: /lead/i, minCount: 1 },
-  { label: 'Produtos', selector: '.catalog-module.is-expanded', titleRe: /produto/i, minCount: 1, sheetBtn: /catálogo completo|ver catálogo/i },
+  { label: 'Produtos', selector: '.catalog-module.is-expanded', titleRe: /produto/i, minCount: 1, sheetBtn: /gerenciar|catálogo completo|ver catálogo/i },
   { label: 'Campanhas', selector: '.catalog-module.is-expanded', titleRe: /campanha/i },
   { label: 'Habilidades', selector: '.catalog-module--skills', titleRe: /habilidade/i, minCount: 1, sheetBtn: /gerenciar habilidade/i },
   { label: 'Pedidos', selector: '.catalog-module--orders', titleRe: /pedido/i },
   { label: 'Instagram', selector: '.catalog-module--instagram', titleRe: /instagram/i, sheetBtn: /instagram completo|conectar instagram/i },
   { label: 'Facebook', selector: '.catalog-module--facebook', titleRe: /facebook/i, sheetBtn: /facebook completo|conectar facebook/i },
+  { label: 'Afiliados', selector: '.catalog-module--affiliates', titleRe: /afiliado|parceiro|programa/i, sheetBtn: /gestão completa|abrir programa de afiliados/i },
 ]
 
 let failed = 0
@@ -69,15 +71,31 @@ page.on('console', (msg) => {
 })
 page.on('pageerror', (err) => consoleErrors.push(String(err)))
 
+async function loginToAdmin(attempts = 3) {
+  let lastErr
+  for (let i = 0; i < attempts; i++) {
+    try {
+      if (i > 0) await page.waitForTimeout(2500)
+      await page.goto(`${BASE}/login`, { waitUntil: 'domcontentloaded', timeout: 60000 })
+      await page.fill('input[type="email"]', EMAIL)
+      await page.fill('input[type="password"]', PASSWORD)
+      await Promise.all([
+        page.waitForURL(/\/admin/, { timeout: 60000 }),
+        page.click('button[type="submit"]'),
+      ])
+      return
+    } catch (err) {
+      lastErr = err
+    }
+  }
+  throw lastErr
+}
+
 try {
-  await page.goto(`${BASE}/login`, { waitUntil: 'networkidle', timeout: 45000 })
-  await page.fill('input[type="email"]', EMAIL)
-  await page.fill('input[type="password"]', PASSWORD)
-  await page.click('button[type="submit"]')
-  await page.waitForURL(/\/admin/, { timeout: 30000 })
+  await loginToAdmin()
   ok('login → /admin (mobile)')
 
-  await page.waitForSelector('.workspace-welcome, .workspace-chat__messages', { timeout: 20000 })
+  await waitForWorkspaceReady(page, 45000)
   await dismissPwaBanner()
   ok('workspace carregado')
 
@@ -89,35 +107,12 @@ try {
   if (footerPad && footerPad !== '0px') ok(`footer safe-area padding (${footerPad})`)
   else fail('footer sem padding inferior')
 
-  async function openShortcut(label) {
-    const welcome = page.locator('.workspace-welcome__card').filter({ hasText: label })
-    if (await welcome.count()) {
-      await Promise.all([
-        welcome.first().click(),
-        page.waitForResponse(
-          (r) => r.url().includes('/api/admin-agent/chat') && r.status() === 200,
-          { timeout: 20000 },
-        ).catch(() => null),
-      ])
-      return
-    }
-    await page.locator('.workspace-chat__menu-btn').click()
-    await Promise.all([
-      page.locator('.workspace-chat__shortcut').filter({ hasText: label }).first().click(),
-      page.waitForResponse(
-        (r) => r.url().includes('/api/admin-agent/chat') && r.status() === 200,
-        { timeout: 20000 },
-      ).catch(() => null),
-    ])
-  }
-
   for (const mod of MODULES) {
     consoleErrors.length = 0
-    await page.goto(`${BASE}/admin`, { waitUntil: 'networkidle', timeout: 45000 })
-    await page.waitForSelector('.workspace-welcome, .workspace-chat__messages', { timeout: 20000 })
+    await gotoAdminWorkspace(page, BASE, 45000)
     await dismissPwaBanner()
-    await openShortcut(mod.label)
-    await page.waitForTimeout(900)
+    await openWorkspaceShortcut(page, mod.label)
+    await page.waitForTimeout(mod.label === 'Produtos' ? 1400 : 900)
 
     const candidates = page.locator(mod.selector)
     let block = candidates.first()
@@ -148,6 +143,25 @@ try {
     const body = block.locator('.catalog-module__body')
     if (await body.isVisible().catch(() => false)) ok(`${mod.label} → painel expandido`)
     else fail(`${mod.label} → corpo do módulo não expandido`)
+
+    if (mod.label === 'Afiliados') {
+      const dock = page.locator('.workspace-chat__action-dock')
+      if (await dock.filter({ hasText: 'Cadastrar parceiro com IA' }).count()) {
+        ok(`${mod.label} → composer dock visível`)
+        const manageChip = dock.locator('.workspace-chat__catalog-chip').filter({ hasText: 'Gerenciar' })
+        if (await manageChip.count()) {
+          await manageChip.first().click({ force: true })
+          await page.waitForSelector('.catalog-manager-sheet', { timeout: 10000 })
+          ok(`${mod.label} → composer Gerenciar abre CatalogManagerSheet`)
+          await page.locator('.catalog-manager-sheet__close').click()
+          await page.waitForTimeout(300)
+        } else {
+          fail(`${mod.label} → chip Gerenciar não encontrado no composer`)
+        }
+      } else {
+        fail(`${mod.label} → composer dock não visível`)
+      }
+    }
 
     if (mod.sheetBtn) {
       await dismissPwaBanner()

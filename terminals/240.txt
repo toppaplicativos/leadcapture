@@ -1,0 +1,13 @@
+---
+pid: 22712
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd \"C:\\Users\\Public\\Projetos\\leadcapture\\frontend\"; npx tsc -b --pretty false 2>&1 | Select-String \"AutomationsInline|AutomationsModule|AutomationsPage|ModuleComposer\""
+started_at: 2026-07-07T18:05:15.165Z
+running_for_ms: 86400015 
+---
+
+---
+exit_code: -1
+elapsed_ms: 86400015
+ended_at: 2026-07-08T18:05:21.541Z
+---

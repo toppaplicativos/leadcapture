@@ -22,11 +22,12 @@ import {
 } from '@/lib/admin/helpers'
 import type { ShowToast } from '@/lib/admin/types'
 import { Skeleton, EmptyState } from '@/components/admin/primitives'
+import { WhatsAppIcon } from '@/components/icons'
 import { WhatsAppInstancesPanel } from '@/components/whatsapp/WhatsAppInstancesPanel'
 
 const SETTINGS_TABS = [
-  { id: 'geral', label: 'Geral' },
-  { id: 'whatsapp', label: 'WhatsApp' },
+  { id: 'geral', label: 'Geral', icon: Settings },
+  { id: 'whatsapp', label: 'WhatsApp', icon: WhatsAppIcon },
 ] as const
 
 type SettingsTab = (typeof SETTINGS_TABS)[number]['id']
@@ -430,7 +431,12 @@ export function SettingsView({ showToast }: { showToast: (t: string, tp?: 'ok' |
             onClick={() => setTab(t.id)}
             className={`settings-tabs__item ${tab === t.id ? 'is-active' : ''}`}
           >
-            {t.label}
+            {t.id === 'whatsapp' ? (
+              <span className="inline-flex items-center gap-1.5">
+                <WhatsAppIcon size={14} className="brand-icon--wa" />
+                {t.label}
+              </span>
+            ) : t.label}
           </button>
         ))}
       </nav>

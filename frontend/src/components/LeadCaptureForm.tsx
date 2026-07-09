@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { X, Loader2, Check, MessageCircle } from 'lucide-react'
 import type { OfferCta, Product } from '@/lib/api'
 import { captureLead } from '@/lib/api'
+import { getAffiliateOrderMeta } from '@/lib/affiliate-tracking'
 import { Button } from '@/components/ui'
 
 interface LeadCaptureFormProps {
@@ -87,6 +88,7 @@ export function LeadCaptureForm({ product, ctaType, onClose }: LeadCaptureFormPr
         product_id: product.id,
         product_name: product.name,
         cta_type: ctaType,
+        ...getAffiliateOrderMeta(),
       })
       setDone(true)
     } catch (e: any) {

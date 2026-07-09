@@ -27,8 +27,8 @@ if (IS_LOCAL_DEV) {
     );
   });
 } else {
-const SHELL_CACHE_NAME = "lead-system-shell-v25-20260707";
-const RUNTIME_CACHE_NAME = "lead-system-runtime-v17-20260707";
+const SHELL_CACHE_NAME = "lead-system-shell-v96-20260709";
+const RUNTIME_CACHE_NAME = "lead-system-runtime-v88-20260709";
 
 function getBasePath() {
   try {
@@ -190,32 +190,70 @@ self.addEventListener("push", (event) => {
     return;
   }
 
-  const data = event.data.json();
+  let data = {};
+  try {
+    data = event.data.json();
+  } catch (_err) {
+    data = { title: "LeadCapture", body: event.data.text() };
+  }
+
+  const meta = data.data || {};
+  const priority = meta.priority || "normal";
+  const hasSound = !!meta.sound;
+
   const options = {
     body: data.body || "Nova notificacao",
     icon: toScopedPath("logo.png"),
     badge: toScopedPath("logo.png"),
     tag: data.tag || "lead-system",
-    requireInteraction: data.requireInteraction || false,
+    requireInteraction: data.requireInteraction || priority === "critical",
+    silent: !hasSound,
+    vibrate: meta.vibrate || (priority === "critical" ? [300, 100, 300] : undefined),
     actions: data.actions || [
       { action: "open", title: "Abrir" },
       { action: "close", title: "Fechar" }
     ],
-    data: data.data || {}
+    data: meta
   };
 
-  event.waitUntil(self.registration.showNotification(data.title || "Lead System", options));
+  event.waitUntil(
+    Promise.all([
+      self.registration.showNotification(data.title || "LeadCapture", options),
+      trackPushInteraction({
+        interaction: "displayed",
+        notification_id: meta.notification_id,
+        event_key: meta.event,
+        url: meta.url,
+      }),
+    ])
+  );
 });
+
+function trackPushInteraction(payload) {
+  return fetch("/api/push/track", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  }).catch(() => Promise.resolve());
+}
 
 // Tratamento de cliques em notificacoes
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
 
-  const rawUrl = event.notification?.data?.url || toScopedPath("");
+  const meta = event.notification?.data || {};
+  const rawUrl = meta.url || toScopedPath("");
   const urlToOpen = new URL(rawUrl, self.location.origin).toString();
 
   event.waitUntil(
-    clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
+    Promise.all([
+      trackPushInteraction({
+        interaction: "clicked",
+        notification_id: meta.notification_id,
+        event_key: meta.event,
+        url: rawUrl,
+      }),
+      clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
       for (let i = 0; i < clientList.length; i += 1) {
         const client = clientList[i];
         if (client.url === urlToOpen && "focus" in client) {
@@ -228,13 +266,21 @@ self.addEventListener("notificationclick", (event) => {
       }
 
       return Promise.resolve();
-    })
+    }),
+    ]),
   );
 });
 
 // Tratamento do fechamento de notificacoes
 self.addEventListener("notificationclose", (event) => {
-  console.log("Notificacao fechada:", event.notification.tag);
+  const meta = event.notification?.data || {};
+  event.waitUntil(
+    trackPushInteraction({
+      interaction: "dismissed",
+      notification_id: meta.notification_id,
+      event_key: meta.event,
+    })
+  );
 });
 
 // Background sync para sincronizar dados offline

@@ -1,0 +1,23 @@
+---
+pid: 12400
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd C:\\Users\\Public\\Projetos\\leadcapture ; npm run build ; $env:SMOKE_PASSWORD='salao1234'; $env:SMOKE_EMAIL='eleniceventura72@gmail.com'; node agent-tools\\smoke-affiliate-ownership.mjs https://app.leadcapture.online"
+started_at: 2026-07-08T15:01:18.917Z
+running_for_ms: 42339989 
+---
+
+> lead-captation-system@1.0.0 build
+> tsc
+
+Smoke affiliate ownership: https://app.leadcapture.online brand=alhopronto
+
+OK    affiliate-login (afiliado.real.teste@gmail.com) owner=9ebbc422…
+OK    afiliado criou instância 908cd999…
+OK    afiliado lista só próprias (1 sessão(ões))
+OK    admin-login (eleniceventura72@gmail.com)
+OK    admin list HTTP 200 (sem x-brand-id estranho)
+OK    isolamento entre tenants: admin não vê sessão de outra marca
+OK    x-brand-id de outra marca não causa 500 nem vazamento
+OK    cleanup instância smoke
+
+Tudo OK (affiliate ownership)

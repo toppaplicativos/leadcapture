@@ -1,4 +1,5 @@
 import { lazy, Suspense } from 'react'
+import { PageSplash } from '@/components/PageSplash'
 import { ChevronDown, ChevronUp, Loader2, MessageSquare, X } from 'lucide-react'
 import { useInboxBridge } from '@/lib/agent/InboxBridgeContext'
 import { useAgentShell } from '@/lib/agent/AgentShellContext'
@@ -55,11 +56,7 @@ export function InboxModuleBlock({ messageId, isActive }: Props) {
         <div className="inbox-module__body">
           {!isDesktop && (
             <div className="inbox-module__panel">
-              <Suspense fallback={
-                <div className="inbox-module__panel-fallback">
-                  <Loader2 size={18} className="animate-spin text-gray-400" />
-                </div>
-              }>
+              <Suspense fallback={<PageSplash variant="panel" label="Mensagens" />}>
                 <MessagesPage variant="inline-panel" />
               </Suspense>
             </div>

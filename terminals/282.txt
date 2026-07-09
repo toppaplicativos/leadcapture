@@ -1,0 +1,25 @@
+---
+pid: 21860
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd C:\\Users\\Public\\Projetos\\leadcapture\\frontend; npm run build"
+started_at: 2026-07-07T21:32:36.456Z
+running_for_ms: 86400014 
+---
+
+> leadcapture-frontend@1.0.0 build
+> tsc -b && vite build
+
+src/components/agent/WorkspaceChat.tsx(390,7): error TS2741: Property '$$typeof' is missing in type '(props: BrandIconProps) => Element' but required in type 'ForwardRefExoticComponent<Omit<LucideProps, "ref"> & RefAttributes<SVGSVGElement>>'.
+src/components/agent/WorkspaceChat.tsx(466,7): error TS2741: Property '$$typeof' is missing in type '(props: BrandIconProps) => Element' but required in type 'ForwardRefExoticComponent<Omit<LucideProps, "ref"> & RefAttributes<SVGSVGElement>>'.
+src/components/agent/WorkspaceChat.tsx(476,7): error TS2741: Property '$$typeof' is missing in type '(props: BrandIconProps) => Element' but required in type 'ForwardRefExoticComponent<Omit<LucideProps, "ref"> & RefAttributes<SVGSVGElement>>'.
+src/components/agent/WorkspaceChat.tsx(486,7): error TS2741: Property '$$typeof' is missing in type '(props: BrandIconProps) => Element' but required in type 'ForwardRefExoticComponent<Omit<LucideProps, "ref"> & RefAttributes<SVGSVGElement>>'.
+src/components/agent/WorkspaceChat.tsx(496,7): error TS2741: Property '$$typeof' is missing in type '(props: BrandIconProps) => Element' but required in type 'ForwardRefExoticComponent<Omit<LucideProps, "ref"> & RefAttributes<SVGSVGElement>>'.
+src/pages/LandingPage.tsx(864,49): error TS2741: Property '$$typeof' is missing in type '(props: BrandIconProps) => Element' but required in type 'ForwardRefExoticComponent<Omit<LucideProps, "ref"> & RefAttributes<SVGSVGElement>>'.
+src/pages/LandingPage.tsx(874,42): error TS2741: Property '$$typeof' is missing in type '(props: BrandIconProps) => Element' but required in type 'ForwardRefExoticComponent<Omit<LucideProps, "ref"> & RefAttributes<SVGSVGElement>>'.
+src/pages/LandingPage.tsx(875,41): error TS2741: Property '$$typeof' is missing in type '(props: BrandIconProps) => Element' but required in type 'ForwardRefExoticComponent<Omit<LucideProps, "ref"> & RefAttributes<SVGSVGElement>>'.
+
+---
+exit_code: -1
+elapsed_ms: 86400014
+ended_at: 2026-07-08T21:32:46.203Z
+---

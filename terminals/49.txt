@@ -1,0 +1,13 @@
+---
+pid: 24796
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "scp -r C:\\Users\\Public\\Projetos\\leadcapture\\frontend\\dist\\* root@187.127.5.179:/root/leadcapture/frontend/dist/"
+started_at: 2026-07-06T18:55:16.628Z
+running_for_ms: 86400008 
+---
+
+---
+exit_code: -1
+elapsed_ms: 86400008
+ended_at: 2026-07-07T18:55:24.923Z
+---

@@ -1,0 +1,43 @@
+---
+pid: 31956
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd C:\\Users\\Public\\Projetos\\leadcapture; .\\agent-tools\\deploy-full.ps1 -SkipBuild -SkipSmoke"
+started_at: 2026-07-08T15:02:09.805Z
+running_for_ms: 42289998 
+---
+>> Enviando backend dist completo
+>> Enviando frontend completo
+>> Aguardando servi��os (25s)
+
+gzip: stdin: unexpected end of file
+tar: Child returned status 1
+tar: Error is not recoverable: exiting now
+>> Verificando deploy
+Verificando https://app.leadcapture.online
+
+OK    index.html
+OK    missing chunk → 404 (not HTML)
+OK    admin-agent route
+OK    /admin SPA
+
+Tudo OK
+Smoke test: https://app.leadcapture.online
+
+FAIL  / → page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://app.leadcapture.online/
+Call log:
+  - navigating to "https://app.leadcapture.online/", waiting until "networkidle"
+
+FAIL  /login → page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://app.leadcapture.online/login
+Call log:
+  - navigating to "https://app.leadcapture.online/login", waiting until "networkidle"
+
+FAIL  /admin → page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://app.leadcapture.online/admin
+Call log:
+  - navigating to "https://app.leadcapture.online/admin", waiting until "networkidle"
+
+FAIL  /inicio → page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://app.leadcapture.online/inicio
+Call log:
+  - navigating to "https://app.leadcapture.online/inicio", waiting until "networkidle"
+
+
+4 falha(s)

@@ -1,0 +1,13 @@
+---
+pid: 3480
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd \"C:\\Users\\Public\\Projetos\\leadcapture\"; scp -r dist root@187.127.5.179:/root/leadcapture/"
+started_at: 2026-07-06T20:49:54.684Z
+running_for_ms: 86400008 
+---
+
+---
+exit_code: -1
+elapsed_ms: 86400008
+ended_at: 2026-07-07T20:50:06.433Z
+---

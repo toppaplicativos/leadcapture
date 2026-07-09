@@ -3,6 +3,7 @@ import {
   Loader2, ShoppingCart, Search, ChevronRight, LayoutGrid, List, Rows3,
   ExternalLink, Phone, User, CreditCard,
 } from 'lucide-react'
+import { PageSplash } from '@/components/PageSplash'
 import { useOrdersBridgeOptional } from '@/lib/agent/OrdersBridgeContext'
 import { useAgentShell } from '@/lib/agent/AgentShellContext'
 import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
@@ -241,9 +242,7 @@ export function OrdersInlinePanel() {
 
   if (loading && orders.length === 0) {
     return (
-      <div className="catalog-panel__loading">
-        <Loader2 size={18} className="animate-spin text-gray-400" />
-      </div>
+      <PageSplash variant="panel" label="Pedidos" />
     )
   }
 
@@ -354,7 +353,7 @@ export function OrdersInlinePanel() {
         title="Pedidos"
         subtitle="Vendas, status e expedição"
       >
-        <Suspense fallback={<div className="catalog-panel__loading"><Loader2 size={20} className="animate-spin text-gray-400" /></div>}>
+        <Suspense fallback={<PageSplash variant="panel" label="Pedidos" />}>
           <OrdersManager embedded showToast={(msg) => showToast(msg)} />
         </Suspense>
       </CatalogManagerSheet>

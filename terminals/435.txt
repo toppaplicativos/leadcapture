@@ -1,0 +1,24 @@
+---
+pid: 8308
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd C:\\Users\\Public\\Projetos\\leadcapture; npm run build 2>&1 | Select-Object -Last 5; cd frontend; npm run build 2>&1 | Select-Object -Last 12"
+started_at: 2026-07-08T17:28:33.095Z
+running_for_ms: 33510013 
+---
+
+> lead-captation-system@1.0.0 build
+> tsc
+
+dist/assets/AdminShell-kS99xn_O.js                     212.30 kB │ gzip:  42.20 kB
+dist/assets/LandingPage-CRu1nlCq.js                    227.13 kB │ gzip:  63.72 kB
+dist/assets/index-FzidWJMZ.js                          338.53 kB │ gzip:  99.44 kB
+dist/assets/VideoStudioPage-CLf1JQ4X.js                403.34 kB │ gzip: 121.30 kB
+dist/assets/mapbox-gl-DN8qeT2q.js                    1,763.50 kB │ gzip: 480.83 kB
+
+✓ built in 1.86s
+[plugin builtin:vite-reporter] 
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: 
+https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.

@@ -1,0 +1,34 @@
+{
+  "name": "typeui_list_workspace_design_systems",
+  "description": "List TypeUI workspace projects with a current package from the signed-in user's personal workspace and from team workspaces where the user has an active seat. Tool name is kept for compatibility.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "searchQuery": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Optional search by workspace project name, slug, or template slug."
+      },
+      "limit": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Maximum number of workspace projects to return. Defaults to 24."
+      }
+    },
+    "type": "object"
+  }
+}

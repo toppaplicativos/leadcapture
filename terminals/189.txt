@@ -1,0 +1,160 @@
+---
+pid: 30048
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd \"C:\\Users\\Public\\Projetos\\leadcapture\"; npx tsx agent-tools/test-ig-dashboard.mjs"
+started_at: 2026-07-07T17:12:10.624Z
+running_for_ms: 86400009 
+---
+[14:12:17.176] INFO (25944): PostgreSQL connection pool created
+{
+  "profile": {
+    "username": "alhopronto_",
+    "name": "Alho Pronto",
+    "followers_count": 227,
+    "follows_count": 182,
+    "media_count": 24,
+    "profile_picture_url": "https://scontent.cdninstagram.com/v/t51.82787-19/590413534_17861988723545508_3624432553264868233_n.jpg?stp=dst-jpg_s206x206_tt6&_nc_cat=104&ccb=7-5&_nc_sid=bf7eb4&efg=eyJ2ZW5jb2RlX3RhZyI6InByb2ZpbGVfcGljLnd3dy4xMDgwLkMzIn0%3D&_nc_ohc=H3tciTLje2kQ7kNvwG07fS_&_nc_oc=AdobrcLJIrzDXUx1gAwKOtw2ChBOcw7JNOwfS4iCnY8PEViFfvccMPxpEXzPTRFkNQo&_nc_zt=24&_nc_ht=scontent.cdninstagram.com&edm=AP4hL3IEAAAA&_nc_gid=pznNLG2IYkIMl6cfzGb-Ww&_nc_tpa=Q5bMBQElPSzH_kAQkibzdi7CcZG0N2Qxir2r7J5DYJe8S5_JYXzG-XFhQmPVhmCnYqQG9omcz8VvTIyCZM0&oh=00_AQDdwnGVX64LeIFkeCQYfbAjx55h6tAw9f5D6_b36YasBg&oe=6A530928",
+    "biography": "Alho descascado e pasta de alho premium 🧄\nFrescor e praticidade para o seu negócio. Peça no direct!\n🧄O Sabor do Alho Sem Trabalho",
+    "website": "http://alhopronto.online"
+  },
+  "analytics": {
+    "period_days": 7,
+    "profile": {
+      "username": "alhopronto_",
+      "name": "Alho Pronto",
+      "followers_count": 227,
+      "follows_count": 182,
+      "media_count": 24,
+      "profile_picture_url": "https://scontent.cdninstagram.com/v/t51.82787-19/590413534_17861988723545508_3624432553264868233_n.jpg?stp=dst-jpg_s206x206_tt6&_nc_cat=104&ccb=7-5&_nc_sid=bf7eb4&efg=eyJ2ZW5jb2RlX3RhZyI6InByb2ZpbGVfcGljLnd3dy4xMDgwLkMzIn0%3D&_nc_ohc=H3tciTLje2kQ7kNvwG07fS_&_nc_oc=AdobrcLJIrzDXUx1gAwKOtw2ChBOcw7JNOwfS4iCnY8PEViFfvccMPxpEXzPTRFkNQo&_nc_zt=24&_nc_ht=scontent.cdninstagram.com&edm=AP4hL3IEAAAA&_nc_gid=pznNLG2IYkIMl6cfzGb-Ww&_nc_tpa=Q5bMBQElPSzH_kAQkibzdi7CcZG0N2Qxir2r7J5DYJe8S5_JYXzG-XFhQmPVhmCnYqQG9omcz8VvTIyCZM0&oh=00_AQDdwnGVX64LeIFkeCQYfbAjx55h6tAw9f5D6_b36YasBg&oe=6A530928",
+      "biography": "Alho descascado e pasta de alho premium 🧄\nFrescor e praticidade para o seu negócio. Peça no direct!\n🧄O Sabor do Alho Sem Trabalho",
+      "website": "http://alhopronto.online"
+    },
+    "account": {
+      "reach": 25,
+      "views": 44,
+      "profile_views": 8,
+      "accounts_engaged": 0,
+      "total_interactions": 0,
+      "likes": 0,
+      "comments": 0,
+      "saves": 0,
+      "shares": 0
+    },
+    "media_summary": {
+      "total_likes": 97,
+      "total_comments": 29,
+      "posts_analyzed": 24,
+      "engagement_rate": 2.31
+    },
+    "fetched_at": "2026-07-07T17:12:19.724Z",
+    "source": "instagram_api"
+  },
+  "post_counts": {
+    "published_ig": 24,
+    "scheduled": 0,
+    "drafts": 0,
+    "failed": 0,
+    "publishing": 0,
+    "total_local": 0
+  },
+  "conversations_count": 0,
+  "recent_media": [
+    {
+      "id": "18094695367915619",
+      "caption": "Hoje celebramos aquelas que transformam amor em cuidado, força em acolhimento e pequenos gestos em memórias eternas. 🌷\n\nSer mãe é ser abrigo nos dias difíceis, luz nos momentos escuros e carinho que permanece mesmo em silêncio. É ter o coração vivendo fora do peito, cuidando, ensinando e amando sem medidas.\n\nNeste Dia das Mães, desejamos que cada abraço recebido seja reflexo de todo amor que vocês entregam diariamente ao mundo. 💜\n\nQue nunca faltem motivos para sorrir, orgulho pela família construída e momentos especiais ao lado de quem faz tudo valer a pena.\n\nFeliz Dia das Mães!\nCom carinho,\nALHO PRONTO ✨\n\n#mae #diadasmaes #amordemae #teamomãe #alho",
+      "media_type": "IMAGE",
+      "media_url": "https://scontent.cdninstagram.com/v/t51.82787-15/686381743_17885319288545508_8512070568728507962_n.jpg?stp=dst-jpg_e35_tt6&_nc_cat=108&ccb=7-5&_nc_sid=18de74&efg=eyJlZmdfdGFnIjoiRkVFRC5iZXN0X2ltYWdlX3VybGdlbi5DMyJ9&_nc_ohc=CISi6a2JciQQ7kNvwHEKkwo&_nc_oc=AdpJzCWTRa9hl64Kn0PQ1YQRAXkNwDBQESHN4YmEVBxUpvl-v_u_tHSG17RviJ08Tmw&_nc_zt=23&_nc_ht=scontent.cdninstagram.com&edm=ANo9K5cEAAAA&_nc_gid=OUrKUClBrIBjChzRDJOk5A&_nc_tpa=Q5bMBQFdzJHCqxZncWv5VJHaY-ZFhYyCCHWDRi_ltc8PoUu0Wa6_8DXJnzkBTnNAicOzoPey1lR1ow533sM&oh=00_AQCzw1KSdw_eET2mQgD9U4IlYTzMEqDZ6pryMSO7C-JjBA&oe=6A52FA7F",
+      "permalink": "https://www.instagram.com/p/DYJy0JrlkaA/",
+      "timestamp": "2026-05-10T09:25:21+0000",
+      "like_count": 2,
+      "comments_count": 0
+    },
+    {
+      "id": "18358698550224553",
+      "caption": "🧄✨ Alho descascado fresquinho e pronto pra usar! \nMais sabor, mais praticidade e zero perda de tempo na cozinha. Ideal para casa, restaurante, mercado ou açougue — e com preço que cabe no bolso, a partir de R$ 3,90! Peça agora em alhopronto.online e transforme suas receitas. \n#alhopronto #alhofresco #alhodescascado #tempero #cozinha #practicidade #alimentação #gastronomia #chefe #receitas",
+      "media_type": "IMAGE",
+      "media_url": "https://scontent.cdninstagram.com/v/t51.82787-15/662336971_17879189301545508_632986653226924645_n.jpg?stp=dst-jpg_e35_tt6&_nc_cat=104&ccb=7-5&_nc_sid=18de74&efg=eyJlZmdfdGFnIjoiRkVFRC5iZXN0X2ltYWdlX3VybGdlbi5DMyJ9&_nc_ohc=mqj-zYS01zcQ7kNvwH_vXNM&_nc_oc=Adr3bhn5Yx7qm0GWBQ8WJSjl4R7elKqJ8qtRWFIfMV3XaWQBT4q96CDFGVtCbJ06I-M&_nc_zt=23&_nc_ht=scontent.cdninstagram.com&edm=ANo9K5cEAAAA&_nc_gid=OUrKUClBrIBjChzRDJOk5A&_nc_tpa=Q5bMBQGrie1LNts7SIUjEZTG1XwEAtshKG2sCg2pSBnRLTnLY4qJiB70AwPW9R1jZ5ljejA-N2qmq9Umz5Q&oh=00_AQAujSJLx9bqPmr36ljj_eteHaCcgVs4AJ52_Zr4jah5WA&oe=6A530A9A",
+      "permalink": "https://www.instagram.com/p/DWuI2G7lQ4s/",
+      "timestamp": "2026-04-04T19:07:47+0000",
+      "like_count": 4,
+      "comments_count": 1
+    },
+    {
+      "id": "17865614634611657",
+      "caption": "🧄✨ Praticidade que dá sabor de verdade! O Alho Descascado Alho Pronto chega fresquinho, pronto para usar e perfeito para economizar tempo na cozinha sem abrir mão do aroma e do sabor caseiro. Ideal para casa, restaurante, mercado e açougue, com opções de 250g, 500g e 1kg a partir de R$ 3,90. Peça agora em alhopronto.online e simplifique suas receitas! #alhopronto #alhofresco #alhodescascado #tempero #cozinha #praticidade #alimentação #gastronomia #chefe #receitas",
+      "media_type": "IMAGE",
+      "media_url": "https://scontent.cdninstagram.com/v/t51.82787-15/658338707_17879098164545508_7250160508557371750_n.jpg?stp=dst-jpg_e35_tt6&_nc_cat=107&ccb=7-5&_nc_sid=18de74&efg=eyJlZmdfdGFnIjoiRkVFRC5iZXN0X2ltYWdlX3VybGdlbi5DMyJ9&_nc_ohc=oRvP-X7YPDMQ7kNvwHRTlNN&_nc_oc=AdrGZTGnr00455ZGiFDiBx-2TPOWjnAIibUZrbixPjZjxxsbHv15t1ThxFQr4VGUMEs&_nc_zt=23&_nc_ht=scontent.cdninstagram.com&edm=ANo9K5cEAAAA&_nc_gid=OUrKUClBrIBjChzRDJOk5A&_nc_tpa=Q5bMBQGde46JfAVWwGiIqT-YQbWG_TU8HiOfRtrjOTUtsY4YNuSqGvlZvPQbxWN2_4aa6CXqErhomHJaNP4&oh=00_AQBXdG7_G_mvtD_mP02aHbI1YXpW0XMjUmDmlr3dZS-F2w&oe=6A530682",
+      "permalink": "https://www.instagram.com/p/DWs2d--Dd_n/",
+      "timestamp": "2026-04-04T07:07:58+0000",
+      "like_count": 2,
+      "comments_count": 1
+    },
+    {
+      "id": "18097416797083242",
+      "caption": "🧄✨ Chegou o alho que transforma sua cozinha em segundos! Fresco, descascado e pronto para usar, o Alho Pronto garante mais praticidade, sabor marcante e economia de tempo no dia a dia. Ideal para casa, restaurante, supermercado e açougue, com preços a partir de R$ 3,90. Garanta já no site: alhopronto.online\n\n#alhopronto #alhofresco #alhodescascado #tempero #cozinha #practicidade #alimentacao #gastronomia #chefe #receitas",
+      "media_type": "IMAGE",
+      "media_url": "https://scontent.cdninstagram.com/v/t51.82787-15/657726807_17879023764545508_2141159429101253744_n.jpg?stp=dst-jpg_e35_tt6&_nc_cat=100&ccb=7-5&_nc_sid=18de74&efg=eyJlZmdfdGFnIjoiRkVFRC5iZXN0X2ltYWdlX3VybGdlbi5DMyJ9&_nc_ohc=mcJp-6EYpr8Q7kNvwE25KX9&_nc_oc=Ado1M97eeJkbSPTi3welskXnjWQO0wkGdLRWI16WmHBjF0gwLjUeM3UGUNSYy_L-_hs&_nc_zt=23&_nc_ht=scontent.cdninstagram.com&edm=ANo9K5cEAAAA&_nc_gid=OUrKUClBrIBjChzRDJOk5A&_nc_tpa=Q5bMBQFlOPTl9MuyGUxs1E0TrmTbwVY33bUiwDUuwPFescS-Lu9c4YUmmiwKjAHpPtVWnXKGpUGNmZUnA4U&oh=00_AQDc22p_AJvxhQLyXPmhwhINWqtodIzDNltBY1e5N9k9Kw&oe=6A530BD3",
+      "permalink": "https://www.instagram.com/p/DWrkDFAkwJ_/",
+      "timestamp": "2026-04-03T19:07:52+0000",
+      "like_count": 3,
+      "comments_count": 1
+    },
+    {
+      "id": "18006691058902798",
+      "caption": "🧄✨ Mais sabor, menos trabalho na sua cozinha! O Alho Descascado Alho Pronto chega fresquinho, pronto para usar e perfeito para quem busca praticidade, economia de tempo e aquele aroma irresistível nas receitas. Ideal para casa, restaurante, mercado ou açougue! Peça agora em alhopronto.online e garanta qualidade com preço a partir de R$ 3,90. \n\n#alhopronto #alhofresco #alhodescascado #tempero #cozinha #praticidade #alimentação #gastronomia #chefe #receitas",
+      "media_type": "IMAGE",
+      "media_url": "https://scontent.cdninstagram.com/v/t51.82787-15/658960153_17878925400545508_5428773539528755897_n.jpg?stp=dst-jpg_e35_tt6&_nc_cat=110&ccb=7-5&_nc_sid=18de74&efg=eyJlZmdfdGFnIjoiRkVFRC5iZXN0X2ltYWdlX3VybGdlbi5DMyJ9&_nc_ohc=AGxiX6bqjOYQ7kNvwG_wytO&_nc_oc=Adpb2yZ9vVhuKnbAZghtmk6RAW3V6SGEPEHTlWwIPxKlFzY-ezwQd3Ko7tkSTtOaUZc&_nc_zt=23&_nc_ht=scontent.cdninstagram.com&edm=ANo9K5cEAAAA&_nc_gid=OUrKUClBrIBjChzRDJOk5A&_nc_tpa=Q5bMBQEhDEdgayWhArgFdlJ9OrUdRwPNyZS_rAw1E0qNHGpK8D6qSNyXZyYeNUKMKZLyvVI4f7QbVPQPWh8&oh=00_AQCLz3UXAlXMfDP0uv0MPEOrrJAIS7qFuMuSB2MiFG56Xw&oe=6A5304A1",
+      "permalink": "https://www.instagram.com/p/DWqRppqDe06/",
+      "timestamp": "2026-04-03T07:07:50+0000",
+      "like_count": 1,
+      "comments_count": 1
+    },
+    {
+      "id": "18067804364650738",
+      "caption": "🧄✨ Menos trabalho, mais sabor na sua cozinha! Alho descascado fresco, pronto para usar e perfeito para ganhar tempo sem abrir mão da qualidade. Ideal para casa, restaurante, supermercado ou açougue. Preços a partir de R$ 3,90! Peça agora em alhopronto.online e transforme suas receitas. #alhopronto #alhofresco #alhodescascado #tempero #cozinha #praticidade #alimentação #gastronomia #chefe #receitas",
+      "media_type": "IMAGE",
+      "media_url": "https://scontent.cdninstagram.com/v/t51.82787-15/659018159_17878858557545508_3260212342527012809_n.jpg?stp=dst-jpg_e35_tt6&_nc_cat=104&ccb=7-5&_nc_sid=18de74&efg=eyJlZmdfdGFnIjoiRkVFRC5iZXN0X2ltYWdlX3VybGdlbi5DMyJ9&_nc_ohc=XEIaJM9vEHAQ7kNvwFLxWaX&_nc_oc=AdqcmJfXu4BsD98Y7IPodDZWRQ8o1dI391cCcY67xdhfKI0nc32lwLhIxsB-_K_ROPE&_nc_zt=23&_nc_ht=scontent.cdninstagram.com&edm=ANo9K5cEAAAA&_nc_gid=OUrKUClBrIBjChzRDJOk5A&_nc_tpa=Q5bMBQGVGZYAaLBQcVtJsMO8uYjMViO9pTktLnFOS0zizI0LMWXwvdS4tyZ5070N82rLOK3D2I62MEZW8Ow&oh=00_AQBvBCW3ugOfoauDax2qr_6j2vn7760ViTbAbh9nsjpXQA&oe=6A530F50",
+      "permalink": "https://www.instagram.com/p/DWo_QaSk00a/",
+      "timestamp": "2026-04-02T19:07:52+0000",
+      "like_count": 1,
+      "comments_count": 1
+    },
+    {
+      "id": "18108668812867100",
+      "caption": "🧄✨ Alho fresco, descascado e prontinho pra usar! \nGanhe tempo na cozinha sem abrir mão do sabor e da qualidade: mais praticidade, mais economia e receita muito mais gostosa. Ideal para casa, restaurante, mercado ou açougue! \nAcesse alhopronto.online e peça já 💜 \n\n#alhopronto #alhofresco #alhodescascado #tempero #cozinha #praticidade #alimentacao #gastronomia #chefe #receitas",
+      "media_type": "IMAGE",
+      "media_url": "https://scontent.cdninstagram.com/v/t51.82787-15/658408584_17878688433545508_6704449816116887717_n.jpg?stp=dst-jpg_e35_tt6&_nc_cat=102&ccb=7-5&_nc_sid=18de74&efg=eyJlZmdfdGFnIjoiRkVFRC5iZXN0X2ltYWdlX3VybGdlbi5DMyJ9&_nc_ohc=Im12N18grQQQ7kNvwGEMpKq&_nc_oc=AdrxtnZH3-aa1J5oDMBrgdoE2QIxuIBdCxAAlg9sBLtYh5xtF3UmplRwbczdCc75LSg&_nc_zt=23&_nc_ht=scontent.cdninstagram.com&edm=ANo9K5cEAAAA&_nc_gid=OUrKUClBrIBjChzRDJOk5A&_nc_tpa=Q5bMBQFW2r3dNmmfLLs7TDT7eiqfBnwX5U8n8DvRUogtxauyBwcJ2hO9Gr0VILYWR8odt_B2UkR7hJIl5ck&oh=00_AQCSmTiG0wd9TaYl3xT54sekRGYjUPSeiPpab2ami18T0g&oe=6A52F681",
+      "permalink": "https://www.instagram.com/p/DWmadOzEz19/",
+      "timestamp": "2026-04-01T19:07:52+0000",
+      "like_count": 1,
+      "comments_count": 1
+    },
+    {
+      "id": "18107559223881995",
+      "caption": "🧄🔥 Alho descascado fresquinho e pronto pra usar! Menos trabalho, mais sabor e muito mais agilidade na sua cozinha. Ideal para casa, restaurante, supermercado e açougue, com qualidade e preço que cabe no bolso a partir de R$ 3,90. Compre agora em alhopronto.online e facilite seu dia! #alhopronto #alhofresco #alhodescascado #tempero #cozinha #praticidade #alimentação #gastronomia #chefe #receitas",
+      "media_type": "IMAGE",
+      "media_url": "https://scontent.cdninstagram.com/v/t51.82787-15/660577607_17878588893545508_5743237459000777070_n.jpg?stp=dst-jpg_e35_tt6&_nc_cat=109&ccb=7-5&_nc_sid=18de74&efg=eyJlZmdfdGFnIjoiRkVFRC5iZXN0X2ltYWdlX3VybGdlbi5DMyJ9&_nc_ohc=7fVM_13Pu9wQ7kNvwHM9a0F&_nc_oc=AdouFCL_VmxZ4hBpJ8l9deyEzaubYEBr1ugDGG17nQcsRsTCoJ5QOF_r7qMlSwiqMc8&_nc_zt=23&_nc_ht=scontent.cdninstagram.com&edm=ANo9K5cEAAAA&_nc_gid=OUrKUClBrIBjChzRDJOk5A&_nc_tpa=Q5bMBQFcEyXWNr38AF3e3hf4t1HXPDyj0TXyyI70pZ7aGjKCM1Qk4By0YcApYdnr0ds9silOS8YOw6PW5JY&oh=00_AQDugsqTpUSzwfwfB9Pd_hukzXLfUx2OD6587UyuWEiOGg&oe=6A52EE41",
+      "permalink": "https://www.instagram.com/p/DWlIDzBDa75/",
+      "timestamp": "2026-04-01T07:07:47+0000",
+      "like_count": 1,
+      "comments_count": 1
+    },
+    {
+      "id": "18370854466165686",
+      "caption": "🧄🔥 Mais sabor, menos trabalho! \nO Alho Amarelo Tipo C da Alho Pronto vem fresquinho, descascado e pronto pra usar — ideal pra cozinha de casa ou de alto volume. Praticidade, economia de tempo e aquele sabor que transforma qualquer receita! \nCompre agora em alhopronto.online e garanta qualidade com preço acessível a partir de R$ 3,90. \n\n#alhopronto #alhofresco #alhodescascado #tempero #cozinha #praticidade #alimentação #gastronomia #chefe #receitas",
+      "media_type": "IMAGE",
+      "media_url": "https://scontent.cdninstagram.com/v/t51.82787-15/657643582_17878508034545508_815529000603755908_n.jpg?stp=dst-jpg_e35_tt6&_nc_cat=100&ccb=7-5&_nc_sid=18de74&efg=eyJlZmdfdGFnIjoiRkVFRC5iZXN0X2ltYWdlX3VybGdlbi5DMyJ9&_nc_ohc=F9a4IXb1hhcQ7kNvwGmOL3D&_nc_oc=Adr19MOnx8GF0qvNj5mcm1hupRms3LHOHBWzG2tG_Mm9YWU9JG6CagHF6Ijq0y3bIIU&_nc_zt=23&_nc_ht=scontent.cdninstagram.com&edm=ANo9K5cEAAAA&_nc_gid=OUrKUClBrIBjChzRDJOk5A&_nc_tpa=Q5bMBQFwY1Ode6CXKv8D_y6PcruMsbhWnsp66kFAngpMC_-_wfQwuSIUUNNg_HAH3jmHtOCrkJHA9KTqyBw&oh=00_AQDQKZ2Yn5VwzqSsH2YtcP6IE8x0AJz9hvX1g7dODXRSDg&oe=6A532234",
+      "permalink": "https://www.instagram.com/p/DWj1ywDD-rb/",
+      "timestamp": "2026-03-31T19:08:54+0000",
+      "like_count": 4,
+      "comments_count": 2
+    }
+  ],
+  "token_valid": true
+}
+
+---
+exit_code: -1
+elapsed_ms: 86400009
+ended_at: 2026-07-08T17:12:17.069Z
+---

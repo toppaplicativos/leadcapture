@@ -1,0 +1,22 @@
+---
+pid: 14888
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "scp -r C:\\Users\\Public\\Projetos\\leadcapture\\frontend\\dist\\* root@187.127.5.179:/root/leadcapture/frontend/dist/; scp -r C:\\Users\\Public\\Projetos\\leadcapture\\frontend\\dist\\* root@187.127.5.179:/root/leadcapture/public/; ssh root@187.127.5.179 \"pm2 restart leadcapture-web\""
+started_at: 2026-07-07T01:42:50.571Z
+running_for_ms: 86400008 
+---
+Use --update-env to update environment variables
+[PM2] Applying action restartProcessId on app [leadcapture-web](ids: [ 1 ])
+[PM2] [leadcapture-web](1) ✓
+┌────┬────────────────────┬─────────────┬─────────┬─────────┬──────────┬────────┬──────┬───────────┬──────────┬──────────┬──────────┬──────────┐
+│ id │ name               │ namespace   │ version │ mode    │ pid      │ uptime │ ↺    │ status    │ cpu      │ mem      │ user     │ watching │
+├────┼────────────────────┼─────────────┼─────────┼─────────┼──────────┼────────┼──────┼───────────┼──────────┼──────────┼──────────┼──────────┤
+│ 2  │ leadcapture-api    │ default     │ 1.0.0   │ fork    │ 333888   │ 24m    │ 63   │ online    │ 0%       │ 169.4mb  │ root     │ disabled │
+│ 1  │ leadcapture-web    │ default     │ N/A     │ fork    │ 334204   │ 0s     │ 36   │ online    │ 0%       │ 7.6mb    │ root     │ disabled │
+└────┴────────────────────┴─────────────┴─────────┴─────────┴──────────┴────────┴──────┴───────────┴──────────┴──────────┴──────────┴──────────┘
+
+---
+exit_code: -1
+elapsed_ms: 86400008
+ended_at: 2026-07-08T01:43:00.329Z
+---

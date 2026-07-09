@@ -1,0 +1,21 @@
+---
+pid: 61472
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "node C:\\Users\\LENOVO\\.grok\\skills\\playwright\\scripts\\capture.mjs --url http://localhost:5173/catalogo/alhopronto --devices iphone14,desktop --output C:\\Users\\Public\\Projetos\\leadcapture\\.playwright-captures\\store-redesign-v2 --wait-for \".store-identity\" --dpr 2"
+started_at: 2026-07-04T02:02:02.398Z
+running_for_ms: 1989999  
+---
+
+Playwright capture
+  output:  C:\Users\Public\Projetos\leadcapture\.playwright-captures\store-redesign-v2
+  devices: iphone14, desktop
+  themes:  default
+  dpr:     2
+  targets: 1
+
+•   ✓ page @ iphone14/default
+•   ✓ page @ desktop/default
+
+Done: 2 ok, 0 failed
+Manifest: C:\Users\Public\Projetos\leadcapture\.playwright-captures\store-redesign-v2\manifest.json
+

@@ -2,6 +2,7 @@ import { useEffect, useCallback, useState, lazy, Suspense } from 'react'
 import {
   Loader2, Users, Megaphone, ShoppingCart, Package, ChevronRight, ExternalLink,
 } from 'lucide-react'
+import { PageSplash } from '@/components/PageSplash'
 import type { LucideIcon } from 'lucide-react'
 import { useDashboardBridgeOptional } from '@/lib/agent/DashboardBridgeContext'
 import { useAgentShell } from '@/lib/agent/AgentShellContext'
@@ -51,9 +52,7 @@ export function DashboardInlinePanel() {
 
   if (!snap || (snap.loading && !snap.items.length)) {
     return (
-      <div className="catalog-panel__loading">
-        <Loader2 size={18} className="animate-spin text-gray-400" />
-      </div>
+      <PageSplash variant="panel" label="Painel" />
     )
   }
 
@@ -127,7 +126,7 @@ export function DashboardInlinePanel() {
         title="Painel"
         subtitle="Visão geral do seu negócio"
       >
-        <Suspense fallback={<div className="catalog-panel__loading"><Loader2 size={20} className="animate-spin text-gray-400" /></div>}>
+        <Suspense fallback={<PageSplash variant="panel" label="Painel" />}>
           <DashboardManager showToast={() => {}} />
         </Suspense>
       </CatalogManagerSheet>

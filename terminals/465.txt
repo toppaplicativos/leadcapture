@@ -1,0 +1,7 @@
+---
+pid: 22284
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd C:\\Users\\Public\\Projetos\\leadcapture\\frontend; npx tsc --noEmit -p tsconfig.json 2>&1 | Select-String -Pattern \"AffiliateAppPage|error TS\" | Select-Object -First 10"
+started_at: 2026-07-08T21:59:51.418Z
+running_for_ms: 17230005 
+---

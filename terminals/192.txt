@@ -1,0 +1,24 @@
+---
+pid: 10792
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "Set-Location \"C:\\Users\\Public\\Projetos\\leadcapture\"; npm run build"
+started_at: 2026-07-07T17:38:28.161Z
+running_for_ms: 899991   
+---
+
+> lead-captation-system@1.0.0 build
+> tsc
+
+src/routes/metaWebhook.ts(114,57): error TS2345: Argument of type '{ sender: { id: string; }; recipient: { id: string; }; timestamp: number; message?: { mid?: string | undefined; text?: string | undefined; is_echo?: boolean | undefined; attachments?: { type: string; payload?: Record<...> | undefined; }[] | undefined; } | undefined; }' is not assignable to parameter of type 'never'.
+src/routes/metaWebhook.ts(127,34): error TS2339: Property 'message' does not exist on type 'never'.
+src/routes/metaWebhook.ts(127,58): error TS2339: Property 'sender' does not exist on type 'never'.
+src/routes/metaWebhook.ts(128,26): error TS2339: Property 'message' does not exist on type 'never'.
+src/routes/metaWebhook.ts(130,31): error TS2339: Property 'sender' does not exist on type 'never'.
+src/routes/metaWebhook.ts(131,34): error TS2339: Property 'message' does not exist on type 'never'.
+src/routes/metaWebhook.ts(132,32): error TS2339: Property 'message' does not exist on type 'never'.
+src/routes/metaWebhook.ts(132,58): error TS2339: Property 'timestamp' does not exist on type 'never'.
+src/routes/metaWebhook.ts(133,25): error TS2339: Property 'timestamp' does not exist on type 'never'.
+src/routes/metaWebhook.ts(133,50): error TS2339: Property 'timestamp' does not exist on type 'never'.
+src/routes/metaWebhook.ts(137,27): error TS2339: Property 'message' does not exist on type 'never'.
+src/routes/metaWebhook.ts(138,38): error TS7006: Parameter 'a' implicitly has an 'any' type.
+src/routes/metaWebhook.ts(166,22): error TS2339: Property 'timestamp' does not exist on type 'never'.

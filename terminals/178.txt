@@ -1,0 +1,37 @@
+---
+pid: 8488
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "Invoke-RestMethod -Uri \"https://app.leadcapture.online/api/public/affiliate/testeafiliado\" -Method POST | ConvertTo-Json; $body = '{\"code\":\"TESTEAFILIADO\",\"subtotal\":100}'; Invoke-RestMethod -Uri \"https://app.leadcapture.online/api/storefront/public/stores/alhopronto/coupons/validate\" -Method POST -Body $body -ContentType \"application/json\" | ConvertTo-Json"
+started_at: 2026-07-07T16:40:55.268Z
+running_for_ms: 86400012 
+---
+{
+    "success":  true,
+    "affiliate_id":  "d7fd0f9e-8901-443a-9f2b-1bb0b29c44e6",
+    "code":  "testeafiliado",
+    "coupon_code":  "TESTEAFILIADO",
+    "cookie_days":  30,
+    "store_slug":  "alhopronto",
+    "redirect_url":  "/catalogo/alhopronto?ref=testeafiliado\u0026cupom=TESTEAFILIADO"
+}
+{
+    "valid":  true,
+    "reason":  null,
+    "reason_code":  "ok",
+    "discount_amount":  10,
+    "final_total":  90,
+    "coupon":  {
+                   "id":  "166d6a2d-d81a-409d-9835-8514ce12e790",
+                   "code":  "TESTEAFILIADO",
+                   "description":  "Cupom do afiliado Teste Afiliado",
+                   "discount_type":  "percentage",
+                   "discount_value":  10,
+                   "expires_at":  null
+               }
+}
+
+---
+exit_code: -1
+elapsed_ms: 86400012
+ended_at: 2026-07-08T16:41:01.777Z
+---

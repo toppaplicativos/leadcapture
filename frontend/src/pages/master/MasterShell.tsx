@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
+import type { LucideIcon } from 'lucide-react'
 import {
   LayoutDashboard,
   Plug,
@@ -12,10 +13,16 @@ import {
   Menu,
   X,
   Mail,
+  Building2,
+  Cpu,
+  Wrench,
+  BellRing,
 } from 'lucide-react'
-import type { LucideIcon } from 'lucide-react'
 import { BrandMark } from '@/components/BrandMark'
+import { NotificationBellButton } from '@/components/notifications/NotificationCenter'
+import { PushActivationCard } from '@/components/push/PushActivationCard'
 import { masterApi } from '@/lib/master-api'
+import { masterAdminBase } from '@/lib/master-host'
 
 interface NavItem {
   to: string
@@ -23,15 +30,22 @@ interface NavItem {
   Icon: LucideIcon
 }
 
-const NAV: NavItem[] = [
-  { to: '/master', label: 'Painel', Icon: LayoutDashboard },
-  { to: '/master/integracoes', label: 'Integrações', Icon: Plug },
-  { to: '/master/planos', label: 'Planos', Icon: CreditCard },
-  { to: '/master/emails', label: 'Emails', Icon: Mail },
-  { to: '/master/clientes', label: 'Clientes', Icon: Users },
-  { to: '/master/configuracoes', label: 'Configurações', Icon: Settings },
-  { to: '/master/audit-log', label: 'Auditoria', Icon: ScrollText },
-]
+function buildNav(): NavItem[] {
+  const base = masterAdminBase()
+  return [
+    { to: base, label: 'Painel', Icon: LayoutDashboard },
+    { to: `${base}/organizacoes`, label: 'Organizações', Icon: Building2 },
+    { to: `${base}/usuarios`, label: 'Usuários', Icon: Users },
+    { to: `${base}/planos`, label: 'Planos', Icon: CreditCard },
+    { to: `${base}/ferramentas`, label: 'Ferramentas', Icon: Wrench },
+    { to: `${base}/push-notificacoes`, label: 'Push', Icon: BellRing },
+    { to: `${base}/providers`, label: 'Providers IA', Icon: Cpu },
+    { to: `${base}/integracoes`, label: 'Integrações', Icon: Plug },
+    { to: `${base}/emails`, label: 'Emails', Icon: Mail },
+    { to: `${base}/configuracoes`, label: 'Configurações', Icon: Settings },
+    { to: `${base}/audit-log`, label: 'Auditoria', Icon: ScrollText },
+  ]
+}
 
 interface MasterShellProps {
   children: ReactNode
@@ -44,11 +58,14 @@ export function MasterShell({ children }: MasterShellProps) {
   const [me, setMe] = useState<{ id: string; email: string; name: string } | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
 
+  const adminBase = masterAdminBase()
+  const nav = buildNav()
+
   /* auth check */
   useEffect(() => {
     const token = localStorage.getItem('lead-system-token')
     if (!token) {
-      navigate('/login?redirect=/master', { replace: true })
+      navigate(`/login?redirect=${encodeURIComponent(adminBase)}`, { replace: true })
       return
     }
     masterApi
@@ -62,10 +79,10 @@ export function MasterShell({ children }: MasterShellProps) {
         if (msg.includes('Acesso restrito') || msg.includes('403')) {
           navigate('/login?error=not_super_admin', { replace: true })
         } else {
-          navigate('/login?redirect=/master', { replace: true })
+          navigate(`/login?redirect=${encodeURIComponent(adminBase)}`, { replace: true })
         }
       })
-  }, [navigate])
+  }, [navigate, adminBase])
 
   /* close drawer on route change (mobile) */
   useEffect(() => {
@@ -75,6 +92,14 @@ export function MasterShell({ children }: MasterShellProps) {
   function logout() {
     localStorage.removeItem('lead-system-token')
     navigate('/login', { replace: true })
+  }
+
+  const getHeaders = () => {
+    const token = localStorage.getItem('lead-system-token')
+    return {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    }
   }
 
   if (!authReady || !me) {
@@ -122,10 +147,10 @@ export function MasterShell({ children }: MasterShellProps) {
 
         {/* Nav */}
         <nav className="flex-1 px-3 py-3 overflow-y-auto space-y-0.5">
-          {NAV.map(item => {
+          {nav.map(item => {
             const active =
-              item.to === '/master'
-                ? location.pathname === '/master'
+              item.to === adminBase
+                ? location.pathname === adminBase
                 : location.pathname.startsWith(item.to)
             return (
               <Link
@@ -186,11 +211,19 @@ export function MasterShell({ children }: MasterShellProps) {
             <BrandMark size={22} inverted />
             <span className="text-[13px] font-bold tracking-tight">Master</span>
           </div>
-          <span className="w-9" />
+          <NotificationBellButton
+            getHeaders={getHeaders}
+            appContext="master"
+            onNavigate={(path) => navigate(path)}
+            className="text-white/70 hover:bg-white/10"
+          />
         </header>
 
         <main className="flex-1 overflow-y-auto">
-          <div className="max-w-6xl mx-auto px-5 sm:px-8 py-6 sm:py-10">{children}</div>
+          <div className="max-w-6xl mx-auto px-5 sm:px-8 py-6 sm:py-10">
+            <PushActivationCard className="mb-6 !border-white/10 !bg-white/[0.02]" />
+            {children}
+          </div>
         </main>
       </div>
     </div>

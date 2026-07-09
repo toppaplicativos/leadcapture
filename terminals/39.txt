@@ -1,0 +1,31 @@
+---
+pid: 19992
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd \"C:\\Users\\Public\\Projetos\\leadcapture\"; npm run build 2>&1; tar czf \"$env:TEMP\\leadcapture-deploy.tgz\" dist frontend/dist; scp \"$env:TEMP\\leadcapture-deploy.tgz\" root@187.127.5.179:/root/leadcapture-deploy.tgz; ssh root@187.127.5.179 \"cd /root/leadcapture && tar xzf /root/leadcapture-deploy.tgz && rm -f /root/leadcapture-deploy.tgz && mkdir -p public/assets && cp frontend/dist/index.html public/index.html && cp -r frontend/dist/assets/* public/assets/ && pm2 restart leadcapture-api leadcapture-web && pm2 save\""
+started_at: 2026-07-06T15:28:31.554Z
+running_for_ms: 86400039 
+---
+
+> lead-captation-system@1.0.0 build
+> tsc
+
+Use --update-env to update environment variables
+[PM2] Applying action restartProcessId on app [leadcapture-api](ids: [ 2 ])
+[PM2] [leadcapture-api](2) ✓
+Use --update-env to update environment variables
+[PM2] Applying action restartProcessId on app [leadcapture-web](ids: [ 1 ])
+[PM2] [leadcapture-web](1) ✓
+┌────┬────────────────────┬─────────────┬─────────┬─────────┬──────────┬────────┬──────┬───────────┬──────────┬──────────┬──────────┬──────────┐
+│ id │ name               │ namespace   │ version │ mode    │ pid      │ uptime │ ↺    │ status    │ cpu      │ mem      │ user     │ watching │
+├────┼────────────────────┼─────────────┼─────────┼─────────┼──────────┼────────┼──────┼───────────┼──────────┼──────────┼──────────┼──────────┤
+│ 2  │ leadcapture-api    │ default     │ 1.0.0   │ fork    │ 324732   │ 0s     │ 21   │ online    │ 69.2%    │ 53.3mb   │ root     │ disabled │
+│ 1  │ leadcapture-web    │ default     │ N/A     │ fork    │ 324744   │ 0s     │ 9    │ online    │ 0%       │ 17.3mb   │ root     │ disabled │
+└────┴────────────────────┴─────────────┴─────────┴─────────┴──────────┴────────┴──────┴───────────┴──────────┴──────────┴──────────┴──────────┘
+[PM2] Saving current process list...
+[PM2] Successfully saved in /root/.pm2/dump.pm2
+
+---
+exit_code: -1
+elapsed_ms: 86400039
+ended_at: 2026-07-07T15:28:44.082Z
+---

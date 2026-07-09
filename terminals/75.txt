@@ -1,0 +1,27 @@
+---
+pid: 28720
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd \"C:\\Users\\Public\\Projetos\\leadcapture\"; git add frontend/src/components/agent/catalog/CampaignsInlinePanel.tsx frontend/src/index.css; git commit -m \"style(campanhas): cards espacados e mais legiveis no chat mobile\"; tar -czf \"$env:TEMP\\leadcapture-artifacts.tar.gz\" frontend/dist; scp \"$env:TEMP\\leadcapture-artifacts.tar.gz\" root@187.127.5.179:/root/leadcapture-artifacts.tar.gz; ssh -o BatchMode=yes root@187.127.5.179 \"cd /root/leadcapture && tar xzf /root/leadcapture-artifacts.tar.gz && rm /root/leadcapture-artifacts.tar.gz && cp frontend/dist/index.html public/index.html && cp -r frontend/dist/assets/* public/assets/ && pm2 restart leadcapture-web && echo OK\""
+started_at: 2026-07-06T22:29:10.449Z
+running_for_ms: 86400007 
+---
+warning: in the working copy of 'frontend/src/components/agent/catalog/CampaignsInlinePanel.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'frontend/src/index.css', LF will be replaced by CRLF the next time Git touches it
+[main 96d9cc2] style(campanhas): cards espacados e mais legiveis no chat mobile
+ 2 files changed, 158 insertions(+), 49 deletions(-)
+Use --update-env to update environment variables
+[PM2] Applying action restartProcessId on app [leadcapture-web](ids: [ 1 ])
+[PM2] [leadcapture-web](1) ✓
+┌────┬────────────────────┬─────────────┬─────────┬─────────┬──────────┬────────┬──────┬───────────┬──────────┬──────────┬──────────┬──────────┐
+│ id │ name               │ namespace   │ version │ mode    │ pid      │ uptime │ ↺    │ status    │ cpu      │ mem      │ user     │ watching │
+├────┼────────────────────┼─────────────┼─────────┼─────────┼──────────┼────────┼──────┼───────────┼──────────┼──────────┼──────────┼──────────┤
+│ 2  │ leadcapture-api    │ default     │ 1.0.0   │ fork    │ 329467   │ 87m    │ 61   │ online    │ 0%       │ 177.9mb  │ root     │ disabled │
+│ 1  │ leadcapture-web    │ default     │ N/A     │ fork    │ 330636   │ 0s     │ 25   │ online    │ 0%       │ 18.1mb   │ root     │ disabled │
+└────┴────────────────────┴─────────────┴─────────┴─────────┴──────────┴────────┴──────┴───────────┴──────────┴──────────┴──────────┴──────────┘
+OK
+
+---
+exit_code: -1
+elapsed_ms: 86400007
+ended_at: 2026-07-07T22:29:19.425Z
+---

@@ -1060,6 +1060,122 @@ export class ProductsService {
     return (await this.getProduct(id, userId, brandId))!;
   }
 
+  async bulkAction(
+    userId: string,
+    brandId: string | null | undefined,
+    input: {
+      ids: string[];
+      action: "delete" | "set_category" | "draft" | "activate" | "deactivate" | "remove_category";
+      category?: string;
+    }
+  ): Promise<{ ok: number; failed: number; results: Array<{ id: string; ok: boolean; error?: string }> }> {
+    await this.ensureOwnershipSchema();
+    const ids = Array.from(new Set((input.ids || []).map((id) => String(id).trim()).filter(Boolean))).slice(0, 200);
+    const results: Array<{ id: string; ok: boolean; error?: string }> = [];
+
+    for (const id of ids) {
+      try {
+        const existing = await this.getProduct(id, userId, brandId);
+        if (!existing) {
+          results.push({ id, ok: false, error: "Produto não encontrado" });
+          continue;
+        }
+
+        if (input.action === "delete") {
+          const deleted = await this.deleteProduct(id, userId, brandId);
+          results.push({ id, ok: deleted, error: deleted ? undefined : "Falha ao excluir" });
+          continue;
+        }
+
+        const baseMeta =
+          (existing as any).metadata && typeof (existing as any).metadata === "object"
+            ? { ...(existing as any).metadata }
+            : {};
+
+        if (input.action === "set_category") {
+          const category = String(input.category || "").trim();
+          if (!category) {
+            results.push({ id, ok: false, error: "Categoria obrigatória" });
+            continue;
+          }
+          await this.updateProduct(id, { category }, userId, brandId);
+          results.push({ id, ok: true });
+          continue;
+        }
+
+        if (input.action === "remove_category") {
+          await this.updateProduct(id, { category: "" }, userId, brandId);
+          results.push({ id, ok: true });
+          continue;
+        }
+
+        if (input.action === "draft") {
+          await this.updateProduct(
+            id,
+            {
+              active: false,
+              metadata: {
+                ...baseMeta,
+                is_draft: true,
+                draft_saved_at: new Date().toISOString(),
+              },
+            } as any,
+            userId,
+            brandId
+          );
+          results.push({ id, ok: true });
+          continue;
+        }
+
+        if (input.action === "deactivate") {
+          await this.updateProduct(id, { active: false }, userId, brandId);
+          results.push({ id, ok: true });
+          continue;
+        }
+
+        if (input.action === "activate") {
+          const name = String(existing.name || "").trim();
+          const category = String(existing.category || "").trim();
+          const price = existing.price;
+          const missing: string[] = [];
+          if (!name) missing.push("nome");
+          if (!category) missing.push("categoria");
+          if (price == null || !Number.isFinite(Number(price))) missing.push("preço");
+
+          if (missing.length > 0) {
+            results.push({
+              id,
+              ok: false,
+              error: `Incompleto: falta ${missing.join(", ")}`,
+            });
+            continue;
+          }
+
+          await this.updateProduct(
+            id,
+            {
+              active: true,
+              metadata: {
+                ...baseMeta,
+                is_draft: false,
+                missing_fields: [],
+                draft_saved_at: null,
+              },
+            } as any,
+            userId,
+            brandId
+          );
+          results.push({ id, ok: true });
+        }
+      } catch (e: any) {
+        results.push({ id, ok: false, error: e?.message || "Erro" });
+      }
+    }
+
+    const ok = results.filter((r) => r.ok).length;
+    return { ok, failed: results.length - ok, results };
+  }
+
   async deleteProduct(id: string, userId?: string, brandId?: string | null): Promise<boolean> {
     await this.ensureOwnershipSchema();
     const productColumns = await this.getTableColumns("products");

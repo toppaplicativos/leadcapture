@@ -6,6 +6,7 @@ import {
   Loader2, CheckCircle2, AlertTriangle, Copy,
   Diamond, Square,
 } from 'lucide-react'
+import { WhatsAppIcon, type IconComponent } from '@/components/icons'
 import type { LucideIcon } from 'lucide-react'
 
 const NODE_ICON: Record<string, LucideIcon> = {
@@ -39,12 +40,12 @@ interface Flow {
 const TRIGGER_TYPES = [
   { subtype: 'new_lead', label: 'Novo Lead', icon: Zap, desc: 'Quando um lead e criado' },
   { subtype: 'lead_status_change', label: 'Status Alterado', icon: GitBranch, desc: 'Quando o status do lead muda' },
-  { subtype: 'message_received', label: 'Mensagem Recebida', icon: MessageSquare, desc: 'Quando chega mensagem WhatsApp' },
+  { subtype: 'message_received', label: 'Mensagem Recebida', icon: WhatsAppIcon, desc: 'Quando chega mensagem WhatsApp' },
   { subtype: 'order_created', label: 'Pedido Criado', icon: Target, desc: 'Quando um pedido e realizado' },
 ]
 
 const ACTION_TYPES = [
-  { subtype: 'send_message', label: 'Enviar Mensagem', icon: MessageSquare, desc: 'WhatsApp texto' },
+  { subtype: 'send_message', label: 'Enviar Mensagem', icon: WhatsAppIcon, desc: 'WhatsApp texto' },
   { subtype: 'ai_message', label: 'Mensagem IA', icon: Bot, desc: 'Gerar com inteligencia artificial' },
   { subtype: 'change_status', label: 'Mudar Status', icon: GitBranch, desc: 'Atualizar status do lead' },
   { subtype: 'add_tag', label: 'Adicionar Tag', icon: Tag, desc: 'Marcar o lead com tag' },

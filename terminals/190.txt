@@ -1,0 +1,33 @@
+---
+pid: 19180
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd \"C:\\Users\\Public\\Projetos\\leadcapture\"; npx tsx agent-tools/test-ig-automation-run.mjs"
+started_at: 2026-07-07T17:29:46.142Z
+running_for_ms: 86400003 
+---
+[14:29:53.925] INFO (29356): PostgreSQL connection pool created
+{
+  "ok": true,
+  "period_days": 7,
+  "username": "alhopronto_",
+  "followers": 227,
+  "reach": 25,
+  "views": 44,
+  "profile_views": 8,
+  "engagement_rate": 2.31,
+  "total_likes": 97,
+  "total_comments": 29,
+  "top_post": {
+    "id": "18358698550224553",
+    "likes": 4,
+    "comments": 1,
+    "permalink": "https://www.instagram.com/p/DWuI2G7lQ4s/"
+  },
+  "snapshot_saved": true
+}
+
+---
+exit_code: -1
+elapsed_ms: 86400003
+ended_at: 2026-07-08T17:29:52.542Z
+---

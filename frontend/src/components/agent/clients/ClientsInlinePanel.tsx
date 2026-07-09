@@ -1,8 +1,10 @@
 import { useEffect, useState, useCallback, useRef, lazy, Suspense } from 'react'
 import {
   Loader2, Building2, Search, ChevronRight, LayoutGrid, List, Rows3,
-  ExternalLink, Phone, MapPin, Star, MessageCircle, Mail,
+  ExternalLink, Phone, MapPin, Star, Mail,
 } from 'lucide-react'
+import { PageSplash } from '@/components/PageSplash'
+import { WhatsAppIcon } from '@/components/icons'
 import { useClientsBridgeOptional } from '@/lib/agent/ClientsBridgeContext'
 import { useAgentShell } from '@/lib/agent/AgentShellContext'
 import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
@@ -81,7 +83,7 @@ function ClientChatCard({ client, onOpen }: { client: any; onOpen: () => void })
           )}
           {client.has_whatsapp && (
             <div className="catalog-client-card__kpi is-wa">
-              <MessageCircle size={11} />
+              <WhatsAppIcon size={11} className="brand-icon--wa" />
               <span>WA</span>
             </div>
           )}
@@ -121,7 +123,7 @@ function ClientListRow({ client, onOpen }: { client: any; onOpen: () => void }) 
       </div>
       {client.has_whatsapp && (
         <span className="catalog-client-list-row__wa" title="WhatsApp">
-          <MessageCircle size={12} />
+          <WhatsAppIcon size={12} className="brand-icon--wa" />
         </span>
       )}
     </button>
@@ -234,9 +236,7 @@ export function ClientsInlinePanel() {
 
   if (loading && clients.length === 0) {
     return (
-      <div className="catalog-panel__loading">
-        <Loader2 size={18} className="animate-spin text-gray-400" />
-      </div>
+      <PageSplash variant="panel" label="Clientes" />
     )
   }
 
@@ -345,7 +345,7 @@ export function ClientsInlinePanel() {
         title="Clientes"
         subtitle="Relacionamento, histórico e importação"
       >
-        <Suspense fallback={<div className="catalog-panel__loading"><Loader2 size={20} className="animate-spin text-gray-400" /></div>}>
+        <Suspense fallback={<PageSplash variant="panel" label="Clientes" />}>
           <ClientsManager embedded />
         </Suspense>
       </CatalogManagerSheet>

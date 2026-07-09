@@ -1,0 +1,20 @@
+---
+pid: 27748
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "$backendTar = \"C:\\Users\\Public\\Projetos\\leadcapture\\agent-tools\\backend-dist-full.tar.gz\"; $frontendTar = \"C:\\Users\\Public\\Projetos\\leadcapture\\agent-tools\\frontend-dist-full.tar.gz\"; Remove-Item $backendTar,$frontendTar -Force -ErrorAction SilentlyContinue; Set-Location C:\\Users\\Public\\Projetos\\leadcapture\\dist; tar -czf $backendTar *; Set-Location C:\\Users\\Public\\Projetos\\leadcapture\\frontend\\dist; tar -czf $frontendTar *; scp $backendTar $frontendTar root@187.127.5.179:/root/leadcapture/; ssh root@187.127.5.179 \"cd /root/leadcapture && rm -rf dist/* frontend/dist/* && tar -xzf backend-dist-full.tar.gz -C dist && tar -xzf frontend-dist-full.tar.gz -C frontend/dist && rsync -a --delete frontend/dist/ public/ && pm2 restart leadcapture-api leadcapture-web && echo OK\""
+started_at: 2026-07-09T01:13:58.899Z
+running_for_ms: 5580007  
+---
+Use --update-env to update environment variables
+[PM2] Applying action restartProcessId on app [leadcapture-api](ids: [ 2 ])
+[PM2] [leadcapture-api](2) ✓
+Use --update-env to update environment variables
+[PM2] Applying action restartProcessId on app [leadcapture-web](ids: [ 1 ])
+[PM2] [leadcapture-web](1) ✓
+┌────┬────────────────────┬─────────────┬─────────┬─────────┬──────────┬────────┬──────┬───────────┬──────────┬──────────┬──────────┬──────────┐
+│ id │ name               │ namespace   │ version │ mode    │ pid      │ uptime │ ↺    │ status    │ cpu      │ mem      │ user     │ watching │
+├────┼────────────────────┼─────────────┼─────────┼─────────┼──────────┼────────┼──────┼───────────┼──────────┼──────────┼──────────┼──────────┤
+│ 2  │ leadcapture-api    │ default     │ 1.0.0   │ fork    │ 384999   │ 0s     │ 188  │ online    │ 71.4%    │ 53.8mb   │ root     │ disabled │
+│ 1  │ leadcapture-web    │ default     │ N/A     │ fork    │ 385011   │ 0s     │ 158  │ online    │ 0%       │ 4.3mb    │ root     │ disabled │
+└────┴────────────────────┴─────────────┴─────────┴─────────┴──────────┴────────┴──────┴───────────┴──────────┴──────────┴──────────┴──────────┘
+OK

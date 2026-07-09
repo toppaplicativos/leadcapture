@@ -1,0 +1,38 @@
+---
+pid: 9308
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd \"C:\\Users\\Public\\Projetos\\leadcapture\\frontend\"; npm run build 2>&1 | Select-Object -Last 25"
+started_at: 2026-07-07T16:12:40.358Z
+running_for_ms: 86400014 
+---
+dist/assets/InventoryPage-KBNgPqQ8.js                   51.30 kB │ gzip:  11.90 kB
+dist/assets/ClientesPage-CqzK5PZr.js                    60.84 kB │ gzip:  14.06 kB
+dist/assets/LeadsPage-CQsPdjhi.js                       67.04 kB │ gzip:  15.56 kB
+dist/assets/LeadSearchPage-BehD3e02.js                  69.76 kB │ gzip:  17.77 kB
+dist/assets/ProductsView-CdBn_GJC.js                    70.76 kB │ gzip:  15.36 kB
+dist/assets/CampaignsView-D9XiBNmF.js                   88.42 kB │ gzip:  21.72 kB
+dist/assets/AdminShell-BqJ8JcWk.js                     182.15 kB │ gzip:  35.65 kB
+dist/assets/LandingPage-D65TcXdm.js                    227.18 kB │ gzip:  63.74 kB
+dist/assets/index-BJNyzk8k.js                          336.08 kB │ gzip: 101.42 kB
+dist/assets/VideoStudioPage-DbFbOJbF.js                403.34 kB │ gzip: 121.30 kB
+dist/assets/mapbox-gl-pWYr_qap.js                    1,763.51 kB │ gzip: 480.83 kB
+
+[PLUGIN_TIMINGS] Warning: Your build spent significant time in plugins. Here is a breakdown:
+  - vite:css-post (40%)
+  - vite:build-import-analysis (31%)
+  - vite:terser (17%)
+  - vite:asset (5%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+[plugin builtin:vite-reporter] 
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+✓ built in 6.28s
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: 
+https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+
+---
+exit_code: -1
+elapsed_ms: 86400014
+ended_at: 2026-07-08T16:12:46.829Z
+---

@@ -14,6 +14,9 @@ export interface GalleryAssetMeta {
   format?: string
   usedInCampaign?: boolean
   usedInPost?: boolean
+  publishedInPost?: boolean
+  postChannel?: 'instagram' | 'facebook'
+  publishedAt?: string
 }
 
 export interface GalleryItem {

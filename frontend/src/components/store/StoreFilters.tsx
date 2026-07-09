@@ -19,6 +19,8 @@ interface StoreFiltersProps {
   onAttrFilterToggle: (key: string, value: string) => void
   onClearAttrFilters: () => void
   activeAttrFilterCount: number
+  /** Quando o carrossel de categorias está ativo, oculta os chips duplicados */
+  hideCategoryChips?: boolean
 }
 
 export function StoreFilters({
@@ -33,6 +35,7 @@ export function StoreFilters({
   onAttrFilterToggle,
   onClearAttrFilters,
   activeAttrFilterCount,
+  hideCategoryChips = false,
 }: StoreFiltersProps) {
   const filterableAttrs = attrDefs.filter(
     (d) => d.is_filter && (valuesByAttrKey[d.key]?.length ?? 0) > 0,
@@ -68,7 +71,7 @@ export function StoreFilters({
           )}
         </div>
 
-        {categories.length > 1 && (
+        {!hideCategoryChips && categories.length > 1 && (
           <div
             className="flex gap-1.5 overflow-x-auto scrollbar-hide -mx-4 px-4 pb-0.5"
             role="tablist"

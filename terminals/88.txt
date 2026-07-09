@@ -1,0 +1,13 @@
+---
+pid: 21572
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "scp -r \"C:\\Users\\Public\\Projetos\\leadcapture\\dist\" root@187.127.5.179:/root/leadcapture/"
+started_at: 2026-07-07T00:56:55.803Z
+running_for_ms: 86400009 
+---
+
+---
+exit_code: -1
+elapsed_ms: 86400009
+ended_at: 2026-07-08T00:57:05.503Z
+---

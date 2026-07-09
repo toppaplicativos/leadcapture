@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { X, Loader2 } from 'lucide-react'
 import { useWhatsAppConnect } from '@/lib/whatsapp/WhatsAppConnectContext'
 import { WhatsAppPairingFlow } from './WhatsAppPairingFlow'
+import { isAffiliateAppRoute } from '@/lib/api-affiliate'
 import { fetchWhatsAppInstances, pickWhatsAppInstance } from '@/lib/whatsapp/resolveInstance'
 
 type InstanceRow = {
@@ -46,7 +47,7 @@ export function WhatsAppConnectModal({
   function handleConnected() {
     onToast?.('WhatsApp conectado!', 'ok')
     onConnected?.()
-    closeConnect()
+    // Mantém o modal aberto para o usuário ver/copiar o código; fecha manualmente.
   }
 
   return (
@@ -64,9 +65,15 @@ export function WhatsAppConnectModal({
         <div className="wa-connect-modal__head">
           <div>
             <p id="wa-connect-title" className="wa-connect-modal__title">Conectar WhatsApp</p>
-            <p className="wa-connect-modal__sub">Vincule pelo número — código de 8 dígitos no app</p>
+            <p className="wa-connect-modal__sub">Vincule pelo número — código de 8 caracteres no app</p>
           </div>
-          <button type="button" onClick={closeConnect} className="wa-connect-modal__close" aria-label="Fechar">
+          <button
+            type="button"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => { e.stopPropagation(); closeConnect() }}
+            className="wa-connect-modal__close"
+            aria-label="Fechar"
+          >
             <X size={16} />
           </button>
         </div>
@@ -77,7 +84,9 @@ export function WhatsAppConnectModal({
           </div>
         ) : !selectedId ? (
           <p className="wa-connect-modal__empty">
-            Nenhuma sessão WhatsApp. Crie uma em Configurações → WhatsApp.
+            {isAffiliateAppRoute()
+              ? 'Nenhuma sessão WhatsApp. Crie uma na aba Conexões.'
+              : 'Nenhuma sessão WhatsApp. Crie uma em Configurações → WhatsApp.'}
           </p>
         ) : (
           <>

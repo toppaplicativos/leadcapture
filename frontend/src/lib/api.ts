@@ -1,6 +1,11 @@
-import { storeSlug } from './store-context'
+import { getStoreSlug } from './store-context'
+import type { PublicStoreMarketing } from './store-marketing'
+import type { StoreDesign, StoreCatalogCategory } from './store-design'
 
-const API_BASE = `/api/storefront/public/stores/${encodeURIComponent(storeSlug)}`
+function storeApiBase(explicitSlug?: string): string {
+  const slug = explicitSlug || getStoreSlug()
+  return `/api/storefront/public/stores/${encodeURIComponent(slug)}`
+}
 
 export type OfferCta =
   | 'buy'
@@ -77,6 +82,24 @@ export interface Product {
   /* Reviews (Fase 14) — denormalized; 0 means "no reviews yet" */
   reviews_avg?: number
   reviews_count?: number
+  variants?: Array<{
+    id: string
+    name?: string
+    sku?: string
+    price?: number
+    promo_price?: number
+    image_url?: string
+    attributes?: Record<string, string>
+    stock_quantity?: number | null
+    is_active?: boolean
+  }>
+}
+
+export type ProductFetchStore = {
+  slug?: string
+  name?: string
+  primary_domain?: string | null
+  brand?: StoreData['store']['brand']
 }
 
 /* Fase 14 — fetch reviews for a product (public) */
@@ -96,7 +119,7 @@ export function fetchProductReviews(productId: string, limit = 20): Promise<{
     distribution: Record<'1' | '2' | '3' | '4' | '5', number>
   }
 }> {
-  return apiFetch(`${API_BASE}/products/${encodeURIComponent(productId)}/reviews?limit=${limit}`)
+  return apiFetch(`${storeApiBase()}/products/${encodeURIComponent(productId)}/reviews?limit=${limit}`)
 }
 
 export function submitProductReview(productId: string, payload: {
@@ -106,7 +129,7 @@ export function submitProductReview(productId: string, payload: {
   comment?: string
   order_id?: string
 }): Promise<{ success: boolean; review: { id: string; status: string; verified_purchase: boolean }; message: string }> {
-  return apiFetch(`${API_BASE}/products/${encodeURIComponent(productId)}/reviews`, {
+  return apiFetch(`${storeApiBase()}/products/${encodeURIComponent(productId)}/reviews`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -120,6 +143,7 @@ export interface ConfiguratorSelection {
 
 export interface StoreData {
   store: {
+    slug?: string
     name: string
     brand?: {
       name?: string
@@ -130,11 +154,14 @@ export interface StoreData {
       secondary_color?: string
       address?: string
       whatsapp_phone?: string
+      cover_image?: string
+      status?: string
     }
     theme?: {
       logo_url?: string
       primary_color?: string
       secondary_color?: string
+      cover_image?: string
     }
     profile?: {
       address?: string
@@ -142,9 +169,20 @@ export interface StoreData {
       delivery_radius_km?: number
       status?: string
       cover_image?: string
+      delivery_time_text?: string
+      free_shipping_above?: number
     }
+    marketing?: PublicStoreMarketing
+    checkout?: {
+      collect_email?: boolean
+      collect_address?: boolean
+    }
+    primary_domain?: string | null
+    design?: Partial<StoreDesign>
   }
   all_products: Product[]
+  /** Categorias cadastradas no admin com capa (vazio = sem carrossel). */
+  store_categories?: StoreCatalogCategory[]
 }
 
 export interface Order {
@@ -179,12 +217,15 @@ async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
   return data
 }
 
-export function fetchCatalog(): Promise<StoreData & { success: boolean }> {
-  return apiFetch(`${API_BASE}/catalog`)
+export function fetchCatalog(storeSlugOverride?: string): Promise<StoreData & { success: boolean }> {
+  return apiFetch(`${storeApiBase(storeSlugOverride)}/catalog`)
 }
 
-export function fetchProduct(productSlug: string): Promise<{ success: boolean; product: Product }> {
-  return apiFetch(`${API_BASE}/products/${encodeURIComponent(productSlug)}`)
+export function fetchProduct(
+  productSlug: string,
+  storeSlugOverride?: string,
+): Promise<{ success: boolean; product: Product; store?: ProductFetchStore }> {
+  return apiFetch(`${storeApiBase(storeSlugOverride)}/products/${encodeURIComponent(productSlug)}`)
 }
 
 export function createOrder(payload: {
@@ -206,8 +247,10 @@ export function createOrder(payload: {
   notes?: string
   /* Fase 13 — optional coupon code; validated server-side */
   cupom_codigo?: string
+  affiliate_ref?: string
+  affiliate_id?: string
 }): Promise<{ success: boolean; order: Order; checkout_url?: string }> {
-  return apiFetch(`${API_BASE}/orders`, {
+  return apiFetch(`${storeApiBase()}/orders`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -237,7 +280,7 @@ export function validateCoupon(payload: {
     expires_at: string | null
   } | null
 }> {
-  return apiFetch(`${API_BASE}/coupons/validate`, {
+  return apiFetch(`${storeApiBase()}/coupons/validate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -249,7 +292,7 @@ export function trackOrder(
   phone: string,
 ): Promise<{ success: boolean; order: Order; timeline: TimelineEvent[] }> {
   return apiFetch(
-    `${API_BASE}/orders/track?order_number=${encodeURIComponent(orderNumber)}&phone=${encodeURIComponent(phone)}`,
+    `${storeApiBase()}/orders/track?order_number=${encodeURIComponent(orderNumber)}&phone=${encodeURIComponent(phone)}`,
   )
 }
 
@@ -262,7 +305,7 @@ export function fetchOrderHistory(params: {
   if (params.email) q.set('email', params.email)
   if (params.customer_name) q.set('customer_name', params.customer_name)
   if (params.phone) q.set('phone', params.phone)
-  return apiFetch(`${API_BASE}/orders/history?${q.toString()}`)
+  return apiFetch(`${storeApiBase()}/orders/history?${q.toString()}`)
 }
 
 export interface LeadCapturePayload {
@@ -273,13 +316,15 @@ export interface LeadCapturePayload {
   product_id?: string
   product_name?: string
   cta_type?: OfferCta
+  affiliate_ref?: string
+  affiliate_id?: string
 }
 
 export function captureLead(payload: LeadCapturePayload): Promise<{
   success: boolean
   lead: { id: string | number; status: string; cta_type: string }
 }> {
-  return apiFetch(`${API_BASE}/leads`, {
+  return apiFetch(`${storeApiBase()}/leads`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -301,7 +346,7 @@ export function fetchAvailability(productId: string, dateYYYYMMDD: string): Prom
   reason?: string
 }> {
   const q = new URLSearchParams({ product_id: productId, date: dateYYYYMMDD })
-  return apiFetch(`${API_BASE}/availability?${q.toString()}`)
+  return apiFetch(`${storeApiBase()}/availability?${q.toString()}`)
 }
 
 export interface BookingPayload {
@@ -313,13 +358,15 @@ export interface BookingPayload {
   email?: string
   message?: string
   address?: string
+  affiliate_ref?: string
+  affiliate_id?: string
 }
 
 export function createBooking(payload: BookingPayload): Promise<{
   success: boolean
   booking: { customer_id: string | number; product_id: string; start_at: string; end_at: string; status: string }
 }> {
-  return apiFetch(`${API_BASE}/bookings`, {
+  return apiFetch(`${storeApiBase()}/bookings`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),

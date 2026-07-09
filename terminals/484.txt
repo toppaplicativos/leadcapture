@@ -1,0 +1,8 @@
+---
+pid: 9040
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "Start-Sleep -Seconds 90; powershell -ExecutionPolicy Bypass -File C:\\Users\\Public\\Projetos\\leadcapture\\agent-tools\\run-deploy-verified.ps1"
+started_at: 2026-07-08T23:31:20.192Z
+running_for_ms: 11739995 
+---
+ABORT: outro deploy em andamento (pid 34352, ha 4 min)

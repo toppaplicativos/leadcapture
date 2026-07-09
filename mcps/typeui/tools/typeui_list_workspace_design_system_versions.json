@@ -1,0 +1,17 @@
+{
+  "name": "typeui_list_workspace_design_system_versions",
+  "description": "Compatibility tool that returns the current generated package for a workspace project. TypeUI workspace projects no longer expose historical package selection.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "designSystemId": {
+        "description": "Workspace project UUID. Kept as designSystemId for compatibility.",
+        "type": "string"
+      }
+    },
+    "required": [
+      "designSystemId"
+    ],
+    "type": "object"
+  }
+}

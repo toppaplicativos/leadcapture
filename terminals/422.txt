@@ -1,0 +1,15 @@
+---
+pid: 14288
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd \"C:\\Users\\Public\\Projetos\\leadcapture\\frontend\"; npm run build 2>&1"
+started_at: 2026-07-08T15:40:12.544Z
+running_for_ms: 40010007 
+---
+
+> leadcapture-frontend@1.0.0 build
+> tsc -b && vite build
+
+src/lib/store-design.ts(31,25): error TS2339: Property 'enabled' does not exist on type '{}'.
+src/lib/store-design.ts(32,23): error TS2339: Property 'shape' does not exist on type '{}'.
+src/pages/admin/store/StoreStudioPage.tsx(4,3): error TS2300: Duplicate identifier 'Loader2'.
+src/pages/admin/store/StoreStudioPage.tsx(16,3): error TS2300: Duplicate identifier 'Loader2'.

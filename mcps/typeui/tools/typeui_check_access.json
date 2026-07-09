@@ -1,0 +1,9 @@
+{
+  "name": "typeui_check_access",
+  "description": "Check the current TypeUI sign-in, plan, and request usage status.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {},
+    "type": "object"
+  }
+}

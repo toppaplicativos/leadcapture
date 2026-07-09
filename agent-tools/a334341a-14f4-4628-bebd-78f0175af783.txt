@@ -1,0 +1,205 @@
+
+`);a=n.pop()||``;for(let e of n){let t=e.trim();if(!t.startsWith(`data:`))continue;let n=t.slice(5).trim();if(!(!n||n==
+=`[DONE]`))try{b(JSON.parse(n))}catch{}}}}catch(e){e?.name===`AbortError`?p(`Cancelado.`):p(e?.message||`Falha ao 
+executar squad`),a(`error`)}finally{m.current=null}},[o]),b=(0,z.useCallback)(e=>{if(!(!e||typeof 
+e!=`object`)){if(e.name===`error`){p(e.message||`Erro durante 
+execução`),a(`error`);return}if(e.name===`final`){d(e.output),a(`result`);return}if(typeof 
+e.name==`string`&&e.status){let t=e.status===`running`?`running`:e.status===`done`?`done`:e.status===`error`?`error`:`p
+ending`;l(n=>({...n,[e.name]:{status:t===`pending`?n[e.name]?.status||`pending`:t,output:e.output??n[e.name]?.output,du
+rationMs:e.durationMs??n[e.name]?.durationMs,message:e.message??n[e.name]?.message}}))}}},[]);return 
+e?(0,B.jsx)(`div`,{className:`fixed inset-0 z-[1000] grid place-items-center bg-black/45 backdrop-blur-sm 
+p-4`,style:{animation:`fadeIn 160ms ease-out`},children:(0,B.jsxs)(`div`,{className:`w-full max-w-3xl max-h-[92vh] 
+bg-white rounded-2xl shadow-[0_30px_60px_-12px_rgba(0,0,0,0.3)] overflow-hidden flex 
+flex-col`,style:{animation:`slideUp 220ms cubic-bezier(0.16,1,0.3,1)`},children:[(0,B.jsxs)(`div`,{className:`px-5 
+py-4 border-b border-gray-100 flex items-start gap-3 shrink-0`,children:[(0,B.jsx)(`div`,{className:`ai-shimmer w-10 
+h-10 rounded-xl bg-gray-900 grid place-items-center shrink-0 relative 
+overflow-hidden`,children:(0,B.jsx)(ie,{size:18,className:`text-white relative 
+z-10`,strokeWidth:2.25})}),(0,B.jsxs)(`div`,{className:`flex-1 
+min-w-0`,children:[(0,B.jsx)(`h3`,{className:`text-[16px] font-bold text-gray-900 tracking-tight 
+leading-tight`,children:`Criar campanha com IA`}),(0,B.jsxs)(`p`,{className:`text-[11.5px] text-gray-500 
+mt-0.5`,children:[r===`input`&&`Descreva o que quer fazer — o squad monta tudo pra você revisar.`,r===`stream`&&`7 
+skills em execução. Você vai ver tudo ao vivo.`,r===`result`&&`Campanha pronta em rascunho. Revise antes de 
+disparar.`,r===`error`&&`Algo deu errado. Veja detalhes 
+abaixo.`]})]}),(0,B.jsx)(`button`,{onClick:h,"aria-label":`Fechar`,className:`w-8 h-8 grid place-items-center 
+rounded-lg text-gray-400 hover:text-gray-900 hover:bg-gray-100 transition 
+shrink-0`,children:(0,B.jsx)(I,{size:16,strokeWidth:2})})]}),(0,B.jsxs)(`div`,{className:`flex-1 
+overflow-y-auto`,children:[r===`input`&&(0,B.jsxs)(`div`,{className:`p-5 
+space-y-3`,children:[(0,B.jsxs)(`div`,{children:[(0,B.jsx)(`label`,{className:`block text-[11px] font-semibold 
+text-gray-700 uppercase tracking-wide mb-2`,children:`O que você quer que a IA faça?`}),(0,B.jsx)(`textarea`,{value:o
+,onChange:e=>s(e.target.value),onKeyDown:e=>{e.key===`Enter`&&(e.metaKey||e.ctrlKey)&&y()},placeholder:`Ex: Quero 
+vender consórcio para pequenos comerciantes em Fortaleza, foco em quem busca crédito 
+rápido`,rows:4,autoFocus:!0,className:`w-full p-3 rounded-xl border border-gray-200 text-[13px] text-gray-900 
+placeholder:text-gray-400 placeholder:font-normal resize-none focus:outline-none focus:ring-4 focus:ring-gray-900/5 
+focus:border-gray-900 transition`}),(0,B.jsxs)(`p`,{className:`text-[10.5px] text-gray-400 mt-1.5 flex items-center 
+gap-1.5`,children:[(0,B.jsx)(D,{size:11,strokeWidth:2}),`Inclua objetivo, público e oferta. 
+`,(0,B.jsx)(`kbd`,{className:`ml-1 px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 text-[9px] 
+font-mono`,children:`⌘+Enter`})]})]}),(0,B.jsxs)(`div`,{children:[(0,B.jsxs)(`p`,{className:`text-[10px] 
+font-semibold text-gray-500 uppercase tracking-wide mb-1.5 flex items-center gap-1.5`,children:[(0,B.jsx)(ie,{size:10,s
+trokeWidth:2.25,className:`text-gray-400`}),`Exemplos`]}),(0,B.jsx)(`div`,{className:`flex flex-wrap 
+gap-1.5`,children:ze.map(e=>(0,B.jsx)(`button`,{onClick:()=>s(e),className:`text-left px-2.5 py-1.5 rounded-lg 
+bg-gray-50 hover:bg-gray-100 text-[11px] text-gray-700 font-medium transition border border-transparent 
+hover:border-gray-200`,children:e},e))})]}),f&&(0,B.jsxs)(`div`,{className:`px-3 py-2.5 rounded-lg bg-rose-50 border 
+border-rose-100 text-rose-700 text-[12px] font-medium flex items-start 
+gap-2`,children:[(0,B.jsx)(g,{size:14,className:`shrink-0 mt-0.5`}),f]})]}),r===`stream`&&(0,B.jsx)(`div`,{className:`p
+-5`,children:(0,B.jsx)(Ue,{steps:c})}),r===`result`&&u&&(0,B.jsxs)(`div`,{className:`p-5 
+space-y-4`,children:[(0,B.jsxs)(`div`,{className:`p-4 rounded-2xl bg-gradient-to-br from-emerald-50 to-emerald-50/30 
+border border-emerald-200`,children:[(0,B.jsxs)(`div`,{className:`flex items-start 
+gap-3`,children:[(0,B.jsx)(`div`,{className:`w-10 h-10 rounded-xl bg-emerald-500 grid place-items-center shrink-0`,chil
+dren:(0,B.jsx)(_,{size:18,className:`text-white`,strokeWidth:2.25})}),(0,B.jsxs)(`div`,{className:`flex-1 
+min-w-0`,children:[(0,B.jsx)(`h4`,{className:`text-[15px] font-bold text-emerald-900`,children:`Campanha criada em 
+rascunho`}),(0,B.jsx)(`p`,{className:`text-[12px] text-emerald-800/80 mt-0.5`,children:`Revise o público, mensagem e 
+velocidade antes de disparar.`})]})]}),(0,B.jsxs)(`div`,{className:`mt-4 
+space-y-2`,children:[(0,B.jsx)(qe,{label:`Nome`,value:u.name}),(0,B.jsx)(qe,{label:`Público 
+alvo`,value:`${u.target_count||0} leads selecionados`}),(0,B.jsx)(qe,{label:`Velocidade`,value:u.speed_summary||`—`})
+,u.message_preview&&(0,B.jsxs)(`div`,{children:[(0,B.jsx)(`p`,{className:`text-[10px] font-semibold 
+text-emerald-900/60 uppercase tracking-wider mb-1`,children:`Prévia da mensagem`}),(0,B.jsx)(`div`,{className:`p-3 
+rounded-xl bg-white border border-emerald-100 text-[12.5px] text-gray-800 whitespace-pre-wrap 
+leading-relaxed`,children:u.message_preview})]})]})]}),(0,B.jsxs)(`details`,{className:`rounded-xl bg-gray-50 border 
+border-gray-100 overflow-hidden`,children:[(0,B.jsxs)(`summary`,{className:`px-4 py-2.5 cursor-pointer text-[11.5px] 
+font-semibold text-gray-600 hover:text-gray-900 flex items-center 
+gap-1.5`,children:[(0,B.jsx)(i,{size:11,strokeWidth:2.25}),`Ver os 7 passos do 
+squad`]}),(0,B.jsx)(`div`,{className:`p-4 pt-2 border-t 
+border-gray-100`,children:(0,B.jsx)(Ue,{steps:c,compact:!0})})]})]}),r===`error`&&(0,B.jsxs)(`div`,{className:`p-5 
+space-y-3`,children:[(0,B.jsx)(`div`,{className:`p-4 rounded-2xl bg-rose-50 border 
+border-rose-200`,children:(0,B.jsxs)(`div`,{className:`flex items-start 
+gap-3`,children:[(0,B.jsx)(`div`,{className:`w-10 h-10 rounded-xl bg-rose-500 grid place-items-center shrink-0`,childre
+n:(0,B.jsx)(v,{size:18,className:`text-white`,strokeWidth:2.25})}),(0,B.jsxs)(`div`,{className:`flex-1 
+min-w-0`,children:[(0,B.jsx)(`h4`,{className:`text-[14px] font-bold text-rose-900`,children:`Não foi possível gerar 
+a campanha`}),(0,B.jsx)(`p`,{className:`text-[12px] text-rose-800/85 
+mt-1`,children:f})]})]})}),Object.keys(c).length>0&&(0,B.jsx)(Ue,{steps:c})]})]}),(0,B.jsxs)(`div`,{className:`px-5 
+py-3 border-t border-gray-100 flex items-center justify-end gap-2 shrink-0 
+bg-gray-50/50`,children:[r===`input`&&(0,B.jsxs)(B.Fragment,{children:[(0,B.jsx)(`button`,{onClick:h,className:`h-9 
+px-4 rounded-lg text-[12.5px] font-semibold text-gray-600 hover:text-gray-900 hover:bg-gray-100 
+transition`,children:`Cancelar`}),(0,B.jsxs)(`button`,{onClick:y,disabled:!o.trim(),className:`ai-shimmer inline-flex 
+items-center gap-1.5 h-9 px-4 rounded-lg bg-gray-900 hover:bg-black text-white text-[12.5px] font-bold transition 
+disabled:opacity-40 disabled:cursor-not-allowed relative 
+overflow-hidden`,children:[(0,B.jsx)(ie,{size:13,strokeWidth:2.5,className:`relative 
+z-10`}),(0,B.jsx)(`span`,{className:`relative z-10`,children:`Gerar 
+campanha`}),(0,B.jsx)(ye,{size:13,strokeWidth:2.5,className:`relative 
+z-10`})]})]}),r===`stream`&&(0,B.jsx)(`button`,{onClick:h,className:`h-9 px-4 rounded-lg text-[12.5px] font-semibold 
+text-gray-600 hover:text-rose-700 hover:bg-rose-50 transition`,children:`Cancelar 
+squad`}),r===`result`&&u?.campaign_id&&(0,B.jsxs)(B.Fragment,{children:[(0,B.jsx)(`button`,{onClick:h,className:`h-9 
+px-4 rounded-lg text-[12.5px] font-semibold text-gray-600 hover:text-gray-900 hover:bg-gray-100 
+transition`,children:`Fechar`}),(0,B.jsxs)(`button`,{onClick:()=>{n(u.campaign_id),t()},className:`inline-flex 
+items-center gap-1.5 h-9 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[12.5px] font-bold 
+transition`,children:[(0,B.jsx)(re,{size:13,strokeWidth:2.5}),`Abrir campanha para revisar`,(0,B.jsx)(ye,{size:13,strok
+eWidth:2.5})]})]}),r===`error`&&(0,B.jsxs)(B.Fragment,{children:[(0,B.jsx)(`button`,{onClick:h,className:`h-9 px-4 
+rounded-lg text-[12.5px] font-semibold text-gray-600 hover:text-gray-900 hover:bg-gray-100 
+transition`,children:`Fechar`}),(0,B.jsx)(`button`,{onClick:()=>{a(`input`),p(null),l({})},className:`h-9 px-4 
+rounded-lg bg-gray-900 hover:bg-black text-white text-[12.5px] font-bold transition`,children:`Tentar 
+novamente`})]})]})]})}):null}function Ue({steps:e,compact:t=!1}){return(0,B.jsx)(`ol`,{className:`relative 
+space-y-3`,children:Re.map((n,r)=>{let i=e[n.name]||{status:`pending`};return(0,B.jsxs)(`li`,{className:`relative`,chil
+dren:[r!==Re.length-1&&(0,B.jsx)(`div`,{className:`absolute left-[19px] top-10 bottom-[-12px] w-px 
+${i.status===`done`?`bg-emerald-300`:`bg-gray-200`}`}),(0,B.jsxs)(`div`,{className:`flex items-start 
+gap-3`,children:[(0,B.jsx)(We,{status:i.status,Icon:n.Icon}),(0,B.jsxs)(`div`,{className:`flex-1 min-w-0 
+pb-1`,children:[(0,B.jsxs)(`div`,{className:`flex items-center justify-between gap-2 
+flex-wrap`,children:[(0,B.jsxs)(`div`,{className:`flex items-center gap-2 
+min-w-0`,children:[(0,B.jsx)(`span`,{className:`text-[10.5px] font-mono font-bold text-gray-400 
+tabular-nums`,children:String(n.step).padStart(2,`0`)}),(0,B.jsx)(`span`,{className:`text-[13.5px] font-bold 
+tracking-tight ${i.status===`running`||i.status===`done`?`text-gray-900`:i.status===`error`?`text-rose-700`:`text-gray-
+400`}`,children:n.label}),(0,B.jsx)(Ge,{s
+
+... (output truncated) ...
+
+x)(`input`,{type:`text`,value:i.logo_url,onChange:e=>a({...i,logo_u
+rl:e.target.value}),placeholder:`https://...`,className:`w-full px-3 py-2 border border-gray-300 rounded-lg 
+text-sm`})]}),(0,B.jsxs)(`div`,{children:[(0,B.jsx)(`label`,{className:`block text-xs font-semibold text-gray-700 
+mb-1`,children:`URL da Capa do Catálogo`}),(0,B.jsx)(`input`,{type:`text`,value:i.cover_image,onChange:e=>a({...i,cove
+r_image:e.target.value}),placeholder:`https://...`,className:`w-full px-3 py-2 border border-gray-300 rounded-lg 
+text-sm`})]}),(0,B.jsxs)(`div`,{className:`flex gap-2 
+pt-2`,children:[(0,B.jsx)(`button`,{onClick:c,disabled:o,className:`flex-1 bg-gray-900 text-white px-4 py-2 rounded-xl 
+font-semibold text-sm hover:bg-gray-800 transition 
+disabled:opacity-50`,children:o?`Salvando...`:`Salvar`}),(0,B.jsx)(`button`,{onClick:n,className:`flex-1 bg-gray-200 
+text-gray-900 px-4 py-2 rounded-lg font-semibold text-sm hover:bg-gray-300 
+transition`,children:`Cancelar`})]})]})}function Ht({showToast:e}){let[t,n]=(0,z.useState)([]),[r,i]=(0,z.useState)(!0)
+,[a,o]=(0,z.useState)(!1),[s,c]=(0,z.useState)(``),[l,u]=(0,z.useState)(`#3b82f6`),[d,f]=(0,z.useState)(!1),[p,m]=(0,z.
+useState)(null);(0,z.useEffect)(()=>{h()},[]);async function h(){i(!0);try{n((await(await 
+fetch(`/api/client-types`,{headers:K()})).json()).types||[])}catch{e(`Erro ao carregar tipos de 
+cliente`,`err`)}finally{i(!1)}}async function g(){if(!s.trim()){e(`Nome é 
+obrigatório`,`err`);return}f(!0);try{if(!(await 
+fetch(`/api/client-types`,{method:`POST`,headers:K(),body:JSON.stringify({name:s.trim(),color:l})})).ok)throw 
+Error(`Erro ao criar tipo`);e(`Tipo de cliente criado!`),c(``),o(!1),await 
+h()}catch(t){e(t.message,`err`)}finally{f(!1)}}async function _(t){if(confirm(`Tem certeza que quer deletar este 
+tipo?`)){m(t);try{if(!(await fetch(`/api/client-types/${t}`,{method:`DELETE`,headers:K()})).ok)throw Error(`Erro ao 
+deletar`);e(`Tipo deletado!`),await h()}catch(t){e(t.message,`err`)}finally{m(null)}}}return 
+r?(0,B.jsx)(J,{rows:3}):(0,B.jsxs)(`div`,{className:`space-y-4`,children:[(0,B.jsxs)(`div`,{className:`flex 
+items-center justify-between`,children:[(0,B.jsxs)(`h2`,{className:`font-bold text-gray-900`,children:[`Tipos de 
+Cliente (`,t.length,`)`]}),(0,B.jsx)(`button`,{onClick:()=>o(!0),className:`bg-emerald-600 text-white px-3 py-1.5 
+rounded-lg text-xs font-semibold hover:bg-emerald-700 transition`,children:`+ Novo 
+Tipo`})]}),a&&(0,B.jsxs)(`div`,{className:`bg-emerald-50 border border-emerald-200 rounded-lg p-4 space-y-3`,children:[
+(0,B.jsx)(`input`,{type:`text`,value:s,onChange:e=>c(e.target.value),onKeyDown:e=>e.key===`Enter`&&g(),placeholder:`Ex:
+ Cliente Premium, Revendedor, etc`,autoFocus:!0,className:`w-full px-3 py-2 border border-emerald-300 rounded-lg 
+text-sm focus:ring-2 focus:ring-emerald-500 outline-none`}),(0,B.jsxs)(`div`,{className:`flex gap-2 
+items-end`,children:[(0,B.jsxs)(`div`,{className:`flex-1`,children:[(0,B.jsx)(`label`,{className:`text-xs 
+font-semibold text-gray-600 block 
+mb-1`,children:`Cor`}),(0,B.jsx)(`input`,{type:`color`,value:l,onChange:e=>u(e.target.value),className:`w-full h-9 
+rounded-lg border border-emerald-300 
+cursor-pointer`})]}),(0,B.jsx)(`button`,{onClick:g,disabled:d,className:`bg-emerald-600 text-white px-4 py-2 
+rounded-lg text-xs font-semibold hover:bg-emerald-700 transition 
+disabled:opacity-50`,children:d?`Criando...`:`Criar`}),(0,B.jsx)(`button`,{onClick:()=>o(!1),className:`bg-white 
+text-gray-900 px-4 py-2 rounded-lg text-xs font-semibold border border-gray-200 hover:bg-gray-50 
+transition`,children:`Cancelar`})]})]}),(0,B.jsx)(`div`,{className:`grid 
+gap-2`,children:t.length===0?(0,B.jsx)(`p`,{className:`text-sm text-gray-400 text-center py-4`,children:`Nenhum tipo 
+criado ainda`}):t.map(e=>(0,B.jsxs)(`div`,{className:`flex items-center justify-between p-3 bg-gray-50 
+rounded-lg`,children:[(0,B.jsxs)(`div`,{className:`flex items-center gap-3`,children:[(0,B.jsx)(`div`,{className:`w-4 
+h-4 rounded-full border 
+border-gray-300`,style:{backgroundColor:e.color||`#999`}}),(0,B.jsx)(`span`,{className:`text-sm font-semibold 
+text-gray-900`,children:e.name})]}),(0,B.jsx)(`button`,{onClick:()=>_(e.id),disabled:p===e.id,className:`p-1 
+text-red-600 hover:bg-red-50 rounded transition text-xs disabled:opacity-50`,children:p===e.id?(0,B.jsx)(k,{size:12,cla
+ssName:`animate-spin`}):(0,B.jsx)(I,{size:12,strokeWidth:2})})]},e.id))})]})}function Ut({showToast:e}){Ee();let[t,n]=(
+0,z.useState)([]),[r,i]=(0,z.useState)(!0),[a,o]=(0,z.useState)(``),[s,c]=(0,z.useState)(null),[l,u]=(0,z.useState)(nul
+l);(0,z.useEffect)(()=>{d()},[]);async function d(){i(!0);try{let e=await(await 
+fetch(`/api/brands`,{headers:K()})).json();n(e.brands||[]),o(e.active_brand_id||``)}catch{e(`Erro ao carregar 
+brands`,`err`)}finally{i(!1)}}async function f(t,n){if(t===a){e(`Nao pode deletar o brand 
+ativo`,`err`);return}if(confirm(`Tem certeza que quer deletar "${n}"?\nEsta acao nao pode ser 
+desfeita.`)){u(t);try{let n=await fetch(`/api/brands/${t}`,{method:`DELETE`,headers:K()});if(!n.ok){let e=await 
+n.json();throw Error(e.error||`Erro ao deletar`)}e(`Brand deletado com sucesso`),await d()}catch(t){e(t.message||`Erro 
+ao deletar`,`err`)}finally{u(null)}}}if(r)return(0,B.jsx)(J,{rows:5});let[p,m]=(0,z.useState)(!1),[h,g]=(0,z.useState)(
+``),[_,v]=(0,z.useState)(!1);async function y(){if(!h.trim()){e(`Nome do brand é 
+obrigatório`,`err`);return}v(!0);try{let t=await 
+fetch(`/api/brands`,{method:`POST`,headers:K(),body:JSON.stringify({name:h.trim()})});if(!t.ok){let e=await 
+t.json();throw Error(e.error||`Erro ao criar brand`)}e(`Brand criado com sucesso!`),g(``),m(!1),await 
+d()}catch(t){e(t.message||`Erro ao 
+criar`,`err`)}finally{v(!1)}}return(0,B.jsxs)(`div`,{className:`space-y-6`,children:[(0,B.jsxs)(`div`,{className:`flex 
+items-center justify-between`,children:[(0,B.jsxs)(`div`,{children:[(0,B.jsx)(`h1`,{className:`text-2xl font-bold 
+text-gray-900 mb-1`,children:`Configuracoes`}),(0,B.jsx)(`p`,{className:`text-sm text-gray-500`,children:`Gerenciar 
+seus brands, lojas e companhias`})]}),(0,B.jsx)(`button`,{onClick:()=>m(!0),className:`bg-gray-900 text-white px-4 
+py-2 rounded-xl font-semibold text-sm hover:bg-gray-800 transition`,children:`+ Novo 
+Brand`})]}),p&&(0,B.jsxs)(`div`,{className:`bg-blue-50 border border-blue-200 rounded-2xl p-5 
+space-y-3`,children:[(0,B.jsx)(`h3`,{className:`font-bold text-gray-900`,children:`Criar Novo Brand`}),(0,B.jsx)(`input
+`,{type:`text`,value:h,onChange:e=>g(e.target.value),onKeyDown:e=>e.key===`Enter`&&y(),placeholder:`Nome do seu 
+brand/loja/companhia`,autoFocus:!0,className:`w-full px-3 py-2 border border-blue-300 rounded-lg text-sm focus:ring-2 
+focus:ring-blue-500 focus:border-transparent outline-none`}),(0,B.jsxs)(`div`,{className:`flex 
+gap-2`,children:[(0,B.jsx)(`button`,{onClick:y,disabled:_,className:`flex-1 bg-gray-900 text-white px-4 py-2 
+rounded-xl font-semibold text-sm hover:bg-gray-800 transition disabled:opacity-50`,children:_?`Criando...`:`Criar 
+Brand`}),(0,B.jsx)(`button`,{onClick:()=>m(!1),className:`flex-1 bg-white text-gray-900 px-4 py-2 rounded-lg 
+font-semibold text-sm border border-gray-200 hover:bg-gray-50 
+transition`,children:`Cancelar`})]})]}),(0,B.jsxs)(`div`,{className:`bg-white rounded-2xl border border-border-light 
+overflow-hidden`,children:[(0,B.jsx)(`div`,{className:`px-5 py-4 border-b 
+border-gray-100`,children:(0,B.jsxs)(`h2`,{className:`font-bold text-gray-900`,children:[`Seus Brands 
+(`,t.length,`)`]})}),(0,B.jsx)(`div`,{className:`divide-y divide-gray-100`,children:t.map(t=>{let n=s===t.id,r=t.id===a
+;return(0,B.jsx)(`div`,{className:`p-5`,children:n?(0,B.jsx)(Vt,{brand:t,onSave:()=>{c(null),d()},onCancel:()=>c(null),
+showToast:e}):(0,B.jsxs)(`div`,{className:`flex items-center 
+justify-between`,children:[(0,B.jsxs)(`div`,{className:`flex items-center gap-4 
+flex-1`,children:[t.logo_url&&(0,B.jsx)(`img`,{src:t.logo_url,alt:t.name,className:`w-12 h-12 rounded-lg 
+object-cover`}),(0,B.jsxs)(`div`,{className:`flex-1`,children:[(0,B.jsxs)(`div`,{className:`flex items-center 
+gap-2`,children:[(0,B.jsx)(`h3`,{className:`font-bold 
+text-gray-900`,children:t.name}),r&&(0,B.jsx)(`span`,{className:`text-[10px] font-bold bg-emerald-100 text-emerald-700 
+px-2 py-0.5 rounded`,children:`ATIVO`})]}),(0,B.jsxs)(`p`,{className:`text-xs text-gray-500`,children:[t.slug,` • 
+Criado `,new Date(t.created_at).toLocaleDateString(`pt-BR`)]}),(t.primary_color||t.secondary_color)&&(0,B.jsxs)(`div`,{
+className:`flex gap-2 mt-2`,children:[t.primary_color&&(0,B.jsx)(`div`,{className:`w-4 h-4 rounded-full border 
+border-gray-300`,style:{backgroundColor:t.primary_color}}),t.secondary_color&&(0,B.jsx)(`div`,{className:`w-4 h-4 
+rounded-full border 
+border-gray-300`,style:{backgroundColor:t.secondary_color}})]})]})]}),(0,B.jsxs)(`div`,{className:`flex 
+gap-2`,children:[(0,B.jsx)(`button`,{onClick:()=>c(t.id),className:`px-3 py-1 bg-blue-50 text-blue-600 rounded-lg 
+text-xs font-semibold hover:bg-blue-100 transition`,children:`Editar`}),t.id!==a&&(0,B.jsx)(`button`,{onClick:()=>f(t.i
+d,t.name),disabled:l===t.id,className:`px-3 py-1 bg-red-50 text-red-600 rounded-lg text-xs font-semibold 
+hover:bg-red-100 transition disabled:opacity-50`,children:l===t.id?`Deletando...`:`Deletar`})]})]})},t.id)})})]}),t.len
+gth===0&&(0,B.jsx)(dt,{icon:Oe,text:`Nenhum brand criado ainda`}),(0,B.jsx)(`div`,{className:`bg-white rounded-2xl 
+border border-border-light p-5`,children:(0,B.jsx)(Ht,{showToast:e})})]})}export{ut as AdminDashboard,lt as 
+AdminShell,Ot as AgentView,yt as AutomationsView,X as CampaignsView,pt as ClientesView,Pt as CouponsView,ft as 
+DashboardView,At as DomainView,Nt as EstoqueAccessView,Bt as FreteView,Tt as MessagesView,kt as NotificationsView,mt 
+as OrdersView,zt as PaymentConfigView,bt as ProductsView,It as ReviewsView,Ut as SettingsView,Rt as 
+WhatsAppManagerView};
+
+

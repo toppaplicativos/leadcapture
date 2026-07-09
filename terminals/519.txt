@@ -1,0 +1,11 @@
+---
+pid: 29404
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "$email = \"probe.parceiro.$(Get-Random)@test.leadcapture.online\"; $body = @{ name=\"Probe Parceiro\"; email=$email; password=\"teste123456\" } | ConvertTo-Json; $r = Invoke-RestMethod -Uri \"https://app.leadcapture.online/api/auth/partners-register\" -Method POST -Body $body -ContentType \"application/json\"; $token = $r.token; Write-Host \"OK register $email\"; $h = @{ Authorization = \"Bearer $token\" }; foreach ($p in @(\"/api/partners-app/me\",\"/api/partners-app/dashboard\",\"/api/partners-app/memberships\")) { try { $res = Invoke-RestMethod -Uri \"https://app.leadcapture.online$p\" -Headers $h; Write-Host \"OK $p\" } catch { Write-Host \"FAIL $p $($_.Exception.Message)\"; if ($_.ErrorDetails.Message) { Write-Host $_.ErrorDetails.Message } } }"
+started_at: 2026-07-09T02:04:37.750Z
+running_for_ms: 2545010  
+---
+OK register probe.parceiro.1098076304@test.leadcapture.online
+OK /api/partners-app/me
+OK /api/partners-app/dashboard
+OK /api/partners-app/memberships

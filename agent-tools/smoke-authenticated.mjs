@@ -7,6 +7,7 @@
 import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { gotoAdminWorkspace, openWorkspaceShortcut, waitForWorkspaceReady } from './smoke-workspace-helpers.mjs'
 
 const require = createRequire(import.meta.url)
 const pwRoot = join(homedir(), '.grok', 'skills', 'playwright', 'scripts', 'node_modules', 'playwright')
@@ -58,14 +59,14 @@ page.on('console', (msg) => {
 page.on('pageerror', (err) => consoleErrors.push(String(err)))
 
 try {
-  await page.goto(`${BASE}/login`, { waitUntil: 'networkidle', timeout: 45000 })
+  await page.goto(`${BASE}/login`, { waitUntil: 'domcontentloaded', timeout: 45000 })
   await page.fill('input[type="email"]', EMAIL)
   await page.fill('input[type="password"]', PASSWORD)
   await page.click('button[type="submit"]')
-  await page.waitForURL(/\/admin/, { timeout: 30000 })
+  await page.waitForURL(/\/admin/, { timeout: 45000 })
   ok('login → /admin')
 
-  await page.waitForSelector('.workspace-welcome, .workspace-chat__messages', { timeout: 20000 })
+  await waitForWorkspaceReady(page, 45000)
   ok('workspace carregado')
 
   const chunkErrors = consoleErrors.filter((e) =>
@@ -74,40 +75,17 @@ try {
   if (chunkErrors.length) fail(`chunk error: ${chunkErrors[0]}`)
   else ok('sem erros de chunk pós-login')
 
-  async function openShortcut(label) {
-    const welcome = page.locator('.workspace-welcome__card').filter({ hasText: label })
-    if (await welcome.count()) {
-      await Promise.all([
-        welcome.first().click(),
-        page.waitForResponse(
-          (r) => r.url().includes('/api/admin-agent/chat') && r.status() === 200,
-          { timeout: 20000 },
-        ).catch(() => null),
-      ])
-      return
-    }
-    await page.locator('.workspace-chat__menu-btn').click()
-    await Promise.all([
-      page.locator('.workspace-chat__shortcut').filter({ hasText: label }).first().click(),
-      page.waitForResponse(
-        (r) => r.url().includes('/api/admin-agent/chat') && r.status() === 200,
-        { timeout: 20000 },
-      ).catch(() => null),
-    ])
-  }
-
   for (const mod of MODULES) {
     consoleErrors.length = 0
-    await page.goto(`${BASE}/admin`, { waitUntil: 'networkidle', timeout: 45000 })
-    await page.waitForSelector('.workspace-welcome, .workspace-chat__messages', { timeout: 20000 })
-    await openShortcut(mod.label)
+    await gotoAdminWorkspace(page, BASE, 45000)
+    await openWorkspaceShortcut(page, mod.label)
     if (mod.label === 'Painel') {
       await page.waitForFunction(() => {
         const stats = document.querySelector('.catalog-module--dashboard .catalog-module__stats')
         if (!stats) return false
         const n = parseInt(String(stats.textContent || '').match(/(\d+)\s*lead/i)?.[1] || '0', 10)
         return n >= 1
-      }, { timeout: 15000 }).catch(() => null)
+      }, { timeout: 20000 }).catch(() => null)
     }
     await page.waitForTimeout(800)
 

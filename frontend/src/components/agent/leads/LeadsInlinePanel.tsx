@@ -1,8 +1,10 @@
 import { useEffect, useState, useCallback, useRef, lazy, Suspense } from 'react'
 import {
   Loader2, Users, Search, ChevronRight, LayoutGrid, List, Rows3,
-  ExternalLink, Phone, MapPin, Star, MessageCircle,
+  ExternalLink, Phone, MapPin, Star,
 } from 'lucide-react'
+import { PageSplash } from '@/components/PageSplash'
+import { WhatsAppIcon } from '@/components/icons'
 import { useLeadsBridgeOptional } from '@/lib/agent/LeadsBridgeContext'
 import { useAgentShell } from '@/lib/agent/AgentShellContext'
 import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
@@ -76,7 +78,7 @@ function LeadChatCard({ lead, onOpen }: { lead: any; onOpen: () => void }) {
           )}
           {lead.has_whatsapp && (
             <div className="catalog-lead-card__kpi is-wa">
-              <MessageCircle size={11} />
+              <WhatsAppIcon size={11} className="brand-icon--wa" />
               <span>WA</span>
             </div>
           )}
@@ -116,7 +118,7 @@ function LeadListRow({ lead, onOpen }: { lead: any; onOpen: () => void }) {
       </div>
       {lead.has_whatsapp && (
         <span className="catalog-lead-list-row__wa" title="WhatsApp">
-          <MessageCircle size={12} />
+          <WhatsAppIcon size={12} className="brand-icon--wa" />
         </span>
       )}
     </button>
@@ -230,9 +232,7 @@ export function LeadsInlinePanel() {
 
   if (loading && leads.length === 0) {
     return (
-      <div className="catalog-panel__loading">
-        <Loader2 size={18} className="animate-spin text-gray-400" />
-      </div>
+      <PageSplash variant="panel" label="Leads" />
     )
   }
 
@@ -340,7 +340,7 @@ export function LeadsInlinePanel() {
         title="Leads"
         subtitle="Filtros, importação, validação WhatsApp e edição"
       >
-        <Suspense fallback={<div className="catalog-panel__loading"><Loader2 size={20} className="animate-spin text-gray-400" /></div>}>
+        <Suspense fallback={<PageSplash variant="panel" label="Leads" />}>
           <LeadsManager embedded />
         </Suspense>
       </CatalogManagerSheet>

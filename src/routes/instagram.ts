@@ -1,6 +1,8 @@
 import { Router, Response } from "express";
 import { attachBrandContext, BrandRequest } from "../middleware/brandContext";
 import { instagramService } from "../services/instagram";
+import { brandAutomationsService } from "../services/brandAutomations";
+import { isInstagramAutomation, isTaskImplemented } from "../services/automationTasks";
 import { settingsService } from "../services/settings";
 import { CreativeStudioService } from "../services/creativeStudio";
 import { logger } from "../utils/logger";
@@ -155,13 +157,179 @@ router.get("/media", async (req: BrandRequest, res: Response) => {
   }
 });
 
+router.get("/media/:id/analysis", async (req: BrandRequest, res: Response) => {
+  const brandId = requireBrand(req, res);
+  if (!brandId) return;
+  try {
+    const analysis = await instagramService.getPostAnalysis(brandId, String(req.params.id));
+    if (!analysis) return res.status(404).json({ success: false, error: "Post nao encontrado" });
+    const history = await instagramService.listMediaSnapshots(brandId, String(req.params.id), 5);
+    res.json({ success: true, analysis, history });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post("/media/:id/snapshot", async (req: BrandRequest, res: Response) => {
+  const brandId = requireBrand(req, res);
+  if (!brandId) return;
+  try {
+    const result = await instagramService.snapshotPostAnalysis(brandId, String(req.params.id));
+    if (!result.ok) return res.status(404).json({ success: false, error: "Falha ao salvar snapshot" });
+    res.json({ success: true, snapshot_id: result.snapshot_id });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.get("/insights", async (req: BrandRequest, res: Response) => {
   const brandId = requireBrand(req, res);
   if (!brandId) return;
   try {
-    const period = (req.query.period as any) || "day";
-    const insights = await instagramService.fetchInsights(brandId, period);
-    res.json({ success: true, insights });
+    const days = parseInt(String(req.query.days || "7"), 10);
+    const period = (req.query.period as "day" | "week" | "days_28") || "day";
+    const result = await instagramService.fetchInsights(brandId, { days, period });
+    if (!result) return res.json({ success: false, error: "Instagram nao conectado" });
+    res.json({
+      success: !result.error,
+      insights: result.parsed,
+      raw: result.raw,
+      error: result.error || undefined,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get("/analytics", async (req: BrandRequest, res: Response) => {
+  const brandId = requireBrand(req, res);
+  if (!brandId) return;
+  try {
+    const days = parseInt(String(req.query.days || "7"), 10);
+    const analytics = await instagramService.fetchAnalytics(brandId, days);
+    if (!analytics) {
+      return res.json({ success: false, error: "Instagram nao conectado ou token invalido" });
+    }
+    res.json({ success: true, analytics });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+const INSTAGRAM_SEED_SLUGS = [
+  "weekly-performance-report",
+  "profile-health-23h",
+  "auto-reply-comments-4h",
+  "mention-monitor-3h",
+  "ig-webhook-dm-reply",
+  "ig-webhook-comment-keyword",
+  "ig-webhook-mention-thanks",
+] as const;
+
+router.post("/automations/seed", async (req: BrandRequest, res: Response) => {
+  const brandId = requireBrand(req, res);
+  if (!brandId) return;
+  const userId = requireUser(req, res);
+  if (!userId) return;
+
+  try {
+    const conn = await instagramService.getConnection(brandId);
+    if (!conn?.access_token) {
+      return res.status(400).json({ error: "Conecte o Instagram antes de rodar o seed" });
+    }
+
+    const force = Boolean(req.body?.force);
+    const existing = await brandAutomationsService.listForBrand(userId, brandId);
+    const configured = existing.filter((item) => item.state?.status === "active").length;
+
+    if (!force && configured >= 3) {
+      return res.json({
+        success: true,
+        seeded: 0,
+        message: "Automações Instagram já configuradas. Passe force=true para reativar.",
+        slugs: INSTAGRAM_SEED_SLUGS,
+      });
+    }
+
+    const activated: string[] = [];
+    for (const slug of INSTAGRAM_SEED_SLUGS) {
+      await brandAutomationsService.activateSlug(userId, brandId, slug);
+      activated.push(slug);
+    }
+
+    const subscribe = await instagramService.subscribeWebhooks(brandId);
+
+    res.json({
+      success: true,
+      seeded: activated.length,
+      activated,
+      webhook_subscribed: subscribe.ok,
+      webhook_error: subscribe.error,
+      brand_id: brandId,
+      ig_username: conn.username || null,
+    });
+  } catch (err: any) {
+    logger.error(`[Instagram] automations/seed error: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post("/webhook/subscribe", async (req: BrandRequest, res: Response) => {
+  const brandId = requireBrand(req, res);
+  if (!brandId) return;
+  try {
+    const result = await instagramService.subscribeWebhooks(brandId);
+    if (!result.ok) return res.status(400).json({ success: false, error: result.error });
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get("/webhook/events", async (req: BrandRequest, res: Response) => {
+  const brandId = requireBrand(req, res);
+  if (!brandId) return;
+  try {
+    const limit = Math.max(1, Math.min(100, Number(req.query.limit) || 30));
+    const rows = await instagramService.listWebhookEvents(brandId, limit);
+    res.json({ success: true, events: rows });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get("/automations", async (req: BrandRequest, res: Response) => {
+  const brandId = requireBrand(req, res);
+  if (!brandId) return;
+  const userId = requireUser(req, res);
+  if (!userId) return;
+  try {
+    const list = await brandAutomationsService.listForBrand(userId, brandId);
+    const automations = list
+      .filter((item) => isInstagramAutomation(item))
+      .map((item) => ({ ...item, is_implemented: isTaskImplemented(item.task_type) }));
+    const active = automations.filter((a) => a.state?.status === "active").length;
+    const runs = automations.reduce((s, a) => s + Number(a.state?.run_count || 0), 0);
+    const successes = automations.reduce((s, a) => s + Number(a.state?.success_count || 0), 0);
+    res.json({
+      success: true,
+      automations,
+      stats: { total: automations.length, active, runs, successes },
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get("/dashboard", async (req: BrandRequest, res: Response) => {
+  const brandId = requireBrand(req, res);
+  if (!brandId) return;
+  try {
+    const dashboard = await instagramService.fetchDashboard(brandId);
+    if (!dashboard) {
+      return res.json({ success: false, error: "Instagram nao conectado ou token invalido" });
+    }
+    res.json({ success: true, dashboard });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -190,6 +358,19 @@ router.get("/metrics", async (req: BrandRequest, res: Response) => {
   }
 });
 
+function validateScheduledPostBody(body: Record<string, unknown>): string | null {
+  if (body.status !== "scheduled") return null;
+  const scheduledAt = body.scheduled_at;
+  if (!scheduledAt) return "scheduled_at obrigatorio para agendamento";
+  const d = new Date(String(scheduledAt));
+  if (Number.isNaN(d.getTime())) return "scheduled_at invalido";
+  const min = new Date(Date.now() + 15 * 60 * 1000);
+  if (d < min) return "Agende pelo menos 15 minutos a frente";
+  const max = new Date(Date.now() + 75 * 24 * 60 * 60 * 1000);
+  if (d > max) return "Agendamento limitado a 75 dias";
+  return null;
+}
+
 router.get("/posts", async (req: BrandRequest, res: Response) => {
   const brandId = requireBrand(req, res);
   if (!brandId) return;
@@ -204,11 +385,188 @@ router.get("/posts", async (req: BrandRequest, res: Response) => {
   }
 });
 
+router.get("/alerts", async (req: BrandRequest, res: Response) => {
+  const brandId = requireBrand(req, res);
+  if (!brandId) return;
+  try {
+    const since = req.query.since as string | undefined;
+    const result = await instagramService.getQueueAlerts(brandId, since);
+    res.json({ success: true, ...result });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get("/caption-templates", async (req: BrandRequest, res: Response) => {
+  const brandId = requireBrand(req, res);
+  if (!brandId) return;
+  try {
+    const templates = await instagramService.listCaptionTemplates(brandId);
+    res.json({ success: true, templates });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post("/caption-templates", async (req: BrandRequest, res: Response) => {
+  const brandId = requireBrand(req, res);
+  if (!brandId) return;
+  try {
+    const body = String(req.body?.body || "").trim();
+    if (!body) return res.status(400).json({ error: "body obrigatorio" });
+    const template = await instagramService.saveCaptionTemplate(brandId, {
+      label: req.body?.label,
+      body,
+    });
+    res.json({ success: true, template });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete("/caption-templates/:id", async (req: BrandRequest, res: Response) => {
+  const brandId = requireBrand(req, res);
+  if (!brandId) return;
+  try {
+    await instagramService.deleteCaptionTemplate(brandId, String(req.params.id));
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get("/scheduling/suggestions", async (req: BrandRequest, res: Response) => {
+  const brandId = requireBrand(req, res);
+  if (!brandId) return;
+  try {
+    const suggestions = await instagramService.getPostingSuggestions(brandId);
+    res.json({ success: true, suggestions });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get("/ai-settings", async (req: BrandRequest, res: Response) => {
+  const brandId = requireBrand(req, res);
+  if (!brandId) return;
+  try {
+    const settings = await instagramService.getAiSettings(brandId);
+    res.json({ success: true, settings });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put("/ai-settings", async (req: BrandRequest, res: Response) => {
+  const brandId = requireBrand(req, res);
+  if (!brandId) return;
+  try {
+    const settings = await instagramService.saveAiSettings(brandId, req.body || {});
+    res.json({ success: true, settings });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post("/ai-settings/seed", async (req: BrandRequest, res: Response) => {
+  const brandId = requireBrand(req, res);
+  if (!brandId) return;
+  const userId = requireUser(req, res);
+  if (!userId) return;
+  try {
+    const settings = await instagramService.seedAiSettings(brandId, userId);
+    res.json({ success: true, settings });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get("/ai-settings/status", async (req: BrandRequest, res: Response) => {
+  const brandId = requireBrand(req, res);
+  if (!brandId) return;
+  try {
+    const status = await instagramService.getAiProductionStatus(brandId);
+    res.json({ success: true, status });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get("/alerts/history", async (req: BrandRequest, res: Response) => {
+  const brandId = requireBrand(req, res);
+  if (!brandId) return;
+  try {
+    const limit = parseInt(String(req.query.limit || "20"), 10);
+    const history = await instagramService.listQueueAlertHistory(brandId, limit);
+    res.json({ success: true, history });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post("/posts/bulk", async (req: BrandRequest, res: Response) => {
+  const brandId = requireBrand(req, res);
+  if (!brandId) return;
+  try {
+    const action = String(req.body?.action || "") as "delete" | "draft" | "publish" | "schedule";
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(String) : [];
+    if (!ids.length) return res.status(400).json({ error: "ids obrigatorio" });
+    if (!["delete", "draft", "publish", "schedule"].includes(action)) {
+      return res.status(400).json({ error: "action invalida" });
+    }
+    const result = await instagramService.bulkPostsAction(
+      brandId,
+      action,
+      ids,
+      req.body?.scheduled_at,
+    );
+    res.json({ success: true, ...result });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post("/ai-settings/test", async (req: BrandRequest, res: Response) => {
+  const brandId = requireBrand(req, res);
+  if (!brandId) return;
+  const userId = requireUser(req, res);
+  if (!userId) return;
+  try {
+    const message = String(req.body?.message || "").trim();
+    if (!message) return res.status(400).json({ error: "message obrigatorio" });
+    const settings = await instagramService.getAiSettings(brandId);
+    const prompt = instagramService.buildAiReplyPrompt(settings, message);
+    const result = await creativeStudio.generateText(userId, {
+      prompt,
+      maxCharacters: Number(settings.max_chars || 500),
+    }, brandId);
+    res.json({ success: true, reply: String(result?.text || "").trim() });
+  } catch (err: any) {
+    logger.error(`[Instagram] ai-settings/test error: ${err.message}`);
+    res.status(500).json({ error: err.message || "Falha ao testar resposta" });
+  }
+});
+
+router.get("/posts/:id", async (req: BrandRequest, res: Response) => {
+  const brandId = requireBrand(req, res);
+  if (!brandId) return;
+  try {
+    const post = await instagramService.getPost(brandId, String(req.params.id));
+    if (!post) return res.status(404).json({ success: false, error: "Post nao encontrado" });
+    res.json({ success: true, post });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.post("/posts", async (req: BrandRequest, res: Response) => {
   const brandId = requireBrand(req, res);
   if (!brandId) return;
   try {
-    const post = await instagramService.createPost(brandId, req.body);
+    const body = req.body || {};
+    const scheduleErr = validateScheduledPostBody(body);
+    if (scheduleErr) return res.status(400).json({ success: false, error: scheduleErr });
+    const post = await instagramService.createPost(brandId, body);
     res.json({ success: true, post });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -216,18 +574,48 @@ router.post("/posts", async (req: BrandRequest, res: Response) => {
 });
 
 router.put("/posts/:id", async (req: BrandRequest, res: Response) => {
+  const brandId = requireBrand(req, res);
+  if (!brandId) return;
   try {
-    await instagramService.updatePost(String(req.params.id), req.body);
-    res.json({ success: true });
+    const postId = String(req.params.id);
+    const existing = await instagramService.getPost(brandId, postId);
+    if (!existing) return res.status(404).json({ success: false, error: "Post nao encontrado" });
+    const body = req.body || {};
+    const scheduleErr = validateScheduledPostBody(body);
+    if (scheduleErr) return res.status(400).json({ success: false, error: scheduleErr });
+    if (body.status === "draft") body.scheduled_at = body.scheduled_at ?? null;
+    if (body.status && ["draft", "scheduled"].includes(String(body.status))) {
+      body.error_message = null;
+    }
+    await instagramService.updatePost(postId, body);
+    const post = await instagramService.getPost(brandId, postId);
+    res.json({ success: true, post });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
 router.delete("/posts/:id", async (req: BrandRequest, res: Response) => {
+  const brandId = requireBrand(req, res);
+  if (!brandId) return;
   try {
-    await instagramService.deletePost(String(req.params.id));
+    const postId = String(req.params.id);
+    const existing = await instagramService.getPost(brandId, postId);
+    if (!existing) return res.status(404).json({ success: false, error: "Post nao encontrado" });
+    await instagramService.deletePost(postId);
     res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post("/posts/:id/duplicate", async (req: BrandRequest, res: Response) => {
+  const brandId = requireBrand(req, res);
+  if (!brandId) return;
+  try {
+    const post = await instagramService.duplicatePost(brandId, String(req.params.id));
+    if (!post) return res.status(404).json({ success: false, error: "Post nao encontrado" });
+    res.json({ success: true, post });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -248,8 +636,36 @@ router.get("/conversations", async (req: BrandRequest, res: Response) => {
   const brandId = requireBrand(req, res);
   if (!brandId) return;
   try {
-    const conversations = await instagramService.getConversations(brandId);
-    res.json({ success: true, conversations });
+    const result = await instagramService.getConversations(brandId);
+    res.json({ success: true, conversations: result.conversations, meta: result.meta });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get("/conversations/:threadId", async (req: BrandRequest, res: Response) => {
+  const brandId = requireBrand(req, res);
+  if (!brandId) return;
+  try {
+    const thread = await instagramService.getConversationMessages(brandId, String(req.params.threadId));
+    if (!thread) return res.status(404).json({ success: false, error: "Conversa nao encontrada" });
+    res.json({ success: true, conversation: thread });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post("/messages/send", async (req: BrandRequest, res: Response) => {
+  const brandId = requireBrand(req, res);
+  if (!brandId) return;
+  const { recipient_id, text } = req.body || {};
+  if (!recipient_id || !String(text || "").trim()) {
+    return res.status(400).json({ error: "recipient_id e text sao obrigatorios" });
+  }
+  try {
+    const result = await instagramService.sendDm(brandId, String(recipient_id), String(text).trim());
+    if (!result.ok) return res.status(400).json({ success: false, error: result.error });
+    res.json({ success: true, message_id: result.messageId });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

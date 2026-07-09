@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { getWhatsAppHeaders } from '@/lib/whatsapp/headers'
 
 export interface InstanceHealth {
   id: string
@@ -29,15 +30,6 @@ export interface HealthResponse {
 
 const POLL_INTERVAL_MS = 60_000
 
-function healthHeaders(): Record<string, string> {
-  const token = localStorage.getItem('lead-system-token')
-  const brandId = localStorage.getItem('lead-system:active-brand-id')
-  const h: Record<string, string> = {}
-  if (token) h.Authorization = `Bearer ${token}`
-  if (brandId) h['x-brand-id'] = brandId
-  return h
-}
-
 export function useWhatsAppHealth(enabled = true) {
   const [health, setHealth] = useState<HealthResponse | null>(null)
   const [loading, setLoading] = useState(true)
@@ -48,9 +40,9 @@ export function useWhatsAppHealth(enabled = true) {
 
     const fetchHealth = async () => {
       try {
-        const token = localStorage.getItem('lead-system-token')
-        if (!token) return
-        const r = await fetch('/api/instances/health', { headers: healthHeaders() })
+        const headers = getWhatsAppHeaders()
+        if (!headers.Authorization) return
+        const r = await fetch('/api/instances/health', { headers })
         if (!r.ok) return
         const d = await r.json()
         if (alive) {
@@ -82,7 +74,7 @@ export function useWhatsAppHealth(enabled = true) {
     primaryCritical,
     summary: health?.summary,
     refresh: async () => {
-      const r = await fetch('/api/instances/health', { headers: healthHeaders() })
+      const r = await fetch('/api/instances/health', { headers: getWhatsAppHeaders() })
       if (r.ok) setHealth(await r.json())
     },
   }

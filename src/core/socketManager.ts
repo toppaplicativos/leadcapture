@@ -44,6 +44,9 @@ interface NotificationRealtimePayload {
   read: boolean;
   created_at: string;
   metadata?: Record<string, any>;
+  deep_link?: string | null;
+  action_required?: boolean;
+  cta_label?: string | null;
 }
 
 // ============================================

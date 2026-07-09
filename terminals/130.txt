@@ -1,0 +1,21 @@
+---
+pid: 4216
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd \"C:\\Users\\Public\\Projetos\\leadcapture\"; $env:SMOKE_EMAIL=\"eleniceventura72@gmail.com\"; $env:SMOKE_PASSWORD=\"salao1234\"; node agent-tools/smoke-authenticated-mobile.mjs 2>&1 | Select-Object -Last 8"
+started_at: 2026-07-07T05:53:25.117Z
+running_for_ms: 106831701
+---
+OK    Habilidades → KPI 9
+OK    Habilidades → painel expandido
+OK    Habilidades → CatalogManagerSheet aberto (head pad 12px)
+OK    Pedidos → inline ("0 pedidos")
+OK    Pedidos → painel expandido
+OK    sem canvas fullscreen residual no mobile
+
+Tudo OK (mobile)
+
+---
+exit_code: -1
+elapsed_ms: 106831701
+ended_at: 2026-07-08T11:34:03.169Z
+---

@@ -1,0 +1,15 @@
+---
+pid: 24784
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\Public\\Projetos\\leadcapture\\agent-tools\\deploy-full.ps1\" -SkipBuild"
+started_at: 2026-07-08T23:34:52.892Z
+running_for_ms: 11545004 
+---
+Remove-Item : N�o existe um objeto no caminho especificado 
+C:\Users\Public\Projetos\leadcapture\agent-tools\backend-dist-full.tar.gz.
+No C:\Users\Public\Projetos\leadcapture\agent-tools\deploy-full.ps1:63 caractere:1
++ Remove-Item $backendTar -Force -ErrorAction SilentlyContinue
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : InvalidArgument: (:) [Remove-Item], PSArgumentException
+    + FullyQualifiedErrorId : Argument,Microsoft.PowerShell.Commands.RemoveItemCommand
+ 

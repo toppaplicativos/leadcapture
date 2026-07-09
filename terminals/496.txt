@@ -1,0 +1,19 @@
+---
+pid: 17496
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "powershell -ExecutionPolicy Bypass -File C:\\Users\\Public\\Projetos\\leadcapture\\agent-tools\\run-deploy-verified.ps1"
+started_at: 2026-07-09T00:31:21.643Z
+running_for_ms: 8155005  
+---
+>> Bumping service worker cache
+OK    C:\Users\Public\Projetos\leadcapture\frontend\public\service-worker.js
+OK    C:\Users\Public\Projetos\leadcapture\public\service-worker.js
+      shell=lead-system-shell-v91-20260709 runtime=lead-system-runtime-v83-20260709
+>> Build backend
+
+> lead-captation-system@1.0.0 build
+> tsc
+
+src/services/automationTasks.ts(457,30): error TS2353: Object literal may only specify known properties, and 'maxTokens' does not exist in type '{ model?: string | undefined; temperature?: number | undefined; category?: AICategory | undefined; }'.
+src/services/instagram.ts(1632,56): error TS2322: Type 'null' is not assignable to type 'string | undefined'.
+ABORT: backend build falhou (exit 2)

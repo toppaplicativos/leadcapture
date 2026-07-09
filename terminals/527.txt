@@ -1,0 +1,7 @@
+---
+pid: 29176
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "Stop-Process -Id 14136 -Force -ErrorAction SilentlyContinue; cd \"C:\\Users\\Public\\Projetos\\leadcapture\"; npx tsc -p tsconfig.json 2>&1 | Select-Object -First 20"
+started_at: 2026-07-09T02:23:53.037Z
+running_for_ms: 1390006  
+---

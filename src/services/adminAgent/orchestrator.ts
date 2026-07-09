@@ -29,8 +29,12 @@ import {
   listUserFlows,
 } from "../flowAutomation";
 import { getFlowTemplate } from "./flowTemplates";
+import { AffiliatesService } from "../affiliates";
+import bcrypt from "bcryptjs";
 import { SKILLS, NAV_PATHS, buildSkillsCatalog } from "./squads";
 import { getSkillMeta } from "./skillMeta";
+import { combineMemoryBlocks } from "./memory";
+import type { AdminAgentMemory } from "./sessionStore";
 import type {
   AdminAgentContext,
   AgentAction,
@@ -42,6 +46,7 @@ import type {
 
 const workspaceService = new AgentWorkspaceService();
 const inventoryService = new InventoryService();
+const affiliatesService = new AffiliatesService();
 
 export class AdminAgentOrchestrator {
   async chat(
@@ -223,6 +228,17 @@ export class AdminAgentOrchestrator {
     if (skillId === "automation.confirm") {
       turn.presentation = "inline";
     }
+    if (
+      skillId === "affiliate.open" || skillId === "affiliate.create" || skillId === "affiliate.analyze"
+      || skillId === "affiliate.approve" || skillId === "affiliate.config" || skillId === "affiliate.payouts"
+      || skillId === "affiliate.materials"
+    ) {
+      turn.presentation = "inline";
+      turn.canvasRoute = "/afiliados";
+    }
+    if (skillId === "affiliate.create.confirm" || skillId === "affiliate.config.confirm" || skillId === "affiliate.payout.confirm") {
+      turn.presentation = "inline";
+    }
     if (skillId === "dashboard.overview" || skillId === "dashboard.show") {
       turn.presentation = "inline";
       turn.canvasRoute = "/dashboard";
@@ -244,12 +260,19 @@ export class AdminAgentOrchestrator {
       .map((m) => `${m.role === "user" ? "Usuário" : "Assistente"}: ${m.content}`)
       .join("\n");
 
+    const memoryBlock = combineMemoryBlocks(
+      ctx.sessionMemory as AdminAgentMemory | undefined,
+      ctx.brandMemory as AdminAgentMemory | undefined,
+    );
+
     const prompt = `Você é o orquestrador do painel admin LeadCapture — um sistema Agent-Driven onde o chat monta a UI.
 
 CONTEXTO:
 - Página atual: ${ctx.currentPath || "/admin"}
 - Brand: ${ctx.brandId || "não definida"}
-
+${memoryBlock ? `\n${memoryBlock}\n` : ""}
+${ctx.sessionSummary ? `RESUMO DA CONVERSA (mensagens antigas compactadas):\n${ctx.sessionSummary}\n` : ""}
+${ctx.pastSessionContext ? `${ctx.pastSessionContext}\n` : ""}
 CATÁLOGO DE SQUADS E SKILLS:
 ${catalog}
 
@@ -701,6 +724,21 @@ Responda APENAS com JSON válido neste formato:
     }
     if (/instagram|insta\b|reels?\b|stories?\b/i.test(lower)) {
       return { squad: "social", skill: "instagram.open", message: "Abrindo o Instagram..." };
+    }
+    if (/cadastr(ar|e)\s+(um\s+)?afiliado|novo\s+(parceiro|afiliado)/i.test(lower)) {
+      return { squad: "affiliates", skill: "affiliate.create", message: "Vamos cadastrar o parceiro:" };
+    }
+    if (/configur(ar|e)\s+(o\s+)?programa\s+de\s+afiliados|comissão\s+padrão|saque\s+mínimo/i.test(lower)) {
+      return { squad: "affiliates", skill: "affiliate.config", message: "Configurações do programa de afiliados:" };
+    }
+    if (/aprovar\s+(comiss|afiliado)|comissões?\s+pendentes/i.test(lower)) {
+      return { squad: "affiliates", skill: "affiliate.approve", message: "Comissões e aprovações pendentes:" };
+    }
+    if (/saque|payout|pix\s+do\s+afiliado/i.test(lower)) {
+      return { squad: "affiliates", skill: "affiliate.payouts", message: "Solicitações de saque:" };
+    }
+    if (/afiliado|parceiro|programa\s+de\s+afiliados|cupom\s+do\s+afiliado/i.test(lower)) {
+      return { squad: "affiliates", skill: "affiliate.open", message: "Seu programa de afiliados:" };
     }
     if (/painel|dashboard|como\s+está\s+o\s+negócio|mostrar\s+painel/i.test(lower)) {
       return { squad: "dashboard", skill: "dashboard.show", message: "Abrindo o painel completo..." };
@@ -1704,32 +1742,29 @@ Responda APENAS com JSON válido neste formato:
           components.push({ id: "ig-not-connected", type: "text", props: { content: "Conecte o Instagram para ver métricas." } });
           break;
         }
-        const insights = await instagramService.fetchInsights(brandId, "days_28");
+        const analytics = await instagramService.fetchAnalytics(brandId, 28);
         const media = await instagramService.fetchMedia(brandId, 6);
-
-        let reach = 0;
-        let impressions = 0;
-        let profileViews = 0;
-        if (insights?.data) {
-          for (const m of insights.data) {
-            const val = Number(m.values?.[0]?.value || 0);
-            if (m.name === "reach") reach = val;
-            if (m.name === "impressions") impressions = val;
-            if (m.name === "profile_views") profileViews = val;
-          }
-        }
+        const account = analytics?.account;
+        const reach = account?.reach || 0;
+        const views = account?.views || 0;
+        const profileViews = account?.profile_views || 0;
+        const engaged = account?.accounts_engaged || 0;
 
         components.push({
           id: "ig-analyze-kpis",
           type: "kpi_row",
           props: {
             items: [
-              { label: "Seguidores", value: Number(profile.followers_count || 0), icon: "users" },
-              { label: "Posts", value: Number(profile.media_count || 0), icon: "package" },
+              { label: "Seguidores", value: Number(analytics?.profile.followers_count || profile.followers_count || 0), icon: "users" },
+              { label: "Posts", value: Number(analytics?.profile.media_count || profile.media_count || 0), icon: "package" },
               { label: "Alcance 28d", value: reach, icon: "megaphone" },
               { label: "Views perfil", value: profileViews, icon: "zap" },
             ],
-            subtitle: impressions > 0 ? `${impressions.toLocaleString("pt-BR")} impressões (28 dias)` : undefined,
+            subtitle: views > 0
+              ? `${views.toLocaleString("pt-BR")} visualizações · ${engaged.toLocaleString("pt-BR")} contas engajadas (28 dias)`
+              : engaged > 0
+                ? `${engaged.toLocaleString("pt-BR")} contas engajadas (28 dias)`
+                : undefined,
           },
         });
 
@@ -1768,7 +1803,7 @@ Responda APENAS com JSON válido neste formato:
           components.push({ id: "ig-not-connected", type: "text", props: { content: "Conecte o Instagram para ver DMs." } });
           break;
         }
-        const conversations = await instagramService.getConversations(brandId);
+        const { conversations } = await instagramService.getConversations(brandId);
         if (!conversations.length) {
           components.push({ id: "ig-no-dms", type: "text", props: { content: "Nenhuma conversa no Direct no momento." } });
         } else {
@@ -1778,13 +1813,13 @@ Responda APENAS com JSON válido neste formato:
             props: {
               title: "Direct — conversas recentes",
               columns: ["Conversa", "Última mensagem"],
-              rows: conversations.slice(0, 8).map((c: any, i: number) => {
-                const msg = c.messages?.data?.[0];
-                const from = msg?.from?.username || msg?.from?.id || "—";
-                const text = String(msg?.message || "").slice(0, 80) || "(mídia)";
+              rows: conversations.slice(0, 8).map((c, i) => {
+                const from = c.username || c.sender_id || "—";
+                const handle = String(from).startsWith("@") ? from : `@${from}`;
+                const text = String(c.last_message || "").slice(0, 80) || "(mídia)";
                 return {
                   id: String(c.id || i),
-                  cells: [`@${from}`, text],
+                  cells: [handle, text],
                 };
               }),
             },
@@ -2014,6 +2049,363 @@ Responda APENAS com JSON válido neste formato:
 
         components.push(this.buildNavSuggestions(["facebook"]));
         actions.push({ type: "navigate", payload: { path: "/facebook" } });
+        break;
+      }
+
+      case "affiliate.open":
+      case "affiliate.analyze": {
+        const brandId = String(ctx.brandId || "").trim();
+        if (!brandId) {
+          components.push({ id: "aff-no-brand", type: "text", props: { content: "Selecione uma marca para gerenciar afiliados." } });
+          break;
+        }
+        const stats = await affiliatesService.getProgramStats(ctx.userId, brandId);
+        components.push({
+          id: "aff-stats",
+          type: "affiliate_stats",
+          props: {
+            enabled: !!stats.program?.is_enabled,
+            commissionPct: Number(stats.program?.default_commission_pct || 10),
+            affiliatesTotal: stats.affiliates_total,
+            affiliatesPending: stats.affiliates_pending,
+            affiliatesActive: stats.affiliates_active,
+            totalClicks: stats.total_clicks,
+            totalSales: stats.total_sales,
+            commissionPending: stats.commission_pending,
+            commissionApproved: stats.commission_approved,
+            payoutsRequested: stats.payouts_requested,
+            commissionsPendingCount: stats.commissions_pending_count,
+            materialsCount: stats.materials_count,
+            topAffiliates: (stats.top_affiliates || []).slice(0, 5).map((a: any) => ({
+              id: a.id,
+              name: a.display_name,
+              code: a.code,
+              status: a.status,
+              clicks: a.total_clicks,
+              sales: a.total_sales,
+              commission: a.total_commission,
+            })),
+            live: true,
+          },
+        });
+        components.push(this.buildNavSuggestions(["afiliados"]));
+        actions.push({ type: "navigate", payload: { path: "/afiliados" } });
+        break;
+      }
+
+      case "affiliate.create": {
+        const brandId = String(ctx.brandId || "").trim();
+        const name = String(sk.name || "").trim();
+        const email = String(sk.email || "").trim();
+        const password = String(sk.password || "").trim();
+        const phone = String(sk.phone || "").trim();
+        const code = String(sk.code || "").trim();
+        const region = String(sk.region || "").trim();
+
+        if (!name || !email || !password) {
+          components.push({
+            id: "aff-create-form",
+            type: "form",
+            props: {
+              title: "Cadastrar parceiro",
+              fields: [
+                { name: "name", label: "Nome", type: "text", placeholder: "João Silva" },
+                { name: "email", label: "Email de login", type: "email", placeholder: "joao@email.com" },
+                { name: "password", label: "Senha (min 6)", type: "password", placeholder: "••••••" },
+                { name: "code", label: "Código do link (opcional)", type: "text", placeholder: "joao10" },
+                { name: "phone", label: "Telefone", type: "text", placeholder: "31999998888" },
+                { name: "region", label: "Região", type: "text", placeholder: "BH, Contagem…" },
+              ],
+              submitLabel: "Revisar cadastro",
+              nextSkill: "affiliate.create",
+            },
+          });
+          break;
+        }
+
+        if (!brandId) {
+          components.push({ id: "aff-no-brand", type: "text", props: { content: "Selecione uma marca." } });
+          break;
+        }
+        if (password.length < 6) {
+          components.push({ id: "aff-pwd", type: "text", props: { content: "Senha deve ter pelo menos 6 caracteres." } });
+          break;
+        }
+
+        const config = await affiliatesService.getOrCreateProgramConfig(ctx.userId, brandId);
+        components.push({
+          id: "aff-create-preview",
+          type: "affiliate_create_preview",
+          props: {
+            draftId: `aff-draft-${Date.now()}`,
+            name,
+            email,
+            password,
+            phone: phone || null,
+            code: code || null,
+            region: region || null,
+            commissionPct: Number(config.default_commission_pct || 10),
+          },
+        });
+        break;
+      }
+
+      case "affiliate.create.confirm": {
+        const brandId = String(ctx.brandId || "").trim();
+        const name = String(sk.name || "").trim();
+        const email = String(sk.email || "").trim();
+        const password = String(sk.password || "").trim();
+        const phone = String(sk.phone || "").trim() || null;
+        const code = String(sk.code || "").trim() || null;
+        const region = String(sk.region || "").trim() || null;
+
+        if (!brandId || !email || !password || password.length < 6) {
+          components.push({ id: "aff-missing", type: "text", props: { content: "Dados incompletos. Cadastre o parceiro novamente." } });
+          break;
+        }
+
+        try {
+          const config = await affiliatesService.getOrCreateProgramConfig(ctx.userId, brandId);
+          const passwordHash = await bcrypt.hash(password, 12);
+          const created = await affiliatesService.createAffiliateAccount({
+            ownerUserId: ctx.userId,
+            brandId,
+            email,
+            passwordHash,
+            name: name || "Afiliado",
+            phone,
+            region,
+            codeHint: code,
+            autoApprove: config.auto_approve_affiliates !== false,
+          });
+          components.push({
+            id: "aff-created",
+            type: "text",
+            props: {
+              content: `Parceiro ${created.affiliate.display_name} cadastrado! Link: /afiliado/${created.affiliate.code} · Cupom: ${created.affiliate.coupon_code}`,
+            },
+          });
+          components.push({
+            id: "aff-open",
+            type: "button",
+            props: { label: "Abrir gestão completa", path: "/afiliados", variant: "primary" },
+          });
+          actions.push({ type: "navigate", payload: { path: "/afiliados" } });
+        } catch (err: any) {
+          components.push({ id: "aff-err", type: "text", props: { content: `Erro: ${err?.message || "falha ao cadastrar"}` } });
+        }
+        break;
+      }
+
+      case "affiliate.config": {
+        const brandId = String(ctx.brandId || "").trim();
+        if (!brandId) {
+          components.push({ id: "aff-no-brand", type: "text", props: { content: "Selecione uma marca." } });
+          break;
+        }
+        const config = await affiliatesService.getOrCreateProgramConfig(ctx.userId, brandId);
+        const hasChanges = sk.is_enabled !== undefined || sk.default_commission_pct !== undefined
+          || sk.min_withdrawal !== undefined || sk.cookie_days !== undefined;
+
+        if (!hasChanges) {
+          components.push({
+            id: "aff-config-form",
+            type: "form",
+            props: {
+              title: "Configurações do programa",
+              fields: [
+                { name: "default_commission_pct", label: "Comissão padrão (%)", type: "number", defaultValue: config.default_commission_pct },
+                { name: "min_withdrawal", label: "Saque mínimo (R$)", type: "number", defaultValue: config.min_withdrawal },
+                { name: "cookie_days", label: "Cookie (dias)", type: "number", defaultValue: config.cookie_days },
+                { name: "payment_days", label: "Prazo pagamento (dias)", type: "number", defaultValue: config.payment_days },
+              ],
+              submitLabel: "Revisar alterações",
+              nextSkill: "affiliate.config",
+            },
+          });
+          components.push({
+            id: "aff-config-hint",
+            type: "text",
+            props: { content: `Programa ${config.is_enabled ? "ativo" : "desativado"} · Aprovação automática: ${config.auto_approve_affiliates ? "sim" : "não"}. Ajustes avançados na página de gestão.` },
+          });
+          actions.push({ type: "navigate", payload: { path: "/afiliados" } });
+          break;
+        }
+
+        const payload = {
+          is_enabled: sk.is_enabled !== undefined ? !!sk.is_enabled : config.is_enabled,
+          default_commission_pct: sk.default_commission_pct !== undefined ? Number(sk.default_commission_pct) : config.default_commission_pct,
+          min_withdrawal: sk.min_withdrawal !== undefined ? Number(sk.min_withdrawal) : config.min_withdrawal,
+          cookie_days: sk.cookie_days !== undefined ? Number(sk.cookie_days) : config.cookie_days,
+          payment_days: sk.payment_days !== undefined ? Number(sk.payment_days) : config.payment_days,
+          accept_new_affiliates: sk.accept_new_affiliates !== undefined ? !!sk.accept_new_affiliates : config.accept_new_affiliates,
+          auto_approve_affiliates: sk.auto_approve_affiliates !== undefined ? !!sk.auto_approve_affiliates : config.auto_approve_affiliates,
+        };
+
+        components.push({
+          id: "aff-config-preview",
+          type: "affiliate_config_preview",
+          props: { ...payload, draftId: `cfg-${Date.now()}` },
+        });
+        break;
+      }
+
+      case "affiliate.config.confirm": {
+        const brandId = String(ctx.brandId || "").trim();
+        if (!brandId) {
+          components.push({ id: "aff-no-brand", type: "text", props: { content: "Selecione uma marca." } });
+          break;
+        }
+        try {
+          await affiliatesService.updateProgramConfig(ctx.userId, brandId, {
+            is_enabled: sk.is_enabled !== undefined ? !!sk.is_enabled : undefined,
+            default_commission_pct: sk.default_commission_pct !== undefined ? Number(sk.default_commission_pct) : undefined,
+            min_withdrawal: sk.min_withdrawal !== undefined ? Number(sk.min_withdrawal) : undefined,
+            cookie_days: sk.cookie_days !== undefined ? Number(sk.cookie_days) : undefined,
+            payment_days: sk.payment_days !== undefined ? Number(sk.payment_days) : undefined,
+            accept_new_affiliates: sk.accept_new_affiliates !== undefined ? !!sk.accept_new_affiliates : undefined,
+            auto_approve_affiliates: sk.auto_approve_affiliates !== undefined ? !!sk.auto_approve_affiliates : undefined,
+          });
+          components.push({ id: "aff-cfg-saved", type: "text", props: { content: "Configurações do programa salvas!" } });
+          actions.push({ type: "navigate", payload: { path: "/afiliados" } });
+        } catch (err: any) {
+          components.push({ id: "aff-cfg-err", type: "text", props: { content: `Erro: ${err?.message || "falha"}` } });
+        }
+        break;
+      }
+
+      case "affiliate.approve": {
+        const brandId = String(ctx.brandId || "").trim();
+        if (!brandId) {
+          components.push({ id: "aff-no-brand", type: "text", props: { content: "Selecione uma marca." } });
+          break;
+        }
+        const pendingAffiliates = await query<any[]>(
+          `SELECT a.id, a.display_name, a.code, a.status, u.email
+           FROM affiliates a
+           INNER JOIN users u ON u.id = a.affiliate_user_id
+           WHERE a.owner_user_id = ? AND a.brand_id = ? AND a.status = 'pending'
+           ORDER BY a.created_at DESC LIMIT 10`,
+          [ctx.userId, brandId]
+        );
+        const sales = await affiliatesService.listBrandSales(ctx.userId, brandId, 10);
+        const pendingSales = sales.filter((s) => s.commission_status === "pending");
+
+        if (pendingAffiliates.length) {
+          components.push({
+            id: "aff-pending-partners",
+            type: "table",
+            props: {
+              title: "Afiliados aguardando aprovação",
+              columns: ["Nome", "Email", "Código"],
+              rows: pendingAffiliates.map((a) => ({
+                id: a.id,
+                cells: [a.display_name, a.email, a.code],
+              })),
+            },
+          });
+        }
+        if (pendingSales.length) {
+          components.push({
+            id: "aff-pending-sales",
+            type: "table",
+            props: {
+              title: "Comissões pendentes",
+              columns: ["Parceiro", "Valor", "Status"],
+              rows: pendingSales.map((s) => ({
+                id: s.id,
+                cells: [s.display_name, `R$ ${Number(s.commission_amount).toFixed(2)}`, s.commission_status],
+              })),
+            },
+          });
+          components.push({
+            id: "aff-approve-all",
+            type: "button",
+            props: { label: "Aprovar comissões de pedidos pagos", path: "/afiliados", variant: "primary" },
+          });
+        }
+        if (!pendingAffiliates.length && !pendingSales.length) {
+          components.push({ id: "aff-none", type: "text", props: { content: "Nenhuma aprovação pendente no momento." } });
+        }
+        actions.push({ type: "navigate", payload: { path: "/afiliados" } });
+        break;
+      }
+
+      case "affiliate.payouts": {
+        const brandId = String(ctx.brandId || "").trim();
+        if (!brandId) {
+          components.push({ id: "aff-no-brand", type: "text", props: { content: "Selecione uma marca." } });
+          break;
+        }
+        const rows = await query<any[]>(
+          `SELECT p.*, a.display_name
+           FROM affiliate_payouts p
+           INNER JOIN affiliates a ON a.id = p.affiliate_id
+           WHERE p.owner_user_id = ? AND p.brand_id = ? AND p.status = 'requested'
+           ORDER BY p.created_at DESC LIMIT 8`,
+          [ctx.userId, brandId]
+        );
+        if (!rows.length) {
+          components.push({ id: "aff-no-payouts", type: "text", props: { content: "Nenhum saque pendente." } });
+        } else {
+          for (const p of rows.slice(0, 3)) {
+            components.push({
+              id: `aff-payout-${p.id}`,
+              type: "affiliate_payout_preview",
+              props: {
+                payoutId: p.id,
+                affiliateName: p.display_name,
+                amount: Number(p.amount),
+                pixKey: p.pix_key || "",
+              },
+            });
+          }
+        }
+        actions.push({ type: "navigate", payload: { path: "/afiliados" } });
+        break;
+      }
+
+      case "affiliate.payout.confirm": {
+        const payoutId = String(sk.payoutId || "").trim();
+        const status = String(sk.status || "paid").trim();
+        if (!payoutId) {
+          components.push({ id: "aff-payout-missing", type: "text", props: { content: "Saque não encontrado." } });
+          break;
+        }
+        await query(
+          `UPDATE affiliate_payouts SET status = ?, paid_at = CASE WHEN ? = 'paid' THEN NOW() ELSE paid_at END, updated_at = NOW()
+           WHERE id = ? AND owner_user_id = ?`,
+          [status, status, payoutId, ctx.userId]
+        );
+        components.push({ id: "aff-payout-done", type: "text", props: { content: `Saque marcado como ${status}.` } });
+        actions.push({ type: "navigate", payload: { path: "/afiliados" } });
+        break;
+      }
+
+      case "affiliate.materials": {
+        const brandId = String(ctx.brandId || "").trim();
+        if (!brandId) {
+          components.push({ id: "aff-no-brand", type: "text", props: { content: "Selecione uma marca." } });
+          break;
+        }
+        const materials = await affiliatesService.listMaterials(ctx.userId, brandId);
+        if (!materials.length) {
+          components.push({ id: "aff-no-mat", type: "text", props: { content: "Nenhum material cadastrado. Adicione na gestão completa." } });
+        } else {
+          components.push({
+            id: "aff-materials",
+            type: "table",
+            props: {
+              title: "Materiais de divulgação",
+              columns: ["Título", "Tipo", "Região"],
+              rows: materials.slice(0, 8).map((m: any) => ({
+                id: m.id,
+                cells: [m.title, m.type, m.region || "—"],
+              })),
+            },
+          });
+        }
+        actions.push({ type: "navigate", payload: { path: "/afiliados" } });
         break;
       }
 

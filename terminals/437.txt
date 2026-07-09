@@ -1,0 +1,38 @@
+---
+pid: 5688
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd \"C:\\Users\\Public\\Projetos\\leadcapture\\frontend\"; npm run build 2>&1 | Select-Object -Last 30"
+started_at: 2026-07-08T17:34:39.234Z
+running_for_ms: 33139992 
+---
+dist/assets/AgentView-INNm-XRj.js                       25.01 kB │ gzip:   6.45 kB[plugin builtin:vite-reporter] 
+
+dist/assets/BrandSkillsPage-BOr_H-Sp.js                 25.40 kB │ gzip:   7.04 kB
+dist/assets/SmartImportModal-DI17a0UI.js                27.06 kB │ gzip:   7.17 kB
+dist/assets/AgentPDVPage-CoI6jHvm.js                    28.84 kB │ gzip:   7.23 kB
+dist/assets/ProductDetailPage-CJ4EfNPe.js               32.47 kB │ gzip:   9.81 kB
+dist/assets/chunk-UVKPFVEO-D5TJkq9A.js                  40.43 kB │ gzip:  14.36 kB
+dist/assets/CriativosPage-Cjta4tHe.js                   41.39 kB │ gzip:  10.18 kB
+dist/assets/AffiliatesPage-B5zS9vJH.js                  44.38 kB │ gzip:   9.76 kB
+dist/assets/BrandImageGeneratorPage-CB7MUqir.js         47.99 kB │ gzip:  13.39 kB
+dist/assets/InventoryPage-DO2j03t6.js                   51.18 kB │ gzip:  11.83 kB
+dist/assets/ClientesPage-C-BYn4ah.js                    60.79 kB │ gzip:  14.06 kB
+dist/assets/LeadsPage-CUiofc4u.js                       66.99 kB │ gzip:  15.56 kB
+dist/assets/AutomationsPage-61qfCv93.js                 67.33 kB │ gzip:  16.46 kB
+dist/assets/LeadSearchPage-erzSDEQU.js                  69.97 kB │ gzip:  17.88 kB
+dist/assets/ProductsView-gA5BGacy.js                    72.18 kB │ gzip:  15.73 kB
+dist/assets/AffiliateAppPage-BwxljLch.js                75.13 kB │ gzip:  17.67 kB
+dist/assets/CampaignsView-CrCVFOti.js                   88.30 kB │ gzip:  21.67 kB
+dist/assets/InstagramPage-OoVCbqLs.js                  107.97 kB │ gzip:  27.37 kB
+dist/assets/AdminShell-kS99xn_O.js                     212.30 kB │ gzip:  42.20 kB
+dist/assets/LandingPage-CRu1nlCq.js                    227.13 kB │ gzip:  63.72 kB
+dist/assets/index-FzidWJMZ.js                          338.53 kB │ gzip:  99.44 kB
+dist/assets/VideoStudioPage-CLf1JQ4X.js                403.34 kB │ gzip: 121.30 kB
+dist/assets/mapbox-gl-DN8qeT2q.js                    1,763.50 kB │ gzip: 480.83 kB
+
+✓ built in 1.28s
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: 
+https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.

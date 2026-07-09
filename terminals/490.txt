@@ -1,0 +1,28 @@
+---
+pid: 8980
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "node -e \"
+const BASE='https://app.leadcapture.online';
+const AFF_EMAIL='afiliado.real.teste@gmail.com';
+const AFF_PASSWORD='senha123';
+const AFF_BRAND='alhopronto';
+(async()=>{
+  const aff=await fetch(BASE+'/api/auth/affiliate-login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:AFF_EMAIL,password:AFF_PASSWORD,brand:AFF_BRAND})}).then(r=>r.json());
+  if(!aff.token){console.log('aff fail',aff);return;}
+  const jwt=JSON.parse(Buffer.from(aff.token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'),'base64').toString());
+  const h={Authorization:'Bearer '+aff.token,'x-brand-id':String(aff.brand_id||'')};
+  const status=await fetch(BASE+'/api/affiliate-app/distribution/status',{headers:h}).then(r=>r.json());
+  const assignments=await fetch(BASE+'/api/affiliate-app/distribution/assignments',{headers:h}).then(r=>r.json());
+  console.log('affiliate',aff.user?.email,'brand',aff.brand_id,'owner',jwt.owner_user_id);
+  console.log('can_receive',status.can_receive,'dist_status',status.distribution_status,'wa',status.whatsapp_status);
+  console.log('blockers',status.blockers);
+  console.log('assignments', (assignments.assignments||[]).length);
+})();
+\""
+started_at: 2026-07-08T23:55:47.606Z
+running_for_ms: 10270006 
+---
+affiliate afiliado.real.teste@gmail.com brand dc8f901e-857b-4cfb-b353-86cd5146d1fd owner 9ebbc422-758f-4556-9b6b-ddf4985615e2
+can_receive undefined dist_status undefined wa undefined
+blockers undefined
+assignments 0

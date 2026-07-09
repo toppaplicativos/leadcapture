@@ -1,0 +1,12 @@
+---
+pid: 31848
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd C:\\Users\\Public\\Projetos\\leadcapture\\frontend; npm run build"
+started_at: 2026-07-08T16:40:55.036Z
+running_for_ms: 36365001 
+---
+
+> leadcapture-frontend@1.0.0 build
+> tsc -b && vite build
+
+src/pages/master/MasterClientes.tsx(105,18): error TS2741: Property 'children' is missing in type '{}' but required in type '{ children: ReactNode; }'.

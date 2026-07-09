@@ -1,0 +1,18 @@
+---
+pid: 6540
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\Public\\Projetos\\leadcapture\\agent-tools\\run-deploy-verified.ps1\""
+started_at: 2026-07-08T14:35:17.507Z
+running_for_ms: 43905011 
+---
+>> Bumping service worker cache
+OK    C:\Users\Public\Projetos\leadcapture\frontend\public\service-worker.js
+OK    C:\Users\Public\Projetos\leadcapture\public\service-worker.js
+      shell=lead-system-shell-v68-20260708 runtime=lead-system-runtime-v60-20260708
+>> Build backend
+
+> lead-captation-system@1.0.0 build
+> tsc
+
+src/services/instagram.ts(1459,11): error TS2322: Type 'null' is not assignable to type 'string | undefined'.
+ABORT: backend build falhou (exit 2)

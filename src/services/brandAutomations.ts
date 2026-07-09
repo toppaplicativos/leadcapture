@@ -271,6 +271,59 @@ export const CATALOG: CatalogTemplate[] = [
     icon: "ShieldCheck",
   },
   {
+    slug: "ig-webhook-dm-reply",
+    name: "Resposta automática a DMs (Webhook)",
+    description: "Quando alguém envia DM no Instagram, responde automaticamente com IA. Disparada em tempo real pelo webhook Meta.",
+    category: "social",
+    task_type: "instagram:webhook-dm-reply",
+    default_frequency: "every_5min",
+    default_config: {
+      trigger_type: "webhook",
+      trigger_event: "resposta_padrao_dm",
+      ia_generated: true,
+      reply_tone: "amigável, genuíno e profissional",
+      delay_seconds: 3,
+      fallback_message: "Obrigado pela mensagem! Em breve retornamos.",
+    },
+    icon: "MessageCircle",
+  },
+  {
+    slug: "ig-webhook-comment-keyword",
+    name: "Resposta a comentário com keyword (Webhook)",
+    description: "Quando alguém comenta com palavras-chave (preço, valor, info…), responde via DM ou comentário público.",
+    category: "social",
+    task_type: "instagram:webhook-comment-reply",
+    default_frequency: "every_5min",
+    default_config: {
+      trigger_type: "webhook",
+      trigger_event: "comentario_keyword",
+      keywords: ["preço", "valor", "quanto", "info", "catalogo", "pedido"],
+      reply_mode: "dm",
+      ia_generated: true,
+      reply_tone: "amigável e orientado a venda",
+      delay_seconds: 5,
+      fallback_message: "Obrigado pelo comentário! Te chamamos no direct com mais detalhes.",
+    },
+    icon: "MessageSquare",
+  },
+  {
+    slug: "ig-webhook-mention-thanks",
+    name: "Agradecimento por menção no Story (Webhook)",
+    description: "Agradece automaticamente quando alguém menciona a marca em story ou compartilhamento.",
+    category: "social",
+    task_type: "instagram:webhook-mention-thanks",
+    default_frequency: "every_5min",
+    default_config: {
+      trigger_type: "webhook",
+      trigger_event: "mencao_story",
+      ia_generated: true,
+      reply_tone: "genuíno e breve",
+      delay_seconds: 10,
+      fallback_message: "Muito obrigado pela menção! 💚",
+    },
+    icon: "AtSign",
+  },
+  {
     slug: "prospect-outreach",
     name: "Prospect Outreach Squad",
     description: "Pipeline de prospecção ativa: seleciona prospects por nicho/score, analisa presença digital, cria mensagem personalizada por canal, revisa qualidade e dispara.",
@@ -508,6 +561,64 @@ export class BrandAutomationsService {
   }
 
   /* Toggle (cria se nao existir, alterna active/paused). Retorna o estado novo. */
+  /* Ativa um template (cria se nao existir). Idempotente — nao pausa se ja ativo. */
+  async activateSlug(
+    userId: string,
+    brandId: string,
+    catalogSlug: string,
+    configPatch?: Record<string, any>,
+  ): Promise<BrandAutomation> {
+    await this.ensureSchema();
+    const tpl = (await this.listCatalog()).find((t) => t.slug === catalogSlug);
+    if (!tpl) throw new Error(`Template '${catalogSlug}' nao existe no catalogo`);
+
+    const existing = await queryOne<any>(
+      `SELECT * FROM brand_automations WHERE brand_id = ? AND user_id = ? AND catalog_slug = ? LIMIT 1`,
+      [brandId, userId, catalogSlug],
+    );
+
+    const mergedConfig = { ...tpl.default_config, ...(configPatch || {}) };
+    const isWebhook = mergedConfig.trigger_type === "webhook";
+    const nextRunAt = isWebhook ? null : this.calculateNextRun(tpl.default_cron || null, tpl.default_frequency);
+
+    if (existing) {
+      if (existing.status !== "active") {
+        await update(
+          `UPDATE brand_automations
+           SET status = 'active', config = ?, next_run_at = ?, last_error = NULL, updated_at = NOW()
+           WHERE id = ?`,
+          [JSON.stringify(mergedConfig), nextRunAt, existing.id],
+        );
+      } else if (configPatch) {
+        await update(
+          `UPDATE brand_automations SET config = ?, updated_at = NOW() WHERE id = ?`,
+          [JSON.stringify(mergedConfig), existing.id],
+        );
+      }
+      const refreshed = await queryOne<any>(`SELECT * FROM brand_automations WHERE id = ? LIMIT 1`, [existing.id]);
+      return this.toBrandAutomation(refreshed);
+    }
+
+    const id = uuidv4();
+    await insert(
+      `INSERT INTO brand_automations
+         (id, brand_id, user_id, catalog_slug, status, frequency, cron_expression, config, next_run_at)
+       VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?)`,
+      [
+        id,
+        brandId,
+        userId,
+        catalogSlug,
+        tpl.default_frequency,
+        tpl.default_cron || null,
+        JSON.stringify(mergedConfig),
+        nextRunAt,
+      ],
+    );
+    const created = await queryOne<any>(`SELECT * FROM brand_automations WHERE id = ? LIMIT 1`, [id]);
+    return this.toBrandAutomation(created);
+  }
+
   async toggle(userId: string, brandId: string, catalogSlug: string): Promise<BrandAutomation> {
     await this.ensureSchema();
     const tpl = (await this.listCatalog()).find((t) => t.slug === catalogSlug);
@@ -618,7 +729,7 @@ export class BrandAutomationsService {
   /* ──────────── Execução manual + scheduling ──────────── */
 
   /* Cria o registro de run, retorna o id. Executor preenche depois via finishRun. */
-  async startRun(automationId: string, triggeredBy: "cron" | "manual"): Promise<string> {
+  async startRun(automationId: string, triggeredBy: "cron" | "manual" | "webhook"): Promise<string> {
     await this.ensureSchema();
     const id = uuidv4();
     await insert(
@@ -677,6 +788,7 @@ export class BrandAutomationsService {
        FROM brand_automations ba
        INNER JOIN automation_catalog ac ON ac.slug = ba.catalog_slug
        WHERE ba.status = 'active'
+         AND (ba.config->>'trigger_type' IS NULL OR ba.config->>'trigger_type' != 'webhook')
          AND (ba.next_run_at IS NULL OR ba.next_run_at <= NOW())
        ORDER BY ba.next_run_at ASC NULLS FIRST
        LIMIT ?`,

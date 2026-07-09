@@ -1,0 +1,16 @@
+---
+pid: 34900
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd C:\\Users\\Public\\Projetos\\leadcapture\\frontend; npm run build 2>&1 | Select-Object -Last 8"
+started_at: 2026-07-08T14:37:54.360Z
+running_for_ms: 43745007 
+---
+dist/assets/mapbox-gl-B4hTGBLA.js                    1,763.50 kB │ gzip: 480.83 kB
+
+✓ built in 2.00s
+[plugin builtin:vite-reporter] 
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: 
+https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.

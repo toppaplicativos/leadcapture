@@ -1,0 +1,44 @@
+---
+pid: 1612
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd \"C:\\Users\\Public\\Projetos\\leadcapture\"; $env:SMOKE_EMAIL = \"eleniceventura72@gmail.com\"; $env:SMOKE_PASSWORD = \"salao1234\"; node agent-tools/smoke-authenticated-mobile.mjs"
+started_at: 2026-07-07T12:05:03.093Z
+running_for_ms: 86400006 
+---
+Smoke mobile (iPhone 14): https://app.leadcapture.online
+
+OK    login → /admin (mobile)
+OK    workspace carregado
+OK    footer do chat visível
+OK    footer safe-area padding (8px)
+OK    Painel → inline ("Painel · 522 leads")
+OK    Painel → KPI 522
+OK    Painel → painel expandido
+OK    Painel → CatalogManagerSheet aberto (head pad 12px)
+OK    Leads → inline ("522 leads")
+OK    Leads → KPI 522
+OK    Leads → painel expandido
+OK    Produtos → inline ("25 produtos")
+OK    Produtos → KPI 25
+OK    Produtos → painel expandido
+OK    Produtos → CatalogManagerSheet aberto (head pad 12px)
+OK    Campanhas → inline ("10 campanhas")
+OK    Campanhas → painel expandido
+OK    Habilidades → inline ("9 habilidades")
+OK    Habilidades → KPI 9
+OK    Habilidades → painel expandido
+OK    Habilidades → CatalogManagerSheet aberto (head pad 12px)
+OK    Pedidos → inline ("0 pedidos")
+OK    Pedidos → painel expandido
+OK    Instagram → inline ("Instagram · conectar conta")
+OK    Instagram → painel expandido
+OK    Instagram → CatalogManagerSheet aberto (head pad 12px)
+OK    sem canvas fullscreen residual no mobile
+
+Tudo OK (mobile)
+
+---
+exit_code: -1
+elapsed_ms: 86400006
+ended_at: 2026-07-08T12:05:09.506Z
+---

@@ -1,0 +1,49 @@
+---
+pid: 24452
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd \"C:\\Users\\Public\\Projetos\\leadcapture\"; npx tsx agent-tools/test-ig-webhook-seed.mjs"
+started_at: 2026-07-07T17:55:43.837Z
+running_for_ms: 86400000 
+---
+[14:55:53.300] INFO (20884): PostgreSQL connection pool created
+=== Connection ===
+{
+  brand: 'dc8f901e-857b-4cfb-b353-86cd5146d1fd',
+  username: 'alhopronto_',
+  ig_user_id: '17841476365227201',
+  user_id: '9ebbc422-758f-4556-9b6b-ddf4985615e2'
+}
+
+=== Seed slugs (activate) ===
+[14:55:58.249] INFO (20884): Brand Automations schema OK (17 templates no catálogo)
+  weekly-performance-report: active
+  profile-health-23h: active
+  auto-reply-comments-4h: active
+  mention-monitor-3h: active
+  ig-webhook-dm-reply: active
+  ig-webhook-comment-keyword: active
+  ig-webhook-mention-thanks: active
+
+=== Webhook subscribe ===
+{ ok: true }
+
+=== Simular dispatch DM ===
+{
+  "matched": 1,
+  "results": [
+    {
+      "slug": "ig-webhook-dm-reply",
+      "status": "success"
+    }
+  ]
+}
+
+=== Webhook events (recent) ===
+[]
+[14:56:13.948] INFO (20884): AutomationScheduler ok: Resposta automática a DMs (Webhook) brand=dc8f901e-857b-4cfb-b353-86cd5146d1fd run=4e98706e-2cb5-45e6-b5af-9a8a5d7328aa 9217ms
+
+---
+exit_code: -1
+elapsed_ms: 86400000
+ended_at: 2026-07-08T17:55:50.673Z
+---

@@ -1,0 +1,7 @@
+---
+pid: 56396
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "$KEY = \"$env:USERPROFILE\\.ssh\\id_ed25519\"; $VPS = \"root@187.127.5.179\"; scp -i $KEY -o BatchMode=yes -r \"C:\\Users\\Public\\Projetos\\leadcapture\\dist\" \"${VPS}:/root/leadcapture/dist_new\""
+started_at: 2026-07-03T21:14:33.882Z
+running_for_ms: 19235009 
+---

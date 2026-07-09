@@ -148,4 +148,93 @@ export const masterApi = {
         created_at: string
       }>
     }>('GET', '/audit-log'),
+
+  /* organizations */
+  listOrganizations: (params: { search?: string; page?: number; limit?: number } = {}) => {
+    const q = new URLSearchParams()
+    if (params.search) q.set('search', params.search)
+    if (params.page) q.set('page', String(params.page))
+    if (params.limit) q.set('limit', String(params.limit))
+    return req<{
+      organizations: Array<{
+        id: string
+        name: string
+        slug: string | null
+        status: string
+        is_default: boolean
+        created_at: string
+        owner_id: string
+        owner_email: string
+        owner_name: string
+        owner_active: boolean
+        subscription_status: string | null
+        plan_name: string | null
+        plan_slug: string | null
+      }>
+      total: number
+      page: number
+      limit: number
+    }>('GET', `/organizations?${q}`)
+  },
+  updateOrganization: (id: string, patch: Record<string, any>) =>
+    req<{ organization: any }>('PATCH', `/organizations/${id}`, patch),
+
+  /* users */
+  updateUser: (id: string, patch: Record<string, any>) =>
+    req<{ user: any }>('PATCH', `/users/${id}`, patch),
+
+  /* global providers */
+  providersCatalog: () =>
+    req<{ models: Record<string, any>; defaults: Record<string, any> }>('GET', '/providers/catalog'),
+  listProviders: () =>
+    req<{ providers: Array<any> }>('GET', '/providers'),
+  updateProvider: (provider: string, patch: Record<string, any>) =>
+    req<{ provider: any }>('PUT', `/providers/${provider}`, patch),
+  testProvider: (provider: string, patch?: Record<string, any>) =>
+    req<{ ok: boolean; message: string }>('POST', `/providers/${provider}/test`, patch || {}),
+
+  /* platform tools */
+  getTools: () => req<{ tools: PlatformTools }>('GET', '/tools'),
+  updateTools: (tools: Partial<PlatformTools>) =>
+    req<{ tools: PlatformTools }>('PUT', '/tools', { tools }),
+
+  pushEvents: (appContext?: string) =>
+    req<{ events: Array<any>; contexts: Record<string, string>; sounds: Array<any> }>(
+      'GET',
+      `/push/events${appContext ? `?app_context=${encodeURIComponent(appContext)}` : ''}`,
+    ),
+  updatePushEvent: (id: string, patch: Record<string, unknown>) =>
+    req<{ ok: true }>('PATCH', `/push/events/${id}`, patch),
+  pushDeliveries: (limit = 100) =>
+    req<{ entries: Array<any> }>('GET', `/push/deliveries?limit=${limit}`),
+
+  notificationEvents: (appContext?: string) =>
+    req<{ events: Array<any> }>(
+      'GET',
+      `/notifications/events${appContext ? `?app_context=${encodeURIComponent(appContext)}` : ''}`,
+    ),
+  updateNotificationEvent: (id: string, patch: Record<string, unknown>) =>
+    req<{ ok: true }>('PATCH', `/notifications/events/${id}`, patch),
+  updateNotificationTemplate: (eventTypeId: string, patch: Record<string, unknown>) =>
+    req<{ ok: true }>('PATCH', `/notifications/templates/${eventTypeId}`, patch),
+  notificationEscalation: () =>
+    req<{ rules: Array<any> }>('GET', '/notifications/escalation'),
+  updateNotificationEscalation: (id: string, patch: Record<string, unknown>) =>
+    req<{ ok: true }>('PATCH', `/notifications/escalation/${id}`, patch),
+  notificationLogs: (limit = 100) =>
+    req<{ logs: Array<any> }>('GET', `/notifications/logs?limit=${limit}`),
+  notificationDevices: (userId?: string) =>
+    req<{ devices: Array<any> }>(
+      'GET',
+      `/notifications/devices${userId ? `?user_id=${encodeURIComponent(userId)}` : ''}`,
+    ),
+}
+
+export type PlatformTools = {
+  maintenance_mode: boolean
+  maintenance_message: string
+  signup_enabled: boolean
+  public_signup: boolean
+  modules: Record<string, boolean>
+  default_ai_preferences?: Record<string, { provider: string; model: string }>
 }

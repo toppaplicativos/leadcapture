@@ -1,0 +1,144 @@
+---
+pid: 59360
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "Set-Location \"C:\\Users\\Public\\Projetos\\leadcapture\\frontend\"; npm run dev"
+started_at: 2026-07-03T20:58:51.511Z
+running_for_ms: 20195001 
+---
+
+> leadcapture-frontend@1.0.0 dev
+> vite
+
+
+  VITE v8.0.3  ready in 1408 ms
+
+  ➜  Local:   http://localhost:5173/
+  ➜  Network: use --host to expose
+[vite:css][postcss] @import must precede all other statements (besides @charset or empty @layer)
+6688 |    }
+6689 |  }
+6690 |  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+     |  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+6691 |  .leaflet-container {
+6692 |    isolation: isolate;
+18:01:04 [vite] (client) hmr update /src/index.css
+20:23:55 [vite] (client) hmr update /src/index.css
+20:23:55 [vite] (client) hmr update /src/index.css
+20:23:55 [vite] (client) hmr update /src/index.css, /src/components/ConfirmModal.tsx
+20:23:55 [vite] (client) hmr update /src/index.css
+20:23:55 [vite] (client) hmr update /src/index.css
+20:24:12 [vite] (client) hmr update /src/index.css
+20:24:13 [vite] (client) hmr update /src/index.css
+20:24:13 [vite] (client) hmr update /src/index.css
+20:24:19 [vite] (client) hmr update /src/index.css
+20:24:25 [vite] (client) hmr update /src/index.css
+20:24:26 [vite] (client) hmr update /src/index.css
+20:27:32 [vite] (client) hmr update /src/index.css
+20:27:32 [vite] (client) hmr update /src/index.css
+20:27:33 [vite] (client) hmr update /src/index.css
+20:27:33 [vite] (client) hmr update /src/index.css
+20:27:34 [vite] (client) hmr update /src/index.css
+20:27:35 [vite] (client) hmr update /src/index.css
+20:27:40 [vite] (client) hmr update /src/index.css
+20:30:41 [vite] (client) hmr update /src/index.css
+20:30:41 [vite] (client) hmr update /src/index.css
+20:30:42 [vite] (client) hmr update /src/index.css
+20:30:42 [vite] (client) hmr update /src/index.css
+20:30:42 [vite] (client) hmr update /src/index.css
+20:30:42 [vite] (client) hmr update /src/index.css
+20:30:42 [vite] (client) hmr update /src/index.css
+20:30:42 [vite] (client) hmr update /src/index.css
+20:30:43 [vite] (client) hmr update /src/index.css
+20:30:44 [vite] (client) hmr update /src/index.css
+20:30:45 [vite] (client) hmr update /src/index.css
+20:30:45 [vite] (client) hmr update /src/index.css
+[vite:css][postcss] @import must precede all other statements (besides @charset or empty @layer)
+6716 |    }
+6717 |  }
+6718 |  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+     |  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+6719 |  .leaflet-container {
+6720 |    isolation: isolate;
+20:41:23 [vite] (client) hmr update /src/index.css
+[vite:css][postcss] @import must precede all other statements (besides @charset or empty @layer)
+6716 |    }
+6717 |  }
+6718 |  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+     |  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+6719 |  .leaflet-container {
+6720 |    isolation: isolate;
+20:41:37 [vite] (client) hmr update /src/App.tsx, /src/index.css
+20:41:37 [vite] (client) hmr update /src/App.tsx, /src/index.css
+[vite:css][postcss] @import must precede all other statements (besides @charset or empty @layer)
+6716 |    }
+6717 |  }
+6718 |  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+     |  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+6719 |  .leaflet-container {
+6720 |    isolation: isolate;
+20:44:28 [vite] (client) hmr update /src/index.css
+20:44:28 [vite] (client) hmr update /src/index.css
+20:44:28 [vite] (client) hmr update /src/index.css
+20:44:28 [vite] (client) hmr update /src/index.css
+20:44:28 [vite] (client) hmr update /src/index.css
+20:44:28 [vite] (client) hmr update /src/index.css
+20:44:28 [vite] (client) hmr update /src/index.css
+20:44:28 [vite] (client) hmr update /src/index.css
+20:44:28 [vite] (client) hmr update /src/index.css
+20:44:44 [vite] (client) hmr update /src/index.css
+20:44:44 [vite] (client) hmr update /src/index.css
+20:44:44 [vite] (client) hmr update /src/index.css
+20:50:41 [vite] (client) hmr update /src/App.tsx, /src/index.css
+20:50:41 [vite] (client) hmr update /src/App.tsx, /src/index.css
+22:52:13 [vite] (client) hmr update /src/index.css
+22:52:34 [vite] (client) hmr update /src/index.css, /src/pages/CatalogHome.tsx
+22:52:54 [vite] (client) hmr update /src/index.css, /src/components/Skeleton.tsx
+22:52:54 [vite] (client) hmr update /src/App.tsx, /src/index.css
+22:52:54 [vite] (client) hmr update /src/index.css, /src/components/ProductCard.tsx
+22:52:54 [vite] (client) hmr update /src/index.css, /src/components/Topbar.tsx
+22:52:54 [vite] (client) hmr update /src/index.css, /src/components/BottomNav.tsx
+22:52:54 [vite] (client) hmr update /src/index.css, /src/components/Skeleton.tsx
+22:52:54 [vite] (client) hmr update /src/index.css, /src/components/Topbar.tsx
+[vite:css][postcss] @import must precede all other statements (besides @charset or empty @layer)
+6864 |    }
+6865 |  }
+6866 |  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+     |  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+6867 |  .leaflet-container {
+6868 |    isolation: isolate;
+22:57:00 [vite] http proxy error: /pwa/icon?slug=alhopronto&channel=catalogo&size=192
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+22:57:01 [vite] http proxy error: /pwa/icon?slug=alhopronto&channel=catalogo&size=192
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+22:57:01 [vite] http proxy error: /pwa/icon?slug=alhopronto&channel=catalogo&size=192
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+22:57:01 [vite] http proxy error: /pwa/icon?slug=alhopronto&channel=catalogo&size=512
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+22:57:13 [vite] http proxy error: /pwa/icon?slug=alhopronto&channel=catalogo&size=192
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+22:57:13 [vite] http proxy error: /pwa/icon?slug=alhopronto&channel=catalogo&size=192
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+22:57:13 [vite] http proxy error: /pwa/icon?slug=alhopronto&channel=catalogo&size=512
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1142:49)
+    at afterConnectMultiple (node:net:1723:7)
+22:59:39 [vite] (client) hmr update /src/index.css, /src/pages/CatalogHome.tsx
+[vite:css][postcss] @import must precede all other statements (besides @charset or empty @layer)
+6864 |    }
+6865 |  }
+6866 |  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+     |  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+6867 |  .leaflet-container {
+6868 |    isolation: isolate;

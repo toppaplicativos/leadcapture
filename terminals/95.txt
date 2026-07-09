@@ -1,0 +1,20 @@
+---
+pid: 6460
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd C:\\Users\\Public\\Projetos\\leadcapture\\frontend; npm run build"
+started_at: 2026-07-07T02:05:16.124Z
+running_for_ms: 86400009 
+---
+
+> leadcapture-frontend@1.0.0 build
+> tsc -b && vite build
+
+src/components/agent/leads/LeadsInlinePanel.tsx(170,43): error TS2554: Expected 1 arguments, but got 2.
+src/components/agent/WorkspaceChat.tsx(88,7): error TS2367: This comparison appears to be unintentional because the types 'ComponentType' and '"leads_stats"' have no overlap.
+src/lib/agent/AgentShellContext.tsx(327,54): error TS2367: This comparison appears to be unintentional because the types 'ComponentType' and '"leads_stats"' have no overlap.
+
+---
+exit_code: -1
+elapsed_ms: 86400009
+ended_at: 2026-07-08T02:05:25.854Z
+---

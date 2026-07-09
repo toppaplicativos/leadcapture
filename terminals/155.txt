@@ -1,0 +1,13 @@
+---
+pid: 21972
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "Stop-Process -Id 29468 -Force -ErrorAction SilentlyContinue; cd \"C:\\Users\\Public\\Projetos\\leadcapture\"; npx tsc --noEmit --pretty false 2>&1 | Select-Object -Last 20"
+started_at: 2026-07-07T14:57:58.040Z
+running_for_ms: 86400007 
+---
+
+---
+exit_code: -1
+elapsed_ms: 86400007
+ended_at: 2026-07-08T14:58:04.704Z
+---

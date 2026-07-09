@@ -1,0 +1,19 @@
+---
+pid: 18944
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd C:\\Users\\Public\\Projetos\\leadcapture\\frontend; npm run build"
+started_at: 2026-07-07T14:07:43.230Z
+running_for_ms: 86400015 
+---
+
+> leadcapture-frontend@1.0.0 build
+> tsc -b && vite build
+
+src/pages/affiliate/AffiliateAppPage.tsx(6,29): error TS2305: Module '"lucide-react"' has no exported member 'Instagram'.
+src/pages/affiliate/AffiliateConnections.tsx(3,53): error TS2305: Module '"lucide-react"' has no exported member 'Instagram'.
+
+---
+exit_code: -1
+elapsed_ms: 86400015
+ended_at: 2026-07-08T14:07:49.947Z
+---

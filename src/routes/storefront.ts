@@ -7,7 +7,7 @@ import { ClientTypesService } from "../services/clientTypes";
 import { GeminiService } from "../services/gemini";
 import { InventoryService } from "../services/inventory";
 import { OrderManagementService } from "../services/orderManagement";
-import { StorefrontService } from "../services/storefront";
+import { StorefrontService, sanitizePublicMarketingSettings, sanitizePublicDesignSettings } from "../services/storefront";
 import { couponsService } from "../services/coupons";
 import { reviewsService } from "../services/reviews";
 import {
@@ -99,7 +99,16 @@ function requestPublicHost(req: { headers?: Record<string, any>; get?: (name: st
 function parseImageList(value: unknown): string[] {
   const parsed = parseJson<any>(value, []);
   if (Array.isArray(parsed)) {
-    return parsed.map((item) => String(item || "").trim()).filter(Boolean).slice(0, 12);
+    return parsed
+      .map((item) => {
+        if (typeof item === "string") return String(item || "").trim();
+        if (item && typeof item === "object") {
+          return String((item as any).url || (item as any).src || "").trim();
+        }
+        return "";
+      })
+      .filter(Boolean)
+      .slice(0, 24);
   }
 
   const raw = String(value || "").trim();
@@ -108,7 +117,67 @@ function parseImageList(value: unknown): string[] {
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean)
-    .slice(0, 12);
+    .slice(0, 24);
+}
+
+function mapStorefrontProductRow(item: any, categoryName?: string) {
+  const images = parseImageList(item?.images_json);
+  const md = parseJson<Record<string, any>>(item?.metadata_json, {});
+  const galleryFromMeta = Array.isArray(md.gallery_images)
+    ? md.gallery_images.map((u: unknown) => String(u || "").trim()).filter(Boolean)
+    : Array.isArray(md.galleryImages)
+      ? md.galleryImages.map((u: unknown) => String(u || "").trim()).filter(Boolean)
+      : [];
+  const mediaGallery = Array.isArray(md.media?.gallery)
+    ? md.media.gallery.map((u: unknown) => String(u || "").trim()).filter(Boolean)
+    : [];
+  const mergedImages = [...images, ...galleryFromMeta, ...mediaGallery].filter(
+    (url, idx, arr) => url && arr.indexOf(url) === idx
+  );
+  const variants = parseJson<any[]>(item?.variants_json, []);
+  const catId = String(item?.category || "").trim();
+  const catName = categoryName || catId || "Outros";
+
+  return {
+    id: String(item?.id || ""),
+    slug: String(item?.slug || ""),
+    name: String(item?.name || "Produto"),
+    subtitle: md.subtitle || null,
+    description: String(item?.description || "").trim() || null,
+    category: catName,
+    category_id: catId,
+    category_name: catName,
+    price: Number(item?.price || 0),
+    compare_at_price:
+      item?.compare_at_price !== undefined && item?.compare_at_price !== null
+        ? Number(item.compare_at_price)
+        : null,
+    image: mergedImages[0] || null,
+    images: mergedImages,
+    images_json: JSON.stringify(mergedImages),
+    sku: md.sku || null,
+    weight: md.weight || null,
+    weight_unit: md.weight_unit || null,
+    unit: md.unit || null,
+    type: md.offer_type || "physical_product",
+    cta_type: md.cta_type || "buy",
+    attributes: md.attributes || {},
+    seo: md.seo || {},
+    media: md.media || {},
+    pipeline_id: md.pipeline_id || null,
+    service_config: md.service_config || {},
+    configurator: md.configurator || {},
+    variants: Array.isArray(variants) ? variants : [],
+    related_product_ids: Array.isArray(md.related_product_ids) ? md.related_product_ids : [],
+    bundle_items: Array.isArray(md.bundle_items) ? md.bundle_items : [],
+    stock_quantity: md.stock_quantity === null || md.stock_quantity === undefined ? null : Number(md.stock_quantity),
+    stock_status:
+      md.stock_status ||
+      (md.stock_quantity === null || md.stock_quantity === undefined ? "unlimited" : "in_stock"),
+    stock_threshold_low: Number(md.stock_threshold_low ?? 5),
+    reviews_avg: Number(md.reviews_avg ?? 0),
+    reviews_count: Number(md.reviews_count ?? 0),
+  };
 }
 
 function normalizePhone(value: unknown): string {
@@ -730,6 +799,11 @@ async function transitionManagedStoreOrder(input: {
   } else if (input.nextBusinessStatus === "cancelado" && previousBusinessStatus !== "cancelado") {
     await inventoryService.handleOrderCancelled(input.userId, input.brandId, input.orderId, statusItems).catch(() => undefined);
   }
+
+  try {
+    const { AffiliatesService } = await import("../services/affiliates");
+    await new AffiliatesService().syncOrderCommissionStatus(input.orderId, input.nextBusinessStatus);
+  } catch { /* ignore affiliate sync errors */ }
 
   const refreshed = await getManagedOrderBundleForStore(input.userId, input.store.id, input.orderId, input.brandId);
   return {
@@ -2019,17 +2093,9 @@ publicRouter.get("/stores/:slug/catalog", async (req, res) => {
     const relationsBySourceId = await productRelationsService.listForProducts(sourceProductIds).catch(() => new Map());
 
     const products = productsRaw.map((item: any) => {
-      const images = parseImageList(item?.images_json);
       const catId = String(item?.category || "").trim();
       const catName = categoryNameMap.get(catId) || catId || "Outros";
-      const md = (() => {
-        try { return typeof item?.metadata_json === "string" ? JSON.parse(item.metadata_json) : (item?.metadata_json || {}); }
-        catch { return {}; }
-      })();
-      const variants = (() => {
-        try { return typeof item?.variants_json === "string" ? JSON.parse(item.variants_json) : (item?.variants_json || []); }
-        catch { return []; }
-      })();
+      const md = parseJson<Record<string, any>>(item?.metadata_json, {});
       const ownSourceId = String(md?.source_product_id || md?.source_product_id_legacy || "").trim();
       const rawRelations = ownSourceId ? (relationsBySourceId.get(ownSourceId) || []) : [];
       const relatedStorefrontIds = rawRelations
@@ -2050,45 +2116,13 @@ publicRouter.get("/stores/:slug/catalog", async (req, res) => {
           };
         })
         .filter((x: any) => x !== null);
+
+      const mapped = mapStorefrontProductRow(item, catName);
       return {
-        id: String(item?.id || ""),
-        slug: String(item?.slug || ""),
-        name: String(item?.name || "Produto"),
-        subtitle: md.subtitle || null,
-        description: String(item?.description || "").trim() || null,
-        category: catName,
-        category_id: catId,
-        price: Number(item?.price || 0),
-        compare_at_price: item?.compare_at_price !== undefined && item?.compare_at_price !== null
-          ? Number(item.compare_at_price)
-          : null,
-        image: images[0] || null,
-        images,
+        ...mapped,
         position: Number(item?.position || 0),
-        /* OfferEntity foundation (Fase 0) — defaults preserve current behavior */
-        type: md.offer_type || "physical_product",
-        cta_type: md.cta_type || "buy",
-        attributes: md.attributes || {},
-        seo: md.seo || {},
-        media: md.media || {},
-        pipeline_id: md.pipeline_id || null,
-        /* Service config (Fase 5) — only meaningful when type ∈ {service, appointment} */
-        service_config: md.service_config || {},
-        /* Configurator (Fase 4) — groups + options when configurable */
-        configurator: md.configurator || {},
-        /* Variants (Fase 1) — empty array if product has no variants configured */
-        variants: Array.isArray(variants) ? variants : [],
-        /* Related products (Fase 6) — storefront IDs ready to be looked up in all_products */
         related_product_ids: relatedStorefrontIds,
-        /* Bundle items (Fase 11) — empty unless type=bundle */
         bundle_items: bundleItems,
-        /* Inventory (Fase 12) — null stock_quantity = unlimited (badge hidden in UI) */
-        stock_quantity: md.stock_quantity === null || md.stock_quantity === undefined ? null : Number(md.stock_quantity),
-        stock_status: md.stock_status || (md.stock_quantity === null || md.stock_quantity === undefined ? "unlimited" : "in_stock"),
-        stock_threshold_low: Number(md.stock_threshold_low ?? 5),
-        /* Reviews (Fase 14) — 0 means "no reviews yet" → UI hides badge */
-        reviews_avg: Number(md.reviews_avg ?? 0),
-        reviews_count: Number(md.reviews_count ?? 0),
       };
     });
 
@@ -2154,6 +2188,42 @@ publicRouter.get("/stores/:slug/catalog", async (req, res) => {
     for (const product of ranked) {
       const category = String(product.category || "Outros").trim() || "Outros";
       categoryMap.set(category, (categoryMap.get(category) || 0) + 1);
+    }
+
+    /* Categorias definidas no admin — com capa, cor e contagem de produtos */
+    const brandId = normalizeBrandId(bundle.store.brand_id);
+    let storeCategories: Array<{
+      id: string;
+      name: string;
+      cover_image: string | null;
+      color: string | null;
+      count: number;
+    }> = [];
+    if (brandId) {
+      const catRows = (await query<any[]>(
+        `SELECT id, name, color, cover_image FROM categories WHERE brand_id = ? ORDER BY name ASC`,
+        [brandId]
+      )) as any[];
+      const countByKey = new Map<string, number>();
+      for (const product of ranked) {
+        const key = String(product.category || product.category_name || "").trim();
+        if (!key) continue;
+        countByKey.set(key, (countByKey.get(key) || 0) + 1);
+      }
+      storeCategories = (Array.isArray(catRows) ? catRows : [])
+        .map((row) => {
+          const id = String(row?.id || "").trim();
+          const name = String(row?.name || "").trim();
+          const count = countByKey.get(name) || countByKey.get(id) || 0;
+          return {
+            id,
+            name,
+            cover_image: String(row?.cover_image || "").trim() || null,
+            color: String(row?.color || "").trim() || null,
+            count,
+          };
+        })
+        .filter((c) => c.id && c.name && c.count > 0);
     }
 
     const storeBrand = (bundle.store.brand || {}) as Record<string, any>;
@@ -2246,9 +2316,15 @@ publicRouter.get("/stores/:slug/catalog", async (req, res) => {
           collect_email: checkoutSettings.collect_email !== false,
           collect_address: checkoutSettings.collect_address !== false,
         },
+        marketing: sanitizePublicMarketingSettings(storeSettings),
+        design: sanitizePublicDesignSettings(storeSettings),
+        primary_domain: String((bundle.store as any)?.primary_domain || "").trim() || null,
         payment_methods: paymentMethods,
       },
-      categories: Array.from(categoryMap.entries()).map(([name, count]) => ({ name, count })),
+      categories: storeCategories.length
+        ? storeCategories
+        : Array.from(categoryMap.entries()).map(([name, count]) => ({ id: name, name, count })),
+      store_categories: storeCategories,
       best_sellers: fallbackBest,
       other_products: others,
       all_products: ranked,
@@ -2613,9 +2689,34 @@ publicRouter.get("/stores/:slug/catalog/search", async (req, res) => {
 
 publicRouter.get("/stores/:slug/products/:productSlug", async (req, res) => {
   try {
-    const product = await storefront.getPublicProduct(String(req.params.slug), String(req.params.productSlug));
-    if (!product) return res.status(404).json({ error: "Product not found" });
-    res.json({ success: true, product });
+    const slug = String(req.params.slug || "").trim();
+    const bundle = await storefront.resolvePublicStore({ slug });
+    if (!bundle) return res.status(404).json({ error: "Store not found" });
+
+    const raw = await storefront.getPublicProduct(slug, String(req.params.productSlug));
+    if (!raw) return res.status(404).json({ error: "Product not found" });
+
+    const catId = String((raw as any)?.category || "").trim();
+    let categoryName = catId || "Outros";
+    if (catId) {
+      const catRow = await queryOne<{ name: string }>(
+        `SELECT name FROM categories WHERE id = ? LIMIT 1`,
+        [catId]
+      );
+      if (catRow?.name) categoryName = String(catRow.name);
+    }
+
+    const product = mapStorefrontProductRow(raw, categoryName);
+    res.json({
+      success: true,
+      product,
+      store: {
+        slug: bundle.store.slug,
+        name: bundle.store.name,
+        primary_domain: String((bundle.store as any)?.primary_domain || "").trim() || null,
+        brand: bundle.store.brand || {},
+      },
+    });
   } catch (error: any) {
     res.status(500).json({ error: error.message || "Failed to load product" });
   }
@@ -2743,6 +2844,50 @@ publicRouter.post("/stores/:slug/orders", async (req, res) => {
        * commerceService.createOrder and throws COUPON_INVALID on failure (caught below). */
       cupom_codigo: req.body?.cupom_codigo ? String(req.body.cupom_codigo).trim() : undefined,
     });
+
+    /* Atribui venda ao afiliado quando ref/cupom de afiliado veio no pedido */
+    if (inventoryBrandId) {
+      try {
+        const { AffiliatesService } = await import("../services/affiliates");
+        const affSvc = new AffiliatesService();
+        const affiliateRef = String(req.body?.affiliate_ref || req.body?.affiliate_code || "").trim();
+        const affiliateId = String(req.body?.affiliate_id || "").trim();
+        let resolvedAffiliateId = affiliateId;
+
+        if (!resolvedAffiliateId && affiliateRef) {
+          const byCode = await affSvc.resolveAffiliateByCode(inventoryBrandId, affiliateRef);
+          if (byCode) resolvedAffiliateId = String(byCode.id);
+        }
+        if (!resolvedAffiliateId && created.order?.cupom_codigo) {
+          const byCoupon = await queryOne<any>(
+            `SELECT id FROM affiliates
+             WHERE brand_id = ? AND UPPER(coupon_code) = UPPER(?) AND status = 'active'
+             LIMIT 1`,
+            [inventoryBrandId, String(created.order.cupom_codigo)]
+          );
+          if (byCoupon) resolvedAffiliateId = String(byCoupon.id);
+        }
+
+        if (resolvedAffiliateId) {
+          await affSvc.recordSale({
+            ownerUserId: inventoryUserId,
+            brandId: inventoryBrandId,
+            affiliateId: resolvedAffiliateId,
+            orderId: created.order.id,
+            customerName,
+            customerPhone: customerPhone,
+            customerEmail: String(req.body?.customer?.email || "").trim() || undefined,
+            orderTotal: Number(created.order.valor_total || 0),
+            orderItems: normalizedItems.map((item: any) => ({
+              product_id: item.product_id,
+              quantity: item.quantidade,
+            })),
+          });
+        }
+      } catch (affErr: any) {
+        logger.warn(`[storefront] affiliate sale attribution skipped: ${affErr?.message || affErr}`);
+      }
+    }
 
     const reservableItems = normalizedItems
       .map((item: any) => ({ product_id: String(item.product_id || ""), quantity: Number(item.quantidade || 0) }))
@@ -2918,6 +3063,38 @@ publicRouter.post("/stores/:slug/leads", async (req, res) => {
       brandId
     );
 
+    if (brandId) {
+      try {
+        const { AffiliatesService } = await import("../services/affiliates");
+        const affSvc = new AffiliatesService();
+        const affiliateRef = String(req.body?.affiliate_ref || req.body?.affiliate_code || "").trim();
+        const affiliateId = String(req.body?.affiliate_id || "").trim();
+        const affiliate = await affSvc.resolveAffiliateAttribution(brandId, {
+          affiliateId,
+          affiliateRef,
+          couponCode: String(req.body?.cupom || req.body?.coupon || "").trim(),
+        });
+        if (affiliate) {
+          await affSvc.recordAffiliateLead({
+            ownerUserId,
+            brandId,
+            affiliateId: String(affiliate.id),
+            customerName: name,
+            phone: phone || undefined,
+            email: email || undefined,
+            sourceType: "capture",
+            ctaType: safeCta,
+            productName: productName || undefined,
+            productId: productId || undefined,
+            message: message || undefined,
+            internalRefId: String(customer.id),
+          });
+        }
+      } catch (affErr: any) {
+        logger.warn(`[storefront] affiliate lead attribution skipped: ${affErr?.message || affErr}`);
+      }
+    }
+
     res.status(201).json({
       success: true,
       lead: {
@@ -3072,6 +3249,39 @@ publicRouter.post("/stores/:slug/bookings", async (req, res) => {
       ownerUserId,
       brandId
     );
+
+    if (brandId) {
+      try {
+        const { AffiliatesService } = await import("../services/affiliates");
+        const affSvc = new AffiliatesService();
+        const affiliate = await affSvc.resolveAffiliateAttribution(brandId, {
+          affiliateId: String(req.body?.affiliate_id || "").trim(),
+          affiliateRef: String(req.body?.affiliate_ref || req.body?.affiliate_code || "").trim(),
+          couponCode: String(req.body?.cupom || req.body?.coupon || "").trim(),
+        });
+        if (affiliate) {
+          await affSvc.recordAffiliateLead({
+            ownerUserId,
+            brandId,
+            affiliateId: String(affiliate.id),
+            customerName: name,
+            phone: phone || undefined,
+            email: email || undefined,
+            sourceType: "booking",
+            ctaType: "schedule",
+            productName,
+            productId: sourceProductId || undefined,
+            message: [
+              message || null,
+              `Agendamento: ${startAtIso} – ${endAtIso}`,
+            ].filter(Boolean).join("\n") || undefined,
+            internalRefId: String(customer.id),
+          });
+        }
+      } catch (affErr: any) {
+        logger.warn(`[storefront] affiliate booking lead skipped: ${affErr?.message || affErr}`);
+      }
+    }
 
     res.status(201).json({
       success: true,

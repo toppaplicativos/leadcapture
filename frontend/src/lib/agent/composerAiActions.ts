@@ -75,6 +75,19 @@ export const FACEBOOK_SKILLS = new Set([
   'facebook.analyze',
 ])
 
+export const AFFILIATE_SKILLS = new Set([
+  'affiliate.open',
+  'affiliate.create',
+  'affiliate.create.confirm',
+  'affiliate.config',
+  'affiliate.config.confirm',
+  'affiliate.analyze',
+  'affiliate.approve',
+  'affiliate.payouts',
+  'affiliate.payout.confirm',
+  'affiliate.materials',
+])
+
 export function isCampaignSkill(skill?: string) {
   return !!skill && CAMPAIGN_SKILLS.has(skill)
 }
@@ -125,4 +138,8 @@ export function isFacebookSkill(skill?: string) {
 
 export function isAutomationSkill(skill?: string) {
   return !!skill && AUTOMATION_SKILLS.has(skill)
+}
+
+export function isAffiliateSkill(skill?: string) {
+  return !!skill && AFFILIATE_SKILLS.has(skill)
 }

@@ -1,0 +1,13 @@
+---
+pid: 16960
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd \"C:\\Users\\Public\\Projetos\\leadcapture\"; npx tsc --noEmit 2>&1 | Select-String \"metaWebhook|instagramEvent|instagram.ts|automationTasks|brandAutomations\""
+started_at: 2026-07-07T17:43:45.519Z
+running_for_ms: 86400009 
+---
+
+---
+exit_code: -1
+elapsed_ms: 86400009
+ended_at: 2026-07-08T17:43:52.246Z
+---

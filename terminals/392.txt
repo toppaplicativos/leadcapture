@@ -1,0 +1,26 @@
+---
+pid: 19936
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd C:\\Users\\Public\\Projetos\\leadcapture\\frontend; npm run build 2>&1 | Select-Object -Last 25"
+started_at: 2026-07-08T14:41:57.402Z
+running_for_ms: 43504994 
+---
+
+> leadcapture-frontend@1.0.0 build
+> tsc -b && vite build
+
+src/pages/CatalogHome.tsx(251,11): error TS2322: Type '{ whatsapp?: { enabled?: boolean | undefined; show_in_hero?: boolean | undefined; show_fab?: boolean | undefined; fab_position?: "bottom-right" | "bottom-left" | undefined; prefilled_message?: string | undefined; show_on_pages?: "all" | ... 2 more ... | undefined; } | undefined; } | undefined' is not assignable to type 'PublicStoreMarketing | null | undefined'.
+  Type '{ whatsapp?: { enabled?: boolean | undefined; show_in_hero?: boolean | undefined; show_fab?: boolean | undefined; fab_position?: "bottom-right" | "bottom-left" | undefined; prefilled_message?: string | undefined; show_on_pages?: "all" | ... 2 more ... | undefined; } | undefined; }' is not assignable to type 'PublicStoreMarketing'.
+    Types of property 'whatsapp' are incompatible.
+      Type '{ enabled?: boolean | undefined; show_in_hero?: boolean | undefined; show_fab?: boolean | undefined; fab_position?: "bottom-right" | "bottom-left" | undefined; prefilled_message?: string | undefined; show_on_pages?: "all" | ... 2 more ... | undefined; } | undefined' is not assignable to type 'StoreMarketingWhatsApp'.
+        Type 'undefined' is not assignable to type 'StoreMarketingWhatsApp'.
+src/pages/CatalogHome.tsx(359,9): error TS2322: Type '{ whatsapp?: { enabled?: boolean | undefined; show_in_hero?: boolean | undefined; show_fab?: boolean | undefined; fab_position?: "bottom-right" | "bottom-left" | undefined; prefilled_message?: string | undefined; show_on_pages?: "all" | ... 2 more ... | undefined; } | undefined; } | undefined' is not assignable to type 'PublicStoreMarketing | null | undefined'.
+  Type '{ whatsapp?: { enabled?: boolean | undefined; show_in_hero?: boolean | undefined; show_fab?: boolean | undefined; fab_position?: "bottom-right" | "bottom-left" | undefined; prefilled_message?: string | undefined; show_on_pages?: "all" | ... 2 more ... | undefined; } | undefined; }' is not assignable to type 'PublicStoreMarketing'.
+    Types of property 'whatsapp' are incompatible.
+      Type '{ enabled?: boolean | undefined; show_in_hero?: boolean | undefined; show_fab?: boolean | undefined; fab_position?: "bottom-right" | "bottom-left" | undefined; prefilled_message?: string | undefined; show_on_pages?: "all" | ... 2 more ... | undefined; } | undefined' is not assignable to type 'StoreMarketingWhatsApp'.
+        Type 'undefined' is not assignable to type 'StoreMarketingWhatsApp'.
+src/pages/ProductDetailPage.tsx(477,9): error TS2322: Type '{ whatsapp?: { enabled?: boolean | undefined; show_in_hero?: boolean | undefined; show_fab?: boolean | undefined; fab_position?: "bottom-right" | "bottom-left" | undefined; prefilled_message?: string | undefined; show_on_pages?: "all" | ... 2 more ... | undefined; } | undefined; } | undefined' is not assignable to type 'PublicStoreMarketing | null | undefined'.
+  Type '{ whatsapp?: { enabled?: boolean | undefined; show_in_hero?: boolean | undefined; show_fab?: boolean | undefined; fab_position?: "bottom-right" | "bottom-left" | undefined; prefilled_message?: string | undefined; show_on_pages?: "all" | ... 2 more ... | undefined; } | undefined; }' is not assignable to type 'PublicStoreMarketing'.
+    Types of property 'whatsapp' are incompatible.
+      Type '{ enabled?: boolean | undefined; show_in_hero?: boolean | undefined; show_fab?: boolean | undefined; fab_position?: "bottom-right" | "bottom-left" | undefined; prefilled_message?: string | undefined; show_on_pages?: "all" | ... 2 more ... | undefined; } | undefined' is not assignable to type 'StoreMarketingWhatsApp'.
+        Type 'undefined' is not assignable to type 'StoreMarketingWhatsApp'.

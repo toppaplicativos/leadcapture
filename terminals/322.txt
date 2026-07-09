@@ -1,0 +1,50 @@
+---
+pid: 33492
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd C:\\Users\\Public\\Projetos\\leadcapture\\frontend; npm run build 2>&1"
+started_at: 2026-07-07T22:41:41.342Z
+running_for_ms: 86400015 
+---
+
+> leadcapture-frontend@1.0.0 build
+> tsc -b && vite build
+
+vite v8.0.3 building client environment for production...
+transforming...Found 1 warning while optimizing generated CSS:
+
+│   }
+│ }
+│ @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+┆        ^-- @import rules must precede all rules aside from @charset and @layer statements
+┆
+│ .leaflet-container {
+│   isolation: isolate;
+
+✓ 2361 modules transformed.
+✗ Build failed in 659ms
+error during build:
+Build failed with 1 error:
+
+[UNLOADABLE_DEPENDENCY] Error: Could not load src/components/agent/automations/AutomationsInlinePanel.tsx
+   ╭─[ src/components/agent/automations/AutomationsModuleBlock.tsx:5:40 ]
+   │
+ 5 │ import { AutomationsInlinePanel } from "./AutomationsInlinePanel";
+   │                                        ─────────────┬────────────  
+   │                                                     ╰────────────── stream did not contain valid UTF-8
+───╯
+
+    at aggregateBindingErrorsIntoJsError (file:///C:/Users/Public/Projetos/leadcapture/frontend/node_modules/rolldown/dist/shared/error-BLhcSyeg.mjs:48:18)
+    at unwrapBindingResult (file:///C:/Users/Public/Projetos/leadcapture/frontend/node_modules/rolldown/dist/shared/error-BLhcSyeg.mjs:18:128)
+    at #build (file:///C:/Users/Public/Projetos/leadcapture/frontend/node_modules/rolldown/dist/shared/rolldown-build-CPrIX9V6.mjs:3313:34)
+    at async buildEnvironment (file:///C:/Users/Public/Projetos/leadcapture/frontend/node_modules/vite/dist/node/chunks/node.js:32849:64)
+    at async Object.build (file:///C:/Users/Public/Projetos/leadcapture/frontend/node_modules/vite/dist/node/chunks/node.js:33271:19)
+    at async Object.buildApp (file:///C:/Users/Public/Projetos/leadcapture/frontend/node_modules/vite/dist/node/chunks/node.js:33268:153)
+    at async CAC.<anonymous> (file:///C:/Users/Public/Projetos/leadcapture/frontend/node_modules/vite/dist/node/cli.js:778:3) {
+  errors: [Getter/Setter]
+}
+
+---
+exit_code: -1
+elapsed_ms: 86400015
+ended_at: 2026-07-08T22:41:54.410Z
+---

@@ -12,6 +12,10 @@ import { ProfileTab } from '@/pages/ProfileTab'
 import { LoginPage } from '@/pages/LoginPage'
 import { PWAInstallBanner } from '@/components/PWAInstallBanner'
 import { adminRouteElements } from '@/routes/adminRoutes'
+import { masterRouteElements } from '@/routes/masterRoutes'
+import { isMasterHost } from '@/lib/master-host'
+import { PageSplash } from '@/components/PageSplash'
+import { DocumentTitleSync } from '@/components/DocumentTitleSync'
 
 const CheckoutPage = lazy(() => import('@/pages/CheckoutPage').then(m => ({ default: m.CheckoutPage })))
 const OrderPage = lazy(() => import('@/pages/OrderPage').then(m => ({ default: m.OrderPage })))
@@ -19,16 +23,15 @@ const HistoryPage = lazy(() => import('@/pages/HistoryPage').then(m => ({ defaul
 const OnboardingPage = lazy(() => import('@/pages/OnboardingPage').then(m => ({ default: m.OnboardingPage })))
 const StockLoginPage = lazy(() => import('@/pages/StockLoginPage').then(m => ({ default: m.StockLoginPage })))
 const InventoryPage = lazy(() => import('@/pages/InventoryPage').then(m => ({ default: m.InventoryPage })))
+const AffiliateLoginPage = lazy(() => import('@/pages/AffiliateLoginPage').then(m => ({ default: m.AffiliateLoginPage })))
+const AffiliateAppPage = lazy(() => import('@/pages/affiliate/AffiliateAppPage').then(m => ({ default: m.AffiliateAppPage })))
+const PartnersLandingPage = lazy(() => import('@/pages/partners/PartnersLandingPage').then(m => ({ default: m.PartnersLandingPage })))
+const PartnersLoginPage = lazy(() => import('@/pages/partners/PartnersLoginPage').then(m => ({ default: m.PartnersLoginPage })))
+const PartnersAppPage = lazy(() => import('@/pages/partners/PartnersAppPage').then(m => ({ default: m.PartnersAppPage })))
+const PartnersProgramWorkspace = lazy(() => import('@/pages/partners/PartnersProgramWorkspace').then(m => ({ default: m.PartnersProgramWorkspace })))
+const AffiliateRedirectPage = lazy(() => import('@/pages/AffiliateRedirectPage').then(m => ({ default: m.AffiliateRedirectPage })))
 const ProductDetailPage = lazy(() => import('@/pages/ProductDetailPage').then(m => ({ default: m.ProductDetailPage })))
 const LandingPage = lazy(() => import('@/pages/LandingPage').then(m => ({ default: m.LandingPage })))
-const MasterShell = lazy(() => import('@/pages/master/MasterShell').then(m => ({ default: m.MasterShell })))
-const MasterDashboard = lazy(() => import('@/pages/master/MasterDashboard').then(m => ({ default: m.MasterDashboard })))
-const MasterIntegracoes = lazy(() => import('@/pages/master/MasterIntegracoes').then(m => ({ default: m.MasterIntegracoes })))
-const MasterPlanos = lazy(() => import('@/pages/master/MasterPlanos').then(m => ({ default: m.MasterPlanos })))
-const MasterClientes = lazy(() => import('@/pages/master/MasterClientes').then(m => ({ default: m.MasterClientes })))
-const MasterConfiguracoes = lazy(() => import('@/pages/master/MasterConfiguracoes').then(m => ({ default: m.MasterConfiguracoes })))
-const MasterAuditLog = lazy(() => import('@/pages/master/MasterAuditLog').then(m => ({ default: m.MasterAuditLog })))
-const MasterEmails = lazy(() => import('@/pages/master/MasterEmails').then(m => ({ default: m.MasterEmails })))
 const CadastroPage = lazy(() => import('@/pages/CadastroPage').then(m => ({ default: m.CadastroPage })))
 const CadastroSucessoPage = lazy(() => import('@/pages/CadastroSucessoPage').then(m => ({ default: m.CadastroSucessoPage })))
 const PrivacyPolicyPage = lazy(() => import('@/pages/PrivacyPolicyPage').then(m => ({ default: m.PrivacyPolicyPage })))
@@ -37,11 +40,7 @@ const TermsOfServicePage = lazy(() => import('@/pages/TermsOfServicePage').then(
 
 /* ── Fallback ── */
 function RouteFallback() {
-  return (
-    <div className="min-h-[40vh] grid place-items-center">
-      <div className="w-5 h-5 border-2 border-gray-300 border-t-gray-900 rounded-full animate-spin" />
-    </div>
-  )
+  return <PageSplash variant="route" />
 }
 
 function CatalogShell() {
@@ -83,21 +82,35 @@ const LANDING_HOSTS = new Set([
   'www.leadcapture.online',
 ])
 
-/**
- * Hosts that serve the super-admin master panel.
- */
-const MASTER_HOSTS = new Set([
-  'adm.leadcapture.online',
+/** LeadCapture Parceiros — app global do afiliado */
+const PARTNERS_GLOBAL_HOSTS = new Set([
+  'parceiros.leadcapture.online',
+  'afiliados.leadcapture.online',
 ])
+
+/** Central do Afiliado por marca (ex.: parceiros.alhopronto.online) */
+const AFFILIATE_BRAND_HOSTS = new Set([
+  'parceiros.alhopronto.online',
+  'afiliados.alhopronto.online',
+])
+
+function isPartnersGlobalHost() {
+  if (typeof window === 'undefined') return false
+  return PARTNERS_GLOBAL_HOSTS.has(window.location.hostname)
+}
+
+function isAffiliateBrandHost() {
+  if (typeof window === 'undefined') return false
+  return AFFILIATE_BRAND_HOSTS.has(window.location.hostname)
+}
+
+function isAffiliateHost() {
+  return isPartnersGlobalHost() || isAffiliateBrandHost()
+}
 
 function isLandingHost() {
   if (typeof window === 'undefined') return false
   return LANDING_HOSTS.has(window.location.hostname)
-}
-
-function isMasterHost() {
-  if (typeof window === 'undefined') return false
-  return MASTER_HOSTS.has(window.location.hostname)
 }
 
 /**
@@ -114,9 +127,19 @@ function RootIndex() {
   const onLandingHost = isLandingHost()
   const onMasterHost = isMasterHost()
 
-  // adm.leadcapture.online → redirect / to /master
+  // adm.leadcapture.online → painel master em /admin
   if (onMasterHost) {
-    return <Navigate to="/master" replace />
+    return <Navigate to="/admin" replace />
+  }
+
+  // parceiros.leadcapture.online → app global LeadCapture Parceiros
+  if (isPartnersGlobalHost()) {
+    return <Navigate to="/parceiros" replace />
+  }
+
+  // parceiros.alhopronto.online → Central do Afiliado da marca
+  if (isAffiliateBrandHost()) {
+    return <Navigate to="/central-afiliado/alhopronto" replace />
   }
 
   // Marketing root: show the landing immediately, no auth redirect.
@@ -135,6 +158,17 @@ function RootIndex() {
     const stockSlug = localStorage.getItem('lead-system:active-brand-ref-estoque')
     if (stockToken && stockSlug) {
       navigate(`/app-estoque/${stockSlug}/painel`, { replace: true })
+      return
+    }
+    const partnersToken = localStorage.getItem('lead-system-token-parceiro')
+    if (partnersToken) {
+      navigate('/parceiros/painel', { replace: true })
+      return
+    }
+    const affiliateToken = localStorage.getItem('lead-system-token-afiliado')
+    const affiliateSlug = localStorage.getItem('lead-system:active-brand-ref-afiliado')
+    if (affiliateToken && affiliateSlug) {
+      navigate(`/central-afiliado/${affiliateSlug}/painel`, { replace: true })
       return
     }
     navigate('/login', { replace: true })
@@ -181,22 +215,19 @@ function installChunkErrorRecovery() {
 installChunkErrorRecovery()
 
 export default function App() {
+  const onMasterHost = isMasterHost()
+
   return (
     <>
+      <DocumentTitleSync skipAdminRoutes={!onMasterHost} />
       <Suspense fallback={<RouteFallback />}>
         <Routes>
           {/* ── Landing page (marketing) ── */}
-          <Route path="/inicio" element={<LandingPage />} />
-          <Route path="/lp" element={<LandingPage />} />
+          {!onMasterHost && <Route path="/inicio" element={<LandingPage />} />}
+          {!onMasterHost && <Route path="/lp" element={<LandingPage />} />}
 
-          {/* ── Master / super-admin panel ── */}
-          <Route path="/master" element={<MasterShell><MasterDashboard /></MasterShell>} />
-          <Route path="/master/integracoes" element={<MasterShell><MasterIntegracoes /></MasterShell>} />
-          <Route path="/master/planos" element={<MasterShell><MasterPlanos /></MasterShell>} />
-          <Route path="/master/clientes" element={<MasterShell><MasterClientes /></MasterShell>} />
-          <Route path="/master/configuracoes" element={<MasterShell><MasterConfiguracoes /></MasterShell>} />
-          <Route path="/master/emails" element={<MasterShell><MasterEmails /></MasterShell>} />
-          <Route path="/master/audit-log" element={<MasterShell><MasterAuditLog /></MasterShell>} />
+          {/* ── Master / super-admin (adm.leadcapture.online → /admin) ── */}
+          {masterRouteElements()}
 
           {/* ── Public: Privacy & Data Deletion (Meta compliance) ── */}
           <Route path="/privacy" element={<PrivacyPolicyPage />} />
@@ -207,50 +238,58 @@ export default function App() {
           <Route path="/terms-of-service" element={<TermsOfServicePage />} />
 
           {/* ── Public signup flow ── */}
-          <Route path="/cadastro" element={<CadastroPage />} />
-          <Route path="/cadastro/sucesso" element={<CadastroSucessoPage />} />
+          {!onMasterHost && <Route path="/cadastro" element={<CadastroPage />} />}
+          {!onMasterHost && <Route path="/cadastro/sucesso" element={<CadastroSucessoPage />} />}
 
           {/* ── Login ── */}
           <Route path="/login" element={<LoginPage />} />
 
-          {/* ── Admin (lazy-load por rota — ver routes/adminRoutes.tsx) ── */}
-          {adminRouteElements}
+          {/* ── Admin do cliente (app.leadcapture.online) — omitido no host master ── */}
+          {!onMasterHost && adminRouteElements}
 
           {/* ── Estoque standalone (fora do AdminShell) ── */}
-          <Route path="/estoque/app" element={<InventoryPage />} />
-          <Route path="/inventario" element={<InventoryPage />} />
+          {!onMasterHost && <Route path="/estoque/app" element={<InventoryPage />} />}
+          {!onMasterHost && <Route path="/inventario" element={<InventoryPage />} />}
 
           {/* ── App Estoque (stock managers — separate auth scope) ──
               URL pattern: /app-estoque/{brand-slug} → branded login
                            /app-estoque/{brand-slug}/painel → stock app
               The InventoryPage detects /app-estoque/* and switches the API
               to /api/stock-app/* using the stock manager token. */}
-          <Route path="/app-estoque" element={<StockLoginPage />} />
-          <Route path="/app-estoque/:slug" element={<StockLoginPage />} />
-          <Route path="/app-estoque/:slug/painel" element={<InventoryPage />} />
-          {/* Backwards-compat: old painel URL */}
-          <Route path="/app-estoque/painel" element={<InventoryPage />} />
+          {!onMasterHost && (
+            <>
+              <Route path="/app-estoque" element={<StockLoginPage />} />
+              <Route path="/app-estoque/:slug" element={<StockLoginPage />} />
+              <Route path="/app-estoque/:slug/painel" element={<InventoryPage />} />
+              <Route path="/app-estoque/painel" element={<InventoryPage />} />
 
-          {/* ── Brand Onboarding ── */}
-          <Route path="/brand-onboarding" element={<OnboardingPage />} />
+              <Route path="/parceiros" element={<PartnersLandingPage />} />
+              <Route path="/parceiros/entrar" element={<PartnersLoginPage />} />
+              <Route path="/parceiros/painel/programa/:slug/*" element={<PartnersProgramWorkspace />} />
+              <Route path="/parceiros/painel/*" element={<PartnersAppPage />} />
 
-          {/* ── Catálogo público ── */}
-          <Route path="/catalogo/:slug" element={<CatalogShell />} />
-          <Route path="/loja/:slug" element={<CatalogShell />} />
-          <Route path="/catalogo/:slug/checkout" element={<CheckoutPage />} />
-          <Route path="/loja/:slug/checkout" element={<CheckoutPage />} />
-          <Route path="/catalogo/:slug/pedido" element={<OrderPage />} />
-          <Route path="/loja/:slug/pedido" element={<OrderPage />} />
-          <Route path="/catalogo/:slug/historico" element={<HistoryPage />} />
-          <Route path="/loja/:slug/historico" element={<HistoryPage />} />
-          <Route path="/catalogo/:slug/produto/:productSlug" element={<ProductDetailPage />} />
-          <Route path="/loja/:slug/produto/:productSlug" element={<ProductDetailPage />} />
+              <Route path="/central-afiliado" element={<AffiliateLoginPage />} />
+              <Route path="/central-afiliado/:slug" element={<AffiliateLoginPage />} />
+              <Route path="/central-afiliado/:slug/painel/*" element={<AffiliateAppPage />} />
+              <Route path="/afiliado/:code" element={<AffiliateRedirectPage />} />
+              <Route path="/brand-onboarding" element={<OnboardingPage />} />
 
-          {/* ── Generic storefront routes ── */}
-          <Route path="/checkout" element={<CheckoutPage />} />
-          <Route path="/pedido" element={<OrderPage />} />
-          <Route path="/historico" element={<HistoryPage />} />
-          <Route path="/produto/:productSlug" element={<ProductDetailPage />} />
+              <Route path="/catalogo/:slug/produto/:productSlug" element={<ProductDetailPage />} />
+              <Route path="/loja/:slug/produto/:productSlug" element={<ProductDetailPage />} />
+              <Route path="/catalogo/:slug/checkout" element={<CheckoutPage />} />
+              <Route path="/loja/:slug/checkout" element={<CheckoutPage />} />
+              <Route path="/catalogo/:slug/pedido" element={<OrderPage />} />
+              <Route path="/loja/:slug/pedido" element={<OrderPage />} />
+              <Route path="/catalogo/:slug/historico" element={<HistoryPage />} />
+              <Route path="/loja/:slug/historico" element={<HistoryPage />} />
+              <Route path="/catalogo/:slug" element={<CatalogShell />} />
+              <Route path="/loja/:slug" element={<CatalogShell />} />
+              <Route path="/checkout" element={<CheckoutPage />} />
+              <Route path="/pedido" element={<OrderPage />} />
+              <Route path="/historico" element={<HistoryPage />} />
+              <Route path="/produto/:productSlug" element={<ProductDetailPage />} />
+            </>
+          )}
 
           {/* ── Root: smart redirect based on auth state ── */}
           <Route path="/" element={<RootIndex />} />

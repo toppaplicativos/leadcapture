@@ -1,10 +1,12 @@
 import { lazy, Suspense, type ReactNode } from 'react'
-import { Loader2 } from 'lucide-react'
+import { PageSplash, canvasSplashLabel } from '@/components/PageSplash'
 import { useToast } from '@/components/Toast'
 import { useInstagramBridgeOptional } from '@/lib/agent/InstagramBridgeContext'
 import { useFacebookBridgeOptional } from '@/lib/agent/FacebookBridgeContext'
-import type { InstagramTabKey } from '@/pages/InstagramPage'
+import { useAffiliatesBridgeOptional } from '@/lib/agent/AffiliatesBridgeContext'
+import type { InstagramTabKey } from '@/lib/instagram/nav'
 import type { FacebookTabKey } from '@/pages/FacebookPage'
+import type { AffiliatesTabKey } from '@/lib/agent/AffiliatesBridgeContext'
 
 const DashboardView = lazy(() => import('@/pages/admin/dashboard/DashboardView').then(m => ({ default: m.DashboardView })))
 const CampaignsView = lazy(() => import('@/pages/admin/campaigns/CampaignsView').then(m => ({ default: m.CampaignsView })))
@@ -14,7 +16,7 @@ const GaleriaPage = lazy(() => import('@/pages/GaleriaPage').then(m => ({ defaul
 const VideoStudioPage = lazy(() => import('@/pages/VideoStudioPage').then(m => ({ default: m.VideoStudioPage })))
 const AgentView = lazy(() => import('@/pages/admin/agent/AgentView').then(m => ({ default: m.AgentView })))
 const AutomationsView = lazy(() => import('@/pages/admin/automations/AutomationsView').then(m => ({ default: m.AutomationsView })))
-const DesignPage = lazy(() => import('@/pages/DesignPage').then(m => ({ default: m.DesignPage })))
+const StoreStudioPage = lazy(() => import('@/pages/admin/store/StoreStudioPage').then(m => ({ default: m.StoreStudioPage })))
 const LeadSearchPage = lazy(() => import('@/pages/LeadSearchPage').then(m => ({ default: m.LeadSearchPage })))
 const MessagesPage = lazy(() => import('@/pages/MessagesPage').then(m => ({ default: m.MessagesPage })))
 const ProductsView = lazy(() => import('@/pages/admin/products/ProductsView').then(m => ({ default: m.ProductsView })))
@@ -24,6 +26,7 @@ const OrdersView = lazy(() => import('@/pages/admin/orders/OrdersView').then(m =
 const BrandSkillsPage = lazy(() => import('@/pages/BrandSkillsPage').then(m => ({ default: m.BrandSkillsPage })))
 const InstagramPage = lazy(() => import('@/pages/InstagramPage').then(m => ({ default: m.InstagramPage })))
 const FacebookPage = lazy(() => import('@/pages/FacebookPage').then(m => ({ default: m.FacebookPage })))
+const AffiliatesPage = lazy(() => import('@/pages/AffiliatesPage').then(m => ({ default: m.AffiliatesPage })))
 
 function InstagramCanvas() {
   const bridge = useInstagramBridgeOptional()
@@ -37,14 +40,23 @@ function FacebookCanvas() {
   return <FacebookPage initialTab={tab} />
 }
 
+function AffiliatesCanvas() {
+  const bridge = useAffiliatesBridgeOptional()
+  const tab = (bridge?.snapshot.activeTab || 'overview') as AffiliatesTabKey
+  const { showToast } = useToast()
+  return (
+    <AffiliatesPage
+      embedded
+      initialTab={tab}
+      showToast={(msg, tp) => showToast(tp === 'err' ? msg : msg, tp === 'err' ? 'error' : 'success')}
+    />
+  )
+}
+
 const noop = () => {}
 
-function CanvasFallback() {
-  return (
-    <div className="h-full grid place-items-center">
-      <Loader2 size={20} className="animate-spin text-gray-400" />
-    </div>
-  )
+function CanvasFallback({ route }: { route: string }) {
+  return <PageSplash variant="canvas" label={canvasSplashLabel(route)} />
 }
 
 function CampaignsCanvas() {
@@ -82,7 +94,8 @@ const CANVAS_PAGE_MAP: Record<string, () => ReactNode> = {
   '/automacoes': () => <AutomationsView />,
   '/campanhas': () => <CampaignsCanvas />,
   '/produtos': () => <ProductsCanvas />,
-  '/design': () => <DesignPage />,
+  '/loja': () => <StoreStudioPage />,
+  '/design': () => <StoreStudioPage />,
   '/busca': () => <LeadSearchPage variant="canvas" />,
   '/leads': () => <LeadsPage />,
   '/clientes': () => <ClientesPage />,
@@ -92,6 +105,7 @@ const CANVAS_PAGE_MAP: Record<string, () => ReactNode> = {
   '/skills': () => <BrandSkillsPage />,
   '/instagram': () => <InstagramCanvas />,
   '/facebook': () => <FacebookCanvas />,
+  '/afiliados': () => <AffiliatesCanvas />,
 }
 
 export function CanvasPageEmbed({ route }: { route: string }) {
@@ -108,7 +122,7 @@ export function CanvasPageEmbed({ route }: { route: string }) {
   const flush = CANVAS_FLUSH_ROUTES.has(route)
 
   return (
-    <Suspense fallback={<CanvasFallback />}>
+    <Suspense fallback={<CanvasFallback route={route} />}>
       <div className={`agent-canvas__embed h-full min-h-0${flush ? ' agent-canvas__embed--flush' : ''}`}>
         {render()}
       </div>

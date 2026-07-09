@@ -1,0 +1,13 @@
+---
+pid: 13012
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "tar -czf C:\\Users\\Public\\Projetos\\leadcapture\\lc-fe.tar.gz -C C:\\Users\\Public\\Projetos\\leadcapture\\frontend dist; scp C:\\Users\\Public\\Projetos\\leadcapture\\lc-fe.tar.gz root@187.127.5.179:/root/lc-fe.tar.gz"
+started_at: 2026-07-06T19:56:42.198Z
+running_for_ms: 86400009 
+---
+
+---
+exit_code: -1
+elapsed_ms: 86400009
+ended_at: 2026-07-07T19:56:50.573Z
+---

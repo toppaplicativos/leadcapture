@@ -1,0 +1,13 @@
+---
+pid: 28572
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "scp -r C:\\Users\\Public\\Projetos\\leadcapture\\frontend\\dist\\* tattooai-vps:/root/leadcapture/frontend/dist/"
+started_at: 2026-07-07T02:54:25.057Z
+running_for_ms: 86400016 
+---
+
+---
+exit_code: -1
+elapsed_ms: 86400016
+ended_at: 2026-07-08T02:54:34.749Z
+---

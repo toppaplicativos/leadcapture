@@ -250,6 +250,73 @@ export const SKILL_META: Record<string, SkillMeta> = {
     requiresCanvas: false,
     inlineComponents: true,
   },
+  "affiliate.open": {
+    kind: "business",
+    objectives: ["abrir afiliados", "programa de parceiros"],
+    requiresCanvas: false,
+    canvasRoute: "/afiliados",
+    inlineComponents: true,
+  },
+  "affiliate.create": {
+    kind: "business",
+    objectives: ["cadastrar afiliado", "novo parceiro"],
+    requiresCanvas: false,
+    canvasRoute: "/afiliados",
+    inlineComponents: true,
+  },
+  "affiliate.create.confirm": {
+    kind: "business",
+    objectives: ["confirmar cadastro afiliado"],
+    requiresCanvas: false,
+    inlineComponents: true,
+  },
+  "affiliate.config": {
+    kind: "business",
+    objectives: ["configurar programa afiliados", "comissão padrão"],
+    requiresCanvas: false,
+    canvasRoute: "/afiliados",
+    inlineComponents: true,
+  },
+  "affiliate.config.confirm": {
+    kind: "business",
+    objectives: ["salvar config afiliados"],
+    requiresCanvas: false,
+    inlineComponents: true,
+  },
+  "affiliate.analyze": {
+    kind: "business",
+    objectives: ["métricas afiliados", "analisar parceiros"],
+    requiresCanvas: false,
+    canvasRoute: "/afiliados",
+    inlineComponents: true,
+  },
+  "affiliate.approve": {
+    kind: "business",
+    objectives: ["aprovar comissão", "aprovar afiliado"],
+    requiresCanvas: false,
+    canvasRoute: "/afiliados",
+    inlineComponents: true,
+  },
+  "affiliate.payouts": {
+    kind: "business",
+    objectives: ["saques afiliados", "pagar parceiro"],
+    requiresCanvas: false,
+    canvasRoute: "/afiliados",
+    inlineComponents: true,
+  },
+  "affiliate.payout.confirm": {
+    kind: "business",
+    objectives: ["confirmar saque afiliado"],
+    requiresCanvas: false,
+    inlineComponents: true,
+  },
+  "affiliate.materials": {
+    kind: "business",
+    objectives: ["materiais afiliados"],
+    requiresCanvas: false,
+    canvasRoute: "/afiliados",
+    inlineComponents: true,
+  },
 };
 
 export function getSkillMeta(skillId: string): SkillMeta | null {

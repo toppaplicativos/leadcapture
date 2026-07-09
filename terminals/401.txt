@@ -1,0 +1,14 @@
+---
+pid: 1960
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "Set-Location C:\\Users\\Public\\Projetos\\leadcapture; node agent-tools/smoke-affiliate-ownership.mjs"
+started_at: 2026-07-08T14:50:46.836Z
+running_for_ms: 42975001 
+---
+Smoke affiliate ownership: https://app.leadcapture.online brand=alhopronto
+
+OK    affiliate-login (afiliado.real.teste@gmail.com)
+OK    afiliado criou instância 6fe7c5fa…
+OK    afiliado lista só próprias (5 sessão(ões))
+OK    admin-login
+FAIL  admin list HTTP 500

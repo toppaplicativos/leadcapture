@@ -1,0 +1,349 @@
+---
+pid: 31248
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd C:\\Users\\Public\\Projetos\\leadcapture; powershell -ExecutionPolicy Bypass -File agent-tools\\run-deploy-verified.ps1"
+started_at: 2026-07-08T14:17:50.274Z
+running_for_ms: 44949999 
+---
+>> Bumping service worker cache
+OK    C:\Users\Public\Projetos\leadcapture\frontend\public\service-worker.js
+OK    C:\Users\Public\Projetos\leadcapture\public\service-worker.js
+      shell=lead-system-shell-v67-20260708 runtime=lead-system-runtime-v59-20260708
+>> Build backend
+
+> lead-captation-system@1.0.0 build
+> tsc
+
+OK    backend build
+>> Build frontend
+
+> leadcapture-frontend@1.0.0 build
+> tsc -b && vite build
+
+vite v8.0.3 building client environment for production...
+transforming...Found 1 warning while optimizing generated CSS:
+
+│   }
+│ }
+│ @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+┆        ^-- @import rules must precede all rules aside from @charset and @layer statements
+┆
+│ .leaflet-container {
+│   isolation: isolate;
+
+✓ 2385 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                                          9.25 kB │ gzip:   2.90 kB
+dist/assets/mapbox-gl-DMS8r9PF.css                      55.89 kB │ gzip:  11.81 kB
+dist/assets/index-jF2-_FRk.css                         336.89 kB │ gzip:  47.54 kB
+dist/assets/cn-X80LyfeU.js                               0.06 kB │ gzip:   0.08 kB
+dist/assets/ProductsView-DNY2wzgn.js                     0.07 kB │ gzip:   0.07 kB
+dist/assets/CampaignsView-CT9fZ6aR.js                    0.07 kB │ gzip:   0.07 kB
+dist/assets/MessagesView-1Qi96TMJ.js                     0.08 kB │ gzip:   0.08 kB
+dist/assets/AffiliatesView-By5UK2tI.js                   0.09 kB │ gzip:   0.08 kB
+dist/assets/AutomationsView-4qOr-n8O.js                  0.09 kB │ gzip:   0.08 kB
+dist/assets/minus-BXkq2pMz.js                            0.11 kB │ gzip:   0.13 kB
+dist/assets/chevron-down-xSngEQja.js                     0.12 kB │ gzip:   0.14 kB
+dist/assets/chevron-up-pIjo_uBu.js                       0.12 kB │ gzip:   0.14 kB
+dist/assets/chevron-left-YgrBuDUo.js                     0.13 kB │ gzip:   0.14 kB
+dist/assets/chevron-right-Clb0q9a9.js                    0.13 kB │ gzip:   0.14 kB
+dist/assets/loader-circle-TrWKRYlx.js                    0.14 kB │ gzip:   0.15 kB
+dist/assets/square-pg_qROIj.js                           0.14 kB │ gzip:   0.15 kB
+dist/assets/x-BtnBY731.js                                0.15 kB │ gzip:   0.15 kB
+dist/assets/headers-BBWgwigK.js                          0.15 kB │ gzip:   0.14 kB
+dist/assets/code-BBuqYDwU.js                             0.16 kB │ gzip:   0.15 kB
+dist/assets/arrow-left-DiUThiad.js                       0.16 kB │ gzip:   0.16 kB
+dist/assets/trending-up-ly-xsJ0n.js                      0.17 kB │ gzip:   0.16 kB
+dist/assets/circle-check-g7o1orlw.js                     0.17 kB │ gzip:   0.16 kB
+dist/assets/ban-_iLt7wb-.js                              0.18 kB │ gzip:   0.16 kB
+dist/assets/menu-Bas0pDt7.js                             0.18 kB │ gzip:   0.15 kB
+dist/assets/play-CmT3h6ha.js                             0.19 kB │ gzip:   0.17 kB
+dist/assets/rotate-ccw-D6GFJoYq.js                       0.20 kB │ gzip:   0.18 kB
+dist/assets/info-rJe1g4Om.js                             0.20 kB │ gzip:   0.17 kB
+dist/assets/circle-x-BcjqHTrC.js                         0.20 kB │ gzip:   0.17 kB
+dist/assets/credit-card-BNZpLGvM.js                      0.20 kB │ gzip:   0.18 kB
+dist/assets/pause-BfJUesag.js                            0.21 kB │ gzip:   0.16 kB
+dist/assets/WhatsAppManagerView-BjaONq-1.js              0.21 kB │ gzip:   0.20 kB
+dist/assets/dollar-sign-DrRQQeax.js                      0.21 kB │ gzip:   0.19 kB
+dist/assets/briefcase-DMUmm9Eq.js                        0.22 kB │ gzip:   0.19 kB
+dist/assets/type-DGh_1ROb.js                             0.22 kB │ gzip:   0.17 kB
+dist/assets/target-BsNrilte.js                           0.22 kB │ gzip:   0.16 kB
+dist/assets/git-branch-Bs2dELdu.js                       0.22 kB │ gzip:   0.19 kB
+dist/assets/log-out-C1FBLO05.js                          0.23 kB │ gzip:   0.18 kB
+dist/assets/upload-B4BR1mLz.js                           0.23 kB │ gzip:   0.19 kB
+dist/assets/log-in-CId-6LNw.js                           0.23 kB │ gzip:   0.18 kB
+dist/assets/download-GSLuHehx.js                         0.23 kB │ gzip:   0.19 kB
+dist/assets/message-square-zrminFH1.js                   0.23 kB │ gzip:   0.20 kB
+dist/assets/activity-BG17Zb2f.js                         0.23 kB │ gzip:   0.19 kB
+dist/assets/copy-Cq624_c-.js                             0.23 kB │ gzip:   0.20 kB
+dist/assets/history-DUMWKARj.js                          0.23 kB │ gzip:   0.19 kB
+dist/assets/maximize-2-bNssx7UU.js                       0.23 kB │ gzip:   0.18 kB
+dist/assets/message-circle-CNi27c8q.js                   0.24 kB │ gzip:   0.21 kB
+dist/assets/globe-ChyGBvFy.js                            0.24 kB │ gzip:   0.19 kB
+dist/assets/link-2-Dy63vRyg.js                           0.24 kB │ gzip:   0.20 kB
+dist/assets/user-check-CjdkTSzf.js                       0.24 kB │ gzip:   0.20 kB
+dist/assets/arrow-left-right-Dp0y9Alc.js                 0.24 kB │ gzip:   0.19 kB
+dist/assets/video-B8GQCoG-.js                            0.24 kB │ gzip:   0.21 kB
+dist/assets/test-tube-BwT_qeL3.js                        0.24 kB │ gzip:   0.19 kB
+dist/assets/circle-alert-DGwHBk8u.js                     0.25 kB │ gzip:   0.18 kB
+dist/assets/chart-column-BIYPHwAf.js                     0.25 kB │ gzip:   0.19 kB
+dist/assets/external-link-BLsOTt8Q.js                    0.25 kB │ gzip:   0.19 kB
+dist/assets/settings-2-DeBsnbza.js                       0.25 kB │ gzip:   0.19 kB
+dist/assets/funnel-Cme6w-_u.js                           0.25 kB │ gzip:   0.21 kB
+dist/assets/calendar--8MQErsH.js                         0.25 kB │ gzip:   0.20 kB
+dist/assets/heart-D-GOOv3O.js                            0.25 kB │ gzip:   0.21 kB
+dist/assets/map-pin-CSt1CE8s.js                          0.25 kB │ gzip:   0.22 kB
+dist/assets/triangle-alert-C4Ss2WBt.js                   0.26 kB │ gzip:   0.21 kB
+dist/assets/image-Brek7D5X.js                            0.26 kB │ gzip:   0.22 kB
+dist/assets/shield-yD3Vjm53.js                           0.27 kB │ gzip:   0.22 kB
+dist/assets/pencil-4w9LTvt_.js                           0.27 kB │ gzip:   0.22 kB
+dist/assets/pen-line-BhGBGiuC.js                         0.27 kB │ gzip:   0.22 kB
+dist/assets/book-open-oAKqgxKx.js                        0.27 kB │ gzip:   0.20 kB
+dist/assets/lightbulb-CjjDZFwM.js                        0.28 kB │ gzip:   0.22 kB
+dist/assets/plug-DSZp-1im.js                             0.28 kB │ gzip:   0.20 kB
+dist/assets/wallet-BH4BS1al.js                           0.28 kB │ gzip:   0.20 kB
+dist/assets/bell-DpsqYD9F.js                             0.29 kB │ gzip:   0.23 kB
+dist/assets/send-DmvWCC5U.js                             0.29 kB │ gzip:   0.22 kB
+dist/assets/variable-DMCsyT0g.js                         0.29 kB │ gzip:   0.21 kB
+dist/assets/hash-D1LhNS7z.js                             0.29 kB │ gzip:   0.19 kB
+dist/assets/list-_Xq8YxBt.js                             0.30 kB │ gzip:   0.18 kB
+dist/assets/thumbs-up-Cf9XarvR.js                        0.30 kB │ gzip:   0.23 kB
+dist/assets/thumbs-down-BH2h30W7.js                      0.30 kB │ gzip:   0.24 kB
+dist/assets/wrench-CfKAbEBo.js                           0.30 kB │ gzip:   0.23 kB
+dist/assets/user-plus-DN4gDCz5.js                        0.31 kB │ gzip:   0.23 kB
+dist/assets/badge-check-DJqYbSbR.js                      0.31 kB │ gzip:   0.21 kB
+dist/assets/shield-check-nZIOh0Ib.js                     0.32 kB │ gzip:   0.24 kB
+dist/assets/refresh-cw-D6Iwo9ft.js                       0.32 kB │ gzip:   0.22 kB
+dist/assets/phone-ChvbO8lD.js                            0.32 kB │ gzip:   0.22 kB
+dist/assets/tag-CReQioyE.js                              0.32 kB │ gzip:   0.24 kB
+dist/assets/bot-DkU5jOMx.js                              0.32 kB │ gzip:   0.22 kB
+dist/assets/trash-2-DvgeWNJa.js                          0.32 kB │ gzip:   0.21 kB
+dist/assets/scale-DJiQkth9.js                            0.33 kB │ gzip:   0.22 kB
+dist/assets/camera-DMSZbUjk.js                           0.33 kB │ gzip:   0.25 kB
+dist/assets/scroll-text-u__dDIXz.js                      0.34 kB │ gzip:   0.23 kB
+dist/assets/grip-vertical-4RcIn-F0.js                    0.37 kB │ gzip:   0.19 kB
+dist/assets/gauge-Dm1fv06M.js                            0.37 kB │ gzip:   0.26 kB
+dist/assets/copy-template-D23d6vF9.js                    0.38 kB │ gzip:   0.24 kB
+dist/assets/file-text-CQ9wL53m.js                        0.38 kB │ gzip:   0.25 kB
+dist/assets/film-BGbJoNex.js                             0.40 kB │ gzip:   0.24 kB
+dist/assets/mouse-pointer-click-CNGA1tv2.js              0.41 kB │ gzip:   0.28 kB
+dist/assets/layers-G73ryRkg.js                           0.42 kB │ gzip:   0.24 kB
+dist/assets/file-spreadsheet-D7eTd16n.js                 0.42 kB │ gzip:   0.26 kB
+dist/assets/handshake-DIWMOQua.js                        0.44 kB │ gzip:   0.28 kB
+dist/assets/rocket-0MAm1l6O.js                           0.45 kB │ gzip:   0.30 kB
+dist/assets/calendar-days-CNIwSZ6f.js                    0.49 kB │ gzip:   0.26 kB
+dist/assets/sparkles-D410lTA7.js                         0.49 kB │ gzip:   0.28 kB
+dist/assets/store-D9CwE25H.js                            0.49 kB │ gzip:   0.28 kB
+dist/assets/wand-sparkles-CXpIlJb4.js                    0.51 kB │ gzip:   0.28 kB
+dist/assets/brain-oa4OKs7C.js                            0.57 kB │ gzip:   0.31 kB
+dist/assets/Card-Ckfkba_Y.js                             0.59 kB │ gzip:   0.39 kB
+dist/assets/detectFileKind-C0x_SIEu.js                   0.70 kB │ gzip:   0.35 kB
+dist/assets/chunk-BEqpzyXh.js                            0.81 kB │ gzip:   0.46 kB
+dist/assets/qr-code-CnekduwA.js                          0.84 kB │ gzip:   0.38 kB
+dist/assets/boxes-CXU0sIr2.js                            0.85 kB │ gzip:   0.39 kB
+dist/assets/MasterConfiguracoes-u5gkk2D3.js              0.88 kB │ gzip:   0.52 kB
+dist/assets/BrandMark-DmY1uuPk.js                        0.96 kB │ gzip:   0.43 kB
+dist/assets/store-context-DTxkiuNs.js                    1.04 kB │ gzip:   0.59 kB
+dist/assets/preload-helper-pQeO1pMZ.js                   1.26 kB │ gzip:   0.73 kB
+dist/assets/AffiliateRedirectPage-CId8zptb.js            1.32 kB │ gzip:   0.74 kB
+dist/assets/primitives-BNvpvsUN.js                       1.33 kB │ gzip:   0.61 kB
+dist/assets/Input-BfBFrGFW.js                            1.39 kB │ gzip:   0.71 kB
+dist/assets/createLucideIcon-1zp5-kTN.js                 1.41 kB │ gzip:   0.79 kB
+dist/assets/Button-DFbj-Mis.js                           1.43 kB │ gzip:   0.74 kB
+dist/assets/helpers-S9U-9Ubb.js                          1.70 kB │ gzip:   0.69 kB
+dist/assets/NotificationsView-B72uS8kp.js                1.83 kB │ gzip:   0.87 kB
+dist/assets/MasterAuditLog-Ci0Mnn87.js                   2.01 kB │ gzip:   0.96 kB
+dist/assets/affiliate-commission-s1LLwKKQ.js             2.16 kB │ gzip:   0.72 kB
+dist/assets/api-3nI5NLdh.js                              2.17 kB │ gzip:   0.81 kB
+dist/assets/affiliate-app-cache-B_PqoSH_.js              2.26 kB │ gzip:   0.83 kB
+dist/assets/api-affiliate-Ds2cOAi-.js                    2.75 kB │ gzip:   1.11 kB
+dist/assets/GalleryThumb-ByS5kThN.js                     3.12 kB │ gzip:   1.37 kB
+dist/assets/GalleryUploadZone-qI5dzYtF.js                3.15 kB │ gzip:   1.44 kB
+dist/assets/MasterDashboard-BwJmcioY.js                  3.65 kB │ gzip:   1.32 kB
+dist/assets/MediaPickerModal-YhBZ_ohx.js                 4.00 kB │ gzip:   1.76 kB
+dist/assets/CadastroSucessoPage-Cdb5lOzL.js              4.01 kB │ gzip:   1.55 kB
+dist/assets/WhatsAppInstancesPanel-BuU9u7Ba.js           4.14 kB │ gzip:   1.52 kB
+dist/assets/HistoryPage-Dqoy9Y9d.js                      4.68 kB │ gzip:   1.76 kB
+dist/assets/MasterClientes-BM0Gvu1V.js                   4.82 kB │ gzip:   1.75 kB
+dist/assets/GalleryPreview-Bneg0DRQ.js                   5.39 kB │ gzip:   2.06 kB
+dist/assets/DashboardView-Bp5GxVi4.js                    5.41 kB │ gzip:   1.77 kB
+dist/assets/ReviewsView-DLFT-a_z.js                      5.98 kB │ gzip:   2.21 kB
+dist/assets/PaymentConfigView-DuYj3MJq.js                6.16 kB │ gzip:   2.05 kB
+dist/assets/DataDeletionPage-DjmjNMbS.js                 6.24 kB │ gzip:   2.03 kB
+dist/assets/StockLoginPage-B8g34Af1.js                   6.69 kB │ gzip:   2.45 kB
+dist/assets/MasterShell-CJvKm9UE.js                      7.32 kB │ gzip:   2.69 kB
+dist/assets/jsx-runtime-iFSM2NCI.js                      7.88 kB │ gzip:   2.98 kB
+dist/assets/PrivacyPolicyPage-DuX3n0XH.js                8.01 kB │ gzip:   2.30 kB
+dist/assets/FreteView-CJhu_7nG.js                        8.24 kB │ gzip:   2.66 kB
+dist/assets/api-admin-_W0bk6lo.js                        8.25 kB │ gzip:   2.02 kB
+dist/assets/CadastroPage-B3a-eoa-.js                     8.33 kB │ gzip:   3.21 kB
+dist/assets/GaleriaPage-gI5R8xbz.js                      8.56 kB │ gzip:   3.09 kB
+dist/assets/AIProvidersPage-DiYapDhX.js                  8.67 kB │ gzip:   3.20 kB
+dist/assets/WhatsAppInteractiveComposer-uNbxY7ku.js      9.10 kB │ gzip:   2.76 kB
+dist/assets/OrderPage-DUoQ3Xiq.js                        9.69 kB │ gzip:   3.15 kB
+dist/assets/TermsOfServicePage-B6c--44K.js               9.92 kB │ gzip:   2.86 kB
+dist/assets/InstagramPostAnalysisModal-ChNRlO4g.js      10.06 kB │ gzip:   3.32 kB
+dist/assets/OnboardingPage-B9qMgP0r.js                  10.27 kB │ gzip:   3.29 kB
+dist/assets/AffiliateLoginPage-twk9g_BJ.js              11.12 kB │ gzip:   3.19 kB
+dist/assets/DesignPage-DY00sE08.js                      12.13 kB │ gzip:   3.83 kB
+dist/assets/MasterPlanos-DQuTRHvz.js                    12.16 kB │ gzip:   3.34 kB
+dist/assets/SettingsView-Dnjvy4ev.js                    13.39 kB │ gzip:   3.47 kB
+dist/assets/MasterEmails-CqeROI3C.js                    13.48 kB │ gzip:   3.99 kB
+dist/assets/AgentConfigPage-DUrs8XR6.js                 14.20 kB │ gzip:   4.53 kB
+dist/assets/CouponsView-DoOyPMeK.js                     14.50 kB │ gzip:   4.07 kB
+dist/assets/WhatsAppConnectModal-DU9tz_3k.js            14.51 kB │ gzip:   4.74 kB
+dist/assets/WhatsAppSendModal-B_G6gblO.js               14.75 kB │ gzip:   5.06 kB
+dist/assets/DomainView-JfcchwET.js                      15.18 kB │ gzip:   4.49 kB
+dist/assets/ProductDetailPage-BH8I9ZFM.js               16.27 kB │ gzip:   5.24 kB
+dist/assets/AdminEmailsPage-njl8ULi9.js                 16.82 kB │ gzip:   4.94 kB
+dist/assets/EstoqueAccessView-DOljrLCk.js               17.00 kB │ gzip:   4.45 kB
+dist/assets/MessagesPage-QpVUkcj_.js                    17.20 kB │ gzip:   5.28 kB
+dist/assets/FacebookPage-R8g-SWZH.js                    18.50 kB │ gzip:   4.43 kB
+dist/assets/FlowBuilderPage-Bbw5k556.js                 21.04 kB │ gzip:   5.27 kB
+dist/assets/CheckoutPage-BdIXuY4D.js                    21.41 kB │ gzip:   6.30 kB
+dist/assets/MasterIntegracoes-Cgg_cwqh.js               21.41 kB │ gzip:   5.50 kB
+dist/assets/OrdersView-RI4_Rh-E.js                      22.55 kB │ gzip:   5.89 kB
+dist/assets/SkillTrainerWizardModal-B71eWWsh.js         22.93 kB │ gzip:   7.23 kB
+dist/assets/AgentView-B-LuLmVG.js                       25.01 kB │ gzip:   6.44 kB
+dist/assets/BrandSkillsPage-5AVa3gfB.js                 25.53 kB │ gzip:   7.09 kB
+dist/assets/SmartImportModal-4YbH9xrB.js                27.06 kB │ gzip:   7.16 kB
+dist/assets/AgentPDVPage-B9dZ_qJG.js                    28.84 kB │ gzip:   7.23 kB
+dist/assets/chunk-UVKPFVEO-D5TJkq9A.js                  40.43 kB │ gzip:  14.36 kB
+dist/assets/CriativosPage-wIxn3Yiu.js                   41.39 kB │ gzip:  10.17 kB
+dist/assets/AffiliateAppPage-DCHaK7z5.js                43.51 kB │ gzip:  10.58 kB
+dist/assets/AffiliatesPage-D1oJmmuK.js                  44.38 kB │ gzip:   9.75 kB
+dist/assets/BrandImageGeneratorPage-FZjWq0Xd.js         47.99 kB │ gzip:  13.39 kB
+dist/assets/InventoryPage-aWVXyuPn.js                   51.18 kB │ gzip:  11.83 kB
+dist/assets/ClientesPage-Cc64mnKI.js                    60.79 kB │ gzip:  14.04 kB
+dist/assets/LeadsPage-CVGuRNrG.js                       66.99 kB │ gzip:  15.55 kB
+dist/assets/AutomationsPage-CRKa3Mpu.js                 67.37 kB │ gzip:  16.47 kB
+dist/assets/LeadSearchPage-YXPBJlhe.js                  69.97 kB │ gzip:  17.87 kB
+dist/assets/ProductsView-BlSRzAJO.js                    72.06 kB │ gzip:  15.68 kB
+dist/assets/InstagramPage-DQMXB5Bx.js                   85.35 kB │ gzip:  21.22 kB
+dist/assets/CampaignsView-B_ONMO8h.js                   88.31 kB │ gzip:  21.66 kB
+dist/assets/AdminShell-DQlERVHZ.js                     206.59 kB │ gzip:  40.75 kB
+dist/assets/LandingPage-1NOgqA3n.js                    227.16 kB │ gzip:  63.73 kB
+dist/assets/index-pebBIiks.js                          325.62 kB │ gzip:  96.11 kB
+dist/assets/VideoStudioPage-DM6Vj7Zg.js                403.34 kB │ gzip: 121.29 kB
+dist/assets/mapbox-gl-BJw_972p.js                    1,763.50 kB │ gzip: 480.83 kB
+
+✓ built in 1.45s
+[plugin builtin:vite-reporter] 
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+OK    frontend build
+OK    dist SW shell=v67 stamp=20260708
+>> Builds OK - iniciando tar/scp/deploy
+>> Enviando backend dist completo
+>> Enviando frontend completo
+Use --update-env to update environment variables
+[PM2] Applying action restartProcessId on app [leadcapture-api](ids: [ 2 ])
+[PM2] [leadcapture-api](2) ✓
+Use --update-env to update environment variables
+[PM2] Applying action restartProcessId on app [leadcapture-web](ids: [ 1 ])
+[PM2] [leadcapture-web](1) ✓
+┌────┬────────────────────┬─────────────┬─────────┬─────────┬──────────┬────────┬──────┬───────────┬──────────┬──────────┬──────────┬──────────┐
+│ id │ name               │ namespace   │ version │ mode    │ pid      │ uptime │ ↺    │ status    │ cpu      │ mem      │ user     │ watching │
+├────┼────────────────────┼─────────────┼─────────┼─────────┼──────────┼────────┼──────┼───────────┼──────────┼──────────┼──────────┼──────────┤
+│ 2  │ leadcapture-api    │ default     │ 1.0.0   │ fork    │ 373455   │ 0s     │ 157  │ online    │ 76.9%    │ 53.5mb   │ root     │ disabled │
+│ 1  │ leadcapture-web    │ default     │ N/A     │ fork    │ 373467   │ 0s     │ 127  │ online    │ 0%       │ 12.1mb   │ root     │ disabled │
+└────┴────────────────────┴─────────────┴─────────┴─────────┴──────────┴────────┴──────┴───────────┴──────────┴──────────┴──────────┴──────────┘
+[PM2] Saving current process list...
+[PM2] Successfully saved in /root/.pm2/dump.pm2
+OK deploy
+>> Aguardando servi��os (25s)
+>> Verificando deploy
+Verificando https://app.leadcapture.online
+
+OK    index.html
+OK    missing chunk → 404 (not HTML)
+OK    admin-agent route
+OK    /admin SPA
+
+Tudo OK
+Smoke test: https://app.leadcapture.online
+
+OK    / → HTTP 200
+OK    / → conteúdo renderizado (141 chars)
+OK    / → sem erros de chunk
+OK    /login → HTTP 200
+OK    /login → conteúdo renderizado (141 chars)
+OK    /login → sem erros de chunk
+OK    /admin → HTTP 200
+OK    /admin → conteúdo renderizado (141 chars)
+OK    /admin → sem erros de chunk
+OK    /inicio → HTTP 200
+OK    /inicio → conteúdo renderizado (7069 chars)
+OK    /inicio → sem erros de chunk
+
+Tudo OK
+>> Smoke autenticado (desktop)
+Smoke autenticado: https://app.leadcapture.online
+
+OK    login → /admin
+OK    workspace carregado
+OK    sem erros de chunk pós-login
+OK    Painel → módulo aberto ("Painel · 522 leads")
+OK    Painel → KPI 522
+OK    Leads → módulo aberto ("522 leads")
+OK    Leads → KPI 522
+OK    Produtos → módulo aberto ("25 produtos")
+OK    Produtos → KPI 25
+OK    Campanhas → módulo aberto ("10 campanhas")
+OK    Habilidades → módulo aberto ("9 habilidades")
+OK    Habilidades → KPI 9
+OK    Pedidos → módulo aberto ("0 pedidos")
+OK    Instagram → módulo aberto ("Instagram · conectar conta")
+OK    Instagram → hint canvas desktop
+OK    Instagram → canvas embed visível
+OK    Facebook → módulo aberto ("Facebook · conectar página")
+OK    Facebook → hint canvas desktop
+OK    Facebook → canvas embed visível
+
+Tudo OK
+>> Smoke autenticado (mobile)
+Smoke mobile (iPhone 14): https://app.leadcapture.online
+
+OK    login → /admin (mobile)
+OK    workspace carregado
+OK    footer do chat visível
+OK    footer safe-area padding (8px)
+OK    Painel → inline ("Painel · 522 leads")
+OK    Painel → KPI 522
+OK    Painel → painel expandido
+OK    Painel → CatalogManagerSheet aberto (head pad 12px)
+OK    Leads → inline ("522 leads")
+OK    Leads → KPI 522
+OK    Leads → painel expandido
+OK    Produtos → inline ("25 produtos")
+OK    Produtos → KPI 25
+OK    Produtos → painel expandido
+OK    Produtos → CatalogManagerSheet aberto (head pad 12px)
+OK    Campanhas → inline ("10 campanhas")
+OK    Campanhas → painel expandido
+OK    Habilidades → inline ("9 habilidades")
+OK    Habilidades → KPI 9
+OK    Habilidades → painel expandido
+OK    Habilidades → CatalogManagerSheet aberto (head pad 12px)
+OK    Pedidos → inline ("0 pedidos")
+OK    Pedidos → painel expandido
+OK    Instagram → inline ("Instagram · conectar conta")
+OK    Instagram → painel expandido
+OK    Instagram → CatalogManagerSheet aberto (head pad 12px)
+OK    Facebook → inline ("Facebook · conectar página")
+OK    Facebook → painel expandido
+OK    Facebook → CatalogManagerSheet aberto (head pad 12px)
+OK    Afiliados → inline ("Afiliados · 0 ativos · 10%")
+OK    Afiliados → painel expandido
+OK    Afiliados → composer dock visível
+OK    Afiliados → composer Gerenciar abre CatalogManagerSheet
+OK    Afiliados → CatalogManagerSheet aberto (head pad 12px)
+OK    sem canvas fullscreen residual no mobile
+
+Tudo OK (mobile)
+
+Pos-deploy: PWA aberto pode precisar hard refresh (Ctrl+Shift+R) ou reabrir o app.
+Service worker versionado neste deploy.

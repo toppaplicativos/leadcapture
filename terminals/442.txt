@@ -1,0 +1,11 @@
+---
+pid: 11180
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd \"C:\\Users\\Public\\Projetos\\leadcapture\"; npm run build"
+started_at: 2026-07-08T18:40:29.492Z
+running_for_ms: 29190000 
+---
+
+> lead-captation-system@1.0.0 build
+> tsc
+

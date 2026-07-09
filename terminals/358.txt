@@ -1,0 +1,26 @@
+---
+pid: 35140
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd \"C:\\Users\\Public\\Projetos\\leadcapture\"; npm run build 2>&1 | Select-Object -First 30"
+started_at: 2026-07-08T11:48:11.115Z
+running_for_ms: 53929997 
+---
+
+> lead-captation-system@1.0.0 build
+> tsc
+
+src/services/instagram.ts(462,72): error TS2769: No overload matches this call.
+  Overload 1 of 3, '(obj: string, msg?: undefined): void', gave the following error.
+    Argument of type '{ payload: { access_token: string; }; response: any; }' is not assignable to parameter of type 'undefined'.
+  Overload 2 of 3, '(obj: string, msg?: undefined, ...args: unknown[]): void', gave the following error.
+    Argument of type '{ payload: { access_token: string; }; response: any; }' is not assignable to parameter of type 'undefined'.
+src/services/instagram.ts(1277,83): error TS2769: No overload matches this call.
+  Overload 1 of 3, '(obj: string, msg?: undefined): void', gave the following error.
+    Argument of type '{ type: "image" | "video"; url: unknown; }' is not assignable to parameter of type 'undefined'.
+  Overload 2 of 3, '(obj: string, msg?: undefined, ...args: unknown[]): void', gave the following error.
+    Argument of type '{ type: "image" | "video"; url: unknown; }' is not assignable to parameter of type 'undefined'.
+src/services/instagram.ts(1349,53): error TS2769: No overload matches this call.
+  Overload 1 of 3, '(obj: "[Instagram] Publishing image", msg?: undefined): void', gave the following error.
+    Argument of type '{ imageUrl: string; postId: string; }' is not assignable to parameter of type 'undefined'.
+  Overload 2 of 3, '(obj: "[Instagram] Publishing image", msg?: undefined, ...args: unknown[]): void', gave the following error.
+    Argument of type '{ imageUrl: string; postId: string; }' is not assignable to parameter of type 'undefined'.

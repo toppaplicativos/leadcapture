@@ -1,0 +1,7 @@
+---
+pid: 23564
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "ping -n 45 127.0.0.1 > $null"
+started_at: 2026-07-07T17:03:29.052Z
+running_for_ms: 269992   
+---

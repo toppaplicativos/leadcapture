@@ -1,0 +1,17 @@
+{
+  "name": "typeui_install_design_system",
+  "description": "Add a TypeUI registry design skill to the signed-in user's workspace project if needed, then prepare the generated design-skill package.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "slug": {
+        "description": "TypeUI design-skill slug, for example bold or cafe.",
+        "type": "string"
+      }
+    },
+    "required": [
+      "slug"
+    ],
+    "type": "object"
+  }
+}

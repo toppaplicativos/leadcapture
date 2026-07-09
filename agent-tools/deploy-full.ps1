@@ -9,6 +9,24 @@ param(
 $ErrorActionPreference = "Stop"
 $Root = Split-Path $PSScriptRoot -Parent
 
+function Import-SmokeEnv {
+  $smokeFile = Join-Path $PSScriptRoot ".env.smoke"
+  if (-not (Test-Path $smokeFile)) { return }
+  Get-Content $smokeFile | ForEach-Object {
+    $line = $_.Trim()
+    if (-not $line -or $line.StartsWith('#')) { return }
+    if ($line -match '^([^=]+)=(.*)$') {
+      $name = $matches[1].Trim()
+      $value = $matches[2].Trim().Trim('"').Trim("'")
+      if (-not [string]::IsNullOrWhiteSpace($name) -and -not (Get-Item "Env:$name" -ErrorAction SilentlyContinue)) {
+        Set-Item -Path "Env:$name" -Value $value
+      }
+    }
+  }
+}
+
+Import-SmokeEnv
+
 if (-not $SkipBuild) {
   Write-Host ">> Bumping service worker cache (força refresh pós-deploy)"
   node "$PSScriptRoot\bump-service-worker.mjs"
@@ -69,8 +87,8 @@ pm2 save
 echo OK deploy
 "@
 
-Write-Host ">> Aguardando serviços (15s)"
-Start-Sleep -Seconds 15
+Write-Host ">> Aguardando serviços (25s)"
+Start-Sleep -Seconds 25
 Write-Host ">> Verificando deploy"
 node "$PSScriptRoot\verify-deploy.mjs"
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -78,14 +96,41 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 node "$PSScriptRoot\smoke-app.mjs"
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+function Invoke-SmokeWithRetry {
+  param(
+    [string]$Label,
+    [string]$ScriptPath,
+    [int]$MaxAttempts = 2
+  )
+  for ($i = 1; $i -le $MaxAttempts; $i++) {
+    if ($i -gt 1) {
+      $waitSec = if ($Label -eq "affiliate-ownership" -or $Label -eq "mobile") { 18 } else { 12 }
+      Write-Host ">> Retry smoke $Label ($i/$MaxAttempts) após ${waitSec}s"
+      Start-Sleep -Seconds $waitSec
+    }
+    node $ScriptPath
+    if ($LASTEXITCODE -eq 0) { return }
+  }
+  exit $LASTEXITCODE
+}
+
 if (-not $SkipSmoke -and $env:SMOKE_EMAIL -and $env:SMOKE_PASSWORD) {
   Write-Host ">> Smoke autenticado (desktop)"
-  node "$PSScriptRoot\smoke-authenticated.mjs"
-  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+  Invoke-SmokeWithRetry -Label "desktop" -ScriptPath "$PSScriptRoot\smoke-authenticated.mjs"
 
   Write-Host ">> Smoke autenticado (mobile)"
-  node "$PSScriptRoot\smoke-authenticated-mobile.mjs"
-  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+  Invoke-SmokeWithRetry -Label "mobile" -ScriptPath "$PSScriptRoot\smoke-authenticated-mobile.mjs" -MaxAttempts 3
+
+  if ($env:SMOKE_AFFILIATE_EMAIL -or $env:SMOKE_AFFILIATE_PASSWORD) {
+    Write-Host ">> Smoke ownership afiliado"
+    Invoke-SmokeWithRetry -Label "affiliate-ownership" -ScriptPath "$PSScriptRoot\smoke-affiliate-ownership.mjs" -MaxAttempts 3
+  } else {
+    Write-Host ">> Smoke ownership afiliado (credenciais padrão embutidas)"
+    Invoke-SmokeWithRetry -Label "affiliate-ownership" -ScriptPath "$PSScriptRoot\smoke-affiliate-ownership.mjs" -MaxAttempts 3
+
+    Write-Host ">> Smoke distribuição afiliado"
+    Invoke-SmokeWithRetry -Label "affiliate-distribution" -ScriptPath "$PSScriptRoot\smoke-affiliate-distribution.mjs" -MaxAttempts 2
+  }
 } elseif (-not $SkipSmoke) {
   Write-Host ">> Smoke autenticado ignorado (defina SMOKE_EMAIL e SMOKE_PASSWORD)"
 }

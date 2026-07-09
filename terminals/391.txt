@@ -1,0 +1,8 @@
+---
+pid: 27372
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd C:\\Users\\Public\\Projetos\\leadcapture; npx tsc --pretty false 2>&1 | Select-Object -Last 3; if ($LASTEXITCODE -eq 0) { Write-Output \"BACKEND_OK\" }"
+started_at: 2026-07-08T14:41:25.175Z
+running_for_ms: 43535006 
+---
+BACKEND_OK

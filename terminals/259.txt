@@ -1,0 +1,25 @@
+---
+pid: 31444
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd C:\\Users\\Public\\Projetos\\leadcapture\\frontend; npm run build 2>&1 | Select-Object -Last 35"
+started_at: 2026-07-07T20:03:37.743Z
+running_for_ms: 86400003 
+---
+
+> leadcapture-frontend@1.0.0 build
+> tsc -b && vite build
+
+src/pages/AffiliatesPage.tsx(124,11): error TS2322: Type 'CommissionMode' is not assignable to type '"percentage"'.
+  Type '"fixed_per_order"' is not assignable to type '"percentage"'.
+src/pages/AffiliatesPage.tsx(654,39): error TS2345: Argument of type '(f: { is_enabled: boolean; accept_new_affiliates: boolean; auto_approve_affiliates: boolean; default_commission_pct: number; default_commission_mode: "percentage"; default_commission_value: number; ... 6 more ...; terms_html: string; }) => { ...; }' is not assignable to parameter of type 'SetStateAction<{ is_enabled: boolean; accept_new_affiliates: boolean; auto_approve_affiliates: boolean; default_commission_pct: number; default_commission_mode: "percentage"; default_commission_value: number; ... 6 more ...; terms_html: string; }>'.
+  Type '(f: { is_enabled: boolean; accept_new_affiliates: boolean; auto_approve_affiliates: boolean; default_commission_pct: number; default_commission_mode: "percentage"; default_commission_value: number; ... 6 more ...; terms_html: string; }) => { ...; }' is not assignable to type '(prevState: { is_enabled: boolean; accept_new_affiliates: boolean; auto_approve_affiliates: boolean; default_commission_pct: number; default_commission_mode: "percentage"; default_commission_value: number; ... 6 more ...; terms_html: string; }) => { ...; }'.
+    Call signature return types '{ default_commission_mode: CommissionMode; default_commission_value: number; is_enabled: boolean; accept_new_affiliates: boolean; auto_approve_affiliates: boolean; ... 7 more ...; terms_html: string; }' and '{ is_enabled: boolean; accept_new_affiliates: boolean; auto_approve_affiliates: boolean; default_commission_pct: number; default_commission_mode: "percentage"; default_commission_value: number; ... 6 more ...; terms_html: string; }' are incompatible.
+      The types of 'default_commission_mode' are incompatible between these types.
+        Type 'CommissionMode' is not assignable to type '"percentage"'.
+          Type '"fixed_per_order"' is not assignable to type '"percentage"'.
+
+---
+exit_code: -1
+elapsed_ms: 86400003
+ended_at: 2026-07-08T20:03:47.480Z
+---

@@ -1,0 +1,53 @@
+---
+pid: 28096
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "$env:SMOKE_EMAIL='eleniceventura72@gmail.com'; $env:SMOKE_PASSWORD='salao1234'; node \"C:\\Users\\Public\\Projetos\\leadcapture\\agent-tools\\smoke-authenticated-mobile.mjs\" \"https://app.leadcapture.online\" 2>&1"
+started_at: 2026-07-07T17:54:43.472Z
+running_for_ms: 86400006 
+---
+Smoke mobile (iPhone 14): https://app.leadcapture.online
+
+OK    login → /admin (mobile)
+OK    workspace carregado
+OK    footer do chat visível
+OK    footer safe-area padding (8px)
+OK    Painel → inline ("Painel · 522 leads")
+OK    Painel → KPI 522
+OK    Painel → painel expandido
+OK    Painel → CatalogManagerSheet aberto (head pad 12px)
+OK    Leads → inline ("522 leads")
+OK    Leads → KPI 522
+OK    Leads → painel expandido
+OK    Produtos → inline ("25 produtos")
+OK    Produtos → KPI 25
+OK    Produtos → painel expandido
+node : FAIL  Produtos → botão manager sheet não encontrado
+No linha:1 caractere:81
++ ... salao1234'; node "C:\Users\Public\Projetos\leadcapture\agent-tools\sm ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (FAIL  Produtos ...não encontrado:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+OK    Campanhas → inline ("10 campanhas")
+OK    Campanhas → painel expandido
+OK    Habilidades → inline ("9 habilidades")
+OK    Habilidades → KPI 9
+OK    Habilidades → painel expandido
+OK    Habilidades → CatalogManagerSheet aberto (head pad 12px)
+OK    Pedidos → inline ("0 pedidos")
+OK    Pedidos → painel expandido
+OK    Instagram → inline ("Instagram · conectar conta")
+OK    Instagram → painel expandido
+OK    Instagram → CatalogManagerSheet aberto (head pad 12px)
+OK    Facebook → inline ("Facebook · conectar página")
+OK    Facebook → painel expandido
+OK    Facebook → CatalogManagerSheet aberto (head pad 12px)
+OK    sem canvas fullscreen residual no mobile
+
+1 falha(s)
+
+---
+exit_code: -1
+elapsed_ms: 86400006
+ended_at: 2026-07-08T17:54:50.562Z
+---

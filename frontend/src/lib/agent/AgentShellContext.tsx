@@ -18,10 +18,11 @@ import { useCampaignsBridgeOptional } from './CampaignsBridgeContext'
 import { useGalleryBridgeOptional } from './GalleryBridgeContext'
 import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
 import { resolveTrigger } from './workspaceTriggers'
-import { isCampaignSkill, isLeadsSkill, isClientsSkill, isOrdersSkill, isDashboardSkill, isSkillsModuleSkill, isInstagramSkill, isFacebookSkill, isAutomationSkill } from './composerAiActions'
+import { isCampaignSkill, isLeadsSkill, isClientsSkill, isOrdersSkill, isDashboardSkill, isSkillsModuleSkill, isInstagramSkill, isFacebookSkill, isAutomationSkill, isAffiliateSkill } from './composerAiActions'
 import { useInstagramBridgeOptional } from './InstagramBridgeContext'
 import { useFacebookBridgeOptional } from './FacebookBridgeContext'
 import { useAutomationsBridgeOptional } from './AutomationsBridgeContext'
+import { useAffiliatesBridgeOptional } from './AffiliatesBridgeContext'
 import { useLeadsBridgeOptional } from './LeadsBridgeContext'
 import { useClientsBridgeOptional } from './ClientsBridgeContext'
 import { useOrdersBridgeOptional } from './OrdersBridgeContext'
@@ -76,6 +77,26 @@ type AgentShellValue = {
   facebookModuleOpen: boolean
   closeAutomationsModule: () => void
   automationsModuleOpen: boolean
+  closeAffiliatesModule: () => void
+  affiliatesModuleOpen: boolean
+  sessionId: string | null
+  sessionTitle: string | null
+  sessionHydrating: boolean
+  startNewSession: () => Promise<void>
+  sessions: ReturnType<typeof useAdminAgentChat>['sessions']
+  sessionsLoading: boolean
+  loadSessions: ReturnType<typeof useAdminAgentChat>['loadSessions']
+  switchSession: ReturnType<typeof useAdminAgentChat>['switchSession']
+  deleteSession: ReturnType<typeof useAdminAgentChat>['deleteSession']
+  renameSession: ReturnType<typeof useAdminAgentChat>['renameSession']
+  brandMemory: ReturnType<typeof useAdminAgentChat>['brandMemory']
+  clearBrandMemory: ReturnType<typeof useAdminAgentChat>['clearBrandMemory']
+  updateBrandMemory: ReturnType<typeof useAdminAgentChat>['updateBrandMemory']
+  togglePinSession: ReturnType<typeof useAdminAgentChat>['togglePinSession']
+  sessionSummary: string | null
+  searchSessions: ReturnType<typeof useAdminAgentChat>['searchSessions']
+  searchResults: ReturnType<typeof useAdminAgentChat>['searchResults']
+  searchLoading: boolean
 }
 
 const AgentShellContext = createContext<AgentShellValue | null>(null)
@@ -90,11 +111,17 @@ export function useAgentShellOptional() {
   return useContext(AgentShellContext)
 }
 
-export function AgentShellProvider({ children }: { children: ReactNode }) {
+export function AgentShellProvider({
+  children,
+  brandId = '',
+}: {
+  children: ReactNode
+  brandId?: string
+}) {
   const navigate = useNavigate()
   const location = useLocation()
   const waConnect = useWhatsAppConnectOptional()
-  const chat = useAdminAgentChat(location.pathname)
+  const chat = useAdminAgentChat(location.pathname, brandId)
   const prospectBridge = useProspectBridgeOptional()
   const inboxBridge = useInboxBridgeOptional()
   const productsBridge = useProductsBridgeOptional()
@@ -108,6 +135,7 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
   const instagramBridge = useInstagramBridgeOptional()
   const facebookBridge = useFacebookBridgeOptional()
   const automationsBridge = useAutomationsBridgeOptional()
+  const affiliatesBridge = useAffiliatesBridgeOptional()
   const isDesktop = useIsDesktop()
 
   const PRODUCT_SKILLS = useMemo(() => new Set(['catalog.products', 'catalog.products.table', 'catalog.products.create']), [])
@@ -243,6 +271,15 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
     setMobileCanvasOpen(false)
     setCanvasMode('agent')
   }, [automationsBridge])
+
+  const closeAffiliatesModule = useCallback(() => {
+    affiliatesBridge?.setModuleOpen(false)
+    affiliatesBridge?.setModuleExpanded(false)
+    setDesktopCanvasOpen(false)
+    setEmbeddedRoute(null)
+    setMobileCanvasOpen(false)
+    setCanvasMode('agent')
+  }, [affiliatesBridge])
 
   const closeLeadsModule = useCallback(() => {
     leadsBridge?.setModuleOpen(false)
@@ -661,11 +698,8 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
     }
     automationsBridge?.setModuleOpen(true)
     automationsBridge?.setModuleExpanded(true)
-    if (activeTurn.skill !== 'flow.builder') {
-      openCatalogCanvas('/fluxos')
-    } else {
-      openCatalogCanvas('/fluxos')
-    }
+    const automationRoute = activeTurn.skill === 'flow.builder' ? '/fluxos' : '/automacoes'
+    openCatalogCanvas(automationRoute)
     const stats = activeTurn.components?.find((c) => c.type === 'automation_stats')
     if (stats?.props) {
       automationsBridge?.publishSnapshot({
@@ -680,18 +714,62 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
     }
   }, [activeTurn, automationsBridge, isDesktop, closeAutomationsModule])
 
+  /* Afiliados: chat = resumo; desktop = gestão no canvas */
+  useEffect(() => {
+    if (!activeTurn || !isAffiliateSkill(activeTurn.skill)) {
+      if (affiliatesBridge?.moduleOpen && activeTurn && !isAffiliateSkill(activeTurn.skill)) {
+        closeAffiliatesModule()
+      }
+      return
+    }
+    affiliatesBridge?.setModuleOpen(true)
+    affiliatesBridge?.setModuleExpanded(true)
+    if (isDesktop) {
+      openCatalogCanvas('/afiliados')
+    }
+    const stats = activeTurn.components?.find((c) => c.type === 'affiliate_stats')
+    if (stats?.props) {
+      affiliatesBridge?.publishSnapshot({
+        enabled: !!stats.props.enabled,
+        commissionPct: Number(stats.props.commissionPct || 10),
+        affiliatesTotal: Number(stats.props.affiliatesTotal || 0),
+        affiliatesPending: Number(stats.props.affiliatesPending || 0),
+        affiliatesActive: Number(stats.props.affiliatesActive || 0),
+        totalClicks: Number(stats.props.totalClicks || 0),
+        totalSales: Number(stats.props.totalSales || 0),
+        commissionPending: Number(stats.props.commissionPending || 0),
+        commissionApproved: Number(stats.props.commissionApproved || 0),
+        payoutsRequested: Number(stats.props.payoutsRequested || 0),
+        commissionsPendingCount: Number(stats.props.commissionsPendingCount || 0),
+        materialsCount: Number(stats.props.materialsCount || 0),
+        topAffiliates: Array.isArray(stats.props.topAffiliates)
+          ? stats.props.topAffiliates as Array<{
+            id: string; name: string; code: string; status: string
+            clicks: number; sales: number; commission: number
+          }>
+          : [],
+        loading: false,
+      })
+    }
+    if (!isDesktop) {
+      const skill = activeTurn.skill
+      if (skill === 'affiliate.payouts' || skill === 'affiliate.payout.confirm') {
+        affiliatesBridge?.queueCommand({ type: 'open_tab', tab: 'payouts' })
+      } else if (skill === 'affiliate.config' || skill === 'affiliate.config.confirm') {
+        affiliatesBridge?.queueCommand({ type: 'open_settings' })
+      } else if (skill === 'affiliate.materials') {
+        affiliatesBridge?.queueCommand({ type: 'open_tab', tab: 'materials' })
+      } else if (skill === 'affiliate.approve') {
+        affiliatesBridge?.queueCommand({ type: 'open_tab', tab: 'commissions' })
+      }
+    }
+  }, [activeTurn, affiliatesBridge, isDesktop, closeAffiliatesModule])
+
   const send = useCallback(async (
     text: string,
     opts?: { componentEvent?: ComponentEvent; skillContext?: SkillContext; directSkill?: string },
   ) => {
     await chat.send(text, opts)
-  }, [chat])
-
-  const triggerSkill = useCallback((
-    skillId: string,
-    opts?: TriggerSkillOptions,
-  ) => {
-    chat.triggerSkill(skillId, opts)
   }, [chat])
 
   const openCanvas = useCallback((route: string) => {
@@ -701,17 +779,42 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
     setMobileCanvasOpen(true)
   }, [])
 
+  const triggerSkill = useCallback((
+    skillId: string,
+    opts?: TriggerSkillOptions,
+  ) => {
+    if (skillId === 'whatsapp.connect') {
+      waConnect?.openConnect()
+      return
+    }
+    if (skillId === 'settings.open') {
+      openCanvas('/configuracoes')
+      navigate('/configuracoes')
+      return
+    }
+    chat.triggerSkill(skillId, opts)
+  }, [chat, waConnect, openCanvas, navigate])
+
   const triggerNav = useCallback((navKeyOrPath: string) => {
     const raw = String(navKeyOrPath || '').trim().replace(/\/$/, '')
     const key = raw.startsWith('/') ? raw.slice(1) : raw
 
-    if (key === 'whatsapp' || raw === '/whatsapp') {
+    if (
+      key === 'whatsapp'
+      || raw === '/whatsapp'
+      || raw.includes('tab=whatsapp')
+    ) {
+      if (raw.includes('/configuracoes')) {
+        openCanvas('/configuracoes?tab=whatsapp')
+        navigate('/configuracoes?tab=whatsapp')
+        return
+      }
       waConnect?.openConnect()
       return
     }
-    if (key === 'configuracoes' || raw === '/configuracoes') {
-      openCanvas('/configuracoes')
-      navigate('/configuracoes')
+    if (key === 'configuracoes' || raw === '/configuracoes' || raw.startsWith('/configuracoes')) {
+      openCanvas(raw.startsWith('/') ? raw : '/configuracoes')
+      navigate(raw.startsWith('/') ? raw : '/configuracoes')
       return
     }
     if (key === 'produtos' || raw === '/produtos') {
@@ -732,6 +835,10 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
     }
     if (key === 'automacoes' || raw === '/automacoes') {
       chat.triggerSkill('automation.open', { label: 'Automações', assistantMessage: 'Suas automações WhatsApp:' })
+      return
+    }
+    if (key === 'afiliados' || raw === '/afiliados') {
+      chat.triggerSkill('affiliate.open', { label: 'Afiliados', assistantMessage: 'Seu programa de parceiros:' })
       return
     }
     if (key === 'fluxos' || raw === '/fluxos') {
@@ -820,6 +927,8 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
     facebookModuleOpen: !!facebookBridge?.moduleOpen,
     closeAutomationsModule,
     automationsModuleOpen: !!automationsBridge?.moduleOpen,
+    closeAffiliatesModule,
+    affiliatesModuleOpen: !!affiliatesBridge?.moduleOpen,
     closeLeadsModule,
     leadsModuleOpen: !!leadsBridge?.moduleOpen,
     closeClientsModule,
@@ -830,6 +939,24 @@ export function AgentShellProvider({ children }: { children: ReactNode }) {
     dashboardModuleOpen: !!dashboardBridge?.moduleOpen,
     closeSkillsModule,
     skillsModuleOpen: !!skillsBridge?.moduleOpen,
+    sessionId: chat.sessionId,
+    sessionTitle: chat.sessionTitle,
+    sessionHydrating: chat.sessionHydrating,
+    startNewSession: chat.startNewSession,
+    sessions: chat.sessions,
+    sessionsLoading: chat.sessionsLoading,
+    loadSessions: chat.loadSessions,
+    switchSession: chat.switchSession,
+    deleteSession: chat.deleteSession,
+    renameSession: chat.renameSession,
+    brandMemory: chat.brandMemory,
+    clearBrandMemory: chat.clearBrandMemory,
+    updateBrandMemory: chat.updateBrandMemory,
+    togglePinSession: chat.togglePinSession,
+    sessionSummary: chat.sessionSummary,
+    searchSessions: chat.searchSessions,
+    searchResults: chat.searchResults,
+    searchLoading: chat.searchLoading,
   }
 
   return (

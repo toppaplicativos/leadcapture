@@ -36,7 +36,7 @@ export interface InstanceHealthRow {
   phone: string | null;
   brand_id: string | null;
   status_db: string;
-  status_runtime: "connected" | "disconnected" | "unknown";
+  status_runtime: "connected" | "disconnected" | "connecting" | "pairing" | "unknown";
   drift: boolean;            // db != runtime
   last_connected_at: string | null;
   seconds_since_connected: number | null;
@@ -265,19 +265,18 @@ async function autoPauseOrphanedCampaigns(): Promise<void> {
 
 /* Fallback que verifica se o instanceManager.sockets tem entry pra esse id.
    Usado quando o IM nao expoe getRuntimeStatus. */
-function detectRuntimeStatusFallback(id: string): "connected" | "disconnected" | "unknown" {
+function detectRuntimeStatusFallback(id: string): "connected" | "disconnected" | "connecting" | "pairing" | "unknown" {
   if (!imRef) return "unknown";
   try {
     const sockets = (imRef as any).sockets as Map<string, any> | undefined;
     const instances = (imRef as any).instances as Map<string, any> | undefined;
+    const pairingSessions = (imRef as any).pairingSessions as Set<string> | undefined;
     if (!sockets || !instances) return "unknown";
+    if (pairingSessions?.has(id)) return "pairing";
     const sock = sockets.get(id);
     const inst = instances.get(id);
-    /* Trata 'connecting' como "connected" para fins de detecção de drift —
-       durante um reconnect breve o socket já existe mas o status ainda é
-       'connecting'. Considerar isso "disconnected" gera falsos positivos de
-       drift (forward drift) que oscilam a cada tick. */
-    if (sock && inst && inst.status !== "disconnected") return "connected";
+    if (sock && inst && inst.status === "connected") return "connected";
+    if (sock && inst && inst.status === "connecting") return "connecting";
     return "disconnected";
   } catch {
     return "unknown";
@@ -302,7 +301,12 @@ function hasPendingQr(id: string): boolean {
    getHealthSnapshot — usado pelo endpoint /api/instances/health
    ═══════════════════════════════════════════════════════════════════ */
 
-export async function getHealthSnapshot(opts?: { userId?: string; brandId?: string | null }): Promise<{
+export async function getHealthSnapshot(opts?: {
+  userId?: string;
+  brandId?: string | null;
+  isAffiliate?: boolean;
+  ownerActorId?: string | null;
+}): Promise<{
   instances: InstanceHealthRow[];
   summary: {
     total: number;
@@ -324,6 +328,11 @@ export async function getHealthSnapshot(opts?: { userId?: string; brandId?: stri
   if (opts?.brandId) {
     conds.push("(brand_id = ? OR brand_id IS NULL OR brand_id = '')");
     params.push(opts.brandId);
+  }
+  if (opts?.isAffiliate && opts?.ownerActorId) {
+    conds.push("owner_type = 'affiliate'");
+    conds.push("owner_actor_id = ?");
+    params.push(opts.ownerActorId);
   }
   const where = conds.length > 0 ? `WHERE ${conds.join(" AND ")}` : "";
 

@@ -1,15 +1,21 @@
 import { useEffect, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Package } from 'lucide-react'
 import { fetchCatalog, type Product, type StoreData } from '@/lib/api'
 import { useCartStore } from '@/lib/store'
 import { ProductCard } from '@/components/ProductCard'
-import { ProductModal } from '@/components/ProductModal'
 import { ProductSkeleton } from '@/components/Skeleton'
 import { useToast } from '@/components/Toast'
 import { applySeo, truncate } from '@/lib/seo'
 import { StoreHero } from '@/components/store/StoreHero'
+import { StoreMarketingLayer } from '@/components/store/StoreMarketingLayer'
 import { StoreFilters } from '@/components/store/StoreFilters'
 import { StoreSection } from '@/components/store/StoreSection'
+import { StoreCategoryCarousel } from '@/components/store/StoreCategoryCarousel'
+import { shouldShowCategoryCarousel, type StoreCatalogCategory } from '@/lib/store-design'
+import { captureAffiliateFromUrl, getAffiliateCoupon, getAffiliateDisplayName } from '@/lib/affiliate-tracking'
+import { productPath } from '@/lib/product-url'
+import { getStoreSlug } from '@/lib/store-context'
 
 interface CatalogHomeProps {
   onStoreLoaded: (store: StoreData['store']) => void
@@ -55,24 +61,53 @@ function HeroSkeletonBlock() {
 }
 
 export function CatalogHome({ onStoreLoaded }: CatalogHomeProps) {
+  const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const [catalogSlug, setCatalogSlug] = useState(getStoreSlug())
   const [products, setProducts] = useState<Product[]>([])
   const [collections, setCollections] = useState<CatalogCollection[]>([])
   const [attrDefs, setAttrDefs] = useState<AttributeFilterDef[]>([])
   const [attrFilters, setAttrFilters] = useState<Record<string, string>>({})
   const [store, setStore] = useState<StoreData['store'] | null>(null)
+  const [storeCategories, setStoreCategories] = useState<StoreCatalogCategory[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedCategory, setSelectedCategory] = useState('')
+  const [affiliateBanner, setAffiliateBanner] = useState<{ name: string; coupon: string } | null>(null)
   const addItem = useCartStore((s) => s.addItem)
   const { showToast } = useToast()
 
   useEffect(() => {
+    captureAffiliateFromUrl()
+      .then((result) => {
+        if (result.ok && (result.coupon || result.ref)) {
+          const coupon = result.coupon || getAffiliateCoupon() || ''
+          const name = result.displayName || getAffiliateDisplayName() || result.ref || 'parceiro'
+          setAffiliateBanner({ name, coupon })
+          if (coupon) {
+            showToast(`Cupom ${coupon} será aplicado no checkout`)
+          }
+          return
+        }
+        if (result.error) {
+          showToast(result.error)
+        }
+      })
+      .catch(() => {})
     fetchCatalog()
       .then((data) => {
         setStore(data.store)
+        const slug = String((data.store as any)?.slug || getStoreSlug()).trim()
+        if (slug) setCatalogSlug(slug)
         setProducts(data.all_products || [])
+        setStoreCategories(
+          Array.isArray(data.store_categories)
+            ? data.store_categories
+            : Array.isArray((data as any).categories)
+              ? (data as any).categories.filter((c: StoreCatalogCategory) => c?.id && c?.name)
+              : [],
+        )
         setCollections(Array.isArray((data as any).collections) ? (data as any).collections : [])
         setAttrDefs(Array.isArray((data as any).attribute_definitions) ? (data as any).attribute_definitions : [])
         onStoreLoaded(data.store)
@@ -104,38 +139,28 @@ export function CatalogHome({ onStoreLoaded }: CatalogHomeProps) {
       .finally(() => setLoading(false))
   }, [onStoreLoaded])
 
+  /* Links antigos ?produto=slug ou ?p=slug → página dedicada do produto */
+  useEffect(() => {
+    if (!catalogSlug || products.length === 0) return
+    const legacySlug =
+      searchParams.get('produto')?.trim() ||
+      searchParams.get('p')?.trim() ||
+      searchParams.get('product')?.trim()
+    if (!legacySlug) return
+    const match =
+      products.find((p) => p.slug === legacySlug) ||
+      products.find((p) => p.id === legacySlug)
+    if (!match) return
+    navigate(productPath(match, catalogSlug), { replace: true })
+  }, [catalogSlug, products, searchParams, navigate])
+
   function handleQuickAdd(productId: string) {
     addItem(productId)
     const p = products.find((x) => x.id === productId)
     showToast((p?.name || 'Produto') + ' adicionado')
   }
 
-  function handleModalAdd(payload: {
-    productId: string
-    qty: number
-    variantId?: string | null
-    variantName?: string | null
-    variantAttributes?: Record<string, any> | null
-    configuratorSelections?: Array<{ group_id: string; option_ids: string[] }> | null
-    configuratorSummary?: string | null
-    unitPrice?: number | null
-  }) {
-    addItem({
-      productId: payload.productId,
-      variantId: payload.variantId,
-      variantName: payload.variantName,
-      variantAttributes: payload.variantAttributes,
-      configuratorSelections: payload.configuratorSelections,
-      configuratorSummary: payload.configuratorSummary,
-      unitPrice: payload.unitPrice,
-      quantity: payload.qty,
-    })
-    const p = products.find((x) => x.id === payload.productId)
-    const parts = [p?.name || 'Produto']
-    if (payload.variantName) parts.push(`(${payload.variantName})`)
-    if (payload.configuratorSummary) parts.push(`— ${payload.configuratorSummary}`)
-    showToast(`${parts.join(' ')} adicionado ao carrinho`)
-  }
+
 
   function handleAttrFilterToggle(key: string, value: string) {
     setAttrFilters((prev) => {
@@ -217,6 +242,7 @@ export function CatalogHome({ onStoreLoaded }: CatalogHomeProps) {
     ''
 
   const showCollections = !loading && !searchQuery && !selectedCategory && collections.length > 0
+  const showCategoryCarousel = !loading && shouldShowCategoryCarousel(storeCategories, store?.design)
 
   return (
     <div className="store-page page-enter">
@@ -233,6 +259,40 @@ export function CatalogHome({ onStoreLoaded }: CatalogHomeProps) {
           deliveryFee={deliveryFee}
           deliveryTime={deliveryTime}
           whatsappPhone={(brand as any)?.whatsapp_phone}
+          marketing={store?.marketing}
+        />
+      )}
+
+      {affiliateBanner && (
+        <div className="max-w-[var(--store-max)] mx-auto px-4 -mt-2 mb-3">
+          <div
+            className="rounded-2xl border px-4 py-3 text-sm shadow-sm"
+            style={{
+              borderColor: 'var(--brand-secondary-soft, #e5e7eb)',
+              background: 'var(--brand-secondary-light, #f9fafb)',
+            }}
+          >
+            <p className="font-semibold text-gray-900">
+              Indicação de {affiliateBanner.name}
+            </p>
+            {affiliateBanner.coupon ? (
+              <p className="text-xs text-gray-600 mt-1">
+                Cupom <strong className="tracking-wider">{affiliateBanner.coupon}</strong> será aplicado automaticamente no checkout.
+              </p>
+            ) : (
+              <p className="text-xs text-gray-600 mt-1">Sua compra será atribuída a este parceiro.</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {showCategoryCarousel && (
+        <StoreCategoryCarousel
+          categories={storeCategories}
+          products={products}
+          selectedCategory={selectedCategory}
+          onCategoryChange={setSelectedCategory}
+          shape={store?.design?.categories_carousel?.shape === 'round' ? 'round' : 'rounded'}
         />
       )}
 
@@ -248,6 +308,7 @@ export function CatalogHome({ onStoreLoaded }: CatalogHomeProps) {
         onAttrFilterToggle={handleAttrFilterToggle}
         onClearAttrFilters={() => setAttrFilters({})}
         activeAttrFilterCount={activeAttrFilters.length}
+        hideCategoryChips={showCategoryCarousel}
       />
 
       <div className="max-w-[var(--store-max)] mx-auto px-4 pt-5 pb-28 space-y-8">
@@ -270,7 +331,7 @@ export function CatalogHome({ onStoreLoaded }: CatalogHomeProps) {
                       <ProductCard
                         key={product.id}
                         product={product}
-                        onOpen={setSelectedProduct}
+                        catalogSlug={catalogSlug}
                         onQuickAdd={handleQuickAdd}
                         priority={i < 3}
                       />
@@ -306,7 +367,7 @@ export function CatalogHome({ onStoreLoaded }: CatalogHomeProps) {
                 <ProductCard
                   key={product.id}
                   product={product}
-                  onOpen={setSelectedProduct}
+                  catalogSlug={catalogSlug}
                   onQuickAdd={handleQuickAdd}
                   priority={i < 6}
                 />
@@ -316,13 +377,10 @@ export function CatalogHome({ onStoreLoaded }: CatalogHomeProps) {
         )}
       </div>
 
-      <ProductModal
-        product={selectedProduct}
-        onClose={() => setSelectedProduct(null)}
-        onAddToCart={handleModalAdd}
-        whatsappPhone={(brand as any)?.whatsapp_phone || undefined}
-        allProducts={products}
-        onSelectProduct={(p) => setSelectedProduct(p)}
+      <StoreMarketingLayer
+        marketing={store?.marketing}
+        whatsappPhone={(brand as any)?.whatsapp_phone}
+        page="home"
       />
     </div>
   )

@@ -1,0 +1,7 @@
+---
+pid: 30616
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd \"C:\\Users\\Public\\Projetos\\leadcapture\"; npx tsc --noEmit 2>&1"
+started_at: 2026-07-08T15:40:12.540Z
+running_for_ms: 40010003 
+---

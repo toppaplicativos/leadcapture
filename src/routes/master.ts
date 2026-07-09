@@ -8,8 +8,37 @@ import { authenticateToken, requireSuperAdmin, type AuthRequest } from "../middl
 import { masterService } from "../services/master"
 import { syncPlanWithStripe, disablePlanLink } from "../services/stripeProducts"
 import { emailService, renderTemplate } from "../services/email"
+import { integrationService } from "../services/integrations"
+import { getPushNotificationService } from "../services/pushNotifications"
+import { PUSH_APP_CONTEXT_LABELS, PUSH_SOUND_OPTIONS } from "../config/push-events"
+import { AI_MODELS, DEFAULT_PREFERENCES } from "../config/ai-models"
 import { query, queryOne } from "../config/database"
 import { logger } from "../utils/logger"
+
+const GLOBAL_PROVIDER_SCOPE = { accountId: "__global__" as const }
+
+const DEFAULT_PLATFORM_TOOLS = {
+  maintenance_mode: false,
+  maintenance_message: "",
+  signup_enabled: true,
+  public_signup: true,
+  modules: {
+    whatsapp: true,
+    instagram: true,
+    facebook: true,
+    campaigns: true,
+    automations: true,
+    catalog: true,
+    affiliates: true,
+    ai_creatives: true,
+    prospect_radar: true,
+    video_studio: true,
+    agent_workspace: true,
+    flow_builder: true,
+    lead_import: true,
+  },
+  default_ai_preferences: DEFAULT_PREFERENCES,
+}
 
 const router = Router()
 
@@ -456,6 +485,393 @@ router.get("/emails/logs", async (_req: AuthRequest, res: Response) => {
 router.get("/audit-log", async (_req: AuthRequest, res: Response) => {
   const entries = await masterService.listAudit(200)
   return res.json({ entries })
+})
+
+/* ──────────────────────────── organizations ──────────────────────────── */
+
+router.get("/organizations", async (req: AuthRequest, res: Response) => {
+  const search = String(req.query?.search || "").trim()
+  const page = Math.max(1, parseInt(String(req.query?.page || "1"), 10))
+  const limit = Math.min(100, Math.max(10, parseInt(String(req.query?.limit || "30"), 10)))
+  const offset = (page - 1) * limit
+
+  const params: any[] = []
+  let where = "WHERE 1=1"
+  if (search) {
+    where += " AND (LOWER(b.name) LIKE ? OR LOWER(b.slug) LIKE ? OR LOWER(u.email) LIKE ? OR LOWER(u.name) LIKE ?)"
+    const q = `%${search.toLowerCase()}%`
+    params.push(q, q, q, q)
+  }
+
+  const totalRow = await queryOne<{ count: string }>(
+    `SELECT COUNT(*)::text AS count
+       FROM brand_units b
+       LEFT JOIN users u ON u.id = b.user_id
+      ${where}`,
+    params,
+  ).catch(() => ({ count: "0" } as any))
+
+  const rows = await query(
+    `SELECT
+       b.id,
+       b.name,
+       b.slug,
+       b.status,
+       b.is_default,
+       b.created_at,
+       b.updated_at,
+       u.id AS owner_id,
+       u.email AS owner_email,
+       u.name AS owner_name,
+       u.is_active AS owner_active,
+       s.status AS subscription_status,
+       p.name AS plan_name,
+       p.slug AS plan_slug
+     FROM brand_units b
+     LEFT JOIN users u ON u.id = b.user_id
+     LEFT JOIN LATERAL (
+       SELECT status, plan_id
+         FROM subscriptions
+        WHERE brand_id = b.id OR (brand_id IS NULL AND user_id = b.user_id)
+        ORDER BY updated_at DESC
+        LIMIT 1
+     ) s ON TRUE
+     LEFT JOIN plans p ON p.id = s.plan_id
+     ${where}
+     ORDER BY b.created_at DESC
+     LIMIT ? OFFSET ?`,
+    [...params, limit, offset],
+  ).catch(() => [])
+
+  return res.json({
+    organizations: rows,
+    total: Number(totalRow?.count || 0),
+    page,
+    limit,
+  })
+})
+
+router.patch("/organizations/:id", async (req: AuthRequest, res: Response) => {
+  const id = String(req.params.id || "").trim()
+  if (!id) return res.status(400).json({ error: "missing_id" })
+
+  const fields: string[] = []
+  const values: any[] = []
+  if ("status" in req.body) {
+    const status = String(req.body.status || "").trim()
+    if (!["active", "suspended", "archived"].includes(status)) {
+      return res.status(400).json({ error: "invalid_status" })
+    }
+    fields.push("status = ?")
+    values.push(status)
+  }
+  if ("name" in req.body) {
+    fields.push("name = ?")
+    values.push(String(req.body.name || "").trim())
+  }
+  if (fields.length === 0) return res.status(400).json({ error: "no_fields" })
+
+  fields.push("updated_at = NOW()")
+  values.push(id)
+  await query(`UPDATE brand_units SET ${fields.join(", ")} WHERE id = ?`, values)
+
+  await masterService.log({
+    actor_user_id: req.userId!,
+    actor_email: (req.user as any)?.email || "",
+    action: "organization.update",
+    resource: `brand_units/${id}`,
+    payload: req.body,
+    ip: ipOf(req),
+  })
+
+  const updated = await queryOne(`SELECT * FROM brand_units WHERE id = ?`, [id])
+  if (!updated) return res.status(404).json({ error: "not_found" })
+  return res.json({ organization: updated })
+})
+
+/* ──────────────────────────── users (management) ──────────────────────────── */
+
+router.patch("/users/:id", async (req: AuthRequest, res: Response) => {
+  const id = String(req.params.id || "").trim()
+  if (!id) return res.status(400).json({ error: "missing_id" })
+
+  const fields: string[] = []
+  const values: any[] = []
+
+  if ("is_active" in req.body) {
+    fields.push("is_active = ?")
+    values.push(!!req.body.is_active)
+  }
+  if ("is_super_admin" in req.body) {
+    fields.push("is_super_admin = ?")
+    values.push(!!req.body.is_super_admin)
+  }
+  if ("role" in req.body) {
+    const role = String(req.body.role || "").trim()
+    if (!["admin", "manager", "user"].includes(role)) {
+      return res.status(400).json({ error: "invalid_role" })
+    }
+    fields.push("role = ?")
+    values.push(role)
+  }
+  if (fields.length === 0) return res.status(400).json({ error: "no_fields" })
+
+  values.push(id)
+  await query(`UPDATE users SET ${fields.join(", ")} WHERE id = ?`, values)
+
+  await masterService.log({
+    actor_user_id: req.userId!,
+    actor_email: (req.user as any)?.email || "",
+    action: "user.update",
+    resource: `users/${id}`,
+    payload: req.body,
+    ip: ipOf(req),
+  })
+
+  const updated = await queryOne(
+    `SELECT id, email, name, role, is_super_admin, is_active, last_login_at, created_at FROM users WHERE id = ?`,
+    [id],
+  )
+  if (!updated) return res.status(404).json({ error: "not_found" })
+  return res.json({ user: updated })
+})
+
+/* ──────────────────────────── global AI providers ──────────────────────────── */
+
+router.get("/providers/catalog", async (_req: AuthRequest, res: Response) => {
+  return res.json({ models: AI_MODELS, defaults: DEFAULT_PREFERENCES })
+})
+
+router.get("/providers", async (_req: AuthRequest, res: Response) => {
+  try {
+    const providers = await integrationService.listProviders(GLOBAL_PROVIDER_SCOPE)
+    return res.json({ providers })
+  } catch (err: any) {
+    logger.error({ err: err?.message }, "master providers list error")
+    return res.status(500).json({ error: "internal" })
+  }
+})
+
+router.get("/providers/:provider", async (req: AuthRequest, res: Response) => {
+  try {
+    const provider = await integrationService.getAdminSnapshot(
+      String(req.params.provider || ""),
+      GLOBAL_PROVIDER_SCOPE,
+    )
+    return res.json({ provider })
+  } catch (err: any) {
+    return res.status(400).json({ error: err?.message || "invalid_provider" })
+  }
+})
+
+router.put("/providers/:provider", async (req: AuthRequest, res: Response) => {
+  try {
+    const provider = await integrationService.saveProvider(
+      String(req.params.provider || ""),
+      {
+        key: req.body?.key,
+        config: req.body?.config,
+        is_active: req.body?.is_active,
+        priority: req.body?.priority,
+      },
+      GLOBAL_PROVIDER_SCOPE,
+    )
+    await masterService.log({
+      actor_user_id: req.userId!,
+      actor_email: (req.user as any)?.email || "",
+      action: "provider.update",
+      resource: `providers/${req.params.provider}`,
+      payload: { is_active: req.body?.is_active, has_key: !!req.body?.key },
+      ip: ipOf(req),
+    })
+    return res.json({ provider })
+  } catch (err: any) {
+    return res.status(400).json({ error: err?.message || "save_failed" })
+  }
+})
+
+router.post("/providers/:provider/test", async (req: AuthRequest, res: Response) => {
+  try {
+    const result = await integrationService.testConnection(
+      String(req.params.provider || ""),
+      { key: req.body?.key, config: req.body?.config },
+      GLOBAL_PROVIDER_SCOPE,
+    )
+    return res.json({ ok: result.ok, message: result.message, result })
+  } catch (err: any) {
+    return res.status(400).json({ error: err?.message || "test_failed" })
+  }
+})
+
+/* ──────────────────────────── platform tools / feature flags ──────────────────────────── */
+
+router.get("/tools", async (_req: AuthRequest, res: Response) => {
+  const stored = await masterService.getSetting<typeof DEFAULT_PLATFORM_TOOLS>("platform_tools")
+  const tools = stored
+    ? {
+        ...DEFAULT_PLATFORM_TOOLS,
+        ...stored,
+        modules: { ...DEFAULT_PLATFORM_TOOLS.modules, ...(stored.modules || {}) },
+      }
+    : DEFAULT_PLATFORM_TOOLS
+  return res.json({ tools })
+})
+
+/* ──────────────────────────── push notification center ──────────────────────────── */
+
+router.get("/push/events", async (req: AuthRequest, res: Response) => {
+  const push = getPushNotificationService()
+  const appContext = req.query.app_context ? String(req.query.app_context) : undefined
+  const events = await push.listEventPolicies(appContext as any)
+  return res.json({
+    events,
+    contexts: PUSH_APP_CONTEXT_LABELS,
+    sounds: PUSH_SOUND_OPTIONS,
+  })
+})
+
+router.patch("/push/events/:id", async (req: AuthRequest, res: Response) => {
+  const id = String(req.params.id || "")
+  const push = getPushNotificationService()
+  await push.updateEventPolicy(id, {
+    label: req.body?.label,
+    description: req.body?.description,
+    default_priority: req.body?.default_priority,
+    default_enabled: req.body?.default_enabled,
+    mandatory: req.body?.mandatory,
+    sound_key: req.body?.sound_key,
+    is_active: req.body?.is_active,
+    sort_order: req.body?.sort_order,
+  })
+  await masterService.log({
+    actor_user_id: req.userId!,
+    actor_email: (req.user as any)?.email || "",
+    action: "push_event.update",
+    resource: `push_event_policies/${id}`,
+    payload: req.body,
+    ip: ipOf(req),
+  })
+  return res.json({ ok: true })
+})
+
+router.get("/push/deliveries", async (req: AuthRequest, res: Response) => {
+  const push = getPushNotificationService()
+  const limit = Math.min(500, Math.max(20, parseInt(String(req.query?.limit || "100"), 10)))
+  const entries = await push.listDeliveryAudit(limit)
+  return res.json({ entries })
+})
+
+router.get("/push/vapid", async (_req: AuthRequest, res: Response) => {
+  const push = getPushNotificationService()
+  const publicKey = await push.getPublicVapidKey()
+  return res.json({ publicKey, configured: !!publicKey })
+})
+
+router.get("/notifications/events", async (req: AuthRequest, res: Response) => {
+  const { getNotificationPlatformService } = await import("../services/notificationPlatform")
+  const platform = getNotificationPlatformService()
+  const appContext = req.query.app_context ? String(req.query.app_context) : undefined
+  const events = await platform.listEventTypes(appContext as any)
+  const withTemplates = await Promise.all(
+    events.map(async (ev) => ({
+      ...ev,
+      template: await platform.getTemplate(ev.id),
+    })),
+  )
+  return res.json({ events: withTemplates })
+})
+
+router.patch("/notifications/events/:id", async (req: AuthRequest, res: Response) => {
+  const { getNotificationPlatformService } = await import("../services/notificationPlatform")
+  const platform = getNotificationPlatformService()
+  await platform.updateEventType(String(req.params.id), req.body || {})
+  await masterService.log({
+    actor_user_id: req.userId!,
+    actor_email: (req.user as any)?.email || "",
+    action: "notification_event.update",
+    resource: `notification_event_types/${req.params.id}`,
+    payload: req.body,
+    ip: ipOf(req),
+  })
+  return res.json({ ok: true })
+})
+
+router.patch("/notifications/templates/:eventTypeId", async (req: AuthRequest, res: Response) => {
+  const { getNotificationPlatformService } = await import("../services/notificationPlatform")
+  const platform = getNotificationPlatformService()
+  await platform.updateTemplate(String(req.params.eventTypeId), req.body || {})
+  return res.json({ ok: true })
+})
+
+router.get("/notifications/escalation", async (_req: AuthRequest, res: Response) => {
+  const { getNotificationPlatformService } = await import("../services/notificationPlatform")
+  const platform = getNotificationPlatformService()
+  const rules = await platform.listEscalationRules()
+  return res.json({ rules })
+})
+
+router.patch("/notifications/escalation/:id", async (req: AuthRequest, res: Response) => {
+  const { getNotificationPlatformService } = await import("../services/notificationPlatform")
+  const platform = getNotificationPlatformService()
+  await platform.updateEscalationRule(String(req.params.id), req.body || {})
+  return res.json({ ok: true })
+})
+
+router.get("/notifications/logs", async (req: AuthRequest, res: Response) => {
+  const { getNotificationPlatformService } = await import("../services/notificationPlatform")
+  const platform = getNotificationPlatformService()
+  const limit = Math.min(500, Math.max(20, parseInt(String(req.query?.limit || "100"), 10)))
+  const logs = await platform.listLogs({
+    limit,
+    user_id: req.query.user_id ? String(req.query.user_id) : undefined,
+    event_key: req.query.event_key ? String(req.query.event_key) : undefined,
+  })
+  return res.json({ logs })
+})
+
+router.get("/notifications/devices", async (req: AuthRequest, res: Response) => {
+  const push = getPushNotificationService()
+  const userId = req.query.user_id ? String(req.query.user_id) : undefined
+  if (!userId) {
+    const rows = await query<any[]>(
+      `SELECT id, user_id, app_context, device_id, browser, operating_system,
+              permission_status, is_active, sound_enabled, last_seen_at, created_at
+       FROM push_subscriptions
+       WHERE is_active = TRUE
+       ORDER BY last_seen_at DESC NULLS LAST
+       LIMIT 200`,
+    )
+    return res.json({ devices: rows || [] })
+  }
+  const devices = await push.listDevices(userId, req.query.app_context as any)
+  return res.json({
+    devices: devices.map((d) => ({ ...d, push_endpoint: undefined })),
+  })
+})
+
+router.put("/tools", async (req: AuthRequest, res: Response) => {
+  const incoming = req.body?.tools || req.body || {}
+  const current = (await masterService.getSetting<typeof DEFAULT_PLATFORM_TOOLS>("platform_tools")) || DEFAULT_PLATFORM_TOOLS
+  const merged = {
+    ...current,
+    ...incoming,
+    modules: { ...DEFAULT_PLATFORM_TOOLS.modules, ...(current.modules || {}), ...(incoming.modules || {}) },
+    default_ai_preferences: {
+      ...DEFAULT_PREFERENCES,
+      ...(current.default_ai_preferences || {}),
+      ...(incoming.default_ai_preferences || {}),
+    },
+  }
+  await masterService.setSetting("platform_tools", merged, req.userId)
+  await masterService.log({
+    actor_user_id: req.userId!,
+    actor_email: (req.user as any)?.email || "",
+    action: "tools.update",
+    resource: "platform_tools",
+    payload: incoming,
+    ip: ipOf(req),
+  })
+  return res.json({ tools: merged })
 })
 
 export default router

@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
-  Home, Sparkles, LayoutGrid, BarChart3, Zap, CalendarDays, MessageCircle,
+  Sparkles, LayoutGrid, BarChart3, Zap, CalendarDays, MessageCircle,
   RefreshCw, Plus, Eye, TrendingUp, Users, Heart, MessageSquare, Globe,
   Loader2, CheckCircle2, AlertCircle, ExternalLink, X, Settings, Trash2,
 } from 'lucide-react'
+import { FacebookIcon } from '@/components/icons'
+import { PageSplash } from '@/components/PageSplash'
 
 const API = '/api/facebook'
 
@@ -22,7 +24,7 @@ async function api(path: string, opts?: RequestInit) {
 }
 
 const TABS = [
-  { key: 'overview', label: 'Visao Geral', icon: Home },
+  { key: 'overview', label: 'Visao Geral', icon: FacebookIcon },
   { key: 'create', label: 'Gerar Conteudo', icon: Sparkles },
   { key: 'posts', label: 'Post', icon: LayoutGrid },
   { key: 'performance', label: 'Performance', icon: BarChart3 },
@@ -60,11 +62,7 @@ export function FacebookPage({ embedded = false, initialTab = 'overview' }: Face
   useEffect(() => { setTab(initialTab) }, [initialTab])
 
   if (loading) {
-    return (
-      <div className={embedded ? 'py-10 grid place-items-center' : 'min-h-[60vh] grid place-items-center'}>
-        <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
-      </div>
-    )
+    return <PageSplash variant={embedded ? 'canvas' : 'page'} label="Facebook" />
   }
 
   if (!connection) {
@@ -99,7 +97,7 @@ export function FacebookPage({ embedded = false, initialTab = 'overview' }: Face
         <div className="flex items-center justify-between px-1 pb-4 border-b border-gray-100">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-blue-400 grid place-items-center">
-              <Globe size={20} className="text-white" />
+              <FacebookIcon size={20} className="text-white" />
             </div>
             <div>
               <h1 className="text-lg font-bold text-gray-900 tracking-tight">Facebook</h1>
@@ -165,7 +163,7 @@ function NotConnectedView({ onConnect, embedded = false }: { onConnect: () => vo
   return (
     <div className={`max-w-md mx-auto text-center ${embedded ? 'py-8' : 'py-16'}`}>
       <div className="w-20 h-20 mx-auto rounded-2xl bg-gradient-to-br from-blue-600 to-blue-400 grid place-items-center mb-6 shadow-lg shadow-blue-200/50">
-        <Globe size={32} className="text-white" />
+        <FacebookIcon size={32} className="text-white" />
       </div>
       <h1 className="text-xl font-bold text-gray-900 mb-2">Facebook Pages</h1>
       <p className="text-sm text-gray-500 mb-8 leading-relaxed">
@@ -175,7 +173,7 @@ function NotConnectedView({ onConnect, embedded = false }: { onConnect: () => vo
         onClick={onConnect}
         className="inline-flex items-center gap-2.5 px-8 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-blue-400 text-white text-sm font-semibold hover:opacity-90 transition shadow-sm"
       >
-        <Globe size={18} />
+        <FacebookIcon size={18} />
         Conectar Pagina
       </button>
     </div>
@@ -220,7 +218,7 @@ function ConnectModal({ onClose, onConnected }: { onClose: () => void; onConnect
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-600 to-blue-400 grid place-items-center">
-              <Globe size={16} className="text-white" />
+              <FacebookIcon size={16} className="text-white" />
             </div>
             <div>
               <h2 className="text-sm font-bold text-gray-900">Conectar Pagina do Facebook</h2>

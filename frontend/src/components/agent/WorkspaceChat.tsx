@@ -3,9 +3,11 @@ import { AICampaignWizardModal } from '@/components/AICampaignWizardModal'
 import { SkillTrainerWizardModal } from '@/components/SkillTrainerWizardModal'
 import {
   Send, Loader2, LayoutGrid, Search, MapPin, Zap as ZapIcon,
-  Maximize2, Sparkles, MessageSquare, Megaphone, ShoppingCart,
-  PanelRight, X, Package, Images, Users, Building2, LayoutDashboard, Brain, Camera, Globe,
+  Maximize2, Sparkles, Megaphone, ShoppingCart,
+  PanelRight, X, Package, Images, Users, Building2, LayoutDashboard, Brain, Handshake,
+  Phone, Settings, SquarePen, History, ChevronDown, Trash2, Pencil, Pin, Copy,
 } from 'lucide-react'
+import { FacebookIcon, InstagramIcon, WhatsAppIcon, type IconComponent } from '@/components/icons'
 import { AgentUIRenderer } from './AgentUIRenderer'
 import { ProspectModuleBlock } from './prospect/ProspectModuleBlock'
 import { ProspectSearchControls } from './prospect/ProspectSearchControls'
@@ -22,7 +24,9 @@ import { SkillsModuleBlock } from './skills/SkillsModuleBlock'
 import { InstagramModuleBlock } from './instagram/InstagramModuleBlock'
 import { FacebookModuleBlock } from './facebook/FacebookModuleBlock'
 import { AutomationsModuleBlock } from './automations/AutomationsModuleBlock'
+import { AffiliatesModuleBlock } from './affiliates/AffiliatesModuleBlock'
 import { CatalogComposerDock } from './catalog/CatalogComposerDock'
+import { ModuleComposerDock } from './catalog/ModuleComposerDock'
 import { useAgentShell } from '@/lib/agent/AgentShellContext'
 import { useProspectBridgeOptional } from '@/lib/agent/ProspectBridgeContext'
 import { useInboxBridgeOptional } from '@/lib/agent/InboxBridgeContext'
@@ -41,12 +45,11 @@ import {
   isInstagramSkill,
   isFacebookSkill,
   isAutomationSkill,
+  isAffiliateSkill,
   isProductSkill as isCatalogProductSkill,
 } from '@/lib/agent/composerAiActions'
 import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
 import type { AgentChatMessage, AgentTurn, ComponentSpec } from '@/lib/agent/types'
-
-const STORAGE_KEY = 'leadcapture:workspace-chat:v1'
 
 const CATALOG_INLINE_SKILLS = new Set([
   'catalog.products',
@@ -70,6 +73,16 @@ const CATALOG_INLINE_SKILLS = new Set([
   'automation.create',
   'automation.confirm',
   'flow.builder',
+  'affiliate.open',
+  'affiliate.create',
+  'affiliate.create.confirm',
+  'affiliate.config',
+  'affiliate.config.confirm',
+  'affiliate.analyze',
+  'affiliate.approve',
+  'affiliate.payouts',
+  'affiliate.payout.confirm',
+  'affiliate.materials',
   'crm.leads.table',
   'crm.leads.list',
   'crm.leads.search',
@@ -95,7 +108,7 @@ type Shortcut = {
   id: string
   label: string
   desc?: string
-  icon: typeof Search
+  icon: IconComponent
   action: () => void
 }
 
@@ -124,6 +137,9 @@ function filterInlineComponents(turn?: AgentTurn): ComponentSpec[] | undefined {
   }
   if (isAutomationSkill(turn.skill)) {
     return turn.components.filter((c) => c.type !== 'automation_stats')
+  }
+  if (isAffiliateSkill(turn.skill)) {
+    return turn.components.filter((c) => c.type !== 'affiliate_stats')
   }
   if (isLeadsSkill(turn.skill)) {
     return turn.components.filter((c) =>
@@ -178,11 +194,30 @@ export function WorkspaceChat({
     instagramModuleOpen,
     facebookModuleOpen,
     automationsModuleOpen,
+    affiliatesModuleOpen,
     leadsModuleOpen,
     clientsModuleOpen,
     ordersModuleOpen,
     dashboardModuleOpen,
     skillsModuleOpen,
+    sessionId,
+    sessionTitle,
+    sessionHydrating,
+    startNewSession,
+    sessions,
+    sessionsLoading,
+    loadSessions,
+    switchSession,
+    deleteSession,
+    renameSession,
+    brandMemory,
+    clearBrandMemory,
+    updateBrandMemory,
+    togglePinSession,
+    sessionSummary,
+    searchSessions,
+    searchResults,
+    searchLoading,
   } = useAgentShell()
 
   const bridge = useProspectBridgeOptional()
@@ -190,10 +225,106 @@ export function WorkspaceChat({
   const isDesktop = useIsDesktop()
   const [input, setInput] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [memoryOpen, setMemoryOpen] = useState(false)
+  const [historySearch, setHistorySearch] = useState('')
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [renameDraft, setRenameDraft] = useState('')
+  const [newFact, setNewFact] = useState('')
+  const [copyOk, setCopyOk] = useState(false)
   const [campaignModal, setCampaignModal] = useState(false)
   const [skillModal, setSkillModal] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
+  const historyRef = useRef<HTMLDivElement>(null)
+
+  function formatSessionDate(iso?: string | null) {
+    if (!iso) return ''
+    const d = new Date(iso)
+    if (Number.isNaN(d.getTime())) return ''
+    const diff = Date.now() - d.getTime()
+    if (diff < 86_400_000) {
+      return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+    }
+    if (diff < 172_800_000) return 'Ontem'
+    return d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })
+  }
+
+  function toggleHistory() {
+    const next = !historyOpen
+    setHistoryOpen(next)
+    if (next) {
+      setMemoryOpen(false)
+      void loadSessions()
+    }
+  }
+
+  function toggleMemory() {
+    const next = !memoryOpen
+    setMemoryOpen(next)
+    if (next) setHistoryOpen(false)
+  }
+
+  const historyQuery = historySearch.trim()
+  const useSemanticSearch = historyQuery.length >= 2
+
+  useEffect(() => {
+    if (!historyOpen) return
+    if (!useSemanticSearch) return
+    const timer = window.setTimeout(() => {
+      void searchSessions(historyQuery)
+    }, 280)
+    return () => window.clearTimeout(timer)
+  }, [historyOpen, historyQuery, useSemanticSearch, searchSessions])
+
+  const filteredSessions = useSemanticSearch
+    ? searchResults.map((h) => h.session)
+    : sessions.filter((s) => {
+      const q = historyQuery.toLowerCase()
+      if (!q) return true
+      const label = (s.title || 'Conversa sem título').toLowerCase()
+      return label.includes(q)
+    })
+
+  const snippetBySessionId = useSemanticSearch
+    ? Object.fromEntries(searchResults.map((h) => [h.session.id, h.snippet]))
+    : {}
+
+  const hasBrandMemory = brandMemory.facts.length > 0
+    || Object.keys(brandMemory.preferences).length > 0
+    || brandMemory.last_topics.length > 0
+
+  function startRename(sessionId: string, currentTitle: string) {
+    setRenamingId(sessionId)
+    setRenameDraft(currentTitle === 'Conversa sem título' ? '' : currentTitle)
+  }
+
+  async function commitRename(sessionId: string) {
+    const title = renameDraft.trim()
+    if (title) await renameSession(sessionId, title)
+    setRenamingId(null)
+    setRenameDraft('')
+  }
+
+  async function copyConversation() {
+    const lines = messages
+      .filter((m) => !m.loading && m.content)
+      .map((m) => `${m.role === 'user' ? 'Você' : 'Assistente'}: ${m.content}`)
+    if (sessionSummary) lines.unshift(`[Resumo compactado]\n${sessionSummary}\n`)
+    const text = lines.join('\n\n')
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopyOk(true)
+      setTimeout(() => setCopyOk(false), 2000)
+    } catch { /* ignore */ }
+  }
+
+  async function addMemoryFact() {
+    const fact = newFact.trim()
+    if (!fact) return
+    await updateBrandMemory({ facts: [fact, ...brandMemory.facts].slice(0, 24) })
+    setNewFact('')
+  }
 
   useEffect(() => {
     registerOpenModal((modal) => {
@@ -203,26 +334,26 @@ export function WorkspaceChat({
   }, [registerOpenModal])
 
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(messages.slice(-40)))
-    } catch { /* ignore */ }
-  }, [messages])
-
-  useEffect(() => {
     const el = scrollRef.current
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
-  }, [messages, loading, prospectModuleOpen, inboxModuleOpen, productsModuleOpen, campaignsModuleOpen, galleryModuleOpen, instagramModuleOpen, facebookModuleOpen, automationsModuleOpen, leadsModuleOpen, clientsModuleOpen, ordersModuleOpen, dashboardModuleOpen, skillsModuleOpen])
+  }, [messages, loading, prospectModuleOpen, inboxModuleOpen, productsModuleOpen, campaignsModuleOpen, galleryModuleOpen, instagramModuleOpen, facebookModuleOpen, automationsModuleOpen, affiliatesModuleOpen, leadsModuleOpen, clientsModuleOpen, ordersModuleOpen, dashboardModuleOpen, skillsModuleOpen])
 
   useEffect(() => {
-    if (!menuOpen) return
+    if (!menuOpen && !historyOpen && !memoryOpen) return
     function onDoc(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+      const target = e.target as Node
+      if (menuOpen && menuRef.current && !menuRef.current.contains(target)) {
         setMenuOpen(false)
+      }
+      if ((historyOpen || memoryOpen) && historyRef.current && !historyRef.current.contains(target)) {
+        setHistoryOpen(false)
+        setMemoryOpen(false)
+        setRenamingId(null)
       }
     }
     document.addEventListener('mousedown', onDoc)
     return () => document.removeEventListener('mousedown', onDoc)
-  }, [menuOpen])
+  }, [menuOpen, historyOpen, memoryOpen])
 
   const isEmpty = messages.length === 0
   const display = messages
@@ -260,6 +391,9 @@ export function WorkspaceChat({
   const lastAutomationsMsg = [...display].reverse().find(
     (m) => m.role === 'assistant' && !m.loading && isAutomationSkill(m.turn?.skill),
   )
+  const lastAffiliatesMsg = [...display].reverse().find(
+    (m) => m.role === 'assistant' && !m.loading && isAffiliateSkill(m.turn?.skill),
+  )
   const lastLeadsMsg = [...display].reverse().find(
     (m) => m.role === 'assistant' && !m.loading && isLeadsSkill(m.turn?.skill),
   )
@@ -275,7 +409,7 @@ export function WorkspaceChat({
   const lastSkillsMsg = [...display].reverse().find(
     (m) => m.role === 'assistant' && !m.loading && isSkillsModuleSkill(m.turn?.skill),
   )
-  const catalogModuleOpen = productsModuleOpen || campaignsModuleOpen || galleryModuleOpen || instagramModuleOpen || facebookModuleOpen || automationsModuleOpen || leadsModuleOpen || clientsModuleOpen || ordersModuleOpen || dashboardModuleOpen || skillsModuleOpen
+  const catalogModuleOpen = productsModuleOpen || campaignsModuleOpen || galleryModuleOpen || instagramModuleOpen || facebookModuleOpen || automationsModuleOpen || affiliatesModuleOpen || leadsModuleOpen || clientsModuleOpen || ordersModuleOpen || dashboardModuleOpen || skillsModuleOpen
   const showCanvasBtn = lastAssistant?.turn
     && turnNeedsCanvas(lastAssistant.turn)
     && !desktopCanvasOpen
@@ -355,10 +489,36 @@ export function WorkspaceChat({
     {
       id: 'messages',
       label: 'Conversas',
-      icon: MessageSquare,
+      icon: WhatsAppIcon,
       action: () => {
         setMenuOpen(false)
         triggerNav('mensagens')
+      },
+    },
+    {
+      id: 'whatsapp',
+      label: 'Conectar WhatsApp',
+      desc: 'Hub de conexão — código de 8 caracteres',
+      icon: WhatsAppIcon,
+      action: () => {
+        setMenuOpen(false)
+        triggerSkill('whatsapp.connect', {
+          label: 'Conectar WhatsApp',
+          assistantMessage: 'Vamos vincular pelo código no seu número:',
+        })
+      },
+    },
+    {
+      id: 'settings',
+      label: 'Configurações',
+      desc: 'Conta, marca e sessões WhatsApp',
+      icon: Settings,
+      action: () => {
+        setMenuOpen(false)
+        triggerSkill('settings.open', {
+          label: 'Configurações',
+          assistantMessage: 'Abrindo configurações da conta…',
+        })
       },
     },
     {
@@ -415,7 +575,7 @@ export function WorkspaceChat({
       id: 'instagram',
       label: 'Instagram',
       desc: 'Posts, DMs e métricas',
-      icon: Camera,
+      icon: InstagramIcon,
       action: () => {
         setMenuOpen(false)
         triggerSkill('instagram.open', { label: 'Instagram', assistantMessage: 'Sua conta Instagram:' })
@@ -425,7 +585,7 @@ export function WorkspaceChat({
       id: 'instagram-post',
       label: 'Criar post IG',
       desc: 'IA gera legenda e imagem',
-      icon: Camera,
+      icon: InstagramIcon,
       action: () => {
         setMenuOpen(false)
         triggerSkill('instagram.post.create', { label: 'Criar post', assistantMessage: 'Sobre o que é o post?' })
@@ -435,7 +595,7 @@ export function WorkspaceChat({
       id: 'facebook',
       label: 'Facebook',
       desc: 'Posts, mensagens e métricas',
-      icon: Globe,
+      icon: FacebookIcon,
       action: () => {
         setMenuOpen(false)
         triggerSkill('facebook.open', { label: 'Facebook', assistantMessage: 'Sua página Facebook:' })
@@ -445,7 +605,7 @@ export function WorkspaceChat({
       id: 'facebook-post',
       label: 'Criar post FB',
       desc: 'IA gera texto e imagem',
-      icon: Globe,
+      icon: FacebookIcon,
       action: () => {
         setMenuOpen(false)
         triggerSkill('facebook.post.create', { label: 'Post Facebook', assistantMessage: 'Sobre o que é o post no Facebook?' })
@@ -459,6 +619,16 @@ export function WorkspaceChat({
       action: () => {
         setMenuOpen(false)
         triggerSkill('automation.open', { label: 'Automações', assistantMessage: 'Suas automações WhatsApp:' })
+      },
+    },
+    {
+      id: 'affiliates',
+      label: 'Afiliados',
+      desc: 'Parceiros, comissões e saques',
+      icon: Handshake,
+      action: () => {
+        setMenuOpen(false)
+        triggerSkill('affiliate.open', { label: 'Afiliados', assistantMessage: 'Seu programa de parceiros:' })
       },
     },
     {
@@ -535,6 +705,262 @@ export function WorkspaceChat({
 
   return (
     <div className="workspace-chat">
+      <div className="workspace-chat__session-wrap" ref={historyRef}>
+        <div className={`workspace-chat__session-bar${sessionHydrating ? ' is-loading' : ''}`}>
+          {sessionHydrating ? (
+            <>
+              <Loader2 size={13} className="animate-spin" aria-hidden />
+              <span>Restaurando conversa…</span>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                className={`workspace-chat__session-history${historyOpen ? ' is-open' : ''}`}
+                onClick={toggleHistory}
+                aria-expanded={historyOpen}
+                aria-label="Ver histórico de conversas"
+              >
+                <History size={13} strokeWidth={2} aria-hidden />
+                <span>Histórico</span>
+                <ChevronDown size={12} className="workspace-chat__session-chevron" aria-hidden />
+              </button>
+              <button
+                type="button"
+                className={`workspace-chat__session-memory${memoryOpen ? ' is-open' : ''}${hasBrandMemory ? ' has-data' : ''}`}
+                onClick={toggleMemory}
+                aria-expanded={memoryOpen}
+                aria-label="Ver memória do agente"
+              >
+                <Brain size={13} strokeWidth={2} aria-hidden />
+                <span>Memória</span>
+              </button>
+              <span className="workspace-chat__session-title-wrap">
+                <span className="workspace-chat__session-title" title={sessionTitle || undefined}>
+                  {sessionTitle || 'Nova conversa'}
+                </span>
+                {sessionSummary ? (
+                  <span className="workspace-chat__session-compact" title={sessionSummary}>
+                    Contexto compactado
+                  </span>
+                ) : null}
+              </span>
+              {!isEmpty ? (
+                <button
+                  type="button"
+                  className="workspace-chat__session-copy"
+                  onClick={() => void copyConversation()}
+                  aria-label="Copiar conversa"
+                  title={copyOk ? 'Copiado!' : 'Copiar conversa'}
+                >
+                  <Copy size={13} strokeWidth={2} aria-hidden />
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className="workspace-chat__session-new"
+                onClick={() => {
+                  setHistoryOpen(false)
+                  void startNewSession()
+                }}
+                disabled={loading}
+                aria-label="Iniciar nova conversa"
+              >
+                <SquarePen size={13} strokeWidth={2} aria-hidden />
+                <span>Nova</span>
+              </button>
+            </>
+          )}
+        </div>
+        {historyOpen && !sessionHydrating && (
+          <div className="workspace-chat__history-panel" role="listbox" aria-label="Conversas anteriores">
+            <div className="workspace-chat__history-head">
+              <span>Conversas anteriores</span>
+              {sessionsLoading && <Loader2 size={12} className="animate-spin" aria-hidden />}
+            </div>
+            <div className="workspace-chat__history-search">
+              <Search size={12} aria-hidden />
+              <input
+                type="search"
+                value={historySearch}
+                onChange={(e) => setHistorySearch(e.target.value)}
+                placeholder="Buscar por tema, produto, lead…"
+                aria-label="Buscar conversa"
+              />
+              {useSemanticSearch ? (
+                <span className="workspace-chat__history-search-badge">IA</span>
+              ) : null}
+            </div>
+            {sessionsLoading && sessions.length === 0 ? (
+              <p className="workspace-chat__history-empty">Carregando…</p>
+            ) : useSemanticSearch && searchLoading ? (
+              <p className="workspace-chat__history-empty">Buscando…</p>
+            ) : filteredSessions.length === 0 ? (
+              <p className="workspace-chat__history-empty">
+                {sessions.length === 0 ? 'Nenhuma conversa salva ainda.' : 'Nenhum resultado.'}
+              </p>
+            ) : (
+              <ul className="workspace-chat__history-list">
+                {filteredSessions.map((s) => {
+                  const isActive = s.id === sessionId
+                  const label = s.title?.trim() || 'Conversa sem título'
+                  const when = formatSessionDate(s.last_message_at || s.updated_at || s.created_at)
+                  const isRenaming = renamingId === s.id
+                  return (
+                    <li key={s.id} className="workspace-chat__history-row">
+                      {isRenaming ? (
+                        <div className="workspace-chat__history-rename">
+                          <input
+                            value={renameDraft}
+                            onChange={(e) => setRenameDraft(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') void commitRename(s.id)
+                              if (e.key === 'Escape') setRenamingId(null)
+                            }}
+                            autoFocus
+                            aria-label="Novo título da conversa"
+                          />
+                          <button type="button" onClick={() => void commitRename(s.id)}>OK</button>
+                        </div>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            role="option"
+                            aria-selected={isActive}
+                            className={`workspace-chat__history-item${isActive ? ' is-active' : ''}`}
+                            onClick={() => {
+                              setHistoryOpen(false)
+                              void switchSession(s.id)
+                            }}
+                          >
+                            <span className="workspace-chat__history-item-title">{label}</span>
+                            {snippetBySessionId[s.id] ? (
+                              <span className="workspace-chat__history-item-snippet">
+                                {snippetBySessionId[s.id]}
+                              </span>
+                            ) : null}
+                            <span className="workspace-chat__history-item-meta">
+                              {s.is_pinned ? 'Fixada · ' : ''}{when}
+                              {isActive ? ' · Atual' : ''}
+                            </span>
+                          </button>
+                          <div className="workspace-chat__history-actions">
+                            <button
+                              type="button"
+                              className={`workspace-chat__history-action${s.is_pinned ? ' is-pinned' : ''}`}
+                              aria-label={s.is_pinned ? 'Desafixar conversa' : 'Fixar conversa'}
+                              onClick={() => void togglePinSession(s.id)}
+                            >
+                              <Pin size={12} />
+                            </button>
+                            <button
+                              type="button"
+                              className="workspace-chat__history-action"
+                              aria-label="Renomear conversa"
+                              onClick={() => startRename(s.id, label)}
+                            >
+                              <Pencil size={12} />
+                            </button>
+                            <button
+                              type="button"
+                              className="workspace-chat__history-action workspace-chat__history-action--danger"
+                              aria-label="Excluir conversa"
+                              onClick={() => void deleteSession(s.id)}
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </div>
+        )}
+        {memoryOpen && !sessionHydrating && (
+          <div className="workspace-chat__memory-panel" aria-label="Memória do agente">
+            <div className="workspace-chat__history-head">
+              <span>O agente lembra</span>
+              {hasBrandMemory && (
+                <button
+                  type="button"
+                  className="workspace-chat__memory-clear"
+                  onClick={() => void clearBrandMemory()}
+                >
+                  Limpar
+                </button>
+              )}
+            </div>
+            {sessionSummary ? (
+              <section className="workspace-chat__memory-summary">
+                <h4>Resumo desta conversa</h4>
+                <p>{sessionSummary}</p>
+              </section>
+            ) : null}
+            <div className="workspace-chat__memory-add">
+              <input
+                type="text"
+                value={newFact}
+                onChange={(e) => setNewFact(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') void addMemoryFact() }}
+                placeholder="Adicionar fato manualmente…"
+                aria-label="Novo fato para memória"
+              />
+              <button type="button" onClick={() => void addMemoryFact()} disabled={!newFact.trim()}>
+                +
+              </button>
+            </div>
+            {!hasBrandMemory ? (
+              <p className="workspace-chat__history-empty">
+                Ainda sem memória da marca. Converse ou adicione fatos acima.
+              </p>
+            ) : (
+              <div className="workspace-chat__memory-body">
+                {brandMemory.facts.length > 0 && (
+                  <section>
+                    <h4>Fatos</h4>
+                    <ul className="workspace-chat__memory-facts">
+                      {brandMemory.facts.map((f) => (
+                        <li key={f}>
+                          <span>{f}</span>
+                          <button
+                            type="button"
+                            aria-label="Remover fato"
+                            onClick={() => void updateBrandMemory({
+                              facts: brandMemory.facts.filter((x) => x !== f),
+                            })}
+                          >
+                            <X size={11} />
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
+                {Object.keys(brandMemory.preferences).length > 0 && (
+                  <section>
+                    <h4>Preferências</h4>
+                    <ul>
+                      {Object.entries(brandMemory.preferences).map(([k, v]) => (
+                        <li key={k}><strong>{k}:</strong> {v}</li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
+                {brandMemory.last_topics.length > 0 && (
+                  <section>
+                    <h4>Tópicos</h4>
+                    <p>{brandMemory.last_topics.join(', ')}</p>
+                  </section>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
       {!isEmpty && (
         <div className="workspace-chat__header">
           <WorkspaceNav />
@@ -542,9 +968,14 @@ export function WorkspaceChat({
       )}
       <div
         ref={scrollRef}
-        className={`workspace-chat__scroll${isEmpty ? ' workspace-chat__scroll--empty' : ''}`}
+        className={`workspace-chat__scroll${isEmpty ? ' workspace-chat__scroll--empty' : ''}${sessionHydrating ? ' workspace-chat__scroll--hydrating' : ''}`}
       >
-        {isEmpty && (
+        {sessionHydrating && isEmpty ? (
+          <div className="workspace-chat__hydrate-placeholder" aria-hidden>
+            <Loader2 size={18} className="animate-spin" />
+          </div>
+        ) : null}
+        {!sessionHydrating && isEmpty && (
           <WorkspaceWelcome
             brandName={brandName}
             brandLogoUrl={brandLogoUrl}
@@ -576,6 +1007,9 @@ export function WorkspaceChat({
           const isAutomationsActive = automationsModuleOpen
             && msg.id === lastAutomationsMsg?.id
             && isAutomationSkill(msg.turn?.skill)
+          const isAffiliatesActive = affiliatesModuleOpen
+            && msg.id === lastAffiliatesMsg?.id
+            && isAffiliateSkill(msg.turn?.skill)
           const isLeadsActive = leadsModuleOpen
             && msg.id === lastLeadsMsg?.id
             && isLeadsSkill(msg.turn?.skill)
@@ -631,6 +1065,9 @@ export function WorkspaceChat({
                       )}
                       {isAutomationSkill(msg.turn?.skill) && (
                         <AutomationsModuleBlock messageId={msg.id} isActive={!!isAutomationsActive} />
+                      )}
+                      {isAffiliateSkill(msg.turn?.skill) && (
+                        <AffiliatesModuleBlock messageId={msg.id} isActive={!!isAffiliatesActive} />
                       )}
                       {isLeadsSkill(msg.turn?.skill) && (
                         <LeadsModuleBlock messageId={msg.id} isActive={!!isLeadsActive} />
@@ -710,6 +1147,7 @@ export function WorkspaceChat({
           </div>
         )}
 
+        <ModuleComposerDock />
         <CatalogComposerDock />
 
         <form className="workspace-chat__composer" onSubmit={submit}>

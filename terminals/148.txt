@@ -1,0 +1,13 @@
+---
+pid: 14880
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd \"C:\\Users\\Public\\Projetos\\leadcapture\\frontend\\dist\"; tar -czf \"C:\\Users\\Public\\Projetos\\leadcapture\\agent-tools\\frontend-dist-full.tar.gz\" ."
+started_at: 2026-07-07T14:26:19.876Z
+running_for_ms: 86400015 
+---
+
+---
+exit_code: -1
+elapsed_ms: 86400015
+ended_at: 2026-07-08T14:26:26.305Z
+---

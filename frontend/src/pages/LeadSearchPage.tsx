@@ -18,6 +18,7 @@ import {
   Smile, UtensilsCrossed, Dumbbell, Scissors, Home, Scale,
   PawPrint, Wrench, Shirt, Pill, Camera, Activity, X, Send,
 } from 'lucide-react'
+import { WhatsAppIcon } from '@/components/icons'
 import { WhatsAppSendModal } from '@/components/WhatsAppSendModal'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
@@ -1506,7 +1507,7 @@ function LeadCard({ lead }: { lead: Lead }) {
         {lead.address && <div className="flex items-start gap-2 text-xs text-gray-600"><MapPin size={11} className="text-gray-400 shrink-0 mt-0.5" /><span className="line-clamp-2">{lead.address}</span></div>}
       </div>
       <div className="flex items-center gap-2 mt-2.5 pt-2.5 border-t border-gray-100">
-        {lead.phone && <a href={`https://wa.me/${lead.phone.replace(/\D/g, '')}`} target="_blank" rel="noreferrer" className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 text-[11px] font-semibold hover:bg-emerald-100 transition"><Phone size={11} /> WhatsApp</a>}
+        {lead.phone && <a href={`https://wa.me/${lead.phone.replace(/\D/g, '')}`} target="_blank" rel="noreferrer" className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 text-[11px] font-semibold hover:bg-emerald-100 transition"><WhatsAppIcon size={11} className="brand-icon--wa" /> WhatsApp</a>}
         {lead.website && <a href={lead.website} target="_blank" rel="noreferrer" className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-700 text-[11px] font-semibold hover:bg-blue-100 transition"><Globe size={11} /> Site</a>}
         {lead.googleMapsUri && <a href={lead.googleMapsUri} target="_blank" rel="noreferrer" className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-gray-50 text-gray-600 text-[11px] font-semibold hover:bg-gray-100 transition"><Navigation size={11} /> Maps</a>}
       </div>

@@ -5,6 +5,7 @@ import { v4 as uuidv4 } from "uuid";
 import { query, queryOne } from "../config/database";
 import { logger } from "../utils/logger";
 import { CreativeStudioService } from "./creativeStudio";
+import { resolveUploadKind, resolveUploadMime, shouldNormalizeImage } from "../utils/uploadMedia";
 
 export type GalleryFolderSlug = "ia" | "uploads" | "campanhas" | "posts" | "produtos";
 export type GalleryItemType = "image" | "video";
@@ -18,11 +19,15 @@ export interface GalleryAssetMeta {
   productName?: string;
   campaignId?: string;
   postId?: string;
+  draftPostId?: string;
+  postChannel?: "instagram" | "facebook";
+  publishedAt?: string;
   prompt?: string;
   model?: string;
   format?: string;
   usedInCampaign?: boolean;
   usedInPost?: boolean;
+  publishedInPost?: boolean;
   width?: number;
   height?: number;
   duration?: number;
@@ -109,11 +114,38 @@ function isUploadSource(source: string): boolean {
 
 function resolveFolderFromMeta(meta: GalleryAssetMeta, origin: GalleryOrigin, source: string): GalleryFolderSlug {
   if (meta.usedInCampaign) return "campanhas";
-  if (meta.usedInPost) return "posts";
-  if (meta.folder && SYSTEM_FOLDERS.some((f) => f.slug === meta.folder)) return meta.folder as GalleryFolderSlug;
+  if (meta.publishedInPost) return "posts";
+  if (meta.folder && meta.folder !== "posts" && SYSTEM_FOLDERS.some((f) => f.slug === meta.folder)) {
+    return meta.folder as GalleryFolderSlug;
+  }
   if (origin === "product_gallery") return "produtos";
-  if (isUploadSource(source)) return "uploads";
+  if (isUploadSource(source) || meta.folder === "posts") return "uploads";
   return "ia";
+}
+
+function parsePostMediaItems(raw: unknown): Array<{ url: string; type: GalleryItemType; galleryId?: string }> {
+  if (!raw) return [];
+  let parsed: unknown = raw;
+  if (typeof raw === "string") {
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return [];
+    }
+  }
+  if (!Array.isArray(parsed)) return [];
+  return parsed
+    .map((item, index) => {
+      const row = item as Record<string, unknown>;
+      const url = String(row.url || "").trim();
+      if (!url) return null;
+      return {
+        url,
+        type: row.type === "video" ? "video" : "image",
+        galleryId: String(row.gallery_id || row.galleryId || "").trim() || undefined,
+      };
+    })
+    .filter(Boolean) as Array<{ url: string; type: GalleryItemType; galleryId?: string }>;
 }
 
 function encodeId(origin: GalleryOrigin, id: string): string {
@@ -203,6 +235,9 @@ export class GalleryService {
       tags,
       usedInCampaign: Boolean(meta.usedInCampaign || meta.studio?.usedInCampaign),
       usedInPost: Boolean(meta.usedInPost || meta.studio?.usedInPost),
+      publishedInPost: Boolean(meta.publishedInPost || meta.studio?.publishedInPost),
+      postChannel: meta.postChannel || meta.studio?.postChannel,
+      publishedAt: meta.publishedAt || meta.studio?.publishedAt,
     };
 
     return {
@@ -242,6 +277,9 @@ export class GalleryService {
       format: studio.format || meta.format,
       usedInCampaign: Boolean(studio.usedInCampaign || meta.usedInCampaign),
       usedInPost: Boolean(studio.usedInPost || meta.usedInPost),
+      publishedInPost: Boolean(studio.publishedInPost || meta.publishedInPost),
+      postChannel: studio.postChannel || meta.postChannel,
+      publishedAt: studio.publishedAt || meta.publishedAt,
       campaignId: studio.campaignId || meta.campaignId,
     };
 
@@ -350,6 +388,125 @@ export class GalleryService {
     return items;
   }
 
+  private async fetchPublishedPostMedia(brandId: string): Promise<GalleryItem[]> {
+    const items: GalleryItem[] = [];
+
+    const igPosts = await query<any[]>(
+      `SELECT id, media_type, media_url, media_items, caption, published_at
+       FROM instagram_posts
+       WHERE brand_id = ? AND status = 'published'
+       ORDER BY published_at DESC
+       LIMIT 200`,
+      [brandId]
+    ).catch(() => [] as any[]);
+
+    for (const post of igPosts || []) {
+      const parsed = parsePostMediaItems(post.media_items);
+      const media =
+        parsed.length > 0
+          ? parsed
+          : post.media_url
+            ? [
+                {
+                  url: String(post.media_url),
+                  type:
+                    post.media_type === "REELS" || post.media_type === "VIDEO"
+                      ? ("video" as GalleryItemType)
+                      : ("image" as GalleryItemType),
+                },
+              ]
+            : [];
+
+      media.forEach((m, index) => {
+        const url = normalizeUrl(m.url);
+        if (!url) return;
+        items.push({
+          id: m.galleryId || `ig:${post.id}:${index}`,
+          type: m.type,
+          url,
+          name: post.caption ? String(post.caption).slice(0, 80) : "Post Instagram",
+          folder: "posts",
+          source: "instagram",
+          tags: ["post:instagram", `postid:${post.id}`],
+          createdAt: post.published_at
+            ? new Date(post.published_at).toISOString()
+            : new Date().toISOString(),
+          metadata: {
+            folder: "posts",
+            source: "instagram",
+            publishedInPost: true,
+            postId: String(post.id),
+            postChannel: "instagram",
+            publishedAt: post.published_at ? new Date(post.published_at).toISOString() : undefined,
+          },
+          origin: "media_files",
+        });
+      });
+    }
+
+    const fbPosts = await query<any[]>(
+      `SELECT id, post_type, message, media_url, published_at
+       FROM facebook_posts
+       WHERE brand_id = ? AND status = 'published' AND media_url IS NOT NULL AND media_url != ''
+       ORDER BY published_at DESC
+       LIMIT 200`,
+      [brandId]
+    ).catch(() => [] as any[]);
+
+    for (const post of fbPosts || []) {
+      const url = normalizeUrl(String(post.media_url || ""));
+      if (!url) continue;
+      const type: GalleryItemType = post.post_type === "video" ? "video" : "image";
+      items.push({
+        id: `fb:${post.id}`,
+        type,
+        url,
+        name: post.message ? String(post.message).slice(0, 80) : "Post Facebook",
+        folder: "posts",
+        source: "facebook",
+        tags: ["post:facebook", `postid:${post.id}`],
+        createdAt: post.published_at
+          ? new Date(post.published_at).toISOString()
+          : new Date().toISOString(),
+        metadata: {
+          folder: "posts",
+          source: "facebook",
+          publishedInPost: true,
+          postId: String(post.id),
+          postChannel: "facebook",
+          publishedAt: post.published_at ? new Date(post.published_at).toISOString() : undefined,
+        },
+        origin: "media_files",
+      });
+    }
+
+    return items;
+  }
+
+  private mergePublishedPostMedia(base: GalleryItem[], published: GalleryItem[]): GalleryItem[] {
+    const publishedUrls = new Set(published.map((i) => i.url));
+    const aligned = base.map((item) => {
+      if (item.metadata.publishedInPost || item.folder === "posts") return item;
+      if (!publishedUrls.has(item.url)) return item;
+      return {
+        ...item,
+        folder: "posts" as GalleryFolderSlug,
+        metadata: { ...item.metadata, publishedInPost: true },
+      };
+    });
+
+    const knownUrls = new Set(
+      aligned.filter((i) => i.metadata.publishedInPost || i.folder === "posts").map((i) => i.url)
+    );
+    const knownIds = new Set(aligned.map((i) => i.id));
+    const extra = published.filter((item) => {
+      if (knownIds.has(item.id)) return false;
+      if (knownUrls.has(item.url)) return false;
+      return true;
+    });
+    return [...aligned, ...extra];
+  }
+
   private applyFilters(items: GalleryItem[], filters: GalleryListFilters): GalleryItem[] {
     let out = [...items];
 
@@ -391,13 +548,17 @@ export class GalleryService {
   ): Promise<{ items: GalleryItem[]; total: number; page: number; limit: number }> {
     await this.ensureFolders(brandId);
 
-    const [media, creative, products] = await Promise.all([
+    const [media, creative, products, publishedPosts] = await Promise.all([
       this.fetchMediaFiles(userId, brandId),
       this.fetchCreativeAssets(userId, brandId),
       this.fetchProductGallery(brandId),
+      this.fetchPublishedPostMedia(brandId),
     ]);
 
-    const merged = this.applyFilters([...creative, ...media, ...products], filters);
+    const merged = this.applyFilters(
+      this.mergePublishedPostMedia([...creative, ...media, ...products], publishedPosts),
+      filters
+    );
     const page = Math.max(1, filters.page || 1);
     const limit = Math.max(1, Math.min(100, filters.limit || 48));
     const offset = (page - 1) * limit;
@@ -464,23 +625,39 @@ export class GalleryService {
   ): Promise<GalleryItem> {
     await this.ensureSchema();
 
-    const mime = file.mimetype;
-    const category = mime.startsWith("video/") ? "video" : "image";
+    const category = resolveUploadKind(file.mimetype, file.originalname);
+    if (!category) {
+      throw new Error("Envie apenas imagens (JPG, PNG, WEBP, HEIC) ou videos (MP4, MOV).");
+    }
+
     const folder = path.join(__dirname, "../../uploads", category === "video" ? "videos" : "images");
     if (!fs.existsSync(folder)) fs.mkdirSync(folder, { recursive: true });
 
-    const ext = path.extname(file.originalname) || (category === "video" ? ".mp4" : ".png");
-    const storedName = `${uuidv4()}${ext}`;
-    const dest = path.join(folder, storedName);
+    const ext = path.extname(file.originalname) || (category === "video" ? ".mp4" : ".jpg");
+    let storedName = `${uuidv4()}${ext}`;
+    let dest = path.join(folder, storedName);
     if (file.path !== dest) {
       fs.renameSync(file.path, dest);
     }
 
-    const relativePath = `/uploads/${category === "video" ? "videos" : "images"}/${storedName}`;
+    let mime = resolveUploadMime(file.mimetype, file.originalname, category);
+    let relativePath = `/uploads/${category === "video" ? "videos" : "images"}/${storedName}`;
+
+    if (category === "image" && shouldNormalizeImage(file.mimetype, file.originalname)) {
+      const jpegName = `${uuidv4()}.jpg`;
+      const jpegDest = path.join(folder, jpegName);
+      await sharp(dest).rotate().jpeg({ quality: 92 }).toFile(jpegDest);
+      if (dest !== jpegDest && fs.existsSync(dest)) fs.unlinkSync(dest);
+      dest = jpegDest;
+      storedName = jpegName;
+      mime = "image/jpeg";
+      relativePath = `/uploads/images/${storedName}`;
+    }
+
     const thumbnailUrl = category === "image" ? await this.generateThumbnail(dest, storedName) : null;
     const tags = input?.tags || [];
     const folderSlug = input?.folder || "uploads";
-    const metadata = { folder: folderSlug, source: "upload", tags };
+    const metadata = { folder: folderSlug, source: "upload", tags, brandId, brand_id: brandId };
 
     const id = uuidv4();
     await query(
@@ -491,7 +668,7 @@ export class GalleryService {
       [
         id,
         userId,
-        brandId,
+        null,
         brandId,
         file.originalname,
         storedName,
@@ -509,7 +686,9 @@ export class GalleryService {
     );
 
     const row = await queryOne<any>("SELECT * FROM media_files WHERE id = ? LIMIT 1", [id]);
-    return this.mapMediaRow(row)!;
+    const mapped = this.mapMediaRow(row);
+    if (!mapped) throw new Error("Falha ao registrar midia na galeria");
+    return mapped;
   }
 
   async updateItem(
@@ -615,9 +794,8 @@ export class GalleryService {
         const meta = { ...(asset.metadata || {}) };
         const studio = { ...((meta as any).studio || {}) };
         if (context === "post") {
-          studio.usedInPost = true;
-          studio.postId = contextId || null;
-          (meta as any).usedInPost = true;
+          studio.draftPostId = contextId || null;
+          (meta as any).draftPostId = contextId || null;
         }
         if (context === "product") {
           (meta as any).productId = contextId;
@@ -648,9 +826,8 @@ export class GalleryService {
           decoded.id,
         ]);
       } else if (context === "post") {
-        meta.usedInPost = true;
-        meta.postId = contextId;
-        await query("UPDATE media_files SET folder_slug = 'posts', usage_count = usage_count + 1, metadata_json = ? WHERE id = ?", [
+        meta.draftPostId = contextId;
+        await query("UPDATE media_files SET usage_count = usage_count + 1, metadata_json = ? WHERE id = ?", [
           JSON.stringify(meta),
           decoded.id,
         ]);
@@ -662,6 +839,120 @@ export class GalleryService {
     }
 
     return this.getItem(userId, brandId, encodedId);
+  }
+
+  private async findGalleryEncodedIdByUrl(
+    userId: string,
+    brandId: string,
+    url: string
+  ): Promise<string | null> {
+    const normalized = normalizeUrl(url);
+    if (!normalized) return null;
+
+    const mediaRow = await queryOne<any>(
+      `SELECT id, url, file_path FROM media_files
+       WHERE user_id = ? AND is_active = TRUE
+         AND (brand_id = ? OR brand_id IS NULL OR brand_id = '')
+         AND (url = ? OR file_path = ? OR url LIKE ? OR file_path LIKE ?)
+       ORDER BY created_at DESC LIMIT 1`,
+      [userId, brandId, normalized, normalized, `%${path.basename(normalized)}`, `%${path.basename(normalized)}`]
+    );
+    if (mediaRow?.id) return encodeId("media_files", String(mediaRow.id));
+
+    const creativeRows = await query<any[]>(
+      `SELECT id, file_url FROM creative_assets
+       WHERE user_id = ? AND asset_type IN ('image', 'video') AND file_url IS NOT NULL
+       ORDER BY created_at DESC LIMIT 200`,
+      [userId]
+    );
+    for (const row of creativeRows || []) {
+      if (normalizeUrl(String(row.file_url || "")) === normalized) {
+        return encodeId("creative_assets", String(row.id));
+      }
+    }
+    return null;
+  }
+
+  private async markSinglePublished(
+    userId: string,
+    brandId: string,
+    encodedId: string,
+    postId: string,
+    channel: "instagram" | "facebook",
+    publishedAt: string
+  ): Promise<void> {
+    const decoded = decodeId(encodedId);
+    if (!decoded) return;
+
+    if (decoded.origin === "media_files") {
+      const row = await queryOne<any>(
+        "SELECT * FROM media_files WHERE id = ? AND user_id = ? LIMIT 1",
+        [decoded.id, userId]
+      );
+      if (!row) return;
+      const meta = parseJson(row.metadata_json);
+      meta.publishedInPost = true;
+      meta.postId = postId;
+      meta.postChannel = channel;
+      meta.publishedAt = publishedAt;
+      delete meta.usedInPost;
+      await query(
+        "UPDATE media_files SET folder_slug = 'posts', metadata_json = ? WHERE id = ?",
+        [JSON.stringify(meta), decoded.id]
+      );
+      return;
+    }
+
+    if (decoded.origin === "creative_assets") {
+      const asset = await this.creativeStudio.getAssetById(userId, decoded.id, brandId);
+      if (!asset) return;
+      const meta = { ...(asset.metadata || {}) };
+      const studio = { ...((meta as any).studio || {}) };
+      studio.publishedInPost = true;
+      studio.postId = postId;
+      studio.postChannel = channel;
+      studio.publishedAt = publishedAt;
+      delete studio.usedInPost;
+      (meta as any).publishedInPost = true;
+      (meta as any).postId = postId;
+      (meta as any).postChannel = channel;
+      (meta as any).publishedAt = publishedAt;
+      delete (meta as any).usedInPost;
+      (meta as any).studio = studio;
+      await query("UPDATE creative_assets SET metadata = ? WHERE id = ? AND user_id = ?", [
+        JSON.stringify(meta),
+        decoded.id,
+        userId,
+      ]);
+    }
+  }
+
+  async markPublishedFromPost(
+    userId: string,
+    brandId: string,
+    input: {
+      postId: string;
+      channel: "instagram" | "facebook";
+      items: Array<{ galleryId?: string; url: string }>;
+      publishedAt?: string;
+    }
+  ): Promise<void> {
+    await this.ensureSchema();
+    const publishedAt = input.publishedAt || new Date().toISOString();
+    const marked = new Set<string>();
+
+    for (const item of input.items) {
+      const candidates: string[] = [];
+      if (item.galleryId) candidates.push(item.galleryId);
+      const byUrl = await this.findGalleryEncodedIdByUrl(userId, brandId, item.url);
+      if (byUrl) candidates.push(byUrl);
+
+      for (const encodedId of candidates) {
+        if (marked.has(encodedId)) continue;
+        await this.markSinglePublished(userId, brandId, encodedId, input.postId, input.channel, publishedAt);
+        marked.add(encodedId);
+      }
+    }
   }
 
   async collectAllTags(userId: string, brandId: string): Promise<string[]> {

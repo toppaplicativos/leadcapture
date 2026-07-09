@@ -1,0 +1,13 @@
+---
+pid: 25880
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd C:\\Users\\Public\\Projetos\\leadcapture\\frontend; npx tsc -b --pretty false 2>&1 | Select-String \"error\""
+started_at: 2026-07-06T23:44:03.454Z
+running_for_ms: 86400012 
+---
+
+---
+exit_code: -1
+elapsed_ms: 86400012
+ended_at: 2026-07-07T23:44:13.137Z
+---

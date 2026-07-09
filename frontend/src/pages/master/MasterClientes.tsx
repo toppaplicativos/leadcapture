@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Search, Loader2, ChevronLeft, ChevronRight, ShieldCheck } from 'lucide-react'
+import { Search, Loader2, ChevronLeft, ChevronRight, ShieldCheck, MoreHorizontal } from 'lucide-react'
 import { masterApi } from '@/lib/master-api'
 import { MasterPageHeader, MasterCard } from './MasterShell'
 
@@ -24,6 +24,8 @@ export function MasterClientes() {
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const [menuId, setMenuId] = useState<string | null>(null)
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   async function load(p = page, q = search) {
@@ -51,13 +53,24 @@ export function MasterClientes() {
     }, 300)
   }
 
+  async function patchUser(id: string, patch: Record<string, any>) {
+    setBusyId(id)
+    setMenuId(null)
+    try {
+      const r = await masterApi.updateUser(id, patch)
+      setClients(prev => prev.map(c => (c.id === id ? { ...c, ...r.user } : c)))
+    } finally {
+      setBusyId(null)
+    }
+  }
+
   const totalPages = Math.max(1, Math.ceil(total / 30))
 
   return (
     <>
       <MasterPageHeader
-        title="Clientes"
-        subtitle="Todos os usuários do SaaS. Busca por nome ou email."
+        title="Usuários"
+        subtitle="Todos os usuários do SaaS — ativar, suspender e promover super-admin."
         action={
           <span className="text-[12px] text-white/50 font-medium tabular-nums">
             {total.toLocaleString('pt-BR')} cadastrados
@@ -89,6 +102,7 @@ export function MasterClientes() {
                 <Th>Role</Th>
                 <Th>Último login</Th>
                 <Th>Cadastrado em</Th>
+                <Th>Ações</Th>
               </tr>
             </thead>
             <tbody className={loading ? 'opacity-50 transition-opacity' : ''}>
@@ -129,11 +143,37 @@ export function MasterClientes() {
                   <td className="px-4 py-3 text-[11px] text-white/50 tabular-nums">
                     {fmtDate(c.created_at)}
                   </td>
+                  <td className="px-4 py-3 relative">
+                    <button
+                      type="button"
+                      disabled={busyId === c.id}
+                      onClick={() => setMenuId(menuId === c.id ? null : c.id)}
+                      className="w-8 h-8 grid place-items-center rounded-full text-white/50 hover:text-white hover:bg-white/10"
+                    >
+                      {busyId === c.id ? (
+                        <Loader2 size={14} className="animate-spin" />
+                      ) : (
+                        <MoreHorizontal size={14} />
+                      )}
+                    </button>
+                    {menuId === c.id && (
+                      <div className="absolute right-4 top-full z-20 mt-1 w-44 rounded-xl bg-[#141414] border border-white/10 shadow-xl py-1">
+                        <MenuBtn
+                          onClick={() => patchUser(c.id, { is_active: !c.is_active })}
+                          label={c.is_active ? 'Suspender conta' : 'Reativar conta'}
+                        />
+                        <MenuBtn
+                          onClick={() => patchUser(c.id, { is_super_admin: !c.is_super_admin })}
+                          label={c.is_super_admin ? 'Remover super-admin' : 'Promover super-admin'}
+                        />
+                      </div>
+                    )}
+                  </td>
                 </tr>
               ))}
               {!loading && clients.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-10 text-center text-[13px] text-white/40">
+                  <td colSpan={6} className="px-4 py-10 text-center text-[13px] text-white/40">
                     Nenhum cliente encontrado.
                   </td>
                 </tr>
@@ -177,5 +217,17 @@ function Th({ children }: { children: React.ReactNode }) {
     <th className="text-left px-4 py-3 text-[10px] font-semibold uppercase tracking-wide text-white/40">
       {children}
     </th>
+  )
+}
+
+function MenuBtn({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full text-left px-3 py-2 text-[12px] text-white/80 hover:bg-white/[0.06] transition"
+    >
+      {label}
+    </button>
   )
 }

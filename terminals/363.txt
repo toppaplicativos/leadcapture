@@ -1,0 +1,32 @@
+---
+pid: 11652
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd \"C:\\Users\\Public\\Projetos\\leadcapture\"; npm run build 2>&1 | Select-Object -Last 15; cd frontend; npm run build 2>&1 | Select-Object -Last 20"
+started_at: 2026-07-08T12:24:16.529Z
+running_for_ms: 51764992 
+---
+
+> lead-captation-system@1.0.0 build
+> tsc
+
+dist/assets/BrandImageGeneratorPage-BaHL8jSE.js         47.92 kB │ gzip:  13.37 kB[plugin builtin:vite-reporter] 
+
+dist/assets/InventoryPage-DjYJMHGy.js                   51.35 kB │ gzip:  11.93 kB
+dist/assets/ClientesPage-D8a0LkO_.js                    60.76 kB │ gzip:  14.05 kB
+dist/assets/LeadsPage-Y0n9UqMi.js                       66.95 kB │ gzip:  15.56 kB
+dist/assets/LeadSearchPage-Dce_dKrL.js                  69.94 kB │ gzip:  17.86 kB
+dist/assets/ProductsView-bKsM3d2f.js                    70.72 kB │ gzip:  15.35 kB
+dist/assets/InstagramPage-CtALMKUs.js                   79.92 kB │ gzip:  19.36 kB
+dist/assets/CampaignsView-CUGQVjCX.js                   88.28 kB │ gzip:  21.67 kB
+dist/assets/AdminShell-CiAmlyCy.js                     205.42 kB │ gzip:  40.38 kB
+dist/assets/LandingPage-CkSFR2er.js                    227.14 kB │ gzip:  63.73 kB
+dist/assets/index-T_3OCOt4.js                          359.73 kB │ gzip: 103.34 kB
+dist/assets/VideoStudioPage-Ttm5M5ly.js                403.34 kB │ gzip: 121.30 kB
+dist/assets/mapbox-gl-P6YHXPpk.js                    1,763.50 kB │ gzip: 480.83 kB
+
+✓ built in 1.66s
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: 
+https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.

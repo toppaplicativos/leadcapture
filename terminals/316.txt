@@ -1,0 +1,28 @@
+---
+pid: 3556
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd C:\\Users\\Public\\Projetos\\leadcapture; Get-Content agent-tools\\.env.smoke | ForEach-Object { if ($_ -match '^([^#=]+)=(.*)$') { Set-Item -Path \"Env:$($matches[1])\" -Value $matches[2] } }; node agent-tools\\smoke-authenticated-mobile.mjs 2>&1 | Select-Object -Last 15"
+started_at: 2026-07-07T22:21:47.637Z
+running_for_ms: 86400010 
+---
+OK    Pedidos → painel expandido
+OK    Instagram → inline ("Instagram · conectar conta")
+OK    Instagram → painel expandido
+OK    Instagram → CatalogManagerSheet aberto (head pad 12px)
+OK    Facebook → inline ("Facebook · conectar página")
+OK    Facebook → painel expandido
+OK    Facebook → CatalogManagerSheet aberto (head pad 12px)
+OK    Afiliados → inline ("Afiliados · 0 ativos · 10%")
+OK    Afiliados → painel expandido
+OK    Afiliados → composer dock visível
+OK    Afiliados → composer Gerenciar abre CatalogManagerSheet
+OK    Afiliados → CatalogManagerSheet aberto (head pad 12px)
+OK    sem canvas fullscreen residual no mobile
+
+Tudo OK (mobile)
+
+---
+exit_code: -1
+elapsed_ms: 86400010
+ended_at: 2026-07-08T22:22:00.796Z
+---

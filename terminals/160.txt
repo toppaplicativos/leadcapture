@@ -1,0 +1,38 @@
+---
+pid: 31116
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "ssh root@187.127.5.179 \"cd /root/leadcapture && npm run build && pm2 restart leadcapture-api && pm2 save && echo OK\""
+started_at: 2026-07-07T15:15:52.233Z
+running_for_ms: 86400002 
+---
+
+> lead-captation-system@1.0.0 build
+> tsc
+
+src/index.ts(19,27): error TS2307: Cannot find module './routes/gallery' or its corresponding type declarations.
+src/index.ts(59,32): error TS2307: Cannot find module './routes/affiliateApp' or its corresponding type declarations.
+src/index.ts(60,30): error TS2307: Cannot find module './routes/affiliates' or its corresponding type declarations.
+src/index.ts(64,35): error TS2307: Cannot find module './routes/publicAffiliate' or its corresponding type declarations.
+src/index.ts(66,30): error TS2307: Cannot find module './routes/adminAgent' or its corresponding type declarations.
+src/services/adminAgent/actions.ts(3,32): error TS2307: Cannot find module '../gallery' or its corresponding type declarations.
+src/services/adminAgent/orchestrator.ts(12,3): error TS2724: '"./actions"' has no exported member named 'fetchRecentClients'. Did you mean 'fetchRecentLeads'?
+src/services/adminAgent/orchestrator.ts(13,3): error TS2724: '"./actions"' has no exported member named 'fetchClientStats'. Did you mean 'fetchLeadStats'?
+src/services/adminAgent/orchestrator.ts(14,3): error TS2305: Module '"./actions"' has no exported member 'fetchRecentOrders'.
+src/services/adminAgent/orchestrator.ts(15,3): error TS2305: Module '"./actions"' has no exported member 'fetchOrderStats'.
+src/services/adminAgent/orchestrator.ts(18,3): error TS2305: Module '"./actions"' has no exported member 'generateProductDraftFromBrief'.
+src/services/adminAgent/orchestrator.ts(19,3): error TS2305: Module '"./actions"' has no exported member 'generateInstagramPostFromBrief'.
+src/services/adminAgent/orchestrator.ts(20,3): error TS2305: Module '"./actions"' has no exported member 'generateFacebookPostFromBrief'.
+src/services/adminAgent/orchestrator.ts(24,55): error TS2307: Cannot find module './squads' or its corresponding type declarations.
+src/services/adminAgent/orchestrator.ts(25,30): error TS2307: Cannot find module './skillMeta' or its corresponding type declarations.
+src/services/adminAgent/orchestrator.ts(33,8): error TS2307: Cannot find module './types' or its corresponding type declarations.
+src/services/adminAgent/orchestrator.ts(493,11): error TS18046: 'skill' is of type 'unknown'.
+src/services/adminAgent/orchestrator.ts(493,31): error TS7006: Parameter 'i' implicitly has an 'any' type.
+src/services/adminAgent/orchestrator.ts(495,18): error TS18046: 'skill' is of type 'unknown'.
+src/services/adminAgent/orchestrator.ts(496,18): error TS18046: 'skill' is of type 'unknown'.
+src/services/adminAgent/orchestrator.ts(497,42): error TS18046: 'skill' is of type 'unknown'.
+
+---
+exit_code: -1
+elapsed_ms: 86400002
+ended_at: 2026-07-08T15:15:58.799Z
+---

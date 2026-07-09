@@ -1,0 +1,19 @@
+---
+pid: 6908
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd C:\\Users\\Public\\Projetos\\leadcapture\\frontend; npm run build"
+started_at: 2026-07-06T19:08:06.974Z
+running_for_ms: 86400012 
+---
+
+> leadcapture-frontend@1.0.0 build
+> tsc -b && vite build
+
+src/components/agent/WorkspaceChat.tsx(47,42): error TS2367: This comparison appears to be unintentional because the types 'ComponentType' and '"inbox_stats"' have no overlap.
+src/lib/agent/AgentShellContext.tsx(197,54): error TS2367: This comparison appears to be unintentional because the types 'ComponentType' and '"inbox_stats"' have no overlap.
+
+---
+exit_code: -1
+elapsed_ms: 86400012
+ended_at: 2026-07-07T19:08:15.284Z
+---

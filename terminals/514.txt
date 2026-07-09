@@ -1,0 +1,11 @@
+---
+pid: 18664
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd \"C:\\Users\\Public\\Projetos\\leadcapture\"; npm run build 2>&1 | Select-Object -Last 40"
+started_at: 2026-07-09T01:55:50.487Z
+running_for_ms: 3069999  
+---
+
+> lead-captation-system@1.0.0 build
+> tsc
+

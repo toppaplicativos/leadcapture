@@ -1,4 +1,5 @@
 import { lazy, Suspense } from 'react'
+import { PageSplash } from '@/components/PageSplash'
 import { ChevronDown, ChevronUp, Loader2, MapPin, X } from 'lucide-react'
 import { useProspectBridge } from '@/lib/agent/ProspectBridgeContext'
 import { useAgentShell } from '@/lib/agent/AgentShellContext'
@@ -54,11 +55,7 @@ export function ProspectModuleBlock({ messageId, isActive }: Props) {
         <div className="prospect-module__body">
           {!isDesktop && (
             <div className="prospect-module__map">
-              <Suspense fallback={
-                <div className="prospect-module__map-fallback">
-                  <Loader2 size={18} className="animate-spin text-gray-400" />
-                </div>
-              }>
+              <Suspense fallback={<PageSplash variant="panel" label="Busca" />}>
                 <LeadSearchPage variant="inline-map" />
               </Suspense>
             </div>

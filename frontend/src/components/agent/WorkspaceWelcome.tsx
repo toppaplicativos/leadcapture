@@ -1,25 +1,28 @@
 import {
-  Search, MessageSquare, Megaphone, ShoppingCart, Sparkles, Package, Images,
-  Users, Building2, LayoutDashboard, Brain, Camera, BarChart3, Globe, Zap,
+  Search, Megaphone, ShoppingCart, Sparkles, Package, Images,
+  Users, Building2, LayoutDashboard, Brain, BarChart3, Zap, Handshake,
 } from 'lucide-react'
-import type { LucideIcon } from 'lucide-react'
+import { FacebookIcon, InstagramIcon, WhatsAppIcon } from '@/components/icons'
+import type { IconComponent } from '@/components/icons'
 import { OBJECTIVE_TRIGGERS } from '@/lib/agent/workspaceTriggers'
 import type { TriggerSkillOptions } from '@/lib/agent/types'
 
-const CARD_ICONS: Record<string, LucideIcon> = {
+const CARD_ICONS: Record<string, IconComponent> = {
   'dashboard.overview': LayoutDashboard,
   'lead.prospect': Search,
-  'messages.inbox': MessageSquare,
+  'messages.inbox': WhatsAppIcon,
   'catalog.products': Package,
   'gallery.open': Images,
-  'instagram.open': Camera,
-  'instagram.post.create': Camera,
+  'instagram.open': InstagramIcon,
+  'instagram.post.create': InstagramIcon,
   'instagram.analyze': BarChart3,
-  'facebook.open': Globe,
-  'facebook.post.create': Globe,
+  'facebook.open': FacebookIcon,
+  'facebook.post.create': FacebookIcon,
   'facebook.analyze': BarChart3,
   'automation.open': Zap,
   'automation.create': Zap,
+  'affiliate.open': Handshake,
+  'affiliate.create': Handshake,
   'campaigns.list': Megaphone,
   'crm.leads.table': Users,
   'crm.clients.table': Building2,
@@ -91,7 +94,17 @@ export function WorkspaceWelcome({ brandName, brandLogoUrl, onTrigger }: Props) 
                   context: item.context,
                 })}
               >
-                <Icon size={14} strokeWidth={1.75} aria-hidden="true" />
+                <Icon
+                  size={14}
+                  strokeWidth={1.75}
+                  aria-hidden="true"
+                  className={
+                    item.skill.startsWith('instagram.') ? 'brand-icon--ig'
+                      : item.skill.startsWith('facebook.') ? 'brand-icon--fb'
+                        : item.skill === 'messages.inbox' ? 'brand-icon--wa'
+                          : undefined
+                  }
+                />
                 <span>{item.userLabel}</span>
               </button>
             )

@@ -1,6 +1,8 @@
 import { Response, Router } from "express";
 import { authMiddleware, AuthRequest, requireRole } from "../middleware/auth";
 import { getNotificationService, NotificationChannel, NotificationPriority, NotificationType } from "../services/notifications";
+import { getNotificationPlatformService } from "../services/notificationPlatform";
+import type { PushAppContext } from "../config/push-events";
 import { logger } from "../utils/logger";
 
 const router = Router();
@@ -26,12 +28,28 @@ router.get("/", async (req: AuthRequest, res: Response) => {
     const readRaw = String(req.query.read || "").trim().toLowerCase();
     const read = readRaw ? readRaw === "true" || readRaw === "1" : undefined;
 
+    const filterRaw = String(req.query.filter || "").trim().toLowerCase();
+    let readFilter = read;
+    let actionRequired: boolean | undefined;
+    let criticalOnly = false;
+    let archived = false;
+
+    if (filterRaw === "unread") readFilter = false;
+    else if (filterRaw === "critical") criticalOnly = true;
+    else if (filterRaw === "action") actionRequired = true;
+    else if (filterRaw === "archived") archived = true;
+
     const result = await notifications.listNotifications({
       user_id: userId,
       type: type || undefined,
       priority: priority || undefined,
-      read,
+      read: readFilter,
       store_id: req.query.store_id ? String(req.query.store_id) : undefined,
+      app_target: req.query.app_target ? String(req.query.app_target) : undefined,
+      category: req.query.category ? String(req.query.category) : undefined,
+      action_required: actionRequired,
+      critical_only: criticalOnly,
+      archived: filterRaw === "archived" ? true : archived || undefined,
       q: req.query.q ? String(req.query.q) : undefined,
       limit,
       offset,
@@ -57,6 +75,18 @@ router.get("/unread-count", async (req: AuthRequest, res: Response) => {
   }
 });
 
+router.post("/read-all", async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+    const affected = await notifications.markAllAsRead(userId);
+    return res.json({ success: true, affected });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
 router.post("/:id/read", async (req: AuthRequest, res: Response) => {
   try {
     const userId = getUserId(req);
@@ -71,13 +101,66 @@ router.post("/:id/read", async (req: AuthRequest, res: Response) => {
   }
 });
 
-router.post("/read-all", async (req: AuthRequest, res: Response) => {
+router.post("/:id/archive", async (req: AuthRequest, res: Response) => {
   try {
     const userId = getUserId(req);
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
-    const affected = await notifications.markAllAsRead(userId);
-    return res.json({ success: true, affected });
+    const ok = await notifications.archiveNotification(userId, String(req.params.id || "").trim());
+    if (!ok) return res.status(404).json({ error: "Notification not found" });
+
+    const unread = await notifications.getUnreadCount(userId);
+    return res.json({ success: true, unread_count: unread });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+router.get("/preferences/events", async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+    const appContext = String(req.query.app_context || "admin").trim() as PushAppContext;
+    const platform = getNotificationPlatformService();
+    const preferences = await platform.listUserPreferences(userId, appContext);
+    return res.json({ success: true, preferences, app_context: appContext });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+router.put("/preferences/events/:eventKey", async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+    const body = req.body && typeof req.body === "object" ? req.body : {};
+    const appContext = String(body.app_context || req.query.app_context || "admin").trim() as PushAppContext;
+    const platform = getNotificationPlatformService();
+    const eventKey = String(req.params.eventKey || "").trim();
+
+    const eventConfig = await platform.resolveEventConfig(eventKey);
+    if (eventConfig && !eventConfig.can_be_disabled_by_user) {
+      const disabling = body.push_enabled === false || body.in_app_enabled === false;
+      if (disabling) {
+        return res.status(400).json({ error: "Este evento crítico não pode ser totalmente desativado" });
+      }
+    }
+
+    const preference = await platform.upsertUserPreference({
+      user_id: userId,
+      app_context: appContext,
+      event_key: eventKey,
+      category: body.category ? String(body.category) : eventConfig?.category || null,
+      push_enabled: typeof body.push_enabled === "boolean" ? body.push_enabled : undefined,
+      in_app_enabled: typeof body.in_app_enabled === "boolean" ? body.in_app_enabled : undefined,
+      sound_enabled: typeof body.sound_enabled === "boolean" ? body.sound_enabled : undefined,
+      email_enabled: typeof body.email_enabled === "boolean" ? body.email_enabled : undefined,
+      silent_hours_enabled: typeof body.silent_hours_enabled === "boolean" ? body.silent_hours_enabled : undefined,
+    });
+
+    return res.json({ success: true, preference });
   } catch (error: any) {
     return res.status(500).json({ error: error.message });
   }

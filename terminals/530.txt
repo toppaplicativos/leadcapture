@@ -1,0 +1,37 @@
+---
+pid: 27092
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd \"C:\\Users\\Public\\Projetos\\leadcapture\\frontend\"; npm run build 2>&1 | Select-Object -Last 30"
+started_at: 2026-07-09T02:29:04.590Z
+running_for_ms: 1074996  
+---
+dist/assets/InventoryPage-DXgCWEv5.js                   51.63 kB │ gzip:  11.98 kB
+dist/assets/ClientesPage-C9hI-R83.js                    61.08 kB │ gzip:  14.17 kB
+dist/assets/LeadsPage-BKxL4V4M.js                       67.27 kB │ gzip:  15.66 kB
+dist/assets/AutomationsPage-BKnie1BC.js                 67.49 kB │ gzip:  16.52 kB
+dist/assets/LeadSearchPage-CQAeVlWp.js                  70.08 kB │ gzip:  17.90 kB
+dist/assets/ProductsView-DOs_3DpE.js                    78.99 kB │ gzip:  17.24 kB
+dist/assets/AffiliatesPage-SldIcmlf.js                  85.72 kB │ gzip:  17.42 kB
+dist/assets/CampaignsView-BtPxkpQ8.js                   88.21 kB │ gzip:  21.55 kB
+dist/assets/InstagramPage-DEpFD8w4.js                  122.70 kB │ gzip:  31.08 kB
+dist/assets/AffiliateAppPage-C-9NhYh5.js               134.72 kB │ gzip:  30.74 kB
+dist/assets/AdminShell-C8RzuAz7.js                     218.27 kB │ gzip:  43.40 kB
+dist/assets/LandingPage-D78KcmMV.js                    227.38 kB │ gzip:  63.81 kB
+dist/assets/index-TPMyT7S_.js                          278.81 kB │ gzip:  85.05 kB
+dist/assets/VideoStudioPage-BBO4rBV0.js                403.40 kB │ gzip: 121.31 kB
+dist/assets/mapbox-gl-Bc4g_hNa.js                    1,763.50 kB │ gzip: 480.83 kB
+
+[PLUGIN_TIMINGS] Warning: Your build spent significant time in plugins. Here is a breakdown:
+  - vite:css-post (39%)
+  - vite:build-import-analysis (19%)
+  - vite:asset (16%)
+  - vite:terser (13%)
+✓ built in 8.54s  - vite:worker (12%)
+See https://rolldown.rs/options/checks#plugintimings for more details.
+[plugin builtin:vite-reporter] 
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: 
+https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+

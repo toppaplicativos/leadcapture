@@ -1,0 +1,12 @@
+---
+pid: 21100
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd C:\\Users\\Public\\Projetos\\leadcapture; npm run build"
+started_at: 2026-07-09T01:52:12.094Z
+running_for_ms: 3290008  
+---
+
+> lead-captation-system@1.0.0 build
+> tsc
+
+src/config/notification-events.ts(84,22): error TS5076: '??' and '||' operations cannot be mixed without parentheses.

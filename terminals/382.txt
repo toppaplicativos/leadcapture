@@ -1,0 +1,27 @@
+---
+pid: 33876
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\Public\\Projetos\\leadcapture\\agent-tools\\run-deploy-verified.ps1\""
+started_at: 2026-07-08T14:36:29.384Z
+running_for_ms: 43830000 
+---
+>> Bumping service worker cache
+OK    C:\Users\Public\Projetos\leadcapture\frontend\public\service-worker.js
+OK    C:\Users\Public\Projetos\leadcapture\public\service-worker.js
+      shell=lead-system-shell-v69-20260708 runtime=lead-system-runtime-v61-20260708
+>> Build backend
+
+> lead-captation-system@1.0.0 build
+> tsc
+
+OK    backend build
+>> Build frontend
+
+> leadcapture-frontend@1.0.0 build
+> tsc -b && vite build
+
+src/components/agent/WorkspaceChat.tsx(5,30): error TS2300: Duplicate identifier 'Search'.
+src/components/agent/WorkspaceChat.tsx(7,70): error TS2300: Duplicate identifier 'Brain'.
+src/components/agent/WorkspaceChat.tsx(8,69): error TS2300: Duplicate identifier 'Brain'.
+src/components/agent/WorkspaceChat.tsx(8,76): error TS2300: Duplicate identifier 'Search'.
+ABORT: frontend build falhou (exit 1)

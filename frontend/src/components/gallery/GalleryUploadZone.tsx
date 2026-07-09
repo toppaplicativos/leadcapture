@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from 'react'
 import { Loader2, Upload, X } from 'lucide-react'
 import { uploadGalleryFiles } from '@/lib/gallery/api'
 import { cn } from '@/lib/cn'
+import { detectFileKind, IMAGE_UPLOAD_ACCEPT } from '@/lib/media/detectFileKind'
 
 export function GalleryUploadZone({
   open,
@@ -20,11 +21,9 @@ export function GalleryUploadZone({
 
   const handleFiles = useCallback(
     async (files: FileList | File[]) => {
-      const list = [...files].filter(
-        (f) => f.type.startsWith('image/') || f.type.startsWith('video/'),
-      )
+      const list = [...files].filter((f) => detectFileKind(f) !== null)
       if (!list.length) {
-        setError('Selecione imagens ou vídeos (JPG, PNG, WEBP, MP4).')
+        setError('Selecione imagens ou videos (JPG, PNG, WEBP, HEIC, MP4, MOV).')
         return
       }
       setUploading(true)
@@ -115,7 +114,7 @@ export function GalleryUploadZone({
           <input
             ref={inputRef}
             type="file"
-            accept="image/*,video/mp4,video/webm,video/quicktime"
+            accept={IMAGE_UPLOAD_ACCEPT}
             multiple
             className="hidden"
             onChange={(e) => {

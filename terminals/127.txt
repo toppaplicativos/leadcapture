@@ -1,0 +1,30 @@
+---
+pid: 20984
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd \"C:\\Users\\Public\\Projetos\\leadcapture\"; $env:SMOKE_EMAIL=\"eleniceventura72@gmail.com\"; $env:SMOKE_PASSWORD=\"salao1234\"; node agent-tools/smoke-authenticated.mjs"
+started_at: 2026-07-07T05:40:05.444Z
+running_for_ms: 107631415
+---
+Smoke autenticado: https://app.leadcapture.online
+
+OK    login → /admin
+OK    workspace carregado
+OK    sem erros de chunk pós-login
+OK    Painel → módulo aberto ("Painel · 522 leads")
+OK    Painel → KPI 522
+OK    Leads → módulo aberto ("522 leads")
+OK    Leads → KPI 522
+OK    Produtos → módulo aberto ("25 produtos")
+OK    Produtos → KPI 25
+OK    Campanhas → módulo aberto ("10 campanhas")
+OK    Habilidades → módulo aberto ("9 habilidades")
+OK    Habilidades → KPI 9
+OK    Pedidos → módulo aberto ("0 pedidos")
+
+Tudo OK
+
+---
+exit_code: -1
+elapsed_ms: 107631415
+ended_at: 2026-07-08T11:34:03.180Z
+---

@@ -28,6 +28,17 @@ export async function attachBrandContext(
   next: NextFunction
 ): Promise<void> {
   try {
+    const user = req.user || {};
+    const credentialType = String((user as any).credential_type || "").trim().toLowerCase();
+
+    if (credentialType === "afiliado") {
+      const brandFromToken = String((user as any).brand_id || "").trim();
+      const requestedBrandId = getRequestedBrandId(req);
+      req.brandId = requestedBrandId || brandFromToken || null;
+      next();
+      return;
+    }
+
     const userId = (req.user?.userId || req.userId) as string | undefined;
     if (!userId) {
       res.status(401).json({ error: "Unauthorized" });

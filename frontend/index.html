@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <meta name="apple-mobile-web-app-title" content="Catálogo" />
+    <meta name="apple-mobile-web-app-title" content="LeadCapture" id="pwa-app-title" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="description" content="Catálogo, pedidos e atendimento integrado." />
     <style>
@@ -53,6 +53,11 @@
         --splash-fg: #0f172a;
       }
 
+      #app-splash[data-view='affiliate'] {
+        --splash-bg: #ffffff;
+        --splash-fg: #0f172a;
+      }
+
       #app-splash[data-state='closing'] {
         opacity: 0;
         pointer-events: none;
@@ -91,27 +96,39 @@
         var pathParts = window.location.pathname.split('/').filter(Boolean)
         var slug = ''
         var channel = 'catalogo'
+        var appKind = 'store'
         var firstPath = pathParts[0] || ''
         var adminPaths = {
           admin: true, dashboard: true, login: true, leads: true, clientes: true,
           busca: true, mensagens: true, notificacoes: true, campanhas: true,
-          automacoes: true, criativos: true, creative: true, integracoes: true,
-          produtos: true, pedidos: true, design: true, whatsapp: true,
-          pagamentos: true, frete: true, dominio: true, agente: true,
-          configuracoes: true,
+          automacoes: true, fluxos: true, habilidades: true, skills: true,
+          criativos: true, creative: true, integracoes: true, galeria: true,
+          'video-studio': true, produtos: true, pedidos: true, design: true,
+          whatsapp: true, instagram: true, facebook: true, pagamentos: true,
+          frete: true, dominio: true, agente: true, atendente: true,
+          configuracoes: true, emails: true, 'provedores-ia': true,
+          estoque: true, afiliados: true, cupons: true, avaliacoes: true,
+          'tirar-pedido': true,
         }
         var splashView = 'store'
 
         if ((pathParts[0] === 'catalogo' || pathParts[0] === 'loja') && pathParts[1]) {
           slug = decodeURIComponent(pathParts[1])
           channel = pathParts[0]
+        } else if (pathParts[0] === 'central-afiliado' && pathParts[1]) {
+          slug = decodeURIComponent(pathParts[1])
+          appKind = 'affiliate'
+          splashView = 'affiliate'
         }
 
         if (adminPaths[firstPath]) splashView = 'admin'
         else if (firstPath === 'app-estoque' || firstPath === 'inventario' || firstPath === 'estoque') splashView = 'stock'
 
         var params = new URLSearchParams()
-        if (slug) {
+        if (slug && appKind === 'affiliate') {
+          params.set('slug', slug)
+          params.set('app', 'affiliate')
+        } else if (slug) {
           params.set('slug', slug)
           params.set('channel', channel)
         }
@@ -125,7 +142,7 @@
         // use the brand-specific dynamic icon.
         var splashIcon = slug ? '/pwa/icon' + iconSuffix : '/brand-mark.svg'
 
-        var brandNames = { store: 'Catálogo', admin: 'Admin', stock: 'Estoque' }
+        var brandNames = { store: 'Catálogo', admin: 'LeadCapture', stock: 'Estoque', affiliate: 'Afiliados' }
 
         function appendLink(id, rel, href, sizes, type) {
           var link = document.createElement('link')
@@ -167,7 +184,7 @@
         }
       })()
     </script>
-    <title>Catálogo</title>
+    <title>LeadCapture</title>
   </head>
   <body class="app-shell-loading">
     <div id="app-splash" aria-hidden="true">

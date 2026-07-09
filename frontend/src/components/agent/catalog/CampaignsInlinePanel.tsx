@@ -3,6 +3,7 @@ import {
   Loader2, Megaphone, Plus, Sparkles, ChevronRight, Search,
   LayoutGrid, List, Rows3, ExternalLink,
 } from 'lucide-react'
+import { PageSplash } from '@/components/PageSplash'
 import { adminApi } from '@/lib/api-admin'
 import { useCampaignsBridgeOptional } from '@/lib/agent/CampaignsBridgeContext'
 import { useAgentShell } from '@/lib/agent/AgentShellContext'
@@ -224,9 +225,7 @@ export function CampaignsInlinePanel() {
 
   if (loading && campaigns.length === 0) {
     return (
-      <div className="catalog-panel__loading">
-        <Loader2 size={18} className="animate-spin text-gray-400" />
-      </div>
+      <PageSplash variant="panel" label="Campanhas" />
     )
   }
 
@@ -326,7 +325,7 @@ export function CampaignsInlinePanel() {
         title="Campanhas"
         subtitle="Lista, filtros, IA e edição completa"
       >
-        <Suspense fallback={<div className="catalog-panel__loading"><Loader2 size={20} className="animate-spin text-gray-400" /></div>}>
+        <Suspense fallback={<PageSplash variant="panel" label="Campanhas" />}>
           <CampaignsManager
             embedded
             showToast={(msg, tp) => showToast(tp === 'err' ? `Erro: ${msg}` : msg)}

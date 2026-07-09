@@ -605,7 +605,8 @@ export class BrandUnitsService {
     if (candidate) {
       const requested = await this.getById(userId, candidate);
       if (!requested) {
-        throw new Error("Brand not found for this user");
+        // Marca alheia ou inválida — não lança 500; caller trata null (lista vazia / 400).
+        return null;
       }
       await this.setActiveBrand(userId, candidate);
       return candidate;

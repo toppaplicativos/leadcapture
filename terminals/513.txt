@@ -1,0 +1,15 @@
+---
+pid: 35032
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd \"C:\\Users\\Public\\Projetos\\leadcapture\"; npm run build 2>&1 | Select-Object -Last 60"
+started_at: 2026-07-09T01:54:44.774Z
+running_for_ms: 3135007  
+---
+
+> lead-captation-system@1.0.0 build
+> tsc
+
+src/config/notification-events.ts(84,22): error TS5076: '??' and '||' operations cannot be mixed without parentheses.
+src/config/notification-events.ts(356,7): error TS2322: Type '"urgent"' is not assignable to type 'PushPriority | undefined'.
+src/config/notification-events.ts(370,7): error TS2322: Type '"urgent"' is not assignable to type 'PushPriority | undefined'.
+src/services/notifications.ts(571,7): error TS2353: Object literal may only specify known properties, and 'deep_link' does not exist in type 'NotificationRealtimePayload'.

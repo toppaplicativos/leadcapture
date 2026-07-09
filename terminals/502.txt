@@ -1,0 +1,13 @@
+---
+pid: 6584
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "Set-Location C:\\Users\\Public\\Projetos\\leadcapture; npm run build"
+started_at: 2026-07-09T01:09:59.289Z
+running_for_ms: 5820008  
+---
+
+> lead-captation-system@1.0.0 build
+> tsc
+
+src/services/affiliateCrm.ts(116,24): error TS2367: This comparison appears to be unintentional because the types '"contact" | "all" | "followup" | "lead" | "hot" | "prospect"' and '"lost"' have no overlap.
+src/services/affiliateCrm.ts(137,24): error TS2367: This comparison appears to be unintentional because the types '"contact" | "all" | "followup" | "lead" | "hot" | "prospect"' and '"lost"' have no overlap.

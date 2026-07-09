@@ -1,0 +1,9 @@
+{
+  "name": "typeui_install_fundamentals",
+  "description": "Prepare the project-local TypeUI fundamentals install command. The command must be run from the user's project root and must not use --global or -g.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {},
+    "type": "object"
+  }
+}

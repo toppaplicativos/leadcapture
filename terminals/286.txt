@@ -1,0 +1,19 @@
+---
+pid: 3804
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd C:\\Users\\Public\\Projetos\\leadcapture\\frontend; npm run build"
+started_at: 2026-07-07T21:35:08.363Z
+running_for_ms: 86400004 
+---
+
+> leadcapture-frontend@1.0.0 build
+> tsc -b && vite build
+
+src/components/agent/AdminAgentChat.tsx(64,95): error TS2554: Expected 2 arguments, but got 1.
+src/pages/admin/agent/AgentHomePage.tsx(41,82): error TS2554: Expected 2 arguments, but got 1.
+
+---
+exit_code: -1
+elapsed_ms: 86400004
+ended_at: 2026-07-08T21:35:18.090Z
+---

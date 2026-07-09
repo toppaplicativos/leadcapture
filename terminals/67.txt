@@ -1,0 +1,15 @@
+---
+pid: 25284
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd \"C:\\Users\\Public\\Projetos\\leadcapture\"; npx tsc --noEmit 2>&1"
+started_at: 2026-07-06T20:39:06.401Z
+running_for_ms: 86400041 
+---
+src/services/adminAgent/actions.ts(107,62): error TS2345: Argument of type 'string | null' is not assignable to parameter of type 'string'.
+  Type 'null' is not assignable to type 'string'.
+
+---
+exit_code: -1
+elapsed_ms: 86400041
+ended_at: 2026-07-07T20:39:18.211Z
+---

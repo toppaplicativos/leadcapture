@@ -1,0 +1,28 @@
+---
+pid: 32576
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd C:\\Users\\Public\\Projetos\\leadcapture\\frontend; npm run build 2>&1 | Select-Object -Last 20"
+started_at: 2026-07-08T14:39:09.792Z
+running_for_ms: 43670007 
+---
+dist/assets/AffiliateAppPage-CTp9s2hK.js                55.43 kB │ gzip:  13.88 kB
+dist/assets/ClientesPage-__Q3slHk.js                    60.79 kB │ gzip:  14.06 kB
+[plugin builtin:vite-reporter] 
+dist/assets/LeadsPage-eIdLU2qY.js                       66.98 kB │ gzip:  15.55 kB(!) Some chunks are larger than 500 kB after minification. Consider:
+
+dist/assets/AutomationsPage-Cn2tbwaI.js                 67.33 kB │ gzip:  16.46 kB
+dist/assets/LeadSearchPage-C27VJ57W.js                  69.97 kB │ gzip:  17.87 kB
+dist/assets/ProductsView-BUwKl_dc.js                    72.06 kB │ gzip:  15.69 kB
+dist/assets/CampaignsView-D9hDvhsB.js                   88.31 kB │ gzip:  21.67 kB
+dist/assets/InstagramPage-DgJWJ3PI.js                   94.85 kB │ gzip:  23.66 kB
+dist/assets/AdminShell-G7ZOHFii.js                     210.00 kB │ gzip:  41.56 kB
+dist/assets/LandingPage-B5rllprp.js                    227.16 kB │ gzip:  63.73 kB
+dist/assets/index-YKBMPaSb.js                          329.79 kB │ gzip:  97.36 kB
+dist/assets/VideoStudioPage-53QoouzZ.js                403.34 kB │ gzip: 121.30 kB
+dist/assets/mapbox-gl-B4hTGBLA.js                    1,763.50 kB │ gzip: 480.83 kB
+
+✓ built in 1.55s
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: 
+https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.

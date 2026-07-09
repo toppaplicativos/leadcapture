@@ -1,0 +1,25 @@
+---
+pid: 24668
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd C:\\Users\\Public\\Projetos\\leadcapture; .\\agent-tools\\deploy-full.ps1 -SkipBuild 2>&1 | Select-Object -Last 40"
+started_at: 2026-07-07T22:15:18.989Z
+running_for_ms: 86400010 
+---
+>> Enviando backend dist completo
+>> Enviando frontend completo
+>> Aguardando servi��os (15s)
+>> Verificando deploy
+>> Smoke autenticado (desktop)
+node : FAIL  fluxo: page.waitForSelector: Timeout 20000ms exceeded.
+No C:\Users\Public\Projetos\leadcapture\agent-tools\deploy-full.ps1:101 caractere:3
++   node "$PSScriptRoot\smoke-authenticated.mjs"
++   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (FAIL  fluxo: pa...000ms exceeded.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+
+---
+exit_code: -1
+elapsed_ms: 86400010
+ended_at: 2026-07-08T22:15:32.063Z
+---

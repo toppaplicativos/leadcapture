@@ -1,0 +1,7 @@
+---
+pid: 34976
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd C:\\Users\\Public\\Projetos\\leadcapture\\frontend; npx tsc -b --pretty false 2>&1 | Select-Object -Last 20"
+started_at: 2026-07-08T23:26:08.689Z
+running_for_ms: 12049960 
+---

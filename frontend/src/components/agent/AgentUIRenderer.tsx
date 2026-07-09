@@ -2,8 +2,9 @@ import { useState } from 'react'
 import {
   Users, Megaphone, Package, ShoppingCart, Zap, AlertTriangle, Boxes,
   ArrowRight, CheckCircle2, Circle, Brain, Sparkles, Phone, MapPin, User,
-  Camera, Clock, Send, Loader2, Globe, GitBranch, MessageSquare,
+  Clock, Send, Loader2, GitBranch, MessageSquare, Handshake, Wallet,
 } from 'lucide-react'
+import { FacebookIcon, InstagramIcon } from '@/components/icons'
 import type { LucideIcon } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card, CardBody } from '@/components/ui/Card'
@@ -551,6 +552,134 @@ function OptionPicker({ spec, callbacks }: { spec: ComponentSpec; callbacks: Age
   )
 }
 
+function AffiliateCreatePreview({ spec, callbacks }: { spec: ComponentSpec; callbacks: AgentCallbacks }) {
+  const props = spec.props || {}
+  const [busy, setBusy] = useState(false)
+  const emit = () => {
+    if (busy) return
+    setBusy(true)
+    callbacks.onComponentEvent?.({
+      componentId: spec.id,
+      action: 'affiliate_create_confirm',
+      payload: props,
+    }, {
+      nextSkill: 'affiliate.create.confirm',
+      name: props.name,
+      email: props.email,
+      password: props.password,
+      phone: props.phone,
+      code: props.code,
+      region: props.region,
+    })
+    setTimeout(() => setBusy(false), 1200)
+  }
+
+  return (
+    <div className="catalog-aff-preview">
+      <div className="catalog-aff-preview__head">
+        <Handshake size={14} className="text-teal-700 shrink-0" />
+        <div>
+          <p className="catalog-aff-preview__title">{String(props.name || 'Novo parceiro')}</p>
+          <p className="catalog-aff-preview__meta">{String(props.email || '')} · Comissão {Number(props.commissionPct || 10)}%</p>
+        </div>
+      </div>
+      <ul className="catalog-aff-preview__list">
+        {props.code ? <li>Código: <strong>{String(props.code)}</strong></li> : null}
+        {props.phone ? <li>Telefone: {String(props.phone)}</li> : null}
+        {props.region ? <li>Região: {String(props.region)}</li> : null}
+      </ul>
+      <div className="catalog-aff-preview__actions">
+        <button type="button" className="catalog-aff-preview__btn catalog-aff-preview__btn--primary" disabled={busy} onClick={emit}>
+          {busy ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
+          Confirmar cadastro
+        </button>
+        <button type="button" className="catalog-aff-preview__btn" onClick={() => callbacks.onNavigate('/afiliados')}>
+          Editar na gestão
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function AffiliateConfigPreview({ spec, callbacks }: { spec: ComponentSpec; callbacks: AgentCallbacks }) {
+  const props = spec.props || {}
+  const [busy, setBusy] = useState(false)
+  const emit = () => {
+    if (busy) return
+    setBusy(true)
+    callbacks.onComponentEvent?.({
+      componentId: spec.id,
+      action: 'affiliate_config_confirm',
+      payload: props,
+    }, {
+      nextSkill: 'affiliate.config.confirm',
+      is_enabled: props.is_enabled,
+      default_commission_pct: props.default_commission_pct,
+      min_withdrawal: props.min_withdrawal,
+      cookie_days: props.cookie_days,
+      payment_days: props.payment_days,
+      accept_new_affiliates: props.accept_new_affiliates,
+      auto_approve_affiliates: props.auto_approve_affiliates,
+    })
+    setTimeout(() => setBusy(false), 1200)
+  }
+
+  return (
+    <div className="catalog-aff-preview">
+      <p className="catalog-aff-preview__title">Alterações no programa</p>
+      <ul className="catalog-aff-preview__list">
+        <li>Comissão padrão: <strong>{Number(props.default_commission_pct)}%</strong></li>
+        <li>Saque mínimo: <strong>R$ {Number(props.min_withdrawal).toFixed(2)}</strong></li>
+        <li>Cookie: <strong>{Number(props.cookie_days)} dias</strong></li>
+        <li>Prazo pagamento: <strong>{Number(props.payment_days)} dias</strong></li>
+      </ul>
+      <div className="catalog-aff-preview__actions">
+        <button type="button" className="catalog-aff-preview__btn catalog-aff-preview__btn--primary" disabled={busy} onClick={emit}>
+          Salvar configurações
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function AffiliatePayoutPreview({ spec, callbacks }: { spec: ComponentSpec; callbacks: AgentCallbacks }) {
+  const props = spec.props || {}
+  const payoutId = String(props.payoutId || '')
+  const amount = Number(props.amount || 0)
+  const [busy, setBusy] = useState(false)
+
+  const emit = (status: string) => {
+    if (busy || !payoutId) return
+    setBusy(true)
+    callbacks.onComponentEvent?.({
+      componentId: spec.id,
+      action: 'affiliate_payout_confirm',
+      payload: { payoutId, status },
+    }, { nextSkill: 'affiliate.payout.confirm', payoutId, status })
+    setTimeout(() => setBusy(false), 1200)
+  }
+
+  return (
+    <div className="catalog-aff-preview">
+      <div className="catalog-aff-preview__head">
+        <Wallet size={14} className="text-amber-600 shrink-0" />
+        <div>
+          <p className="catalog-aff-preview__title">{String(props.affiliateName || 'Parceiro')}</p>
+          <p className="catalog-aff-preview__meta">{amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} · PIX {String(props.pixKey || '—')}</p>
+        </div>
+      </div>
+      <div className="catalog-aff-preview__actions">
+        <button type="button" className="catalog-aff-preview__btn catalog-aff-preview__btn--primary" disabled={busy} onClick={() => emit('paid')}>
+          Marcar como pago
+        </button>
+        <button type="button" className="catalog-aff-preview__btn" disabled={busy} onClick={() => emit('processing')}>
+          Em processamento
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function AutomationFlowPreview({ spec, callbacks }: { spec: ComponentSpec; callbacks: AgentCallbacks }) {
   const props = spec.props || {}
   const templateId = String(props.templateId || '')
@@ -649,7 +778,7 @@ function FacebookPostPreview({ spec, callbacks }: { spec: ComponentSpec; callbac
   return (
     <div className="catalog-fb-post-preview">
       <div className="catalog-fb-post-preview__head">
-        <Globe size={14} className="text-blue-600 shrink-0" />
+        <FacebookIcon size={14} className="text-blue-600 shrink-0" />
         <div>
           <p className="catalog-fb-post-preview__title">Preview do post</p>
           {sourceLabel && <p className="catalog-fb-post-preview__meta">{sourceLabel}</p>}
@@ -738,7 +867,7 @@ function InstagramPostPreview({ spec, callbacks }: { spec: ComponentSpec; callba
   return (
     <div className="catalog-ig-post-preview">
       <div className="catalog-ig-post-preview__head">
-        <Camera size={14} className="text-rose-500 shrink-0" />
+        <InstagramIcon size={14} className="text-rose-500 shrink-0" />
         <div>
           <p className="catalog-ig-post-preview__title">Preview do post</p>
           {sourceLabel && <p className="catalog-ig-post-preview__meta">{sourceLabel}</p>}
@@ -869,6 +998,12 @@ function renderComponent(spec: ComponentSpec, callbacks: AgentCallbacks, compact
       return <FacebookPostPreview key={spec.id} spec={spec} callbacks={callbacks} />
     case 'automation_flow_preview':
       return <AutomationFlowPreview key={spec.id} spec={spec} callbacks={callbacks} />
+    case 'affiliate_create_preview':
+      return <AffiliateCreatePreview key={spec.id} spec={spec} callbacks={callbacks} />
+    case 'affiliate_config_preview':
+      return <AffiliateConfigPreview key={spec.id} spec={spec} callbacks={callbacks} />
+    case 'affiliate_payout_preview':
+      return <AffiliatePayoutPreview key={spec.id} spec={spec} callbacks={callbacks} />
     case 'option_picker':
       return <OptionPicker key={spec.id} spec={spec} callbacks={callbacks} />
     case 'prospect_stats':

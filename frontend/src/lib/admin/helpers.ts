@@ -32,6 +32,10 @@ export function getHeaders(): Record<string, string> {
 export function clearAdminAuth() {
   localStorage.removeItem('lead-system-token')
   localStorage.removeItem('lead-system:active-brand-id')
+  try {
+    localStorage.removeItem('lead-system:active-brand-name')
+    localStorage.removeItem('lead-system:active-brand-logo')
+  } catch { /* ignore */ }
 }
 
 export function toBrandSlug(value: string): string {
@@ -61,4 +65,54 @@ export function pickStockBrandSlug(
 export function buildStockAppUrl(slug: string): string {
   const normalized = String(slug || '').trim()
   return normalized ? `/app-estoque/${encodeURIComponent(normalized)}` : '/app-estoque'
+}
+
+export function buildAffiliateAppUrl(slug: string): string {
+  const normalized = String(slug || '').trim()
+  return normalized ? `/central-afiliado/${encodeURIComponent(normalized)}` : '/central-afiliado'
+}
+
+export type CatalogProductUrlOptions = {
+  origin?: string
+  /** Domínio próprio verificado — priorizado no link compartilhável */
+  primaryDomain?: string | null
+}
+
+/** URL pública da página do produto (Instagram Shop, compartilhamento). */
+export function buildCatalogProductUrl(
+  storeSlug: string,
+  productSlug: string,
+  originOrOptions?: string | CatalogProductUrlOptions,
+): string {
+  const store = String(storeSlug || '').trim()
+  const product = String(productSlug || '').trim()
+  if (!store || !product) return ''
+
+  const options: CatalogProductUrlOptions =
+    typeof originOrOptions === 'string'
+      ? { origin: originOrOptions }
+      : originOrOptions || {}
+
+  const fallbackOrigin =
+    options.origin ||
+    (typeof window !== 'undefined' ? window.location.origin : '')
+
+  const domain = String(options.primaryDomain || '')
+    .trim()
+    .replace(/^https?:\/\//i, '')
+    .replace(/\/+$/, '')
+    .split('/')[0]
+    .split(':')[0]
+
+  if (domain && domain !== 'localhost' && domain !== '127.0.0.1') {
+    return `https://${domain}/produto/${encodeURIComponent(product)}`
+  }
+
+  const path = `/catalogo/${encodeURIComponent(store)}/produto/${encodeURIComponent(product)}`
+  const base = String(fallbackOrigin).replace(/\/+$/, '')
+  return base ? `${base}${path}` : path
+}
+
+export function slugifyCatalogProduct(value: string): string {
+  return toBrandSlug(value)
 }

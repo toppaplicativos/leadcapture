@@ -1,0 +1,56 @@
+{
+  "capturedAt": "2026-07-04T01:57:25.463Z",
+  "output": "C:\\Users\\Public\\Projetos\\leadcapture\\.playwright-captures\\store-redesign",
+  "devices": [
+    "iphone14",
+    "desktop"
+  ],
+  "themes": [
+    "default"
+  ],
+  "dpr": 2,
+  "results": [
+    {
+      "url": "http://localhost:5173/catalogo/alhopronto",
+      "path": "http://localhost:5173/catalogo/alhopronto",
+      "name": "page",
+      "device": "iphone14",
+      "deviceLabel": "iPhone 14",
+      "theme": "default",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "ratio": "9:19.5",
+      "timestamp": "2026-07-04T01:56:58.258Z",
+      "status": 200,
+      "finalUrl": "http://localhost:5173/catalogo/alhopronto",
+      "files": [
+        "screenshots/iphone14/default/page.png"
+      ],
+      "result": "ok"
+    },
+    {
+      "url": "http://localhost:5173/catalogo/alhopronto",
+      "path": "http://localhost:5173/catalogo/alhopronto",
+      "name": "page",
+      "device": "desktop",
+      "deviceLabel": "Desktop",
+      "theme": "default",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "ratio": "16:10",
+      "timestamp": "2026-07-04T01:57:13.056Z",
+      "status": 200,
+      "finalUrl": "http://localhost:5173/catalogo/alhopronto",
+      "files": [
+        "screenshots/desktop/default/page.png"
+      ],
+      "result": "ok"
+    }
+  ],
+  "ok": 2,
+  "failed": 0
+}

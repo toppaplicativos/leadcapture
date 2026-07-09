@@ -1,0 +1,7 @@
+---
+pid: 60024
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd \"C:\\Users\\Public\\Projetos\\leadcapture\\frontend\"; npx tsc -b --pretty false 2>&1 | Select-String \"AdminDashboard|StockLogin|auth\""
+started_at: 2026-07-03T21:01:07.777Z
+running_for_ms: 20044996 
+---

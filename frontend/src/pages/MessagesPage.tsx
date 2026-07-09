@@ -1,14 +1,17 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import {
-  Search, Send, Phone, MessageSquare, ChevronLeft,
+  Search, Send, Phone, ChevronLeft,
   Loader2, Bot, X, CheckCheck, Check,
   Zap, Hand, Hourglass, CheckCircle2, DollarSign, Truck, Package,
-  Heart, Calendar, BookOpen, ArrowLeftRight,
+  Heart, Calendar, BookOpen, ArrowLeftRight, LayoutGrid,
 } from 'lucide-react'
+import { WhatsAppIcon } from '@/components/icons'
+import { WhatsAppInteractiveComposer, type InteractiveMessageResult } from '@/components/whatsapp/WhatsAppInteractiveComposer'
+import { formatWhatsAppMessageBody } from '@/lib/whatsapp/formatMessageBody'
 import type { LucideIcon } from 'lucide-react'
 import { useInboxBridgeOptional } from '@/lib/agent/InboxBridgeContext'
 
-function getHeaders(): Record<string, string> {
+function defaultAdminHeaders(): Record<string, string> {
   const h: Record<string, string> = { 'Content-Type': 'application/json' }
   const t = localStorage.getItem('lead-system-token')
   if (t) h['Authorization'] = `Bearer ${t}`
@@ -43,7 +46,14 @@ function displayContactName(c: Conversation) {
 /* ══════════════════════════════════════════════
    MESSAGES PAGE
    ══════════════════════════════════════════════ */
-export function MessagesPage({ variant = 'page' }: { variant?: 'page' | 'canvas' | 'inline-panel' }) {
+export function MessagesPage({
+  variant = 'page',
+  getRequestHeaders,
+}: {
+  variant?: 'page' | 'canvas' | 'inline-panel'
+  getRequestHeaders?: () => Record<string, string>
+}) {
+  const getHeaders = getRequestHeaders || defaultAdminHeaders
   const inboxOnly = variant === 'canvas' || variant === 'inline-panel'
   const isInlinePanel = variant === 'inline-panel'
   const inboxBridge = useInboxBridgeOptional()
@@ -56,6 +66,7 @@ export function MessagesPage({ variant = 'page' }: { variant?: 'page' | 'canvas'
   const [newMsg, setNewMsg] = useState('')
   const [search, setSearch] = useState('')
   const [showCommands, setShowCommands] = useState(false)
+  const [showInteractive, setShowInteractive] = useState(false)
   const messagesEnd = useRef<HTMLDivElement>(null)
   const pendingSelectId = useRef<string | null>(null)
 
@@ -64,7 +75,7 @@ export function MessagesPage({ variant = 'page' }: { variant?: 'page' | 'canvas'
     fetch('/api/inbox/conversations?limit=100', { headers: getHeaders() })
       .then(r => r.json()).then(d => { setConversations(d.conversations || []); setLoadingConvos(false) })
       .catch(() => setLoadingConvos(false))
-  }, [])
+  }, [getHeaders])
   useEffect(() => { loadConvos() }, [loadConvos])
 
   useEffect(() => {
@@ -111,7 +122,7 @@ export function MessagesPage({ variant = 'page' }: { variant?: 'page' | 'canvas'
     setSending(true)
     try {
       await fetch(`/api/inbox/conversations/${activeConvo.id}/send`, {
-        method: 'POST', headers: getHeaders(), body: JSON.stringify({ text: msgText }),
+        method: 'POST', headers: getHeaders(), body: JSON.stringify({ message: msgText }),
       })
       setNewMsg('')
       // Add optimistic message
@@ -123,7 +134,22 @@ export function MessagesPage({ variant = 'page' }: { variant?: 'page' | 'canvas'
     } catch {}
     setSending(false)
     setShowCommands(false)
+    setShowInteractive(false)
   }, [activeConvo, newMsg, loadConvos])
+
+  const handleInteractiveSent = useCallback((result: InteractiveMessageResult) => {
+    if (!activeConvo) return
+    setMessages(prev => [...prev, {
+      id: `sent-${Date.now()}`,
+      conversation_id: activeConvo.id,
+      from_me: true,
+      message_type: result.message_type,
+      body: result.body,
+      timestamp: new Date().toISOString(),
+      status: 'sent',
+    }])
+    loadConvos()
+  }, [activeConvo, loadConvos])
 
   const toggleAiMode = useCallback(async (mode: string) => {
     if (!activeConvo) return
@@ -149,6 +175,19 @@ export function MessagesPage({ variant = 'page' }: { variant?: 'page' | 'canvas'
         }
       },
       sendMessage: (text) => { sendMessage(text) },
+      onInteractiveSent: (message) => {
+        if (!activeConvo) return
+        setMessages(prev => [...prev, {
+          id: `sent-${Date.now()}`,
+          conversation_id: activeConvo.id,
+          from_me: true,
+          message_type: message.message_type,
+          body: message.body,
+          timestamp: new Date().toISOString(),
+          status: 'sent',
+        }])
+        loadConvos()
+      },
       toggleAiMode: () => {
         if (!activeConvo) return
         toggleAiMode(activeConvo.ai_mode === 'autonomous' ? 'manual' : 'autonomous')
@@ -237,7 +276,7 @@ export function MessagesPage({ variant = 'page' }: { variant?: 'page' | 'canvas'
           ) : filteredConvos.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-10 px-4 text-center">
               <div className="w-12 h-12 rounded-2xl bg-gray-100 grid place-items-center mb-3">
-                <MessageSquare size={20} className="text-gray-400" strokeWidth={1.5} />
+                <WhatsAppIcon size={20} className="brand-icon--wa opacity-60" />
               </div>
               <p className="text-[13px] font-medium text-gray-900">Nenhuma conversa</p>
             </div>
@@ -336,7 +375,7 @@ export function MessagesPage({ variant = 'page' }: { variant?: 'page' | 'canvas'
             ) : messages.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 text-center">
                 <div className="w-12 h-12 rounded-2xl bg-gray-100 grid place-items-center mb-3">
-                  <MessageSquare size={20} className="text-gray-400" strokeWidth={1.5} />
+                  <WhatsAppIcon size={20} className="brand-icon--wa opacity-60" />
                 </div>
                 <p className="text-[14px] font-medium text-gray-900">Nenhuma mensagem</p>
                 <p className="text-[12px] text-gray-500 mt-0.5">Use os comandos rápidos ou envie uma mensagem</p>
@@ -365,7 +404,7 @@ export function MessagesPage({ variant = 'page' }: { variant?: 'page' | 'canvas'
                           }`}
                         >
                           <p className={`text-[13px] leading-relaxed whitespace-pre-wrap break-words ${fromMe ? 'text-white' : 'text-gray-900'}`}>
-                            {msg.body || msg.message_type}
+                            {formatWhatsAppMessageBody(msg.body) || msg.message_type}
                           </p>
                           <div className={`flex items-center gap-1 mt-0.5 ${fromMe ? 'justify-end' : 'justify-start'}`}>
                             <span className={`text-[9px] tabular-nums ${fromMe ? 'text-white/50' : 'text-gray-400'}`}>{dtTime(msg.timestamp)}</span>
@@ -385,6 +424,14 @@ export function MessagesPage({ variant = 'page' }: { variant?: 'page' | 'canvas'
           </div>
 
           {/* Quick Commands + input — página/canvas; no chat o dock responde */}
+          {!isInlinePanel && showInteractive && activeConvo && (
+            <WhatsAppInteractiveComposer
+              conversationId={activeConvo.id}
+              onClose={() => setShowInteractive(false)}
+              onSent={handleInteractiveSent}
+            />
+          )}
+
           {!isInlinePanel && showCommands && (
             <div className="border-t border-border-light bg-white px-4 py-3 max-h-48 overflow-y-auto shrink-0">
               <div className="flex items-center justify-between mb-2">
@@ -419,7 +466,10 @@ export function MessagesPage({ variant = 'page' }: { variant?: 'page' | 'canvas'
           <div className="px-4 py-3 border-t border-border-light bg-white shrink-0">
             <div className="flex items-end gap-2 max-w-2xl mx-auto">
               <button
-                onClick={() => setShowCommands(!showCommands)}
+                onClick={() => {
+                  setShowInteractive(false)
+                  setShowCommands(!showCommands)
+                }}
                 aria-label="Respostas rápidas"
                 aria-pressed={showCommands}
                 className={`w-10 h-10 rounded-full grid place-items-center shrink-0 transition active:scale-90 ${
@@ -427,6 +477,19 @@ export function MessagesPage({ variant = 'page' }: { variant?: 'page' | 'canvas'
                 }`}
               >
                 <Zap size={15} strokeWidth={1.75} />
+              </button>
+              <button
+                onClick={() => {
+                  setShowCommands(false)
+                  setShowInteractive((v) => !v)
+                }}
+                aria-label="Botões, listas e enquetes"
+                aria-pressed={showInteractive}
+                className={`w-10 h-10 rounded-full grid place-items-center shrink-0 transition active:scale-90 ${
+                  showInteractive ? 'bg-emerald-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                }`}
+              >
+                <LayoutGrid size={15} strokeWidth={1.75} />
               </button>
               <div className="flex-1 relative">
                 <textarea
@@ -456,7 +519,7 @@ export function MessagesPage({ variant = 'page' }: { variant?: 'page' | 'canvas'
         <div className="flex-1 hidden md:flex items-center justify-center bg-bg">
           <div className="text-center">
             <div className="w-16 h-16 bg-white border border-border-light rounded-3xl grid place-items-center mx-auto mb-4">
-              <MessageSquare size={28} className="text-gray-400" strokeWidth={1.5} />
+              <WhatsAppIcon size={28} className="brand-icon--wa opacity-60" />
             </div>
             <h3 className="text-[15px] font-bold tracking-tight text-gray-900">Selecione uma conversa</h3>
             <p className="text-[12px] text-gray-500 mt-1 max-w-xs">Escolha um contato à esquerda para ver as mensagens</p>

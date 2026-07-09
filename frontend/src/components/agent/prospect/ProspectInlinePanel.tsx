@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { Loader2, Users, ChevronRight, MapPin, Zap } from 'lucide-react'
+import { PageSplash } from '@/components/PageSplash'
 import { useProspectBridge } from '@/lib/agent/ProspectBridgeContext'
 import { useAgentShell } from '@/lib/agent/AgentShellContext'
 import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
@@ -99,7 +100,7 @@ export function ProspectInlinePanel() {
 
       <p className="prospect-inline__section-title">Novos na base</p>
       {loading ? (
-        <div className="catalog-panel__loading"><Loader2 size={16} className="animate-spin text-gray-400" /></div>
+        <PageSplash variant="panel" label="Busca" />
       ) : recent.length === 0 ? (
         <p className="catalog-panel__empty">Nenhum lead novo ainda. Busque no mapa e capture.</p>
       ) : (

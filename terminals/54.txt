@@ -1,0 +1,13 @@
+---
+pid: 5936
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "Stop-Process -Id 3556 -Force -ErrorAction SilentlyContinue; cd C:\\Users\\Public\\Projetos\\leadcapture; npx tsc --skipLibCheck --pretty false"
+started_at: 2026-07-06T19:17:11.780Z
+running_for_ms: 86400009 
+---
+
+---
+exit_code: -1
+elapsed_ms: 86400009
+ended_at: 2026-07-07T19:17:20.474Z
+---

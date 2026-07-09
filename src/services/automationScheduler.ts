@@ -17,6 +17,8 @@
  */
 
 import { brandAutomationsService } from "./brandAutomations";
+import { automationDefinitionsService } from "./automationDefinitions";
+import { runAutomationDefinition } from "./automationDefinitionRunner";
 import { getTaskFunction } from "./automationTasks";
 import { logger } from "../utils/logger";
 
@@ -36,6 +38,9 @@ export function startAutomationScheduler(): void {
   /* Garante schema antes do primeiro tick */
   brandAutomationsService.ensureSchema().catch((e) => {
     logger.error(`AutomationScheduler: falha ao garantir schema (${e.message})`);
+  });
+  automationDefinitionsService.ensureSchema().catch((e) => {
+    logger.error(`AutomationScheduler: falha schema automation_definitions (${e.message})`);
   });
 
   /* Primeiro tick depois de 30s pra dar tempo do app subir */
@@ -60,12 +65,28 @@ async function tick(): Promise<void> {
   }
   isTicking = true;
   try {
-    const due = await brandAutomationsService.getDueAutomations(MAX_PER_TICK);
-    if (due.length === 0) return;
+    const [dueCatalog, dueDefs] = await Promise.all([
+      brandAutomationsService.getDueAutomations(MAX_PER_TICK),
+      automationDefinitionsService.getDue(MAX_PER_TICK),
+    ]);
 
-    logger.info(`AutomationScheduler tick: ${due.length} automacao(oes) due`);
-    /* Executa todas em paralelo - sao tasks independentes por brand */
-    await Promise.all(due.map((auto) => runOne(auto, "cron")));
+    if (dueCatalog.length === 0 && dueDefs.length === 0) return;
+
+    if (dueCatalog.length) {
+      logger.info(`AutomationScheduler tick: ${dueCatalog.length} catalog due`);
+      await Promise.all(dueCatalog.map((auto) => runOne(auto, "cron")));
+    }
+
+    if (dueDefs.length) {
+      logger.info(`AutomationScheduler tick: ${dueDefs.length} definition(s) due`);
+      await Promise.all(
+        dueDefs.map((auto) =>
+          runAutomationDefinition(auto, { triggeredBy: "cron" }).catch((err) => {
+            logger.error(`AutomationDef cron error ${auto.id}: ${err?.message || err}`);
+          })
+        )
+      );
+    }
   } catch (err: any) {
     logger.error(`AutomationScheduler tick failed: ${err?.message || err}`);
   } finally {
@@ -77,7 +98,7 @@ async function tick(): Promise<void> {
    Hard timeout de 5min. Erros isolados em try/catch. */
 export async function runOne(
   auto: { id: string; brand_id: string; user_id: string; catalog_slug: string; config: Record<string, any>; task_type: string; catalog_name: string },
-  triggeredBy: "cron" | "manual",
+  triggeredBy: "cron" | "manual" | "webhook",
 ): Promise<{ runId: string; status: "success" | "error"; durationMs: number; result?: any; errorMessage?: string }> {
   const taskFn = getTaskFunction(auto.task_type);
   if (!taskFn) {
@@ -93,13 +114,16 @@ export async function runOne(
 
   try {
     /* Timeout hard de 5min — se task pendurar, marca como error e segue */
+    const webhook = auto.config?._webhook;
+    const { _webhook: _ignored, ...taskConfig } = auto.config || {};
     const result = await Promise.race([
-      taskFn(auto.config || {}, {
+      taskFn(taskConfig, {
         brandAutomationId: auto.id,
         runId,
         brandId: auto.brand_id,
         userId: auto.user_id,
         catalogSlug: auto.catalog_slug,
+        webhook,
       }),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error(`Task timeout apos ${RUN_TIMEOUT_MS}ms`)), RUN_TIMEOUT_MS),

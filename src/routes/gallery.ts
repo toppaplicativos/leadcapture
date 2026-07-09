@@ -1,4 +1,4 @@
-import { Router, Response } from "express";
+import { Router, Response, NextFunction } from "express";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
@@ -6,6 +6,7 @@ import { v4 as uuidv4 } from "uuid";
 import { BrandRequest, requireBrandContext } from "../middleware/brandContext";
 import { logger } from "../utils/logger";
 import { galleryService, GalleryFolderSlug } from "../services/gallery";
+import { resolveUploadKind } from "../utils/uploadMedia";
 
 const router = Router();
 router.use(requireBrandContext);
@@ -20,13 +21,26 @@ const upload = multer({
   }),
   limits: { fileSize: 100 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
-    const ok =
-      file.mimetype.startsWith("image/") ||
-      file.mimetype.startsWith("video/");
-    if (ok) cb(null, true);
-    else cb(new Error(`Tipo não permitido: ${file.mimetype}`));
+    const kind = resolveUploadKind(file.mimetype, file.originalname);
+    if (kind) cb(null, true);
+    else cb(new Error("Envie apenas imagens (JPG, PNG, WEBP, HEIC) ou videos (MP4, MOV)."));
   },
 });
+
+function withMulterErrorHandling(middleware: (req: any, res: any, cb: (err?: any) => void) => void) {
+  return (req: BrandRequest, res: Response, next: NextFunction) => {
+    middleware(req, res, (err?: any) => {
+      if (!err) return next();
+      if (err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE") {
+        return res.status(413).json({ error: "Arquivo muito grande. Maximo 100 MB.", code: err.code });
+      }
+      if (err instanceof multer.MulterError) {
+        return res.status(400).json({ error: err.message || "Upload invalido", code: err.code });
+      }
+      return res.status(400).json({ error: err?.message || "Tipo de arquivo nao suportado" });
+    });
+  };
+}
 
 function parseTags(raw: unknown): string[] {
   if (Array.isArray(raw)) return raw.map((t) => String(t).trim()).filter(Boolean);
@@ -109,7 +123,7 @@ router.get("/:id", async (req: BrandRequest, res: Response) => {
   }
 });
 
-router.post("/upload", upload.single("file"), async (req: BrandRequest, res: Response) => {
+router.post("/upload", withMulterErrorHandling(upload.single("file")), async (req: BrandRequest, res: Response) => {
   try {
     if (!req.file) return res.status(400).json({ error: "Nenhum arquivo enviado" });
     const userId = req.user!.userId;
@@ -124,7 +138,7 @@ router.post("/upload", upload.single("file"), async (req: BrandRequest, res: Res
   }
 });
 
-router.post("/upload-multiple", upload.array("files", 20), async (req: BrandRequest, res: Response) => {
+router.post("/upload-multiple", withMulterErrorHandling(upload.array("files", 20)), async (req: BrandRequest, res: Response) => {
   try {
     const files = (req.files || []) as Express.Multer.File[];
     if (!files.length) return res.status(400).json({ error: "Nenhum arquivo enviado" });

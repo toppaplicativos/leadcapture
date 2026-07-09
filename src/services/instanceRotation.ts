@@ -197,7 +197,7 @@ export class InstanceRotationService {
     const instances = await query<any[]>(
       `SELECT id
        FROM whatsapp_instances
-       WHERE created_by = ?`,
+       WHERE created_by = ? AND (owner_type = 'admin' OR owner_type IS NULL)`,
       [userId]
     );
 
@@ -465,7 +465,9 @@ export class InstanceRotationService {
     await this.ensureSchema();
     const settings = await this.getSettings(userId);
     const pool = await this.getPoolRows(userId);
-    const runtimeConnected = this.instanceManager.getAllInstances(userId).filter((i) => i.status === "connected");
+    const runtimeConnected = this.instanceManager
+      .getAllInstances(userId)
+      .filter((i) => i.status === "connected" && this.instanceManager.getInstanceOwnerType(i.id) === "admin");
     const affinity = await this.getAffinityInstance(userId, leadId);
 
     const candidatesRaw: Candidate[] = [];
@@ -567,7 +569,12 @@ export class InstanceRotationService {
       const fallbackList = this.instanceManager.getAllInstances(userId).length
         ? this.instanceManager.getAllInstances(userId)
         : this.instanceManager.getAllInstances();
-      const fallback = fallbackList.find((item) => item.status === "connected" && isAllowed(item.id));
+      const fallback = fallbackList.find(
+        (item) =>
+          item.status === "connected"
+          && isAllowed(item.id)
+          && this.instanceManager.getInstanceOwnerType(item.id) === "admin",
+      );
       return fallback?.id || null;
     }
 

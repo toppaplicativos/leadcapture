@@ -1,0 +1,27 @@
+---
+pid: 19860
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd C:\\Users\\Public\\Projetos\\leadcapture; npm run build"
+started_at: 2026-07-04T13:25:27.248Z
+running_for_ms: 86400015 
+---
+
+> lead-captation-system@1.0.0 build
+> tsc
+
+src/routes/gallery.ts(26,8): error TS2345: Argument of type 'Error | null' is not assignable to parameter of type 'null'.
+  Type 'Error' is not assignable to type 'null'.
+src/routes/gallery.ts(102,64): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+src/routes/gallery.ts(148,67): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+src/routes/gallery.ts(165,65): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+src/routes/gallery.ts(180,65): error TS2345: Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+  Type 'string[]' is not assignable to type 'string'.
+
+---
+exit_code: -1
+elapsed_ms: 86400015
+ended_at: 2026-07-05T13:25:44.509Z
+---

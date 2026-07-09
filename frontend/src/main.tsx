@@ -86,6 +86,12 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator) {
     if (first === 'app-estoque' && parts[1]) {
       return `/${first}/${encodeURIComponent(parts[1])}/`
     }
+    if (first === 'central-afiliado' && parts[1]) {
+      return `/${first}/${encodeURIComponent(parts[1])}/`
+    }
+    if (first === 'parceiros') {
+      return '/parceiros/'
+    }
     // Admin / login / generic admin routes
     return '/'
   })()

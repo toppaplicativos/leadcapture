@@ -11,13 +11,14 @@
  */
 import { useEffect, useState } from 'react'
 import {
-  UserPlus, Filter, MessageSquare, Clock, Brain, CheckCircle2, Sparkles, ArrowRight,
+  UserPlus, Filter, Clock, Brain, CheckCircle2, Sparkles, ArrowRight,
 } from 'lucide-react'
+import { WhatsAppIcon, type IconComponent } from '@/components/icons'
 import type { LucideIcon } from 'lucide-react'
 
 interface FlowNode {
   id: string
-  Icon: LucideIcon
+  Icon: IconComponent | LucideIcon
   title: string
   subtitle: string
   /** Cor accent — verde pra fluxo principal, ambar pra branch */
@@ -27,7 +28,7 @@ interface FlowNode {
 const NODES: FlowNode[] = [
   { id: 'trigger', Icon: UserPlus,      title: 'Lead novo',         subtitle: 'Radar capta',         accent: 'emerald' },
   { id: 'qualify', Icon: Filter,        title: 'Qualificar',        subtitle: 'Filtro automático',   accent: 'emerald' },
-  { id: 'send',    Icon: MessageSquare, title: 'WhatsApp',          subtitle: 'Mensagem pessoal',    accent: 'emerald' },
+  { id: 'send',    Icon: WhatsAppIcon,  title: 'WhatsApp',          subtitle: 'Mensagem pessoal',    accent: 'emerald' },
   { id: 'wait',    Icon: Clock,         title: 'Aguardar',          subtitle: 'Janela 24h',          accent: 'amber'   },
   { id: 'ai',      Icon: Brain,         title: 'IA classifica',     subtitle: 'Intenção · objeção',  accent: 'sky'     },
   { id: 'close',   Icon: CheckCircle2,  title: 'Fechar venda',      subtitle: 'Ou nutrir',           accent: 'emerald' },

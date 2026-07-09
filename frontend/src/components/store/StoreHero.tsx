@@ -1,6 +1,8 @@
-import { Truck, Clock, MessageCircle } from 'lucide-react'
+import { Truck, Clock } from 'lucide-react'
+import { WhatsAppIcon } from '@/components/icons'
 import { optimizedImage, optimizedSrcset } from '@/lib/image'
 import { money } from '@/lib/store-context'
+import { buildWhatsAppUrl, resolvePublicWhatsApp, type PublicStoreMarketing } from '@/lib/store-marketing'
 
 export interface StoreHeroProps {
   displayName: string
@@ -12,6 +14,7 @@ export interface StoreHeroProps {
   deliveryFee?: number
   deliveryTime?: string
   whatsappPhone?: string
+  marketing?: PublicStoreMarketing | null
 }
 
 export function StoreHero({
@@ -24,9 +27,11 @@ export function StoreHero({
   deliveryFee = 0,
   deliveryTime = '',
   whatsappPhone,
+  marketing,
 }: StoreHeroProps) {
   const hasShippingInfo = freeAbove > 0 || deliveryFee > 0 || !!deliveryTime
-  const waDigits = whatsappPhone?.replace(/\D/g, '')
+  const waResolved = resolvePublicWhatsApp(marketing, whatsappPhone, 'home')
+  const showWaChip = Boolean(waResolved?.showInHero)
 
   return (
     <section className="store-hero">
@@ -103,7 +108,7 @@ export function StoreHero({
             </div>
           </div>
 
-          {(hasShippingInfo || waDigits) && (
+          {(hasShippingInfo || showWaChip) && (
             <div className="mt-3.5 flex flex-wrap items-center gap-2">
               {freeAbove > 0 && (
                 <span className="store-chip bg-emerald-50 text-emerald-800">
@@ -122,14 +127,14 @@ export function StoreHero({
                   {deliveryTime}
                 </span>
               )}
-              {waDigits && (
+              {showWaChip && waResolved && (
                 <a
-                  href={`https://wa.me/${waDigits}`}
+                  href={buildWhatsAppUrl(waResolved.phone, waResolved.prefilledMessage)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="store-chip bg-brand text-white hover:opacity-90"
                 >
-                  <MessageCircle size={12} strokeWidth={2} aria-hidden />
+                  <WhatsAppIcon size={12} aria-hidden />
                   WhatsApp
                 </a>
               )}

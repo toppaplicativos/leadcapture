@@ -14,12 +14,14 @@
  */
 import { useEffect, useState } from 'react'
 import {
-  MessageCircle, FileSpreadsheet, Database, Camera, Mail, Sparkles,
+  FileSpreadsheet, Database, Mail, Sparkles,
 } from 'lucide-react'
+import { InstagramIcon, WhatsAppIcon } from '@/components/icons'
+import type { IconComponent } from '@/components/icons'
 import type { LucideIcon } from 'lucide-react'
 
 interface Tool {
-  Icon: LucideIcon
+  Icon: IconComponent | LucideIcon
   label: string
   /** Posicao em estado caos (% relativo ao SVG 400x400) */
   chaos: { x: number; y: number }
@@ -30,10 +32,10 @@ interface Tool {
 /* 5 ferramentas + central. Coordenadas pensadas pra cruzar bem no caos e formar
    octogono limpo no unificado. */
 const TOOLS: Tool[] = [
-  { Icon: MessageCircle,    label: 'WhatsApp',  chaos: { x: 70,  y: 80  }, unified: { x: 90,  y: 200 } },
+  { Icon: WhatsAppIcon,     label: 'WhatsApp',  chaos: { x: 70,  y: 80  }, unified: { x: 90,  y: 200 } },
   { Icon: FileSpreadsheet,  label: 'Planilha',  chaos: { x: 320, y: 60  }, unified: { x: 200, y: 80  } },
   { Icon: Database,         label: 'CRM',       chaos: { x: 110, y: 320 }, unified: { x: 310, y: 200 } },
-  { Icon: Camera,           label: 'Instagram', chaos: { x: 290, y: 280 }, unified: { x: 200, y: 320 } },
+  { Icon: InstagramIcon,    label: 'Instagram', chaos: { x: 290, y: 280 }, unified: { x: 200, y: 320 } },
   { Icon: Mail,             label: 'Email',     chaos: { x: 50,  y: 200 }, unified: { x: 90,  y: 130 } },
 ]
 const CENTER = { x: 200, y: 200 }

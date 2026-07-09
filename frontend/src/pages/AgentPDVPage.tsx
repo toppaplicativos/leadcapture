@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   Search, Plus, Minus, ShoppingCart, User, Phone, X, CheckCircle2,
-  Loader2, MessageCircle, ChevronDown, Copy, Check, Package,
+  Loader2, ChevronDown, Copy, Check, Package,
   Zap, CreditCard, Banknote, QrCode, Smartphone, Tag, Clock,
-  ArrowRight, Star, AlertCircle, Receipt, Send, Hash,
+  ArrowRight, AlertCircle, Receipt, Send, Hash,
   UserCheck, Trash2, Edit3, ChevronUp, Sparkles,
 } from 'lucide-react'
+import { InstagramIcon, WhatsAppIcon } from '@/components/icons'
 
 /* ═══════════════════════════════════════════
    TYPES
@@ -31,10 +32,10 @@ interface WaInstance {
    CONSTANTS
 ═══════════════════════════════════════════ */
 const CHANNELS = [
-  { value: 'whatsapp', label: 'WhatsApp', color: '#25D366', icon: MessageCircle },
+  { value: 'whatsapp', label: 'WhatsApp', color: '#25D366', icon: WhatsAppIcon },
   { value: 'telefone', label: 'Telefone', color: '#6366f1', icon: Phone },
   { value: 'balcao',   label: 'Balcão',   color: '#f59e0b', icon: Smartphone },
-  { value: 'instagram', label: 'Instagram', color: '#e1306c', icon: Star },
+  { value: 'instagram', label: 'Instagram', color: '#e1306c', icon: InstagramIcon },
   { value: 'outros',   label: 'Outros',    color: '#6b7280', icon: Zap },
 ]
 

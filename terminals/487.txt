@@ -1,0 +1,8 @@
+---
+pid: 35068
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "powershell -File C:\\Users\\Public\\Projetos\\leadcapture\\agent-tools\\run-deploy-verified.ps1"
+started_at: 2026-07-08T23:33:34.220Z
+running_for_ms: 11620011 
+---
+ABORT: outro deploy em andamento (pid 2704, ha 0 min)

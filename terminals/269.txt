@@ -1,0 +1,18 @@
+---
+pid: 26056
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd C:\\Users\\Public\\Projetos\\leadcapture\\frontend; npm run build 2>&1"
+started_at: 2026-07-07T20:29:36.285Z
+running_for_ms: 86400007 
+---
+
+> leadcapture-frontend@1.0.0 build
+> tsc -b && vite build
+
+src/pages/affiliate/AffiliateAppPage.tsx(294,20): error TS7006: Parameter 'prev' implicitly has an 'any' type.
+
+---
+exit_code: -1
+elapsed_ms: 86400007
+ended_at: 2026-07-08T20:29:46.037Z
+---

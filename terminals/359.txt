@@ -1,0 +1,58 @@
+---
+pid: 5908
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd \"C:\\Users\\Public\\Projetos\\leadcapture\"; npm run build; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; ssh root@187.127.5.179 \"cd /root/leadcapture && (grep -q '^APP_PUBLIC_URL=' .env && sed -i 's|^APP_PUBLIC_URL=.*|APP_PUBLIC_URL=\\\"https://app.leadcapture.online\\\"|' .env || echo 'APP_PUBLIC_URL=\\\"https://app.leadcapture.online\\\"' >> .env) && sed -i 's|^FRONTEND_PUBLIC_URL=.*|FRONTEND_PUBLIC_URL=\\\"https://app.leadcapture.online\\\"|' .env && sed -i 's|^CHECKOUT_BASE_URL=.*|CHECKOUT_BASE_URL=\\\"https://app.leadcapture.online\\\"|' .env && grep -E 'PUBLIC_URL|CHECKOUT_BASE' .env\"; powershell -NoProfile -ExecutionPolicy Bypass -File \"agent-tools\\deploy-full.ps1\" -SkipBuild -SkipSmoke"
+started_at: 2026-07-08T11:49:45.977Z
+running_for_ms: 53835005 
+---
+
+> lead-captation-system@1.0.0 build
+> tsc
+
+sed: -e expression #1, char 79: unterminated `s' command
+>> Enviando backend dist completo
+>> Enviando frontend completo
+Use --update-env to update environment variables
+[PM2] Applying action restartProcessId on app [leadcapture-api](ids: [ 2 ])
+[PM2] [leadcapture-api](2) ✓
+Use --update-env to update environment variables
+[PM2] Applying action restartProcessId on app [leadcapture-web](ids: [ 1 ])
+[PM2] [leadcapture-web](1) ✓
+┌────┬────────────────────┬─────────────┬─────────┬─────────┬──────────┬────────┬──────┬───────────┬──────────┬──────────┬──────────┬──────────┐
+│ id │ name               │ namespace   │ version │ mode    │ pid      │ uptime │ ↺    │ status    │ cpu      │ mem      │ user     │ watching │
+├────┼────────────────────┼─────────────┼─────────┼─────────┼──────────┼────────┼──────┼───────────┼──────────┼──────────┼──────────┼──────────┤
+│ 2  │ leadcapture-api    │ default     │ 1.0.0   │ fork    │ 370710   │ 0s     │ 149  │ online    │ 71.4%    │ 53.0mb   │ root     │ disabled │
+│ 1  │ leadcapture-web    │ default     │ N/A     │ fork    │ 370722   │ 0s     │ 120  │ online    │ 0%       │ 6.1mb    │ root     │ disabled │
+└────┴────────────────────┴─────────────┴─────────┴─────────┴──────────┴────────┴──────┴───────────┴──────────┴──────────┴──────────┴──────────┘
+[PM2] Saving current process list...
+[PM2] Successfully saved in /root/.pm2/dump.pm2
+OK deploy
+>> Aguardando servi��os (25s)
+>> Verificando deploy
+Verificando https://app.leadcapture.online
+
+OK    index.html
+OK    missing chunk → 404 (not HTML)
+OK    admin-agent route
+OK    /admin SPA
+
+Tudo OK
+Smoke test: https://app.leadcapture.online
+
+OK    / → HTTP 200
+OK    / → conteúdo renderizado (141 chars)
+OK    / → sem erros de chunk
+OK    /login → HTTP 200
+OK    /login → conteúdo renderizado (141 chars)
+OK    /login → sem erros de chunk
+OK    /admin → HTTP 200
+OK    /admin → conteúdo renderizado (141 chars)
+OK    /admin → sem erros de chunk
+OK    /inicio → HTTP 200
+OK    /inicio → conteúdo renderizado (7066 chars)
+OK    /inicio → sem erros de chunk
+
+Tudo OK
+
+Pos-deploy: PWA aberto pode precisar hard refresh (Ctrl+Shift+R) ou reabrir o app.
+Service worker versionado neste deploy.

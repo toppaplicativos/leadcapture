@@ -1,0 +1,37 @@
+---
+pid: 16744
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd C:\\Users\\Public\\Projetos\\leadcapture; npm install web-push; npm install -D @types/web-push"
+started_at: 2026-07-09T01:48:55.887Z
+running_for_ms: 3485009  
+---
+
+added 9 packages, and audited 478 packages in 14s
+
+66 packages are looking for funding
+  run `npm fund` for details
+
+25 vulnerabilities (1 low, 9 moderate, 13 high, 2 critical)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+Some issues need review, and may require choosing
+a different dependency.
+
+Run `npm audit` for details.
+
+added 1 package, and audited 479 packages in 3s
+
+66 packages are looking for funding
+  run `npm fund` for details
+
+25 vulnerabilities (1 low, 9 moderate, 13 high, 2 critical)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+Some issues need review, and may require choosing
+a different dependency.
+
+Run `npm audit` for details.

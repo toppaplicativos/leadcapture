@@ -1,0 +1,39 @@
+{
+  "name": "typeui_setup_workflow",
+  "description": "Set up the TypeUI MCP workflow according to the user's dashboard settings: verify TypeUI sign-in and usage, optionally return fundamentals setup, optionally return one TypeUI design skill package, and optionally start a section workflow.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "designSystemSlug": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Design skill slug to fetch. If omitted, the tool returns available choices."
+      },
+      "installFundamentals": {
+        "default": true,
+        "description": "Deprecated compatibility flag. Dashboard MCP settings control automatic fundamentals setup.",
+        "type": "boolean"
+      },
+      "promptRequest": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Optional UI section request such as 'hero section' to resolve after setup."
+      }
+    },
+    "type": "object"
+  }
+}

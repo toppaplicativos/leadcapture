@@ -1,0 +1,63 @@
+{
+  "name": "typeui_get_started",
+  "description": "Guided one-shot TypeUI setup. Accepts a natural language instruction such as 'use neobrutalism and build a landing page', follows dashboard setup settings, returns enabled local setup actions, and optionally starts a page or section workflow.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "instruction": {
+        "description": "Natural language setup request, for example 'use neobrutalism and build a landing page' or 'set up bento and create a pricing section'.",
+        "type": "string"
+      },
+      "designSystemSlug": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Optional explicit design skill slug. Overrides natural language design-skill matching."
+      },
+      "uiRequest": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Optional explicit UI request to build after setup. Overrides natural language extraction."
+      },
+      "uiType": {
+        "default": "auto",
+        "description": "Whether the UI request should be treated as a page or section. Defaults to auto.",
+        "enum": [
+          "auto",
+          "page",
+          "section"
+        ],
+        "type": "string"
+      },
+      "sections": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "description": "Optional comma-separated page sections, for example 'navbar, hero, feature, pricing, faq'."
+      }
+    },
+    "required": [
+      "instruction"
+    ],
+    "type": "object"
+  }
+}

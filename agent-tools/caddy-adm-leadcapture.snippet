@@ -1,0 +1,24 @@
+# Bloco Caddy — admin master LeadCapture (mesmo backend que app.leadcapture.online)
+# Inserir no /etc/caddy/Caddyfile após o bloco app.leadcapture.online
+
+adm.leadcapture.online, www.adm.leadcapture.online {
+    handle /socket.io/* {
+        reverse_proxy 127.0.0.1:3001
+    }
+    handle /api/* {
+        reverse_proxy 127.0.0.1:3001 {
+            transport http {
+                read_timeout 5m
+                write_timeout 5m
+                dial_timeout 30s
+            }
+        }
+    }
+    handle /uploads/* {
+        reverse_proxy 127.0.0.1:3001
+    }
+    handle {
+        reverse_proxy 127.0.0.1:3001
+        header Cache-Control "no-cache, no-store, must-revalidate"
+    }
+}

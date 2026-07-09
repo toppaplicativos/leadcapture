@@ -1,0 +1,14 @@
+---
+pid: 12432
+cwd: "C:\Users\Public\Projetos\leadcapture"
+command: "cd C:\\Users\\Public\\Projetos\\leadcapture; npx tsc --skipLibCheck 2>&1"
+started_at: 2026-07-06T19:08:06.975Z
+running_for_ms: 86400003 
+---
+src/services/adminAgent/orchestrator.ts(572,11): error TS2322: Type '"inbox_stats"' is not assignable to type 'ComponentType'.
+
+---
+exit_code: -1
+elapsed_ms: 86400003
+ended_at: 2026-07-07T19:08:15.360Z
+---

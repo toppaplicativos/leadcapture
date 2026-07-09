@@ -117,7 +117,7 @@ export function AffiliateDistributionBanner({
                 onClick={onViewOpportunities}
                 className="inline-flex items-center gap-1 text-xs font-bold px-3 py-2 rounded-lg bg-[#f2f2f7] text-[#1c1c1e] active:scale-[0.98]"
               >
-                Ver oportunidades <ChevronRight size={14} />
+                Ver contatos <ChevronRight size={14} />
               </button>
             )}
           </div>

@@ -98,7 +98,7 @@ export function AffiliateOpportunitiesPanel({ ctx }: { ctx: AppContext }) {
       setItems(r.opportunities || [])
       setStats(r.stats || null)
     } catch {
-      ctx.showToast('Erro ao carregar oportunidades', 'err')
+      ctx.showToast('Erro ao carregar contatos', 'err')
     } finally {
       setLoading(false)
     }
@@ -109,9 +109,10 @@ export function AffiliateOpportunitiesPanel({ ctx }: { ctx: AppContext }) {
   }, [load, ctx.cacheVersion])
 
   const greeting = useMemo(() => {
+    const brand = ctx.brand?.name || 'a marca'
     const name = ctx.affiliate?.display_name || ctx.affiliate?.code || 'parceiro'
-    return `${name}, aqui ficam contatos, prospects e leads que ainda não viraram cliente.`
-  }, [ctx.affiliate])
+    return `${name}, aqui chegam contatos, prospects e leads que ${brand} envia ao seu programa — e os gerados pelos seus links.`
+  }, [ctx.affiliate, ctx.brand?.name])
 
   async function updateLeadStatus(refId: string, status: string) {
     setSavingId(refId)
@@ -170,10 +171,11 @@ export function AffiliateOpportunitiesPanel({ ctx }: { ctx: AppContext }) {
             <Target size={18} style={{ color: ctx.primary }} />
           </div>
           <div className="min-w-0">
-            <p className="font-bold text-sm text-[#1c1c1e]">Oportunidades comerciais</p>
+            <p className="font-bold text-sm text-[#1c1c1e]">Contatos do programa</p>
             <p className="text-xs text-[#636366] mt-1 leading-relaxed">{greeting}</p>
             <p className="text-[10px] text-[#8e8e93] mt-2 leading-relaxed">
-              Contato → Prospect → Lead → Cliente. Quem já comprou está em <strong>Clientes</strong>.
+              A marca envia contatos, prospects e leads para você. Contato → Prospect → Lead → Cliente.
+              Quem já comprou está em <strong>Clientes</strong>.
             </p>
           </div>
         </div>
@@ -223,9 +225,9 @@ export function AffiliateOpportunitiesPanel({ ctx }: { ctx: AppContext }) {
       {items.length === 0 ? (
         <div className="affiliate-card p-8 text-center">
           <Sparkles size={28} className="mx-auto text-[#c7c7cc] mb-3" />
-          <p className="font-bold text-sm text-[#1c1c1e]">Nenhuma oportunidade neste filtro</p>
+          <p className="font-bold text-sm text-[#1c1c1e]">Nenhum contato neste filtro</p>
           <p className="text-xs text-[#8e8e93] mt-2 leading-relaxed max-w-xs mx-auto">
-            Contatos dos seus links e prospects da organização aparecem aqui até virarem cliente.
+            Quando a marca distribuir prospects ou quando alguém entrar pelos seus links, eles aparecem aqui até virarem cliente.
           </p>
         </div>
       ) : (

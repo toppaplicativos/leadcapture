@@ -133,7 +133,7 @@ export function AffiliateCustomersPanel({ ctx }: { ctx: AppContext }) {
             <p className="font-bold text-sm text-[#1c1c1e]">Clientes</p>
             <p className="text-xs text-[#636366] mt-1 leading-relaxed">{greeting}</p>
             <p className="text-[10px] text-[#8e8e93] mt-2 leading-relaxed">
-              Foco em faturamento, recompra, pós-venda e comissões — separado das oportunidades em aberto.
+              Foco em faturamento, recompra, pós-venda e comissões — separado dos contatos em aberto.
             </p>
           </div>
         </div>

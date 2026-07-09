@@ -205,90 +205,81 @@ export function AffiliateMarketplace({ ctx }: Props) {
             const offerLabel = op.offers?.[0]?.title || op.offers?.[0]?.product_name || 'Catálogo / ofertas vinculadas'
 
             return (
-              <article key={op.id} className="affiliate-market__card affiliate-card">
-                <div className="affiliate-market__card-head">
-                  <div className="affiliate-market__card-brand">
-                    <div
-                      className="affiliate-market__card-avatar"
-                      style={{ backgroundColor: `${ctx.primary}12`, color: ctx.primary }}
-                    >
-                      <Briefcase size={16} />
+              <article key={op.id} className="affiliate-market__card affiliate-market__card--rich affiliate-card">
+                <div
+                  className="affiliate-market__card-cover"
+                  style={{ background: `linear-gradient(135deg, ${ctx.primary}, ${ctx.secondary || ctx.primary})` }}
+                >
+                  <div className="affiliate-market__card-cover-main">
+                    <div className="affiliate-market__card-avatar affiliate-market__card-avatar--lg">
+                      <Briefcase size={18} />
                     </div>
                     <div className="min-w-0">
-                      <p className="affiliate-market__card-name">{op.name}</p>
-                      <p className="affiliate-market__card-offer">{offerLabel}</p>
+                      <p className="affiliate-market__card-name affiliate-market__card-name--on-cover">{op.name}</p>
+                      <p className="affiliate-market__card-offer affiliate-market__card-offer--on-cover">{offerLabel}</p>
                     </div>
                   </div>
-                  <span className="affiliate-market__badge" style={{ color: st.color, backgroundColor: `${st.color}14` }}>
+                  <span className="affiliate-market__badge affiliate-market__badge--on-cover">
                     <Icon size={11} /> {st.label}
                   </span>
                 </div>
 
-                {op.description && (
-                  <p className="affiliate-market__card-desc">{op.description}</p>
-                )}
+                <div className="affiliate-market__card-body">
+                  {op.description && (
+                    <p className="affiliate-market__card-desc">{op.description}</p>
+                  )}
 
-                <div className="affiliate-market__card-stats">
-                  <div className="affiliate-market__stat">
-                    <Percent size={13} className="opacity-60" />
-                    <div>
+                  <div className="affiliate-market__card-stats affiliate-market__card-stats--3">
+                    <div className="affiliate-market__stat affiliate-market__stat--compact">
                       <p className="affiliate-market__stat-label">Comissão</p>
                       <p className="affiliate-market__stat-value" style={{ color: ctx.primary }}>{commission}</p>
                     </div>
-                  </div>
-                  <div className="affiliate-market__stat">
-                    <Users size={13} className="opacity-60" />
-                    <div>
-                      <p className="affiliate-market__stat-label">Prospects captados</p>
+                    <div className="affiliate-market__stat affiliate-market__stat--compact">
+                      <p className="affiliate-market__stat-label">Prospects</p>
                       <p className="affiliate-market__stat-value tabular-nums">
                         {Number(op.prospects_captured ?? op.leads_captured ?? 0).toLocaleString('pt-BR')}
                       </p>
                     </div>
-                  </div>
-                  {op.offers?.length ? (
-                    <div className="affiliate-market__stat">
-                      <Store size={13} className="opacity-60" />
-                      <div>
-                        <p className="affiliate-market__stat-label">Ofertas</p>
-                        <p className="affiliate-market__stat-value">{op.offers.length}</p>
-                      </div>
+                    <div className="affiliate-market__stat affiliate-market__stat--compact">
+                      <p className="affiliate-market__stat-label">Ofertas</p>
+                      <p className="affiliate-market__stat-value tabular-nums">{op.offers?.length || 0}</p>
                     </div>
-                  ) : null}
-                </div>
+                  </div>
 
-                <div className="affiliate-market__actions">
-                  {op.can_apply && (
-                    <button
-                      type="button"
-                      className="affiliate-market__btn"
-                      style={{ backgroundColor: ctx.primary }}
-                      disabled={applying === op.id}
-                      onClick={() => apply(op.id)}
-                    >
-                      {applying === op.id ? <Loader2 size={14} className="animate-spin" /> : null}
-                      Candidatar-se
-                    </button>
-                  )}
-                  {op.can_continue && op.enrollment?.id && (
-                    <button
-                      type="button"
-                      className="affiliate-market__btn affiliate-market__btn--outline"
-                      style={{ color: ctx.primary, borderColor: `${ctx.primary}40` }}
-                      onClick={() => setOnboardingId(op.enrollment!.id)}
-                    >
-                      Continuar onboarding <ChevronRight size={14} />
-                    </button>
-                  )}
-                  {op.participation_status === 'active' && (
-                    <span className="affiliate-market__status-note affiliate-market__status-note--ok">
-                      <CheckCircle2 size={12} /> Recursos liberados
-                    </span>
-                  )}
-                  {op.participation_status === 'pending' && (
-                    <span className="affiliate-market__status-note affiliate-market__status-note--warn">
-                      <Clock size={12} /> Aguardando aprovação
-                    </span>
-                  )}
+                  <div className="affiliate-market__actions">
+                    {op.can_apply && (
+                      <button
+                        type="button"
+                        className="affiliate-market__btn affiliate-market__btn--block"
+                        style={{ backgroundColor: ctx.primary }}
+                        disabled={applying === op.id}
+                        onClick={() => apply(op.id)}
+                      >
+                        {applying === op.id ? <Loader2 size={14} className="animate-spin" /> : null}
+                        Candidatar-se
+                      </button>
+                    )}
+                    {op.can_continue && op.enrollment?.id && (
+                      <button
+                        type="button"
+                        className="affiliate-market__btn affiliate-market__btn--outline affiliate-market__btn--block"
+                        style={{ color: ctx.primary, borderColor: `${ctx.primary}40` }}
+                        onClick={() => setOnboardingId(op.enrollment!.id)}
+                      >
+                        Continuar onboarding <ChevronRight size={14} />
+                      </button>
+                    )}
+                    {op.participation_status === 'active' && (
+                      <span className="affiliate-market__status-note affiliate-market__status-note--ok">
+                        <CheckCircle2 size={12} /> Recursos liberados
+                      </span>
+                    )}
+                    {op.participation_status === 'pending' && (
+                      <span className="affiliate-market__status-note affiliate-market__status-note--warn">
+                        <Clock size={12} /> Aguardando aprovação
+                      </span>
+                    )}
+                  </div>
                 </div>
               </article>
             )

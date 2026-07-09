@@ -341,9 +341,9 @@ export function PartnersAppPage() {
                 <Store size={20} strokeWidth={2.25} />
               </div>
               <div className="min-w-0">
-                <h2 className="affiliate-market__intro-title">Mercado</h2>
+                <h2 className="affiliate-market__intro-title">Mercado de programas</h2>
                 <p className="affiliate-market__intro-sub">
-                  Marcas e programas abertos. Compare comissões e candidate-se em um toque.
+                  Compare comissão, base de prospects e condições. Abra o detalhe para se candidatar.
                 </p>
               </div>
             </header>
@@ -389,88 +389,100 @@ export function PartnersAppPage() {
               <div className="affiliate-market__list">
                 {marketplace.map((op) => {
                   const st = STATUS_LABEL[op.participation_status] || STATUS_LABEL.not_applied
+                  const brandColor = String(op.organization?.primary_color || GLOBAL_ACCENT)
+                  const brandSecondary = String(op.organization?.secondary_color || brandColor)
+                  const prospects = Number(
+                    op.prospects_captured
+                    ?? op.leads_captured
+                    ?? op.organization?.prospects_captured
+                    ?? 0,
+                  )
+                  const offersN = Array.isArray(op.offers) ? op.offers.length : 0
                   return (
                     <article
                       key={op.id}
-                      className="affiliate-market__card affiliate-card cursor-pointer"
+                      className="affiliate-market__card affiliate-market__card--rich affiliate-card cursor-pointer"
                       onClick={() => openProgram(op.id)}
                       onKeyDown={(e) => { if (e.key === 'Enter') openProgram(op.id) }}
                       role="button"
                       tabIndex={0}
                     >
-                      <div className="affiliate-market__card-head">
-                        <div className="affiliate-market__card-brand">
-                          <div className="affiliate-market__card-avatar" style={{ backgroundColor: 'rgba(28,28,30,0.06)', color: GLOBAL_ACCENT }}>
+                      <div
+                        className="affiliate-market__card-cover"
+                        style={{
+                          background: `linear-gradient(135deg, ${brandColor}, ${brandSecondary})`,
+                        }}
+                      >
+                        <div className="affiliate-market__card-cover-main">
+                          <div className="affiliate-market__card-avatar affiliate-market__card-avatar--lg">
                             {op.organization?.logo_url ? (
                               <img src={op.organization.logo_url} alt="" />
                             ) : (
-                              <Building2 size={16} />
+                              <Building2 size={18} />
                             )}
                           </div>
                           <div className="min-w-0">
-                            <p className="affiliate-market__card-name">{op.name}</p>
-                            <p className="affiliate-market__card-offer">{op.organization?.name}</p>
-                          </div>
-                        </div>
-                        <span className="affiliate-market__badge" style={{ color: st.color, backgroundColor: `${st.color}14` }}>
-                          {st.label}
-                        </span>
-                      </div>
-                      {op.description && (
-                        <p className="affiliate-market__card-desc">{op.description}</p>
-                      )}
-                      <div className="affiliate-market__card-stats">
-                        <div className="affiliate-market__stat">
-                          <Percent size={13} className="opacity-60" />
-                          <div>
-                            <p className="affiliate-market__stat-label">Comissão</p>
-                            <p className="affiliate-market__stat-value">{op.commission_label || '—'}</p>
-                          </div>
-                        </div>
-                        <div className="affiliate-market__stat">
-                          <Users size={13} className="opacity-60" />
-                          <div>
-                            <p className="affiliate-market__stat-label">Prospects captados</p>
-                            <p className="affiliate-market__stat-value tabular-nums">
-                              {Number(
-                                op.prospects_captured
-                                ?? op.leads_captured
-                                ?? op.organization?.prospects_captured
-                                ?? 0,
-                              ).toLocaleString('pt-BR')}
+                            <p className="affiliate-market__card-name affiliate-market__card-name--on-cover">{op.name}</p>
+                            <p className="affiliate-market__card-offer affiliate-market__card-offer--on-cover">
+                              {op.organization?.name || 'Organização'}
                             </p>
                           </div>
                         </div>
+                        <span className="affiliate-market__badge affiliate-market__badge--on-cover">
+                          {st.label}
+                        </span>
                       </div>
-                      <div className="affiliate-market__actions" onClick={(e) => e.stopPropagation()}>
-                        <button
-                          type="button"
-                          className="affiliate-market__btn"
-                          style={{ backgroundColor: GLOBAL_ACCENT }}
-                          onClick={() => openProgram(op.id)}
-                        >
-                          Ver programa <ChevronRight size={14} />
-                        </button>
-                        {op.can_continue && op.enrollment?.id && (
+
+                      <div className="affiliate-market__card-body">
+                        {op.description && (
+                          <p className="affiliate-market__card-desc">{op.description}</p>
+                        )}
+                        <div className="affiliate-market__card-stats affiliate-market__card-stats--3">
+                          <div className="affiliate-market__stat affiliate-market__stat--compact">
+                            <p className="affiliate-market__stat-label">Comissão</p>
+                            <p className="affiliate-market__stat-value">{op.commission_label || '—'}</p>
+                          </div>
+                          <div className="affiliate-market__stat affiliate-market__stat--compact">
+                            <p className="affiliate-market__stat-label">Prospects</p>
+                            <p className="affiliate-market__stat-value tabular-nums">
+                              {prospects.toLocaleString('pt-BR')}
+                            </p>
+                          </div>
+                          <div className="affiliate-market__stat affiliate-market__stat--compact">
+                            <p className="affiliate-market__stat-label">Ofertas</p>
+                            <p className="affiliate-market__stat-value tabular-nums">{offersN}</p>
+                          </div>
+                        </div>
+                        <div className="affiliate-market__actions" onClick={(e) => e.stopPropagation()}>
                           <button
                             type="button"
-                            className="affiliate-market__btn affiliate-market__btn--outline"
-                            style={{ color: GLOBAL_ACCENT, borderColor: `${GLOBAL_ACCENT}40` }}
-                            onClick={() => openOnboarding(op.enrollment.id)}
+                            className="affiliate-market__btn affiliate-market__btn--block"
+                            style={{ backgroundColor: brandColor }}
+                            onClick={() => openProgram(op.id)}
                           >
-                            Continuar onboarding
+                            Ver programa <ChevronRight size={14} />
                           </button>
-                        )}
-                        {op.participation_status === 'pending' && (
-                          <span className="affiliate-market__status-note affiliate-market__status-note--warn">
-                            <Clock size={12} /> Aguardando aprovação
-                          </span>
-                        )}
-                        {op.participation_status === 'active' && (
-                          <span className="affiliate-market__status-note affiliate-market__status-note--ok">
-                            <CheckCircle2 size={12} /> Ativo
-                          </span>
-                        )}
+                          {op.can_continue && op.enrollment?.id && (
+                            <button
+                              type="button"
+                              className="affiliate-market__btn affiliate-market__btn--outline affiliate-market__btn--block"
+                              style={{ color: brandColor, borderColor: `${brandColor}40` }}
+                              onClick={() => openOnboarding(op.enrollment.id)}
+                            >
+                              Continuar onboarding
+                            </button>
+                          )}
+                          {op.participation_status === 'pending' && (
+                            <span className="affiliate-market__status-note affiliate-market__status-note--warn">
+                              <Clock size={12} /> Aguardando aprovação
+                            </span>
+                          )}
+                          {op.participation_status === 'active' && (
+                            <span className="affiliate-market__status-note affiliate-market__status-note--ok">
+                              <CheckCircle2 size={12} /> Ativo
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </article>
                   )

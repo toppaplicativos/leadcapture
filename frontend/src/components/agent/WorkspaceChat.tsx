@@ -3,10 +3,11 @@ import { AICampaignWizardModal } from '@/components/AICampaignWizardModal'
 import { SkillTrainerWizardModal } from '@/components/SkillTrainerWizardModal'
 import {
   Send, Loader2, LayoutGrid, Search, MapPin, Zap as ZapIcon,
-  Maximize2, Sparkles, Brain,
-  PanelRight, X, SquarePen, History, ChevronDown, Trash2, Pencil, Pin, Copy,
+  Maximize2, Sparkles, Megaphone, ShoppingCart,
+  PanelRight, X, Package, Images, Users, Building2, LayoutDashboard, Brain, Handshake,
+  Phone, Settings, SquarePen, History, ChevronDown, Trash2, Pencil, Pin, Copy,
 } from 'lucide-react'
-import type { IconComponent } from '@/components/icons'
+import { FacebookIcon, InstagramIcon, WhatsAppIcon, type IconComponent } from '@/components/icons'
 import { AgentUIRenderer } from './AgentUIRenderer'
 import { ProspectModuleBlock } from './prospect/ProspectModuleBlock'
 import { ProspectSearchControls } from './prospect/ProspectSearchControls'
@@ -33,7 +34,7 @@ import { WorkspaceNav } from './WorkspaceNav'
 import { WorkspaceWelcome } from './WorkspaceWelcome'
 
 import { turnNeedsCanvas, turnShowsInline } from '@/lib/agent/canvasRegistry'
-import { OBJECTIVE_GROUPS, QUICK_STARTERS } from '@/lib/agent/workspaceTriggers'
+import { OBJECTIVE_TRIGGERS } from '@/lib/agent/workspaceTriggers'
 import {
   isCampaignSkill,
   isLeadsSkill,
@@ -217,7 +218,6 @@ export function WorkspaceChat({
     searchSessions,
     searchResults,
     searchLoading,
-    activeModuleLabel,
   } = useAgentShell()
 
   const bridge = useProspectBridgeOptional()
@@ -225,7 +225,6 @@ export function WorkspaceChat({
   const isDesktop = useIsDesktop()
   const [input, setInput] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
-  const [menuGroup, setMenuGroup] = useState<string | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [memoryOpen, setMemoryOpen] = useState(false)
   const [historySearch, setHistorySearch] = useState('')
@@ -283,7 +282,7 @@ export function WorkspaceChat({
     : sessions.filter((s) => {
       const q = historyQuery.toLowerCase()
       if (!q) return true
-      const label = (s.title || 'Conversa sem título').toLowerCase()
+      const label = (s.title || 'Conversa sem t+�tulo').toLowerCase()
       return label.includes(q)
     })
 
@@ -297,7 +296,7 @@ export function WorkspaceChat({
 
   function startRename(sessionId: string, currentTitle: string) {
     setRenamingId(sessionId)
-    setRenameDraft(currentTitle === 'Conversa sem título' ? '' : currentTitle)
+    setRenameDraft(currentTitle === 'Conversa sem t+�tulo' ? '' : currentTitle)
   }
 
   async function commitRename(sessionId: string) {
@@ -310,7 +309,7 @@ export function WorkspaceChat({
   async function copyConversation() {
     const lines = messages
       .filter((m) => !m.loading && m.content)
-      .map((m) => `${m.role === 'user' ? 'Você' : 'Assistente'}: ${m.content}`)
+      .map((m) => `${m.role === 'user' ? 'Voc+�' : 'Assistente'}: ${m.content}`)
     if (sessionSummary) lines.unshift(`[Resumo compactado]\n${sessionSummary}\n`)
     const text = lines.join('\n\n')
     try {
@@ -423,64 +422,278 @@ export function WorkspaceChat({
     if (isDesktop) openCanvas('/busca')
   }
 
-  /** Atalhos contextuais do mapa — só quando prospecção está aberta. */
-  const prospectShortcuts: Shortcut[] = prospectModuleOpen
-    ? [
-        {
-          id: 'capture',
-          label: 'Capturar todos',
-          desc: `${bridge?.snapshot.newCount ?? 0} novos no mapa`,
-          icon: ZapIcon,
-          action: () => {
-            setMenuOpen(false)
-            ensureMapDesktop()
-            bridge?.dispatch({ type: 'capture_batch' })
-          },
-        },
-        {
-          id: 'auto',
-          label: bridge?.snapshot.autoCapture ? 'Auto-captura ON' : 'Auto-captura',
-          desc: 'Captura ao arrastar o mapa',
-          icon: ZapIcon,
-          action: () => {
-            setMenuOpen(false)
-            bridge?.dispatch({ type: 'toggle_auto_capture' })
-          },
-        },
-        {
-          id: 'immersive',
-          label: 'Tela cheia',
-          desc: 'Modo imersivo do mapa',
-          icon: Maximize2,
-          action: () => {
-            setMenuOpen(false)
-            bridge?.dispatch({ type: 'set_immersive', value: true })
-          },
-        },
-        {
-          id: 'ideas',
-          label: 'Gerar ideias IA',
-          desc: 'Segmento e cidade sugeridos',
-          icon: Sparkles,
-          action: () => {
-            setMenuOpen(false)
-            ensureMapDesktop()
-            bridge?.dispatch({ type: 'open_ideas' })
-          },
-        },
-        {
-          id: 'map',
-          label: isDesktop ? 'Abrir mapa' : 'Mapa no chat',
-          desc: isDesktop ? 'Painel à direita' : 'Embutido na conversa',
-          icon: MapPin,
-          action: () => {
-            setMenuOpen(false)
-            if (isDesktop) openCanvas('/busca')
-            else triggerSkill('lead.prospect', { label: 'Prospectar no mapa' })
-          },
-        },
-      ]
-    : []
+  const shortcuts: Shortcut[] = [
+    {
+      id: 'prospect',
+      label: 'Buscar no mapa',
+      desc: 'Modo paleteiro ��� segmento + cidade',
+      icon: Search,
+      action: () => {
+        setMenuOpen(false)
+        triggerSkill('lead.prospect', { label: 'Prospectar no mapa', assistantMessage: 'Vamos prospectar no mapa. Qual segmento e cidade?' })
+      },
+    },
+    {
+      id: 'map',
+      label: isDesktop ? 'Abrir mapa' : 'Mapa no chat',
+      desc: isDesktop ? 'Canvas lateral' : 'J+� embutido na conversa',
+      icon: MapPin,
+      action: () => {
+        setMenuOpen(false)
+        if (isDesktop) openCanvas('/busca')
+        else triggerSkill('lead.prospect', { label: 'Prospectar no mapa' })
+      },
+    },
+    {
+      id: 'capture',
+      label: 'Capturar todos',
+      desc: `${bridge?.snapshot.newCount ?? 0} novos no mapa`,
+      icon: ZapIcon,
+      action: () => {
+        setMenuOpen(false)
+        ensureMapDesktop()
+        bridge?.dispatch({ type: 'capture_batch' })
+      },
+    },
+    {
+      id: 'auto',
+      label: bridge?.snapshot.autoCapture ? 'Auto-captura ON' : 'Auto-captura',
+      desc: 'Captura ao arrastar o mapa',
+      icon: ZapIcon,
+      action: () => {
+        setMenuOpen(false)
+        bridge?.dispatch({ type: 'toggle_auto_capture' })
+      },
+    },
+    {
+      id: 'immersive',
+      label: 'Tela cheia',
+      desc: 'Modo imersivo do mapa',
+      icon: Maximize2,
+      action: () => {
+        setMenuOpen(false)
+        bridge?.dispatch({ type: 'set_immersive', value: true })
+      },
+    },
+    {
+      id: 'ideas',
+      label: 'Gerar ideias IA',
+      desc: 'Segmento e cidade sugeridos',
+      icon: Sparkles,
+      action: () => {
+        setMenuOpen(false)
+        ensureMapDesktop()
+        bridge?.dispatch({ type: 'open_ideas' })
+      },
+    },
+    {
+      id: 'messages',
+      label: 'Conversas',
+      icon: WhatsAppIcon,
+      action: () => {
+        setMenuOpen(false)
+        triggerNav('mensagens')
+      },
+    },
+    {
+      id: 'whatsapp',
+      label: 'Conectar WhatsApp',
+      desc: 'Hub de conex+�o ��� c+�digo de 8 caracteres',
+      icon: WhatsAppIcon,
+      action: () => {
+        setMenuOpen(false)
+        triggerSkill('whatsapp.connect', {
+          label: 'Conectar WhatsApp',
+          assistantMessage: 'Vamos vincular pelo c+�digo no seu n+�mero:',
+        })
+      },
+    },
+    {
+      id: 'settings',
+      label: 'Configura+�+�es',
+      desc: 'Conta, marca e sess+�es WhatsApp',
+      icon: Settings,
+      action: () => {
+        setMenuOpen(false)
+        triggerSkill('settings.open', {
+          label: 'Configura+�+�es',
+          assistantMessage: 'Abrindo configura+�+�es da conta�Ǫ',
+        })
+      },
+    },
+    {
+      id: 'leads',
+      label: 'Leads',
+      desc: 'CRM e gest+�o',
+      icon: Users,
+      action: () => {
+        setMenuOpen(false)
+        triggerSkill('crm.leads.table', { label: 'Ver leads', assistantMessage: 'Seus leads recentes:' })
+      },
+    },
+    {
+      id: 'clients',
+      label: 'Clientes',
+      desc: 'Base convertida e importa+�+�o',
+      icon: Building2,
+      action: () => {
+        setMenuOpen(false)
+        triggerSkill('crm.clients.table', { label: 'Ver clientes', assistantMessage: 'Sua base de clientes:' })
+      },
+    },
+    {
+      id: 'orders',
+      label: 'Pedidos',
+      desc: 'Vendas e expedi+�+�o',
+      icon: ShoppingCart,
+      action: () => {
+        setMenuOpen(false)
+        triggerSkill('catalog.orders', { label: 'Ver pedidos', assistantMessage: 'Seus pedidos recentes:' })
+      },
+    },
+    {
+      id: 'products',
+      label: 'Produtos',
+      desc: 'Cat+�logo no chat ou canvas',
+      icon: Package,
+      action: () => {
+        setMenuOpen(false)
+        triggerSkill('catalog.products', { label: 'Produtos', assistantMessage: 'Seu cat+�logo:' })
+      },
+    },
+    {
+      id: 'gallery',
+      label: 'Galeria',
+      desc: 'Assets e upload inline',
+      icon: Images,
+      action: () => {
+        setMenuOpen(false)
+        triggerSkill('gallery.open', { label: 'Galeria', assistantMessage: 'Assets da marca:' })
+      },
+    },
+    {
+      id: 'instagram',
+      label: 'Instagram',
+      desc: 'Posts, DMs e m+�tricas',
+      icon: InstagramIcon,
+      action: () => {
+        setMenuOpen(false)
+        triggerSkill('instagram.open', { label: 'Instagram', assistantMessage: 'Sua conta Instagram:' })
+      },
+    },
+    {
+      id: 'instagram-post',
+      label: 'Criar post IG',
+      desc: 'IA gera legenda e imagem',
+      icon: InstagramIcon,
+      action: () => {
+        setMenuOpen(false)
+        triggerSkill('instagram.post.create', { label: 'Criar post', assistantMessage: 'Sobre o que +� o post?' })
+      },
+    },
+    {
+      id: 'facebook',
+      label: 'Facebook',
+      desc: 'Posts, mensagens e m+�tricas',
+      icon: FacebookIcon,
+      action: () => {
+        setMenuOpen(false)
+        triggerSkill('facebook.open', { label: 'Facebook', assistantMessage: 'Sua p+�gina Facebook:' })
+      },
+    },
+    {
+      id: 'facebook-post',
+      label: 'Criar post FB',
+      desc: 'IA gera texto e imagem',
+      icon: FacebookIcon,
+      action: () => {
+        setMenuOpen(false)
+        triggerSkill('facebook.post.create', { label: 'Post Facebook', assistantMessage: 'Sobre o que +� o post no Facebook?' })
+      },
+    },
+    {
+      id: 'automations',
+      label: 'Automa+�+�es',
+      desc: 'Fluxos reativos e proativos',
+      icon: ZapIcon,
+      action: () => {
+        setMenuOpen(false)
+        triggerSkill('automation.open', { label: 'Automa+�+�es', assistantMessage: 'Suas automa+�+�es WhatsApp:' })
+      },
+    },
+    {
+      id: 'affiliates',
+      label: 'Afiliados',
+      desc: 'Parceiros, comiss+�es e saques',
+      icon: Handshake,
+      action: () => {
+        setMenuOpen(false)
+        triggerSkill('affiliate.open', { label: 'Afiliados', assistantMessage: 'Seu programa de parceiros:' })
+      },
+    },
+    {
+      id: 'automation-order',
+      label: 'Fluxo pedido WA',
+      desc: 'Pedido completo no WhatsApp',
+      icon: ZapIcon,
+      action: () => {
+        setMenuOpen(false)
+        triggerSkill('automation.create', {
+          label: 'Fluxo pedido',
+          assistantMessage: 'Montando fluxo de pedidos�Ǫ',
+          context: { brief: 'crie um fluxo de pedidos completo para whatsapp' },
+        })
+      },
+    },
+    {
+      id: 'campaigns',
+      label: 'Campanhas',
+      desc: 'Ver e criar campanhas',
+      icon: Megaphone,
+      action: () => {
+        setMenuOpen(false)
+        triggerNav('campanhas')
+      },
+    },
+    {
+      id: 'campaign',
+      label: 'Criar campanha',
+      icon: Megaphone,
+      action: () => {
+        setMenuOpen(false)
+        triggerSkill('campaigns.create', { label: 'Criar campanha', assistantMessage: 'Vamos criar sua campanha.' })
+      },
+    },
+    {
+      id: 'dashboard',
+      label: 'Painel',
+      desc: 'KPIs do neg+�cio',
+      icon: LayoutDashboard,
+      action: () => {
+        setMenuOpen(false)
+        triggerNav('dashboard')
+      },
+    },
+    {
+      id: 'skills',
+      label: 'Habilidades',
+      desc: 'Skills do agente IA',
+      icon: Brain,
+      action: () => {
+        setMenuOpen(false)
+        triggerNav('habilidades')
+      },
+    },
+    {
+      id: 'order',
+      label: 'Fazer pedido',
+      icon: ShoppingCart,
+      action: () => {
+        setMenuOpen(false)
+        triggerSkill('order.assisted', { label: 'Fazer pedido', assistantMessage: 'Vamos montar esse pedido. Para quem +�?' })
+      },
+    },
+  ]
 
   function submit(e: FormEvent) {
     e.preventDefault()
@@ -497,7 +710,7 @@ export function WorkspaceChat({
           {sessionHydrating ? (
             <>
               <Loader2 size={13} className="animate-spin" aria-hidden />
-              <span>Restaurando conversa…</span>
+              <span>Restaurando conversa�Ǫ</span>
             </>
           ) : (
             <>
@@ -506,10 +719,10 @@ export function WorkspaceChat({
                 className={`workspace-chat__session-history${historyOpen ? ' is-open' : ''}`}
                 onClick={toggleHistory}
                 aria-expanded={historyOpen}
-                aria-label="Ver histórico de conversas"
+                aria-label="Ver hist+�rico de conversas"
               >
                 <History size={13} strokeWidth={2} aria-hidden />
-                <span>Histórico</span>
+                <span>Hist+�rico</span>
                 <ChevronDown size={12} className="workspace-chat__session-chevron" aria-hidden />
               </button>
               <button
@@ -517,10 +730,10 @@ export function WorkspaceChat({
                 className={`workspace-chat__session-memory${memoryOpen ? ' is-open' : ''}${hasBrandMemory ? ' has-data' : ''}`}
                 onClick={toggleMemory}
                 aria-expanded={memoryOpen}
-                aria-label="Ver memória do agente"
+                aria-label="Ver mem+�ria do agente"
               >
                 <Brain size={13} strokeWidth={2} aria-hidden />
-                <span>Memória</span>
+                <span>Mem+�ria</span>
               </button>
               <span className="workspace-chat__session-title-wrap">
                 <span className="workspace-chat__session-title" title={sessionTitle || undefined}>
@@ -571,7 +784,7 @@ export function WorkspaceChat({
                 type="search"
                 value={historySearch}
                 onChange={(e) => setHistorySearch(e.target.value)}
-                placeholder="Buscar por tema, produto, lead…"
+                placeholder="Buscar por tema, produto, lead�Ǫ"
                 aria-label="Buscar conversa"
               />
               {useSemanticSearch ? (
@@ -579,9 +792,9 @@ export function WorkspaceChat({
               ) : null}
             </div>
             {sessionsLoading && sessions.length === 0 ? (
-              <p className="workspace-chat__history-empty">Carregando…</p>
+              <p className="workspace-chat__history-empty">Carregando�Ǫ</p>
             ) : useSemanticSearch && searchLoading ? (
-              <p className="workspace-chat__history-empty">Buscando…</p>
+              <p className="workspace-chat__history-empty">Buscando�Ǫ</p>
             ) : filteredSessions.length === 0 ? (
               <p className="workspace-chat__history-empty">
                 {sessions.length === 0 ? 'Nenhuma conversa salva ainda.' : 'Nenhum resultado.'}
@@ -590,7 +803,7 @@ export function WorkspaceChat({
               <ul className="workspace-chat__history-list">
                 {filteredSessions.map((s) => {
                   const isActive = s.id === sessionId
-                  const label = s.title?.trim() || 'Conversa sem título'
+                  const label = s.title?.trim() || 'Conversa sem t+�tulo'
                   const when = formatSessionDate(s.last_message_at || s.updated_at || s.created_at)
                   const isRenaming = renamingId === s.id
                   return (
@@ -605,7 +818,7 @@ export function WorkspaceChat({
                               if (e.key === 'Escape') setRenamingId(null)
                             }}
                             autoFocus
-                            aria-label="Novo título da conversa"
+                            aria-label="Novo t+�tulo da conversa"
                           />
                           <button type="button" onClick={() => void commitRename(s.id)}>OK</button>
                         </div>
@@ -628,8 +841,8 @@ export function WorkspaceChat({
                               </span>
                             ) : null}
                             <span className="workspace-chat__history-item-meta">
-                              {s.is_pinned ? 'Fixada · ' : ''}{when}
-                              {isActive ? ' · Atual' : ''}
+                              {s.is_pinned ? 'Fixada -� ' : ''}{when}
+                              {isActive ? ' -� Atual' : ''}
                             </span>
                           </button>
                           <div className="workspace-chat__history-actions">
@@ -668,7 +881,7 @@ export function WorkspaceChat({
           </div>
         )}
         {memoryOpen && !sessionHydrating && (
-          <div className="workspace-chat__memory-panel" aria-label="Memória do agente">
+          <div className="workspace-chat__memory-panel" aria-label="Mem+�ria do agente">
             <div className="workspace-chat__history-head">
               <span>O agente lembra</span>
               {hasBrandMemory && (
@@ -693,8 +906,8 @@ export function WorkspaceChat({
                 value={newFact}
                 onChange={(e) => setNewFact(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') void addMemoryFact() }}
-                placeholder="Adicionar fato manualmente…"
-                aria-label="Novo fato para memória"
+                placeholder="Adicionar fato manualmente�Ǫ"
+                aria-label="Novo fato para mem+�ria"
               />
               <button type="button" onClick={() => void addMemoryFact()} disabled={!newFact.trim()}>
                 +
@@ -702,7 +915,7 @@ export function WorkspaceChat({
             </div>
             {!hasBrandMemory ? (
               <p className="workspace-chat__history-empty">
-                Ainda sem memória da marca. Converse ou adicione fatos acima.
+                Ainda sem mem+�ria da marca. Converse ou adicione fatos acima.
               </p>
             ) : (
               <div className="workspace-chat__memory-body">
@@ -729,7 +942,7 @@ export function WorkspaceChat({
                 )}
                 {Object.keys(brandMemory.preferences).length > 0 && (
                   <section>
-                    <h4>Preferências</h4>
+                    <h4>Prefer+�ncias</h4>
                     <ul>
                       {Object.entries(brandMemory.preferences).map(([k, v]) => (
                         <li key={k}><strong>{k}:</strong> {v}</li>
@@ -739,7 +952,7 @@ export function WorkspaceChat({
                 )}
                 {brandMemory.last_topics.length > 0 && (
                   <section>
-                    <h4>Tópicos</h4>
+                    <h4>T+�picos</h4>
                     <p>{brandMemory.last_topics.join(', ')}</p>
                   </section>
                 )}
@@ -904,8 +1117,8 @@ export function WorkspaceChat({
 
       <div className="workspace-chat__footer">
         {messages.length > 0 && messages.length < 6 && !prospectModuleOpen && !inboxModuleOpen && !catalogModuleOpen && (
-          <div className="workspace-chat__objectives" aria-label="Atalhos rápidos">
-            {QUICK_STARTERS.map((chip) => (
+          <div className="workspace-chat__objectives">
+            {OBJECTIVE_TRIGGERS.map((chip) => (
               <button
                 key={chip.userLabel}
                 type="button"
@@ -942,92 +1155,36 @@ export function WorkspaceChat({
           <button
             type="button"
             className={`workspace-chat__menu-btn ${menuOpen ? 'is-open' : ''}`}
-            onClick={() => {
-              setMenuOpen((v) => !v)
-              setMenuGroup(null)
-            }}
-            aria-label="Atalhos por área"
+            onClick={() => setMenuOpen((v) => !v)}
+            aria-label="Atalhos"
             aria-expanded={menuOpen}
-            aria-haspopup="menu"
           >
             {menuOpen ? <X size={16} /> : <LayoutGrid size={16} />}
           </button>
 
           {menuOpen && (
             <div className="workspace-chat__shortcuts" role="menu">
-              <p className="workspace-chat__shortcuts-title">
-                {menuGroup
-                  ? OBJECTIVE_GROUPS.find((g) => g.id === menuGroup)?.label || 'Atalhos'
-                  : 'Áreas de trabalho'}
-              </p>
-              {menuGroup && (
-                <button
-                  type="button"
-                  className="workspace-chat__shortcut workspace-chat__shortcut--back"
-                  onClick={() => setMenuGroup(null)}
-                >
-                  <span className="workspace-chat__shortcut-label">← Voltar</span>
-                </button>
-              )}
-              {!menuGroup && prospectShortcuts.length > 0 && (
-                <>
-                  <p className="workspace-chat__shortcuts-subtitle">Mapa ativo</p>
-                  {prospectShortcuts.map((s) => {
-                    const Icon = s.icon
-                    return (
-                      <button
-                        key={s.id}
-                        type="button"
-                        role="menuitem"
-                        className="workspace-chat__shortcut"
-                        onClick={s.action}
-                      >
-                        <span className="workspace-chat__shortcut-icon">
-                          <Icon size={14} strokeWidth={1.75} />
-                        </span>
-                        <span className="min-w-0">
-                          <span className="workspace-chat__shortcut-label">{s.label}</span>
-                          {s.desc && <span className="workspace-chat__shortcut-desc">{s.desc}</span>}
-                        </span>
-                      </button>
-                    )
-                  })}
-                  <p className="workspace-chat__shortcuts-subtitle">Todas as áreas</p>
-                </>
-              )}
-              {!menuGroup && OBJECTIVE_GROUPS.map((group) => (
-                <button
-                  key={group.id}
-                  type="button"
-                  role="menuitem"
-                  className="workspace-chat__shortcut"
-                  onClick={() => setMenuGroup(group.id)}
-                >
-                  <span className="min-w-0">
-                    <span className="workspace-chat__shortcut-label">{group.label}</span>
-                    <span className="workspace-chat__shortcut-desc">{group.hint}</span>
-                  </span>
-                </button>
-              ))}
-              {menuGroup && OBJECTIVE_GROUPS.find((g) => g.id === menuGroup)?.items.map((item) => (
-                <button
-                  key={`${menuGroup}-${item.skill}-${item.userLabel}`}
-                  type="button"
-                  role="menuitem"
-                  className="workspace-chat__shortcut"
-                  onClick={() => {
-                    setMenuOpen(false)
-                    setMenuGroup(null)
-                    triggerSkill(item.skill, {
-                      label: item.userLabel,
-                      assistantMessage: item.assistantMessage,
-                      context: item.context,
-                    })
-                  }}
-                >
-                  <span className="workspace-chat__shortcut-label">{item.userLabel}</span>
-                </button>
-              ))}
+              <p className="workspace-chat__shortcuts-title">Atalhos</p>
+              {shortcuts.map((s) => {
+                const Icon = s.icon
+                return (
+                  <button
+                    key={s.id}
+                    type="button"
+                    role="menuitem"
+                    className="workspace-chat__shortcut"
+                    onClick={s.action}
+                  >
+                    <span className="workspace-chat__shortcut-icon">
+                      <Icon size={14} strokeWidth={1.75} />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="workspace-chat__shortcut-label">{s.label}</span>
+                      {s.desc && <span className="workspace-chat__shortcut-desc">{s.desc}</span>}
+                    </span>
+                  </button>
+                )
+              })}
             </div>
           )}
         </div>
@@ -1037,16 +1194,10 @@ export function WorkspaceChat({
             type="button"
             className="workspace-chat__canvas-btn lg:hidden"
             onClick={() => setMobileCanvasOpen(true)}
-            aria-label="Abrir painel em tela cheia"
+            aria-label="Ver canvas"
           >
             <PanelRight size={16} />
           </button>
-        )}
-
-        {desktopCanvasOpen && isDesktop && activeModuleLabel && (
-          <span className="workspace-chat__surface-pill" title="Modelo espacial">
-            Chat · {activeModuleLabel}
-          </span>
         )}
 
         <div className="workspace-chat__input-wrap">
@@ -1061,7 +1212,6 @@ export function WorkspaceChat({
             }}
             rows={1}
             placeholder="Ex: buscar pizzarias em Fortaleza"
-            aria-label="Mensagem para o assistente"
             disabled={loading}
             className="workspace-chat__input"
           />

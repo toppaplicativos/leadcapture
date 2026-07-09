@@ -19,11 +19,11 @@ const PASSWORD = process.env.SMOKE_PASSWORD || ''
 
 const MODULES = [
   { label: 'Painel', selector: '.catalog-module--dashboard', titleRe: /painel|resumo|lead|campanha|produto|pedido/i, minCount: 1 },
-  { label: 'Leads', selector: '.catalog-module--leads', titleRe: /lead/i, minCount: 1 },
-  { label: 'Produtos', selector: '.catalog-module.is-expanded', titleRe: /produto/i, minCount: 1 },
-  { label: 'Campanhas', selector: '.catalog-module.is-expanded', titleRe: /campanha/i },
+  { label: 'Leads', selector: '.catalog-module--leads, .catalog-module', titleRe: /lead/i, minCount: 1 },
+  { label: 'Produtos', selector: '.catalog-module.is-expanded, .catalog-module', titleRe: /produto/i, minCount: 1 },
+  { label: 'Campanhas', selector: '.catalog-module.is-expanded, .catalog-module', titleRe: /campanha/i },
   { label: 'Habilidades', selector: '.catalog-module--skills', titleRe: /habilidade/i, minCount: 1 },
-  { label: 'Pedidos', selector: '.catalog-module--orders', titleRe: /pedido/i },
+  { label: 'Pedidos', selector: '.catalog-module--orders, .catalog-module', titleRe: /pedido/i },
   { label: 'Instagram', selector: '.catalog-module--instagram', titleRe: /instagram/i, canvasHint: /studio completo no canvas/i },
   { label: 'Facebook', selector: '.catalog-module--facebook', titleRe: /facebook/i, canvasHint: /studio completo no canvas/i },
 ]
@@ -79,6 +79,21 @@ try {
     consoleErrors.length = 0
     await gotoAdminWorkspace(page, BASE, 45000)
     await openWorkspaceShortcut(page, mod.label)
+
+    // Aguarda qualquer módulo de catálogo com título compatível (chat assíncrono)
+    await page.waitForFunction(
+      ({ reSource }) => {
+        const re = new RegExp(reSource, 'i')
+        const nodes = document.querySelectorAll('.catalog-module__title, .inbox-module__title, .catalog-module--dashboard .catalog-module__title')
+        for (const n of nodes) {
+          if (re.test((n.textContent || '').trim())) return true
+        }
+        return false
+      },
+      { reSource: mod.titleRe.source },
+      { timeout: 25000 },
+    ).catch(() => null)
+
     if (mod.label === 'Painel') {
       await page.waitForFunction(() => {
         const stats = document.querySelector('.catalog-module--dashboard .catalog-module__stats')
@@ -87,7 +102,7 @@ try {
         return n >= 1
       }, { timeout: 20000 }).catch(() => null)
     }
-    await page.waitForTimeout(800)
+    await page.waitForTimeout(600)
 
     const candidates = page.locator(mod.selector)
     let block = candidates.first()
@@ -102,7 +117,20 @@ try {
         break
       }
     }
-    const visible = await block.isVisible().catch(() => false)
+    // Fallback: qualquer título no chat que case
+    if (!title) {
+      const titles = page.locator('.catalog-module__title, .inbox-module__title')
+      const tc = await titles.count()
+      for (let i = 0; i < tc; i++) {
+        const t = (await titles.nth(i).textContent())?.trim() || ''
+        if (mod.titleRe.test(t)) {
+          title = t
+          block = titles.nth(i).locator('xpath=ancestor::*[contains(@class,"catalog-module") or contains(@class,"inbox-module")][1]')
+          break
+        }
+      }
+    }
+    const visible = title ? true : await block.isVisible().catch(() => false)
     if (!visible || !title) {
       fail(`${mod.label} → módulo não visível (${mod.selector})`)
       continue

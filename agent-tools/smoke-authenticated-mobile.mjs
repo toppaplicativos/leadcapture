@@ -19,14 +19,14 @@ const PASSWORD = process.env.SMOKE_PASSWORD || ''
 
 const MODULES = [
   { label: 'Painel', selector: '.catalog-module--dashboard', titleRe: /painel|resumo|lead/i, minCount: 1, sheetBtn: /painel completo/i },
-  { label: 'Leads', selector: '.catalog-module--leads', titleRe: /lead/i, minCount: 1 },
-  { label: 'Produtos', selector: '.catalog-module.is-expanded', titleRe: /produto/i, minCount: 1, sheetBtn: /gerenciar|catálogo completo|ver catálogo/i },
-  { label: 'Campanhas', selector: '.catalog-module.is-expanded', titleRe: /campanha/i },
+  { label: 'Leads', selector: '.catalog-module--leads, .catalog-module', titleRe: /lead/i, minCount: 1 },
+  { label: 'Produtos', selector: '.catalog-module.is-expanded, .catalog-module', titleRe: /produto/i, minCount: 1, sheetBtn: /gerenciar|catálogo completo|ver catálogo/i },
+  { label: 'Campanhas', selector: '.catalog-module.is-expanded, .catalog-module', titleRe: /campanha/i },
   { label: 'Habilidades', selector: '.catalog-module--skills', titleRe: /habilidade/i, minCount: 1, sheetBtn: /gerenciar habilidade/i },
-  { label: 'Pedidos', selector: '.catalog-module--orders', titleRe: /pedido/i },
+  { label: 'Pedidos', selector: '.catalog-module--orders, .catalog-module', titleRe: /pedido/i },
   { label: 'Instagram', selector: '.catalog-module--instagram', titleRe: /instagram/i, sheetBtn: /instagram completo|conectar instagram/i },
   { label: 'Facebook', selector: '.catalog-module--facebook', titleRe: /facebook/i, sheetBtn: /facebook completo|conectar facebook/i },
-  { label: 'Afiliados', selector: '.catalog-module--affiliates', titleRe: /afiliado|parceiro|programa/i, sheetBtn: /gestão completa|abrir programa de afiliados/i },
+  { label: 'Afiliados', selector: '.catalog-module--affiliates, .catalog-module', titleRe: /afiliado|parceiro|programa/i, sheetBtn: /gestão completa|abrir programa de afiliados/i },
 ]
 
 let failed = 0

@@ -87,11 +87,15 @@ export async function openWorkspaceShortcut(page, label) {
   await menuBtn.click()
   await page.waitForSelector('.workspace-chat__shortcuts', { timeout: 10000 })
 
+  const labelLocator = () =>
+    page.locator('.workspace-chat__shortcut').filter({
+      has: page.locator('.workspace-chat__shortcut-label', { hasText: new RegExp(`^\\s*${escapeRe(label)}\\s*$`, 'i') }),
+    })
+
   // Já no nível do item?
-  const direct = page.locator('.workspace-chat__shortcut').filter({ hasText: label })
-  if (await direct.count()) {
+  if (await labelLocator().count()) {
     await Promise.all([
-      direct.first().click(),
+      labelLocator().first().click(),
       page.waitForResponse(
         (r) => r.url().includes('/api/admin-agent/chat') && r.status() === 200,
         { timeout: 25000 },
@@ -102,12 +106,33 @@ export async function openWorkspaceShortcut(page, label) {
 
   // Menu hierárquico: entra no grupo e depois no item
   const groupLabel = SHORTCUT_GROUP[label]
-  if (groupLabel) {
-    const group = page.locator('.workspace-chat__shortcut').filter({ hasText: groupLabel }).first()
-    if (await group.count()) {
-      await group.click()
-      await page.waitForTimeout(200)
-      const item = page.locator('.workspace-chat__shortcut').filter({ hasText: label }).first()
+  const groupsToTry = groupLabel
+    ? [groupLabel, ...['Captar', 'Vender', 'Marca', 'Atender', 'Mais'].filter((g) => g !== groupLabel)]
+    : ['Captar', 'Vender', 'Marca', 'Atender', 'Mais']
+
+  for (const g of groupsToTry) {
+    // Garante menu aberto na raiz
+    if (!(await page.locator('.workspace-chat__shortcuts').isVisible().catch(() => false))) {
+      await menuBtn.click()
+      await page.waitForSelector('.workspace-chat__shortcuts', { timeout: 8000 })
+    }
+    // Se estamos dentro de um subgrupo, volta
+    const back = page.locator('.workspace-chat__shortcut--back').first()
+    if (await back.isVisible().catch(() => false)) {
+      await back.click()
+      await page.waitForTimeout(150)
+    }
+
+    const group = page.locator('.workspace-chat__shortcut').filter({
+      has: page.locator('.workspace-chat__shortcut-label', { hasText: new RegExp(`^\\s*${escapeRe(g)}\\s*$`, 'i') }),
+    }).first()
+    if (!(await group.count())) continue
+
+    await group.click()
+    await page.waitForTimeout(250)
+
+    const item = labelLocator().first()
+    if (await item.count()) {
       await item.waitFor({ state: 'visible', timeout: 8000 })
       await Promise.all([
         item.click(),
@@ -116,35 +141,15 @@ export async function openWorkspaceShortcut(page, label) {
           { timeout: 25000 },
         ).catch(() => null),
       ])
+      // fecha menu residual se ainda aberto
+      await page.keyboard.press('Escape').catch(() => null)
       return
     }
-  }
-
-  // Fallback: tenta todos os grupos conhecidos
-  for (const g of ['Captar', 'Vender', 'Marca', 'Atender', 'Mais']) {
-    const group = page.locator('.workspace-chat__shortcut').filter({ hasText: g }).first()
-    if (!(await group.count())) continue
-    await group.click()
-    await page.waitForTimeout(150)
-    const item = page.locator('.workspace-chat__shortcut').filter({ hasText: label }).first()
-    if (await item.count()) {
-      await Promise.all([
-        item.click(),
-        page.waitForResponse(
-          (r) => r.url().includes('/api/admin-agent/chat') && r.status() === 200,
-          { timeout: 25000 },
-        ).catch(() => null),
-      ])
-      return
-    }
-    // volta
-    const back = page.locator('.workspace-chat__shortcut--back, .workspace-chat__shortcut').filter({ hasText: /voltar/i }).first()
-    if (await back.count()) await back.click()
-    else await menuBtn.click()
-    await page.waitForTimeout(100)
-    await menuBtn.click().catch(() => null)
-    await page.waitForSelector('.workspace-chat__shortcuts', { timeout: 5000 }).catch(() => null)
   }
 
   throw new Error(`Atalho "${label}" não encontrado no menu do workspace`)
+}
+
+function escapeRe(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }

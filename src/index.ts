@@ -37,6 +37,7 @@ import {
   affiliateDistributionService,
   setDistributionInstanceManagerRef,
   startDistributionFollowupMonitor,
+  startDistributionQueueMonitor,
 } from "./services/affiliateDistribution";
 import clientTypesRoutes from "./routes/clientTypes";
 import sessionsRoutes from "./routes/sessions";
@@ -2751,6 +2752,7 @@ httpServer.listen(config.port, "0.0.0.0", () => {
     setInstanceManagerRef(instanceManager);
     setDistributionInstanceManagerRef(instanceManager);
     startDistributionFollowupMonitor();
+    startDistributionQueueMonitor();
     startWhatsAppHealthMonitor();
   } catch (err: any) {
     logger.error(`WhatsAppHealth start failed: ${formatError(err)}`);

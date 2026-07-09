@@ -108,6 +108,30 @@ router.get("/alerts", async (req: AuthRequest, res: Response) => {
   }
 });
 
+router.post("/alerts/read-all", async (req: AuthRequest, res: Response) => {
+  try {
+    const affiliateUserId = await requirePartnersGlobal(req, res);
+    if (!affiliateUserId) return;
+    await affiliateGlobalService.markAllGlobalAlertsRead(affiliateUserId);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Falha ao marcar alertas" });
+  }
+});
+
+router.post("/alerts/:alertId/read", async (req: AuthRequest, res: Response) => {
+  try {
+    const affiliateUserId = await requirePartnersGlobal(req, res);
+    if (!affiliateUserId) return;
+    const alertId = String(req.params.alertId || "").trim();
+    if (!alertId) return res.status(400).json({ error: "alertId obrigatório" });
+    await affiliateGlobalService.markGlobalAlertRead(alertId, affiliateUserId);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Falha ao marcar alerta" });
+  }
+});
+
 router.get("/marketplace", async (req: AuthRequest, res: Response) => {
   try {
     const affiliateUserId = await requirePartnersGlobal(req, res);

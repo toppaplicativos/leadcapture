@@ -437,6 +437,10 @@ router.put("/distribution/rules", requireRole(["admin", "operator"]), async (req
       followup_enabled: req.body?.followup_enabled,
       followup_delays_hours_json: req.body?.followup_delays_hours_json,
       followup_message_template: req.body?.followup_message_template,
+      require_whatsapp_connected: req.body?.require_whatsapp_connected,
+      require_training_complete: req.body?.require_training_complete,
+      require_terms_accepted: req.body?.require_terms_accepted,
+      allowed_regions_json: req.body?.allowed_regions_json,
       program_id: String(req.body?.program_id || "").trim() || null,
     });
     res.json({ success: true, rules });

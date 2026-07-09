@@ -1129,6 +1129,7 @@ export class AffiliateGlobalService {
 
     return (rows || []).map((r) => ({
       id: String(r.id),
+      brand_id: r.brand_id ? String(r.brand_id) : null,
       alert_type: String(r.alert_type || ""),
       severity: String(r.severity || "info"),
       title: String(r.title || ""),
@@ -1139,6 +1140,28 @@ export class AffiliateGlobalService {
       is_read: !!r.is_read,
       created_at: r.created_at ? String(r.created_at) : null,
     }));
+  }
+
+  async markGlobalAlertRead(alertId: string, affiliateUserId: string) {
+    await this.ensureSchema();
+    const { affiliateDistributionService } = await import("./affiliateDistribution");
+    await affiliateDistributionService.ensureSchema();
+    await query(
+      `UPDATE affiliate_alerts SET is_read = TRUE
+       WHERE id = ? AND affiliate_user_id = ?`,
+      [alertId, affiliateUserId]
+    );
+  }
+
+  async markAllGlobalAlertsRead(affiliateUserId: string) {
+    await this.ensureSchema();
+    const { affiliateDistributionService } = await import("./affiliateDistribution");
+    await affiliateDistributionService.ensureSchema();
+    await query(
+      `UPDATE affiliate_alerts SET is_read = TRUE
+       WHERE affiliate_user_id = ? AND is_read = FALSE`,
+      [affiliateUserId]
+    );
   }
 }
 

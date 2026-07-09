@@ -390,6 +390,10 @@ export class AffiliateDistributionService {
       followup_enabled?: boolean;
       followup_delays_hours_json?: string | null;
       followup_message_template?: string | null;
+      require_whatsapp_connected?: boolean;
+      require_training_complete?: boolean;
+      require_terms_accepted?: boolean;
+      allowed_regions_json?: string | null;
       program_id?: string | null;
     }
   ) {
@@ -429,6 +433,22 @@ export class AffiliateDistributionService {
     if (patch.followup_message_template !== undefined) {
       fields.push("followup_message_template = ?");
       values.push(patch.followup_message_template ? String(patch.followup_message_template).trim() : null);
+    }
+    if (patch.require_whatsapp_connected !== undefined) {
+      fields.push("require_whatsapp_connected = ?");
+      values.push(!!patch.require_whatsapp_connected);
+    }
+    if (patch.require_training_complete !== undefined) {
+      fields.push("require_training_complete = ?");
+      values.push(!!patch.require_training_complete);
+    }
+    if (patch.require_terms_accepted !== undefined) {
+      fields.push("require_terms_accepted = ?");
+      values.push(!!patch.require_terms_accepted);
+    }
+    if (patch.allowed_regions_json !== undefined) {
+      fields.push("allowed_regions_json = ?");
+      values.push(patch.allowed_regions_json ? String(patch.allowed_regions_json).trim() : null);
     }
 
     if (!fields.length) return rules;
@@ -1127,6 +1147,16 @@ export class AffiliateDistributionService {
     const maxDaily = Number(rules?.max_daily_per_affiliate || 20);
     const today = todayDateOnly();
 
+    let allowedRegions: string[] = [];
+    try {
+      const raw = rules?.allowed_regions_json ? JSON.parse(String(rules.allowed_regions_json)) : null;
+      if (Array.isArray(raw)) {
+        allowedRegions = raw.map((x) => String(x || "").trim().toLowerCase()).filter(Boolean);
+      }
+    } catch {
+      allowedRegions = [];
+    }
+
     return (affiliates || []).filter((a) => {
       const dailyOn = a.daily_assigned_on ? String(a.daily_assigned_on).slice(0, 10) : null;
       const dailyCount = dailyOn === today ? Number(a.daily_assigned_count || 0) : 0;
@@ -1139,6 +1169,18 @@ export class AffiliateDistributionService {
           return false;
         }
       }
+
+      // Restrição da org: se configured, prospect ou afiliado precisa casar
+      if (allowedRegions.length) {
+        const prospectRegion = String(region || "").toLowerCase();
+        const affRegion = String(a.region || "").toLowerCase();
+        const hit =
+          allowedRegions.some((r) => prospectRegion.includes(r) || r.includes(prospectRegion))
+          || allowedRegions.some((r) => affRegion.includes(r) || r.includes(affRegion));
+        if (!hit && (prospectRegion || affRegion)) return false;
+        if (!hit && !prospectRegion && !affRegion) return false;
+      }
+
       return true;
     });
   }
@@ -1176,6 +1218,7 @@ export class AffiliateDistributionService {
           ["Nenhum afiliado elegível no momento", item.id]
         );
         results.push({ queue_id: item.id, assigned: false, reason: "no_eligible_affiliate" });
+        void this.emitNoEligibleAffiliateAlert(ownerUserId, brandId);
         continue;
       }
 
@@ -1513,11 +1556,78 @@ export class AffiliateDistributionService {
       commission_recorded: !!(orderId && orderTotal > 0),
     };
   }
+
+  /** Notifica admin quando fila trava sem afiliado (dedupe 1h por marca). */
+  private async emitNoEligibleAffiliateAlert(ownerUserId: string, brandId: string): Promise<void> {
+    try {
+      const pending = await queryOne<{ total: number }>(
+        `SELECT COUNT(*) AS total FROM lead_distribution_queue
+         WHERE owner_user_id = ? AND brand_id = ? AND queue_status = 'pending'`,
+        [ownerUserId, brandId]
+      );
+      const pendingCount = Number(pending?.total || 0);
+      if (pendingCount < 1) return;
+
+      // Dedupe simples em memória por brand (evita flood no processQueue)
+      const key = `${ownerUserId}:${brandId}`;
+      const now = Date.now();
+      const last = noEligibleNotifyAt.get(key) || 0;
+      if (now - last < 60 * 60 * 1000) return;
+      noEligibleNotifyAt.set(key, now);
+
+      const { emitPlatformEventToUser } = await import("./notificationHub");
+      await emitPlatformEventToUser("admin.lead.no_affiliate", ownerUserId, {
+        organization_id: brandId,
+        role: "admin",
+        entity_type: "lead_distribution_queue",
+        entity_id: brandId,
+        deep_link: "/afiliados",
+        template_vars: {
+          pending_count: String(pendingCount),
+          brand_id: brandId,
+        },
+      });
+    } catch {
+      /* não bloquear fila */
+    }
+  }
+
+  /** Processa filas pendentes de todas as marcas (worker de fundo). */
+  async processAllPendingQueues(maxBrands = 20, maxPerBrand = 10): Promise<{ brands: number; assigned: number }> {
+    await this.ensureSchema();
+    const brands = await query<any[]>(
+      `SELECT owner_user_id, brand_id, COUNT(*) AS pending
+       FROM lead_distribution_queue
+       WHERE queue_status = 'pending'
+       GROUP BY owner_user_id, brand_id
+       ORDER BY MAX(queued_at) ASC
+       LIMIT ?`,
+      [Math.max(1, Math.min(maxBrands, 50))]
+    );
+
+    let assigned = 0;
+    for (const b of brands || []) {
+      try {
+        const ownerUserId = String(b.owner_user_id);
+        const brandId = String(b.brand_id);
+        // processQueue já faz refresh de elegibilidade
+        const results = await this.processQueue(ownerUserId, brandId, maxPerBrand);
+        assigned += results.filter((r) => r.assigned).length;
+      } catch (e: any) {
+        logger.warn(`[affiliateDistribution] processAllPendingQueues brand failed: ${e?.message || e}`);
+      }
+    }
+    return { brands: (brands || []).length, assigned };
+  }
 }
+
+const noEligibleNotifyAt = new Map<string, number>();
 
 export const affiliateDistributionService = new AffiliateDistributionService();
 
 let followupTimer: NodeJS.Timeout | null = null;
+let queueTimer: NodeJS.Timeout | null = null;
+
 export function startDistributionFollowupMonitor(): void {
   if (followupTimer) return;
   setTimeout(() => {
@@ -1530,4 +1640,16 @@ export function startDistributionFollowupMonitor(): void {
       logger.warn(`[affiliateDistribution] followup tick failed: ${e?.message || e}`);
     });
   }, 5 * 60_000);
+}
+
+/** Worker: drena fila de distribuição quando afiliados voltam a ficar elegíveis. */
+export function startDistributionQueueMonitor(): void {
+  if (queueTimer) return;
+  const tick = () => {
+    void affiliateDistributionService.processAllPendingQueues(15, 10).catch((e: any) => {
+      logger.warn(`[affiliateDistribution] queue tick failed: ${e?.message || e}`);
+    });
+  };
+  setTimeout(tick, 90_000);
+  queueTimer = setInterval(tick, 3 * 60_000);
 }

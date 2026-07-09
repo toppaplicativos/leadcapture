@@ -43,6 +43,10 @@ export function AffiliateDistributionSection({ showToast, saving, setSaving }: P
     followup_enabled: true,
     followup_delays_hours_json: '[24,48,72]',
     followup_message_template: '',
+    require_whatsapp_connected: true,
+    require_training_complete: true,
+    require_terms_accepted: true,
+    allowed_regions_json: '',
   })
 
   const load = useCallback(async () => {
@@ -71,6 +75,10 @@ export function AffiliateDistributionSection({ showToast, saving, setSaving }: P
         followup_enabled: r.followup_enabled !== false && r.followup_enabled !== 0,
         followup_delays_hours_json: String(r.followup_delays_hours_json || '[24,48,72]'),
         followup_message_template: String(r.followup_message_template || ''),
+        require_whatsapp_connected: r.require_whatsapp_connected !== false && r.require_whatsapp_connected !== 0,
+        require_training_complete: r.require_training_complete !== false && r.require_training_complete !== 0,
+        require_terms_accepted: r.require_terms_accepted !== false && r.require_terms_accepted !== 0,
+        allowed_regions_json: String(r.allowed_regions_json || ''),
       })
     } catch (e: unknown) {
       showToast(e instanceof Error ? e.message : 'Erro', 'err')
@@ -233,6 +241,45 @@ export function AffiliateDistributionSection({ showToast, saving, setSaving }: P
               value={rulesForm.max_daily_per_affiliate}
               onChange={(e) => setRulesForm((f) => ({ ...f, max_daily_per_affiliate: Number(e.target.value) }))}
               className="rounded-lg border border-gray-200 px-3 py-2"
+            />
+          </label>
+          <button
+            type="button"
+            className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm"
+            onClick={() => setRulesForm((f) => ({ ...f, require_whatsapp_connected: !f.require_whatsapp_connected }))}
+          >
+            <span>Exigir WhatsApp conectado</span>
+            {rulesForm.require_whatsapp_connected
+              ? <ToggleRight size={22} className="text-emerald-600" />
+              : <ToggleLeft size={22} className="text-gray-400" />}
+          </button>
+          <button
+            type="button"
+            className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm"
+            onClick={() => setRulesForm((f) => ({ ...f, require_terms_accepted: !f.require_terms_accepted }))}
+          >
+            <span>Exigir termos aceitos</span>
+            {rulesForm.require_terms_accepted
+              ? <ToggleRight size={22} className="text-emerald-600" />
+              : <ToggleLeft size={22} className="text-gray-400" />}
+          </button>
+          <button
+            type="button"
+            className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm"
+            onClick={() => setRulesForm((f) => ({ ...f, require_training_complete: !f.require_training_complete }))}
+          >
+            <span>Exigir treinamento / onboarding</span>
+            {rulesForm.require_training_complete
+              ? <ToggleRight size={22} className="text-emerald-600" />
+              : <ToggleLeft size={22} className="text-gray-400" />}
+          </button>
+          <label className="flex flex-col gap-1 text-sm sm:col-span-2">
+            <span className="text-gray-600">Regiões permitidas (JSON, opcional)</span>
+            <input
+              value={rulesForm.allowed_regions_json}
+              onChange={(e) => setRulesForm((f) => ({ ...f, allowed_regions_json: e.target.value }))}
+              className="rounded-lg border border-gray-200 px-3 py-2 font-mono text-xs"
+              placeholder='Ex.: ["CE","SP"] — vazio = todas'
             />
           </label>
         </div>

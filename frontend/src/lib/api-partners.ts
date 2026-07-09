@@ -67,6 +67,16 @@ export const partnersApi = {
   dashboard: () => partnersFetch<any>('/api/partners-app/dashboard'),
   memberships: () => partnersFetch<any>('/api/partners-app/memberships'),
   alerts: () => partnersFetch<any>('/api/partners-app/alerts'),
+  markAlertRead: (alertId: string) =>
+    partnersFetch<any>(`/api/partners-app/alerts/${encodeURIComponent(alertId)}/read`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+  markAllAlertsRead: () =>
+    partnersFetch<any>('/api/partners-app/alerts/read-all', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
   marketplace: (q?: string) => {
     const qs = q ? `?q=${encodeURIComponent(q)}` : ''
     return partnersFetch<any>(`/api/partners-app/marketplace${qs}`)

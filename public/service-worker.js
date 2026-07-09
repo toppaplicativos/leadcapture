@@ -1,6 +1,6 @@
 /* eslint-disable no-restricted-globals */
-const SHELL_CACHE_NAME = "lead-system-shell-v97-20260709";
-const RUNTIME_CACHE_NAME = "lead-system-runtime-v89-20260709";
+const SHELL_CACHE_NAME = "lead-system-shell-v98-20260709";
+const RUNTIME_CACHE_NAME = "lead-system-runtime-v90-20260709";
 
 function getBasePath() {
   try {

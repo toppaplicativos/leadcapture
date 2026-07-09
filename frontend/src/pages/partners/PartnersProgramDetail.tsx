@@ -74,7 +74,7 @@ export function PartnersProgramDetail({ programRef, onBack, onOnboarding, showTo
   return (
     <div className="pb-2 space-y-3">
       <button type="button" onClick={onBack} className="affiliate-hub__back">
-        <ChevronLeft size={14} /> Oportunidades
+        <ChevronLeft size={14} /> Mercado
       </button>
 
       <div

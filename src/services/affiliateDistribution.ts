@@ -589,7 +589,7 @@ export class AffiliateDistributionService {
         key: "program_active",
         label: "Programa aprovado e ativo",
         ok: enrollmentActive,
-        action: enrollmentActive ? null : "Conclua candidatura em Oportunidades",
+        action: enrollmentActive ? null : "Conclua candidatura em Mercado",
       },
       {
         key: "terms",

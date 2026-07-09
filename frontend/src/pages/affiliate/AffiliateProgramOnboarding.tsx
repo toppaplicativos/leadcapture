@@ -97,7 +97,7 @@ export function AffiliateProgramOnboarding({ ctx, enrollmentId, onClose }: Props
   return (
     <div className="affiliate-onboard pb-2">
       <button type="button" onClick={onClose} className="affiliate-hub__back">
-        <ChevronLeft size={14} /> Oportunidades
+        <ChevronLeft size={14} /> Mercado
       </button>
 
       <div className="affiliate-card p-4 mb-3">

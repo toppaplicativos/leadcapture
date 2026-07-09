@@ -90,8 +90,8 @@ export function PartnersProgramWorkspace() {
         mode: 'partners',
         basePath,
         loginPath: '/parceiros/entrar',
-        exitPath: '/parceiros/painel/programas',
-        exitLabel: 'Meus programas',
+        exitPath: '/parceiros/painel',
+        exitLabel: 'Voltar ao início',
       }}
     >
       <AffiliateAppPage />

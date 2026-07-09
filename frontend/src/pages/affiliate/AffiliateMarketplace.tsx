@@ -1,6 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Briefcase, ChevronRight, Loader2, Sparkles, Clock, CheckCircle2, Ban } from 'lucide-react'
+import {
+  Briefcase, ChevronRight, Loader2, Sparkles, Clock, CheckCircle2, Ban,
+  Search, Store, Percent,
+} from 'lucide-react'
 import { affiliateApi } from '@/lib/api-affiliate'
 import { formatCommissionShort, normalizeCommissionMode } from '@/lib/affiliate-commission'
 import type { MarketplaceOpportunity } from '@/lib/affiliates/programs-types'
@@ -9,12 +12,21 @@ import { AffiliateProgramOnboarding } from '@/pages/affiliate/AffiliateProgramOn
 
 const STATUS_LABEL: Record<string, { label: string; color: string; icon: typeof Clock }> = {
   not_applied: { label: 'Disponível', color: '#16a34a', icon: Sparkles },
-  pending: { label: 'Aguardando análise', color: '#f59e0b', icon: Clock },
+  pending: { label: 'Em análise', color: '#f59e0b', icon: Clock },
   rejected: { label: 'Não aprovado', color: '#ef4444', icon: Ban },
-  onboarding: { label: 'Em onboarding', color: '#0ea5e9', icon: Briefcase },
+  onboarding: { label: 'Onboarding', color: '#0ea5e9', icon: Briefcase },
   active: { label: 'Ativo', color: '#16a34a', icon: CheckCircle2 },
   suspended: { label: 'Suspenso', color: '#ef4444', icon: Ban },
 }
+
+type FilterKey = 'all' | 'available' | 'mine' | 'pending'
+
+const FILTERS: { key: FilterKey; label: string }[] = [
+  { key: 'all', label: 'Todos' },
+  { key: 'available', label: 'Disponíveis' },
+  { key: 'mine', label: 'Meus' },
+  { key: 'pending', label: 'Em análise' },
+]
 
 type Props = {
   ctx: AppContext
@@ -30,6 +42,8 @@ export function AffiliateMarketplace({ ctx }: Props) {
   const [items, setItems] = useState<MarketplaceOpportunity[]>([])
   const [applying, setApplying] = useState<string | null>(null)
   const [onboardingId, setOnboardingId] = useState<string | null>(null)
+  const [query, setQuery] = useState('')
+  const [filter, setFilter] = useState<FilterKey>('all')
 
   async function load() {
     setLoading(true)
@@ -37,7 +51,7 @@ export function AffiliateMarketplace({ ctx }: Props) {
       const res = await affiliateApi.marketplace()
       setItems(res.opportunities || [])
     } catch (e: unknown) {
-      ctx.showToast(e instanceof Error ? e.message : 'Erro ao carregar oportunidades', 'err')
+      ctx.showToast(e instanceof Error ? e.message : 'Erro ao carregar o mercado', 'err')
     } finally {
       setLoading(false)
     }
@@ -73,6 +87,25 @@ export function AffiliateMarketplace({ ctx }: Props) {
     }
   }, [programRef, loading, items])
 
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    return items.filter((op) => {
+      if (filter === 'available' && !op.can_apply) return false
+      if (filter === 'mine' && !['active', 'onboarding'].includes(op.participation_status)) return false
+      if (filter === 'pending' && op.participation_status !== 'pending') return false
+      if (!q) return true
+      const hay = `${op.name || ''} ${op.description || ''} ${op.offers?.[0]?.title || ''} ${op.offers?.[0]?.product_name || ''}`.toLowerCase()
+      return hay.includes(q)
+    })
+  }, [items, query, filter])
+
+  const counts = useMemo(() => ({
+    all: items.length,
+    available: items.filter((i) => i.can_apply).length,
+    mine: items.filter((i) => ['active', 'onboarding'].includes(i.participation_status)).length,
+    pending: items.filter((i) => i.participation_status === 'pending').length,
+  }), [items])
+
   if (onboardingId) {
     return (
       <AffiliateProgramOnboarding
@@ -85,31 +118,84 @@ export function AffiliateMarketplace({ ctx }: Props) {
 
   if (loading) {
     return (
-      <div className="grid place-items-center py-16">
-        <Loader2 size={28} className="animate-spin text-[#c7c7cc]" />
+      <div className="affiliate-market pb-2">
+        <div className="affiliate-skel h-28 w-full" />
+        <div className="affiliate-skel h-12 w-full" />
+        <div className="affiliate-skel h-24 w-full" />
+        <div className="affiliate-skel h-24 w-full" />
       </div>
     )
   }
 
   return (
     <div className="affiliate-market pb-2">
-      <div
-        className="affiliate-market__hero affiliate-card"
-        style={{ background: `linear-gradient(145deg, ${ctx.primary}, ${ctx.secondary})` }}
-      >
-        <Briefcase size={18} className="text-white/85" />
-        <h2 className="affiliate-market__title">Mercado de oportunidades</h2>
-        <p className="affiliate-market__sub">Programas independentes com regras, comissões e ganhos próprios</p>
+      <header className="affiliate-market__intro">
+        <div className="affiliate-market__intro-icon" style={{ backgroundColor: `${ctx.primary}14`, color: ctx.primary }}>
+          <Store size={20} strokeWidth={2.25} />
+        </div>
+        <div className="min-w-0">
+          <h2 className="affiliate-market__intro-title">Mercado</h2>
+          <p className="affiliate-market__intro-sub">
+            Programas com regras e comissões próprias. Candidate-se e libere recursos.
+          </p>
+        </div>
+      </header>
+
+      <div className="affiliate-market__search affiliate-card">
+        <Search size={16} className="text-[#8e8e93] shrink-0" aria-hidden />
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Buscar programa ou oferta…"
+          className="affiliate-market__search-input"
+          aria-label="Buscar no mercado"
+        />
       </div>
 
-      {items.length === 0 ? (
-        <div className="affiliate-card p-6 text-center">
-          <p className="text-sm font-semibold text-[#1c1c1e]">Nenhuma oportunidade aberta</p>
-          <p className="text-xs text-[#8e8e93] mt-1">Novos programas aparecerão aqui quando a marca publicar.</p>
+      <div className="affiliate-market__filters" role="tablist" aria-label="Filtrar mercado">
+        {FILTERS.map((f) => {
+          const active = filter === f.key
+          const count = counts[f.key]
+          return (
+            <button
+              key={f.key}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              className={`affiliate-market__filter${active ? ' affiliate-market__filter--on' : ''}`}
+              style={active ? { backgroundColor: `${ctx.primary}14`, color: ctx.primary } : undefined}
+              onClick={() => setFilter(f.key)}
+            >
+              {f.label}
+              <span className="affiliate-market__filter-count">{count}</span>
+            </button>
+          )
+        })}
+      </div>
+
+      {filtered.length === 0 ? (
+        <div className="affiliate-market__empty affiliate-card">
+          <div className="affiliate-market__empty-icon">
+            <Store size={26} className="opacity-40" />
+          </div>
+          <p className="affiliate-market__empty-title">
+            {items.length === 0 ? 'Nenhum programa no mercado' : 'Nada neste filtro'}
+          </p>
+          <p className="affiliate-market__empty-sub">
+            {items.length === 0
+              ? 'Novos programas aparecem aqui quando a marca publicar.'
+              : 'Ajuste a busca ou escolha outro filtro.'}
+          </p>
+          {filter !== 'all' && (
+            <button type="button" className="affiliate-market__empty-reset" onClick={() => setFilter('all')}>
+              Ver todos
+            </button>
+          )}
         </div>
       ) : (
         <div className="affiliate-market__list">
-          {items.map((op) => {
+          {filtered.map((op) => {
             const st = STATUS_LABEL[op.participation_status] || STATUS_LABEL.not_applied
             const Icon = st.icon
             const commission = formatCommissionShort(
@@ -121,9 +207,17 @@ export function AffiliateMarketplace({ ctx }: Props) {
             return (
               <article key={op.id} className="affiliate-market__card affiliate-card">
                 <div className="affiliate-market__card-head">
-                  <div className="min-w-0">
-                    <p className="font-extrabold text-sm text-[#1c1c1e] truncate">{op.name}</p>
-                    <p className="text-[10px] text-[#8e8e93] mt-0.5">{offerLabel}</p>
+                  <div className="affiliate-market__card-brand">
+                    <div
+                      className="affiliate-market__card-avatar"
+                      style={{ backgroundColor: `${ctx.primary}12`, color: ctx.primary }}
+                    >
+                      <Briefcase size={16} />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="affiliate-market__card-name">{op.name}</p>
+                      <p className="affiliate-market__card-offer">{offerLabel}</p>
+                    </div>
                   </div>
                   <span className="affiliate-market__badge" style={{ color: st.color, backgroundColor: `${st.color}14` }}>
                     <Icon size={11} /> {st.label}
@@ -131,12 +225,26 @@ export function AffiliateMarketplace({ ctx }: Props) {
                 </div>
 
                 {op.description && (
-                  <p className="text-xs text-[#636366] mt-2 leading-relaxed line-clamp-3">{op.description}</p>
+                  <p className="affiliate-market__card-desc">{op.description}</p>
                 )}
 
-                <div className="affiliate-market__meta">
-                  <span>Comissão: <strong>{commission}</strong></span>
-                  {op.offers?.length ? <span>{op.offers.length} oferta(s)</span> : null}
+                <div className="affiliate-market__card-stats">
+                  <div className="affiliate-market__stat">
+                    <Percent size={13} className="opacity-60" />
+                    <div>
+                      <p className="affiliate-market__stat-label">Comissão</p>
+                      <p className="affiliate-market__stat-value" style={{ color: ctx.primary }}>{commission}</p>
+                    </div>
+                  </div>
+                  {op.offers?.length ? (
+                    <div className="affiliate-market__stat">
+                      <Store size={13} className="opacity-60" />
+                      <div>
+                        <p className="affiliate-market__stat-label">Ofertas</p>
+                        <p className="affiliate-market__stat-value">{op.offers.length}</p>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
 
                 <div className="affiliate-market__actions">
@@ -163,12 +271,14 @@ export function AffiliateMarketplace({ ctx }: Props) {
                     </button>
                   )}
                   {op.participation_status === 'active' && (
-                    <span className="text-[10px] font-bold text-emerald-600 flex items-center gap-1">
+                    <span className="affiliate-market__status-note affiliate-market__status-note--ok">
                       <CheckCircle2 size={12} /> Recursos liberados
                     </span>
                   )}
                   {op.participation_status === 'pending' && (
-                    <span className="text-[10px] font-bold text-amber-600">Aguardando aprovação do admin</span>
+                    <span className="affiliate-market__status-note affiliate-market__status-note--warn">
+                      <Clock size={12} /> Aguardando aprovação
+                    </span>
                   )}
                 </div>
               </article>

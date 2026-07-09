@@ -3,7 +3,7 @@ import { useNavigate, useLocation, useSearchParams } from 'react-router-dom'
 import {
   LayoutDashboard, Store, FolderOpen, LogOut, Loader2, Search,
   TrendingUp, Wallet, MousePointerClick, Users, ChevronRight, Clock, CheckCircle2,
-  Bell, User,
+  Bell, User, Building2, Percent, Sparkles,
 } from 'lucide-react'
 import { clearPartnersAuth, clearPendingInvite, getPartnersToken, getPendingInvite, partnersApi } from '@/lib/api-partners'
 import { setAffiliateAuth } from '@/lib/api-affiliate'
@@ -336,22 +336,54 @@ export function PartnersAppPage() {
 
         {view.kind === 'tab' && view.tab === 'mercado' && (
           <div className="affiliate-market pb-2">
-            <div className="affiliate-card p-3 flex items-center gap-2">
-              <Search size={16} className="text-[#8e8e93] shrink-0" />
+            <header className="affiliate-market__intro">
+              <div className="affiliate-market__intro-icon" style={{ backgroundColor: 'rgba(28,28,30,0.08)', color: GLOBAL_ACCENT }}>
+                <Store size={20} strokeWidth={2.25} />
+              </div>
+              <div className="min-w-0">
+                <h2 className="affiliate-market__intro-title">Mercado</h2>
+                <p className="affiliate-market__intro-sub">
+                  Marcas e programas abertos. Compare comissões e candidate-se em um toque.
+                </p>
+              </div>
+            </header>
+
+            <div className="affiliate-market__search affiliate-card">
+              <Search size={16} className="text-[#8e8e93] shrink-0" aria-hidden />
               <input
                 type="search"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') void loadMarketplace(search) }}
                 placeholder="Buscar programas, organizações…"
-                className="flex-1 bg-transparent text-sm outline-none placeholder:text-[#c7c7cc]"
+                className="affiliate-market__search-input"
+                aria-label="Buscar no mercado"
               />
             </div>
 
+            {marketplace.length > 0 && (
+              <p className="text-[11px] font-semibold text-[#8e8e93] px-0.5">
+                {marketplace.length} programa{marketplace.length === 1 ? '' : 's'}
+                {search.trim() ? ' encontrado(s)' : ' disponíveis'}
+              </p>
+            )}
+
             {marketplace.length === 0 ? (
-              <div className="affiliate-card p-6 text-center">
-                <p className="text-sm font-semibold text-[#1c1c1e]">Nenhum programa no mercado</p>
-                <p className="text-xs text-[#8e8e93] mt-1">Novos programas aparecerão aqui quando as organizações publicarem.</p>
+              <div className="affiliate-market__empty affiliate-card">
+                <div className="affiliate-market__empty-icon">
+                  <Sparkles size={26} className="opacity-40" />
+                </div>
+                <p className="affiliate-market__empty-title">Nenhum programa no mercado</p>
+                <p className="affiliate-market__empty-sub">
+                  {search.trim()
+                    ? 'Tente outro termo de busca ou limpe o filtro.'
+                    : 'Novos programas aparecem aqui quando as organizações publicarem.'}
+                </p>
+                {search.trim() && (
+                  <button type="button" className="affiliate-market__empty-reset" onClick={() => setSearch('')}>
+                    Limpar busca
+                  </button>
+                )}
               </div>
             ) : (
               <div className="affiliate-market__list">
@@ -360,20 +392,24 @@ export function PartnersAppPage() {
                   return (
                     <article
                       key={op.id}
-                      className="affiliate-market__card affiliate-card cursor-pointer active:opacity-90"
+                      className="affiliate-market__card affiliate-card cursor-pointer"
                       onClick={() => openProgram(op.id)}
                       onKeyDown={(e) => { if (e.key === 'Enter') openProgram(op.id) }}
                       role="button"
                       tabIndex={0}
                     >
                       <div className="affiliate-market__card-head">
-                        <div className="min-w-0 flex items-center gap-2">
-                          {op.organization?.logo_url ? (
-                            <img src={op.organization.logo_url} alt="" className="w-8 h-8 rounded-lg object-cover" />
-                          ) : null}
+                        <div className="affiliate-market__card-brand">
+                          <div className="affiliate-market__card-avatar" style={{ backgroundColor: 'rgba(28,28,30,0.06)', color: GLOBAL_ACCENT }}>
+                            {op.organization?.logo_url ? (
+                              <img src={op.organization.logo_url} alt="" />
+                            ) : (
+                              <Building2 size={16} />
+                            )}
+                          </div>
                           <div className="min-w-0">
-                            <p className="font-extrabold text-sm text-[#1c1c1e] truncate">{op.name}</p>
-                            <p className="text-[10px] text-[#8e8e93] truncate">{op.organization?.name}</p>
+                            <p className="affiliate-market__card-name">{op.name}</p>
+                            <p className="affiliate-market__card-offer">{op.organization?.name}</p>
                           </div>
                         </div>
                         <span className="affiliate-market__badge" style={{ color: st.color, backgroundColor: `${st.color}14` }}>
@@ -381,10 +417,16 @@ export function PartnersAppPage() {
                         </span>
                       </div>
                       {op.description && (
-                        <p className="text-xs text-[#636366] mt-2 leading-relaxed line-clamp-2">{op.description}</p>
+                        <p className="affiliate-market__card-desc">{op.description}</p>
                       )}
-                      <div className="affiliate-market__meta">
-                        <span>Comissão: <strong>{op.commission_label}</strong></span>
+                      <div className="affiliate-market__card-stats">
+                        <div className="affiliate-market__stat">
+                          <Percent size={13} className="opacity-60" />
+                          <div>
+                            <p className="affiliate-market__stat-label">Comissão</p>
+                            <p className="affiliate-market__stat-value">{op.commission_label || '—'}</p>
+                          </div>
+                        </div>
                       </div>
                       <div className="affiliate-market__actions" onClick={(e) => e.stopPropagation()}>
                         <button
@@ -406,8 +448,13 @@ export function PartnersAppPage() {
                           </button>
                         )}
                         {op.participation_status === 'pending' && (
-                          <span className="text-[10px] font-bold text-amber-600 flex items-center gap-1">
+                          <span className="affiliate-market__status-note affiliate-market__status-note--warn">
                             <Clock size={12} /> Aguardando aprovação
+                          </span>
+                        )}
+                        {op.participation_status === 'active' && (
+                          <span className="affiliate-market__status-note affiliate-market__status-note--ok">
+                            <CheckCircle2 size={12} /> Ativo
                           </span>
                         )}
                       </div>

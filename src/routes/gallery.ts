@@ -62,6 +62,36 @@ router.get("/folders", async (req: BrandRequest, res: Response) => {
   }
 });
 
+/** Cria pasta custom em Publicidade (fonte de conteúdo p/ campanhas/automações/posts) */
+router.post("/folders", async (req: BrandRequest, res: Response) => {
+  try {
+    const brandId = String(req.brandId || "");
+    if (!brandId) return res.status(400).json({ error: "brand_id obrigatório" });
+    const folder = await galleryService.createCustomFolder(brandId, {
+      label: String(req.body?.label || req.body?.name || "").trim(),
+      section: req.body?.section === "library" ? "library" : "publicidade",
+      icon: req.body?.icon ? String(req.body.icon) : undefined,
+    });
+    res.status(201).json({ success: true, folder });
+  } catch (error: any) {
+    logger.error(error, "gallery folder create");
+    res.status(400).json({ error: error.message || "Falha ao criar pasta" });
+  }
+});
+
+router.delete("/folders/:slug", async (req: BrandRequest, res: Response) => {
+  try {
+    const brandId = String(req.brandId || "");
+    if (!brandId) return res.status(400).json({ error: "brand_id obrigatório" });
+    const ok = await galleryService.deleteCustomFolder(brandId, String(req.params.slug || ""));
+    if (!ok) return res.status(404).json({ error: "Pasta não encontrada" });
+    res.json({ success: true });
+  } catch (error: any) {
+    logger.error(error, "gallery folder delete");
+    res.status(400).json({ error: error.message || "Falha ao remover pasta" });
+  }
+});
+
 router.get("/tags", async (req: BrandRequest, res: Response) => {
   try {
     const userId = req.user!.userId;

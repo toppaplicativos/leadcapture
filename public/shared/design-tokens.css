@@ -1,51 +1,70 @@
 /* ═══════════════════════════════════════════════════════
-   DESIGN TOKENS — Fonte única de verdade para todo o app
+   DESIGN TOKENS — Fonte única de verdade (apps legados HTML)
+   Alinhado a DESIGN.md / frontend/src/index.css (--ds-*)
+   Neutros verdadeiros (sem tint azul). Marca via --brand-*.
    ═══════════════════════════════════════════════════════ */
 
 :root {
   /* ── Brand (sobrescrito por JS em runtime para catálogo) ── */
   --brand-primary: #111827;
-  --brand-secondary: #3b82f6;
-  --brand-primary-light: #f0f4ff;
-  --brand-secondary-light: #eff6ff;
+  --brand-secondary: #0f172a;
+  --brand-primary-light: #1118270d;
+  --brand-secondary-light: #0f172a26;
+  --brand-secondary-soft: #0f172a1a;
 
-  /* ── Core palette ── */
-  --color-bg: #f8fafc;
-  --color-bg-alt: #f5f7fa;
+  /* ── Core palette (true neutrals — product register) ── */
+  --color-bg: #f5f5f5;
+  --color-bg-alt: #f3f3f3;
   --color-card: #ffffff;
-  --color-text: #111827;
-  --color-text-secondary: #1e293b;
-  --color-muted: #6b7280;
-  --color-muted-light: #94a3b8;
-  --color-border: #e2e8f0;
-  --color-border-light: #f1f5f9;
-  --color-hover: #f8fafc;
+  --color-surface: #ffffff;
+  --color-surface-alt: #f3f3f3;
+  --color-text: #171717;
+  --color-text-secondary: #404040;
+  --color-muted: #6b6b6b;
+  --color-muted-light: #9a9a9a;
+  --color-border: #e5e5e5;
+  --color-border-light: #ededed;
+  --color-hover: #f3f3f3;
+
+  /* ── Semantic DS aliases (parity with React app) ── */
+  --ds-ink: #171717;
+  --ds-ink-secondary: #404040;
+  --ds-ink-muted: #6b6b6b;
+  --ds-ink-subtle: #9a9a9a;
+  --ds-surface: #ffffff;
+  --ds-surface-alt: #f3f3f3;
+  --ds-canvas: #f5f5f5;
+  --ds-border: #e5e5e5;
+  --ds-border-light: #ededed;
+  --ds-focus-ring: rgba(23, 23, 23, 0.06);
+  --ds-control-h: 2.75rem;
+  --ds-radius-control: 1.125rem;
 
   /* ── Status ── */
-  --color-success: #16a34a;
-  --color-success-light: #dcfce7;
-  --color-warning: #ca8a04;
-  --color-warning-light: #fef9c3;
-  --color-danger: #dc2626;
+  --color-success: #10b981;
+  --color-success-light: #d1fae5;
+  --color-warning: #f59e0b;
+  --color-warning-light: #fef3c7;
+  --color-danger: #ef4444;
   --color-danger-light: #fee2e2;
-  --color-info: #2563eb;
+  --color-info: #3b82f6;
   --color-info-light: #dbeafe;
 
-  /* ── Radius ── */
+  /* ── Radius (product: generous 8–20px) ── */
   --radius-sm: 8px;
   --radius-md: 10px;
-  --radius-lg: 12px;
-  --radius-xl: 14px;
-  --radius-2xl: 16px;
-  --radius-3xl: 20px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+  --radius-2xl: 20px;
+  --radius-3xl: 24px;
   --radius-full: 999px;
 
   /* ── Shadows ── */
   --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.04);
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.04);
   --shadow-lg: 0 8px 30px rgba(0, 0, 0, 0.1);
-  --shadow-xl: 0 12px 40px rgba(0, 0, 0, 0.15);
+  --shadow-xl: 0 12px 40px rgba(0, 0, 0, 0.12);
 
   /* ── Spacing ── */
   --space-1: 4px;
@@ -78,7 +97,7 @@
   --font-bold: 700;
   --font-extrabold: 800;
 
-  --line-height: 1.6;
+  --line-height: 1.5;
   --line-tight: 1.2;
   --line-snug: 1.35;
 
@@ -93,6 +112,7 @@
 
   /* ── Transitions ── */
   --ease-default: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-bounce: cubic-bezier(0.16, 1, 0.3, 1);
   --duration-fast: 0.15s;
   --duration-normal: 0.2s;

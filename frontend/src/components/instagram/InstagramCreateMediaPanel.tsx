@@ -137,8 +137,8 @@ export function InstagramCreateMediaPanel({ postType, items, onChange }: Props) 
       try {
         const uploaded =
           batch.length === 1
-            ? [await uploadGalleryFile(batch[0], ['instagram', 'post'], 'uploads')]
-            : await uploadGalleryFiles(batch, 'uploads')
+            ? [await uploadGalleryFile(batch[0], ['instagram', 'post'], 'publicidade')]
+            : await uploadGalleryFiles(batch, 'publicidade')
         mergeItems(uploaded.map(galleryToPostItem))
       } catch (err: any) {
         setError(err?.message || 'Falha no upload.')
@@ -170,15 +170,15 @@ export function InstagramCreateMediaPanel({ postType, items, onChange }: Props) 
 
   const hint =
     postType === 'CAROUSEL_ALBUM'
-      ? `${items.length}/10 — minimo 2 imagens, ordem importa`
+      ? `${items.length}/10 — mínimo de 2 imagens; a ordem importa`
       : postType === 'REELS' || postType === 'VIDEO'
-        ? '1 video (MP4, MOV)'
+        ? '1 vídeo (MP4, MOV)'
         : '1 imagem (JPG, PNG, WEBP)'
 
   return (
     <div className="bg-white border border-gray-100 rounded-xl p-4">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Midia</h3>
+        <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Mídia</h3>
         <div className="flex items-center gap-2">
           <span className="text-[10px] text-gray-400">{hint}</span>
           {canAddMore && (
@@ -307,7 +307,7 @@ export function InstagramCreateMediaPanel({ postType, items, onChange }: Props) 
             setDragOver(false)
             if (e.dataTransfer.files?.length) handleFiles(e.dataTransfer.files)
           }}
-          className={`border-2 border-dashed rounded-xl py-12 text-center cursor-pointer transition ${
+          className={`border-2 border-dashed rounded-xl py-8 sm:py-10 text-center cursor-pointer transition ${
             dragOver ? 'border-purple-400 bg-purple-50/50' : 'border-gray-200 hover:border-purple-300'
           }`}
         >
@@ -343,8 +343,15 @@ export function InstagramCreateMediaPanel({ postType, items, onChange }: Props) 
         open={galleryOpen}
         onClose={() => setGalleryOpen(false)}
         accept={[accept]}
-        folder="all"
-        title={isCarousel ? 'Escolher imagens do carrossel' : 'Escolher midia para o post'}
+        preferSection="publicidade"
+        title={
+          isCarousel
+            ? 'Imagens da Publicidade · carrossel'
+            : accept === 'video'
+              ? 'Vídeo da Publicidade · post'
+              : 'Mídia da Publicidade · post'
+        }
+        useContext="post"
         multiple={isCarousel}
         maxItems={maxItems - items.length}
         onSelect={(item) => handleGallerySelect([item])}

@@ -4,15 +4,19 @@
  * Uso:
  *   router.get("/rota", authMiddleware, requirePermission("orders:read"), handler)
  *
- * Lógica de bypass (nenhuma verificação no banco):
- *   - JWT role === "admin"  →  dono da plataforma, acesso irrestrito
+ * Bypass (nesta ordem):
+ *   1. Admin Master (is_super_admin no JWT ou account_kind=platform)
+ *   2. Dono da organização/brand (brand_units.user_id) — via permissionsService
+ *   3. RBAC user_brand_roles + role_permissions
  *
- * Caso contrário, consulta user_brand_roles + role_permissions para decidir.
+ * NÃO há mais bypass cego por JWT role==="admin" em qualquer brand.
+ * Donos de org usam role "org" (legado "admin" ainda aceito no requireRole).
  */
 
 import { Response, NextFunction } from "express";
 import { AuthRequest } from "./auth";
 import { permissionsService } from "../services/permissions";
+import { isPlatformPrincipal } from "../config/identity";
 
 // ─── Helper: resolve brand_id da requisição ──────────────────────────────────
 
@@ -36,12 +40,22 @@ export function resolveRequestBrandId(req: AuthRequest): string | null {
 
 // ─── Middleware factory ───────────────────────────────────────────────────────
 
-/**
- * Retorna um middleware Express que verifica se o usuário autenticado
- * possui a permissão requerida para a brand em contexto.
- *
- * @param permission  String no formato "resource:action" (ex.: "orders:read")
- */
+function resolveUserId(req: AuthRequest): string | undefined {
+  return (
+    (req.userId as string | undefined) ||
+    (req.user?.userId as string | undefined) ||
+    (req.user?.sub as string | undefined)
+  );
+}
+
+function isMaster(req: AuthRequest): boolean {
+  return isPlatformPrincipal({
+    role: req.user?.role,
+    account_kind: req.user?.account_kind,
+    is_super_admin: req.user?.is_super_admin,
+  });
+}
+
 export function requirePermission(permission: string) {
   return async (
     req: AuthRequest,
@@ -49,14 +63,13 @@ export function requirePermission(permission: string) {
     next: NextFunction
   ): Promise<void> => {
     try {
-      const userId = req.user?.userId as string | undefined;
+      const userId = resolveUserId(req);
       if (!userId) {
         res.status(401).json({ error: "Não autenticado" });
         return;
       }
 
-      // Dono da plataforma → acesso irrestrito
-      if (req.user?.role === "admin") {
+      if (isMaster(req)) {
         next();
         return;
       }
@@ -65,6 +78,7 @@ export function requirePermission(permission: string) {
       if (!brandId) {
         res.status(400).json({
           error: "x-brand-id é obrigatório para verificar permissões",
+          code: "BRAND_REQUIRED",
         });
         return;
       }
@@ -73,6 +87,7 @@ export function requirePermission(permission: string) {
       if (!allowed) {
         res.status(403).json({
           error: `Acesso negado — permissão '${permission}' necessária`,
+          code: "PERMISSION_DENIED",
         });
         return;
       }
@@ -84,11 +99,6 @@ export function requirePermission(permission: string) {
   };
 }
 
-/**
- * Retorna um middleware que exige qualquer uma das permissões listadas (OR).
- *
- * @param permissions  Array de "resource:action"
- */
 export function requireAnyPermission(permissions: string[]) {
   return async (
     req: AuthRequest,
@@ -96,20 +106,25 @@ export function requireAnyPermission(permissions: string[]) {
     next: NextFunction
   ): Promise<void> => {
     try {
-      const userId = req.user?.userId as string | undefined;
+      const userId = resolveUserId(req);
       if (!userId) {
         res.status(401).json({ error: "Não autenticado" });
         return;
       }
 
-      if (req.user?.role === "admin") {
+      if (isMaster(req)) {
         next();
         return;
       }
 
       const brandId = resolveRequestBrandId(req);
       if (!brandId) {
-        res.status(400).json({ error: "x-brand-id é obrigatório" });
+        res.status(400).json({ error: "x-brand-id é obrigatório", code: "BRAND_REQUIRED" });
+        return;
+      }
+
+      if (await permissionsService.isBrandOwner(userId, brandId)) {
+        next();
         return;
       }
 
@@ -119,6 +134,7 @@ export function requireAnyPermission(permissions: string[]) {
       if (!allowed) {
         res.status(403).json({
           error: `Acesso negado — requer uma das permissões: ${permissions.join(", ")}`,
+          code: "PERMISSION_DENIED",
         });
         return;
       }
@@ -130,11 +146,6 @@ export function requireAnyPermission(permissions: string[]) {
   };
 }
 
-/**
- * Retorna um middleware que exige TODAS as permissões listadas (AND).
- *
- * @param permissions  Array de "resource:action"
- */
 export function requireAllPermissions(permissions: string[]) {
   return async (
     req: AuthRequest,
@@ -142,20 +153,25 @@ export function requireAllPermissions(permissions: string[]) {
     next: NextFunction
   ): Promise<void> => {
     try {
-      const userId = req.user?.userId as string | undefined;
+      const userId = resolveUserId(req);
       if (!userId) {
         res.status(401).json({ error: "Não autenticado" });
         return;
       }
 
-      if (req.user?.role === "admin") {
+      if (isMaster(req)) {
         next();
         return;
       }
 
       const brandId = resolveRequestBrandId(req);
       if (!brandId) {
-        res.status(400).json({ error: "x-brand-id é obrigatório" });
+        res.status(400).json({ error: "x-brand-id é obrigatório", code: "BRAND_REQUIRED" });
+        return;
+      }
+
+      if (await permissionsService.isBrandOwner(userId, brandId)) {
+        next();
         return;
       }
 
@@ -165,6 +181,7 @@ export function requireAllPermissions(permissions: string[]) {
       if (missing.length > 0) {
         res.status(403).json({
           error: `Acesso negado — permissões faltantes: ${missing.join(", ")}`,
+          code: "PERMISSION_DENIED",
         });
         return;
       }

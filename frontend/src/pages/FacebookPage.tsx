@@ -166,15 +166,21 @@ function NotConnectedView({ onConnect, embedded = false }: { onConnect: () => vo
         <FacebookIcon size={32} className="text-white" />
       </div>
       <h1 className="text-xl font-bold text-gray-900 mb-2">Facebook Pages</h1>
-      <p className="text-sm text-gray-500 mb-8 leading-relaxed">
-        Conecte sua Pagina do Facebook para publicar, gerenciar mensagens e acompanhar metricas.
+      <p className="text-sm text-gray-500 mb-4 leading-relaxed">
+        Sem página conectada: não há publicação, métricas nem inbox do Facebook nesta marca.
       </p>
+      <ol className="text-left text-[12px] text-gray-600 space-y-2 mb-6 bg-blue-50/60 border border-blue-100 rounded-xl px-4 py-3">
+        <li><strong>1.</strong> Abra o <a className="text-blue-600 font-semibold underline" href="https://developers.facebook.com/tools/explorer/" target="_blank" rel="noreferrer">Graph API Explorer</a></li>
+        <li><strong>2.</strong> Selecione seu app e a <strong>Página</strong> (não o perfil pessoal)</li>
+        <li><strong>3.</strong> Permissões mínimas: <code className="text-[11px] bg-white px-1 rounded">pages_show_list</code>, <code className="text-[11px] bg-white px-1 rounded">pages_read_engagement</code>, <code className="text-[11px] bg-white px-1 rounded">pages_manage_posts</code></li>
+        <li><strong>4.</strong> Gere um <strong>Page Access Token</strong> e cole no formulário</li>
+      </ol>
       <button
         onClick={onConnect}
         className="inline-flex items-center gap-2.5 px-8 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-blue-400 text-white text-sm font-semibold hover:opacity-90 transition shadow-sm"
       >
         <FacebookIcon size={18} />
-        Conectar Pagina
+        Conectar Página
       </button>
     </div>
   )
@@ -246,17 +252,19 @@ function ConnectModal({ onClose, onConnected }: { onClose: () => void; onConnect
             <>
               <div>
                 <label className="block text-xs font-semibold text-gray-700 mb-1.5 uppercase tracking-wider">
-                  Access Token
+                  Page Access Token
                 </label>
                 <textarea
                   value={token}
                   onChange={e => setToken(e.target.value)}
-                  placeholder="Cole aqui o Page Access Token do Facebook"
+                  placeholder="Cole aqui o Page Access Token (não o token de usuário)"
                   rows={4}
                   className="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:border-blue-400 resize-none font-mono text-xs"
                 />
-                <p className="text-[10px] text-gray-400 mt-1.5">
-                  Obtido na plataforma Meta for Developers, gere um Page Access Token com as permissoes necessarias.
+                <p className="text-[10px] text-gray-500 mt-1.5 leading-relaxed">
+                  Use o <a className="text-blue-600 font-semibold underline" href="https://developers.facebook.com/tools/explorer/" target="_blank" rel="noreferrer">Graph API Explorer</a>
+                  {' '}com a <strong>Página</strong> selecionada. Permissões: pages_show_list, pages_read_engagement, pages_manage_posts.
+                  Sem isso, posts e métricas desta marca ficam indisponíveis.
                 </p>
               </div>
 

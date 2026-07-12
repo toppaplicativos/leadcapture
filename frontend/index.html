@@ -3,30 +3,45 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content" />
-    <meta name="theme-color" content="#0a0a0a" media="(prefers-color-scheme: dark)" />
-    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0a0a0a" id="pwa-theme-color" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="LeadCapture" id="pwa-app-title" />
     <meta name="mobile-web-app-capable" content="yes" />
-    <meta name="description" content="Catálogo, pedidos e atendimento integrado." />
+    <meta name="application-name" content="LeadCapture" id="pwa-app-name" />
+    <meta name="description" content="Catálogo, pedidos e atendimento integrado." id="pwa-app-description" />
     <style>
       :root { color-scheme: light; }
 
-      html, body { margin: 0; padding: 0; }
+      html {
+        height: 100%;
+        background: #f3f3f3;
+      }
+
+      html, body {
+        margin: 0;
+        padding: 0;
+        min-height: 100%;
+        min-height: 100dvh;
+      }
 
       body.app-shell-loading {
         margin: 0;
         overflow: hidden;
-        background: #ffffff;
+        background: var(--boot-bg, #f3f3f3);
       }
 
+      /* Splash ocupa 100% da viewport — evita metade branca / metade cinza */
       #app-splash {
-        --splash-bg: #ffffff;
-        --splash-fg: #0f172a;
-        --splash-muted: #64748b;
+        --splash-bg: #f3f3f3;
+        --splash-fg: #171717;
+        --splash-muted: #6b6b6b;
+        --splash-tile: #0a0a0a;
         position: fixed;
         inset: 0;
+        width: 100%;
+        min-height: 100%;
+        min-height: 100dvh;
         z-index: 9999;
         display: flex;
         align-items: center;
@@ -39,23 +54,31 @@
           env(safe-area-inset-right, 0px)
           env(safe-area-inset-bottom, 0px)
           env(safe-area-inset-left, 0px);
+        box-sizing: border-box;
         opacity: 1;
         transition: opacity 240ms ease;
       }
 
+      /* Cores por app — identidade na instalação e no boot */
       #app-splash[data-view='admin'] {
-        --splash-bg: #ffffff;
-        --splash-fg: #0f172a;
+        --splash-bg: #f3f3f3;
+        --splash-fg: #0a0a0a;
+        --splash-tile: #0a0a0a;
       }
-
+      #app-splash[data-view='store'] {
+        --splash-bg: #f1f5f9;
+        --splash-fg: #0f172a;
+        --splash-tile: #0f172a;
+      }
       #app-splash[data-view='stock'] {
-        --splash-bg: #ffffff;
-        --splash-fg: #0f172a;
+        --splash-bg: #fffbeb;
+        --splash-fg: #78350f;
+        --splash-tile: #78350f;
       }
-
       #app-splash[data-view='affiliate'] {
-        --splash-bg: #ffffff;
-        --splash-fg: #0f172a;
+        --splash-bg: #ecfdf5;
+        --splash-fg: #14532d;
+        --splash-tile: #14532d;
       }
 
       #app-splash[data-state='closing'] {
@@ -63,14 +86,24 @@
         pointer-events: none;
       }
 
-      .app-splash__logo {
-        width: 64px;
-        height: 64px;
+      .app-splash__tile {
+        width: 72px;
+        height: 72px;
         border-radius: 18px;
-        object-fit: cover;
+        background: var(--splash-tile);
+        display: grid;
+        place-items: center;
+        box-shadow: 0 8px 28px rgba(15, 23, 42, 0.12);
         opacity: 0;
         transform: scale(0.96);
         animation: splashFadeIn 280ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+      }
+
+      .app-splash__logo {
+        width: 44px;
+        height: 44px;
+        border-radius: 10px;
+        object-fit: contain;
       }
 
       .app-splash__brand {
@@ -84,10 +117,30 @@
         animation: splashFadeIn 280ms cubic-bezier(0.16, 1, 0.3, 1) 60ms forwards;
       }
 
+      .app-splash__hint {
+        margin: 0;
+        color: var(--splash-muted);
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+        font-size: 12px;
+        font-weight: 500;
+        opacity: 0;
+        animation: splashFadeIn 280ms cubic-bezier(0.16, 1, 0.3, 1) 100ms forwards;
+      }
+
       @keyframes splashFadeIn {
         to {
           opacity: 1;
           transform: scale(1);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .app-splash__tile,
+        .app-splash__brand,
+        .app-splash__hint {
+          animation: none;
+          opacity: 1;
+          transform: none;
         }
       }
     </style>
@@ -96,8 +149,20 @@
         var pathParts = window.location.pathname.split('/').filter(Boolean)
         var slug = ''
         var channel = 'catalogo'
-        var appKind = 'store'
         var firstPath = pathParts[0] || ''
+        var host = (window.location.hostname || '').toLowerCase()
+        var isPartnersGlobalHost =
+          host === 'parceiros.leadcapture.online'
+          || host === 'afiliados.leadcapture.online'
+        // parceiros.{marca}.online (ex.: parceiros.alhopronto.online)
+        var partnersBrandMatch = host.match(/^(?:parceiros|afiliados)\.([a-z0-9-]+)\./i)
+        var partnersBrandSlug =
+          partnersBrandMatch
+          && partnersBrandMatch[1]
+          && partnersBrandMatch[1] !== 'leadcapture'
+            ? partnersBrandMatch[1]
+            : ''
+        var isPartnersHost = isPartnersGlobalHost || !!partnersBrandSlug
         var adminPaths = {
           admin: true, dashboard: true, login: true, leads: true, clientes: true,
           busca: true, mensagens: true, notificacoes: true, campanhas: true,
@@ -107,44 +172,83 @@
           whatsapp: true, instagram: true, facebook: true, pagamentos: true,
           frete: true, dominio: true, agente: true, atendente: true,
           configuracoes: true, emails: true, 'provedores-ia': true,
-          estoque: true, afiliados: true, cupons: true, avaliacoes: true,
+          afiliados: true, cupons: true, avaliacoes: true,
           'tirar-pedido': true,
         }
         var splashView = 'store'
+        var appKind = 'store'
+        var surface = '' // partners = app global LeadCapture Parceiros
 
-        if ((pathParts[0] === 'catalogo' || pathParts[0] === 'loja') && pathParts[1]) {
-          slug = decodeURIComponent(pathParts[1])
-          channel = pathParts[0]
-        } else if (pathParts[0] === 'central-afiliado' && pathParts[1]) {
-          slug = decodeURIComponent(pathParts[1])
+        if (isPartnersGlobalHost || firstPath === 'parceiros') {
+          // App de afiliados global — NUNCA painel admin
           appKind = 'affiliate'
           splashView = 'affiliate'
+          surface = 'partners'
+        } else if (partnersBrandSlug) {
+          appKind = 'affiliate'
+          splashView = 'affiliate'
+          slug = partnersBrandSlug
+        } else if ((pathParts[0] === 'catalogo' || pathParts[0] === 'loja') && pathParts[1]) {
+          slug = decodeURIComponent(pathParts[1])
+          channel = pathParts[0]
+          splashView = 'store'
+          appKind = 'store'
+        } else if (pathParts[0] === 'central-afiliado') {
+          if (pathParts[1]) slug = decodeURIComponent(pathParts[1])
+          appKind = 'affiliate'
+          splashView = 'affiliate'
+        } else if (firstPath === 'app-estoque' || firstPath === 'inventario') {
+          if (pathParts[1]) slug = decodeURIComponent(pathParts[1])
+          appKind = 'stock'
+          splashView = 'stock'
+        } else if (adminPaths[firstPath] || firstPath === 'estoque') {
+          // /estoque no admin é módulo, não app-estoque
+          if (firstPath === 'estoque' && !pathParts[1]) {
+            splashView = 'admin'
+            appKind = 'admin'
+          } else if (adminPaths[firstPath]) {
+            splashView = 'admin'
+            appKind = 'admin'
+          }
+        } else if (!firstPath || firstPath === 'inicio') {
+          splashView = 'admin'
+          appKind = 'admin'
         }
-
-        if (adminPaths[firstPath]) splashView = 'admin'
-        else if (firstPath === 'app-estoque' || firstPath === 'inventario' || firstPath === 'estoque') splashView = 'stock'
 
         var params = new URLSearchParams()
-        if (slug && appKind === 'affiliate') {
-          params.set('slug', slug)
-          params.set('app', 'affiliate')
-        } else if (slug) {
-          params.set('slug', slug)
-          params.set('channel', channel)
-        }
+        params.set('app', appKind)
+        if (slug) params.set('slug', slug)
+        if (surface) params.set('surface', surface)
+        if (appKind === 'store' && channel) params.set('channel', channel)
 
         var query = params.toString()
-        var querySuffix = query ? '?' + query : ''
-        var iconSuffix = query ? '?' + query + '&size=192' : '?size=192'
-        var iconLargeSuffix = query ? '?' + query + '&size=512' : '?size=512'
-        // When there's no brand slug (admin/landing/login), use the LeadCapture
-        // brand mark — a crosshair on a black square. When there's a slug,
-        // use the brand-specific dynamic icon.
-        var splashIcon = slug ? '/pwa/icon' + iconSuffix : '/brand-mark.svg'
+        var querySuffix = '?' + query
+        var iconSuffix = querySuffix + '&size=192'
+        var iconLargeSuffix = querySuffix + '&size=512'
+        var splashIcon = '/pwa/icon' + iconSuffix
 
-        var brandNames = { store: 'Catálogo', admin: 'LeadCapture', stock: 'Estoque', affiliate: 'Afiliados' }
+        var brandNames = {
+          store: 'Catálogo',
+          admin: 'LeadCapture',
+          stock: 'Estoque',
+          affiliate: surface === 'partners' ? 'LeadCapture Parceiros' : 'Afiliados',
+        }
+        var themeColors = {
+          store: '#0f82ff',
+          admin: '#0a0a0a',
+          stock: '#d97706',
+          affiliate: '#16a34a',
+        }
+        var bootBgs = {
+          store: '#f1f5f9',
+          admin: '#f3f3f3',
+          stock: '#fffbeb',
+          affiliate: '#ecfdf5',
+        }
 
         function appendLink(id, rel, href, sizes, type) {
+          var existing = document.getElementById(id)
+          if (existing) existing.remove()
           var link = document.createElement('link')
           link.id = id
           link.rel = rel
@@ -155,16 +259,18 @@
         }
 
         appendLink('pwa-manifest', 'manifest', '/pwa/manifest.webmanifest' + querySuffix)
+        appendLink('pwa-apple-touch-icon', 'apple-touch-icon', '/pwa/icon' + iconSuffix, '192x192')
+        appendLink('pwa-favicon-192', 'icon', '/pwa/icon' + iconSuffix, '192x192')
+        appendLink('pwa-favicon-512', 'icon', '/pwa/icon' + iconLargeSuffix, '512x512')
 
-        if (slug) {
-          appendLink('pwa-apple-touch-icon', 'apple-touch-icon', '/pwa/icon' + iconSuffix, '192x192')
-          appendLink('pwa-favicon-192', 'icon', '/pwa/icon' + iconSuffix, '192x192')
-          appendLink('pwa-favicon-512', 'icon', '/pwa/icon' + iconLargeSuffix, '512x512')
-        } else {
-          // LeadCapture default — crosshair brand mark
-          appendLink('pwa-favicon-svg', 'icon', '/brand-mark.svg', null, 'image/svg+xml')
-          appendLink('pwa-apple-touch-icon', 'apple-touch-icon', '/brand-mark.svg', '180x180')
-        }
+        var titleEl = document.getElementById('pwa-app-title')
+        var nameEl = document.getElementById('pwa-app-name')
+        var themeEl = document.getElementById('pwa-theme-color')
+        var brandLabel = brandNames[splashView] || 'LeadCapture'
+        if (titleEl) titleEl.setAttribute('content', brandLabel)
+        if (nameEl) nameEl.setAttribute('content', brandLabel)
+        if (themeEl) themeEl.setAttribute('content', themeColors[splashView] || '#0a0a0a')
+        document.documentElement.style.setProperty('--boot-bg', bootBgs[splashView] || '#f3f3f3')
 
         window.__LC_SPLASH__ = {
           startedAt: Date.now(),
@@ -173,14 +279,27 @@
             if (!splash || splash.dataset.state === 'closing') return
             splash.dataset.state = 'closing'
             document.body.classList.remove('app-shell-loading')
-            window.setTimeout(function () { splash.remove() }, 260)
+            window.setTimeout(function () {
+              if (splash && splash.parentNode) splash.remove()
+            }, 260)
           },
         }
 
         window.__LC_SPLASH_CONFIG__ = {
           view: splashView,
+          app: appKind,
           icon: splashIcon,
-          brand: brandNames[splashView] || 'Catálogo',
+          brand: brandLabel,
+          themeColor: themeColors[splashView] || '#0a0a0a',
+        }
+
+        window.__LC_PWA_IDENTITY__ = {
+          app: appKind,
+          slug: slug || null,
+          surface: surface || null,
+          name: brandLabel,
+          themeColor: themeColors[splashView] || '#0a0a0a',
+          iconUrl: splashIcon,
         }
       })()
     </script>
@@ -188,8 +307,11 @@
   </head>
   <body class="app-shell-loading">
     <div id="app-splash" aria-hidden="true">
-      <img id="app-splash-logo" class="app-splash__logo" src="/logo.png" alt="" />
-      <p id="app-splash-brand" class="app-splash__brand">Catálogo</p>
+      <div class="app-splash__tile">
+        <img id="app-splash-logo" class="app-splash__logo" src="/brand-mark.svg" alt="" width="44" height="44" />
+      </div>
+      <p id="app-splash-brand" class="app-splash__brand">LeadCapture</p>
+      <p class="app-splash__hint">Carregando…</p>
     </div>
     <script>
       (function () {
@@ -197,8 +319,12 @@
         var splash = document.getElementById('app-splash')
         if (!config || !splash) return
         splash.dataset.view = config.view
-        document.getElementById('app-splash-logo').src = config.icon
-        document.getElementById('app-splash-brand').textContent = config.brand
+        document.body.style.background = getComputedStyle(splash).getPropertyValue('--splash-bg') || '#f3f3f3'
+        var logo = document.getElementById('app-splash-logo')
+        if (logo) logo.src = config.icon
+        var brand = document.getElementById('app-splash-brand')
+        if (brand) brand.textContent = config.brand
+        document.title = config.brand
       })()
     </script>
     <div id="root"></div>

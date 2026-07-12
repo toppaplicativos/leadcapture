@@ -9,7 +9,12 @@
     "dev": "ts-node src/index.ts",
     "snapshot": "bash scripts/snapshot_vps.sh /root/leadcapture /root/leadcapture/snapshots",
     "predeploy:check": "bash scripts/predeploy_check.sh /root/leadcapture-local /root/leadcapture",
-    "master:create": "ts-node scripts/create-super-admin.ts"
+    "master:create": "ts-node scripts/create-super-admin.ts",
+    "smoke:governance": "node agent-tools/smoke-governance.mjs",
+    "smoke:governance:prod": "node agent-tools/smoke-governance.mjs https://app.leadcapture.online",
+    "build:meta": "node agent-tools/write-build-meta.mjs",
+    "typecheck": "tsc --noEmit",
+    "typecheck:fe": "cd frontend && tsc --noEmit"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.0",

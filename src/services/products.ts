@@ -1187,6 +1187,29 @@ export class ProductsService {
     return deleted;
   }
 
+  private isSmokeSubtitle(value: unknown): boolean {
+    return /^\[smoke\s+\d+\]/i.test(String(value || "").trim());
+  }
+
+  /** Remove resíduos de smoke tests acidentais em produto real. */
+  private scrubSmokeArtifacts(row: any, attributes: Record<string, any>, seo: Record<string, any>) {
+    let subtitle = row.subtitle || undefined;
+    if (this.isSmokeSubtitle(subtitle)) {
+      subtitle = undefined;
+      // limpa no banco em background (não bloqueia listagem)
+      void pool
+        .query(`UPDATE products SET subtitle = NULL WHERE id = ? AND subtitle LIKE '[smoke %'`, [row.id])
+        .catch(() => undefined);
+    }
+    if (attributes && Object.prototype.hasOwnProperty.call(attributes, "_smoke_test")) {
+      delete attributes._smoke_test;
+    }
+    if (seo && typeof seo.meta_title === "string" && this.isSmokeSubtitle(seo.meta_title)) {
+      delete seo.meta_title;
+    }
+    return subtitle as string | undefined;
+  }
+
   private mapProduct(row: any): Product {
     const metadata = this.parseJsonValue<Record<string, any>>(row.metadata_json, {});
     const attributes = this.parseJsonValue<Record<string, any>>(row.attributes_json, {});
@@ -1198,10 +1221,11 @@ export class ProductsService {
     const galleryImages = this.extractGalleryImages(metadata);
     const imageUrl = row.image_url || row.image || galleryImages[0] || undefined;
     const images = this.normalizeImageList([imageUrl, ...galleryImages]);
+    const subtitle = this.scrubSmokeArtifacts(row, attributes, seo);
     return {
       id: row.id,
       name: row.name,
-      subtitle: row.subtitle || undefined,
+      subtitle,
       description: row.description || "",
       category: row.category_name || row.category || "",
       price: parseFloat(row.price) || 0,

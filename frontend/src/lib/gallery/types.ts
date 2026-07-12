@@ -1,4 +1,5 @@
-export type GalleryFolderSlug = 'ia' | 'uploads' | 'campanhas' | 'posts' | 'produtos' | 'all'
+export type GalleryFolderSlug = string
+export type GalleryFolderSection = 'library' | 'publicidade'
 export type GalleryItemType = 'image' | 'video'
 
 export interface GalleryAssetMeta {
@@ -41,4 +42,5 @@ export interface GalleryFolder {
   icon: string
   count: number
   isSystem: boolean
+  section?: GalleryFolderSection
 }

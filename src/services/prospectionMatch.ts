@@ -1,5 +1,6 @@
 import { logger } from "../utils/logger";
 import { GeminiService } from "./gemini";
+import { aiRouter } from "./aiRouter";
 import { IntegrationScope } from "./integrations";
 
 /* ════════════════════════════════════════════════════════════
@@ -65,10 +66,14 @@ export class ProspectionMatchService {
     const prompt = this.buildSinglePrompt(query, product);
 
     try {
-      const parsed = await this.gemini.generateJson<any>(prompt, {
-        ...scope,
-        model: "gemini-2.0-flash",
-      });
+      const parsed = await aiRouter.generateJson<any>(
+        prompt,
+        {
+          userId: scope?.userId || undefined,
+          brandId: scope?.brandId || undefined,
+        },
+        { functionKey: "text.prospect.match" },
+      );
 
       const score = Math.min(100, Math.max(0, Number(parsed.score) || 0));
       return {
@@ -110,10 +115,14 @@ export class ProspectionMatchService {
     const prompt = this.buildBulkPrompt(query, products);
 
     try {
-      const parsed = await this.gemini.generateJson<any[]>(prompt, {
-        ...scope,
-        model: "gemini-2.0-flash",
-      });
+      const parsed = await aiRouter.generateJson<any[]>(
+        prompt,
+        {
+          userId: scope?.userId || undefined,
+          brandId: scope?.brandId || undefined,
+        },
+        { functionKey: "text.prospect.match" },
+      );
 
       const results: MatchScoreResult[] = parsed.map((item: any, idx: number) => {
         const productId = item.product_id || products[idx]?.id || "";

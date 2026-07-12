@@ -53,4 +53,19 @@ export const config = {
     imageModel: process.env.GEMINI_IMAGE_MODEL || "gemini-2.5-flash-image",
     videoModel: process.env.VEO_VIDEO_MODEL || "veo-3.1-generate-preview",
   },
+
+  mercadoPago: {
+    enabled: String(process.env.MERCADO_PAGO_ENABLED || "false").toLowerCase() === "true",
+    environment: (String(process.env.MERCADO_PAGO_ENVIRONMENT || "test").toLowerCase() ===
+    "production"
+      ? "production"
+      : "test") as "test" | "production",
+    clientId: process.env.MERCADO_PAGO_CLIENT_ID || "",
+    clientSecret: process.env.MERCADO_PAGO_CLIENT_SECRET || "",
+    publicKey: process.env.MERCADO_PAGO_PUBLIC_KEY || "",
+    redirectUri: process.env.MERCADO_PAGO_REDIRECT_URI || "",
+    webhookUrl: process.env.MERCADO_PAGO_WEBHOOK_URL || "",
+    webhookSecret: process.env.MERCADO_PAGO_WEBHOOK_SECRET || "",
+    defaultCurrency: process.env.MERCADO_PAGO_DEFAULT_CURRENCY || "BRL",
+  },
 };

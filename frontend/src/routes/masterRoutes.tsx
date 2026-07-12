@@ -9,6 +9,7 @@ const MasterPlanos = lazy(() => import('@/pages/master/MasterPlanos').then(m => 
 const MasterClientes = lazy(() => import('@/pages/master/MasterClientes').then(m => ({ default: m.MasterClientes })))
 const MasterOrganizacoes = lazy(() => import('@/pages/master/MasterOrganizacoes').then(m => ({ default: m.MasterOrganizacoes })))
 const MasterProviders = lazy(() => import('@/pages/master/MasterProviders').then(m => ({ default: m.MasterProviders })))
+const MasterAlgoritmos = lazy(() => import('@/pages/master/MasterAlgoritmos').then(m => ({ default: m.MasterAlgoritmos })))
 const MasterFerramentas = lazy(() => import('@/pages/master/MasterFerramentas').then(m => ({ default: m.MasterFerramentas })))
 const MasterNotificationCenter = lazy(() => import('@/pages/master/MasterNotificationCenter').then(m => ({ default: m.MasterNotificationCenter })))
 const MasterConfiguracoes = lazy(() => import('@/pages/master/MasterConfiguracoes').then(m => ({ default: m.MasterConfiguracoes })))
@@ -39,6 +40,7 @@ export function masterRouteElements() {
     <Route path={`${base}/push-notificacoes`} element={<MasterPage><MasterNotificationCenter /></MasterPage>} />
     <Route path={`${base}/notificacoes`} element={<MasterPage><MasterNotificationCenter /></MasterPage>} />
       <Route path={`${base}/providers`} element={<MasterPage><MasterProviders /></MasterPage>} />
+      <Route path={`${base}/algoritmos`} element={<MasterPage><MasterAlgoritmos /></MasterPage>} />
       <Route path={`${base}/emails`} element={<MasterPage><MasterEmails /></MasterPage>} />
       <Route path={`${base}/usuarios`} element={<MasterPage><MasterClientes /></MasterPage>} />
       <Route path={`${base}/organizacoes`} element={<MasterPage><MasterOrganizacoes /></MasterPage>} />

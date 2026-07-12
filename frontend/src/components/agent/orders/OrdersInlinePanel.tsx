@@ -9,6 +9,7 @@ import { useAgentShell } from '@/lib/agent/AgentShellContext'
 import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
 import { useToast } from '@/components/Toast'
 import { CatalogManagerSheet } from '@/components/agent/catalog/CatalogManagerSheet'
+import { orderRef } from '@/lib/orders/orderRef'
 
 const OrdersManager = lazy(() =>
   import('@/pages/admin/orders/OrdersView').then((m) => ({ default: m.OrdersView })),
@@ -61,7 +62,7 @@ function OrderChatCard({ order, onOpen }: { order: any; onOpen: () => void }) {
           </div>
           <div className="catalog-order-card__headline">
             <span className="catalog-order-card__title">
-              #{order.order_number || order.id?.slice?.(0, 8) || '—'}
+              #{orderRef(order)}
             </span>
             <div className="catalog-order-card__meta">
               <span className={`catalog-order-card__status ${st.tone}`}>{st.label}</span>
@@ -98,7 +99,7 @@ function OrderCompactTile({ order, onOpen }: { order: any; onOpen: () => void })
   return (
     <button type="button" className="catalog-order-compact-tile" onClick={onOpen}>
       <div className={`catalog-order-compact-tile__dot ${st.tone}`} />
-      <span className="catalog-order-compact-tile__name">#{order.order_number || '—'}</span>
+      <span className="catalog-order-compact-tile__name">#{orderRef(order)}</span>
       <span className="catalog-order-compact-tile__meta">{money(order.valor_total)}</span>
     </button>
   )
@@ -113,7 +114,7 @@ function OrderListRow({ order, onOpen }: { order: any; onOpen: () => void }) {
       </div>
       <div className="catalog-order-list-row__main">
         <span className="catalog-order-list-row__name">
-          #{order.order_number || '—'} · {order.customer_name || 'Cliente'}
+          #{orderRef(order)} · {order.customer_name || 'Cliente'}
         </span>
         <span className="catalog-order-list-row__meta">
           {st.label} · {money(order.valor_total)}
@@ -141,6 +142,15 @@ export function OrdersInlinePanel() {
   const [detailOrder, setDetailOrder] = useState<any>(null)
   const ordersRef = useRef<any[]>([])
   const loadedRef = useRef(false)
+
+  useEffect(() => {
+    if (!detailOrder) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setDetailOrder(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [detailOrder])
 
   const load = useCallback(async (opts?: { q?: string; status?: string }) => {
     setLoading(true)
@@ -198,7 +208,7 @@ export function OrdersInlinePanel() {
 
   const openOrder = useCallback((order: any) => {
     setDetailOrder(order)
-    const label = `#${order.order_number || order.id?.slice?.(0, 8) || ''} · ${order.customer_name || ''}`
+    const label = `#${orderRef(order)} · ${order.customer_name || ''}`
     publishSnapshot?.({
       selectedId: String(order.id),
       selectedLabel: label.trim(),
@@ -233,7 +243,8 @@ export function OrdersInlinePanel() {
     if (!search.trim()) return true
     const q = search.toLowerCase()
     return (o.customer_name || '').toLowerCase().includes(q)
-      || String(o.order_number || '').includes(q)
+      || orderRef(o).toLowerCase().includes(q)
+      || String(o.id || '').toLowerCase().includes(q)
       || (o.customer_phone || '').includes(q)
   })
 
@@ -328,10 +339,15 @@ export function OrdersInlinePanel() {
       )}
 
       {detailOrder && (
-        <div className="catalog-order-detail" role="dialog">
+        <div
+          className="catalog-order-detail"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Pedido ${orderRef(detailOrder)}`}
+        >
           <div className="catalog-order-detail__head">
             <h3 className="catalog-order-detail__title">
-              Pedido #{detailOrder.order_number || detailOrder.id?.slice?.(0, 8)}
+              Pedido #{orderRef(detailOrder)}
             </h3>
             <button type="button" className="catalog-order-detail__close" onClick={() => setDetailOrder(null)} aria-label="Fechar">×</button>
           </div>

@@ -168,6 +168,13 @@ function humanizeCron(cron: string | null | undefined, fallback: string): string
    Página
    ──────────────────────────────────────────────────────────── */
 
+/** Catalog webhook reply slugs — managed as definitions seeds, not as "tarefas". */
+const HIDDEN_CATALOG_SLUGS = new Set([
+  'ig-webhook-dm-reply',
+  'ig-webhook-comment-keyword',
+  'ig-webhook-mention-thanks',
+])
+
 export function AutomationsPage({ embedded = false }: { embedded?: boolean } = {}) {
   const [mainTab, setMainTab] = useState<'defs' | 'catalog'>('defs')
   const [items, setItems] = useState<CatalogItem[]>([])
@@ -178,6 +185,7 @@ export function AutomationsPage({ embedded = false }: { embedded?: boolean } = {
   const [selectedRunsFor, setSelectedRunsFor] = useState<string | null>(null)
   const [runs, setRuns] = useState<RunRecord[]>([])
   const [runsLoading, setRunsLoading] = useState(false)
+  const [promotingSlug, setPromotingSlug] = useState<string | null>(null)
 
   /* Toast simples — não tem react-hot-toast no projeto, usa state local */
   const [toast, setToast] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
@@ -193,7 +201,9 @@ export function AutomationsPage({ embedded = false }: { embedded?: boolean } = {
       const r = await fetch('/api/automations', { headers: getHeaders() })
       const d = await r.json()
       if (!r.ok) throw new Error(d?.error || `Erro ${r.status}`)
-      setItems(Array.isArray(d?.automations) ? d.automations : [])
+      const all = Array.isArray(d?.automations) ? d.automations as CatalogItem[] : []
+      // Webhook replies are definitions, not catalog "tarefas"
+      setItems(all.filter((i) => !HIDDEN_CATALOG_SLUGS.has(i.slug)))
     } catch (e: any) {
       setError(e?.message || 'Falha ao carregar')
     } finally {
@@ -255,6 +265,65 @@ export function AutomationsPage({ embedded = false }: { embedded?: boolean } = {
     }
   }, [load, showToast])
 
+  /** Converte um modelo de catálogo em automação (definition) editável no hub. */
+  const handlePromoteToAutomation = useCallback(async (item: CatalogItem) => {
+    setPromotingSlug(item.slug)
+    try {
+      const cron = item.state?.cron_expression || item.default_cron || '0 9 * * *'
+      const freq = item.state?.frequency || item.default_frequency || 'daily'
+      const r = await fetch('/api/automation-defs', {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({
+          nome: item.name,
+          descricao: item.description || `Modelo: ${item.slug}`,
+          ativa: false,
+          trigger: {
+            tipo: 'agendamento',
+            frequencia: freq === 'weekly' ? 'semanal' : freq === 'monthly' ? 'mensal' : 'diario',
+            horarios: [{ hora: 9, minuto: 0 }],
+            diasSemana: [],
+            diasMes: [],
+            cron,
+            timezone: 'America/Sao_Paulo',
+          },
+          pipeline: [
+            {
+              ordem: 1,
+              tipo: String(item.task_type || '').includes('instagram')
+                ? 'publicar_conteudo'
+                : String(item.task_type || '').includes('whatsapp') || String(item.task_type || '').includes('outreach')
+                  ? 'enviar_dm_wa'
+                  : 'notificar_equipe',
+              config: {
+                ...(item.default_config || {}),
+                catalogSlug: item.slug,
+                task_type: item.task_type,
+                mensagem: item.description || item.name,
+                iaGenerated: true,
+              },
+            },
+          ],
+          limites: {
+            maxPorUsuario: 1,
+            cooldownSegundos: 3600,
+            maxPorHora: 0,
+            maxPorDia: 0,
+            janelaMaxUsuarioSegundos: 86400,
+          },
+        }),
+      })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d?.error || `Erro ${r.status}`)
+      showToast('Modelo adicionado como automação (inativa). Edite e ative em “Todas as automações”.')
+      setMainTab('defs')
+    } catch (e: any) {
+      showToast(e?.message || 'Falha ao converter em automação', 'err')
+    } finally {
+      setPromotingSlug(null)
+    }
+  }, [showToast])
+
   const handleOpenRuns = useCallback(async (item: CatalogItem) => {
     if (!item.state) return
     setSelectedRunsFor(item.slug)
@@ -283,15 +352,16 @@ export function AutomationsPage({ embedded = false }: { embedded?: boolean } = {
 
   return (
     <div className={`max-w-6xl mx-auto px-4 sm:px-6 space-y-6 ${embedded ? 'py-2' : 'py-6'}`}>
-      {/* Header */}
-      <div className="flex items-start justify-between gap-4 flex-wrap">
+      {/* The host hub owns the page title when this manager is embedded. */}
+      {!embedded && <div className="flex items-start justify-between gap-4 flex-wrap">
         <div className="min-w-0">
           <h1 className="text-[20px] font-bold text-gray-900 tracking-tight flex items-center gap-2">
             <Zap size={18} strokeWidth={2.25} className="text-gray-900" />
             Automações
           </h1>
           <p className="text-[12.5px] text-gray-500 mt-0.5">
-            Automações compostas com gatilhos e pipeline — ou ative tarefas prontas do catálogo.
+            Página principal de gestão — crie, edite e ative automações de qualquer canal.
+            Instagram só espelha as que usam a conta conectada.
           </p>
         </div>
         {mainTab === 'catalog' && (
@@ -303,7 +373,7 @@ export function AutomationsPage({ embedded = false }: { embedded?: boolean } = {
             Atualizar
           </button>
         )}
-      </div>
+      </div>}
 
       <div className="flex gap-1 p-1 bg-gray-100 rounded-xl w-fit">
         <button
@@ -311,14 +381,14 @@ export function AutomationsPage({ embedded = false }: { embedded?: boolean } = {
           onClick={() => setMainTab('defs')}
           className={`px-4 py-2 rounded-lg text-[12px] font-semibold transition ${mainTab === 'defs' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500'}`}
         >
-          Minhas automações
+          Todas as automações
         </button>
         <button
           type="button"
           onClick={() => setMainTab('catalog')}
           className={`px-4 py-2 rounded-lg text-[12px] font-semibold transition ${mainTab === 'catalog' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500'}`}
         >
-          Catálogo de tarefas
+          Modelos prontos
         </button>
       </div>
 
@@ -355,19 +425,25 @@ export function AutomationsPage({ embedded = false }: { embedded?: boolean } = {
       ) : items.length === 0 ? (
         <div className="py-16 text-center text-gray-400">
           <Zap size={28} className="mx-auto mb-3 opacity-30" strokeWidth={1.5} />
-          <p className="text-[13px]">Nenhum template carregado.</p>
+          <p className="text-[13px]">Nenhum modelo disponível.</p>
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className="space-y-3">
+          <p className="text-[12px] text-gray-500">
+            Modelos prontos viram <strong>automações</strong> na aba “Todas as automações”
+            (inativas até você editar e ativar). Não são “tarefas” separadas.
+          </p>
           {items.map((item) => (
             <AutomationCard
               key={item.slug}
               item={item}
               isToggling={togglingSlug === item.slug}
               isRunning={runningId === item.state?.id}
+              isPromoting={promotingSlug === item.slug}
               onToggle={() => handleToggle(item.slug)}
               onRunNow={() => handleRunNow(item)}
               onOpenRuns={() => handleOpenRuns(item)}
+              onPromote={() => handlePromoteToAutomation(item)}
             />
           ))}
         </div>
@@ -408,14 +484,16 @@ export function AutomationsPage({ embedded = false }: { embedded?: boolean } = {
    ──────────────────────────────────────────────────────────── */
 
 function AutomationCard({
-  item, isToggling, isRunning, onToggle, onRunNow, onOpenRuns,
+  item, isToggling, isRunning, isPromoting, onToggle, onRunNow, onOpenRuns, onPromote,
 }: {
   item: CatalogItem
   isToggling: boolean
   isRunning: boolean
+  isPromoting?: boolean
   onToggle: () => void
   onRunNow: () => void
   onOpenRuns: () => void
+  onPromote?: () => void
 }) {
   const Icon = ICON_MAP[item.icon || 'Zap'] || Zap
   const palette = CATEGORY_COLOR[item.category] || CATEGORY_COLOR.geral
@@ -532,7 +610,20 @@ function AutomationCard({
         </div>
 
         {/* Acoes */}
-        <div className="shrink-0 flex items-center gap-1.5">
+        <div className="shrink-0 flex flex-col items-end gap-1.5">
+          {onPromote && (
+            <button
+              type="button"
+              onClick={onPromote}
+              disabled={!!isPromoting}
+              className="inline-flex items-center gap-1 h-8 px-2.5 rounded-lg bg-gray-900 text-white text-[11px] font-semibold disabled:opacity-50"
+              title="Criar automação a partir deste modelo"
+            >
+              {isPromoting ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
+              Como automação
+            </button>
+          )}
+          <div className="flex items-center gap-1.5">
           {isConfigured && (
             <>
               <button
@@ -567,6 +658,7 @@ function AutomationCard({
              <Play size={11} strokeWidth={2.5} />}
             {isActive ? 'Ativa' : isConfigured ? 'Ativar' : 'Ativar'}
           </button>
+          </div>
         </div>
       </div>
     </article>

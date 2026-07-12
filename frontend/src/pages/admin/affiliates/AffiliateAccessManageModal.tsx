@@ -8,6 +8,7 @@ import {
   normalizeCommissionMode,
   resolveCommissionFromProfile,
 } from '@/lib/affiliate-commission'
+import { Select, fieldControlClass } from '@/components/ui'
 
 export function AffiliateAccessManageModal({
   credential,
@@ -140,26 +141,23 @@ export function AffiliateAccessManageModal({
 
           <div className="space-y-2 border border-gray-100 rounded-xl p-3">
             <p className="text-[11px] font-bold text-gray-400 uppercase">Comissão personalizada</p>
-            <label className="block text-xs text-gray-500">
-              Modo
-              <select
-                className="mt-1 w-full px-3 py-2 border border-gray-200 rounded-xl text-sm"
-                value={commissionMode}
-                onChange={(e) => setCommissionMode(normalizeCommissionMode(e.target.value))}
-              >
-                {COMMISSION_MODE_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </select>
-            </label>
-            <label className="block text-xs text-gray-500">
+            <Select
+              label="Modo"
+              value={commissionMode}
+              onChange={(e) => setCommissionMode(normalizeCommissionMode(e.target.value))}
+            >
+              {COMMISSION_MODE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </Select>
+            <label className="block text-[12px] font-semibold text-gray-700">
               {commissionValueLabel(commissionMode)}
               <input
                 type="number"
                 step={commissionMode === 'percentage' ? '0.1' : '0.01'}
                 min={0}
                 max={commissionMode === 'percentage' ? 100 : undefined}
-                className="mt-1 w-full px-3 py-2 border border-gray-200 rounded-xl text-sm"
+                className={`mt-1.5 ${fieldControlClass}`}
                 value={commissionValue}
                 onChange={(e) => setCommissionValue(Number(e.target.value))}
               />

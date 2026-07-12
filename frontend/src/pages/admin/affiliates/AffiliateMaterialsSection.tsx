@@ -46,10 +46,25 @@ type Props = {
   showToast: (t: string, tp?: 'ok' | 'err') => void
   saving: boolean
   setSaving: (v: boolean) => void
+  /** Quando definido, materiais ficam vinculados a este programa */
+  programId?: string
+  /** Oculta seletor de programa e força programId */
+  lockProgram?: boolean
 }
 
-export function AffiliateMaterialsSection({ materials, onRefresh, showToast, saving, setSaving }: Props) {
-  const [form, setForm] = useState<MaterialForm>(emptyForm())
+export function AffiliateMaterialsSection({
+  materials,
+  onRefresh,
+  showToast,
+  saving,
+  setSaving,
+  programId,
+  lockProgram = false,
+}: Props) {
+  const [form, setForm] = useState<MaterialForm>(() => ({
+    ...emptyForm(),
+    program_id: programId || '',
+  }))
   const [pickerOpen, setPickerOpen] = useState(false)
   const [filterChannel, setFilterChannel] = useState('')
   const [uploading, setUploading] = useState(false)
@@ -59,12 +74,18 @@ export function AffiliateMaterialsSection({ materials, onRefresh, showToast, sav
   const [programs, setPrograms] = useState<Array<{ id: string; name: string }>>([])
 
   useEffect(() => {
-    if (!brandId) return
+    if (programId) {
+      setForm((f) => ({ ...f, program_id: programId }))
+    }
+  }, [programId])
+
+  useEffect(() => {
+    if (!brandId || lockProgram) return
     fetch(`/api/affiliate-programs?brand_id=${encodeURIComponent(brandId)}&include_draft=1`, { headers: getHeaders() })
       .then((r) => r.json())
       .then((d) => setPrograms((d.programs || []).map((p: any) => ({ id: p.id, name: p.name }))))
       .catch(() => {})
-  }, [brandId])
+  }, [brandId, lockProgram])
 
   function onGalleryPick(item: GalleryItem) {
     setForm((f) => ({
@@ -113,12 +134,16 @@ export function AffiliateMaterialsSection({ materials, onRefresh, showToast, sav
       const r = await fetch('/api/affiliates/materials', {
         method: 'POST',
         headers: getHeaders(),
-        body: JSON.stringify({ ...form, brand_id: brandId }),
+        body: JSON.stringify({
+          ...form,
+          brand_id: brandId,
+          program_id: lockProgram && programId ? programId : (form.program_id || null),
+        }),
       })
       const d = await r.json()
       if (!r.ok) throw new Error(d.error || 'Erro')
       showToast('Material publicado para afiliados!')
-      setForm(emptyForm())
+      setForm({ ...emptyForm(), program_id: programId || '' })
       onRefresh()
     } catch (e: unknown) {
       showToast(e instanceof Error ? e.message : 'Erro', 'err')
@@ -158,14 +183,19 @@ export function AffiliateMaterialsSection({ materials, onRefresh, showToast, sav
     setSaving(false)
   }
 
-  const filtered = filterChannel
-    ? materials.filter((m) => m.channel === filterChannel || m.channel === 'geral')
+  const scoped = lockProgram && programId
+    ? materials.filter((m) => !m.program_id || m.program_id === programId)
     : materials
+  const filtered = filterChannel
+    ? scoped.filter((m) => m.channel === filterChannel || m.channel === 'geral')
+    : scoped
 
   return (
     <div className="affiliates-page__section">
       <div className="affiliates-page__form-card">
-        <h3 className="affiliates-page__form-title">Novo material de divulgação</h3>
+        <h3 className="affiliates-page__form-title">
+          {lockProgram ? 'Novo material deste programa' : 'Novo material de divulgação'}
+        </h3>
         <p className="affiliates-page__field-hint mb-3">
           Envie imagem ou vídeo, escolha da galeria ou cole URL. A legenda é gerada pelo afiliado no app — aqui você só publica a mídia.
         </p>
@@ -186,13 +216,15 @@ export function AffiliateMaterialsSection({ materials, onRefresh, showToast, sav
               {CHANNELS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
             </select>
           </label>
-          <label className="affiliates-page__field">
-            <span>Programa (opcional)</span>
-            <select value={form.program_id} onChange={(e) => setForm((f) => ({ ...f, program_id: e.target.value }))}>
-              <option value="">Todos os programas</option>
-              {programs.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
-          </label>
+          {!lockProgram && (
+            <label className="affiliates-page__field">
+              <span>Programa (opcional)</span>
+              <select value={form.program_id} onChange={(e) => setForm((f) => ({ ...f, program_id: e.target.value }))}>
+                <option value="">Todos os programas</option>
+                {programs.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </label>
+          )}
           <label className="affiliates-page__field">
             <span>Região (opcional)</span>
             <input value={form.region} onChange={(e) => setForm((f) => ({ ...f, region: e.target.value }))} placeholder="BH, Contagem…" />
@@ -308,7 +340,8 @@ export function AffiliateMaterialsSection({ materials, onRefresh, showToast, sav
         open={pickerOpen}
         onClose={() => setPickerOpen(false)}
         onSelect={onGalleryPick}
-        title="Escolher mídia para afiliados"
+        preferSection="publicidade"
+        title="Mídia da Publicidade · afiliados"
         useContext="campaign"
         accept={['image', 'video']}
       />

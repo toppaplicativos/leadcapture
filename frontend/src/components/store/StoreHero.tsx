@@ -1,8 +1,4 @@
-import { Truck, Clock } from 'lucide-react'
-import { WhatsAppIcon } from '@/components/icons'
 import { optimizedImage, optimizedSrcset } from '@/lib/image'
-import { money } from '@/lib/store-context'
-import { buildWhatsAppUrl, resolvePublicWhatsApp, type PublicStoreMarketing } from '@/lib/store-marketing'
 
 export interface StoreHeroProps {
   displayName: string
@@ -10,29 +6,25 @@ export interface StoreHeroProps {
   logoUrl?: string
   coverImage?: string
   isOpen: boolean
+  /** @deprecated info de frete/WhatsApp vive no trust strip + FAB */
   freeAbove?: number
   deliveryFee?: number
   deliveryTime?: string
   whatsappPhone?: string
-  marketing?: PublicStoreMarketing | null
+  marketing?: unknown
 }
 
+/**
+ * Hero da loja: capa + identidade (logo, nome, slogan, status).
+ * Frete/pagamento/WhatsApp ficam no trust strip e no FAB — sem duplicar aqui.
+ */
 export function StoreHero({
   displayName,
   displaySlogan,
   logoUrl,
   coverImage,
   isOpen,
-  freeAbove = 0,
-  deliveryFee = 0,
-  deliveryTime = '',
-  whatsappPhone,
-  marketing,
 }: StoreHeroProps) {
-  const hasShippingInfo = freeAbove > 0 || deliveryFee > 0 || !!deliveryTime
-  const waResolved = resolvePublicWhatsApp(marketing, whatsappPhone, 'home')
-  const showWaChip = Boolean(waResolved?.showInHero)
-
   return (
     <section className="store-hero">
       {coverImage ? (
@@ -56,7 +48,7 @@ export function StoreHero({
         <div className="store-hero__placeholder" aria-hidden />
       )}
 
-      <div className="relative z-10 max-w-[var(--store-max)] mx-auto px-4 -mt-10 sm:-mt-14 pb-5">
+      <div className="relative z-10 max-w-[var(--store-max)] mx-auto px-4 -mt-10 sm:-mt-14 pb-4">
         <div className="store-identity">
           <div className="flex gap-3.5 sm:gap-4">
             {logoUrl ? (
@@ -107,39 +99,6 @@ export function StoreHero({
               )}
             </div>
           </div>
-
-          {(hasShippingInfo || showWaChip) && (
-            <div className="mt-3.5 flex flex-wrap items-center gap-2">
-              {freeAbove > 0 && (
-                <span className="store-chip bg-emerald-50 text-emerald-800">
-                  <Truck size={12} strokeWidth={2} aria-hidden />
-                  Frete grátis acima de {money(freeAbove)}
-                </span>
-              )}
-              {deliveryFee > 0 && (
-                <span className="store-chip bg-gray-100 text-gray-700">
-                  Entrega {money(deliveryFee)}
-                </span>
-              )}
-              {deliveryTime && (
-                <span className="store-chip bg-gray-100 text-gray-700">
-                  <Clock size={12} strokeWidth={2} aria-hidden />
-                  {deliveryTime}
-                </span>
-              )}
-              {showWaChip && waResolved && (
-                <a
-                  href={buildWhatsAppUrl(waResolved.phone, waResolved.prefilledMessage)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="store-chip bg-brand text-white hover:opacity-90"
-                >
-                  <WhatsAppIcon size={12} aria-hidden />
-                  WhatsApp
-                </a>
-              )}
-            </div>
-          )}
         </div>
       </div>
     </section>

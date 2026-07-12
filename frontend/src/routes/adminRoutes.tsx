@@ -1,5 +1,5 @@
 import { lazy } from 'react'
-import { Route, Navigate } from 'react-router-dom'
+import { Route, Navigate, useNavigate } from 'react-router-dom'
 import { useToast } from '@/components/Toast'
 
 /* ── Admin views (code-split por rota) ── */
@@ -46,6 +46,16 @@ function AdminPage({ children }: { children: React.ReactNode }) {
 
 const noop = () => {}
 
+function SettingsRoute() {
+  const navigate = useNavigate()
+  return (
+    <SettingsView
+      showToast={noop}
+      onOpenStore={() => navigate('/loja')}
+    />
+  )
+}
+
 function DashboardInline() {
   return <DashboardView showToast={noop} />
 }
@@ -75,7 +85,7 @@ function ProductsInline() {
 /** Rotas do painel admin — fragmento direto (Routes não aceita componente wrapper). */
 export const adminRouteElements = (
   <>
-      <Route path="/admin" element={<AdminPage>{null}</AdminPage>} />
+      <Route path="/admin" element={<AdminPage><DashboardInline /></AdminPage>} />
       <Route path="/dashboard" element={<AdminPage><DashboardInline /></AdminPage>} />
       <Route path="/assistente" element={<Navigate to="/admin" replace />} />
       <Route path="/leads" element={<AdminPage><LeadsPage /></AdminPage>} />
@@ -111,7 +121,7 @@ export const adminRouteElements = (
       <Route path="/pagamentos" element={<AdminPage><PaymentConfigView showToast={noop} /></AdminPage>} />
       <Route path="/frete" element={<AdminPage><FreteView showToast={noop} /></AdminPage>} />
       <Route path="/dominio" element={<AdminPage><DomainView showToast={noop} /></AdminPage>} />
-      <Route path="/configuracoes" element={<AdminPage><SettingsView showToast={noop} /></AdminPage>} />
+      <Route path="/configuracoes" element={<AdminPage><SettingsRoute /></AdminPage>} />
       <Route path="/provedores-ia" element={<AdminPage><AIProvidersPage /></AdminPage>} />
       <Route path="/emails" element={<AdminPage><AdminEmailsPage /></AdminPage>} />
     </>

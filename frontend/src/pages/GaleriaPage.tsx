@@ -1,10 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Upload } from 'lucide-react'
 import type { GalleryItem } from '@/lib/gallery/types'
 import {
+  createGalleryFolder,
+  deleteGalleryFolder,
+  deleteGalleryItem,
   fetchGalleryFolders,
   fetchGalleryItems,
   fetchGalleryTags,
+  updateGalleryItem,
 } from '@/lib/gallery/api'
 import { GallerySidebar } from '@/components/gallery/GallerySidebar'
 import { GalleryToolbar } from '@/components/gallery/GalleryToolbar'
@@ -12,13 +16,16 @@ import { GalleryThumb } from '@/components/gallery/GalleryThumb'
 import { GalleryPreview } from '@/components/gallery/GalleryPreview'
 import { GalleryEmpty } from '@/components/gallery/GalleryEmpty'
 import { GalleryUploadZone } from '@/components/gallery/GalleryUploadZone'
+import { GalleryBulkBar } from '@/components/gallery/GalleryBulkBar'
 import { Button } from '@/components/ui/Button'
 import { cn } from '@/lib/cn'
 import { useGalleryBridgeOptional } from '@/lib/agent/GalleryBridgeContext'
 import { useAgentShell } from '@/lib/agent/AgentShellContext'
 import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
+import { useToast } from '@/components/Toast'
 
 export function GaleriaPage({ embedded = false }: { embedded?: boolean } = {}) {
+  const { showToast } = useToast()
   const [folders, setFolders] = useState<Awaited<ReturnType<typeof fetchGalleryFolders>>>([])
   const [items, setItems] = useState<GalleryItem[]>([])
   const [allTags, setAllTags] = useState<string[]>([])
@@ -32,6 +39,10 @@ export function GaleriaPage({ embedded = false }: { embedded?: boolean } = {}) {
   const [page, setPage] = useState(1)
   const [preview, setPreview] = useState<GalleryItem | null>(null)
   const [uploadOpen, setUploadOpen] = useState(false)
+  const [selectMode, setSelectMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
+  const [bulkBusy, setBulkBusy] = useState(false)
+  const [creatingFolder, setCreatingFolder] = useState(false)
   const galleryBridge = useGalleryBridgeOptional()
   const publishSnapshot = galleryBridge?.publishSnapshot
   const registerHandlers = galleryBridge?.registerHandlers
@@ -77,6 +88,92 @@ export function GaleriaPage({ embedded = false }: { embedded?: boolean } = {}) {
   useEffect(() => {
     setPage(1)
   }, [activeFolder, typeFilter, activeTags])
+
+  // Limpa seleção ao trocar filtros/pasta
+  useEffect(() => {
+    setSelectedIds(new Set())
+  }, [activeFolder, typeFilter, activeTags, search])
+
+  const editableItems = useMemo(
+    () => items.filter((i) => i.origin !== 'product_gallery'),
+    [items],
+  )
+
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function selectAllVisible() {
+    setSelectedIds(new Set(editableItems.map((i) => i.id)))
+  }
+
+  function clearSelection() {
+    setSelectedIds(new Set())
+  }
+
+  function exitSelectMode() {
+    setSelectMode(false)
+    setSelectedIds(new Set())
+  }
+
+  async function bulkDelete() {
+    const ids = [...selectedIds]
+    if (!ids.length) return
+    if (!confirm(`Excluir ${ids.length} item(ns) da galeria? Esta ação não pode ser desfeita.`)) return
+    setBulkBusy(true)
+    let ok = 0
+    let fail = 0
+    for (const id of ids) {
+      try {
+        await deleteGalleryItem(id)
+        ok += 1
+      } catch {
+        fail += 1
+      }
+    }
+    setBulkBusy(false)
+    setSelectedIds(new Set())
+    if (preview && ids.includes(preview.id)) setPreview(null)
+    await reload()
+    if (fail === 0) showToast(`${ok} item(ns) excluído(s)`, 'success')
+    else showToast(`${ok} excluído(s), ${fail} falha(s)`, fail === ids.length ? 'error' : 'success')
+  }
+
+  async function bulkEdit(patch: { folder?: string; tagsToAdd?: string[] }) {
+    const ids = [...selectedIds]
+    if (!ids.length) return
+    setBulkBusy(true)
+    let ok = 0
+    let fail = 0
+    for (const id of ids) {
+      const item = items.find((i) => i.id === id)
+      if (!item || item.origin === 'product_gallery') {
+        fail += 1
+        continue
+      }
+      try {
+        const tags = patch.tagsToAdd?.length
+          ? Array.from(new Set([...(item.tags || []), ...patch.tagsToAdd]))
+          : undefined
+        await updateGalleryItem(id, {
+          folder: patch.folder,
+          tags,
+        })
+        ok += 1
+      } catch {
+        fail += 1
+      }
+    }
+    setBulkBusy(false)
+    await reload()
+    if (fail === 0) showToast(`${ok} item(ns) atualizado(s)`, 'success')
+    else showToast(`${ok} atualizado(s), ${fail} falha(s)`, fail === ids.length ? 'error' : 'success')
+  }
 
   useEffect(() => {
     if (!registerHandlers || !isDesktop) return
@@ -166,6 +263,30 @@ export function GaleriaPage({ embedded = false }: { embedded?: boolean } = {}) {
                 folders={folders}
                 active={activeFolder}
                 onChange={setActiveFolder}
+                creatingFolder={creatingFolder}
+                onCreatePublicidadeFolder={async (label) => {
+                  setCreatingFolder(true)
+                  try {
+                    const f = await createGalleryFolder(label, 'publicidade')
+                    showToast(`Pasta "${f.label}" criada em Publicidade`, 'success')
+                    setActiveFolder(f.slug)
+                    await reload()
+                  } catch (e: unknown) {
+                    showToast(e instanceof Error ? e.message : 'Erro ao criar pasta', 'error')
+                  } finally {
+                    setCreatingFolder(false)
+                  }
+                }}
+                onDeleteFolder={async (slug) => {
+                  try {
+                    await deleteGalleryFolder(slug)
+                    if (activeFolder === slug) setActiveFolder('publicidade')
+                    showToast('Pasta removida', 'success')
+                    await reload()
+                  } catch (e: unknown) {
+                    showToast(e instanceof Error ? e.message : 'Erro ao remover pasta', 'error')
+                  }
+                }}
               />
             </div>
           </div>
@@ -180,7 +301,33 @@ export function GaleriaPage({ embedded = false }: { embedded?: boolean } = {}) {
             dense={dense}
             onDenseChange={setDense}
             total={total}
+            selectMode={selectMode}
+            onSelectModeChange={(v) => {
+              setSelectMode(v)
+              if (!v) setSelectedIds(new Set())
+            }}
           />
+
+          {selectMode && (
+            <GalleryBulkBar
+              count={selectedIds.size}
+              totalVisible={editableItems.length}
+              busy={bulkBusy}
+              onSelectAll={selectAllVisible}
+              onClear={clearSelection}
+              onDelete={() => { void bulkDelete() }}
+              onApplyEdit={(patch) => { void bulkEdit(patch) }}
+              onExitSelectMode={exitSelectMode}
+              folderOptions={folders
+                .filter((f) => f.slug !== 'all')
+                .map((f) => ({
+                  value: f.slug,
+                  label: f.section === 'publicidade' || f.slug.startsWith('pub-')
+                    ? `Publicidade · ${f.label}`
+                    : f.label,
+                }))}
+            />
+          )}
 
           {allTags.length > 0 && (
             <div className="flex flex-wrap gap-1.5 items-center">
@@ -232,13 +379,22 @@ export function GaleriaPage({ embedded = false }: { embedded?: boolean } = {}) {
                     : 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4',
                 )}
               >
-                {items.map((item) => (
-                  <GalleryThumb
-                    key={item.id}
-                    item={item}
-                    onOpen={() => setPreview(item)}
-                  />
-                ))}
+                {items.map((item) => {
+                  const canSelect = selectMode && item.origin !== 'product_gallery'
+                  return (
+                    <GalleryThumb
+                      key={item.id}
+                      item={item}
+                      selectable={canSelect}
+                      selected={selectedIds.has(item.id)}
+                      onSelect={() => toggleSelect(item.id)}
+                      onOpen={() => {
+                        if (selectMode && canSelect) toggleSelect(item.id)
+                        else setPreview(item)
+                      }}
+                    />
+                  )
+                })}
               </div>
 
               {total > items.length && (
@@ -273,6 +429,7 @@ export function GaleriaPage({ embedded = false }: { embedded?: boolean } = {}) {
         open={uploadOpen}
         onClose={() => setUploadOpen(false)}
         onUploaded={reload}
+        folder={activeFolder}
       />
     </div>
   )

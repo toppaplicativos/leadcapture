@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react'
-import { RefreshCw, MoreHorizontal, X } from 'lucide-react'
+import { RefreshCw, MoreHorizontal, X, Unplug } from 'lucide-react'
 import { InstagramIcon } from '@/components/icons'
 import {
   IG_NAV_GROUPS,
@@ -39,6 +39,7 @@ export function InstagramStudioShell({
   const [moreOpen, setMoreOpen] = useState(false)
   const active = findNavItem(tab)
   const isPrimaryMobile = IG_MOBILE_PRIMARY.some((t) => t.key === tab)
+  const childOwnsHeading = tab === 'automations' || tab === 'ai'
 
   const closeMore = (next: InstagramTabKey) => {
     onTabChange(next)
@@ -62,7 +63,11 @@ export function InstagramStudioShell({
               Instagram
             </p>
             <p className="ig-studio__handle">
-              <span className={`ig-studio__status${profile.is_connected ? ' is-on' : ''}`} aria-hidden />
+              <span
+                className={`ig-studio__status${(profile.is_connected || !!profile.username) ? ' is-on' : ''}`}
+                aria-hidden
+                title={(profile.is_connected || !!profile.username) ? 'Conectado' : 'Desconectado'}
+              />
               @{profile.username || '—'}
               <span className="ig-studio__sep">·</span>
               <span className="tabular-nums">{(profile.followers_count || 0).toLocaleString('pt-BR')}</span>
@@ -103,12 +108,12 @@ export function InstagramStudioShell({
           </button>
           <button
             type="button"
-            className="ig-studio__icon-btn ig-studio__icon-btn--ghost"
+            className="ig-studio__icon-btn ig-studio__icon-btn--connection"
             onClick={onReconnect}
-            title="Reconectar conta"
-            aria-label="Reconectar conta"
+            title="Gerenciar conexão"
+            aria-label="Gerenciar conexão do Instagram"
           >
-            <RefreshCw size={14} className="opacity-60" />
+            <Unplug size={14} />
           </button>
         </div>
       </header>
@@ -153,7 +158,7 @@ export function InstagramStudioShell({
         </nav>
 
         <main className="ig-studio__main">
-          {active && tab !== 'overview' && tab !== 'posts' && tab !== 'messages' && (
+          {active && tab !== 'overview' && tab !== 'posts' && tab !== 'messages' && !childOwnsHeading && (
             <div className="ig-studio__main-head">
               <h2 className="ig-studio__main-title">{active.label}</h2>
               {active.description && (

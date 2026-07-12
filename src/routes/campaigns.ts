@@ -8,6 +8,7 @@ import { InstanceManager } from "../core/instanceManager";
 import { InstanceRotationService } from "../services/instanceRotation";
 import { logger } from "../utils/logger";
 import { attachBrandContext, BrandRequest } from "../middleware/brandContext";
+import { requirePermission } from "../middleware/permissions";
 import { createFollowupRulerForBrand } from "../services/followupRuler";
 
 type AuthRequest = { user?: { userId: string; email: string; role: string } };
@@ -39,6 +40,18 @@ export function createCampaignRoutes(
   const responseIntelligence = new ResponseIntelligenceService();
 
   router.use(attachBrandContext);
+
+  /* RBAC — brand owner always passes; team needs campaigns:* */
+  router.use((req: any, res, next) => {
+    const method = String(req.method || "GET").toUpperCase();
+    const perm =
+      method === "GET" || method === "HEAD"
+        ? "campaigns:read"
+        : method === "DELETE"
+          ? "campaigns:delete"
+          : "campaigns:write";
+    return requirePermission(perm)(req, res, next);
+  });
 
   // ─── Campaign CRUD ─────────────────────────────────────────────
 

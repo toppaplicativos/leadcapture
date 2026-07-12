@@ -539,42 +539,71 @@ export class InboxService {
 
     logger.info(`${ctx} resposta gerada (${finalText.length} chars): "${finalText.slice(0, 120).replace(/\n/g, " ")}${finalText.length > 120 ? "..." : ""}"`);
 
-    let sent = false;
-    try {
-      sent = await this.messageSender(input.instanceId, input.remoteJid, finalText);
-    } catch (err: any) {
-      logger.error(`${ctx} GATE: messageSender jogou erro ao enviar para ${input.remoteJid}: ${err?.message}. Stack: ${err?.stack || "(sem stack)"}`);
-      return;
-    }
-    if (!sent) {
-      logger.error(`${ctx} GATE: messageSender retornou false para ${input.remoteJid}. Causas: (1) instancia desconectada, (2) JID invalido, (3) ACK do WhatsApp nao chegou no timeout (WHATSAPP_ACK_TIMEOUT_MS). Mensagem gerada mas NAO enviada: "${finalText.slice(0, 80)}"`);
-      await this.logAIDecision(input.pool, {
-        conversationId: input.conversationId,
-        userId,
-        brandId,
-        decisionType: "send_failed",
-        mode,
-        summary: `IA gerou resposta mas envio falhou (messageSender=false). JID: ${input.remoteJid}`,
-        payload: {
-          event: "send_failed",
-          incoming_message_id: input.incomingMessageId,
-          generated_text: finalText.slice(0, 500),
-          jid: input.remoteJid,
-          at: new Date().toISOString(),
-        },
-      });
-      return;
+    // Multi-bolha opcional (separador --- do pack). Sem separador = 1 mensagem (comportamento antigo).
+    const bubbles = finalText
+      .split(/\n\n---\n\n|\n---\n/)
+      .map((b) => b.trim())
+      .filter(Boolean)
+      .slice(0, 5);
+    const parts = bubbles.length > 0 ? bubbles : [finalText];
+
+    let lastMsgId = "";
+    let sentAny = false;
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
+      if (i > 0) {
+        await new Promise((r) => setTimeout(r, 450 + Math.min(i * 150, 600)));
+      }
+      let sent = false;
+      try {
+        sent = await this.messageSender(input.instanceId, input.remoteJid, part);
+      } catch (err: any) {
+        logger.error(
+          `${ctx} GATE: messageSender erro bolha ${i + 1}/${parts.length} para ${input.remoteJid}: ${err?.message}`,
+        );
+        if (!sentAny) return;
+        break;
+      }
+      if (!sent) {
+        logger.error(
+          `${ctx} GATE: messageSender=false bolha ${i + 1}/${parts.length} para ${input.remoteJid}. "${part.slice(0, 80)}"`,
+        );
+        if (!sentAny) {
+          await this.logAIDecision(input.pool, {
+            conversationId: input.conversationId,
+            userId,
+            brandId,
+            decisionType: "send_failed",
+            mode,
+            summary: `IA gerou resposta mas envio falhou (messageSender=false). JID: ${input.remoteJid}`,
+            payload: {
+              event: "send_failed",
+              incoming_message_id: input.incomingMessageId,
+              generated_text: finalText.slice(0, 500),
+              jid: input.remoteJid,
+              at: new Date().toISOString(),
+            },
+          });
+          return;
+        }
+        break;
+      }
+      sentAny = true;
+      const bubbleId = `ai_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+      lastMsgId = bubbleId;
+      const nowTs = Math.floor(Date.now() / 1000);
+      await input.pool.execute(
+        `INSERT INTO whatsapp_messages (id, conversation_id, instance_id, remote_jid, from_me, message_type, body, status, message_timestamp, created_at)
+         VALUES (?, ?, ?, ?, TRUE, 'text', ?, 'sent', ?, NOW())`,
+        [bubbleId, input.conversationId, input.instanceId, input.remoteJid, part, nowTs],
+      );
     }
 
-    logger.info(`${ctx} IA respondeu com sucesso para ${input.remoteJid}.`);
+    if (!sentAny) return;
 
-    const msgId = `ai_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
-    const now = Math.floor(Date.now() / 1000);
-    await input.pool.execute(
-      `INSERT INTO whatsapp_messages (id, conversation_id, instance_id, remote_jid, from_me, message_type, body, status, message_timestamp, created_at)
-       VALUES (?, ?, ?, ?, TRUE, 'text', ?, 'sent', ?, NOW())`,
-      [msgId, input.conversationId, input.instanceId, input.remoteJid, finalText, now]
-    );
+    logger.info(`${ctx} IA respondeu com sucesso para ${input.remoteJid} (${parts.length} bolha(s)).`);
+
+    const msgId = lastMsgId;
 
     const payload = {
       event: "autonomous_reply",

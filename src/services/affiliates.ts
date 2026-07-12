@@ -339,20 +339,166 @@ export class AffiliatesService {
     await ensureAffiliateSchema();
   }
 
+  /** Host raiz da plataforma para parceiros (todas as orgs). */
+  static readonly PLATFORM_PARTNERS_HOST = "parceiros.leadcapture.online";
+
+  /**
+   * Subdomínio PWA por marca.
+   * - parceiros.leadcapture.online = padrão da plataforma (válido para todas).
+   * - parceiros.alhopronto.online só para a org alhopronto.
+   * - Outro host custom = domínio próprio da org, se configurado.
+   */
+  sanitizeAppSubdomain(raw: string | null | undefined, brandSlug?: string | null): string | null {
+    let host = String(raw || "")
+      .trim()
+      .replace(/^https?:\/\//i, "")
+      .replace(/\/+$/, "")
+      .toLowerCase();
+    if (!host) return null;
+    // remove path se colaram URL completa
+    host = host.split("/")[0] || "";
+    if (!host) return null;
+
+    const slug = String(brandSlug || "")
+      .trim()
+      .toLowerCase();
+    const isAlhoLegacy =
+      host === "parceiros.alhopronto.online" ||
+      host === "afiliados.alhopronto.online" ||
+      host.endsWith(".alhopronto.online");
+    if (isAlhoLegacy && slug !== "alhopronto") {
+      return null;
+    }
+    return host;
+  }
+
+  async resolveBrandSlug(brandId: string): Promise<string | null> {
+    const brand = await queryOne<{ slug: string | null; name: string | null }>(
+      `SELECT slug, name FROM brand_units WHERE id = ? LIMIT 1`,
+      [brandId],
+    );
+    if (!brand) return null;
+    const slug = String(brand.slug || "").trim();
+    if (slug) return slug;
+    const fromName = String(brand.name || "")
+      .trim()
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+    return fromName || null;
+  }
+
+  /** Domínio custom verificado da loja (se houver) — só para exibição se for host de parceiros. */
+  async resolveBrandPartnersHost(brandId: string): Promise<string | null> {
+    const brand = await queryOne<{ domain: string | null; slug: string | null }>(
+      `SELECT domain, slug FROM brand_units WHERE id = ? LIMIT 1`,
+      [brandId],
+    ).catch(() => null);
+    const brandDomain = this.sanitizeAppSubdomain(brand?.domain, brand?.slug);
+    if (brandDomain && (brandDomain.startsWith("parceiros.") || brandDomain.startsWith("afiliados."))) {
+      return brandDomain;
+    }
+
+    const storeDom = await queryOne<{ domain: string | null }>(
+      `SELECT d.domain
+       FROM storefront_stores s
+       INNER JOIN storefront_domains d ON d.store_id = s.id AND d.is_primary = TRUE
+       WHERE s.brand_id = ?
+         AND (
+           d.verification_status IS NULL
+           OR d.verification_status IN ('active', 'verified', 'pending')
+         )
+       ORDER BY d.is_primary DESC
+       LIMIT 1`,
+      [brandId],
+    ).catch(() => null);
+
+    // Domínio de catálogo (ex. loja.cliente.com) NÃO é host de parceiros por padrão —
+    // só usamos se for explicitamente parceiros.* / afiliados.*
+    const storeHost = this.sanitizeAppSubdomain(storeDom?.domain, brand?.slug);
+    if (storeHost && (storeHost.startsWith("parceiros.") || storeHost.startsWith("afiliados."))) {
+      return storeHost;
+    }
+    return null;
+  }
+
+  async buildPartnersPublicUrls(ownerUserId: string, brandId: string, config?: AffiliateProgramConfig | null) {
+    const brandSlug = await this.resolveBrandSlug(brandId);
+    const cfg = config || (await this.getOrCreateProgramConfig(ownerUserId, brandId));
+    const fromConfig = this.sanitizeAppSubdomain(cfg.app_subdomain, brandSlug);
+    const fromBrand = !fromConfig ? await this.resolveBrandPartnersHost(brandId) : null;
+    // Host custom da org (não confundir com o raiz da plataforma)
+    const platformHost = AffiliatesService.PLATFORM_PARTNERS_HOST;
+    let orgHost = fromConfig || fromBrand;
+    if (orgHost === platformHost || orgHost === "afiliados.leadcapture.online") {
+      orgHost = null; // raiz da plataforma é o default, não “custom”
+    }
+
+    // Limpa legado errado no banco (alho em marca alheia) → usa raiz da plataforma
+    if (cfg.app_subdomain && !fromConfig && String(cfg.app_subdomain).toLowerCase().includes("alhopronto")) {
+      try {
+        await query(
+          `UPDATE affiliate_program_config
+           SET app_subdomain = ?, updated_at = NOW()
+           WHERE owner_user_id = ? AND brand_id = ?`,
+          [platformHost, ownerUserId, brandId],
+        );
+      } catch {
+        /* ignore */
+      }
+    }
+
+    const appOrigin = String(process.env.PUBLIC_APP_URL || process.env.APP_URL || "https://app.leadcapture.online")
+      .replace(/\/+$/, "");
+    const pathUrl = brandSlug
+      ? `${appOrigin}/central-afiliado/${encodeURIComponent(brandSlug)}`
+      : `${appOrigin}/central-afiliado`;
+    const customUrl = orgHost ? `https://${orgHost}` : null;
+    const marketplaceUrl = `https://${platformHost}`;
+
+    return {
+      brand_slug: brandSlug,
+      /** Host custom da org, se houver; senão o da plataforma */
+      app_subdomain: orgHost || platformHost,
+      custom_url: customUrl,
+      path_url: pathUrl,
+      /**
+       * URL principal para afiliados:
+       * 1) domínio próprio da org (parceiros.cliente.com)
+       * 2) raiz da plataforma parceiros.leadcapture.online
+       */
+      public_url: customUrl || marketplaceUrl,
+      marketplace_url: marketplaceUrl,
+    };
+  }
+
   async getOrCreateProgramConfig(ownerUserId: string, brandId: string): Promise<AffiliateProgramConfig> {
     await ensureAffiliateSchema();
     const existing = await queryOne<AffiliateProgramConfig>(
       `SELECT * FROM affiliate_program_config WHERE owner_user_id = ? AND brand_id = ? LIMIT 1`,
       [ownerUserId, brandId]
     );
-    if (existing) return existing;
+    if (existing) {
+      // Sanitiza app_subdomain legado alheio ao devolver
+      const slug = await this.resolveBrandSlug(brandId);
+      const clean = this.sanitizeAppSubdomain(existing.app_subdomain, slug);
+      if (existing.app_subdomain && !clean) {
+        (existing as any).app_subdomain = null;
+      } else if (clean) {
+        (existing as any).app_subdomain = clean;
+      }
+      return existing;
+    }
 
     const id = randomUUID();
+    // Padrão da plataforma: parceiros.leadcapture.online (não alhopronto)
     await query(
       `INSERT INTO affiliate_program_config
        (id, owner_user_id, brand_id, is_enabled, default_commission_pct, cookie_days, min_withdrawal, payment_days, app_subdomain, accept_new_affiliates, auto_approve_affiliates)
-       VALUES (?, ?, ?, TRUE, 10, 30, 50, 15, 'parceiros.alhopronto.online', TRUE, TRUE)`,
-      [id, ownerUserId, brandId]
+       VALUES (?, ?, ?, TRUE, 10, 30, 50, 15, ?, TRUE, TRUE)`,
+      [id, ownerUserId, brandId, AffiliatesService.PLATFORM_PARTNERS_HOST]
     );
 
     const created = (await queryOne<AffiliateProgramConfig>(
@@ -360,6 +506,15 @@ export class AffiliatesService {
       [id]
     ))!;
     await this.seedDefaultLearningModules(ownerUserId, brandId);
+
+    // Default is_enabled=TRUE ⇒ programa principal já nasce no mercado de afiliados
+    try {
+      const { affiliateProgramsService } = await import("./affiliatePrograms");
+      await affiliateProgramsService.syncMarketplaceFromBrandConfig(ownerUserId, brandId);
+    } catch (err: any) {
+      console.error("[affiliates] sync marketplace on create config:", err?.message || err);
+    }
+
     return created;
   }
 
@@ -449,6 +604,14 @@ export class AffiliatesService {
       normalized.default_commission_value = Number(normalized.default_commission_pct);
     }
 
+    if (normalized.app_subdomain !== undefined) {
+      const slug = await this.resolveBrandSlug(brandId);
+      normalized.app_subdomain = this.sanitizeAppSubdomain(
+        normalized.app_subdomain as string | null,
+        slug,
+      );
+    }
+
     for (const [key, value] of Object.entries(normalized)) {
       if (value === undefined) continue;
       fields.push(`${key} = ?`);
@@ -464,6 +627,15 @@ export class AffiliatesService {
         values
       );
     }
+
+    // Sincroniza campanhas/programas no mercado de afiliados
+    try {
+      const { affiliateProgramsService } = await import("./affiliatePrograms");
+      await affiliateProgramsService.syncMarketplaceFromBrandConfig(ownerUserId, brandId);
+    } catch (err: any) {
+      console.error("[affiliates] syncMarketplaceFromBrandConfig:", err?.message || err);
+    }
+
     return (await queryOne<AffiliateProgramConfig>(
       `SELECT * FROM affiliate_program_config WHERE owner_user_id = ? AND brand_id = ? LIMIT 1`,
       [ownerUserId, brandId]
@@ -528,7 +700,8 @@ export class AffiliatesService {
     }
 
     let affiliateUser = await queryOne<any>(
-      `SELECT id, email FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1`,
+      `SELECT id, email, role, account_kind, COALESCE(is_super_admin, false) AS is_super_admin
+       FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1`,
       [email]
     );
 
@@ -536,14 +709,22 @@ export class AffiliatesService {
     if (!affiliateUserId) {
       affiliateUserId = randomUUID();
       await query(
-        `INSERT INTO users (id, email, password_hash, name, phone, role, is_active)
-         VALUES (?, ?, ?, ?, ?, 'affiliate', TRUE)`,
+        `INSERT INTO users (id, email, password_hash, name, phone, role, account_kind, is_active)
+         VALUES (?, ?, ?, ?, ?, 'affiliate', 'affiliate', TRUE)`,
         [affiliateUserId, email, input.passwordHash, name, input.phone || null]
       );
     } else {
+      // Never demote org owners / platform masters into pure affiliate identity
+      const { UsersService } = await import("./users");
+      const us = new UsersService();
+      if (await us.isProtectedPrincipal(affiliateUserId)) {
+        throw new Error(
+          "Este e-mail já pertence a uma Organização ou ao Admin Master. Use outro e-mail para afiliado.",
+        );
+      }
       await query(
         `UPDATE users
-         SET password_hash = ?, name = ?, phone = ?, role = 'affiliate', is_active = TRUE, updated_at = NOW()
+         SET password_hash = ?, name = ?, phone = ?, role = 'affiliate', account_kind = 'affiliate', is_active = TRUE, updated_at = NOW()
          WHERE id = ?`,
         [input.passwordHash, name, input.phone || null, affiliateUserId]
       );
@@ -578,6 +759,28 @@ export class AffiliatesService {
       [affiliate.id]
     );
     const profile = refreshed || affiliate;
+
+    try {
+      const { emailTriggers } = await import("./emailTriggers");
+      emailTriggers.welcomeAffiliate({
+        userId: input.ownerUserId,
+        brandId: input.brandId,
+        affiliate_name: name,
+        affiliate_email: email,
+        commission_rate: String((profile as any)?.commission_rate || (profile as any)?.commission_percent || "—"),
+        program_name: "Programa de parceiros",
+      });
+      if (input.autoApprove) {
+        emailTriggers.affiliateApproved({
+          userId: input.ownerUserId,
+          brandId: input.brandId,
+          affiliate_name: name,
+          affiliate_email: email,
+        });
+      }
+    } catch {
+      /* non-blocking */
+    }
 
     if (isActive) {
       await this.syncAffiliateCoupon(profile, input.ownerUserId);
@@ -674,7 +877,42 @@ export class AffiliatesService {
     if (!affiliate) return;
 
     const config = await this.getOrCreateProgramConfig(input.ownerUserId, input.brandId);
-    const commissionCfg = resolveCommissionConfig({ affiliate, program: config });
+
+    // Comissão do programa multi em que o afiliado está inscrito (R$/kg etc.)
+    let programRow: any = null;
+    try {
+      programRow = await queryOne<any>(
+        `SELECT p.commission_mode, p.commission_value
+         FROM affiliate_program_enrollments e
+         INNER JOIN affiliate_programs p ON p.id = e.program_id
+         WHERE e.affiliate_id = ? AND e.brand_id = ?
+           AND e.status IN ('active', 'onboarding')
+         ORDER BY CASE WHEN e.status = 'active' THEN 0 ELSE 1 END,
+                  e.updated_at DESC, e.created_at DESC,
+                  CASE WHEN p.is_default THEN 1 ELSE 0 END
+         LIMIT 1`,
+        [input.affiliateId, input.brandId],
+      );
+    } catch {
+      programRow = null;
+    }
+
+    const commissionCfg = resolveCommissionConfig({
+      affiliate,
+      program: programRow
+        ? {
+            commission_mode: programRow.commission_mode,
+            commission_value: programRow.commission_value,
+            default_commission_mode: config.default_commission_mode,
+            default_commission_value: config.default_commission_value,
+            default_commission_pct: config.default_commission_pct,
+          }
+        : {
+            default_commission_mode: config.default_commission_mode,
+            default_commission_value: config.default_commission_value,
+            default_commission_pct: config.default_commission_pct,
+          },
+    });
 
     const productIds = (input.orderItems || [])
       .map((item) => String(item.product_id || "").trim())
@@ -1333,7 +1571,13 @@ export class AffiliatesService {
 
   async getAffiliateLinkAnalytics(affiliateId: string, brandId: string, days = 30, programId?: string) {
     await ensureAffiliateSchema();
+    // Garante colunas multi-programa (program_id) em clicks/sales
+    await query(`ALTER TABLE affiliate_clicks ADD COLUMN program_id VARCHAR(36) NULL`).catch(() => undefined);
+    await query(`ALTER TABLE affiliate_sales ADD COLUMN program_id VARCHAR(36) NULL`).catch(() => undefined);
+
     const periodDays = Math.min(Math.max(Number(days) || 30, 7), 90);
+    // PostgreSQL: CURRENT_TIMESTAMP - (N * INTERVAL '1 day') — DATE_SUB/INTERVAL ? não funciona
+    const sinceExpr = `(CURRENT_TIMESTAMP - (? * INTERVAL '1 day'))`;
 
     const affiliate = await queryOne<AffiliateProfile>(
       `SELECT * FROM affiliates WHERE id = ? AND brand_id = ? LIMIT 1`,
@@ -1345,90 +1589,117 @@ export class AffiliatesService {
     const clickParams: any[] = [affiliateId];
     const salesClauses = ["affiliate_id = ?"];
     const salesParams: any[] = [affiliateId];
-    if (programId) {
+    const pid = String(programId || "").trim();
+    if (pid) {
       clickClauses.push("program_id = ?");
-      clickParams.push(programId);
+      clickParams.push(pid);
       salesClauses.push("program_id = ?");
-      salesParams.push(programId);
+      salesParams.push(pid);
     }
 
-    const series = await query<any[]>(
-      `SELECT DATE(created_at) AS day, COUNT(*) AS clicks
-       FROM affiliate_clicks
-       WHERE ${clickClauses.join(" AND ")} AND created_at >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
-       GROUP BY DATE(created_at)
-       ORDER BY day ASC`,
-      [...clickParams, periodDays - 1]
-    );
-
-    const byType = await query<any[]>(
-      `SELECT COALESCE(link_type, 'catalog') AS link_type, COUNT(*) AS clicks
-       FROM affiliate_clicks
-       WHERE ${clickClauses.join(" AND ")} AND created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
-       GROUP BY COALESCE(link_type, 'catalog')
-       ORDER BY clicks DESC`,
-      [...clickParams, periodDays]
-    );
-
-    const topProducts = await query<any[]>(
-      `SELECT
-         c.product_id,
-         c.product_slug,
-         COUNT(*) AS clicks,
-         MAX(p.name) AS product_name
-       FROM affiliate_clicks c
-       LEFT JOIN products p ON p.id = c.product_id
-       WHERE ${clickClauses.map((c) => `c.${c}`).join(" AND ")}
-         AND c.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
-         AND (c.product_id IS NOT NULL OR c.product_slug IS NOT NULL)
-       GROUP BY c.product_id, c.product_slug
-       ORDER BY clicks DESC
-       LIMIT 8`,
-      [...clickParams, periodDays]
-    );
-
-    const periodClicks = await queryOne<any>(
-      `SELECT COUNT(*) AS total
-       FROM affiliate_clicks
-       WHERE ${clickClauses.join(" AND ")} AND created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)`,
-      [...clickParams, periodDays]
-    );
-
-    const conversions = await queryOne<any>(
-      `SELECT COUNT(*) AS total, COALESCE(SUM(commission_amount), 0) AS commission
-       FROM affiliate_sales
-       WHERE ${salesClauses.join(" AND ")}
-         AND created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)`,
-      [...salesParams, periodDays]
-    );
-
-    const clicksPeriod = Number(periodClicks?.total || 0);
-    const conversionsPeriod = Number(conversions?.total || 0);
-
-    return {
+    const empty = {
       affiliate,
       period_days: periodDays,
       clicks_total: Number(affiliate.total_clicks || 0),
-      clicks_period: clicksPeriod,
+      clicks_period: 0,
       conversions_total: Number(affiliate.total_sales || 0),
-      conversions_period: conversionsPeriod,
-      conversion_rate: clicksPeriod > 0 ? conversionsPeriod / clicksPeriod : 0,
-      commission_period: Number(conversions?.commission || 0),
-      series: (series || []).map((row) => ({
-        day: String(row.day || ""),
-        clicks: Number(row.clicks || 0),
-      })),
-      by_type: (byType || []).map((row) => ({
-        link_type: String(row.link_type || "catalog"),
-        clicks: Number(row.clicks || 0),
-      })),
-      top_products: (topProducts || []).map((row) => ({
-        product_id: row.product_id ? String(row.product_id) : null,
-        product_slug: row.product_slug ? String(row.product_slug) : null,
-        product_name: row.product_name ? String(row.product_name) : null,
-        clicks: Number(row.clicks || 0),
-      })),
+      conversions_period: 0,
+      conversion_rate: 0,
+      commission_period: 0,
+      series: [] as Array<{ day: string; clicks: number }>,
+      by_type: [] as Array<{ link_type: string; clicks: number }>,
+      top_products: [] as Array<{
+        product_id: string | null;
+        product_slug: string | null;
+        product_name: string | null;
+        clicks: number;
+      }>,
     };
+
+    try {
+      const series = await query<any[]>(
+        `SELECT (created_at)::date AS day, COUNT(*)::int AS clicks
+         FROM affiliate_clicks
+         WHERE ${clickClauses.join(" AND ")} AND created_at >= ${sinceExpr}
+         GROUP BY (created_at)::date
+         ORDER BY day ASC`,
+        [...clickParams, Math.max(0, periodDays - 1)]
+      );
+
+      const byType = await query<any[]>(
+        `SELECT COALESCE(link_type, 'catalog') AS link_type, COUNT(*)::int AS clicks
+         FROM affiliate_clicks
+         WHERE ${clickClauses.join(" AND ")} AND created_at >= ${sinceExpr}
+         GROUP BY COALESCE(link_type, 'catalog')
+         ORDER BY clicks DESC`,
+        [...clickParams, periodDays]
+      );
+
+      const topProducts = await query<any[]>(
+        `SELECT
+           c.product_id,
+           c.product_slug,
+           COUNT(*)::int AS clicks,
+           MAX(p.name) AS product_name
+         FROM affiliate_clicks c
+         LEFT JOIN products p ON p.id = c.product_id
+         WHERE c.affiliate_id = ?
+           ${pid ? "AND c.program_id = ?" : ""}
+           AND c.created_at >= ${sinceExpr}
+           AND (c.product_id IS NOT NULL OR c.product_slug IS NOT NULL)
+         GROUP BY c.product_id, c.product_slug
+         ORDER BY clicks DESC
+         LIMIT 8`,
+        pid ? [affiliateId, pid, periodDays] : [affiliateId, periodDays]
+      );
+
+      const periodClicks = await queryOne<any>(
+        `SELECT COUNT(*)::int AS total
+         FROM affiliate_clicks
+         WHERE ${clickClauses.join(" AND ")} AND created_at >= ${sinceExpr}`,
+        [...clickParams, periodDays]
+      );
+
+      const conversions = await queryOne<any>(
+        `SELECT COUNT(*)::int AS total, COALESCE(SUM(commission_amount), 0) AS commission
+         FROM affiliate_sales
+         WHERE ${salesClauses.join(" AND ")}
+           AND created_at >= ${sinceExpr}`,
+        [...salesParams, periodDays]
+      );
+
+      const clicksPeriod = Number(periodClicks?.total || 0);
+      const conversionsPeriod = Number(conversions?.total || 0);
+
+      return {
+        affiliate,
+        period_days: periodDays,
+        clicks_total: Number(affiliate.total_clicks || 0),
+        clicks_period: clicksPeriod,
+        conversions_total: Number(affiliate.total_sales || 0),
+        conversions_period: conversionsPeriod,
+        conversion_rate: clicksPeriod > 0 ? conversionsPeriod / clicksPeriod : 0,
+        commission_period: Number(conversions?.commission || 0),
+        series: (series || []).map((row) => ({
+          day: row.day ? String(row.day).slice(0, 10) : "",
+          clicks: Number(row.clicks || 0),
+        })),
+        by_type: (byType || []).map((row) => ({
+          link_type: String(row.link_type || "catalog"),
+          clicks: Number(row.clicks || 0),
+        })),
+        top_products: (topProducts || []).map((row) => ({
+          product_id: row.product_id ? String(row.product_id) : null,
+          product_slug: row.product_slug ? String(row.product_slug) : null,
+          product_name: row.product_name ? String(row.product_name) : null,
+          clicks: Number(row.clicks || 0),
+        })),
+      };
+    } catch (err: any) {
+      // Não derruba a Central de Links se a tabela de cliques estiver vazia/incompleta
+      console.error("[affiliates] getAffiliateLinkAnalytics:", err?.message || err);
+      return empty;
+    }
   }
 
   private normalizeLeadPhone(phone?: string | null): string | null {
@@ -1738,6 +2009,116 @@ export class AffiliatesService {
       `SELECT * FROM affiliates WHERE brand_id = ? AND LOWER(code) = LOWER(?) AND status = 'active' LIMIT 1`,
       [brandId, code]
     );
+  }
+
+  /**
+   * Número público de WhatsApp do afiliado (catálogo / botões da loja).
+   * Prioridade:
+   * 1) Sessão WhatsApp da atribuição que iniciou o atendimento (prospect assignment aberta)
+   * 2) Qualquer instância conectada do afiliado
+   * 3) social_whatsapp / phone do perfil do afiliado
+   * (fallback da loja fica no frontend/storefront)
+   */
+  async resolvePublicWhatsAppContact(affiliate: {
+    id: string;
+    affiliate_user_id?: string | null;
+    phone?: string | null;
+    social_whatsapp?: string | null;
+    brand_id?: string | null;
+    owner_user_id?: string | null;
+  }): Promise<{
+    phone: string | null;
+    source: "assignment" | "instance" | "profile" | null;
+    instance_id?: string | null;
+  }> {
+    const digits = (raw?: string | null) => {
+      const d = String(raw || "").replace(/\D/g, "");
+      return d.length >= 10 ? d : "";
+    };
+
+    const affiliateId = String(affiliate.id || "").trim();
+    const affiliateUserId = String(affiliate.affiliate_user_id || "").trim();
+    const brandId = String(affiliate.brand_id || "").trim();
+    const ownerUserId = String(affiliate.owner_user_id || "").trim();
+
+    // 1) Sessão que já iniciou atendimento (assignment aberta com instância conectada)
+    if (affiliateId) {
+      try {
+        const assignment = await queryOne<{
+          instance_id: string | null;
+          instance_phone: string | null;
+          instance_status: string | null;
+        }>(
+          `SELECT pa.instance_id,
+                  wi.phone AS instance_phone,
+                  wi.status AS instance_status
+           FROM prospect_assignments pa
+           LEFT JOIN whatsapp_instances wi ON wi.id = pa.instance_id
+           WHERE pa.affiliate_id = ?
+             AND pa.conversion_status = 'open'
+             AND pa.assignment_status NOT IN ('lost', 'recycled')
+             AND pa.instance_id IS NOT NULL
+             AND wi.status = 'connected'
+             AND wi.phone IS NOT NULL AND TRIM(wi.phone) <> ''
+           ORDER BY COALESCE(pa.last_interaction_at, pa.updated_at, pa.created_at) DESC
+           LIMIT 1`,
+          [affiliateId]
+        );
+        const assignmentPhone = digits(assignment?.instance_phone);
+        if (assignmentPhone) {
+          return {
+            phone: assignmentPhone,
+            source: "assignment",
+            instance_id: assignment?.instance_id ? String(assignment.instance_id) : null,
+          };
+        }
+      } catch {
+        // tabela pode não existir em ambientes antigos
+      }
+    }
+
+    // 2) Qualquer número ativo (instância conectada) do afiliado
+    if (affiliateUserId && ownerUserId) {
+      try {
+        const params: unknown[] = [ownerUserId, affiliateUserId];
+        let brandClause = "";
+        if (brandId) {
+          brandClause = " AND wi.brand_id = ?";
+          params.push(brandId);
+        }
+        const instance = await queryOne<{ id: string; phone: string | null }>(
+          `SELECT wi.id, wi.phone
+           FROM whatsapp_instances wi
+           WHERE wi.created_by = ?
+             AND wi.owner_type = 'affiliate'
+             AND wi.owner_actor_id = ?
+             AND wi.status = 'connected'
+             AND wi.phone IS NOT NULL AND TRIM(wi.phone) <> ''
+             ${brandClause}
+           ORDER BY wi.last_connected_at DESC, wi.updated_at DESC, wi.created_at DESC
+           LIMIT 1`,
+          params
+        );
+        const instancePhone = digits(instance?.phone);
+        if (instancePhone) {
+          return {
+            phone: instancePhone,
+            source: "instance",
+            instance_id: instance?.id ? String(instance.id) : null,
+          };
+        }
+      } catch {
+        // schema legado
+      }
+    }
+
+    // 3) Perfil do afiliado (social_whatsapp preferencial, depois phone)
+    const profilePhone = digits(affiliate.social_whatsapp) || digits(affiliate.phone);
+    if (profilePhone) {
+      return { phone: profilePhone, source: "profile", instance_id: null };
+    }
+
+    return { phone: null, source: null, instance_id: null };
   }
 
   async getProgramStats(ownerUserId: string, brandId: string) {

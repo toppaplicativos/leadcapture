@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:workspace-triggers": "tsx scripts/workspaceTriggers.smoke.ts",
+    "test:leads-inline-edit": "tsx scripts/leadsInlineEdit.smoke.ts"
   },
   "dependencies": {
     "@remotion/player": "^4.0.467",

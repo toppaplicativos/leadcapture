@@ -1,6 +1,7 @@
 /**
- * Dispatcher de eventos Instagram (webhook → brand_automations).
- * Inspirado no dispatcher do Tattoo AI, adaptado ao modelo brand_automations.
+ * Dispatcher de eventos Instagram (webhook → definitions / brand_automations).
+ * hybrid/definitions: first-match by surface on definitions; skip catalog webhook
+ * reply tasks when any definition matched the event.
  */
 
 import { query } from "../config/database";
@@ -9,6 +10,17 @@ import { brandAutomationsService } from "./brandAutomations";
 import { automationDefinitionsService } from "./automationDefinitions";
 import { runAutomationDefinition } from "./automationDefinitionRunner";
 import { runOne } from "./automationScheduler";
+import {
+  selectWinnersBySurface,
+  shouldSkipCatalogWebhookReplies,
+  keywordMatches,
+  type DispatchMode,
+} from "./automationMatchLogic";
+import {
+  getBrandDispatchMode,
+  isBrandRepliesPaused,
+  shouldApplyGlobalAutoReplyGates,
+} from "./automationDispatchMode";
 
 export type InstagramWebhookEvent =
   | "resposta_padrao_dm"
@@ -25,20 +37,8 @@ export interface DispatchInstagramEventInput {
   triggeredBy?: string;
   payload: Record<string, any>;
   matchKeyword?: string;
-}
-
-function normalizeText(value: string): string {
-  return String(value || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .trim();
-}
-
-function keywordMatches(text: string, keywords: string[]): boolean {
-  if (!keywords.length) return true;
-  const hay = normalizeText(text);
-  return keywords.some((kw) => hay.includes(normalizeText(kw)));
+  /** Test override */
+  modeOverride?: DispatchMode;
 }
 
 function parseConfig(value: any): Record<string, any> {
@@ -51,11 +51,9 @@ function parseConfig(value: any): Record<string, any> {
   }
 }
 
-export async function dispatchInstagramEvent(
+async function runCatalogWebhookMatches(
   input: DispatchInstagramEventInput,
-): Promise<{ matched: number; results: Array<{ slug: string; status: string; error?: string }> }> {
-  await brandAutomationsService.ensureSchema();
-
+): Promise<Array<{ slug: string; status: string; error?: string }>> {
   const rows = (await query<any[]>(
     `SELECT ba.*, ac.task_type, ac.name AS catalog_name
      FROM brand_automations ba
@@ -69,7 +67,6 @@ export async function dispatchInstagramEvent(
 
   const automations = Array.isArray(rows) ? rows : [];
   const results: Array<{ slug: string; status: string; error?: string }> = [];
-  let matched = 0;
 
   for (const row of automations) {
     const config = parseConfig(row.config);
@@ -84,7 +81,6 @@ export async function dispatchInstagramEvent(
       continue;
     }
 
-    matched += 1;
     const delayMs = Math.max(0, Number(config.delay_seconds) || 0) * 1000;
     if (delayMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, Math.min(delayMs, 15000)));
@@ -123,42 +119,143 @@ export async function dispatchInstagramEvent(
     }
   }
 
+  return results;
+}
+
+export async function dispatchInstagramEvent(
+  input: DispatchInstagramEventInput,
+): Promise<{
+  matched: number;
+  results: Array<{ slug: string; status: string; error?: string; source?: string }>;
+  mode: DispatchMode;
+  skippedCatalog: boolean;
+}> {
+  await brandAutomationsService.ensureSchema();
+  await automationDefinitionsService.ensureSchema();
+
+  const mode: DispatchMode = input.modeOverride || (await getBrandDispatchMode(input.brandId));
+  const results: Array<{ slug: string; status: string; error?: string; source?: string }> = [];
+  let matched = 0;
+  let skippedCatalog = false;
+
+  if (await isBrandRepliesPaused(input.brandId)) {
+    logger.info(`[IG Dispatcher] replies paused brand=${input.brandId}`);
+    return { matched: 0, results: [], mode, skippedCatalog: true };
+  }
+
+  // --- Definitions path (hybrid + definitions; also runs in catalog mode for stubs/backward compat) ---
   const defs = await automationDefinitionsService.getEventMatches(
     input.brandId,
     "instagram",
-    input.evento
+    input.evento,
   );
 
-  for (const def of defs) {
-    if (def.trigger.tipo !== "evento") continue;
-    const keywords = Array.isArray(def.trigger.palavrasChave) ? def.trigger.palavrasChave : [];
-    if (input.matchKeyword && keywords.length > 0 && !keywordMatches(input.matchKeyword, keywords)) {
-      continue;
-    }
+  const winners =
+    mode === "catalog"
+      ? // legacy multi-fire all keyword-matching defs (still stubs unless force)
+        defs.filter((def) => {
+          if (def.trigger.tipo !== "evento") return false;
+          const keywords = Array.isArray(def.trigger.palavrasChave) ? def.trigger.palavrasChave : [];
+          if (input.matchKeyword && keywords.length > 0 && !keywordMatches(input.matchKeyword, keywords)) {
+            return false;
+          }
+          return true;
+        })
+      : selectWinnersBySurface(defs, input.matchKeyword);
 
-    matched += 1;
-    try {
-      const run = await runAutomationDefinition(def, {
-        triggeredBy: "event",
-        eventPayload: {
-          ...input.payload,
-          evento: input.evento,
-          triggered_by: input.triggeredBy,
-          ig_user_id: input.igUserId,
-        },
-        triggeredByUser: input.triggeredBy,
-      });
-      results.push({
-        slug: def.id,
-        status: run.ok ? "success" : "error",
-        error: run.ok ? undefined : run.message,
-      });
-    } catch (err: any) {
-      const msg = String(err?.message || err).slice(0, 200);
-      logger.error(`[IG Dispatcher] def ${def.id}: ${msg}`);
-      results.push({ slug: def.id, status: "error", error: msg });
+  const defMatchCount = winners.length;
+
+  if (mode === "hybrid" || mode === "definitions") {
+    for (const def of winners) {
+      matched += 1;
+      try {
+        const run = await runAutomationDefinition(def, {
+          triggeredBy: "event",
+          eventPayload: {
+            ...input.payload,
+            evento: input.evento,
+            triggered_by: input.triggeredBy,
+            ig_user_id: input.igUserId,
+          },
+          triggeredByUser: input.triggeredBy,
+        });
+        // stub outcome must NOT count as success (would block catalog fallback with no real send)
+        const status = run.skipped
+          ? "skipped"
+          : run.outcome === "stub"
+            ? "stub"
+            : run.ok
+              ? "success"
+              : "error";
+        results.push({
+          slug: def.id,
+          status,
+          error: run.ok || run.skipped || run.outcome === "stub" ? undefined : run.message,
+          source: "definition",
+        });
+        logger.info(
+          `[IG Dispatcher] def ${def.id} status=${status} msg=${(run.message || "").slice(0, 80)}`,
+        );
+      } catch (err: any) {
+        const msg = String(err?.message || err).slice(0, 200);
+        logger.error(`[IG Dispatcher] def ${def.id}: ${msg}`);
+        results.push({ slug: def.id, status: "error", error: msg, source: "definition" });
+      }
     }
   }
 
-  return { matched, results };
+  // Only skip catalog when a definition actually SENT successfully
+  const defSuccessCount = results.filter((r) => r.source === "definition" && r.status === "success").length;
+  skippedCatalog =
+    mode === "definitions" ||
+    (mode === "hybrid" && defSuccessCount > 0) ||
+    shouldSkipCatalogWebhookReplies(mode, defSuccessCount);
+
+  // --- Catalog path ---
+  if (mode === "definitions") {
+    skippedCatalog = true;
+  } else if (mode === "hybrid" && skippedCatalog) {
+    logger.info(
+      `[IG Dispatcher] skip catalog webhooks brand=${input.brandId} evento=${input.evento} defSuccess=${defSuccessCount}`,
+    );
+  } else {
+    // catalog mode OR hybrid with zero successful defs → catalog fallback
+    const catalogResults = await runCatalogWebhookMatches(input);
+    matched += catalogResults.length;
+    for (const r of catalogResults) {
+      results.push({ ...r, source: "catalog" });
+    }
+  }
+
+  // catalog mode still runs defs as secondary (legacy multi-fire) — keep for soft transition when stubs
+  if (mode === "catalog") {
+    for (const def of winners) {
+      matched += 1;
+      try {
+        const run = await runAutomationDefinition(def, {
+          triggeredBy: "event",
+          eventPayload: {
+            ...input.payload,
+            evento: input.evento,
+            triggered_by: input.triggeredBy,
+            ig_user_id: input.igUserId,
+          },
+          triggeredByUser: input.triggeredBy,
+        });
+        results.push({
+          slug: def.id,
+          status: run.skipped ? "skipped" : run.ok ? "success" : "error",
+          error: run.ok || run.skipped ? undefined : run.message,
+          source: "definition",
+        });
+      } catch (err: any) {
+        const msg = String(err?.message || err).slice(0, 200);
+        results.push({ slug: def.id, status: "error", error: msg, source: "definition" });
+      }
+    }
+  }
+
+  return { matched, results, mode, skippedCatalog };
 }
+
+export { shouldApplyGlobalAutoReplyGates };

@@ -348,7 +348,10 @@ async function generateNarrativeWithFallback(
 ): Promise<NarrativeFields> {
   // Tentativa 1: provider preferido (via AIRouter).
   try {
-    return await aiRouter.generateJson<NarrativeFields>(prompt, { userId, brandId }, { temperature: 0.7 });
+    return await aiRouter.generateJson<NarrativeFields>(prompt, { userId, brandId }, {
+      temperature: 0.7,
+      functionKey: "text.followup.narrative",
+    });
   } catch (err: any) {
     logger.warn(`[followupRuler] AI preferido falhou: ${err?.message || err}. Tentando Gemini direto.`);
   }

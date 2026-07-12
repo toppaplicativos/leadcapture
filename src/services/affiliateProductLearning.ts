@@ -237,7 +237,7 @@ export class AffiliateProductLearningService {
       const result = await this.ai.generateText(buildPrompt(product, brand?.name), {
         userId: ownerUserId,
         brandId,
-      }, { temperature: 0.55 });
+      }, { temperature: 0.55, functionKey: "text.affiliate.product_learn" });
 
       const structure = parseAiJson(result.text || "");
       await query(

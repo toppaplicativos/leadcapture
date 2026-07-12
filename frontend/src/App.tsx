@@ -9,6 +9,7 @@ import { ConfirmModal } from '@/components/ConfirmModal'
 import { CatalogHome } from '@/pages/CatalogHome'
 import { OrdersTab } from '@/pages/OrdersTab'
 import { ProfileTab } from '@/pages/ProfileTab'
+import { CartDrawer } from '@/components/store/CartDrawer'
 import { LoginPage } from '@/pages/LoginPage'
 import { PWAInstallBanner } from '@/components/PWAInstallBanner'
 import { adminRouteElements } from '@/routes/adminRoutes'
@@ -40,34 +41,74 @@ const TermsOfServicePage = lazy(() => import('@/pages/TermsOfServicePage').then(
 
 /* ── Fallback ── */
 function RouteFallback() {
-  return <PageSplash variant="route" />
+  // view é resolvido pelo path no PageSplash via getPwaIdentity se necessário;
+  // default admin cobre painel e rotas autenticadas.
+  return <PageSplash variant="route" view="admin" />
 }
 
 function CatalogShell() {
   const [activeTab, setActiveTab] = useState('catalogo')
   const [storeName, setStoreName] = useState('Loja')
   const [logoUrl, setLogoUrl] = useState<string | undefined>()
+  const [catalogProducts, setCatalogProducts] = useState<import('@/lib/api').Product[]>([])
+  const [catalogSlug, setCatalogSlug] = useState('')
+  const [useCartDrawer, setUseCartDrawer] = useState(true)
+  const [cartUpsell, setCartUpsell] = useState(true)
 
   const handleStoreLoaded = useCallback((store: StoreData['store']) => {
     const brand = store.brand
     const theme = store.theme
     setStoreName(brand?.name || store.name || 'Loja')
     setLogoUrl(brand?.logo_url || theme?.logo_url || undefined)
+    setCatalogSlug(String((store as any).slug || '').trim())
+    const conv = (store as any).marketing?.conversion
+    setUseCartDrawer(conv?.cart_drawer !== false)
+    setCartUpsell(conv?.cart_upsell !== false)
   }, [])
+
+  const goToOrders = useCallback(() => setActiveTab('pedidos'), [])
+  const goToCatalog = useCallback(() => setActiveTab('catalogo'), [])
+  const goToProfile = useCallback(() => setActiveTab('perfil'), [])
 
   return (
     <div className="store-page min-h-screen pb-16">
-      <Topbar storeName={storeName} logoUrl={logoUrl} />
+      <Topbar storeName={storeName} logoUrl={logoUrl} useCartDrawer={useCartDrawer} />
 
       <main>
         {activeTab === 'catalogo' && (
-          <CatalogHome onStoreLoaded={handleStoreLoaded} />
+          <CatalogHome
+            onStoreLoaded={handleStoreLoaded}
+            onProductsLoaded={(list, slug) => {
+              setCatalogProducts(list)
+              if (slug) setCatalogSlug(slug)
+            }}
+          />
         )}
-        {activeTab === 'pedidos' && <OrdersTab />}
-        {activeTab === 'perfil' && <ProfileTab />}
+        {activeTab === 'pedidos' && (
+          <OrdersTab
+            storeName={storeName}
+            onGoToProfile={goToProfile}
+            onGoToCatalog={goToCatalog}
+          />
+        )}
+        {activeTab === 'perfil' && (
+          <ProfileTab
+            storeName={storeName}
+            logoUrl={logoUrl}
+            onGoToOrders={goToOrders}
+            onGoToCatalog={goToCatalog}
+          />
+        )}
       </main>
 
       <BottomNav activeTab={activeTab} onTabChange={setActiveTab} />
+      {useCartDrawer && (
+        <CartDrawer
+          products={catalogProducts}
+          catalogSlug={catalogSlug || undefined}
+          enableUpsell={cartUpsell}
+        />
+      )}
     </div>
   )
 }

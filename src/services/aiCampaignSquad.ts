@@ -200,7 +200,7 @@ REGRAS:
 - offering deve ser concreto (nao "vender bem" — sim "vender consorcio de carros pra autonomos").`;
 
   const result = await withTimeout(
-    aiRouter.generateJson<SkillBrief>(prompt, { userId: ctx.userId, brandId: ctx.brandId }, { temperature: 0.5 }),
+    aiRouter.generateJson<SkillBrief>(prompt, { userId: ctx.userId, brandId: ctx.brandId }, { temperature: 0.5, functionKey: "text.campaign.squad" }),
     15_000, "interpretBrief",
   );
 
@@ -252,7 +252,7 @@ REGRAS:
 - avoid eh feedback pro user, nao filtro hard.`;
 
   const result = await withTimeout(
-    aiRouter.generateJson<SkillAudience>(prompt, { userId: ctx.userId, brandId: ctx.brandId }, { temperature: 0.6 }),
+    aiRouter.generateJson<SkillAudience>(prompt, { userId: ctx.userId, brandId: ctx.brandId }, { temperature: 0.6, functionKey: "text.campaign.squad" }),
     15_000, "defineAudience",
   );
 
@@ -312,7 +312,7 @@ REGRAS:
   let result: any;
   try {
     result = await withTimeout(
-      aiRouter.generateJson<any>(prompt, { userId: ctx.userId, brandId: ctx.brandId }, { temperature: 0.7 }),
+      aiRouter.generateJson<any>(prompt, { userId: ctx.userId, brandId: ctx.brandId }, { temperature: 0.7, functionKey: "text.campaign.squad" }),
       20_000, "discoverNewProspects",
     );
   } catch (err: any) {
@@ -490,7 +490,7 @@ REGRAS CRITICAS:
 - Se messageTemplate ja eh universal demais (sem variaveis), useAI pode ser false.`;
 
   const result = await withTimeout(
-    aiRouter.generateJson<ComposedMessage>(prompt, { userId: ctx.userId, brandId: ctx.brandId }, { temperature: 0.7 }),
+    aiRouter.generateJson<ComposedMessage>(prompt, { userId: ctx.userId, brandId: ctx.brandId }, { temperature: 0.7, functionKey: "text.campaign.squad" }),
     15_000, "composeMessage",
   );
 

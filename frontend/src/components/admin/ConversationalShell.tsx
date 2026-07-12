@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback, type ReactNode } from 'react'
+import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { LogOut, ChevronDown, X } from 'lucide-react'
+import { LogOut, ChevronDown, X, PanelLeftClose, PanelLeftOpen, ArrowLeft } from 'lucide-react'
 import { WhatsAppHealthBanner } from '@/components/WhatsAppHealthBanner'
 import { AgentShellProvider, useAgentShell } from '@/lib/agent/AgentShellContext'
 import { ProspectBridgeProvider } from '@/lib/agent/ProspectBridgeContext'
+import { useProspectBridgeOptional } from '@/lib/agent/ProspectBridgeContext'
 import { InboxBridgeProvider } from '@/lib/agent/InboxBridgeContext'
 import { ProductsBridgeProvider } from '@/lib/agent/ProductsBridgeContext'
 import { CampaignsBridgeProvider } from '@/lib/agent/CampaignsBridgeContext'
@@ -27,6 +28,17 @@ import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
 import { WhatsAppConnectProvider } from '@/lib/whatsapp/WhatsAppConnectContext'
 import { WhatsAppConnectModal } from '@/components/whatsapp/WhatsAppConnectModal'
 import { ChannelHeaderIcons } from '@/components/admin/ChannelHeaderIcons'
+import { ProspectSearchControls } from '@/components/agent/prospect/ProspectSearchControls'
+import { EntitlementsProvider, useEntitlements } from '@/lib/EntitlementsContext'
+import { NAV_ITEMS } from '@/lib/admin/nav'
+
+const COLLAPSED_CHAT_GROUPS = [
+  { label: 'Principal', keys: ['dashboard', 'busca', 'clientes', 'leads'] },
+  { label: 'Canais', keys: ['mensagens', 'whatsapp', 'instagram', 'facebook', 'emails'] },
+  { label: 'Vendas', keys: ['campanhas', 'loja', 'produtos', 'pedidos', 'afiliados', 'galeria'] },
+  { label: 'Inteligência', keys: ['automacoes', 'notificacoes', 'habilidades', 'agente', 'atendente', 'provedores-ia'] },
+  { label: 'Sistema', keys: ['configuracoes'] },
+] as const
 
 let _tt: ReturnType<typeof setTimeout> | undefined
 function useShellToast(): { msg: { text: string; type: 'ok' | 'err' } | null; show: (text: string, type?: 'ok' | 'err') => void } {
@@ -63,31 +75,142 @@ function ConversationalShellBody({
 }) {
   const {
     mobileCanvasOpen, setMobileCanvasOpen, desktopCanvasOpen,
-    prospectModuleOpen, inboxModuleOpen, productsModuleOpen,
-    campaignsModuleOpen, galleryModuleOpen, instagramModuleOpen, facebookModuleOpen, automationsModuleOpen, affiliatesModuleOpen, leadsModuleOpen, clientsModuleOpen, ordersModuleOpen,
-    dashboardModuleOpen, skillsModuleOpen,
+    activeModuleId, activeModuleLabel, workspaceSurface, onNavigate,
   } = useAgentShell()
+  const location = useLocation()
+  const navigate = useNavigate()
   const isDesktop = useIsDesktop()
+  const [chatCollapsed, setChatCollapsed] = useState(
+    () => localStorage.getItem('lead-system:desktop-chat-collapsed') === 'true',
+  )
+  const [shortcutTooltip, setShortcutTooltip] = useState<{ label: string; top: number; left: number } | null>(null)
+  // Rotas operacionais (/atendente, …): experiência de página, não overlay frágil
+  const pathOnlyNow = (location.pathname || '').split('?')[0] || ''
+  const urlDrivenOpen =
+    pathOnlyNow !== '/assistente' &&
+    pathOnlyNow !== '' &&
+    pathOnlyNow !== '/'
+  // Com o chat recolhido, /admin representa o dashboard no canvas e deve permanecer aberto.
+  // A hidratação tardia da conversa não pode desmontar a navegação rápida.
+  const dashboardPinnedOpen = isDesktop && chatCollapsed && pathOnlyNow === '/admin'
+  const canvasOpen = desktopCanvasOpen || urlDrivenOpen || dashboardPinnedOpen
   const { brand, brands, activeBrandId, showBrandPicker, setShowBrandPicker, switchBrand, logout, refreshKey } = brandState
+  const brandMenuRef = useRef<HTMLDivElement>(null)
+
+  /* Mobile: em rota operacional o canvas é a página principal (sempre is-open).
+     Skills/hidratação NÃO podem esconder com activeModuleId. */
+  const mobileCanvasVisible = urlDrivenOpen
+    ? true
+    : mobileCanvasOpen && canvasOpen && !activeModuleId
+
+  const toggleDesktopChat = () => {
+    setChatCollapsed((current) => {
+      const next = !current
+      localStorage.setItem('lead-system:desktop-chat-collapsed', String(next))
+      return next
+    })
+  }
+
+  useEffect(() => {
+    if (!showBrandPicker) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShowBrandPicker(false)
+    }
+    const onDoc = (e: MouseEvent) => {
+      if (brandMenuRef.current && !brandMenuRef.current.contains(e.target as Node)) {
+        setShowBrandPicker(false)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    document.addEventListener('mousedown', onDoc)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      document.removeEventListener('mousedown', onDoc)
+    }
+  }, [showBrandPicker, setShowBrandPicker])
+
+  const { entitlements, brandActive, maintenanceMode, refresh: refreshEntitlements } = useEntitlements()
+  const prospectBridge = useProspectBridgeOptional()
+  const collapsedChatGroups = COLLAPSED_CHAT_GROUPS.map((group) => ({
+    ...group,
+    items: group.keys
+      .map((key) => NAV_ITEMS.find((item) => item.key === key))
+      .filter((item): item is NonNullable<typeof item> => Boolean(item)),
+  })).filter((group) => group.items.length > 0)
+
+  useEffect(() => {
+    /* register toast hook for plan/module denials from api-admin */
+    import('@/lib/api-errors').then(({ registerApiErrorToast }) => {
+      registerApiErrorToast((msg, type) => {
+        if (type === 'err') showToast(msg, 'err')
+        else showToast(msg, 'ok')
+      })
+    })
+  }, [showToast])
+
+  useEffect(() => {
+    /* when brand id changes via picker, re-pull entitlements */
+    refreshEntitlements()
+  }, [activeBrandId, refreshEntitlements])
 
   return (
-    <div className="agent-shell flex flex-col bg-bg">
+    <div
+      className={[
+        'agent-shell flex flex-col bg-bg',
+        `agent-shell--${workspaceSurface}`,
+        urlDrivenOpen ? 'agent-shell--route-page' : '',
+        canvasOpen ? 'agent-shell--canvas-open' : '',
+      ].filter(Boolean).join(' ')}
+      data-route={pathOnlyNow}
+    >
       <div className="agent-shell__chrome shrink-0">
+        {maintenanceMode && (
+          <div className="px-4 py-2 bg-amber-50 border-b border-amber-200 text-[12px] text-amber-900 font-medium">
+            Plataforma em manutenção — algumas ações podem estar bloqueadas.
+          </div>
+        )}
+        {!brandActive && entitlements?.brand?.status && (
+          <div className="px-4 py-2 bg-red-50 border-b border-red-200 text-[12px] text-red-800 font-medium">
+            Organização {entitlements.brand.status === 'suspended' ? 'suspensa' : 'arquivada'} —
+            contate o suporte para reativar.
+          </div>
+        )}
+        {entitlements?.subscription?.plan_name && (
+          <div className="sr-only" aria-hidden>
+            Plano {entitlements.subscription.plan_name}
+          </div>
+        )}
         <WhatsAppHealthBanner embedded />
         <header className="agent-shell__header">
-        <div className="agent-shell__brand">
+        <div className="agent-shell__brand" ref={brandMenuRef}>
           <button
             type="button"
             onClick={() => brands.length > 1 && setShowBrandPicker(!showBrandPicker)}
             className="agent-shell__brand-btn"
+            aria-expanded={brands.length > 1 ? showBrandPicker : undefined}
+            aria-haspopup={brands.length > 1 ? 'listbox' : undefined}
+            aria-label={brands.length > 1 ? 'Trocar marca' : undefined}
           >
             {brand.logo_url ? (
-              <img src={brand.logo_url} alt="" className="agent-shell__logo" />
-            ) : (
-              <span className="agent-shell__logo agent-shell__logo--fallback">
-                {(brand.name || 'L').charAt(0).toUpperCase()}
-              </span>
-            )}
+              <img
+                src={brand.logo_url}
+                alt=""
+                className="agent-shell__logo"
+                onError={(e) => {
+                  const el = e.currentTarget
+                  el.style.display = 'none'
+                  const fallback = el.nextElementSibling as HTMLElement | null
+                  if (fallback) fallback.style.display = 'grid'
+                }}
+              />
+            ) : null}
+            <span
+              className="agent-shell__logo agent-shell__logo--fallback"
+              style={brand.logo_url ? { display: 'none' } : undefined}
+              aria-hidden={!!brand.logo_url}
+            >
+              {(brand.name || 'L').charAt(0).toUpperCase()}
+            </span>
             <span className="agent-shell__brand-name">{brand.name || 'LeadCapture'}</span>
             {brands.length > 1 && (
               <ChevronDown size={14} className={`text-gray-400 transition ${showBrandPicker ? 'rotate-180' : ''}`} />
@@ -95,15 +218,29 @@ function ConversationalShellBody({
           </button>
 
           {showBrandPicker && brands.length > 1 && (
-            <div className="agent-shell__brand-menu">
+            <div className="agent-shell__brand-menu" role="listbox" aria-label="Marcas">
               {brands.map((b: any) => (
                 <button
                   key={b.id}
                   type="button"
+                  role="option"
+                  aria-selected={String(b.id) === String(activeBrandId)}
                   onClick={() => switchBrand(b.id)}
                   className={`agent-shell__brand-item ${String(b.id) === String(activeBrandId) ? 'is-active' : ''}`}
                 >
-                  {b.name}
+                  {b.logo_url ? (
+                    <img
+                      src={b.logo_url}
+                      alt=""
+                      className="agent-shell__brand-item-logo"
+                      onError={(e) => { e.currentTarget.style.display = 'none' }}
+                    />
+                  ) : (
+                    <span className="agent-shell__brand-item-logo agent-shell__brand-item-logo--fallback">
+                      {(b.name || '?').charAt(0).toUpperCase()}
+                    </span>
+                  )}
+                  <span className="truncate">{b.name}</span>
                 </button>
               ))}
             </div>
@@ -111,6 +248,25 @@ function ConversationalShellBody({
         </div>
 
         <div className="agent-shell__header-actions">
+          {(activeModuleLabel || desktopCanvasOpen) && (
+            <span className="agent-shell__surface-status" title="Onde você está">
+              <span className="agent-shell__surface-status-chat">Chat</span>
+              {activeModuleLabel && (
+                <>
+                  <span className="agent-shell__surface-status-sep" aria-hidden>·</span>
+                  <span className="agent-shell__surface-status-module">{activeModuleLabel}</span>
+                </>
+              )}
+              {desktopCanvasOpen && (
+                <>
+                  <span className="agent-shell__surface-status-sep" aria-hidden>·</span>
+                  <span className="agent-shell__surface-status-canvas">
+                    {isDesktop ? 'Painel' : 'Tela cheia'}
+                  </span>
+                </>
+              )}
+            </span>
+          )}
           <ChannelHeaderIcons brandKey={activeBrandId || refreshKey} />
           <button type="button" onClick={logout} className="agent-shell__logout" aria-label="Sair">
             <LogOut size={16} strokeWidth={1.75} />
@@ -120,21 +276,94 @@ function ConversationalShellBody({
         </header>
       </div>
 
-      <div className={`agent-shell__body flex-1 min-h-0 flex ${desktopCanvasOpen ? 'has-canvas' : 'chat-only'}`}>
-        <aside className="agent-shell__rail shrink-0">
+      <div
+        className={[
+          'agent-shell__body flex-1 min-h-0 flex',
+          canvasOpen || urlDrivenOpen ? 'has-canvas' : 'chat-only',
+          urlDrivenOpen ? 'has-route-page' : '',
+        ].filter(Boolean).join(' ')}
+      >
+        <aside
+          className={`agent-shell__rail shrink-0${isDesktop && canvasOpen && chatCollapsed ? ' is-collapsed' : ''}`}
+          aria-label="Conversa"
+          /* Em mobile + rota operacional o rail fica secundário (não cobre a página) */
+          data-secondary={urlDrivenOpen && !isDesktop ? 'true' : undefined}
+        >
           <WorkspaceChat brandName={brand.name} brandLogoUrl={brand.logo_url} />
         </aside>
 
+        {isDesktop && canvasOpen && (
+          <div className={`agent-shell__rail-divider${chatCollapsed ? ' is-navigation' : ''}`} aria-label={chatCollapsed ? 'Navegação rápida' : undefined}>
+            <button
+              type="button"
+              className="agent-shell__rail-toggle"
+              onClick={toggleDesktopChat}
+              aria-label={chatCollapsed ? 'Expandir chat' : 'Recolher chat'}
+              title={chatCollapsed ? 'Expandir chat' : 'Recolher chat'}
+            >
+              {chatCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+            </button>
+            {chatCollapsed && (
+              <nav className="agent-shell__collapsed-nav" aria-label="Atalhos do aplicativo">
+                {collapsedChatGroups.map((group, groupIndex) => (
+                  <div className="agent-shell__collapsed-nav-group" key={group.label} aria-label={group.label}>
+                    {groupIndex > 0 && <span className="agent-shell__collapsed-nav-separator" role="separator" />}
+                    {group.items.map((item) => {
+                      const Icon = item.icon
+                      const active = pathOnlyNow === item.path || (item.key === 'dashboard' && pathOnlyNow === '/dashboard')
+                      return (
+                        <button
+                          key={item.key}
+                          type="button"
+                          className={`agent-shell__collapsed-nav-item${active ? ' is-active' : ''}`}
+                          onClick={() => onNavigate(item.path)}
+                          onMouseEnter={(event) => {
+                            const rect = event.currentTarget.getBoundingClientRect()
+                            setShortcutTooltip({ label: item.label, top: rect.top + rect.height / 2, left: rect.right + 10 })
+                          }}
+                          onMouseLeave={() => setShortcutTooltip(null)}
+                          onFocus={(event) => {
+                            const rect = event.currentTarget.getBoundingClientRect()
+                            setShortcutTooltip({ label: item.label, top: rect.top + rect.height / 2, left: rect.right + 10 })
+                          }}
+                          onBlur={() => setShortcutTooltip(null)}
+                          aria-label={item.label}
+                          aria-current={active ? 'page' : undefined}
+                          title={item.label}
+                        >
+                          <Icon size={17} strokeWidth={1.8} />
+                        </button>
+                      )
+                    })}
+                  </div>
+                ))}
+              </nav>
+            )}
+            {chatCollapsed && shortcutTooltip && (
+              <div className="agent-shell__shortcut-tooltip" role="tooltip" style={{ top: shortcutTooltip.top, left: shortcutTooltip.left }}>
+                {shortcutTooltip.label}
+              </div>
+            )}
+          </div>
+        )}
+
         <main
-          className={`agent-shell__canvas flex-1 min-w-0 min-h-0 ${
-            mobileCanvasOpen && desktopCanvasOpen
-              && !prospectModuleOpen && !inboxModuleOpen
-              && !productsModuleOpen && !campaignsModuleOpen && !galleryModuleOpen && !instagramModuleOpen && !facebookModuleOpen && !automationsModuleOpen && !affiliatesModuleOpen && !leadsModuleOpen && !clientsModuleOpen && !ordersModuleOpen
-              && !dashboardModuleOpen && !skillsModuleOpen
-              ? 'is-open' : ''
-          }`}
+          className={[
+            'agent-shell__canvas flex-1 min-w-0 min-h-0',
+            mobileCanvasVisible || urlDrivenOpen ? 'is-open' : '',
+            urlDrivenOpen ? 'is-route-page' : '',
+          ].filter(Boolean).join(' ')}
+          aria-label={
+            urlDrivenOpen
+              ? 'Página'
+              : activeModuleLabel
+                ? `Painel: ${activeModuleLabel}`
+                : 'Painel de trabalho'
+          }
+          aria-hidden={urlDrivenOpen || mobileCanvasVisible || canvasOpen ? undefined : true}
         >
-          {!isDesktop && (
+          {/* Em rota operacional no mobile NÃO oferecemos "fechar" — fecharia a página */}
+          {!isDesktop && mobileCanvasVisible && !urlDrivenOpen && (
             <button
               type="button"
               className="agent-shell__canvas-close"
@@ -144,9 +373,25 @@ function ConversationalShellBody({
               <X size={18} />
             </button>
           )}
-          <div key={activeBrandId} className="h-full min-h-0">
+          {!isDesktop && urlDrivenOpen && (
+            <button
+              type="button"
+              className="agent-shell__route-back"
+              onClick={() => navigate('/admin')}
+              aria-label="Voltar ao chat"
+            >
+              <ArrowLeft size={16} />
+              <span>Chat</span>
+            </button>
+          )}
+          <div key={`${activeBrandId}:${pathOnlyNow}`} className="h-full min-h-0">
             <AgentCanvas>{children}</AgentCanvas>
           </div>
+          {isDesktop && chatCollapsed && pathOnlyNow === '/busca' && prospectBridge?.isReady && (
+            <div className="agent-shell__prospect-control-center" aria-label="Centro de controle da prospecção">
+              <ProspectSearchControls placement="canvas" />
+            </div>
+          )}
         </main>
       </div>
 
@@ -242,6 +487,13 @@ function ConversationalShellInner({ children }: { children?: ReactNode }) {
       localStorage.setItem('lead-system:active-brand-id', brandId)
       setActiveBrandId(brandId)
       setShowBrandPicker(false)
+      /* re-sync entitlements for the new brand context */
+      try {
+        const { invalidateEntitlementsCache } = await import('@/lib/entitlements')
+        invalidateEntitlementsCache()
+      } catch {
+        /* ignore */
+      }
       setRefreshKey((k) => k + 1)
     } catch { /* ignore */ }
   }
@@ -253,8 +505,8 @@ function ConversationalShellInner({ children }: { children?: ReactNode }) {
 
   if (!authReady) {
     return (
-      <div className="h-screen bg-bg">
-        <PageSplash variant="route" />
+      <div className="h-screen w-full" style={{ background: 'var(--color-surface-alt, #f3f3f3)' }}>
+        <PageSplash variant="route" view="admin" label="Painel" />
       </div>
     )
   }
@@ -293,37 +545,39 @@ function ConversationalShellInner({ children }: { children?: ReactNode }) {
 
 export function ConversationalShell({ children }: { children?: ReactNode }) {
   return (
-    <WhatsAppConnectProvider>
-      <ProspectBridgeProvider>
-        <InboxBridgeProvider>
-          <ProductsBridgeProvider>
-            <CampaignsBridgeProvider>
-              <GalleryBridgeProvider>
-                <InstagramBridgeProvider>
-                <FacebookBridgeProvider>
-                <AutomationsBridgeProvider>
-                <AffiliatesBridgeProvider>
-                <LeadsBridgeProvider>
-                  <ClientsBridgeProvider>
-                    <OrdersBridgeProvider>
-                      <DashboardBridgeProvider>
-                        <SkillsBridgeProvider>
-                          <ConversationalShellInner>{children}</ConversationalShellInner>
-                        </SkillsBridgeProvider>
-                      </DashboardBridgeProvider>
-                    </OrdersBridgeProvider>
-                  </ClientsBridgeProvider>
-                </LeadsBridgeProvider>
-                </AffiliatesBridgeProvider>
-                </AutomationsBridgeProvider>
-                </FacebookBridgeProvider>
-                </InstagramBridgeProvider>
-              </GalleryBridgeProvider>
-            </CampaignsBridgeProvider>
-          </ProductsBridgeProvider>
-        </InboxBridgeProvider>
-      </ProspectBridgeProvider>
-    </WhatsAppConnectProvider>
+    <EntitlementsProvider>
+      <WhatsAppConnectProvider>
+        <ProspectBridgeProvider>
+          <InboxBridgeProvider>
+            <ProductsBridgeProvider>
+              <CampaignsBridgeProvider>
+                <GalleryBridgeProvider>
+                  <InstagramBridgeProvider>
+                  <FacebookBridgeProvider>
+                  <AutomationsBridgeProvider>
+                  <AffiliatesBridgeProvider>
+                  <LeadsBridgeProvider>
+                    <ClientsBridgeProvider>
+                      <OrdersBridgeProvider>
+                        <DashboardBridgeProvider>
+                          <SkillsBridgeProvider>
+                            <ConversationalShellInner>{children}</ConversationalShellInner>
+                          </SkillsBridgeProvider>
+                        </DashboardBridgeProvider>
+                      </OrdersBridgeProvider>
+                    </ClientsBridgeProvider>
+                  </LeadsBridgeProvider>
+                  </AffiliatesBridgeProvider>
+                  </AutomationsBridgeProvider>
+                  </FacebookBridgeProvider>
+                  </InstagramBridgeProvider>
+                </GalleryBridgeProvider>
+              </CampaignsBridgeProvider>
+            </ProductsBridgeProvider>
+          </InboxBridgeProvider>
+        </ProspectBridgeProvider>
+      </WhatsAppConnectProvider>
+    </EntitlementsProvider>
   )
 }
 

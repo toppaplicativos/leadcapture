@@ -234,6 +234,37 @@ export class WhatsAppAgentService {
     }
 
     // 3. COGNITIVE PIPELINE — primary path. Falls back to legacy single-pass on failure.
+    // Load channel attendance pack (training_channel, limits, sales, objections)
+    let channelHints: {
+      channelTraining?: string;
+      channelRules?: string;
+      channelMaxLength?: number;
+      salesMode?: string;
+      objections?: Array<{ signal: string; response: string }>;
+      split?: boolean;
+      maxBubbles?: number;
+    } = {};
+    try {
+      const { buildBrandContextPack } = await import("./brandContextPack");
+      const pack = await buildBrandContextPack({
+        brandId: brandId || "",
+        userId,
+        channel: "whatsapp",
+        inboundText: incomingMessage,
+      });
+      channelHints = {
+        channelTraining: pack.training_channel,
+        channelRules: pack.channel_cfg?.channel_rules,
+        channelMaxLength: pack.max_chars,
+        salesMode: pack.sales_mode,
+        objections: pack.objections,
+        split: pack.split_long_replies,
+        maxBubbles: pack.max_bubbles,
+      };
+    } catch {
+      /* pack optional */
+    }
+
     try {
       const cognitive = await cognitiveAgent.respond({
         userId,
@@ -245,6 +276,11 @@ export class WhatsAppAgentService {
         lastOutgoingMessages: Array.isArray(input.lastOutgoingMessages)
           ? input.lastOutgoingMessages.map((m) => String(m || "").trim()).filter(Boolean)
           : [],
+        channelTraining: channelHints.channelTraining,
+        channelRules: channelHints.channelRules,
+        channelMaxLength: channelHints.channelMaxLength,
+        salesMode: channelHints.salesMode,
+        objections: channelHints.objections,
       });
 
       /* Fase 16 — agent decided not to respond (reaction / ack / silence). Return
@@ -286,8 +322,25 @@ export class WhatsAppAgentService {
 
       const text = String(cognitive.text || "").trim();
       if (text) {
+        /* Multi-bubble marker for inbox layer (optional consumers) */
+        let finalText = text;
+        try {
+          if (channelHints.split !== false && channelHints.channelMaxLength) {
+            const { splitMessageIntoBubbles } = await import("./messageSplit");
+            const bubbles = splitMessageIntoBubbles(
+              text,
+              channelHints.channelMaxLength,
+              channelHints.maxBubbles || 3,
+            );
+            if (bubbles.length > 1) {
+              finalText = bubbles.join("\n\n---\n\n");
+            }
+          }
+        } catch {
+          /* keep single text */
+        }
         return {
-          text,
+          text: finalText,
           profile,
           knowledgeApplied: cognitive.knowledgeApplied,
           catalogApplied: cognitive.catalogApplied,

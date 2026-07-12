@@ -142,6 +142,7 @@ function signStockToken(input: {
       userId: input.managerUserId,
       email: input.email,
       role: "manager",
+      account_kind: "staff",
       credential_type: "estoque",
       owner_user_id: input.ownerUserId,
       brand_id: input.brandId,
@@ -163,6 +164,7 @@ function signAffiliateToken(input: {
       userId: input.affiliateUserId,
       email: input.email,
       role: "affiliate",
+      account_kind: "affiliate",
       credential_type: "afiliado",
       owner_user_id: input.ownerUserId,
       brand_id: input.brandId,
@@ -182,6 +184,7 @@ function signPartnersGlobalToken(input: {
       userId: input.affiliateUserId,
       email: input.email,
       role: "affiliate",
+      account_kind: "affiliate",
       credential_type: "parceiro",
     },
     config.jwtSecret,
@@ -190,9 +193,10 @@ function signPartnersGlobalToken(input: {
 }
 
 // POST /api/auth/register
+// Creates an ORGANIZATION principal (account_kind=org). Client cannot self-assign admin/platform.
 router.post("/register", async (req: Request, res: Response) => {
   try {
-    const { email, password, name, phone, role, brand_name } = req.body;
+    const { email, password, name, phone, brand_name } = req.body;
 
     if (!email || !password || !name) {
       return res.status(400).json({ error: "Email, password and name are required" });
@@ -202,30 +206,39 @@ router.post("/register", async (req: Request, res: Response) => {
       return res.status(400).json({ error: "Password must be at least 6 characters" });
     }
 
-    const user = await usersService.create({ email, password, name, phone, role: role || "admin" });
-    const token = usersService.signToken({ ...user, role: role || "admin" });
+    // Force org principal — ignore body.role / body.account_kind (privilege escalation)
+    const user = await usersService.create({
+      email,
+      password,
+      name,
+      phone,
+      accountKind: "org",
+      role: "org",
+    });
+    const token = usersService.signToken({
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      account_kind: user.account_kind,
+      is_super_admin: Boolean((user as any).is_super_admin),
+    });
 
-    // Create a default brand for the new user
+    // Create default organization (brand_units) + RBAC seed + owner membership
     const brandNameFinal = String(brand_name || name || "").trim();
     if (brandNameFinal) {
-      const brandId = randomUUID();
-      const slug = brandNameFinal
-        .toLowerCase()
-        .normalize("NFD")
-        .replace(/[̀-ͯ]/g, "")
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-|-$/g, "");
-      await query(
-        `INSERT INTO brand_units (id, user_id, name, slug, status, is_default)
-         VALUES (?, ?, ?, ?, 'active', TRUE)`,
-        [brandId, user.id, brandNameFinal, slug]
-      );
-      logger.info(`Brand created for new user: ${brandNameFinal} (ID: ${brandId})`);
+      try {
+        const { BrandUnitsService } = await import("../services/brandUnits");
+        const brands = new BrandUnitsService();
+        const brand = await brands.create(user.id, { name: brandNameFinal, is_default: true });
+        logger.info(`Organization created for new user: ${brandNameFinal} (ID: ${brand.id})`);
+      } catch (brandErr: any) {
+        logger.warn(`Org brand create on register failed: ${brandErr?.message}`);
+      }
     }
 
     res.status(201).json({
       success: true,
-      message: "User registered successfully",
+      message: "Organization registered successfully",
       token,
       user,
     });
@@ -276,22 +289,46 @@ router.get("/me", authMiddleware, async (req: AuthRequest, res: Response) => {
   }
 });
 
-// PUT /api/auth/me - Update current user profile
+// PUT /api/auth/me - Update current user profile (sem senha — use /me/password)
 router.put("/me", authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
-    const { name, email, phone, password } = req.body;
+    const { name, email, phone } = req.body;
     const user = await usersService.updateUser(req.user!.userId as any, {
-      name, email, phone, password,
+      name, email, phone,
     });
     res.json({ success: true, user });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: error.message || "Falha ao atualizar perfil" });
   }
 });
 
-// GET /api/auth/users - List all users (admin only)
+// POST /api/auth/me/password - Redefinir senha (exige senha atual)
+router.post("/me/password", authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    const current_password = String(req.body?.current_password || req.body?.currentPassword || "");
+    const new_password = String(req.body?.new_password || req.body?.newPassword || req.body?.password || "");
+    if (!current_password || !new_password) {
+      return res.status(400).json({ error: "Senha atual e nova senha são obrigatórias" });
+    }
+    await usersService.changePassword(String(req.user!.userId), current_password, new_password);
+    res.json({ success: true, message: "Senha atualizada" });
+  } catch (error: any) {
+    const msg = error?.message || "Falha ao redefinir senha";
+    const status = /incorreta|não encontrado/i.test(msg) ? 400 : 500;
+    res.status(status).json({ error: msg });
+  }
+});
+
+// GET /api/auth/users - List all platform users (Admin Master only)
 router.get("/users", authMiddleware, requireRole(["admin"]), async (req: AuthRequest, res: Response) => {
   try {
+    // Platform-wide user listing is master-only (not org owners)
+    if (!req.user?.is_super_admin) {
+      return res.status(403).json({
+        error: "Listagem global de usuários restrita ao Admin Master",
+        code: "MASTER_ONLY",
+      });
+    }
     const users = await usersService.getAll();
     res.json({ success: true, users });
   } catch (error: any) {
@@ -400,7 +437,8 @@ router.post("/stock-access", authMiddleware, requireRole(["admin", "operator"]),
 
     const passwordHash = await bcrypt.hash(password, 12);
     let manager = await queryOne<any>(
-      `SELECT id, email FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1`,
+      `SELECT id, email, role, account_kind, COALESCE(is_super_admin, false) AS is_super_admin
+       FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1`,
       [email]
     );
 
@@ -408,14 +446,23 @@ router.post("/stock-access", authMiddleware, requireRole(["admin", "operator"]),
     if (!managerUserId) {
       managerUserId = randomUUID();
       await query(
-        `INSERT INTO users (id, email, password_hash, name, phone, role, is_active)
-         VALUES (?, ?, ?, ?, ?, 'manager', TRUE)`,
+        `INSERT INTO users (id, email, password_hash, name, phone, role, account_kind, is_active)
+         VALUES (?, ?, ?, ?, ?, 'manager', 'staff', TRUE)`,
         [managerUserId, email, passwordHash, name, phone]
       );
     } else {
+      // Never demote org owners / platform masters to stock manager
+      const protectedPrincipal = await usersService.isProtectedPrincipal(managerUserId);
+      if (protectedPrincipal) {
+        return res.status(409).json({
+          error:
+            "Este e-mail já pertence a uma Organização ou ao Admin Master. Use outro e-mail para o gerente de estoque.",
+          code: "PRINCIPAL_PROTECTED",
+        });
+      }
       await query(
         `UPDATE users
-         SET email = ?, password_hash = ?, name = ?, phone = ?, role = 'manager', is_active = TRUE, updated_at = NOW()
+         SET email = ?, password_hash = ?, name = ?, phone = ?, role = 'manager', account_kind = 'staff', is_active = TRUE, updated_at = NOW()
          WHERE id = ?`,
         [email, passwordHash, name, phone, managerUserId]
       );

@@ -62,8 +62,11 @@ Instruções:
 - Retorne APENAS o resumo em texto plano`;
 
   try {
-    const raw = await aiRouter.generateText(prompt, { userId, brandId }, { temperature: 0.15 });
-    const summary = String(raw || "").trim().slice(0, 3000);
+    const raw = await aiRouter.generateText(prompt, { userId, brandId }, {
+      temperature: 0.15,
+      functionKey: "text.admin.summary",
+    });
+    const summary = String(raw?.text || "").trim().slice(0, 3000);
     if (!summary) return session.summary || null;
     await adminAgentSessionStore.saveSessionSummary(session.id, userId, brandId, summary, olderCount);
     return summary;

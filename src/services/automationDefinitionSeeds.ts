@@ -8,7 +8,7 @@ import { logger } from "../utils/logger";
 import { v4 as uuidv4 } from "uuid";
 import { automationDefinitionsService } from "./automationDefinitions";
 
-export const IG_SEED_PACK_VERSION = 1;
+export const IG_SEED_PACK_VERSION = 2;
 
 export interface SeedTemplate {
   seed_key: string;
@@ -24,10 +24,16 @@ const DEFAULT_KEYWORDS = ["preço", "preco", "valor", "quanto", "info", "catálo
 
 export function getInstagramReplySeedPack(): SeedTemplate[] {
   return [
+    /**
+     * PADRÃO POR BRAND — dois caminhos, mesma estrutura:
+     * 1) dm_keyword — palavras-chave (preço, catálogo…) + FAQ/IA da marca
+     * 2) resposta_padrao_dm — sem keyword: template + contexto da marca (persona/FAQ)
+     */
     {
       seed_key: "ig.dm.keyword",
       nome: "DM com palavra-chave",
-      descricao: "Responde DMs quando o texto contém palavras-chave configuradas.",
+      descricao:
+        "Quando a DM contém palavras-chave (preço, catálogo…). Usa FAQ/persona da marca. Ative e edite as keywords.",
       priority: 20,
       trigger: {
         tipo: "evento",
@@ -41,8 +47,21 @@ export function getInstagramReplySeedPack(): SeedTemplate[] {
           tipo: "enviar_dm_ig",
           config: {
             iaGenerated: true,
-            fallback_message: "Obrigado pela mensagem! Em breve retornamos com mais detalhes.",
+            // {brand} is filled from brand AI settings at send time
+            fallback_message:
+              "Sobre isso, a {brand} pode te ajudar! Me diga mais detalhes ou digite *menu* para opções.",
+            mensagem:
+              "Recebi sua dúvida sobre o tema 💚 A equipe da {brand} retorna em breve com valores e disponibilidade. Digite *menu* se quiser navegar.",
             delaySegundos: 0,
+            mensagemSteps: [
+              {
+                id: "kw-text",
+                tipo: "texto",
+                caption:
+                  "Recebi sua dúvida 💚 A {brand} retorna em breve com mais detalhes. Digite *menu* para opções.",
+                delaySegundos: 0,
+              },
+            ],
           },
         },
       ],
@@ -57,7 +76,8 @@ export function getInstagramReplySeedPack(): SeedTemplate[] {
     {
       seed_key: "ig.dm.default_reply",
       nome: "Resposta padrão em DM",
-      descricao: "Resposta padrão quando não há match de palavra-chave na DM.",
+      descricao:
+        "Sem palavra-chave: template padrão da marca (persona/FAQ/contexto). Mesmo padrão para toda brand — conteúdo por marca.",
       priority: 50,
       trigger: {
         tipo: "evento",
@@ -70,16 +90,29 @@ export function getInstagramReplySeedPack(): SeedTemplate[] {
           ordem: 1,
           tipo: "enviar_dm_ig",
           config: {
+            // Prefer FAQ + brand context; IA optional with strong brand fallback
             iaGenerated: true,
-            fallback_message: "Obrigado pela mensagem! Em breve retornamos.",
+            fallback_message:
+              "Oi! Recebemos sua mensagem na {brand} 💚 Em breve retornamos. Digite *menu* para ver opções.",
+            mensagem:
+              "Oi! Recebemos sua mensagem na {brand} 💚 Em breve retornamos. Digite *menu* para ver opções.",
             delaySegundos: 0,
+            mensagemSteps: [
+              {
+                id: "default-text",
+                tipo: "texto",
+                caption:
+                  "Oi! Recebemos sua mensagem na {brand} 💚 Em breve retornamos. Digite *menu* para ver opções.",
+                delaySegundos: 0,
+              },
+            ],
           },
         },
       ],
       limites: {
         maxPorUsuario: 3,
-        cooldownSegundos: 3600,
-        maxPorHora: 30,
+        cooldownSegundos: 60,
+        maxPorHora: 40,
         maxPorDia: 200,
         janelaMaxUsuarioSegundos: 86400,
       },
@@ -203,6 +236,167 @@ export function getInstagramReplySeedPack(): SeedTemplate[] {
         maxPorHora: 20,
         maxPorDia: 100,
         janelaMaxUsuarioSegundos: 604800,
+      },
+    },
+    // ── Navegação por botões (Quick Replies / postback) ──
+    {
+      seed_key: "ig.dm.nav_menu",
+      nome: "Menu de navegação IG",
+      descricao:
+        "Envia menu com botões (Quick Replies). Gatilho: menu, ajuda, oi… Ative e teste no direct.",
+      priority: 15,
+      trigger: {
+        tipo: "evento",
+        plataforma: "instagram",
+        evento: "dm_keyword",
+        palavrasChave: ["menu", "ajuda", "opções", "opcoes", "inicio", "início", "start", "navegação", "navegacao"],
+      },
+      pipeline: [
+        {
+          ordem: 1,
+          tipo: "enviar_dm_ig",
+          config: {
+            iaGenerated: false,
+            fallback_message: "Como posso ajudar?",
+            delaySegundos: 0,
+            mensagemSteps: [
+              {
+                id: "nav-text-1",
+                tipo: "texto",
+                caption: "Olá! 👋 Como posso ajudar?",
+                delaySegundos: 0,
+              },
+              {
+                id: "nav-btns-1",
+                tipo: "botoes",
+                caption: "Escolha uma opção:",
+                buttons: [
+                  { id: "nav_cat", label: "Catálogo", payload: "NAV_CATALOG" },
+                  { id: "nav_price", label: "Preços", payload: "NAV_PRICES" },
+                  { id: "nav_human", label: "Falar conosco", payload: "NAV_HUMAN" },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+      limites: {
+        maxPorUsuario: 5,
+        cooldownSegundos: 30,
+        maxPorHora: 40,
+        maxPorDia: 200,
+        janelaMaxUsuarioSegundos: 86400,
+      },
+    },
+    {
+      seed_key: "ig.dm.nav_catalog",
+      nome: "Navegação → Catálogo",
+      descricao: "Resposta ao botão NAV_CATALOG (payload do Quick Reply).",
+      priority: 10,
+      trigger: {
+        tipo: "evento",
+        plataforma: "instagram",
+        evento: "dm_keyword",
+        palavrasChave: ["NAV_CATALOG", "Catálogo", "Catalogo"],
+      },
+      pipeline: [
+        {
+          ordem: 1,
+          tipo: "enviar_dm_ig",
+          config: {
+            iaGenerated: false,
+            mensagem:
+              "📦 Nosso catálogo está aqui: acesse a loja ou digite o produto que procura.\n\nResponda *menu* para voltar.",
+            fallback_message: "Veja nosso catálogo e me diga o que busca!",
+            delaySegundos: 0,
+            mensagemSteps: [
+              {
+                id: "cat-text",
+                tipo: "texto",
+                caption:
+                  "📦 Nosso catálogo está disponível! Me diga o produto ou responda *menu* para outras opções.",
+              },
+              {
+                id: "cat-cta",
+                tipo: "cta",
+                ctaLabel: "Abrir loja",
+                url: "https://leadcapture.online",
+                caption: "Toque para ver a vitrine:",
+              },
+            ],
+          },
+        },
+      ],
+      limites: {
+        maxPorUsuario: 5,
+        cooldownSegundos: 10,
+        maxPorHora: 40,
+        maxPorDia: 200,
+        janelaMaxUsuarioSegundos: 86400,
+      },
+    },
+    {
+      seed_key: "ig.dm.nav_prices",
+      nome: "Navegação → Preços",
+      descricao: "Resposta ao botão NAV_PRICES.",
+      priority: 10,
+      trigger: {
+        tipo: "evento",
+        plataforma: "instagram",
+        evento: "dm_keyword",
+        palavrasChave: ["NAV_PRICES", "Preços", "Precos"],
+      },
+      pipeline: [
+        {
+          ordem: 1,
+          tipo: "enviar_dm_ig",
+          config: {
+            iaGenerated: false,
+            mensagem:
+              "💰 Preços variam por volume. Me diga o produto e a quantidade que monto um orçamento. Responda *menu* para voltar.",
+            fallback_message: "Me diga o produto para orçamento.",
+            delaySegundos: 0,
+          },
+        },
+      ],
+      limites: {
+        maxPorUsuario: 5,
+        cooldownSegundos: 10,
+        maxPorHora: 40,
+        maxPorDia: 200,
+        janelaMaxUsuarioSegundos: 86400,
+      },
+    },
+    {
+      seed_key: "ig.dm.nav_human",
+      nome: "Navegação → Atendimento humano",
+      descricao: "Resposta ao botão NAV_HUMAN.",
+      priority: 10,
+      trigger: {
+        tipo: "evento",
+        plataforma: "instagram",
+        evento: "dm_keyword",
+        palavrasChave: ["NAV_HUMAN", "Falar conosco", "humano", "atendente"],
+      },
+      pipeline: [
+        {
+          ordem: 1,
+          tipo: "enviar_dm_ig",
+          config: {
+            iaGenerated: false,
+            mensagem:
+              "🙋 Um atendente vai te responder em breve. Enquanto isso, descreva seu pedido. Responda *menu* para outras opções.",
+            fallback_message: "Em breve um humano responde aqui.",
+            delaySegundos: 0,
+          },
+        },
+      ],
+      limites: {
+        maxPorUsuario: 3,
+        cooldownSegundos: 60,
+        maxPorHora: 20,
+        maxPorDia: 100,
+        janelaMaxUsuarioSegundos: 86400,
       },
     },
   ];

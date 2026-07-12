@@ -7,9 +7,11 @@ import { logger } from "../utils/logger";
 import { CreativeStudioService } from "./creativeStudio";
 import { resolveUploadKind, resolveUploadMime, shouldNormalizeImage } from "../utils/uploadMedia";
 
-export type GalleryFolderSlug = "ia" | "uploads" | "campanhas" | "posts" | "produtos";
+/** Pastas de sistema + slugs custom (publicidade: pub-*) */
+export type GalleryFolderSlug = string;
 export type GalleryItemType = "image" | "video";
 export type GalleryOrigin = "media_files" | "creative_assets" | "product_gallery";
+export type GalleryFolderSection = "library" | "publicidade";
 
 export interface GalleryAssetMeta {
   folder?: GalleryFolderSlug;
@@ -55,15 +57,37 @@ export interface GalleryFolder {
   icon: string;
   count: number;
   isSystem: boolean;
+  /** library = galeria geral · publicidade = fontes para campanhas/automações/posts */
+  section: GalleryFolderSection;
 }
 
-export const SYSTEM_FOLDERS: Array<{ slug: GalleryFolderSlug; label: string; icon: string }> = [
-  { slug: "ia", label: "Criativos IA", icon: "sparkles" },
-  { slug: "uploads", label: "Uploads", icon: "upload" },
-  { slug: "campanhas", label: "Campanhas", icon: "megaphone" },
-  { slug: "posts", label: "Posts", icon: "camera" },
-  { slug: "produtos", label: "Produtos", icon: "package" },
+export const SYSTEM_FOLDERS: Array<{
+  slug: GalleryFolderSlug;
+  label: string;
+  icon: string;
+  section: GalleryFolderSection;
+}> = [
+  { slug: "ia", label: "Criativos IA", icon: "sparkles", section: "library" },
+  { slug: "uploads", label: "Uploads", icon: "upload", section: "library" },
+  { slug: "campanhas", label: "Campanhas", icon: "megaphone", section: "library" },
+  { slug: "posts", label: "Posts", icon: "camera", section: "library" },
+  { slug: "produtos", label: "Produtos", icon: "package", section: "library" },
+  /** Pasta raiz lógica da seção — agrega itens sem subpasta de publicidade */
+  { slug: "publicidade", label: "Geral", icon: "megaphone", section: "publicidade" },
 ];
+
+const SYSTEM_SLUGS = new Set(SYSTEM_FOLDERS.map((f) => f.slug));
+
+export function slugifyGalleryFolder(label: string): string {
+  const base = String(label || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 36);
+  return base || "pasta";
+}
 
 export interface GalleryListFilters {
   folder?: string;
@@ -112,12 +136,23 @@ function isUploadSource(source: string): boolean {
   return s === "upload" || s === "studio-upload" || s === "upload-manual" || s.includes("upload");
 }
 
-function resolveFolderFromMeta(meta: GalleryAssetMeta, origin: GalleryOrigin, source: string): GalleryFolderSlug {
+function resolveFolderFromMeta(
+  meta: GalleryAssetMeta,
+  origin: GalleryOrigin,
+  source: string,
+  folderSlugFromDb?: string | null,
+): GalleryFolderSlug {
+  const fromDb = String(folderSlugFromDb || meta.folder || "").trim();
+  // Pastas custom (publicidade) e sistema: respeita o slug gravado
+  if (fromDb && fromDb !== "all") {
+    if (SYSTEM_SLUGS.has(fromDb) || fromDb.startsWith("pub-") || fromDb === "publicidade") {
+      return fromDb;
+    }
+    // slug custom legado sem prefixo
+    if (!SYSTEM_SLUGS.has(fromDb) && fromDb.length >= 2) return fromDb;
+  }
   if (meta.usedInCampaign) return "campanhas";
   if (meta.publishedInPost) return "posts";
-  if (meta.folder && meta.folder !== "posts" && SYSTEM_FOLDERS.some((f) => f.slug === meta.folder)) {
-    return meta.folder as GalleryFolderSlug;
-  }
   if (origin === "product_gallery") return "produtos";
   if (isUploadSource(source) || meta.folder === "posts") return "uploads";
   return "ia";
@@ -187,6 +222,7 @@ export class GalleryService {
       )
     `).catch((err) => logger.warn(`gallery_folders DDL: ${err?.message || err}`));
 
+    await this.ensureColumn("gallery_folders", "section", "VARCHAR(40) DEFAULT 'library'");
     await this.ensureColumn("media_files", "brand_id", "VARCHAR(36) NULL");
     await this.ensureColumn("media_files", "folder_slug", "VARCHAR(50) DEFAULT 'uploads'");
     await this.ensureColumn("media_files", "source", "VARCHAR(30) DEFAULT 'upload'");
@@ -204,13 +240,108 @@ export class GalleryService {
         "SELECT id FROM gallery_folders WHERE brand_id = ? AND slug = ? LIMIT 1",
         [brandId, f.slug]
       );
-      if (existing) continue;
+      if (existing) {
+        await query(
+          `UPDATE gallery_folders SET section = COALESCE(NULLIF(section, ''), ?), label = ? WHERE brand_id = ? AND slug = ?`,
+          [f.section, f.label, brandId, f.slug],
+        ).catch(() => undefined);
+        continue;
+      }
+      await query(
+        `INSERT INTO gallery_folders (id, brand_id, slug, label, icon, sort_order, is_system, section)
+         VALUES (?, ?, ?, ?, ?, ?, TRUE, ?)`,
+        [uuidv4(), brandId, f.slug, f.label, f.icon, i, f.section]
+      ).catch(async () => {
+        // schema sem coluna section ainda
+        await query(
+          `INSERT INTO gallery_folders (id, brand_id, slug, label, icon, sort_order, is_system)
+           VALUES (?, ?, ?, ?, ?, ?, TRUE)`,
+          [uuidv4(), brandId, f.slug, f.label, f.icon, i]
+        ).catch(() => undefined);
+      });
+    }
+  }
+
+  async createCustomFolder(
+    brandId: string,
+    input: { label: string; section?: GalleryFolderSection; icon?: string },
+  ): Promise<GalleryFolder> {
+    await this.ensureFolders(brandId);
+    const section: GalleryFolderSection =
+      input.section === "publicidade" ? "publicidade" : "publicidade";
+    const label = String(input.label || "").trim().slice(0, 80);
+    if (!label) throw new Error("Nome da pasta obrigatório");
+
+    let slug = `pub-${slugifyGalleryFolder(label)}`;
+    // garante unicidade por marca
+    let n = 0;
+    while (true) {
+      const candidate = n === 0 ? slug : `${slug}-${n}`;
+      const exists = await queryOne<any>(
+        "SELECT id FROM gallery_folders WHERE brand_id = ? AND slug = ? LIMIT 1",
+        [brandId, candidate],
+      );
+      if (!exists) {
+        slug = candidate;
+        break;
+      }
+      n += 1;
+      if (n > 40) throw new Error("Não foi possível gerar slug único para a pasta");
+    }
+
+    const id = uuidv4();
+    const icon = String(input.icon || "megaphone").slice(0, 40);
+    const sortOrder = 100 + Math.floor(Date.now() / 1000) % 100000;
+    try {
+      await query(
+        `INSERT INTO gallery_folders (id, brand_id, slug, label, icon, sort_order, is_system, section)
+         VALUES (?, ?, ?, ?, ?, ?, FALSE, ?)`,
+        [id, brandId, slug, label, icon, sortOrder, section],
+      );
+    } catch {
       await query(
         `INSERT INTO gallery_folders (id, brand_id, slug, label, icon, sort_order, is_system)
-         VALUES (?, ?, ?, ?, ?, ?, TRUE)`,
-        [uuidv4(), brandId, f.slug, f.label, f.icon, i]
+         VALUES (?, ?, ?, ?, ?, ?, FALSE)`,
+        [id, brandId, slug, label, icon, sortOrder],
       );
     }
+
+    return {
+      slug,
+      label,
+      icon,
+      count: 0,
+      isSystem: false,
+      section,
+    };
+  }
+
+  async deleteCustomFolder(brandId: string, slug: string): Promise<boolean> {
+    await this.ensureSchema();
+    const s = String(slug || "").trim();
+    if (!s || SYSTEM_SLUGS.has(s)) throw new Error("Pasta do sistema não pode ser removida");
+    const row = await queryOne<any>(
+      "SELECT id, is_system FROM gallery_folders WHERE brand_id = ? AND slug = ? LIMIT 1",
+      [brandId, s],
+    );
+    if (!row) return false;
+    if (row.is_system === true || row.is_system === 1 || row.is_system === "t") {
+      throw new Error("Pasta do sistema não pode ser removida");
+    }
+    // Move mídias da pasta para publicidade geral
+    await query(
+      `UPDATE media_files SET folder_slug = 'publicidade',
+        metadata_json = COALESCE(metadata_json, '{}'::jsonb)
+       WHERE brand_id = ? AND folder_slug = ?`,
+      [brandId, s],
+    ).catch(async () => {
+      await query(
+        `UPDATE media_files SET folder_slug = 'publicidade' WHERE brand_id = ? AND folder_slug = ?`,
+        [brandId, s],
+      ).catch(() => undefined);
+    });
+    await query(`DELETE FROM gallery_folders WHERE brand_id = ? AND slug = ?`, [brandId, s]);
+    return true;
   }
 
   private belongsToBrand(metadata: Record<string, any>, brandId?: string | null): boolean {
@@ -246,7 +377,7 @@ export class GalleryService {
       url: normalizeUrl(row.url || row.file_path),
       thumbnailUrl: row.thumbnail_url ? normalizeUrl(row.thumbnail_url) : undefined,
       name: String(row.original_name || "Arquivo"),
-      folder: resolveFolderFromMeta(assetMeta, "media_files", source),
+      folder: resolveFolderFromMeta(assetMeta, "media_files", source, row.folder_slug),
       source,
       tags,
       mimeType: row.mime_type || undefined,
@@ -581,15 +712,49 @@ export class GalleryService {
       counts[item.folder] = (counts[item.folder] || 0) + 1;
     }
 
+    const customRows = await query<any[]>(
+      `SELECT slug, label, icon, is_system, section, sort_order
+       FROM gallery_folders
+       WHERE brand_id = ?
+       ORDER BY sort_order ASC, label ASC`,
+      [brandId],
+    ).catch(() => [] as any[]);
+
+    const custom: GalleryFolder[] = (customRows || [])
+      .filter((r) => {
+        const sys = r.is_system === true || r.is_system === 1 || r.is_system === "t";
+        return !sys && !SYSTEM_SLUGS.has(String(r.slug));
+      })
+      .map((r) => ({
+        slug: String(r.slug),
+        label: String(r.label || r.slug),
+        icon: String(r.icon || "megaphone"),
+        count: counts[String(r.slug)] || 0,
+        isSystem: false,
+        section: (String(r.section || "publicidade") === "library"
+          ? "library"
+          : "publicidade") as GalleryFolderSection,
+      }));
+
     return [
-      { slug: "all", label: "Todos", icon: "layout-grid", count: counts.all, isSystem: true },
-      ...SYSTEM_FOLDERS.map((f) => ({
+      { slug: "all", label: "Todos", icon: "layout-grid", count: counts.all, isSystem: true, section: "library" },
+      ...SYSTEM_FOLDERS.filter((f) => f.section === "library").map((f) => ({
         slug: f.slug,
         label: f.label,
         icon: f.icon,
         count: counts[f.slug] || 0,
         isSystem: true,
+        section: "library" as GalleryFolderSection,
       })),
+      ...SYSTEM_FOLDERS.filter((f) => f.section === "publicidade").map((f) => ({
+        slug: f.slug,
+        label: f.label,
+        icon: f.icon,
+        count: counts[f.slug] || 0,
+        isSystem: true,
+        section: "publicidade" as GalleryFolderSection,
+      })),
+      ...custom,
     ];
   }
 

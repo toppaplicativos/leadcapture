@@ -426,6 +426,15 @@ export class BrandUnitsService {
       await this.setActiveBrand(userId, id);
     }
 
+    // Seed brand RBAC + assign owner as org admin membership
+    try {
+      const { permissionsService } = await import("./permissions");
+      await permissionsService.ensureOrgOwnerMembership(userId, id);
+    } catch (err: any) {
+      // Non-fatal: ownership still works via brand_units.user_id
+      console.warn(`[brandUnits] ensureOrgOwnerMembership failed: ${err?.message || err}`);
+    }
+
     const created = await this.getById(userId, id);
     if (!created) throw new Error("Failed to create brand unit");
     return created;

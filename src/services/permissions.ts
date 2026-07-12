@@ -83,8 +83,10 @@ export const SYSTEM_PERMISSIONS: Omit<Permission, "id">[] = [
   { resource: "orders", action: "delete", description: "Excluir pedidos" },
   { resource: "orders", action: "refund", description: "Realizar reembolso de pedidos" },
   // Pagamentos
-  { resource: "payments", action: "read",  description: "Visualizar pagamentos" },
-  { resource: "payments", action: "write", description: "Gerenciar pagamentos" },
+  { resource: "payments", action: "read",  description: "Visualizar pagamentos e status de conexão" },
+  { resource: "payments", action: "write", description: "Conectar provedores, criar cobranças e gerenciar pagamentos" },
+  { resource: "payments", action: "refund", description: "Estornar pagamentos" },
+  { resource: "payments", action: "manage", description: "Administrar conexão de gateways (OAuth)" },
   // Catálogo / Storefront
   { resource: "storefront", action: "read",  description: "Visualizar configurações da loja" },
   { resource: "storefront", action: "write", description: "Editar configurações da loja" },
@@ -623,8 +625,41 @@ export class PermissionsService {
   }
 
   async hasPermission(userId: string, brandId: string, permission: string): Promise<boolean> {
+    /* Brand owner always has full access (even without explicit role row). */
+    try {
+      if (await this.isBrandOwner(userId, brandId)) return true;
+    } catch {
+      /* ignore */
+    }
     const perms = await this.getUserEffectivePermissions(userId, brandId);
     return perms.has(permission);
+  }
+
+  async isBrandOwner(userId: string, brandId: string): Promise<boolean> {
+    const owner = await queryOne<{ user_id: string }>(
+      "SELECT user_id FROM brand_units WHERE id = ? LIMIT 1",
+      [brandId],
+    );
+    return Boolean(owner && String(owner.user_id) === String(userId));
+  }
+
+  /**
+   * After an organization (brand_units) is created, seed system roles and
+   * assign the owner to the brand-level "admin" RBAC profile.
+   */
+  async ensureOrgOwnerMembership(ownerUserId: string, brandId: string): Promise<void> {
+    await this.ensureSchema();
+    await this.seedDefaultRolesForBrand(brandId);
+    const adminRole = await queryOne<{ id: string }>(
+      `SELECT id FROM roles WHERE brand_id = ? AND slug = 'admin' AND is_active = TRUE LIMIT 1`,
+      [brandId],
+    );
+    if (!adminRole?.id) {
+      logger.warn(`[permissions] no admin role after seed for brand ${brandId}`);
+      return;
+    }
+    await this.assignUserRole(ownerUserId, brandId, adminRole.id, ownerUserId);
+    this.invalidateUserCache(ownerUserId, brandId);
   }
 }
 

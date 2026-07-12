@@ -4,6 +4,8 @@ const REF_KEY = 'lc_affiliate_ref'
 const COUPON_KEY = 'lc_affiliate_coupon'
 const ID_KEY = 'lc_affiliate_id'
 const NAME_KEY = 'lc_affiliate_name'
+const WA_PHONE_KEY = 'lc_affiliate_whatsapp_phone'
+const WA_SOURCE_KEY = 'lc_affiliate_whatsapp_source'
 
 export type AffiliateCaptureResult = {
   ok: boolean
@@ -11,6 +13,9 @@ export type AffiliateCaptureResult = {
   coupon?: string
   affiliateId?: string
   displayName?: string
+  /** Número resolvido do afiliado (ou fallback loja no backend). */
+  whatsappPhone?: string
+  whatsappSource?: string
   error?: string
 }
 
@@ -28,6 +33,40 @@ export function getAffiliateId(): string | null {
 
 export function getAffiliateDisplayName(): string | null {
   try { return sessionStorage.getItem(NAME_KEY) } catch { return null }
+}
+
+/** WhatsApp dinâmico do afiliado capturado via link (?ref=). */
+export function getAffiliateWhatsAppPhone(): string | null {
+  try {
+    const digits = String(sessionStorage.getItem(WA_PHONE_KEY) || '').replace(/\D/g, '')
+    return digits.length >= 10 ? digits : null
+  } catch {
+    return null
+  }
+}
+
+export function getAffiliateWhatsAppSource(): string | null {
+  try {
+    return sessionStorage.getItem(WA_SOURCE_KEY) || null
+  } catch {
+    return null
+  }
+}
+
+function persistAffiliateWhatsApp(phone?: string | null, source?: string | null) {
+  const digits = String(phone || '').replace(/\D/g, '')
+  try {
+    if (digits.length >= 10) {
+      sessionStorage.setItem(WA_PHONE_KEY, digits)
+    } else {
+      sessionStorage.removeItem(WA_PHONE_KEY)
+    }
+    if (source) {
+      sessionStorage.setItem(WA_SOURCE_KEY, String(source))
+    } else {
+      sessionStorage.removeItem(WA_SOURCE_KEY)
+    }
+  } catch { /* ignore */ }
 }
 
 function affiliateQueryParams(code: string, couponCode?: string | null): URLSearchParams {
@@ -154,18 +193,26 @@ export async function captureAffiliateFromUrl(): Promise<AffiliateCaptureResult>
       try { sessionStorage.setItem(NAME_KEY, displayName) } catch { /* ignore */ }
     }
 
+    const whatsappPhone = String(data.whatsapp_phone || '').replace(/\D/g, '')
+    const whatsappSource = data.whatsapp_source ? String(data.whatsapp_source) : undefined
+    persistAffiliateWhatsApp(whatsappPhone || null, whatsappSource || null)
+
     return {
       ok: true,
       ref,
       coupon: couponCode || undefined,
       affiliateId: data.affiliate_id ? String(data.affiliate_id) : undefined,
       displayName,
+      whatsappPhone: whatsappPhone.length >= 10 ? whatsappPhone : undefined,
+      whatsappSource,
     }
   } catch (error) {
     try {
       sessionStorage.removeItem(REF_KEY)
       sessionStorage.removeItem(ID_KEY)
       sessionStorage.removeItem(NAME_KEY)
+      sessionStorage.removeItem(WA_PHONE_KEY)
+      sessionStorage.removeItem(WA_SOURCE_KEY)
     } catch { /* ignore */ }
     return {
       ok: false,
@@ -174,6 +221,41 @@ export async function captureAffiliateFromUrl(): Promise<AffiliateCaptureResult>
       error: error instanceof Error ? error.message : 'Afiliado não encontrado',
     }
   }
+}
+
+/**
+ * Se já há ?ref= / session de afiliado mas o número não foi persistido
+ * (ex.: navegação interna), reconsulta o endpoint leve de WhatsApp.
+ */
+export async function ensureAffiliateWhatsAppPhone(): Promise<string | null> {
+  const cached = getAffiliateWhatsAppPhone()
+  if (cached) return cached
+
+  const ref = getAffiliateRef()
+  if (!ref) return null
+
+  try {
+    const r = await fetch(`/api/public/affiliate/${encodeURIComponent(ref)}/whatsapp`)
+    const data = await r.json().catch(() => ({}))
+    if (!r.ok) return null
+    const phone = String(data.whatsapp_phone || '').replace(/\D/g, '')
+    const source = data.whatsapp_source ? String(data.whatsapp_source) : null
+    persistAffiliateWhatsApp(phone || null, source)
+    return phone.length >= 10 ? phone : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Número efetivo para botões da loja:
+ * - link afiliado ativo → WhatsApp do afiliado (dinâmico)
+ * - link raiz / sem afiliado → WhatsApp da loja (studio)
+ */
+export function resolveStoreContactPhone(storePhone?: string | null): string {
+  const affiliatePhone = getAffiliateWhatsAppPhone()
+  if (affiliatePhone) return affiliatePhone
+  return String(storePhone || '').replace(/\D/g, '')
 }
 
 function readCookieAffiliateId(): string | null {

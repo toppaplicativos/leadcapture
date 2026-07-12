@@ -41,14 +41,17 @@ export function LeadsModuleBlock({ messageId, isActive }: Props) {
       {expanded && (
         <div className="catalog-module__body">
           <LeadsInlinePanel />
-          {isDesktop && (
-            <p className="catalog-module__hint">
-              Gestão completa no canvas à direita.{' '}
-              <button type="button" className="catalog-module__link" onClick={() => openCanvas('/leads')}>
-                Expandir
-              </button>
-            </p>
-          )}
+          <p className="catalog-module__hint">
+            Abra um lead para mudar o status aqui no chat.
+            {isDesktop && (
+              <>
+                {' '}Gestão densa no painel:{' '}
+                <button type="button" className="catalog-module__link" onClick={() => openCanvas('/leads')}>
+                  Expandir
+                </button>
+              </>
+            )}
+          </p>
           <div className="catalog-module__stats">
             <span><strong className="tabular-nums">{snap.total}</strong> total</span>
             <span><strong className="tabular-nums">{snap.newCount}</strong> novos</span>

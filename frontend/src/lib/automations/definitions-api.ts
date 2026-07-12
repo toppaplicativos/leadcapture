@@ -9,11 +9,29 @@ function getHeaders(): Record<string, string> {
   return h
 }
 
-export async function fetchAutomationDefinitions(): Promise<Automacao[]> {
-  const r = await fetch('/api/automation-defs', { headers: getHeaders() })
+export async function fetchAutomationDefinitions(options?: { platform?: string }): Promise<Automacao[]> {
+  const qs = options?.platform ? `?platform=${encodeURIComponent(options.platform)}` : ''
+  const r = await fetch(`/api/automation-defs${qs}`, { headers: getHeaders() })
   const d = await r.json()
   if (!r.ok) throw new Error(d?.error || `Erro ${r.status}`)
   return d.automacoes || []
+}
+
+/** Install IG reply seed pack (inactive, fill-missing). */
+export async function seedInstagramAutomationDefinitions(force = false): Promise<{
+  created: string[]
+  updated: string[]
+  skipped: string[]
+  skipped_customized: string[]
+}> {
+  const r = await fetch('/api/automation-defs/seed/instagram', {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({ force }),
+  })
+  const d = await r.json()
+  if (!r.ok) throw new Error(d?.error || `Erro ${r.status}`)
+  return d
 }
 
 export async function fetchAutomationKpis(): Promise<AutomationKpis> {

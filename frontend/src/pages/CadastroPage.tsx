@@ -55,9 +55,22 @@ export function CadastroPage() {
   const [brandName, setBrandName] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [signupBlocked, setSignupBlocked] = useState<string | null>(null)
 
   useEffect(() => {
     document.title = 'Criar conta · LeadCapture'
+    fetch('/api/public/platform-status')
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => {
+        const st = d?.status
+        if (!st) return
+        if (st.maintenance_mode) {
+          setSignupBlocked(st.maintenance_message || 'Plataforma em manutenção. Tente mais tarde.')
+        } else if (st.signup_enabled === false || st.public_signup === false) {
+          setSignupBlocked('Cadastros públicos estão desabilitados no momento.')
+        }
+      })
+      .catch(() => {})
     fetch('/api/public/plans')
       .then(async r => {
         if (!r.ok) {
@@ -81,6 +94,7 @@ export function CadastroPage() {
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     if (submitting) return
+    if (signupBlocked) return setError(signupBlocked)
 
     if (!name.trim()) return setError('Informe seu nome.')
     if (!email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -114,6 +128,21 @@ export function CadastroPage() {
       setError(err?.message || 'Falha ao iniciar checkout. Tente novamente.')
       setSubmitting(false)
     }
+  }
+
+  if (signupBlocked) {
+    return (
+      <div className="min-h-screen bg-white text-gray-900 grid place-items-center px-6">
+        <div className="max-w-md text-center">
+          <BrandMark size={36} className="mx-auto mb-4" />
+          <h1 className="text-xl font-bold mb-2">Cadastro indisponível</h1>
+          <p className="text-[14px] text-gray-600 mb-6">{signupBlocked}</p>
+          <Link to="/login" className="text-[13px] font-semibold text-gray-900 underline">
+            Ir para login
+          </Link>
+        </div>
+      </div>
+    )
   }
 
   return (

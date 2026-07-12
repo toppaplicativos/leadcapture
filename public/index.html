@@ -14,13 +14,15 @@
     <meta name="apple-mobile-web-app-title" content="Leads" />
     <meta name="mobile-web-app-capable" content="yes" />
     
-    <!-- Apple Icons -->
-    <link rel="apple-touch-icon" href="/logo.png" />
-    <link rel="apple-touch-startup-image" href="/logo.png" />
+    <!-- Official monochrome BrandMark (never colorful logo.png) -->
+    <link rel="apple-touch-icon" href="/brand-mark-512.png" />
+    <link rel="apple-touch-startup-image" href="/brand-mark-512.png" />
     
     <!-- Favicon -->
-    <link rel="icon" type="image/png" sizes="512x512" href="/logo.png" />
-    <link rel="shortcut icon" href="/logo.png" />
+    <link rel="icon" type="image/svg+xml" href="/brand-mark.svg" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/brand-mark.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="/brand-mark-512.png" />
+    <link rel="shortcut icon" href="/brand-mark.png" />
     
     <!-- Manifest -->
     <link rel="manifest" href="/manifest.json" />
@@ -820,6 +822,7 @@
                 const probablyBrandLogo =
                   src.endsWith("/logo.png") ||
                   src.includes("logo.png") ||
+                  src.includes("brand-mark") ||
                   cls.includes("brand-logo") ||
                   cls.includes("splash-logo") ||
                   cls.includes("ms-logo-img") ||

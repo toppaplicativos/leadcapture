@@ -34,6 +34,8 @@ export interface AutomationLimits {
   cooldownSegundos: number;
   maxPorHora: number;
   maxPorDia: number;
+  /** Rolling window for maxPorUsuario (default 86400). Independent from cooldown. */
+  janelaMaxUsuarioSegundos?: number;
   janelaFuncionamento?: {
     ativo: boolean;
     inicioHora: number;
@@ -63,6 +65,11 @@ export interface AutomationDefinition {
   pipeline: AutomationActionStep[];
   limites: AutomationLimits;
   metrics: AutomationMetrics;
+  seed_key?: string | null;
+  origin?: "seed" | "user" | "migrated_catalog" | null;
+  priority?: number;
+  system_version?: number;
+  user_modified_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -79,13 +86,15 @@ export interface AutomationDefinitionInput {
 export interface AutomationDefinitionRun {
   id: string;
   automation_id: string;
-  status: "running" | "success" | "error";
+  status: "running" | "success" | "error" | "skipped";
   triggered_by: "cron" | "manual" | "event";
   started_at: string;
   completed_at: string | null;
   duration_ms: number | null;
   result: Record<string, any> | null;
   error_message: string | null;
+  actor_id?: string | null;
+  outcome?: string | null;
 }
 
 function parseJson<T>(value: unknown, fallback: T): T {
@@ -143,6 +152,13 @@ function mapRow(row: any): AutomationDefinition {
     pipeline: parseJson<AutomationActionStep[]>(row.pipeline_json, []),
     limites: parseJson<AutomationLimits>(row.limites_json, defaultLimits()),
     metrics: parseJson<AutomationMetrics>(row.metrics_json, defaultMetrics()),
+    seed_key: row.seed_key != null ? String(row.seed_key) : null,
+    origin: row.origin || null,
+    priority: row.priority != null ? Number(row.priority) : 100,
+    system_version: row.system_version != null ? Number(row.system_version) : 0,
+    user_modified_at: row.user_modified_at
+      ? new Date(row.user_modified_at).toISOString()
+      : null,
     created_at: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
     updated_at: row.updated_at ? new Date(row.updated_at).toISOString() : new Date().toISOString(),
   };
@@ -200,25 +216,61 @@ export class AutomationDefinitionsService {
       `CREATE INDEX IF NOT EXISTS idx_automation_defs_next_run ON automation_definitions (next_run_at) WHERE ativa = TRUE`
     ).catch(() => undefined);
 
+    // Seed / hybrid dispatch columns (idempotent ALTERs)
+    const alterCols = [
+      `ALTER TABLE automation_definitions ADD COLUMN IF NOT EXISTS seed_key VARCHAR(80) NULL`,
+      `ALTER TABLE automation_definitions ADD COLUMN IF NOT EXISTS origin VARCHAR(40) NULL`,
+      `ALTER TABLE automation_definitions ADD COLUMN IF NOT EXISTS priority INT DEFAULT 100`,
+      `ALTER TABLE automation_definitions ADD COLUMN IF NOT EXISTS system_version INT DEFAULT 0`,
+      `ALTER TABLE automation_definitions ADD COLUMN IF NOT EXISTS user_modified_at TIMESTAMPTZ NULL`,
+      `ALTER TABLE automation_definition_runs ADD COLUMN IF NOT EXISTS actor_id VARCHAR(120) NULL`,
+      `ALTER TABLE automation_definition_runs ADD COLUMN IF NOT EXISTS outcome VARCHAR(40) NULL`,
+    ];
+    for (const sql of alterCols) {
+      await query(sql).catch(() => undefined);
+    }
+    await query(
+      `CREATE UNIQUE INDEX IF NOT EXISTS uq_automation_defs_brand_seed
+       ON automation_definitions (brand_id, seed_key)
+       WHERE seed_key IS NOT NULL`,
+    ).catch(() => undefined);
+    await query(
+      `CREATE INDEX IF NOT EXISTS idx_automation_runs_actor
+       ON automation_definition_runs (automation_id, actor_id, status, started_at)`,
+    ).catch(() => undefined);
+
     this.ready = true;
   }
 
-  async list(brandId: string, userId: string): Promise<AutomationDefinition[]> {
+  /**
+   * Brand-scoped list (all members see brand automations).
+   * Optional platform=instagram filter for mirror tab.
+   */
+  async list(
+    brandId: string,
+    _userId?: string,
+    options?: { platform?: string },
+  ): Promise<AutomationDefinition[]> {
     await this.ensureSchema();
     const rows = await query<any[]>(
       `SELECT * FROM automation_definitions
-       WHERE brand_id = ? AND user_id = ?
+       WHERE brand_id = ?
        ORDER BY updated_at DESC`,
-      [brandId, userId]
+      [brandId],
     );
-    return (rows || []).map(mapRow);
+    let list = (rows || []).map(mapRow);
+    if (options?.platform === "instagram") {
+      const { isInstagramPlatformFilter } = await import("./automationMatchLogic");
+      list = list.filter((d) => isInstagramPlatformFilter(d));
+    }
+    return list;
   }
 
-  async getById(brandId: string, userId: string, id: string): Promise<AutomationDefinition | null> {
+  async getById(brandId: string, _userId: string, id: string): Promise<AutomationDefinition | null> {
     await this.ensureSchema();
     const row = await queryOne<any>(
-      `SELECT * FROM automation_definitions WHERE id = ? AND brand_id = ? AND user_id = ? LIMIT 1`,
-      [id, brandId, userId]
+      `SELECT * FROM automation_definitions WHERE id = ? AND brand_id = ? LIMIT 1`,
+      [id, brandId],
     );
     return row ? mapRow(row) : null;
   }
@@ -284,11 +336,19 @@ export class AutomationDefinitionsService {
     const nextRun = ativa && trigger.tipo === "agendamento" ? computeNextRun(trigger) : null;
     metrics.proximaExecucao = nextRun ? nextRun.toISOString() : null;
 
+    const contentChanged =
+      patch.nome !== undefined ||
+      patch.descricao !== undefined ||
+      patch.trigger !== undefined ||
+      patch.pipeline !== undefined ||
+      patch.limites !== undefined;
+
     await update(
       `UPDATE automation_definitions
        SET nome = ?, descricao = ?, ativa = ?, status = ?, trigger_json = ?, pipeline_json = ?,
            limites_json = ?, metrics_json = ?, next_run_at = ?, updated_at = NOW()
-       WHERE id = ? AND brand_id = ? AND user_id = ?`,
+           ${contentChanged ? ", user_modified_at = COALESCE(user_modified_at, NOW())" : ""}
+       WHERE id = ? AND brand_id = ?`,
       [
         nome,
         descricao,
@@ -301,8 +361,7 @@ export class AutomationDefinitionsService {
         nextRun,
         id,
         brandId,
-        userId,
-      ]
+      ],
     );
 
     return this.getById(brandId, userId, id);
@@ -311,11 +370,11 @@ export class AutomationDefinitionsService {
   async delete(brandId: string, userId: string, id: string): Promise<boolean> {
     await this.ensureSchema();
     await update(`DELETE FROM automation_definition_runs WHERE automation_id = ? AND brand_id = ?`, [id, brandId]);
-    const result = await update(
-      `DELETE FROM automation_definitions WHERE id = ? AND brand_id = ? AND user_id = ?`,
-      [id, brandId, userId]
+    await update(
+      `DELETE FROM automation_definitions WHERE id = ? AND brand_id = ?`,
+      [id, brandId],
     );
-    return (result as any)?.affectedRows > 0 || true;
+    return true;
   }
 
   async duplicate(brandId: string, userId: string, id: string): Promise<AutomationDefinition | null> {
@@ -366,21 +425,96 @@ export class AutomationDefinitionsService {
          AND trigger_json->>'evento' = ?`,
       [brandId, plataforma, evento]
     );
-    return (rows || []).map(mapRow);
+    const { sortDefinitionsForMatch } = await import("./automationMatchLogic");
+    return sortDefinitionsForMatch((rows || []).map(mapRow));
   }
 
   async startRun(
     automationId: string,
     brandId: string,
-    triggeredBy: "cron" | "manual" | "event"
+    triggeredBy: "cron" | "manual" | "event",
+    options?: { actorId?: string | null },
   ): Promise<string> {
     const id = uuidv4();
     await insert(
-      `INSERT INTO automation_definition_runs (id, automation_id, brand_id, status, triggered_by)
-       VALUES (?, ?, ?, 'running', ?)`,
-      [id, automationId, brandId, triggeredBy]
+      `INSERT INTO automation_definition_runs (id, automation_id, brand_id, status, triggered_by, actor_id)
+       VALUES (?, ?, ?, 'running', ?, ?)`,
+      [id, automationId, brandId, triggeredBy, options?.actorId || null],
     );
     return id;
+  }
+
+  async getActorRunStats(
+    automationId: string,
+    actorId: string,
+    limites: AutomationLimits,
+  ): Promise<{
+    lastSuccessAt: string | null;
+    successCountInMaxWindow: number;
+    successCountLastHour: number;
+    successCountLastDay: number;
+  }> {
+    if (!actorId) {
+      return {
+        lastSuccessAt: null,
+        successCountInMaxWindow: 0,
+        successCountLastHour: 0,
+        successCountLastDay: 0,
+      };
+    }
+    const windowSec = Math.max(0, Number(limites.janelaMaxUsuarioSegundos) || 86400);
+    const last = await queryOne<any>(
+      `SELECT started_at FROM automation_definition_runs
+       WHERE automation_id = ? AND actor_id = ? AND status = 'success'
+       ORDER BY started_at DESC LIMIT 1`,
+      [automationId, actorId],
+    );
+    const countWindow = await queryOne<any>(
+      `SELECT COUNT(*)::int AS c FROM automation_definition_runs
+       WHERE automation_id = ? AND actor_id = ? AND status = 'success'
+         AND started_at >= NOW() - (? || ' seconds')::interval`,
+      [automationId, actorId, String(windowSec)],
+    ).catch(async () =>
+      queryOne<any>(
+        `SELECT COUNT(*) AS c FROM automation_definition_runs
+         WHERE automation_id = ? AND actor_id = ? AND status = 'success'
+           AND started_at >= DATE_SUB(NOW(), INTERVAL ? SECOND)`,
+        [automationId, actorId, windowSec],
+      ),
+    );
+    const countHour = await queryOne<any>(
+      `SELECT COUNT(*)::int AS c FROM automation_definition_runs
+       WHERE automation_id = ? AND actor_id = ? AND status = 'success'
+         AND started_at >= NOW() - INTERVAL '1 hour'`,
+      [automationId, actorId],
+    ).catch(async () =>
+      queryOne<any>(
+        `SELECT COUNT(*) AS c FROM automation_definition_runs
+         WHERE automation_id = ? AND actor_id = ? AND status = 'success'
+           AND started_at >= DATE_SUB(NOW(), INTERVAL 1 HOUR)`,
+        [automationId, actorId],
+      ),
+    );
+    const countDay = await queryOne<any>(
+      `SELECT COUNT(*)::int AS c FROM automation_definition_runs
+       WHERE automation_id = ? AND actor_id = ? AND status = 'success'
+         AND started_at >= NOW() - INTERVAL '1 day'`,
+      [automationId, actorId],
+    ).catch(async () =>
+      queryOne<any>(
+        `SELECT COUNT(*) AS c FROM automation_definition_runs
+         WHERE automation_id = ? AND actor_id = ? AND status = 'success'
+           AND started_at >= DATE_SUB(NOW(), INTERVAL 1 DAY)`,
+        [automationId, actorId],
+      ),
+    );
+
+    return {
+      lastSuccessAt: last?.started_at ? new Date(last.started_at).toISOString() : null,
+      successCountInMaxWindow: Number(countWindow?.c || 0),
+      successCountLastHour: Number(countHour?.c || 0),
+      successCountLastDay: Number(countDay?.c || 0),
+    };
   }
 
   async finishRun(
@@ -389,25 +523,40 @@ export class AutomationDefinitionsService {
     ok: boolean,
     result: Record<string, any> | null,
     errorMessage: string | null,
-    startedAt: Date
+    startedAt: Date,
+    options?: { skipped?: boolean; outcome?: string; actorId?: string | null },
   ): Promise<void> {
     const completedAt = new Date();
     const durationMs = completedAt.getTime() - startedAt.getTime();
+    const skipped = Boolean(options?.skipped);
+    const status = skipped ? "skipped" : ok ? "success" : "error";
+    const outcome = options?.outcome || (skipped ? "skipped" : ok ? "success" : "error");
 
     await update(
       `UPDATE automation_definition_runs
-       SET status = ?, completed_at = ?, duration_ms = ?, result_json = ?, error_message = ?
+       SET status = ?, completed_at = ?, duration_ms = ?, result_json = ?, error_message = ?,
+           outcome = ?, actor_id = COALESCE(?, actor_id)
        WHERE id = ?`,
-      [ok ? "success" : "error", completedAt, durationMs, result ? JSON.stringify(result) : null, errorMessage, runId]
+      [
+        status,
+        completedAt,
+        durationMs,
+        result ? JSON.stringify(result) : null,
+        errorMessage,
+        outcome,
+        options?.actorId || null,
+        runId,
+      ],
     );
 
     const metrics = { ...automation.metrics };
     metrics.runs = (metrics.runs || 0) + 1;
     metrics.ultimaExecucao = completedAt.toISOString();
-    if (ok) {
+    // Only real success increments sucessos (not stub/skipped)
+    if (ok && !skipped && outcome !== "stub") {
       metrics.sucessos = (metrics.sucessos || 0) + 1;
       delete metrics.ultimoErro;
-    } else {
+    } else if (!ok && !skipped) {
       metrics.falhas = (metrics.falhas || 0) + 1;
       metrics.ultimoErro = {
         step: "pipeline",
@@ -422,13 +571,22 @@ export class AutomationDefinitionsService {
         : null;
     metrics.proximaExecucao = nextRun ? nextRun.toISOString() : null;
 
-    const status: AutomationDefinitionStatus = ok ? (automation.ativa ? "live" : automation.status) : "erro";
+    const newStatus: AutomationDefinitionStatus =
+      skipped || outcome === "stub"
+        ? automation.ativa
+          ? "live"
+          : automation.status
+        : ok
+          ? automation.ativa
+            ? "live"
+            : automation.status
+          : "erro";
 
     await update(
       `UPDATE automation_definitions
        SET metrics_json = ?, status = ?, next_run_at = ?, updated_at = NOW()
        WHERE id = ?`,
-      [JSON.stringify(metrics), status, nextRun, automation.id]
+      [JSON.stringify(metrics), newStatus, nextRun, automation.id],
     );
   }
 

@@ -98,7 +98,9 @@ export function FacebookInlinePanel() {
           <FacebookIcon size={20} className="text-blue-500" />
           <p className="catalog-facebook-connect__title">Página não conectada</p>
           <p className="catalog-facebook-connect__desc">
-            Vincule uma página Facebook para publicar posts, ver métricas e responder mensagens.
+            Impacto: sem posts, métricas nem mensagens do Facebook nesta marca.
+            Corrija gerando um Page Access Token no Graph API Explorer
+            (permissões pages_show_list, pages_read_engagement, pages_manage_posts) e cole no conector.
           </p>
           <button type="button" className="catalog-panel__action catalog-panel__action--facebook" onClick={() => openManager('overview')}>
             Conectar Facebook

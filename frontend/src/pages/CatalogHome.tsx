@@ -12,13 +12,32 @@ import { StoreMarketingLayer } from '@/components/store/StoreMarketingLayer'
 import { StoreFilters } from '@/components/store/StoreFilters'
 import { StoreSection } from '@/components/store/StoreSection'
 import { StoreCategoryCarousel } from '@/components/store/StoreCategoryCarousel'
+import { StoreAnnouncementBar } from '@/components/store/StoreAnnouncementBar'
+import { StoreTrustStrip } from '@/components/store/StoreTrustStrip'
+import { StorePromoCountdown } from '@/components/store/StorePromoCountdown'
 import { shouldShowCategoryCarousel, type StoreCatalogCategory } from '@/lib/store-design'
-import { captureAffiliateFromUrl, getAffiliateCoupon, getAffiliateDisplayName } from '@/lib/affiliate-tracking'
+import {
+  captureAffiliateFromUrl,
+  getAffiliateCoupon,
+  getAffiliateDisplayName,
+} from '@/lib/affiliate-tracking'
 import { productPath } from '@/lib/product-url'
 import { getStoreSlug } from '@/lib/store-context'
+import {
+  aggregateStoreReviews,
+  buildAnnouncementText,
+  buildTrustItems,
+  normalizeConversionSettings,
+  pickBestSellers,
+} from '@/lib/store-conversion'
+import {
+  StoreReviewsHighlight,
+  type StoreReviewSnippet,
+} from '@/components/store/StoreReviewsHighlight'
 
 interface CatalogHomeProps {
   onStoreLoaded: (store: StoreData['store']) => void
+  onProductsLoaded?: (products: Product[], slug: string) => void
 }
 
 interface CatalogCollection {
@@ -60,7 +79,7 @@ function HeroSkeletonBlock() {
   )
 }
 
-export function CatalogHome({ onStoreLoaded }: CatalogHomeProps) {
+export function CatalogHome({ onStoreLoaded, onProductsLoaded }: CatalogHomeProps) {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const [catalogSlug, setCatalogSlug] = useState(getStoreSlug())
@@ -75,6 +94,7 @@ export function CatalogHome({ onStoreLoaded }: CatalogHomeProps) {
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedCategory, setSelectedCategory] = useState('')
   const [affiliateBanner, setAffiliateBanner] = useState<{ name: string; coupon: string } | null>(null)
+  const [recentReviews, setRecentReviews] = useState<StoreReviewSnippet[]>([])
   const addItem = useCartStore((s) => s.addItem)
   const { showToast } = useToast()
 
@@ -100,7 +120,13 @@ export function CatalogHome({ onStoreLoaded }: CatalogHomeProps) {
         setStore(data.store)
         const slug = String((data.store as any)?.slug || getStoreSlug()).trim()
         if (slug) setCatalogSlug(slug)
-        setProducts(data.all_products || [])
+        const list = data.all_products || []
+        setProducts(list)
+        const snippets = Array.isArray((data as any).recent_reviews)
+          ? ((data as any).recent_reviews as StoreReviewSnippet[])
+          : []
+        setRecentReviews(snippets)
+        onProductsLoaded?.(list, slug)
         setStoreCategories(
           Array.isArray(data.store_categories)
             ? data.store_categories
@@ -244,8 +270,45 @@ export function CatalogHome({ onStoreLoaded }: CatalogHomeProps) {
   const showCollections = !loading && !searchQuery && !selectedCategory && collections.length > 0
   const showCategoryCarousel = !loading && shouldShowCategoryCarousel(storeCategories, store?.design)
 
+  const conversion = normalizeConversionSettings(store?.marketing as any)
+  const announceText = buildAnnouncementText({
+    configured: conversion.announcement_bar.text,
+    freeAbove,
+    deliveryTime,
+  })
+  const trustItems = buildTrustItems({
+    freeAbove,
+    deliveryFee,
+    deliveryTime,
+    customItems: conversion.trust_strip.items,
+  })
+  const bestSellers =
+    !loading && conversion.show_best_sellers && !searchQuery && !selectedCategory
+      ? pickBestSellers(products, conversion.best_sellers_limit)
+      : []
+  const bestSellerIds = new Set(bestSellers.map((p) => p.id))
+  const storeReviews = !loading ? aggregateStoreReviews(products) : { count: 0, avg: 0, topProducts: [] }
+  const showHomeExtras = !searchQuery && !selectedCategory
+
   return (
     <div className="store-page page-enter">
+      {conversion.announcement_bar.enabled && announceText && (
+        <StoreAnnouncementBar
+          text={announceText}
+          linkUrl={conversion.announcement_bar.link_url}
+          dismissible={conversion.announcement_bar.dismissible}
+        />
+      )}
+
+      {conversion.promo_ends_at && (
+        <div className="max-w-[var(--store-max)] mx-auto px-4 pt-2">
+          <StorePromoCountdown
+            endsAt={conversion.promo_ends_at}
+            label={conversion.promo_label}
+          />
+        </div>
+      )}
+
       {loading ? (
         <HeroSkeletonBlock />
       ) : (
@@ -255,12 +318,14 @@ export function CatalogHome({ onStoreLoaded }: CatalogHomeProps) {
           logoUrl={logoUrl}
           coverImage={coverImage}
           isOpen={isOpen}
-          freeAbove={freeAbove}
-          deliveryFee={deliveryFee}
-          deliveryTime={deliveryTime}
-          whatsappPhone={(brand as any)?.whatsapp_phone}
-          marketing={store?.marketing}
         />
+      )}
+
+      {/* Único lugar de frete/pagamento — sem chips no card de identidade */}
+      {!loading && conversion.trust_strip.enabled && trustItems.length > 0 && (
+        <div className="max-w-[var(--store-max)] mx-auto px-4 -mt-1 mb-2">
+          <StoreTrustStrip items={trustItems} />
+        </div>
       )}
 
       {affiliateBanner && (
@@ -312,6 +377,34 @@ export function CatalogHome({ onStoreLoaded }: CatalogHomeProps) {
       />
 
       <div className="max-w-[var(--store-max)] mx-auto px-4 pt-5 pb-28 space-y-8">
+        {showHomeExtras && (
+          <StoreReviewsHighlight
+            avg={storeReviews.avg}
+            count={storeReviews.count}
+            products={storeReviews.topProducts}
+            catalogSlug={catalogSlug}
+            snippets={recentReviews}
+          />
+        )}
+
+        {showHomeExtras && bestSellers.length >= 3 && (
+          <StoreSection title={conversion.best_sellers_title} count={bestSellers.length}>
+            <div className="store-collection-track -mx-4 px-4">
+              {bestSellers.map((product, i) => (
+                <ProductCard
+                  key={product.id}
+                  product={product}
+                  catalogSlug={catalogSlug}
+                  onQuickAdd={handleQuickAdd}
+                  priority={i < 3}
+                  bestSellerIds={bestSellerIds}
+                  showBadges={conversion.show_product_badges}
+                />
+              ))}
+            </div>
+          </StoreSection>
+        )}
+
         {showCollections && (
           <div className="space-y-8">
             {collections.map((col) => {
@@ -334,6 +427,8 @@ export function CatalogHome({ onStoreLoaded }: CatalogHomeProps) {
                         catalogSlug={catalogSlug}
                         onQuickAdd={handleQuickAdd}
                         priority={i < 3}
+                        bestSellerIds={bestSellerIds}
+                        showBadges={conversion.show_product_badges}
                       />
                     ))}
                   </div>
@@ -359,7 +454,7 @@ export function CatalogHome({ onStoreLoaded }: CatalogHomeProps) {
           </div>
         ) : (
           <StoreSection
-            title={showCollections ? 'Todos os produtos' : 'Produtos'}
+            title={showCollections || bestSellers.length >= 3 ? 'Todos os produtos' : 'Produtos'}
             count={filtered.length}
           >
             <div className="store-product-grid">
@@ -370,6 +465,8 @@ export function CatalogHome({ onStoreLoaded }: CatalogHomeProps) {
                   catalogSlug={catalogSlug}
                   onQuickAdd={handleQuickAdd}
                   priority={i < 6}
+                  bestSellerIds={bestSellerIds}
+                  showBadges={conversion.show_product_badges}
                 />
               ))}
             </div>
@@ -381,6 +478,7 @@ export function CatalogHome({ onStoreLoaded }: CatalogHomeProps) {
         marketing={store?.marketing}
         whatsappPhone={(brand as any)?.whatsapp_phone}
         page="home"
+        brandPrimary={brand?.primary_color || (store as any)?.theme?.primary_color}
       />
     </div>
   )

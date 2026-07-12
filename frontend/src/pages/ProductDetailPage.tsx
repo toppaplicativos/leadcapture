@@ -10,10 +10,13 @@ import { absoluteProductUrl, productPath } from '@/lib/product-url'
 import { collectProductImages } from '@/lib/product-images'
 import { ProductShareButton } from '@/components/ProductShareButton'
 import { StoreMarketingLayer } from '@/components/store/StoreMarketingLayer'
+import { ProductTrustBlock } from '@/components/store/ProductTrustBlock'
+import { CartDrawer } from '@/components/store/CartDrawer'
 import { ProductGallery } from '@/components/product/ProductGallery'
 import { ProductPurchasePanel, useProductPurchase } from '@/components/product/ProductPurchasePanel'
 import { ProductReviewsSection } from '@/components/product/ProductReviewsSection'
 import type { StoreData } from '@/lib/api'
+import { normalizeConversionSettings } from '@/lib/store-conversion'
 
 function applyStoreBrand(store: {
   brand?: { primary_color?: string; secondary_color?: string }
@@ -61,6 +64,7 @@ export function ProductDetailPage() {
   }>()
   const addItem = useCartStore((s) => s.addItem)
   const totalItems = useCartStore((s) => s.totalItems())
+  const openDrawer = useCartStore((s) => s.openDrawer)
 
   const [product, setProduct] = useState<Product | null>(null)
   const [allProducts, setAllProducts] = useState<Product[]>([])
@@ -159,14 +163,16 @@ export function ProductDetailPage() {
 
   function handleAdd(payload: Parameters<typeof addItem>[0]) {
     if (!product) return
-    addItem(payload)
+    addItem(payload, 1, { openDrawer: true })
     setAddedFlash(true)
     window.setTimeout(() => setAddedFlash(false), 2200)
   }
 
-  function goCheckout() {
-    navigate(storeUrl('checkout', catalogSlug))
-  }
+  const conversion = normalizeConversionSettings(storeSnapshot?.marketing as any)
+  const profileAny = (storeSnapshot as any)?.profile || {}
+  const freeAbove = Number(profileAny.free_shipping_above) || 0
+  const deliveryFee = Number(profileAny.delivery_fee) || 0
+  const deliveryTime = String(profileAny.delivery_time_text || '')
 
   if (loading) return <DetailSkeleton />
 
@@ -217,8 +223,9 @@ export function ProductDetailPage() {
             </div>
           </div>
 
-          <Link
-            to={storeUrl('checkout', catalogSlug)}
+          <button
+            type="button"
+            onClick={openDrawer}
             aria-label={`Carrinho${totalItems > 0 ? ` (${totalItems} itens)` : ''}`}
             className="relative grid place-items-center w-10 h-10 rounded-full text-gray-800 hover:bg-gray-100 active:scale-95 transition shrink-0"
           >
@@ -228,7 +235,7 @@ export function ProductDetailPage() {
                 {totalItems}
               </span>
             )}
-          </Link>
+          </button>
         </div>
       </header>
 
@@ -284,6 +291,14 @@ export function ProductDetailPage() {
               showPriceHeader
             />
 
+            {conversion.show_pdp_trust && (
+              <ProductTrustBlock
+                freeAbove={freeAbove}
+                deliveryFee={deliveryFee}
+                deliveryTime={deliveryTime}
+              />
+            )}
+
             <ProductShareButton
               product={product}
               catalogSlug={catalogSlug}
@@ -298,10 +313,10 @@ export function ProductDetailPage() {
                 <p className="text-[13px] font-semibold text-emerald-800">Adicionado ao carrinho!</p>
                 <button
                   type="button"
-                  onClick={goCheckout}
+                  onClick={openDrawer}
                   className="text-[12px] font-bold text-emerald-700 hover:text-emerald-900"
                 >
-                  Ir ao checkout →
+                  Ver carrinho →
                 </button>
               </div>
             )}
@@ -382,23 +397,32 @@ export function ProductDetailPage() {
         </div>
       </div>
 
-      {/* Barra fixa mobile */}
-      <div className="product-detail-bar lg:hidden fixed bottom-0 inset-x-0 z-50 safe-area-bottom">
-        <div className="max-w-[var(--product-detail-max)] mx-auto px-4 py-3">
-          <ProductPurchasePanel
-            product={product}
-            purchase={purchase}
-            onAdd={handleAdd}
-            layout="bar"
-            showPriceHeader={false}
-          />
+      {/* Sticky ATC mobile — compacto; FAB sobe via CSS */}
+      {conversion.sticky_atc && (
+        <div className="product-detail-bar product-detail-bar--sticky lg:hidden fixed inset-x-0 z-40">
+          <div className="max-w-[var(--product-detail-max)] mx-auto px-3 pt-2.5 pb-2">
+            <ProductPurchasePanel
+              product={product}
+              purchase={purchase}
+              onAdd={handleAdd}
+              layout="bar"
+              showPriceHeader={false}
+            />
+          </div>
         </div>
-      </div>
+      )}
 
       <StoreMarketingLayer
         marketing={storeSnapshot?.marketing}
         whatsappPhone={storeSnapshot?.brand?.whatsapp_phone}
         page="product"
+        brandPrimary={storeSnapshot?.brand?.primary_color || storeSnapshot?.theme?.primary_color}
+      />
+
+      <CartDrawer
+        products={allProducts}
+        catalogSlug={catalogSlug}
+        enableUpsell={conversion.cart_upsell}
       />
     </div>
   )

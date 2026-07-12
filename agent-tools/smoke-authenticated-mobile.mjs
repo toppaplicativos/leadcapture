@@ -183,6 +183,20 @@ try {
         ok(`${mod.label} → CatalogManagerSheet aberto (head pad ${headPad})`)
         await page.locator('.catalog-manager-sheet__close').click()
         await page.waitForTimeout(300)
+      } else if (mod.label === 'Instagram' || mod.label === 'Facebook') {
+        /* Conta não conectada: empty-state só tem CTA de conectar, sem manager sheet — soft-skip */
+        const connectCta = panel.locator(
+          '.catalog-instagram-connect, .catalog-facebook-connect, button, a',
+        ).filter({ hasText: /conectar|connect|vincular/i })
+        const moduleText = ((await block.innerText().catch(() => '')) || '').toLowerCase()
+        if (
+          (await connectCta.count()) ||
+          /conectar|não conectad|nao conectad|connect your|vincular/.test(moduleText)
+        ) {
+          ok(`${mod.label} → conta não conectada (skip manager sheet)`)
+        } else {
+          fail(`${mod.label} → botão manager sheet não encontrado`)
+        }
       } else {
         fail(`${mod.label} → botão manager sheet não encontrado`)
       }

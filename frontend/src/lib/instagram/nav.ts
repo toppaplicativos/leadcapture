@@ -46,7 +46,7 @@ export const IG_NAV_GROUPS: Array<{ id: string; label: string; items: InstagramN
     label: 'Engajamento',
     items: [
       { key: 'messages', label: 'Mensagens', shortLabel: 'DMs', icon: MessageCircle, description: 'Direct do Instagram' },
-      { key: 'automations', label: 'Automações', shortLabel: 'Auto', icon: Zap, description: 'Fluxos e webhooks' },
+      { key: 'automations', label: 'Automações IG', shortLabel: 'Auto', icon: Zap, description: 'Espelho das automações que usam Instagram' },
       { key: 'ai', label: 'Atendimento IA', shortLabel: 'IA', icon: Bot, description: 'Persona e respostas' },
     ],
   },

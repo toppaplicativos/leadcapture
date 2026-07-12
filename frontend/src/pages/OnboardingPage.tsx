@@ -107,7 +107,7 @@ export function OnboardingPage() {
   }
 
   const inputClass =
-    'w-full px-4 py-3 bg-gray-50 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition'
+    'w-full px-4 py-3 bg-gray-50 border border-border rounded-xl text-sm focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900 transition bg-white text-gray-900'
   const selectClass = inputClass + ' appearance-none'
 
   return (
@@ -322,7 +322,7 @@ function Field({
         placeholder={placeholder}
         required={required}
         step={type === 'number' ? 'any' : undefined}
-        className="w-full px-4 py-3 bg-gray-50 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition"
+        className="w-full px-4 py-3 bg-gray-50 border border-border rounded-xl text-sm focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900 transition bg-white text-gray-900"
       />
     </div>
   )

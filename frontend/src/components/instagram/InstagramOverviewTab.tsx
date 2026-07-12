@@ -107,7 +107,7 @@ export function InstagramOverviewTab({ profile, dashboard, onRefresh, onNavigate
         <div className="ig-overview__hero-actions">
           <button type="button" className="ig-overview__btn ig-overview__btn--ghost" onClick={() => void snapshot()} disabled={snapping}>
             {snapping ? <Loader2 size={14} className="animate-spin" /> : <InstagramIcon size={14} />}
-            Snapshot
+            Atualizar métricas
           </button>
           <button type="button" className="ig-overview__btn ig-overview__btn--primary" onClick={() => onNavigate('create')}>
             <Plus size={14} />
@@ -134,7 +134,7 @@ export function InstagramOverviewTab({ profile, dashboard, onRefresh, onNavigate
       <section className="ig-overview__modules">
         <div className="ig-overview__section-head">
           <h3 className="ig-overview__section-title">Módulos</h3>
-          <p className="ig-overview__section-sub">Acesso rápido às áreas do studio</p>
+          <p className="ig-overview__section-sub">Acesso rápido às áreas do Instagram</p>
         </div>
         <div className="ig-overview__module-grid">
           {QUICK_MODULES.map((mod) => {
@@ -161,7 +161,7 @@ export function InstagramOverviewTab({ profile, dashboard, onRefresh, onNavigate
           <div className="ig-overview__section-head ig-overview__section-head--row">
             <div>
               <h3 className="ig-overview__section-title">Posts recentes</h3>
-              <p className="ig-overview__section-sub">{media.length} na API</p>
+              <p className="ig-overview__section-sub">{media.length} publicações carregadas</p>
             </div>
             <button type="button" className="ig-overview__link" onClick={() => onNavigate('posts')}>
               Ver todos
@@ -211,7 +211,7 @@ export function InstagramOverviewTab({ profile, dashboard, onRefresh, onNavigate
             })}
           </ul>
           <div className="ig-overview__token">
-            <span>Token API</span>
+            <span>Conexão com o Instagram</span>
             <span className="ig-overview__token-ok">
               <span className="ig-studio__status is-on" aria-hidden /> Válido
             </span>

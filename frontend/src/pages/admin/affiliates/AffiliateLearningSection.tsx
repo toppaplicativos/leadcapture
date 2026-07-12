@@ -169,7 +169,14 @@ export function AffiliateLearningSection({ modules, onRefresh, showToast, saving
         )}
       </div>
 
-      <MediaPickerModal open={pickerOpen} onClose={() => setPickerOpen(false)} onSelect={onGalleryPick} title="Imagem do módulo" />
+      <MediaPickerModal
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        onSelect={onGalleryPick}
+        preferSection="publicidade"
+        title="Imagem da Publicidade · módulo"
+        accept={['image']}
+      />
     </div>
   )
 }

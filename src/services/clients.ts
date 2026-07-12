@@ -174,7 +174,23 @@ export class ClientsService {
       );
     }
 
-    return this.getById(id, userId, brandId) as Promise<Client>;
+    const created = await this.getById(id, userId, brandId);
+    if (created?.email) {
+      try {
+        const { emailTriggers } = await import("./emailTriggers");
+        emailTriggers.welcomeCustomer({
+          userId,
+          brandId: brandId || null,
+          customer_name: created.name,
+          customer_email: String(created.email),
+          client_type: (created as any).client_type || data.client_type || null,
+        });
+      } catch {
+        /* non-blocking */
+      }
+    }
+    if (!created) throw new Error("Falha ao criar cliente");
+    return created;
   }
 
   async getById(id: string, userId: string, brandId?: string | null): Promise<Client | null> {

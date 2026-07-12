@@ -77,6 +77,10 @@ export function resolveCommissionConfig(input: {
     commission_pct?: number | string | null;
   } | null;
   program?: {
+    /** multi-programa (affiliate_programs) */
+    commission_mode?: string | null;
+    commission_value?: number | string | null;
+    /** config legada (affiliate_program_config) */
     default_commission_mode?: string | null;
     default_commission_value?: number | string | null;
     default_commission_pct?: number | string | null;
@@ -85,13 +89,39 @@ export function resolveCommissionConfig(input: {
   const program = input.program || {};
   const affiliate = input.affiliate || {};
 
-  if (affiliate.commission_mode) {
+  // Override só quando o admin define commission_mode no afiliado.
+  // commission_pct sozinho é cópia legada do default (ex.: 10%) — NÃO pode
+  // esconder fixed_per_kg / regras do programa multi.
+  if (affiliate.commission_mode != null && String(affiliate.commission_mode).trim() !== "") {
     return {
       mode: normalizeCommissionMode(affiliate.commission_mode),
-      value: Number(affiliate.commission_value ?? affiliate.commission_pct ?? program.default_commission_value ?? program.default_commission_pct ?? 10),
+      value: Number(
+        affiliate.commission_value
+          ?? affiliate.commission_pct
+          ?? program.commission_value
+          ?? program.default_commission_value
+          ?? program.default_commission_pct
+          ?? 10,
+      ),
       source: "affiliate",
     };
   }
+
+  // Programa multi (R$/kg, fixo/pedido, etc.) tem prioridade sobre commission_pct legado
+  if (program.commission_mode != null && String(program.commission_mode).trim() !== "") {
+    return {
+      mode: normalizeCommissionMode(program.commission_mode),
+      value: Number(
+        program.commission_value
+          ?? program.default_commission_value
+          ?? program.default_commission_pct
+          ?? 0,
+      ),
+      source: "program",
+    };
+  }
+
+  // Sem programa multi: pct legado do afiliado (quando existir) ou default da marca
   if (affiliate.commission_pct != null && affiliate.commission_pct !== "") {
     return {
       mode: "percentage",

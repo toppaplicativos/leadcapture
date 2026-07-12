@@ -47,6 +47,68 @@ export function buildOwnerMetaForCreate(scope: InstanceAuthScope): {
   return { ownerType: "admin", ownerActorId: scope.actorUserId };
 }
 
+function slugifyBrandCode(raw: unknown): string {
+  const s = String(raw || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "")
+    .slice(0, 14);
+  return s || "org";
+}
+
+/**
+ * Nome/código automático de sessão do afiliado — sem input do usuário.
+ * Formato: {slugOrg}-WA-001 (sequencial por afiliado+marca).
+ * Serve de rastreio: cada sessão amarra contatos à organização e ao afiliado.
+ */
+export async function allocateAffiliateSessionCode(input: {
+  ownerUserId: string;
+  brandId: string;
+  actorUserId: string;
+}): Promise<{ name: string; trackingCode: string; seq: number; brandSlug: string; brandName: string | null }> {
+  const brand = await queryOne<{ slug?: string | null; name?: string | null }>(
+    `SELECT slug, name FROM brand_units WHERE id = ? LIMIT 1`,
+    [input.brandId],
+  );
+  const brandSlug = slugifyBrandCode(brand?.slug || brand?.name || "org");
+  const brandName = brand?.name ? String(brand.name) : null;
+
+  const existing = await query<{ name: string }[]>(
+    `SELECT name FROM whatsapp_instances
+     WHERE created_by = ?
+       AND brand_id = ?
+       AND owner_type = 'affiliate'
+       AND owner_actor_id = ?
+     ORDER BY created_at ASC`,
+    [input.ownerUserId, input.brandId, input.actorUserId],
+  );
+
+  const used = new Set<number>();
+  const prefix = `${brandSlug}-WA-`;
+  for (const row of existing || []) {
+    const n = String(row.name || "");
+    const m = n.match(new RegExp(`^${brandSlug}-WA-(\\d+)`, "i"));
+    if (m) used.add(Number(m[1]));
+  }
+
+  let seq = 1;
+  while (used.has(seq)) seq += 1;
+  // Soft-cap por afiliado/marca (muitas sessões possíveis, sem estourar plano admin)
+  if (seq > 50) {
+    throw new Error("Limite de 50 sessões WhatsApp por organização atingido para este afiliado");
+  }
+
+  const trackingCode = `${prefix}${String(seq).padStart(3, "0")}`;
+  return {
+    name: trackingCode,
+    trackingCode,
+    seq,
+    brandSlug,
+    brandName,
+  };
+}
+
 async function columnExists(tableName: string, columnName: string): Promise<boolean> {
   const row = await queryOne<{ total: number }>(
     `SELECT COUNT(*) AS total

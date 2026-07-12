@@ -7,10 +7,13 @@ import { storeUrl } from '@/lib/store-context'
 interface TopbarProps {
   storeName: string
   logoUrl?: string
+  /** Abre drawer do carrinho em vez de ir ao checkout */
+  useCartDrawer?: boolean
 }
 
-export function Topbar({ storeName, logoUrl }: TopbarProps) {
+export function Topbar({ storeName, logoUrl, useCartDrawer = true }: TopbarProps) {
   const totalItems = useCartStore((s) => s.totalItems())
+  const openDrawer = useCartStore((s) => s.openDrawer)
   const [scrolled, setScrolled] = useState(false)
 
   useEffect(() => {
@@ -19,6 +22,15 @@ export function Topbar({ storeName, logoUrl }: TopbarProps) {
     window.addEventListener('scroll', onScroll, { passive: true })
     return () => window.removeEventListener('scroll', onScroll)
   }, [])
+
+  const cartBtnClass =
+    'relative grid place-items-center w-10 h-10 rounded-full text-gray-800 hover:bg-gray-100 active:scale-95 transition'
+  const cartBadge =
+    totalItems > 0 ? (
+      <span className="absolute top-0.5 right-0.5 min-w-[18px] h-[18px] rounded-full bg-brand text-white text-[10px] font-bold grid place-items-center px-1 ring-2 ring-white tabular-nums">
+        {totalItems}
+      </span>
+    ) : null
 
   return (
     <header
@@ -47,18 +59,26 @@ export function Topbar({ storeName, logoUrl }: TopbarProps) {
           </h1>
         </div>
 
-        <Link
-          to={storeUrl('checkout')}
-          aria-label={`Carrinho${totalItems > 0 ? ` (${totalItems} itens)` : ''}`}
-          className="relative grid place-items-center w-10 h-10 rounded-full text-gray-800 hover:bg-gray-100 active:scale-95 transition"
-        >
-          <ShoppingBag size={19} strokeWidth={1.75} />
-          {totalItems > 0 && (
-            <span className="absolute top-0.5 right-0.5 min-w-[18px] h-[18px] rounded-full bg-brand text-white text-[10px] font-bold grid place-items-center px-1 ring-2 ring-white tabular-nums">
-              {totalItems}
-            </span>
-          )}
-        </Link>
+        {useCartDrawer ? (
+          <button
+            type="button"
+            onClick={openDrawer}
+            aria-label={`Carrinho${totalItems > 0 ? ` (${totalItems} itens)` : ''}`}
+            className={cartBtnClass}
+          >
+            <ShoppingBag size={19} strokeWidth={1.75} />
+            {cartBadge}
+          </button>
+        ) : (
+          <Link
+            to={storeUrl('checkout')}
+            aria-label={`Carrinho${totalItems > 0 ? ` (${totalItems} itens)` : ''}`}
+            className={cartBtnClass}
+          >
+            <ShoppingBag size={19} strokeWidth={1.75} />
+            {cartBadge}
+          </Link>
+        )}
       </div>
     </header>
   )

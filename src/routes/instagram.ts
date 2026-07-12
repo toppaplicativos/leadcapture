@@ -667,14 +667,61 @@ router.get("/conversations/:threadId", async (req: BrandRequest, res: Response) 
 router.post("/messages/send", async (req: BrandRequest, res: Response) => {
   const brandId = requireBrand(req, res);
   if (!brandId) return;
-  const { recipient_id, text } = req.body || {};
-  if (!recipient_id || !String(text || "").trim()) {
-    return res.status(400).json({ error: "recipient_id e text sao obrigatorios" });
+  const {
+    recipient_id,
+    text,
+    /** Array of { title, payload?, url? } — interactive DM */
+    buttons,
+    /** quick_replies | button_template | auto */
+    mode,
+    /** Full mensagemSteps pipeline blocks (optional) */
+    mensagemSteps,
+  } = req.body || {};
+
+  if (!recipient_id) {
+    return res.status(400).json({ error: "recipient_id é obrigatório" });
   }
+
   try {
+    // Pipeline blocks → Meta quick_replies / button template
+    if (Array.isArray(mensagemSteps) && mensagemSteps.length > 0) {
+      const { sendInstagramDmFromPipeline } = await import("../services/instagramReplyHelpers");
+      const result = await sendInstagramDmFromPipeline(
+        brandId,
+        String(recipient_id),
+        mensagemSteps,
+        String(text || "").trim() || undefined,
+      );
+      if (!result.ok) return res.status(400).json({ success: false, error: result.error, kind: result.kind });
+      return res.json({ success: true, message_id: result.messageId, kind: result.kind });
+    }
+
+    // Explicit buttons array
+    if (Array.isArray(buttons) && buttons.length > 0) {
+      const { buildInteractiveMessage } = await import("../services/instagramMessagingPayloads");
+      const prompt = String(text || "Escolha uma opção:").trim();
+      const mapped = buttons.map((b: any) => ({
+        label: String(b.title || b.label || ""),
+        payload: b.payload ? String(b.payload) : undefined,
+        url: b.url ? String(b.url) : undefined,
+      }));
+      const force =
+        mode === "quick_replies" || mode === "button_template"
+          ? (mode as "quick_replies" | "button_template")
+          : undefined;
+      const built = buildInteractiveMessage(prompt, mapped, force ? { force } : undefined);
+      const result = await instagramService.sendDmBuilt(brandId, String(recipient_id), built);
+      if (!result.ok) return res.status(400).json({ success: false, error: result.error, kind: result.kind });
+      return res.json({ success: true, message_id: result.messageId, kind: result.kind });
+    }
+
+    if (!String(text || "").trim()) {
+      return res.status(400).json({ error: "text, buttons ou mensagemSteps são obrigatórios" });
+    }
+
     const result = await instagramService.sendDm(brandId, String(recipient_id), String(text).trim());
     if (!result.ok) return res.status(400).json({ success: false, error: result.error });
-    res.json({ success: true, message_id: result.messageId });
+    res.json({ success: true, message_id: result.messageId, kind: "text" });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -842,7 +889,69 @@ router.post("/settings", async (req: BrandRequest, res: Response) => {
       );
     }
 
-    res.json({ success: true });
+    const {
+      validateMetaAppCredentials,
+      syncAppSecretToConnections,
+      invalidateMetaAppCredentialsCache,
+      getMetaAppIdAndSecret,
+    } = await import("../services/metaAppCredentials");
+    invalidateMetaAppCredentialsCache();
+
+    const { appId, secret } = await getMetaAppIdAndSecret();
+    if (secret) {
+      await syncAppSecretToConnections(appId, secret);
+    }
+    const validation = await validateMetaAppCredentials(true);
+
+    res.json({
+      success: true,
+      credentials_valid: validation.ok,
+      credentials_error: validation.error || null,
+      message: validation.ok
+        ? "Credenciais Meta validas."
+        : `App Secret/App ID invalidos na Meta: ${validation.error}. Webhooks reais serao rejeitados no HMAC ate corrigir. Cole o App Secret em developers.facebook.com → App → Configuracoes → Basico.`,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** Health: App Secret + webhook + connection (for debug modal / ops). */
+router.get("/webhook-health", async (req: BrandRequest, res: Response) => {
+  try {
+    const {
+      validateMetaAppCredentials,
+      getMetaAppIdAndSecret,
+    } = await import("../services/metaAppCredentials");
+    const validation = await validateMetaAppCredentials(true);
+    const { appId } = await getMetaAppIdAndSecret();
+    const brandId = String(req.brandId || "");
+    const conn = brandId ? await instagramService.getConnection(brandId) : null;
+    const subscribed = brandId
+      ? await instagramService.subscribeWebhooks(brandId).catch((e: any) => ({
+          ok: false,
+          error: e?.message,
+        }))
+      : { ok: false, error: "no brand" };
+
+    res.json({
+      success: true,
+      app_id: appId ? `${appId.slice(0, 6)}…` : null,
+      credentials_valid: validation.ok,
+      credentials_error: validation.error || null,
+      ig_connected: Boolean(conn?.access_token),
+      ig_username: conn?.username || null,
+      ig_user_id: conn?.ig_user_id || null,
+      webhook_subscribe: subscribed,
+      webhook_urls: [
+        "https://app.leadcapture.online/api/meta/webhook",
+        "https://app.leadcapture.online/api/instagram/webhook",
+      ],
+      verify_token_hint: "leadcapture_meta_verify_2026 (ou o valor em system_settings)",
+      note: validation.ok
+        ? "HMAC deve aceitar POSTs reais da Meta."
+        : "App Secret INVALIDO: a Meta assina com o secret real; o LeadCapture rejeita (401). Atualize o secret. Soft-accept processa so se entry.id bater com conta ativa.",
+    });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

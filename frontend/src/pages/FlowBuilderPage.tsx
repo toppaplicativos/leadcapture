@@ -190,7 +190,7 @@ export function FlowBuilderPage() {
                       className={`p-1.5 rounded-lg transition ${f.status === 'active' ? 'bg-amber-50 text-amber-600 hover:bg-amber-100' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'}`}>
                       {f.status === 'active' ? <Pause size={14} /> : <Play size={14} />}
                     </button>
-                    <button onClick={() => setEditFlow(f)} className="p-1.5 rounded-lg bg-violet-50 text-violet-600 hover:bg-violet-100 transition">
+                    <button onClick={() => setEditFlow(f)} className="p-1.5 rounded-lg bg-gray-50 text-gray-700 hover:bg-violet-100 transition">
                       <GitBranch size={14} />
                     </button>
                     <button onClick={() => duplicateFlow(f)} className="p-1.5 rounded-lg bg-gray-50 text-gray-500 hover:bg-gray-100 transition">
@@ -204,7 +204,7 @@ export function FlowBuilderPage() {
                 {/* Mini pipeline */}
                 <div className="flex items-center gap-1 mt-3 pt-3 border-t border-gray-100 overflow-x-auto scrollbar-hide">
                   {(f.nodes || []).map((n, i) => {
-                    const typeColor = n.type === 'trigger' ? 'bg-blue-500' : n.type === 'action' ? 'bg-emerald-500' : n.type === 'condition' ? 'bg-amber-500' : n.type === 'delay' ? 'bg-violet-500' : 'bg-gray-400'
+                    const typeColor = n.type === 'trigger' ? 'bg-blue-500' : n.type === 'action' ? 'bg-emerald-500' : n.type === 'condition' ? 'bg-amber-500' : n.type === 'delay' ? 'bg-gray-500' : 'bg-gray-400'
                     return (
                       <div key={n.id} className="flex items-center shrink-0">
                         <div className={`px-2 py-1 rounded-lg text-[9px] font-bold text-white ${typeColor} whitespace-nowrap`}>
@@ -312,7 +312,7 @@ function FlowEditor({ flow, onClose }: { flow: Flow; onClose: () => void }) {
         </div>
         <div className="flex items-center gap-2">
           <button onClick={() => setShowAddNode(true)}
-            className="flex items-center gap-1 px-3 py-2 rounded-xl bg-violet-50 text-violet-700 text-xs font-bold hover:bg-violet-100 transition">
+            className="flex items-center gap-1 px-3 py-2 rounded-xl bg-gray-50 text-violet-700 text-xs font-bold hover:bg-violet-100 transition">
             <Plus size={13} /> Adicionar Node
           </button>
           <button onClick={save} disabled={saving}
@@ -371,7 +371,7 @@ function FlowEditor({ flow, onClose }: { flow: Flow; onClose: () => void }) {
           <div>
             <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1 block">Nome do node</label>
             <input type="text" value={selected.label} onChange={e => updateNodeLabel(selected.id, e.target.value)}
-              className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-200" />
+              className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900" />
           </div>
 
           {/* Type-specific config */}
@@ -379,7 +379,7 @@ function FlowEditor({ flow, onClose }: { flow: Flow; onClose: () => void }) {
             <div>
               <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1 block">Tipo de gatilho</label>
               <select value={selected.subtype} onChange={e => setNodes(nodes.map(n => n.id === selected.id ? { ...n, subtype: e.target.value } : n))}
-                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-200">
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900">
                 {TRIGGER_TYPES.map(t => <option key={t.subtype} value={t.subtype}>{t.label} — {t.desc}</option>)}
               </select>
             </div>
@@ -390,7 +390,7 @@ function FlowEditor({ flow, onClose }: { flow: Flow; onClose: () => void }) {
               <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1 block">Mensagem</label>
               <textarea value={selected.data.message || ''} onChange={e => updateNodeData(selected.id, 'message', e.target.value)} rows={3}
                 placeholder="Ola {{system.customer.name}}, bem-vindo!"
-                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-200 resize-none font-mono" />
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900 resize-none font-mono" />
               <p className="text-[9px] text-gray-400 mt-1">Use {'{{system.customer.name}}'} para variaveis</p>
             </div>
           )}
@@ -400,7 +400,7 @@ function FlowEditor({ flow, onClose }: { flow: Flow; onClose: () => void }) {
               <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1 block">Instrucao para IA</label>
               <textarea value={selected.data.ai_instruction || ''} onChange={e => updateNodeData(selected.id, 'ai_instruction', e.target.value)} rows={3}
                 placeholder="Gere uma saudacao personalizada mencionando o segmento do lead..."
-                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-200 resize-none" />
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900 resize-none" />
             </div>
           )}
 
@@ -408,7 +408,7 @@ function FlowEditor({ flow, onClose }: { flow: Flow; onClose: () => void }) {
             <div>
               <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1 block">Novo status</label>
               <select value={selected.data.new_status || ''} onChange={e => updateNodeData(selected.id, 'new_status', e.target.value)}
-                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-200">
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900">
                 <option value="">Selecione...</option>
                 {['new','contacted','replied','negotiating','converted','lost'].map(s => <option key={s} value={s}>{s}</option>)}
               </select>
@@ -419,7 +419,7 @@ function FlowEditor({ flow, onClose }: { flow: Flow; onClose: () => void }) {
             <div>
               <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1 block">Tag</label>
               <input type="text" value={selected.data.tag || ''} onChange={e => updateNodeData(selected.id, 'tag', e.target.value)}
-                placeholder="Ex: contatado, interessado" className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-200" />
+                placeholder="Ex: contatado, interessado" className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900" />
             </div>
           )}
 
@@ -428,12 +428,12 @@ function FlowEditor({ flow, onClose }: { flow: Flow; onClose: () => void }) {
               <div>
                 <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1 block">URL</label>
                 <input type="url" value={selected.data.url || ''} onChange={e => updateNodeData(selected.id, 'url', e.target.value)}
-                  placeholder="https://..." className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-200" />
+                  placeholder="https://..." className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900" />
               </div>
               <div>
                 <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1 block">Metodo</label>
                 <select value={selected.data.method || 'POST'} onChange={e => updateNodeData(selected.id, 'method', e.target.value)}
-                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-200">
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900">
                   <option value="POST">POST</option><option value="GET">GET</option>
                 </select>
               </div>
@@ -445,12 +445,12 @@ function FlowEditor({ flow, onClose }: { flow: Flow; onClose: () => void }) {
               <div>
                 <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1 block">Valor</label>
                 <input type="number" min={1} value={selected.data.value || ''} onChange={e => updateNodeData(selected.id, 'value', Number(e.target.value))}
-                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-200" />
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900" />
               </div>
               <div>
                 <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1 block">Unidade</label>
                 <select value={selected.subtype} onChange={e => setNodes(nodes.map(n => n.id === selected.id ? { ...n, subtype: e.target.value } : n))}
-                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-200">
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900">
                   <option value="wait_minutes">Minutos</option><option value="wait_hours">Horas</option><option value="wait_days">Dias</option>
                 </select>
               </div>
@@ -461,7 +461,7 @@ function FlowEditor({ flow, onClose }: { flow: Flow; onClose: () => void }) {
             <div>
               <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1 block">Valor de comparacao</label>
               <input type="text" value={selected.data.threshold || ''} onChange={e => updateNodeData(selected.id, 'threshold', e.target.value)}
-                placeholder="Ex: 50 (score), tag_name, status..." className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-200" />
+                placeholder="Ex: 50 (score), tag_name, status..." className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900" />
             </div>
           )}
         </div>
@@ -506,7 +506,7 @@ function FlowEditor({ flow, onClose }: { flow: Flow; onClose: () => void }) {
               <div>
                 <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Temporizador</p>
                 <button onClick={() => addNode('delay', 'wait_minutes', 'Aguardar')}
-                  className="flex items-center gap-2.5 p-3 rounded-xl border border-gray-200 hover:border-violet-300 hover:bg-violet-50 transition w-full text-left">
+                  className="flex items-center gap-2.5 p-3 rounded-xl border border-gray-200 hover:border-violet-300 hover:bg-gray-50 transition w-full text-left">
                   <Clock size={16} className="text-violet-500" />
                   <div><p className="text-xs font-bold text-gray-800">Aguardar</p><p className="text-[9px] text-gray-400">Pausar execucao por X tempo</p></div>
                 </button>

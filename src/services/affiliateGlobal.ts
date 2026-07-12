@@ -284,8 +284,8 @@ export class AffiliateGlobalService {
 
     const userId = randomUUID();
     await query(
-      `INSERT INTO users (id, email, password_hash, name, phone, role, is_active)
-       VALUES (?, ?, ?, ?, ?, 'affiliate', TRUE)`,
+      `INSERT INTO users (id, email, password_hash, name, phone, role, account_kind, is_active)
+       VALUES (?, ?, ?, ?, ?, 'affiliate', 'affiliate', TRUE)`,
       [userId, email, input.passwordHash, name, input.phone || null]
     );
 
@@ -839,7 +839,9 @@ export class AffiliateGlobalService {
           !application &&
           !enrollment &&
           participation_status === "not_applied",
-        can_continue: enrollment?.status === "onboarding",
+        can_continue:
+          enrollment?.status === "onboarding"
+          || (enrollment?.status === "active" && !enrollment?.onboarding_completed_at),
         enrollment: enrollment
           ? { id: String(enrollment.id), status: String(enrollment.status) }
           : null,
@@ -1027,7 +1029,9 @@ export class AffiliateGlobalService {
         !application &&
         !enrollment &&
         participation_status === "not_applied",
-      can_continue: enrollment?.status === "onboarding",
+      can_continue:
+        enrollment?.status === "onboarding"
+        || (enrollment?.status === "active" && !enrollment?.onboarding_completed_at),
       enrollment: enrollment
         ? { id: String(enrollment.id), status: String(enrollment.status) }
         : null,

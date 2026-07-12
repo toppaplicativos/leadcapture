@@ -6,6 +6,7 @@ import { query, queryOne } from "../config/database";
 import { AffiliatesService } from "../services/affiliates";
 import { affiliateProductLearningService } from "../services/affiliateProductLearning";
 import { affiliateDistributionService } from "../services/affiliateDistribution";
+import { affiliateProgramAiFillService } from "../services/affiliateProgramAiFill";
 
 const router = Router();
 const affiliatesService = new AffiliatesService();
@@ -101,7 +102,21 @@ router.get("/program", async (req: AuthRequest, res: Response) => {
 
     const config = await affiliatesService.getOrCreateProgramConfig(ctx.ownerUserId, ctx.brandId);
     const affiliates = await affiliatesService.listAffiliates(ctx.ownerUserId, ctx.brandId);
-    res.json({ success: true, program: config, affiliates, total: affiliates.length });
+    const partners = await affiliatesService.buildPartnersPublicUrls(
+      ctx.ownerUserId,
+      ctx.brandId,
+      config,
+    );
+    res.json({
+      success: true,
+      program: {
+        ...config,
+        app_subdomain: partners.app_subdomain,
+      },
+      partners,
+      affiliates,
+      total: affiliates.length,
+    });
   } catch (e: any) {
     res.status(500).json({ error: e.message || "Falha ao carregar programa" });
   }
@@ -132,9 +147,68 @@ router.put("/program", requireRole(["admin", "operator"]), async (req: AuthReque
       accept_new_affiliates: req.body?.accept_new_affiliates,
       auto_approve_affiliates: req.body?.auto_approve_affiliates,
     });
-    res.json({ success: true, program: config });
+    const partners = await affiliatesService.buildPartnersPublicUrls(ownerUserId, brandId, config);
+    res.json({
+      success: true,
+      program: { ...config, app_subdomain: partners.app_subdomain },
+      partners,
+    });
   } catch (e: any) {
     res.status(500).json({ error: e.message || "Falha ao atualizar programa" });
+  }
+});
+
+/**
+ * Preenche o programa completo com IA a partir de brief mínimo
+ * (oferta + prazos + comissão/repasse).
+ * Body: opportunity_description*, payment_days*, commission_*, payout_*, activate?
+ */
+router.post("/program/ai-fill", requireRole(["admin", "operator"]), async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = await resolveAffiliateOwner(req);
+    if (!ctx) return res.status(400).json({ error: "brand_id obrigatório" });
+    const userId = String(req.user?.userId || "").trim();
+
+    const result = await affiliateProgramAiFillService.fill(
+      ctx.ownerUserId,
+      ctx.brandId,
+      userId,
+      {
+        opportunity_description: String(req.body?.opportunity_description || "").trim(),
+        payment_days: Number(req.body?.payment_days),
+        commission_mode: req.body?.commission_mode,
+        commission_value: req.body?.commission_value != null ? Number(req.body.commission_value) : undefined,
+        payout_method: req.body?.payout_method,
+        payout_frequency: req.body?.payout_frequency,
+        payout_min_amount: req.body?.payout_min_amount != null ? Number(req.body.payout_min_amount) : undefined,
+        cookie_days: req.body?.cookie_days != null ? Number(req.body.cookie_days) : undefined,
+        auto_approve: req.body?.auto_approve,
+        activate: req.body?.activate === undefined ? undefined : !!req.body.activate,
+        extra_notes: req.body?.extra_notes ? String(req.body.extra_notes).trim() : undefined,
+      },
+    );
+    res.json({ success: true, ...result });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message || "Falha ao gerar programa com IA" });
+  }
+});
+
+/** Ativa ou desativa o programa no mercado (pós-preenchimento IA) */
+router.post("/program/ai-activate", requireRole(["admin", "operator"]), async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = await resolveAffiliateOwner(req);
+    if (!ctx) return res.status(400).json({ error: "brand_id obrigatório" });
+    const programId = String(req.body?.program_id || "").trim();
+    if (!programId) return res.status(400).json({ error: "program_id obrigatório" });
+    const result = await affiliateProgramAiFillService.setActivation(
+      ctx.ownerUserId,
+      ctx.brandId,
+      programId,
+      req.body?.activate !== false,
+    );
+    res.json({ success: true, ...result });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message || "Falha ao ativar programa" });
   }
 });
 

@@ -238,7 +238,7 @@ export class Composer {
       const result = await aiRouter.generateText(prompt, {
         userId: input.userId,
         brandId: input.brandId || undefined,
-      }, { temperature: 0.7 });
+      }, { temperature: 0.7, functionKey: "text.cognitive.compose" });
       return String(result.text || "").trim();
     } catch (e: any) {
       logger.warn(`Composer write failed: ${e?.message || e}`);

@@ -114,7 +114,7 @@ Responda JSON estrito:
     const result = await aiRouter.generateJson<MemoryExtraction>(
       prompt,
       { userId, brandId },
-      { temperature: 0.15 },
+      { temperature: 0.15, functionKey: "text.admin.memory" },
     );
 
     let facts = [...base.facts];

@@ -10,7 +10,7 @@ function radiusLabel(radius: string) {
   return n < 1 ? `${Math.round(n * 1000)}m` : `${n.toFixed(n < 10 ? 1 : 0)}km`
 }
 
-export function ProspectSearchControls({ compact }: { compact?: boolean }) {
+export function ProspectSearchControls({ compact, placement = 'chat' }: { compact?: boolean; placement?: 'chat' | 'canvas' | 'sheet' }) {
   const bridge = useProspectBridge()
   const snap = bridge.snapshot
   const [query, setQuery] = useState(snap.query)
@@ -40,7 +40,7 @@ export function ProspectSearchControls({ compact }: { compact?: boolean }) {
   const busy = snap.loading || snap.radarLoading || snap.prospecting
 
   return (
-    <form className="prospect-controls" onSubmit={submit}>
+    <form className={`prospect-controls prospect-controls--${placement}`} onSubmit={submit}>
       <div className="prospect-controls__metrics">
         <div className="prospect-controls__metric">
           <span className="prospect-controls__metric-val">{snap.inRange || snap.found}</span>

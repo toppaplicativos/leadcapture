@@ -4,6 +4,7 @@
  */
 
 import { Router, type Response } from "express"
+import jwt from "jsonwebtoken"
 import { authenticateToken, requireSuperAdmin, type AuthRequest } from "../middleware/auth"
 import { masterService } from "../services/master"
 import { syncPlanWithStripe, disablePlanLink } from "../services/stripeProducts"
@@ -14,31 +15,20 @@ import { PUSH_APP_CONTEXT_LABELS, PUSH_SOUND_OPTIONS } from "../config/push-even
 import { AI_MODELS, DEFAULT_PREFERENCES } from "../config/ai-models"
 import { query, queryOne } from "../config/database"
 import { logger } from "../utils/logger"
+import { config } from "../config"
+import {
+  DEFAULT_PLATFORM_TOOLS,
+  mergePlatformTools,
+  invalidatePlatformToolsCache,
+} from "../services/platformTools"
+import {
+  assignPlanToUser,
+  getEntitlements,
+  getUsage,
+} from "../services/planEntitlements"
+import { getPlatformVersion } from "../config/platformVersion"
 
 const GLOBAL_PROVIDER_SCOPE = { accountId: "__global__" as const }
-
-const DEFAULT_PLATFORM_TOOLS = {
-  maintenance_mode: false,
-  maintenance_message: "",
-  signup_enabled: true,
-  public_signup: true,
-  modules: {
-    whatsapp: true,
-    instagram: true,
-    facebook: true,
-    campaigns: true,
-    automations: true,
-    catalog: true,
-    affiliates: true,
-    ai_creatives: true,
-    prospect_radar: true,
-    video_studio: true,
-    agent_workspace: true,
-    flow_builder: true,
-    lead_import: true,
-  },
-  default_ai_preferences: DEFAULT_PREFERENCES,
-}
 
 const router = Router()
 
@@ -489,18 +479,28 @@ router.get("/audit-log", async (_req: AuthRequest, res: Response) => {
 
 /* ──────────────────────────── organizations ──────────────────────────── */
 
+/**
+ * Organizations = brand_units (tenant business units).
+ * Settings here are org-scoped (plan, status, usage) — not user account settings.
+ */
 router.get("/organizations", async (req: AuthRequest, res: Response) => {
   const search = String(req.query?.search || "").trim()
   const page = Math.max(1, parseInt(String(req.query?.page || "1"), 10))
   const limit = Math.min(100, Math.max(10, parseInt(String(req.query?.limit || "30"), 10)))
   const offset = (page - 1) * limit
+  const statusFilter = String(req.query?.status || "").trim()
 
   const params: any[] = []
   let where = "WHERE 1=1"
   if (search) {
-    where += " AND (LOWER(b.name) LIKE ? OR LOWER(b.slug) LIKE ? OR LOWER(u.email) LIKE ? OR LOWER(u.name) LIKE ?)"
+    where +=
+      " AND (LOWER(b.name) LIKE ? OR LOWER(COALESCE(b.slug,'')) LIKE ? OR LOWER(COALESCE(u.email,'')) LIKE ? OR LOWER(COALESCE(u.name,'')) LIKE ? OR LOWER(COALESCE(b.domain,'')) LIKE ?)"
     const q = `%${search.toLowerCase()}%`
-    params.push(q, q, q, q)
+    params.push(q, q, q, q, q)
+  }
+  if (statusFilter && ["active", "suspended", "archived"].includes(statusFilter)) {
+    where += " AND COALESCE(b.status, 'active') = ?"
+    params.push(statusFilter)
   }
 
   const totalRow = await queryOne<{ count: string }>(
@@ -509,45 +509,244 @@ router.get("/organizations", async (req: AuthRequest, res: Response) => {
        LEFT JOIN users u ON u.id = b.user_id
       ${where}`,
     params,
-  ).catch(() => ({ count: "0" } as any))
+  ).catch((err) => {
+    logger.warn(`organizations count failed: ${err?.message || err}`)
+    return { count: "0" } as any
+  })
 
-  const rows = await query(
-    `SELECT
-       b.id,
-       b.name,
-       b.slug,
-       b.status,
-       b.is_default,
-       b.created_at,
-       b.updated_at,
-       u.id AS owner_id,
-       u.email AS owner_email,
-       u.name AS owner_name,
-       u.is_active AS owner_active,
-       s.status AS subscription_status,
-       p.name AS plan_name,
-       p.slug AS plan_slug
-     FROM brand_units b
-     LEFT JOIN users u ON u.id = b.user_id
-     LEFT JOIN LATERAL (
-       SELECT status, plan_id
-         FROM subscriptions
-        WHERE brand_id = b.id OR (brand_id IS NULL AND user_id = b.user_id)
-        ORDER BY updated_at DESC
-        LIMIT 1
-     ) s ON TRUE
-     LEFT JOIN plans p ON p.id = s.plan_id
-     ${where}
-     ORDER BY b.created_at DESC
-     LIMIT ? OFFSET ?`,
-    [...params, limit, offset],
-  ).catch(() => [])
+  /**
+   * Subscriptions may be linked by brand_id (preferred) or user_id (legacy).
+   * Scalar subqueries avoid LATERAL + missing-column failures.
+   * brand_id column is ensured on master schema boot.
+   */
+  let rows: any[] = []
+  try {
+    rows = await query(
+      `SELECT
+         b.id,
+         b.name,
+         b.slug,
+         COALESCE(b.status, 'active') AS status,
+         b.is_default,
+         b.logo_url,
+         b.domain,
+         b.primary_color,
+         b.whatsapp_phone,
+         b.created_at,
+         b.updated_at,
+         u.id AS owner_id,
+         u.email AS owner_email,
+         u.name AS owner_name,
+         u.is_active AS owner_active,
+         u.account_kind AS owner_account_kind,
+         u.role AS owner_role,
+         (
+           SELECT s.status FROM subscriptions s
+            WHERE (s.brand_id IS NOT NULL AND s.brand_id = b.id)
+               OR (s.brand_id IS NULL AND s.user_id = b.user_id)
+            ORDER BY
+              CASE WHEN s.brand_id = b.id THEN 0 ELSE 1 END,
+              s.updated_at DESC NULLS LAST
+            LIMIT 1
+         ) AS subscription_status,
+         (
+           SELECT p.name FROM subscriptions s
+           LEFT JOIN plans p ON p.id = s.plan_id
+            WHERE (s.brand_id IS NOT NULL AND s.brand_id = b.id)
+               OR (s.brand_id IS NULL AND s.user_id = b.user_id)
+            ORDER BY
+              CASE WHEN s.brand_id = b.id THEN 0 ELSE 1 END,
+              s.updated_at DESC NULLS LAST
+            LIMIT 1
+         ) AS plan_name,
+         (
+           SELECT p.slug FROM subscriptions s
+           LEFT JOIN plans p ON p.id = s.plan_id
+            WHERE (s.brand_id IS NOT NULL AND s.brand_id = b.id)
+               OR (s.brand_id IS NULL AND s.user_id = b.user_id)
+            ORDER BY
+              CASE WHEN s.brand_id = b.id THEN 0 ELSE 1 END,
+              s.updated_at DESC NULLS LAST
+            LIMIT 1
+         ) AS plan_slug,
+         (
+           SELECT s.plan_id FROM subscriptions s
+            WHERE (s.brand_id IS NOT NULL AND s.brand_id = b.id)
+               OR (s.brand_id IS NULL AND s.user_id = b.user_id)
+            ORDER BY
+              CASE WHEN s.brand_id = b.id THEN 0 ELSE 1 END,
+              s.updated_at DESC NULLS LAST
+            LIMIT 1
+         ) AS plan_id,
+         (
+           SELECT COUNT(*)::int FROM user_brand_roles ubr WHERE ubr.brand_id = b.id
+         ) AS team_count,
+         (
+           SELECT COUNT(*)::int FROM whatsapp_instances wi
+            WHERE wi.brand_id = b.id OR (wi.brand_id IS NULL AND wi.created_by = b.user_id)
+         ) AS instances_count
+       FROM brand_units b
+       LEFT JOIN users u ON u.id = b.user_id
+       ${where}
+       ORDER BY b.created_at DESC
+       LIMIT ? OFFSET ?`,
+      [...params, limit, offset],
+    )
+  } catch (err: any) {
+    logger.error(`organizations list failed: ${err?.message || err}`)
+    /* Fallback: bare brand list without subscription joins */
+    try {
+      rows = await query(
+        `SELECT
+           b.id, b.name, b.slug, COALESCE(b.status, 'active') AS status,
+           b.is_default, b.logo_url, b.domain, b.primary_color, b.whatsapp_phone,
+           b.created_at, b.updated_at,
+           u.id AS owner_id, u.email AS owner_email, u.name AS owner_name,
+           u.is_active AS owner_active, u.account_kind AS owner_account_kind, u.role AS owner_role,
+           NULL::text AS subscription_status,
+           NULL::text AS plan_name,
+           NULL::text AS plan_slug,
+           NULL::text AS plan_id,
+           0 AS team_count,
+           0 AS instances_count
+         FROM brand_units b
+         LEFT JOIN users u ON u.id = b.user_id
+         ${where}
+         ORDER BY b.created_at DESC
+         LIMIT ? OFFSET ?`,
+        [...params, limit, offset],
+      )
+    } catch (err2: any) {
+      logger.error(`organizations fallback failed: ${err2?.message || err2}`)
+      rows = []
+    }
+  }
 
   return res.json({
-    organizations: rows,
+    organizations: Array.isArray(rows) ? rows : [],
     total: Number(totalRow?.count || 0),
     page,
     limit,
+  })
+})
+
+router.get("/organizations/:id", async (req: AuthRequest, res: Response) => {
+  const id = String(req.params.id || "").trim()
+  if (!id) return res.status(400).json({ error: "missing_id" })
+
+  const brand = await queryOne<any>(
+    `SELECT b.*,
+            u.id AS owner_id, u.email AS owner_email, u.name AS owner_name,
+            u.is_active AS owner_active, u.account_kind AS owner_account_kind, u.role AS owner_role
+       FROM brand_units b
+       LEFT JOIN users u ON u.id = b.user_id
+      WHERE b.id = ?
+      LIMIT 1`,
+    [id],
+  )
+  if (!brand) return res.status(404).json({ error: "organization_not_found" })
+
+  let subscription: any = null
+  try {
+    subscription = await queryOne(
+      `SELECT s.*, p.name AS plan_name, p.slug AS plan_slug, p.limits AS plan_limits
+         FROM subscriptions s
+         LEFT JOIN plans p ON p.id = s.plan_id
+        WHERE (s.brand_id IS NOT NULL AND s.brand_id = ?)
+           OR (s.brand_id IS NULL AND s.user_id = ?)
+        ORDER BY
+          CASE WHEN s.brand_id = ? THEN 0 ELSE 1 END,
+          s.updated_at DESC NULLS LAST
+        LIMIT 1`,
+      [id, brand.user_id, id],
+    )
+  } catch {
+    subscription = await queryOne(
+      `SELECT s.*, p.name AS plan_name, p.slug AS plan_slug, p.limits AS plan_limits
+         FROM subscriptions s
+         LEFT JOIN plans p ON p.id = s.plan_id
+        WHERE s.user_id = ?
+        ORDER BY s.updated_at DESC NULLS LAST
+        LIMIT 1`,
+      [brand.user_id],
+    ).catch(() => null)
+  }
+
+  const entitlements = await getEntitlements(String(brand.user_id), id).catch(() => null)
+  const usage = await getUsage(String(brand.user_id)).catch(() => null)
+
+  const team = await query(
+    `SELECT ubr.user_id, ubr.is_blocked, r.slug AS role_slug, r.name AS role_name,
+            u.email, u.name, u.account_kind, u.role AS user_role
+       FROM user_brand_roles ubr
+       LEFT JOIN roles r ON r.id = ubr.role_id
+       LEFT JOIN users u ON u.id = ubr.user_id
+      WHERE ubr.brand_id = ?
+      ORDER BY ubr.created_at DESC
+      LIMIT 50`,
+    [id],
+  ).catch(() => [])
+
+  const products = await queryOne<{ count: string }>(
+    `SELECT COUNT(*)::text AS count FROM products WHERE brand_id = ?`,
+    [id],
+  ).catch(() =>
+    queryOne<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM products WHERE owner_user_id = ?`,
+      [brand.user_id],
+    ).catch(() => ({ count: "0" })),
+  )
+  const campaigns = await queryOne<{ count: string }>(
+    `SELECT COUNT(*)::text AS count FROM campaigns WHERE brand_id = ?`,
+    [id],
+  ).catch(() =>
+    queryOne<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM campaigns WHERE user_id = ?`,
+      [brand.user_id],
+    ).catch(() => ({ count: "0" })),
+  )
+  const instances = await queryOne<{ count: string }>(
+    `SELECT COUNT(*)::text AS count FROM whatsapp_instances WHERE brand_id = ?`,
+    [id],
+  ).catch(() =>
+    queryOne<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM whatsapp_instances WHERE created_by = ?`,
+      [brand.user_id],
+    ).catch(() => ({ count: "0" })),
+  )
+  return res.json({
+    organization: {
+      id: brand.id,
+      name: brand.name,
+      slug: brand.slug,
+      status: brand.status || "active",
+      is_default: brand.is_default,
+      logo_url: brand.logo_url,
+      domain: brand.domain,
+      primary_color: brand.primary_color,
+      secondary_color: brand.secondary_color,
+      whatsapp_phone: brand.whatsapp_phone,
+      site_url: brand.site_url,
+      created_at: brand.created_at,
+      updated_at: brand.updated_at,
+      owner: {
+        id: brand.owner_id,
+        email: brand.owner_email,
+        name: brand.owner_name,
+        is_active: brand.owner_active,
+        account_kind: brand.owner_account_kind,
+        role: brand.owner_role,
+      },
+    },
+    subscription,
+    entitlements,
+    usage: {
+      ...(usage || {}),
+      products: Number(products?.count || 0),
+      campaigns: Number(campaigns?.count || 0),
+      instances: Number(instances?.count || usage?.instances || 0),
+    },
+    team: Array.isArray(team) ? team : [],
   })
 })
 
@@ -636,6 +835,103 @@ router.patch("/users/:id", async (req: AuthRequest, res: Response) => {
   return res.json({ user: updated })
 })
 
+/* ──────────────────────────── AI Algorithms (global model routing) ──────────────────────────── */
+
+router.get("/algorithms", async (req: AuthRequest, res: Response) => {
+  try {
+    const { algorithmsService } = await import("../services/algorithms")
+    await algorithmsService.ensureSchema()
+    const modality = String(req.query?.modality || "").trim() || undefined
+    const group = String(req.query?.group || "").trim() || undefined
+    const search = String(req.query?.search || "").trim() || undefined
+    const algorithms = await algorithmsService.list({ modality, group, search })
+    return res.json({ algorithms, total: algorithms.length })
+  } catch (err: any) {
+    logger.error({ err: err?.message }, "master algorithms list error")
+    return res.status(500).json({ error: err?.message || "internal" })
+  }
+})
+
+router.get("/algorithms/audit", async (req: AuthRequest, res: Response) => {
+  try {
+    const { algorithmsService } = await import("../services/algorithms")
+    const limit = Math.min(200, Math.max(1, parseInt(String(req.query?.limit || "50"), 10) || 50))
+    const entries = await algorithmsService.listAudit(limit)
+    return res.json({ entries })
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message || "internal" })
+  }
+})
+
+router.post("/algorithms/seed", async (req: AuthRequest, res: Response) => {
+  try {
+    const { algorithmsService } = await import("../services/algorithms")
+    await algorithmsService.ensureSchema()
+    const n = await algorithmsService.seedMissing()
+    await masterService.log({
+      actor_user_id: req.userId!,
+      actor_email: (req.user as any)?.email || "",
+      action: "algorithms.seed",
+      resource: "ai_algorithms",
+      payload: { inserted: n },
+      ip: ipOf(req),
+    })
+    return res.json({ ok: true, inserted: n })
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message || "seed_failed" })
+  }
+})
+
+router.get("/algorithms/:functionKey", async (req: AuthRequest, res: Response) => {
+  try {
+    const { algorithmsService } = await import("../services/algorithms")
+    const key = decodeURIComponent(String(req.params.functionKey || "").trim())
+    const algorithm = await algorithmsService.get(key)
+    if (!algorithm) return res.status(404).json({ error: "algorithm_not_found" })
+    return res.json({ algorithm })
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message || "internal" })
+  }
+})
+
+router.put("/algorithms/:functionKey", async (req: AuthRequest, res: Response) => {
+  try {
+    const { algorithmsService } = await import("../services/algorithms")
+    const key = decodeURIComponent(String(req.params.functionKey || "").trim())
+    const algorithm = await algorithmsService.update(
+      key,
+      {
+        provider: req.body?.provider,
+        model: req.body?.model,
+        fallback_provider: req.body?.fallback_provider,
+        fallback_model: req.body?.fallback_model,
+        temperature: req.body?.temperature,
+        max_tokens: req.body?.max_tokens,
+        is_enabled: req.body?.is_enabled,
+        label: req.body?.label,
+        description: req.body?.description,
+      },
+      { userId: req.userId!, email: (req.user as any)?.email },
+    )
+    await masterService.log({
+      actor_user_id: req.userId!,
+      actor_email: (req.user as any)?.email || "",
+      action: "algorithms.update",
+      resource: `ai_algorithms/${key}`,
+      payload: {
+        provider: algorithm.provider,
+        model: algorithm.model,
+        is_enabled: algorithm.is_enabled,
+      },
+      ip: ipOf(req),
+    })
+    return res.json({ algorithm })
+  } catch (err: any) {
+    const status = err?.status || 400
+    return res.status(status).json({ error: err?.code || err?.message || "update_failed" })
+  }
+})
+
 /* ──────────────────────────── global AI providers ──────────────────────────── */
 
 router.get("/providers/catalog", async (_req: AuthRequest, res: Response) => {
@@ -706,14 +1002,8 @@ router.post("/providers/:provider/test", async (req: AuthRequest, res: Response)
 /* ──────────────────────────── platform tools / feature flags ──────────────────────────── */
 
 router.get("/tools", async (_req: AuthRequest, res: Response) => {
-  const stored = await masterService.getSetting<typeof DEFAULT_PLATFORM_TOOLS>("platform_tools")
-  const tools = stored
-    ? {
-        ...DEFAULT_PLATFORM_TOOLS,
-        ...stored,
-        modules: { ...DEFAULT_PLATFORM_TOOLS.modules, ...(stored.modules || {}) },
-      }
-    : DEFAULT_PLATFORM_TOOLS
+  const stored = await masterService.getSetting("platform_tools")
+  const tools = mergePlatformTools(stored as any)
   return res.json({ tools })
 })
 
@@ -851,18 +1141,21 @@ router.get("/notifications/devices", async (req: AuthRequest, res: Response) => 
 
 router.put("/tools", async (req: AuthRequest, res: Response) => {
   const incoming = req.body?.tools || req.body || {}
-  const current = (await masterService.getSetting<typeof DEFAULT_PLATFORM_TOOLS>("platform_tools")) || DEFAULT_PLATFORM_TOOLS
-  const merged = {
+  const current = mergePlatformTools(
+    (await masterService.getSetting("platform_tools")) as any,
+  )
+  const merged = mergePlatformTools({
     ...current,
     ...incoming,
-    modules: { ...DEFAULT_PLATFORM_TOOLS.modules, ...(current.modules || {}), ...(incoming.modules || {}) },
+    modules: { ...current.modules, ...(incoming.modules || {}) },
     default_ai_preferences: {
       ...DEFAULT_PREFERENCES,
       ...(current.default_ai_preferences || {}),
       ...(incoming.default_ai_preferences || {}),
     },
-  }
+  })
   await masterService.setSetting("platform_tools", merged, req.userId)
+  invalidatePlatformToolsCache()
   await masterService.log({
     actor_user_id: req.userId!,
     actor_email: (req.user as any)?.email || "",
@@ -872,6 +1165,230 @@ router.put("/tools", async (req: AuthRequest, res: Response) => {
     ip: ipOf(req),
   })
   return res.json({ tools: merged })
+})
+
+/* ──────────────────────────── org plan / usage / impersonate / health ──────────────────────────── */
+
+router.post("/organizations/:id/assign-plan", async (req: AuthRequest, res: Response) => {
+  const brandId = String(req.params.id || "").trim()
+  const planId = String(req.body?.plan_id || "").trim()
+  const status = String(req.body?.status || "active").trim()
+  const trialDays = req.body?.trial_days != null ? Number(req.body.trial_days) : undefined
+
+  if (!brandId || !planId) {
+    return res.status(400).json({ error: "missing_plan_or_org" })
+  }
+
+  const brand = await queryOne<{ id: string; user_id: string; name: string }>(
+    `SELECT id, user_id, name FROM brand_units WHERE id = ?`,
+    [brandId],
+  )
+  if (!brand) return res.status(404).json({ error: "organization_not_found" })
+
+  try {
+    const sub = await assignPlanToUser({
+      userId: brand.user_id,
+      planId,
+      brandId,
+      status: ["active", "trialing"].includes(status) ? status : "active",
+      trialDays,
+    })
+    await masterService.log({
+      actor_user_id: req.userId!,
+      actor_email: (req.user as any)?.email || "",
+      action: "organization.assign_plan",
+      resource: `brand_units/${brandId}`,
+      payload: { plan_id: planId, status, trial_days: trialDays },
+      ip: ipOf(req),
+    })
+    return res.json({ subscription: sub, organization: brand })
+  } catch (err: any) {
+    return res.status(err?.status || 400).json({ error: err?.code || err?.message || "assign_failed" })
+  }
+})
+
+router.get("/organizations/:id/usage", async (req: AuthRequest, res: Response) => {
+  const brandId = String(req.params.id || "").trim()
+  const brand = await queryOne<{ id: string; user_id: string; name: string; status: string }>(
+    `SELECT id, user_id, name, status FROM brand_units WHERE id = ?`,
+    [brandId],
+  )
+  if (!brand) return res.status(404).json({ error: "not_found" })
+
+  const entitlements = await getEntitlements(brand.user_id, brandId)
+  const usage = await getUsage(brand.user_id)
+
+  const products = await queryOne<{ count: string }>(
+    `SELECT COUNT(*)::text AS count FROM products WHERE brand_id = ? OR user_id = ?`,
+    [brandId, brand.user_id],
+  ).catch(() => ({ count: "0" }))
+
+  const campaigns = await queryOne<{ count: string }>(
+    `SELECT COUNT(*)::text AS count FROM campaign_history WHERE user_id = ?`,
+    [brand.user_id],
+  ).catch(() => ({ count: "0" }))
+
+  return res.json({
+    organization: brand,
+    entitlements,
+    usage: {
+      ...usage,
+      products: Number(products?.count || 0),
+      campaigns: Number(campaigns?.count || 0),
+    },
+  })
+})
+
+router.post("/impersonate", async (req: AuthRequest, res: Response) => {
+  const targetUserId = String(req.body?.user_id || "").trim()
+  if (!targetUserId) return res.status(400).json({ error: "missing_user_id" })
+
+  const user = await queryOne<{
+    id: string
+    email: string
+    name: string
+    role: string
+    account_kind: string | null
+    is_active: boolean
+    is_super_admin: boolean
+  }>(
+    `SELECT id, email, name, role, account_kind, is_active, is_super_admin FROM users WHERE id = ?`,
+    [targetUserId],
+  )
+  if (!user || !user.is_active) return res.status(404).json({ error: "user_not_found" })
+  if (user.is_super_admin) {
+    return res.status(400).json({ error: "cannot_impersonate_super_admin" })
+  }
+
+  const token = jwt.sign(
+    {
+      userId: user.id,
+      email: user.email,
+      role: user.role || "org",
+      account_kind: user.account_kind || "org",
+      is_super_admin: false,
+      impersonated_by: req.userId,
+      impersonation: true,
+    },
+    config.jwtSecret,
+    { expiresIn: "2h" },
+  )
+
+  await masterService.log({
+    actor_user_id: req.userId!,
+    actor_email: (req.user as any)?.email || "",
+    action: "user.impersonate",
+    resource: `users/${user.id}`,
+    payload: { target_email: user.email },
+    ip: ipOf(req),
+  })
+
+  return res.json({
+    token,
+    user: { id: user.id, email: user.email, name: user.name, role: user.role },
+    expires_in: 7200,
+    app_url: "https://app.leadcapture.online/admin",
+  })
+})
+
+router.get("/version", async (_req: AuthRequest, res: Response) => {
+  return res.json({
+    platform: getPlatformVersion(),
+    checked_at: new Date().toISOString(),
+  })
+})
+
+router.get("/health", async (_req: AuthRequest, res: Response) => {
+  try {
+    const users = await queryOne<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM users WHERE is_active = true`,
+    )
+    const brandsActive = await queryOne<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM brand_units WHERE status = 'active'`,
+    ).catch(() => ({ count: "0" }))
+    const brandsSuspended = await queryOne<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM brand_units WHERE status = 'suspended'`,
+    ).catch(() => ({ count: "0" }))
+    const subsPastDue = await queryOne<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM subscriptions WHERE status = 'past_due'`,
+    ).catch(() => ({ count: "0" }))
+    const emailFails = await queryOne<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM email_logs
+        WHERE status = 'error' AND created_at >= NOW() - INTERVAL '24 hours'`,
+    ).catch(() => ({ count: "0" }))
+
+    let waDisconnected = 0
+    try {
+      const row = await queryOne<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM whatsapp_instances
+          WHERE COALESCE(status, '') NOT IN ('open', 'connected', 'ready')`,
+      )
+      waDisconnected = Number(row?.count || 0)
+    } catch {
+      waDisconnected = 0
+    }
+
+    let dbOk = false
+    try {
+      await queryOne<{ ok: number }>(`SELECT 1 AS ok`)
+      dbOk = true
+    } catch {
+      dbOk = false
+    }
+
+    const tools = mergePlatformTools(
+      (await masterService.getSetting("platform_tools")) as any,
+    )
+    const platform = getPlatformVersion()
+
+    return res.json({
+      health: {
+        users_active: Number(users?.count || 0),
+        brands_active: Number(brandsActive?.count || 0),
+        brands_suspended: Number(brandsSuspended?.count || 0),
+        subscriptions_past_due: Number(subsPastDue?.count || 0),
+        email_errors_24h: Number(emailFails?.count || 0),
+        whatsapp_not_connected: waDisconnected,
+        maintenance_mode: !!tools.maintenance_mode,
+        signup_enabled: tools.signup_enabled !== false,
+        database: dbOk ? "up" : "down",
+      },
+      platform,
+      checked_at: new Date().toISOString(),
+    })
+  } catch (err: any) {
+    logger.error({ err: err?.message }, "master health error")
+    return res.status(500).json({ error: "internal" })
+  }
+})
+
+router.get("/content-packs", async (_req: AuthRequest, res: Response) => {
+  /* Global reusable content: skill templates + plan feature matrix as "packs" */
+  let skillTemplates: any[] = []
+  try {
+    const { SKILL_TEMPLATES } = await import("../services/skillTemplates")
+    skillTemplates = (SKILL_TEMPLATES || []).map((t: any) => ({
+      id: t.id,
+      name: t.name,
+      description: t.description,
+      category: t.category,
+      tags: t.tags,
+    }))
+  } catch {
+    skillTemplates = []
+  }
+
+  const plans = await query(
+    `SELECT id, slug, name, features, limits, is_active FROM plans WHERE is_active = true ORDER BY sort_order`,
+  ).catch(() => [])
+
+  return res.json({
+    packs: {
+      skill_templates: skillTemplates,
+      plans,
+      modules: DEFAULT_PLATFORM_TOOLS.modules,
+    },
+  })
 })
 
 export default router

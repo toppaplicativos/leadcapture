@@ -78,22 +78,88 @@ router.post('/', async (req: AuthRequest, res: Response) => {
   try {
     const scope = resolveInstanceAuthScope(req);
     if (!scope) return res.status(401).json({ error: 'Unauthorized' });
+
     await ensureWhatsAppInstanceOwnerSchema();
 
-    const { name } = req.body;
-    if (!name) return res.status(400).json({ error: 'Nome da instância é obrigatório' });
+    const brandId = (req as BrandRequest).brandId || scope.brandId || null;
+    let name = String(req.body?.name || '').trim();
+    let trackingCode: string | null = null;
+    /** Admin pode criar sessão já vinculada a um afiliado (owner_actor_id). */
+    const adminForAffiliate =
+      !scope.isAffiliate &&
+      (String(req.body?.owner_type || '').toLowerCase() === 'affiliate' ||
+        !!String(req.body?.affiliate_user_id || req.body?.owner_actor_id || '').trim());
+    const affiliateActorId = String(
+      req.body?.owner_actor_id || req.body?.affiliate_user_id || '',
+    ).trim();
+
+    let ownerMeta = buildOwnerMetaForCreate(scope);
+
+    if (scope.isAffiliate) {
+      if (!brandId) {
+        return res.status(400).json({ error: 'Organização não identificada para criar a sessão' });
+      }
+      const { allocateAffiliateSessionCode } = await import('../services/instanceOwnership');
+      const allocated = await allocateAffiliateSessionCode({
+        ownerUserId: scope.ownerUserId,
+        brandId,
+        actorUserId: scope.actorUserId,
+      });
+      name = allocated.name;
+      trackingCode = allocated.trackingCode;
+    } else if (adminForAffiliate) {
+      if (!affiliateActorId) {
+        return res.status(400).json({
+          error: 'Selecione o afiliado dono desta sessão (owner_actor_id / affiliate_user_id)',
+        });
+      }
+      if (!brandId) {
+        return res.status(400).json({ error: 'brand_id obrigatório para sessão de afiliado' });
+      }
+      const { allocateAffiliateSessionCode } = await import('../services/instanceOwnership');
+      try {
+        const allocated = await allocateAffiliateSessionCode({
+          ownerUserId: scope.ownerUserId,
+          brandId,
+          actorUserId: affiliateActorId,
+        });
+        name = name || allocated.name;
+        trackingCode = allocated.trackingCode;
+      } catch (allocErr: any) {
+        return res.status(400).json({ error: allocErr?.message || 'Falha ao alocar código de sessão' });
+      }
+      ownerMeta = { ownerType: 'affiliate', ownerActorId: affiliateActorId };
+    } else {
+      // Limite do plano só para sessões do sistema (não afiliados)
+      try {
+        const { assertInstanceLimit } = await import('../services/planEntitlements');
+        await assertInstanceLimit(scope.ownerUserId);
+      } catch (limitErr: any) {
+        if (limitErr?.code || limitErr?.status) {
+          return res.status(limitErr.status || 403).json({
+            error: limitErr.code || 'plan_instance_limit',
+            message: limitErr.message,
+            details: limitErr.details,
+          });
+        }
+        throw limitErr;
+      }
+      if (!name) {
+        return res.status(400).json({ error: 'Nome da instância é obrigatório' });
+      }
+    }
 
     const instanceManager = getInstanceManager(req);
     if (!instanceManager) return res.status(500).json({ error: 'InstanceManager não disponível' });
 
-    const brandId = (req as BrandRequest).brandId || scope.brandId || null;
-    const ownerMeta = buildOwnerMetaForCreate(scope);
     const instance = await instanceManager.createInstance(name, scope.ownerUserId, brandId, ownerMeta);
     const qrCode = await instanceManager.connectInstance(instance.id);
 
     res.status(201).json({
       id: instance.id,
       name: instance.name,
+      tracking_code: trackingCode || instance.name,
+      brand_id: brandId,
       status: instance.status,
       qr: qrCode,
       qrCode: qrCode,

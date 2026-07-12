@@ -223,6 +223,11 @@ export class AdminAgentOrchestrator {
     }
     if (skillId === "automation.open" || skillId === "automation.create") {
       turn.presentation = "inline";
+      // Hub de gestão: página Automações (não Fluxos, não Instagram)
+      turn.canvasRoute = "/automacoes";
+    }
+    if (skillId === "flow.builder") {
+      turn.presentation = "inline";
       turn.canvasRoute = "/fluxos";
     }
     if (skillId === "automation.confirm") {
@@ -242,6 +247,14 @@ export class AdminAgentOrchestrator {
     if (skillId === "dashboard.overview" || skillId === "dashboard.show") {
       turn.presentation = "inline";
       turn.canvasRoute = "/dashboard";
+    }
+    if (skillId === "settings.open") {
+      turn.presentation = "inline";
+      turn.canvasRoute = "/configuracoes";
+    }
+    if (skillId === "design.edit") {
+      turn.presentation = "inline";
+      turn.canvasRoute = "/loja";
     }
     if (!turn.presentation && turn.components?.length) {
       turn.presentation = "inline";
@@ -298,7 +311,10 @@ Responda APENAS com JSON válido neste formato:
     const result = await aiRouter.generateJson<SkillSelection>(prompt, {
       userId: ctx.userId,
       brandId: ctx.brandId || undefined,
-    }, { temperature: 0.2 });
+    }, {
+      functionKey: "text.admin.orchestrator",
+      temperature: 0.2,
+    });
 
     if (!result?.skill || !SKILLS[result.skill]) {
       return this.fallbackSelection(message, ctx);
@@ -680,7 +696,7 @@ Responda APENAS com JSON válido neste formato:
       };
     }
     if (/automação|automacao|fluxo/i.test(lower) && /proativ|reativ|whatsapp/i.test(lower)) {
-      return { squad: "automations", skill: "automation.open", message: "Suas automações WhatsApp:" };
+      return { squad: "automations", skill: "automation.open", message: "Suas automações:" };
     }
     if (/fluxo|automação\s+visual|editor\s+de\s+fluxo/i.test(lower)) {
       return { squad: "automations", skill: "flow.builder", message: "Abrindo o editor de fluxos..." };
@@ -1383,8 +1399,9 @@ Responda APENAS com JSON válido neste formato:
             live: true,
           },
         });
-        components.push(this.buildNavSuggestions(["fluxos", "automacoes"]));
-        actions.push({ type: "navigate", payload: { path: "/fluxos" } });
+        components.push(this.buildNavSuggestions(["automacoes", "fluxos", "instagram"]));
+        // Gestão principal em Automações — Instagram só espelha as que usam IG
+        actions.push({ type: "navigate", payload: { path: "/automacoes" } });
         break;
       }
 
@@ -2559,6 +2576,18 @@ Responda APENAS com JSON válido neste formato:
       case "dashboard.overview": {
         components.push(...(await this.buildDashboardKpiComponents(ctx)));
         components.push(this.buildHelpNav());
+        break;
+      }
+
+      case "settings.open": {
+        // Conta/org/marcas — WhatsApp é ferramenta à parte
+        components.push(this.buildNavSuggestions(["configuracoes", "loja"]));
+        break;
+      }
+
+      case "design.edit": {
+        // UI principal no chat (StoreModuleBlock) + canvas /loja
+        components.push(this.buildNavSuggestions(["loja", "produtos", "configuracoes"]));
         break;
       }
 

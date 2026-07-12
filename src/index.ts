@@ -69,6 +69,7 @@ import expeditionRoutes from "./routes/expedition";
 import ordersRoutes from "./routes/orders";
 import commerceRoutes, { commercePublicRoutes } from "./routes/commerce";
 import paymentsRoutes, { paymentPublicRoutes } from "./routes/payments";
+import mercadoPagoRoutes, { mercadoPagoPublicRoutes } from "./routes/mercadoPago";
 import storefrontRoutes, { storefrontPublicRoutes, reconcileNginxForVerifiedDomains } from "./routes/storefront";
 import stockAppRoutes from "./routes/stockApp";
 import affiliateAppRoutes from "./routes/affiliateApp";
@@ -90,7 +91,10 @@ import entitlementsRoutes from "./routes/entitlements";
 import rolesRoutes from "./routes/roles";
 import contentHubRoutes from "./routes/contentHub";
 import { enforceMaintenanceMode, enforceRouteModule } from "./middleware/platformGuard";
-import { requireModuleAndPlan } from "./middleware/planGuard";
+import { requireModuleAndPlan, guardLeadCapture } from "./middleware/planGuard";
+import { requestContextMiddleware } from "./middleware/requestContext";
+import { globalErrorHandler, notFoundHandler } from "./middleware/errorHandler";
+import { getPlatformVersion } from "./config/platformVersion";
 import { masterService } from "./services/master";
 import { getPushNotificationService } from "./services/pushNotifications";
 import { getNotificationPlatformService } from "./services/notificationPlatform";
@@ -119,6 +123,7 @@ import facebookRoutes from "./routes/facebook";
 import metaPrivacyRoutes from "./routes/metaPrivacy";
 import metaWebhookRoutes from "./routes/metaWebhook";
 import metaOAuthRoutes from "./routes/metaOAuth";
+import attendanceRoutes from "./routes/attendance";
 import { getNotificationService } from "./services/notifications";
 import { socketManager } from "./core/socketManager";
 import { StorefrontService } from "./services/storefront";
@@ -128,16 +133,34 @@ import { buildProductPageHeadMarkup, injectProductMetaIntoHtml } from "./service
 const app = express();
 const httpServer = createServer(app);
 app.use(cors());
+/* Correlation ID on every request (API + SPA) */
+app.use(requestContextMiddleware);
 
-// ⚠ IMPORTANT: Stripe webhook must be mounted BEFORE express.json() so the
-// signature verification can use the raw body bytes.
+// ⚠ IMPORTANT: Stripe + Meta webhooks must be mounted BEFORE express.json()
+// so HMAC/signature verification uses the exact raw body bytes (same pattern
+// as Tattoo AI `req.text()` and Stripe constructEvent).
 app.use("/api/stripe/webhook", stripeWebhookRoutes);
+
+// Instagram/Meta webhooks — public, raw body, BEFORE json/auth/platformGuard.
+// Aliases: /api/meta/webhook (leadcapture), /api/instagram/webhook (Tattoo AI),
+// /api/webhooks/meta/instagram (compat). Any inbound DM from any user hits these.
+const metaWebhookRawParser = express.raw({
+  type: (req) => {
+    const ct = String(req.headers["content-type"] || "").toLowerCase();
+    // Meta always sends JSON; accept charset variants and empty CT on some proxies
+    return !ct || ct.includes("json") || ct.includes("text/plain") || ct.includes("octet-stream");
+  },
+  limit: "2mb",
+});
+app.use("/api/meta/webhook", metaWebhookRawParser, metaWebhookRoutes);
+app.use("/api/instagram/webhook", metaWebhookRawParser, metaWebhookRoutes);
+app.use("/api/webhooks/meta/instagram", metaWebhookRawParser, metaWebhookRoutes);
 
 app.use(
   express.json({
     /* Limite global elevado para 15MB — necessario para Smart Lead Import
-       (CSV/XLS/imagem/PDF em base64 ate ~10MB → ~13.3MB JSON). Stripe webhook
-       continua usando rawBody propio (mounted antes desse middleware). */
+       (CSV/XLS/imagem/PDF em base64 ate ~10MB → ~13.3MB JSON). Stripe/Meta webhooks
+       usam rawBody propio (mounted antes desse middleware). */
     limit: "15mb",
     verify: (req: any, _res, buf) => {
       req.rawBody = buf;
@@ -342,6 +365,7 @@ app.use("/api/img", imageProxyRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/commerce/public", commercePublicRoutes);
 app.use("/api/payments/public", paymentPublicRoutes);
+app.use("/api/integrations/mercado-pago", mercadoPagoPublicRoutes);
 app.use("/api/storefront/public", storefrontPublicRoutes);
 app.use("/api/public", publicOnboardingRoutes);
 app.use("/api/public", publicSignupRoutes);
@@ -359,13 +383,40 @@ app.use("/api/public/affiliate", publicAffiliateRoutes);
 app.use("/api", enforceMaintenanceMode as any);
 app.use("/api", enforceRouteModule as any);
 
-// Health check (public)
-app.get("/api/health", (req, res) => {
-  res.json({
-    status: "ok",
+// Health / readiness (public) — used by load balancers and deploy smoke
+app.get("/api/health", async (req, res) => {
+  const version = getPlatformVersion();
+  let dbOk = false;
+  let dbError: string | null = null;
+  try {
+    await queryOne<{ ok: number }>(`SELECT 1 AS ok`);
+    dbOk = true;
+  } catch (err: any) {
+    dbError = String(err?.message || err).slice(0, 160);
+  }
+
+  const ready = dbOk;
+  const body = {
+    status: ready ? "ok" : "degraded",
+    ready,
+    checks: {
+      database: dbOk ? "up" : "down",
+      database_error: dbError,
+      whatsapp_instances: instanceManager.getAllInstances().length,
+    },
+    version,
     uptime: process.uptime(),
     timestamp: new Date().toISOString(),
-    instances: instanceManager.getAllInstances().length,
+    request_id: req.requestId || null,
+  };
+  res.status(ready ? 200 : 503).json(body);
+});
+
+/** Client sync handshake — FE compares build/version and SW stamp */
+app.get("/api/public/version", (_req, res) => {
+  res.json({
+    platform: getPlatformVersion(),
+    api: "leadcapture",
   });
 });
 
@@ -508,18 +559,49 @@ app.get("/brand-onboarding", (_req, res) => {
 // ==================== PROTECTED ROUTES ====================
 app.use("/api/customers", authMiddleware, customersRoutes);
 app.use("/api/knowledge-base", authMiddleware, knowledgeBaseRoutes);
-app.use("/api/ai", authMiddleware, aiRoutes);
+app.use(
+  "/api/ai",
+  authMiddleware,
+  rateLimit({ name: "ai", max: 60, windowMs: 60_000 }),
+  aiRoutes,
+);
 app.use("/api/admin-agent", authMiddleware, requireModuleAndPlan("agent_workspace"), adminAgentRoutes);
 app.use("/api/media", authMiddleware, mediaRoutes);
 app.use("/api/gallery", authMiddleware, galleryRoutes);
 app.use("/api/companies", authMiddleware, companiesRoutes);
 app.use("/api/clients", authMiddleware, rateLimit({ name: "clients", max: 200, windowMs: 60_000 }), clientsRoutes);
-app.use("/api/lead-import", authMiddleware, requireModuleAndPlan("lead_import"), leadImportRoutes);
+app.use(
+  "/api/lead-import",
+  authMiddleware,
+  rateLimit({ name: "lead-import", max: 30, windowMs: 60_000 }),
+  requireModuleAndPlan("lead_import"),
+  (req, res, next) => {
+    /* Cap daily/monthly lead ingestion for import path */
+    if (String(req.method || "").toUpperCase() === "POST") {
+      return guardLeadCapture(req as any, res, next);
+    }
+    next();
+  },
+  leadImportRoutes,
+);
 app.use("/api/lead-ideas", authMiddleware, leadIdeasRoutes);
 app.use("/api/automations", authMiddleware, requireModuleAndPlan("automations"), brandAutomationsRoutes);
 app.use("/api/automation-defs", authMiddleware, requireModuleAndPlan("automations"), automationDefinitionsRoutes);
-app.use("/api/ai-campaign", authMiddleware, requireModuleAndPlan("campaigns"), aiCampaignRoutes);
-app.use("/api/video-studio", requireModuleAndPlan("video_studio"), videoStudioRoutes);
+// Multi-channel attendance (IG + WA) — global training stays on /api/ai/agent-profile
+app.use("/api/attendance", authMiddleware, attendanceRoutes);
+app.use(
+  "/api/ai-campaign",
+  authMiddleware,
+  rateLimit({ name: "ai-campaign", max: 40, windowMs: 60_000 }),
+  requireModuleAndPlan("campaigns"),
+  aiCampaignRoutes,
+);
+app.use(
+  "/api/video-studio",
+  rateLimit({ name: "video-studio", max: 20, windowMs: 60_000 }),
+  requireModuleAndPlan("video_studio"),
+  videoStudioRoutes,
+);
 app.use("/api/brand-skills", authMiddleware, brandSkillsRoutes);
 app.use("/api/client-types", authMiddleware, clientTypesRoutes);
 app.use("/api/sessions", authMiddleware, sessionsRoutes);
@@ -544,6 +626,7 @@ app.use("/api/expedition", authMiddleware, expeditionRoutes);
 app.use("/api/orders", authMiddleware, ordersRoutes);
 app.use("/api/commerce", authMiddleware, commerceRoutes);
 app.use("/api/payments", authMiddleware, paymentsRoutes);
+app.use("/api/payments", authMiddleware, mercadoPagoRoutes);
 app.use("/api/storefront", authMiddleware, storefrontRoutes);
 app.use("/api/stock-app", authMiddleware, stockAppRoutes);
 app.use("/api/affiliate-app", authMiddleware, affiliateAppRoutes);
@@ -558,11 +641,52 @@ app.use("/api/notifications", notificationsRoutes);
 app.use("/api/actions", actionsRoutes);
 app.use("/api/support", supportRoutes);
 app.use("/api/integrations", authMiddleware, integrationsRoutes);
-app.use("/api/instagram", authMiddleware, requireModuleAndPlan("instagram"), instagramRoutes);
-app.use("/api/facebook", authMiddleware, requireModuleAndPlan("facebook"), facebookRoutes);
+/** GETs de conexão Meta: só auth (sem plano). Path via originalUrl — Express stripa baseUrl. */
+function allowMetaStatusGet(req: express.Request, _res: express.Response, next: express.NextFunction) {
+  if (req.method !== "GET") return next()
+  const original = String(req.originalUrl || req.url || "").split("?")[0]
+  const path = String(req.path || "").split("?")[0]
+  const open = ["connection-status", "connection", "profile"]
+  const hit = open.some(
+    (s) =>
+      path === `/${s}` ||
+      path.endsWith(`/${s}`) ||
+      original.endsWith(`/${s}`) ||
+      original.includes(`/instagram/${s}`) ||
+      original.includes(`/facebook/${s}`),
+  )
+  if (hit) {
+    ;(req as any).__metaStatusOpen = true
+  }
+  next()
+}
+function requireModuleUnlessMetaStatus(module: "instagram" | "facebook") {
+  const gate = requireModuleAndPlan(module)
+  return (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if ((req as any).__metaStatusOpen) return next()
+    return gate(req as any, res, next)
+  }
+}
+
+// Meta webhooks already mounted BEFORE express.json (raw body + public).
+// Only privacy/oauth here (JSON body OK). Instagram REST stays behind auth.
 app.use("/api/meta/privacy", metaPrivacyRoutes);
-app.use("/api/meta/webhook", metaWebhookRoutes);
 app.use("/api/meta/oauth", metaOAuthRoutes);
+
+app.use(
+  "/api/instagram",
+  authMiddleware,
+  allowMetaStatusGet,
+  requireModuleUnlessMetaStatus("instagram"),
+  instagramRoutes,
+);
+app.use(
+  "/api/facebook",
+  authMiddleware,
+  allowMetaStatusGet,
+  requireModuleUnlessMetaStatus("facebook"),
+  facebookRoutes,
+);
 
 // Services
 const instanceManager = new InstanceManager();
@@ -1099,12 +1223,68 @@ app.post("/api/instances", authMiddleware, async (req: any, res) => {
     const scope = resolveInstanceAuthScope(req);
     if (!scope) return res.status(401).json({ error: "Unauthorized" });
     const brandId = await resolveInstanceBrandId(scope, req);
-    const { name } = req.body;
-    if (!name) return res.status(400).json({ error: "Name is required" });
     await ensureWhatsAppInstanceOwnerSchema();
+
+    // Afiliado: sessão SEMPRE amarrada à organização (brand) atual — sem nome manual.
+    // Admin: pode informar nome; se vazio, gera genérico.
+    let name = String(req.body?.name || "").trim();
+    let trackingCode: string | null = null;
+    let brandName: string | null = null;
+
+    if (scope.isAffiliate) {
+      if (!brandId) {
+        return res.status(400).json({
+          error: "Organização não identificada. Abra o painel do programa para criar a sessão.",
+        });
+      }
+      const { allocateAffiliateSessionCode } = await import("./services/instanceOwnership");
+      const allocated = await allocateAffiliateSessionCode({
+        ownerUserId: scope.ownerUserId,
+        brandId,
+        actorUserId: scope.actorUserId,
+      });
+      name = allocated.name;
+      trackingCode = allocated.trackingCode;
+      brandName = allocated.brandName;
+    } else {
+      // Limite do plano só para sessões do sistema (não afiliados)
+      try {
+        const { assertInstanceLimit } = await import("./services/planEntitlements");
+        await assertInstanceLimit(scope.ownerUserId);
+      } catch (limitErr: any) {
+        if (limitErr?.code || limitErr?.status) {
+          return res.status(limitErr.status || 403).json({
+            error: limitErr.code || "plan_instance_limit",
+            message: limitErr.message,
+            details: limitErr.details,
+          });
+        }
+        throw limitErr;
+      }
+      if (!name) {
+        const brand = brandId
+          ? await queryOne<any>(`SELECT slug, name FROM brand_units WHERE id = ? LIMIT 1`, [brandId])
+          : null;
+        const slug = String(brand?.slug || brand?.name || "sistema")
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "")
+          .slice(0, 12) || "sistema";
+        name = `${slug}-SYS-${Date.now().toString(36).slice(-5).toUpperCase()}`;
+      }
+    }
+
     const ownerMeta = buildOwnerMetaForCreate(scope);
     const instance = await instanceManager.createInstance(name, scope.ownerUserId, brandId, ownerMeta);
-    res.json({ success: true, instance, id: instance.id });
+    res.json({
+      success: true,
+      instance,
+      id: instance.id,
+      name: instance.name || name,
+      tracking_code: trackingCode || name,
+      brand_id: brandId,
+      brand_name: brandName,
+      owner_type: ownerMeta.ownerType,
+    });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -1298,9 +1478,16 @@ app.get("/api/instances", authMiddleware, async (req: any, res) => {
     try {
       dbInstances = await query<any[]>(
         `SELECT wi.id, wi.name, wi.phone, wi.status, wi.created_at, wi.messages_sent, wi.messages_received,
-                wi.brand_id, wi.owner_type, wi.owner_actor_id, bu.name AS brand_name
+                wi.brand_id, wi.owner_type, wi.owner_actor_id,
+                bu.name AS brand_name, bu.slug AS brand_slug,
+                af.display_name AS affiliate_display_name,
+                u.name AS actor_name, u.email AS actor_email
          FROM whatsapp_instances wi
-         LEFT JOIN brand_units bu ON bu.id = wi.brand_id AND bu.user_id = wi.created_by
+         LEFT JOIN brand_units bu ON bu.id = wi.brand_id
+         LEFT JOIN affiliates af
+           ON af.affiliate_user_id = wi.owner_actor_id
+          AND af.brand_id = wi.brand_id
+         LEFT JOIN users u ON u.id = wi.owner_actor_id
          WHERE ${accessFilter.whereSql}
          ORDER BY wi.created_at DESC`,
         accessFilter.params
@@ -1309,7 +1496,9 @@ app.get("/api/instances", authMiddleware, async (req: any, res) => {
       logger.warn(`GET /api/instances fallback query: ${listErr?.message || listErr}`);
       dbInstances = await query<any[]>(
         `SELECT wi.id, wi.name, wi.phone, wi.status, wi.created_at, wi.messages_sent, wi.messages_received,
-                wi.brand_id, wi.owner_type, wi.owner_actor_id, NULL AS brand_name
+                wi.brand_id, wi.owner_type, wi.owner_actor_id,
+                NULL AS brand_name, NULL AS brand_slug,
+                NULL AS affiliate_display_name, NULL AS actor_name, NULL AS actor_email
          FROM whatsapp_instances wi
          WHERE ${accessFilter.whereSql}
          ORDER BY wi.created_at DESC`,
@@ -1319,16 +1508,30 @@ app.get("/api/instances", authMiddleware, async (req: any, res) => {
 
     const instances = dbInstances.map((row) => {
       const runtime = runtimeMap.get(row.id);
+      const isAffiliateOwner = row.owner_type === "affiliate";
+      const affiliateName = String(
+        row.affiliate_display_name || row.actor_name || row.actor_email || "parceiro",
+      ).trim();
+      const brandName = row.brand_name ? String(row.brand_name) : null;
+      const brandSlug = row.brand_slug ? String(row.brand_slug) : null;
+      const trackingCode = String(row.name || "").trim() || null;
       const ownerMeta = {
-        owner_type: row.owner_type === "affiliate" ? "affiliate" : "admin",
+        owner_type: isAffiliateOwner ? "affiliate" : "admin",
         owner_actor_id: row.owner_actor_id ? String(row.owner_actor_id) : null,
-        owner_label: row.owner_type === "affiliate" ? "Afiliado" : "Sistema",
+        owner_label: isAffiliateOwner ? affiliateName : "Sistema",
+        owner_actor_name: isAffiliateOwner ? affiliateName : null,
+        tracking_code: trackingCode,
+        /** Rótulo legível: de quem é + de qual org */
+        ownership_label: isAffiliateOwner
+          ? `Afiliado · ${affiliateName}${brandName ? ` · ${brandName}` : ""}`
+          : `Sistema${brandName ? ` · ${brandName}` : " · campanhas e disparos"}`,
       };
       if (runtime) {
         return {
           ...runtime,
           brand_id: row.brand_id ? String(row.brand_id) : null,
-          brand_name: row.brand_name ? String(row.brand_name) : null,
+          brand_name: brandName,
+          brand_slug: brandSlug,
           ...ownerMeta,
         };
       }
@@ -1341,7 +1544,8 @@ app.get("/api/instances", authMiddleware, async (req: any, res) => {
         messagessSent: Number(row.messages_sent || 0),
         messagesReceived: Number(row.messages_received || 0),
         brand_id: row.brand_id ? String(row.brand_id) : null,
-        brand_name: row.brand_name ? String(row.brand_name) : null,
+        brand_name: brandName,
+        brand_slug: brandSlug,
         ...ownerMeta,
       };
     });
@@ -1393,13 +1597,17 @@ app.get("/api/instances/:id", authMiddleware, async (req: any, res) => {
         }
       : { ...instance, status: liveStatus || instance.status, phone: live?.phone || instance.phone };
 
+    const pairingActive = instanceManager.isPairingActive(req.params.id);
+    const pairingError = instanceManager.getPairingError(req.params.id);
     res.json({
       success: true,
       status: normalizedInstance.status,
-      pairing_active: instanceManager.isPairingActive(req.params.id),
+      pairing_active: pairingActive,
+      pairing_error: pairingError,
       instance: {
         ...normalizedInstance,
-        pairing_active: instanceManager.isPairingActive(req.params.id),
+        pairing_active: pairingActive,
+        pairing_error: pairingError,
       },
     });
   } catch (error: any) {
@@ -2721,6 +2929,13 @@ app.get("*", async (req, res) => {
 
 // ==================== START SERVER ====================
 
+/* API 404 + global error envelope (must be after all routes) */
+app.use("/api", (req, res, next) => {
+  if (res.headersSent) return next();
+  notFoundHandler(req, res);
+});
+app.use(globalErrorHandler);
+
 httpServer.listen(config.port, "0.0.0.0", () => {
   if (!usingPostgresMode) {
     ensureWhatsAppInstanceOwnerSchema().catch((err: any) => {
@@ -2733,15 +2948,33 @@ httpServer.listen(config.port, "0.0.0.0", () => {
       logger.error(`Notification schema bootstrap failed: ${formatError(err)}`);
     });
   }
-  // Master/super-admin schema (postgres-only — uses JSONB / partial indexes)
-  masterService.ensureSchema()
+  // Identity normalization, master schema, AI algorithms seed, Mercado Pago OAuth
+  import("./services/identity")
+    .then(({ identityService }) => identityService.ensureSchema())
+    .then(() => masterService.ensureSchema())
+    .then(() => import("./services/algorithms").then(({ algorithmsService }) => algorithmsService.ensureSchema()))
+    .then(() =>
+      import("./services/mercadoPagoOAuth").then(({ mercadoPagoOAuthService }) =>
+        mercadoPagoOAuthService.ensureSchema(),
+      ),
+    )
     .then(() => getPushNotificationService().ensureSchema())
     .then(() => getNotificationPlatformService().ensureSchema())
     .then(() => emailService.seedSystemTemplates())
     .then(() => emailService.seedTenantTemplates())
     .catch((err: any) => {
-      logger.error(`Master schema bootstrap failed: ${formatError(err)}`);
+      logger.error(`Master/identity schema bootstrap failed: ${formatError(err)}`);
     });
+
+  // Mercado Pago token refresh + OAuth cleanup (hourly)
+  setInterval(() => {
+    import("./services/mercadoPagoOAuth")
+      .then(async ({ mercadoPagoOAuthService }) => {
+        await mercadoPagoOAuthService.cleanupExpiredOAuthAttempts()
+        await mercadoPagoOAuthService.refreshExpiringTokens()
+      })
+      .catch(() => undefined)
+  }, 60 * 60 * 1000)
 
   /* Nginx reconcile: any domain that's already verified in the DB but
    * missing from the live nginx sites-enabled gets provisioned on boot.
@@ -2759,6 +2992,12 @@ httpServer.listen(config.port, "0.0.0.0", () => {
     startAutomationScheduler();
   } catch (err: any) {
     logger.error(`AutomationScheduler start failed: ${formatError(err)}`);
+  }
+  try {
+    const { startCartRecoveryMonitor } = require("./services/emailCartRecovery");
+    startCartRecoveryMonitor();
+  } catch (err: any) {
+    logger.error(`Cart recovery monitor start failed: ${formatError(err)}`);
   }
   try {
     startActionEscalationMonitor();

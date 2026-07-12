@@ -242,6 +242,7 @@ export function createOrder(payload: {
     phone: string
     email: string
     address?: { text?: string; establishment_name?: string }
+    client_type?: string
   }
   payment_method: string
   notes?: string
@@ -249,12 +250,27 @@ export function createOrder(payload: {
   cupom_codigo?: string
   affiliate_ref?: string
   affiliate_id?: string
+  client_type?: string
 }): Promise<{ success: boolean; order: Order; checkout_url?: string }> {
   return apiFetch(`${storeApiBase()}/orders`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   })
+}
+
+export type PublicClientType = {
+  id: string
+  name: string
+  description?: string | null
+  color?: string | null
+  icon?: string | null
+}
+
+export function fetchPublicClientTypes(
+  storeSlugOverride?: string,
+): Promise<{ success: boolean; types: PublicClientType[] }> {
+  return apiFetch(`${storeApiBase(storeSlugOverride)}/client-types`)
 }
 
 /* Fase 13 — validate a coupon against the cart BEFORE submit, so we can show

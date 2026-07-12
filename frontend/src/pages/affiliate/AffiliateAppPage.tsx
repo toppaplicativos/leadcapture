@@ -22,6 +22,7 @@ import { WhatsAppConnectModal } from '@/components/whatsapp/WhatsAppConnectModal
 import { AffiliateConnections } from '@/pages/affiliate/AffiliateConnections'
 import { AffiliateMessages } from '@/pages/affiliate/AffiliateMessages'
 import { AffiliateDistributionBanner } from '@/pages/affiliate/AffiliateDistributionBanner'
+import { AffiliateWhatsAppHeaderIcon } from '@/pages/affiliate/AffiliateWhatsAppHeaderIcon'
 
 import { WhatsAppIcon } from '@/components/icons'
 import { AffiliateCommissionCard } from '@/pages/affiliate/AffiliateCommissionCard'
@@ -644,7 +645,7 @@ function AffiliateProfile({ ctx, onOpenConnections }: { ctx: AppContext; onOpenC
           </div>
           <div>
             <p className="font-bold text-sm text-[#1c1c1e]">Conexões WhatsApp</p>
-            <p className="text-xs text-[#8e8e93]">Conecte seu número</p>
+            <p className="text-xs text-[#8e8e93]">Gerenciar sessões do programa</p>
           </div>
         </div>
         <ChevronRight size={18} className="text-[#c7c7cc]" />
@@ -1036,6 +1037,10 @@ export function AffiliateAppPage() {
               </div>
             </div>
             <div className="flex items-center gap-1.5 shrink-0">
+              <AffiliateWhatsAppHeaderIcon
+                cacheVersion={cacheVersion}
+                onClick={() => goTab('conexoes')}
+              />
               {!isPartnersProgram && (
                 <>
                   <NotificationBellButton
@@ -1173,7 +1178,11 @@ export function AffiliateAppPage() {
 
         <WhatsAppConnectModal
           onToast={showToast}
-          onConnected={() => setConnectionsReload((n) => n + 1)}
+          onConnected={() => {
+            setConnectionsReload((n) => n + 1)
+            // Atualiza banner de distribuição / aptidão no Início
+            setCacheVersion((v) => v + 1)
+          }}
         />
       </div>
     </WhatsAppConnectProvider>

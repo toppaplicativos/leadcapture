@@ -1,5 +1,6 @@
 import { query, queryOne, update } from "../config/database";
 import { GeminiService } from "./gemini";
+import { aiRouter } from "./aiRouter";
 import { IntegrationScope } from "./integrations";
 import { logger } from "../utils/logger";
 
@@ -204,12 +205,19 @@ Criterios:
 
 JSON:`;
 
-      const parsed = await gemini.generateJson<{
+      const parsed = await aiRouter.generateJson<{
         sentiment: SentimentColor;
         intent: ResponseClassification["intent"];
         confidence: number;
         action: string;
-      }>(prompt, scope);
+      }>(
+        prompt,
+        {
+          userId: scope?.userId || undefined,
+          brandId: scope?.brandId || undefined,
+        },
+        { functionKey: "text.response.classify" },
+      );
 
       if (parsed.confidence > rulesBased.confidence) {
         const merged = this.classifyText(text);

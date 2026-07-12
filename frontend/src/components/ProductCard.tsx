@@ -5,15 +5,25 @@ import type { Product } from '@/lib/api'
 import { money } from '@/lib/store-context'
 import { productUrl } from '@/lib/product-url'
 import { optimizedImage, optimizedSrcset } from '@/lib/image'
+import { resolveProductBadges } from '@/lib/store-conversion'
 
 interface ProductCardProps {
   product: Product
   catalogSlug: string
   onQuickAdd: (productId: string) => void
   priority?: boolean
+  bestSellerIds?: Set<string>
+  showBadges?: boolean
 }
 
-export function ProductCard({ product, catalogSlug, onQuickAdd, priority = false }: ProductCardProps) {
+export function ProductCard({
+  product,
+  catalogSlug,
+  onQuickAdd,
+  priority = false,
+  bestSellerIds,
+  showBadges = true,
+}: ProductCardProps) {
   const href = productUrl(product, catalogSlug)
   const rawSrc = product.image || product.images?.[0] || ''
   const imgSrc = optimizedImage(rawSrc, 320)
@@ -23,13 +33,10 @@ export function ProductCard({ product, catalogSlug, onQuickAdd, priority = false
   )
   const hasCompare =
     product.compare_at_price && Number(product.compare_at_price) > Number(product.price)
-  const discount = hasCompare
-    ? Math.round((1 - Number(product.price) / Number(product.compare_at_price)) * 100)
-    : 0
   const stockStatus = product.stock_status || 'unlimited'
   const stockQty = product.stock_quantity == null ? null : Number(product.stock_quantity)
   const isOutOfStock = stockStatus === 'out_of_stock' || (stockQty !== null && stockQty <= 0)
-  const isLowStock = stockStatus === 'low_stock' && stockQty !== null && stockQty > 0
+  const badges = resolveProductBadges(product, { bestSellerIds, showBadges })
 
   return (
     <Link
@@ -56,9 +63,7 @@ export function ProductCard({ product, catalogSlug, onQuickAdd, priority = false
           />
         )}
 
-        {imgState === 'loading' && (
-          <div className="absolute inset-0 skeleton" />
-        )}
+        {imgState === 'loading' && <div className="absolute inset-0 skeleton" />}
 
         {imgState === 'error' && (
           <div className="absolute inset-0 flex items-center justify-center bg-gray-100">
@@ -66,26 +71,20 @@ export function ProductCard({ product, catalogSlug, onQuickAdd, priority = false
           </div>
         )}
 
-        {discount > 0 && !isOutOfStock && (
-          <span className="absolute top-2 left-2 px-2 py-0.5 rounded-lg bg-gray-900 text-white text-[10px] font-bold tracking-tight">
-            −{discount}%
-          </span>
+        {badges.length > 0 && (
+          <div className="absolute top-2 left-2 flex flex-col gap-1 items-start z-[1]">
+            {badges.map((b) => (
+              <span
+                key={b.kind}
+                className={`store-product-badge store-product-badge--${b.kind}`}
+              >
+                {b.label}
+              </span>
+            ))}
+          </div>
         )}
 
-        {isOutOfStock && (
-          <span className="absolute top-2 left-2 px-2 py-0.5 rounded-lg bg-red-600 text-white text-[10px] font-bold tracking-tight uppercase">
-            Esgotado
-          </span>
-        )}
-        {!isOutOfStock && isLowStock && (
-          <span className="absolute top-2 left-2 px-2 py-0.5 rounded-lg bg-amber-500 text-white text-[10px] font-bold tracking-tight">
-            Últimas {stockQty}
-          </span>
-        )}
-
-        {isOutOfStock && (
-          <div className="absolute inset-0 bg-white/45 pointer-events-none" />
-        )}
+        {isOutOfStock && <div className="absolute inset-0 bg-white/45 pointer-events-none" />}
 
         {(!product.cta_type || product.cta_type === 'buy') && !isOutOfStock && (
           <button

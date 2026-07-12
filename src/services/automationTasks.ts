@@ -142,7 +142,7 @@ dele. Termine com pergunta curta que convide resposta. NAO inclua "Ola [Nome]" g
 seja humano e direto.
 
 Retorne SOMENTE o texto da mensagem, nada mais.`;
-        const aiResp = await aiRouter.generateText(prompt, { userId: ctx.userId, brandId: ctx.brandId }, { temperature: 0.7 });
+        const aiResp = await aiRouter.generateText(prompt, { userId: ctx.userId, brandId: ctx.brandId }, { temperature: 0.7, functionKey: "text.automation.tasks" });
         msg = String(aiResp?.text || "").trim();
         if (msg.length > 600) msg = msg.slice(0, 600);
         if (!msg) throw new Error("IA retornou vazio");
@@ -220,7 +220,7 @@ Retorne JSON EXATO (sem markdown):
     result = await aiRouter.generateJson<any>(
       prompt,
       { userId: ctx.userId, brandId: ctx.brandId },
-      { temperature: 0.75 },
+      { temperature: 0.75, functionKey: "text.automation.tasks" },
     );
   } catch (e: any) {
     return { generated: false, error: String(e?.message || e).slice(0, 200) };
@@ -321,7 +321,7 @@ async function instagramAutoReply(config: Record<string, any>, ctx: TaskContext)
 Tom: ${tone}
 Post: ${String(post.caption || "").slice(0, 300)}
 Retorne somente o texto da resposta, sem aspas.`;
-      const aiResp = await aiRouter.generateText(prompt, { userId: ctx.userId, brandId: ctx.brandId }, { temperature: 0.6 });
+      const aiResp = await aiRouter.generateText(prompt, { userId: ctx.userId, brandId: ctx.brandId }, { temperature: 0.6, functionKey: "text.automation.tasks" });
       suggestions.push({
         media_id: post.id,
         caption_preview: String(post.caption || "").slice(0, 80),
@@ -363,7 +363,7 @@ Retorne JSON EXATO:
     const result = await aiRouter.generateJson<any>(
       prompt,
       { userId: ctx.userId, brandId: ctx.brandId },
-      { temperature: 0.5 },
+      { temperature: 0.5, functionKey: "text.automation.tasks" },
     );
     const hashtags = Array.isArray(result?.hashtags) ? result.hashtags.slice(0, 30) : [];
     return {
@@ -400,7 +400,7 @@ Retorne JSON:
     const result = await aiRouter.generateJson<any>(
       prompt,
       { userId: ctx.userId, brandId: ctx.brandId },
-      { temperature: 0.75 },
+      { temperature: 0.75, functionKey: "text.automation.tasks" },
     );
     const draft = await instagramService.createPost(ctx.brandId, {
       media_type: "IMAGE",
@@ -430,6 +430,7 @@ function getWebhookPayload(ctx: TaskContext): Record<string, any> {
 }
 
 async function instagramWebhookDmReply(config: Record<string, any>, ctx: TaskContext): Promise<TaskResult> {
+  const { composeInstagramReply, sendInstagramDm } = await import("./instagramReplyHelpers");
   const payload = getWebhookPayload(ctx);
   const senderId = String(payload.sender_id || payload.from || "");
   const text = String(payload.text || "");
@@ -437,39 +438,34 @@ async function instagramWebhookDmReply(config: Record<string, any>, ctx: TaskCon
     return { ok: false, error: "Payload de DM incompleto" };
   }
 
+  // Global auto_reply_dm is product-legacy: honor config.force / brand hybrid elsewhere.
+  // Only skip when explicitly required by config.respect_global_auto_reply === true
   const settings = await instagramService.getAiSettings(ctx.brandId);
-  if (!settings.auto_reply_dm) {
+  if (config.respect_global_auto_reply === true && !settings.auto_reply_dm) {
     return { ok: false, skipped: true, error: "auto_reply_dm desativado" };
   }
 
-  const iaGenerated = config.ia_generated !== false;
-  let reply = String(config.fallback_message || "Obrigado pela mensagem! Em breve retornamos.").slice(0, 900);
+  const composed = await composeInstagramReply({
+    brandId: ctx.brandId,
+    userId: ctx.userId,
+    inboundText: text,
+    fallbackMessage: String(config.fallback_message || "Obrigado pela mensagem! Em breve retornamos."),
+    // Prefer static fallback if AI path is flaky — still allow IA when enabled
+    iaGenerated: config.ia_generated !== false && config.iaGenerated !== false,
+    mensagem:
+      config.ia_generated === false || config.iaGenerated === false
+        ? String(config.fallback_message || config.mensagem || "")
+        : undefined,
+  });
 
-  const faqHit = instagramService.matchFaqAnswer(settings, text);
-  if (faqHit) {
-    reply = faqHit.slice(0, Number(settings.max_chars || 900));
-  } else if (iaGenerated) {
-    try {
-      const prompt = instagramService.buildAiReplyPrompt(settings, text);
-      const aiResp = await aiRouter.generateText(
-        prompt,
-        { userId: ctx.userId, brandId: ctx.brandId },
-        { temperature: 0.65 },
-      );
-      const generated = String(aiResp?.text || "").trim();
-      if (generated) reply = generated.slice(0, Number(settings.max_chars || 900));
-    } catch {
-      /* usa fallback */
-    }
-  }
-
-  const sent = await instagramService.sendDm(ctx.brandId, senderId, reply);
+  const sent = await sendInstagramDm(ctx.brandId, senderId, composed.reply);
   return {
     ok: sent.ok,
     action: "send_dm",
     sender_id: senderId,
     inbound_text: text.slice(0, 200),
-    reply_text: reply.slice(0, 200),
+    reply_text: composed.reply.slice(0, 200),
+    source: composed.source,
     message_id: sent.messageId,
     error: sent.error,
     triggered_by: senderId,
@@ -477,6 +473,9 @@ async function instagramWebhookDmReply(config: Record<string, any>, ctx: TaskCon
 }
 
 async function instagramWebhookCommentReply(config: Record<string, any>, ctx: TaskContext): Promise<TaskResult> {
+  const { composeInstagramReply, sendInstagramDm, sendInstagramCommentReply } = await import(
+    "./instagramReplyHelpers"
+  );
   const payload = getWebhookPayload(ctx);
   const commentId = String(payload.comment_id || "");
   const text = String(payload.text || "");
@@ -491,35 +490,27 @@ async function instagramWebhookCommentReply(config: Record<string, any>, ctx: Ta
   }
 
   const replyMode = String(config.reply_mode || "dm");
-  const iaGenerated = config.ia_generated !== false;
-  let reply = String(config.fallback_message || "Obrigado pelo comentario! Te chamamos no direct.").slice(0, 900);
-
-  const faqHit = instagramService.matchFaqAnswer(settings, text);
-  if (faqHit) {
-    reply = faqHit.slice(0, Number(settings.max_chars || 900));
-  } else if (iaGenerated) {
-    try {
-      const prompt = [
-        instagramService.buildAiReplyPrompt(settings, text),
-        `Usuario: @${username}`,
-        `Modo: ${replyMode === "comment" ? "resposta publica no comentario" : "mensagem privada (DM)"}`,
-      ].join("\n\n");
-      const aiResp = await aiRouter.generateText(prompt, { userId: ctx.userId, brandId: ctx.brandId }, { temperature: 0.6 });
-      const generated = String(aiResp?.text || "").trim();
-      if (generated) reply = generated.slice(0, Number(settings.max_chars || 900));
-    } catch {
-      /* usa fallback */
-    }
-  }
+  const composed = await composeInstagramReply({
+    brandId: ctx.brandId,
+    userId: ctx.userId,
+    inboundText: text,
+    fallbackMessage: String(config.fallback_message || "Obrigado pelo comentario! Te chamamos no direct."),
+    iaGenerated: config.ia_generated !== false,
+    username,
+    extraPromptLines: [
+      `Modo: ${replyMode === "comment" ? "resposta publica no comentario" : "mensagem privada (DM)"}`,
+    ],
+  });
 
   if (replyMode === "comment") {
-    const sent = await instagramService.replyToComment(ctx.brandId, commentId, reply);
+    const sent = await sendInstagramCommentReply(ctx.brandId, commentId, composed.reply);
     return {
       ok: sent.ok,
       action: "reply_comment",
       comment_id: commentId,
       username,
-      reply_text: reply.slice(0, 200),
+      reply_text: composed.reply.slice(0, 200),
+      source: composed.source,
       error: sent.error,
       triggered_by: commentId,
     };
@@ -529,19 +520,21 @@ async function instagramWebhookCommentReply(config: Record<string, any>, ctx: Ta
   if (!senderId) {
     return { ok: false, error: "sender_id ausente para DM de comentario" };
   }
-  const sent = await instagramService.sendDm(ctx.brandId, senderId, reply);
+  const sent = await sendInstagramDm(ctx.brandId, senderId, composed.reply);
   return {
     ok: sent.ok,
     action: "send_dm_from_comment",
     comment_id: commentId,
     sender_id: senderId,
-    reply_text: reply.slice(0, 200),
+    reply_text: composed.reply.slice(0, 200),
+    source: composed.source,
     error: sent.error,
     triggered_by: commentId,
   };
 }
 
 async function instagramWebhookMentionThanks(config: Record<string, any>, ctx: TaskContext): Promise<TaskResult> {
+  const { composeInstagramReply, sendInstagramDm } = await import("./instagramReplyHelpers");
   const payload = getWebhookPayload(ctx);
   const senderId = String(payload.sender_id || payload.from_id || payload.from || "");
   const username = String(payload.username || payload.from_username || senderId);
@@ -550,30 +543,27 @@ async function instagramWebhookMentionThanks(config: Record<string, any>, ctx: T
   }
 
   const tone = String(config.reply_tone || "genuino e breve").slice(0, 120);
-  const iaGenerated = config.ia_generated !== false;
-  let reply = String(config.fallback_message || "Muito obrigado pela mencao! 💚").slice(0, 500);
+  const composed = await composeInstagramReply({
+    brandId: ctx.brandId,
+    userId: ctx.userId,
+    inboundText: `menção de @${username}`,
+    fallbackMessage: String(config.fallback_message || "Muito obrigado pela mencao! 💚"),
+    iaGenerated: config.ia_generated !== false,
+    username,
+    maxChars: 500,
+    extraPromptLines: [
+      `Agradeça pela menção no story do Instagram. Tom: ${tone}. Retorne somente o texto do DM.`,
+    ],
+  });
 
-  if (iaGenerated) {
-    try {
-      const prompt = `Agradeça pela menção no story do Instagram.
-Usuario: @${username}
-Tom: ${tone}
-Retorne somente o texto do DM de agradecimento (max 500 chars).`;
-      const aiResp = await aiRouter.generateText(prompt, { userId: ctx.userId, brandId: ctx.brandId }, { temperature: 0.7 });
-      const generated = String(aiResp?.text || "").trim();
-      if (generated) reply = generated.slice(0, 500);
-    } catch {
-      /* usa fallback */
-    }
-  }
-
-  const sent = await instagramService.sendDm(ctx.brandId, senderId, reply);
+  const sent = await sendInstagramDm(ctx.brandId, senderId, composed.reply);
   return {
     ok: sent.ok,
     action: "mention_thanks_dm",
     sender_id: senderId,
     username,
-    reply_text: reply.slice(0, 200),
+    reply_text: composed.reply.slice(0, 200),
+    source: composed.source,
     error: sent.error,
     triggered_by: senderId,
   };

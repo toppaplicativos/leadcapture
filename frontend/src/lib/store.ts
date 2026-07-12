@@ -86,9 +86,12 @@ export interface AddItemPayload {
 
 interface CartState {
   items: Record<string, CartItem>
+  drawerOpen: boolean
+  openDrawer: () => void
+  closeDrawer: () => void
   totalItems: () => number
   /** Add an item. Supports legacy (productId, qty) and the new payload form. */
-  addItem: (payloadOrId: string | AddItemPayload, qty?: number) => void
+  addItem: (payloadOrId: string | AddItemPayload, qty?: number, opts?: { openDrawer?: boolean }) => void
   removeItem: (key: string) => void
   updateQty: (key: string, delta: number) => void
   clear: () => void
@@ -96,11 +99,15 @@ interface CartState {
 
 export const useCartStore = create<CartState>((set, get) => ({
   items: readCart(),
+  drawerOpen: false,
+
+  openDrawer: () => set({ drawerOpen: true }),
+  closeDrawer: () => set({ drawerOpen: false }),
 
   totalItems: () =>
     Object.values(get().items).reduce((sum, item) => sum + (item?.quantity || 0), 0),
 
-  addItem: (payloadOrId, qty = 1) =>
+  addItem: (payloadOrId, qty = 1, opts) =>
     set((state) => {
       /* Normalize legacy call signature: addItem('product-123', 2) */
       const payload: AddItemPayload = typeof payloadOrId === 'string'
@@ -124,7 +131,8 @@ export const useCartStore = create<CartState>((set, get) => ({
         },
       }
       writeCart(updated)
-      return { items: updated }
+      const openDrawer = opts?.openDrawer !== false
+      return { items: updated, drawerOpen: openDrawer ? true : state.drawerOpen }
     }),
 
   removeItem: (key) =>
@@ -138,7 +146,12 @@ export const useCartStore = create<CartState>((set, get) => ({
     set((state) => {
       const current = state.items[key]
       if (!current) return state
-      const nextQty = Math.max(1, current.quantity + delta)
+      const nextQty = current.quantity + delta
+      if (nextQty <= 0) {
+        const { [key]: _, ...rest } = state.items
+        writeCart(rest)
+        return { items: rest }
+      }
       const updated = { ...state.items, [key]: { ...current, quantity: nextQty } }
       writeCart(updated)
       return { items: updated }
@@ -146,7 +159,7 @@ export const useCartStore = create<CartState>((set, get) => ({
 
   clear: () => {
     writeCart({})
-    set({ items: {} })
+    set({ items: {}, drawerOpen: false })
   },
 }))
 
@@ -162,6 +175,9 @@ export interface CustomerProfile {
   establishment?: string
   establishment_name?: string
   customer_id?: string
+  /** Tipo de cliente escolhido no cadastro (nome cadastrado no studio/config). */
+  client_type?: string
+  client_type_id?: string
 }
 
 export function getCustomer(): CustomerProfile {
@@ -175,4 +191,21 @@ export function getCustomer(): CustomerProfile {
 
 export function setCustomer(profile: CustomerProfile) {
   localStorage.setItem(customerKey, JSON.stringify(profile))
+}
+
+export function clearCustomer() {
+  try {
+    localStorage.removeItem(customerKey)
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Cliente identificado o bastante para personalizar perfil e buscar pedidos. */
+export function isCustomerIdentified(profile?: CustomerProfile | null): boolean {
+  const p = profile || getCustomer()
+  const name = String(p.name || p.responsible_name || '').trim()
+  const phone = String(p.phone || '').replace(/\D/g, '')
+  const email = String(p.email || '').trim()
+  return Boolean(name && (phone.length >= 10 || email.includes('@')))
 }

@@ -1,20 +1,95 @@
 import { Request, Response, Router } from "express";
-import { existsSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import path from "path";
+import sharp from "sharp";
 import { queryOne } from "../config/database";
 import { StorefrontService } from "../services/storefront";
 
 const router = Router();
 const storefrontService = new StorefrontService();
-const fallbackIconPath = path.join(__dirname, "../../public/logo.png");
+const publicDir = path.join(__dirname, "../../public");
+const frontendPublicDir = path.join(__dirname, "../../frontend/public");
+/** Prefer monochrome brand-mark; colorful logo.png is legacy only. */
+const brandMarkPngPath = existsSync(path.join(frontendPublicDir, "brand-mark.png"))
+  ? path.join(frontendPublicDir, "brand-mark.png")
+  : path.join(publicDir, "brand-mark.png");
+const fallbackLogoPath = existsSync(brandMarkPngPath)
+  ? brandMarkPngPath
+  : path.join(publicDir, "logo.png");
+const brandMarkPath = existsSync(path.join(frontendPublicDir, "brand-mark.svg"))
+  ? path.join(frontendPublicDir, "brand-mark.svg")
+  : path.join(publicDir, "brand-mark.svg");
 
-type PwaAppKind = "store" | "affiliate";
+/** Superfícies instaláveis: cada uma com cor de fundo de ícone distinta */
+export type PwaAppKind = "store" | "affiliate" | "admin" | "stock";
 
 type PwaContext = {
   app: PwaAppKind;
   slug?: string;
   channel?: "catalogo" | "loja";
   host?: string | null;
+  /** partners = LeadCapture Parceiros global (parceiros.leadcapture.online / /parceiros) */
+  surface?: "partners" | null;
+};
+
+type AppTheme = {
+  name: string;
+  shortName: string;
+  description: string;
+  /** Cor sólida do ícone PWA (fundo) */
+  iconBg: string;
+  themeColor: string;
+  backgroundColor: string;
+  categories: string[];
+};
+
+const APP_THEMES: Record<PwaAppKind, AppTheme> = {
+  store: {
+    name: "Catálogo",
+    shortName: "Catálogo",
+    description: "Catálogo, pedidos e acompanhamento.",
+    iconBg: "#0f172a",
+    themeColor: "#0f82ff",
+    backgroundColor: "#0c111a",
+    categories: ["shopping", "food", "business"],
+  },
+  admin: {
+    name: "LeadCapture",
+    shortName: "LeadCapture",
+    description: "Painel operacional: leads, WhatsApp, campanhas e catálogo.",
+    iconBg: "#0a0a0a",
+    themeColor: "#111827",
+    backgroundColor: "#0a0a0a",
+    categories: ["business", "productivity"],
+  },
+  stock: {
+    name: "Estoque",
+    shortName: "Estoque",
+    description: "Controle de estoque e inventário da marca.",
+    iconBg: "#78350f",
+    themeColor: "#d97706",
+    backgroundColor: "#fffbeb",
+    categories: ["business", "productivity"],
+  },
+  affiliate: {
+    name: "Afiliados",
+    shortName: "Afiliados",
+    description: "Central do afiliado: divulgação, links, comissões e vendas.",
+    iconBg: "#14532d",
+    themeColor: "#16a34a",
+    backgroundColor: "#ecfdf5",
+    categories: ["business", "finance"],
+  },
+};
+
+const PARTNERS_THEME: AppTheme = {
+  name: "LeadCapture Parceiros",
+  shortName: "Parceiros",
+  description: "App de afiliados: programas, WhatsApp, contatos e comissões.",
+  iconBg: "#14532d",
+  themeColor: "#16a34a",
+  backgroundColor: "#ecfdf5",
+  categories: ["business", "finance"],
 };
 
 function normalizeHost(req: Request): string | null {
@@ -26,34 +101,59 @@ function normalizeHost(req: Request): string | null {
   return host || null;
 }
 
-function inferStoreContextFromPath(input: string): { slug?: string; channel?: "catalogo" | "loja" } {
-  try {
-    const url = new URL(input, "https://placeholder.local");
-    const parts = url.pathname.split("/").filter(Boolean);
-    if ((parts[0] === "catalogo" || parts[0] === "loja") && parts[1]) {
-      return {
-        slug: decodeURIComponent(parts[1]),
-        channel: parts[0],
-      };
-    }
-  } catch {
-    // Ignore malformed path/referer.
+function inferFromHost(host: string | null | undefined): Partial<PwaContext> {
+  const h = String(host || "").toLowerCase().trim();
+  if (!h) return {};
+  if (h === "parceiros.leadcapture.online" || h === "afiliados.leadcapture.online") {
+    return { app: "affiliate", surface: "partners" };
   }
-
+  const brandHost = h.match(/^(?:parceiros|afiliados)\.([a-z0-9-]+)\./i);
+  if (brandHost?.[1] && brandHost[1] !== "leadcapture") {
+    return { app: "affiliate", slug: brandHost[1] };
+  }
   return {};
 }
 
-function inferAffiliateContextFromPath(input: string): { slug?: string } {
+function inferFromPath(input: string): Partial<PwaContext> {
   try {
     const url = new URL(input, "https://placeholder.local");
     const parts = url.pathname.split("/").filter(Boolean);
-    if (parts[0] === "central-afiliado" && parts[1]) {
-      return { slug: decodeURIComponent(parts[1]) };
+    const first = parts[0] || "";
+
+    if (first === "parceiros") {
+      return { app: "affiliate", surface: "partners" };
+    }
+    if ((first === "catalogo" || first === "loja") && parts[1]) {
+      return {
+        app: "store",
+        slug: decodeURIComponent(parts[1]),
+        channel: first as "catalogo" | "loja",
+      };
+    }
+    if (first === "central-afiliado") {
+      return {
+        app: "affiliate",
+        slug: parts[1] ? decodeURIComponent(parts[1]) : undefined,
+      };
+    }
+    if (first === "app-estoque" || first === "inventario") {
+      return {
+        app: "stock",
+        slug: parts[1] ? decodeURIComponent(parts[1]) : undefined,
+      };
+    }
+    if (
+      first === "admin" ||
+      first === "dashboard" ||
+      first === "login" ||
+      first === "leads" ||
+      first === "afiliados"
+    ) {
+      return { app: "admin" };
     }
   } catch {
-    // Ignore malformed path/referer.
+    // ignore
   }
-
   return {};
 }
 
@@ -61,56 +161,73 @@ function resolvePwaContext(req: Request): PwaContext {
   const explicitSlug = String(req.query.slug || "").trim();
   const explicitChannel = String(req.query.channel || "").trim().toLowerCase();
   const explicitApp = String(req.query.app || "").trim().toLowerCase();
+  const explicitSurface = String(req.query.surface || "").trim().toLowerCase();
+  const host = normalizeHost(req);
   const referer = String(req.get("referer") || "").trim();
-  const inferredStore = inferStoreContextFromPath(referer);
-  const inferredAffiliate = inferAffiliateContextFromPath(referer);
+  const fromHost = inferFromHost(host);
+  const inferred = inferFromPath(referer);
 
-  const app: PwaAppKind =
-    explicitApp === "affiliate" || inferredAffiliate.slug
-      ? "affiliate"
-      : "store";
+  let app: PwaAppKind = "store";
+  if (explicitApp === "affiliate" || explicitApp === "admin" || explicitApp === "stock" || explicitApp === "store") {
+    app = explicitApp;
+  } else if (fromHost.app) {
+    app = fromHost.app;
+  } else if (inferred.app) {
+    app = inferred.app;
+  }
+
+  const surface: "partners" | null =
+    explicitSurface === "partners"
+    || fromHost.surface === "partners"
+    || inferred.surface === "partners"
+      ? "partners"
+      : null;
 
   return {
     app,
-    slug: explicitSlug || (app === "affiliate" ? inferredAffiliate.slug : inferredStore.slug) || undefined,
+    slug: explicitSlug || fromHost.slug || inferred.slug || undefined,
     channel:
       explicitChannel === "loja" || explicitChannel === "catalogo"
         ? (explicitChannel as "catalogo" | "loja")
-        : inferredStore.channel,
-    host: normalizeHost(req),
+        : inferred.channel,
+    host,
+    surface,
   };
 }
 
-function buildStoreRootPath(context: PwaContext): string {
+function buildRootPath(context: PwaContext): string {
+  if (context.app === "affiliate") {
+    // App global LeadCapture Parceiros (sem slug de marca)
+    if (context.surface === "partners" || !context.slug) {
+      return "/parceiros";
+    }
+    return `/central-afiliado/${encodeURIComponent(context.slug)}`;
+  }
+  if (context.app === "stock") {
+    return context.slug ? `/app-estoque/${encodeURIComponent(context.slug)}` : "/app-estoque";
+  }
+  if (context.app === "admin") {
+    return "/admin";
+  }
   if (!context.slug) return "/";
   const channel = context.channel === "loja" ? "loja" : "catalogo";
   return `/${channel}/${encodeURIComponent(context.slug)}`;
 }
 
-function buildAffiliateRootPath(context: PwaContext): string {
-  if (!context.slug) return "/central-afiliado";
-  return `/central-afiliado/${encodeURIComponent(context.slug)}`;
-}
-
 function buildIconQuery(context: PwaContext): string {
   const params = new URLSearchParams();
+  params.set("app", context.app);
   if (context.slug) params.set("slug", context.slug);
-  if (context.app === "affiliate") {
-    params.set("app", "affiliate");
-  } else if (context.channel) {
-    params.set("channel", context.channel);
-  }
-  const serialized = params.toString();
-  return serialized ? `?${serialized}` : "";
+  if (context.surface) params.set("surface", context.surface);
+  if (context.app === "store" && context.channel) params.set("channel", context.channel);
+  return `?${params.toString()}`;
 }
 
 function pickStoreIcon(store: any): string | null {
   const brandLogo = String(store?.brand?.logo_url || "").trim();
   if (brandLogo) return brandLogo;
-
   const themeLogo = String(store?.theme?.logo_url || "").trim();
   if (themeLogo) return themeLogo;
-
   return null;
 }
 
@@ -123,11 +240,31 @@ function resolveLocalAsset(assetPath: string): string | null {
   if (!cleaned || /^https?:\/\//i.test(cleaned) || cleaned.startsWith("data:")) {
     return null;
   }
-
   const normalized = cleaned.replace(/^\/+/, "");
-  const absolute = path.resolve(process.cwd(), normalized);
-  if (!absolute.startsWith(process.cwd())) return null;
-  return existsSync(absolute) ? absolute : null;
+  const candidates = [
+    path.resolve(process.cwd(), normalized),
+    path.resolve(publicDir, normalized.replace(/^public\//, "")),
+    path.resolve(process.cwd(), "uploads", path.basename(normalized)),
+  ];
+  for (const absolute of candidates) {
+    if (!absolute.startsWith(process.cwd()) && !absolute.startsWith(publicDir)) continue;
+    if (existsSync(absolute)) return absolute;
+  }
+  return null;
+}
+
+async function fetchRemoteBuffer(url: string): Promise<Buffer | null> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(timer);
+    if (!res.ok) return null;
+    const arr = await res.arrayBuffer();
+    return Buffer.from(arr);
+  } catch {
+    return null;
+  }
 }
 
 async function resolveAffiliateBrand(slug?: string) {
@@ -138,228 +275,436 @@ async function resolveAffiliateBrand(slug?: string) {
      FROM brand_units
      WHERE LOWER(slug) = LOWER(?) OR LOWER(id) = LOWER(?)
      LIMIT 1`,
-    [ref, ref]
+    [ref, ref],
   );
 }
 
-async function resolveIconSource(context: PwaContext): Promise<string | null> {
-  if (context.app === "affiliate") {
-    const brand = await resolveAffiliateBrand(context.slug);
-    return pickBrandIcon(brand);
-  }
-
-  const bundle = await storefrontService.resolvePublicStore({
-    slug: context.slug,
-    host: context.host,
-  });
-  return pickStoreIcon(bundle?.store);
+async function resolveBrandBySlug(slug?: string) {
+  return resolveAffiliateBrand(slug);
 }
 
-router.get("/icon", async (req: Request, res: Response) => {
-  const context = resolvePwaContext(req);
+async function resolveLogoBuffer(context: PwaContext): Promise<Buffer | null> {
+  let iconSource: string | null = null;
 
   try {
-    const iconSource = await resolveIconSource(context);
-    if (!iconSource) {
-      return res.sendFile(fallbackIconPath);
-    }
-
-    const localAsset = resolveLocalAsset(iconSource);
-    if (localAsset) {
-      return res.sendFile(localAsset);
-    }
-
-    return res.redirect(iconSource);
-  } catch {
-    return res.sendFile(fallbackIconPath);
-  }
-});
-
-router.get("/manifest.webmanifest", async (req: Request, res: Response) => {
-  const context = resolvePwaContext(req);
-  const isAffiliate = context.app === "affiliate";
-  const rootPath = isAffiliate ? buildAffiliateRootPath(context) : buildStoreRootPath(context);
-  const scope = rootPath === "/" ? "/" : `${rootPath}/`;
-  const iconQuery = buildIconQuery(context);
-
-  let displayName = isAffiliate ? "Afiliados" : "LeadCapture";
-  let description = isAffiliate
-    ? "Central do afiliado: divulgação, links, comissões e vendas."
-    : "Catálogo imersivo para pedidos, histórico e acompanhamento.";
-  let themeColor = isAffiliate ? "#16a34a" : "#0f82ff";
-  let backgroundColor = isAffiliate ? "#ffffff" : "#0c111a";
-
-  try {
-    if (isAffiliate) {
-      const brand = await resolveAffiliateBrand(context.slug);
-      if (brand) {
-        const brandName = String(brand.name || context.slug || "").trim();
-        displayName = brandName ? `${brandName} Afiliados` : displayName;
-        description =
-          String(brand.slogan || "").trim() ||
-          `Programa de afiliados ${brandName}. Divulgue, acompanhe vendas e receba comissões.`;
-        themeColor =
-          String(brand.secondary_color || "").trim() ||
-          String(brand.primary_color || "").trim() ||
-          themeColor;
-        backgroundColor =
-          String(brand.primary_color || "").trim() ||
-          backgroundColor;
+    if (context.app === "affiliate" || context.app === "stock" || context.app === "admin") {
+      if (context.slug) {
+        const brand = await resolveBrandBySlug(context.slug);
+        iconSource = pickBrandIcon(brand);
       }
     } else {
       const bundle = await storefrontService.resolvePublicStore({
         slug: context.slug,
         host: context.host,
       });
+      iconSource = pickStoreIcon(bundle?.store);
+    }
+  } catch {
+    iconSource = null;
+  }
 
+  if (iconSource) {
+    const local = resolveLocalAsset(iconSource);
+    if (local) {
+      try {
+        return readFileSync(local);
+      } catch {
+        /* fall through */
+      }
+    }
+    if (/^https?:\/\//i.test(iconSource)) {
+      const remote = await fetchRemoteBuffer(iconSource);
+      if (remote) return remote;
+    }
+  }
+
+  // Fallback: brand-mark ou logo.png
+  if (existsSync(brandMarkPath)) {
+    try {
+      return readFileSync(brandMarkPath);
+    } catch {
+      /* */
+    }
+  }
+  if (existsSync(fallbackLogoPath)) {
+    try {
+      return readFileSync(fallbackLogoPath);
+    } catch {
+      /* */
+    }
+  }
+  return null;
+}
+
+function parseSize(raw: unknown): number {
+  const n = Number(raw);
+  if (n === 180 || n === 192 || n === 512) return n;
+  return 192;
+}
+
+function sanitizeHexColor(input: string | undefined | null, fallback: string): string {
+  const v = String(input || "").trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(v)) return v;
+  if (/^#[0-9a-fA-F]{3}$/.test(v)) {
+    const r = v[1], g = v[2], b = v[3];
+    return `#${r}${r}${g}${g}${b}${b}`;
+  }
+  return fallback;
+}
+
+/**
+ * Gera PNG PWA: logo centrado sobre fundo colorido por app.
+ * maskable=1 aplica safe zone (~80% área útil).
+ */
+async function renderAppIcon(opts: {
+  logo: Buffer | null;
+  size: number;
+  bg: string;
+  maskable: boolean;
+}): Promise<Buffer> {
+  const { size, bg, maskable } = opts;
+  const padRatio = maskable ? 0.22 : 0.14;
+  const inner = Math.max(24, Math.round(size * (1 - padRatio * 2)));
+  const left = Math.round((size - inner) / 2);
+  const top = left;
+
+  const base = sharp({
+    create: {
+      width: size,
+      height: size,
+      channels: 4,
+      background: bg,
+    },
+  });
+
+  if (!opts.logo) {
+    return base.png().toBuffer();
+  }
+
+  let logoPng: Buffer;
+  try {
+    logoPng = await sharp(opts.logo)
+      .resize(inner, inner, {
+        fit: "contain",
+        background: { r: 0, g: 0, b: 0, alpha: 0 },
+      })
+      .png()
+      .toBuffer();
+  } catch {
+    return base.png().toBuffer();
+  }
+
+  // Cantos arredondados leves no "any"; maskable fica quadrado (SO recorta)
+  if (!maskable) {
+    const radius = Math.round(size * 0.18);
+    const roundedSvg = Buffer.from(
+      `<svg width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg">
+        <rect width="${size}" height="${size}" rx="${radius}" ry="${radius}" fill="${bg}"/>
+      </svg>`,
+    );
+    const roundedBg = await sharp(roundedSvg).png().toBuffer();
+    return sharp(roundedBg)
+      .composite([{ input: logoPng, left, top }])
+      .png()
+      .toBuffer();
+  }
+
+  return base.composite([{ input: logoPng, left, top }]).png().toBuffer();
+}
+
+async function resolveThemeOverrides(context: PwaContext): Promise<{
+  displayName: string;
+  shortName: string;
+  description: string;
+  themeColor: string;
+  backgroundColor: string;
+  iconBg: string;
+}> {
+  const base =
+    context.app === "affiliate" && (context.surface === "partners" || !context.slug)
+      ? PARTNERS_THEME
+      : APP_THEMES[context.app];
+  let displayName = base.name;
+  let shortName = base.shortName;
+  let description = base.description;
+  let themeColor = base.themeColor;
+  let backgroundColor = base.backgroundColor;
+  let iconBg = base.iconBg;
+
+  try {
+    if (context.app === "affiliate" && (context.surface === "partners" || !context.slug)) {
+      displayName = PARTNERS_THEME.name;
+      shortName = PARTNERS_THEME.shortName;
+      description = PARTNERS_THEME.description;
+    } else if (context.app === "affiliate" || context.app === "stock") {
+      const brand = await resolveBrandBySlug(context.slug);
+      if (brand) {
+        const brandName = String(brand.name || context.slug || "").trim();
+        if (context.app === "affiliate") {
+          displayName = brandName ? `${brandName} · Afiliados` : base.name;
+          shortName = brandName ? brandName.slice(0, 10) : base.shortName;
+          description =
+            String(brand.slogan || "").trim() ||
+            `Programa de afiliados ${brandName}. Divulgue, acompanhe vendas e receba comissões.`;
+        } else {
+          displayName = brandName ? `${brandName} · Estoque` : base.name;
+          shortName = "Estoque";
+          description = `Estoque e inventário · ${brandName}`;
+        }
+        const primary = sanitizeHexColor(brand.primary_color, iconBg);
+        const secondary = sanitizeHexColor(brand.secondary_color, themeColor);
+        // Ícone: cor do app (identidade) — não troca pelo primary da marca (evita ícones errados)
+        themeColor = secondary || themeColor;
+        backgroundColor = primary || backgroundColor;
+      }
+    } else if (context.app === "store") {
+      const bundle = await storefrontService.resolvePublicStore({
+        slug: context.slug,
+        host: context.host,
+      });
       const store = bundle?.store as any;
       const brand = store?.brand || {};
       const theme = store?.theme || {};
-
-      displayName =
+      const brandName =
         String(brand.name || "").trim() ||
-        String(store?.name || "").trim() ||
-        displayName;
-
+        String(store?.name || "").trim();
+      if (brandName) {
+        displayName = brandName;
+        shortName = brandName.slice(0, 12);
+      }
       description =
         String(brand.description || "").trim() ||
         String(brand.slogan || "").trim() ||
         description;
-
-      themeColor =
-        String(brand.secondary_color || "").trim() ||
-        String(theme.secondary_color || "").trim() ||
-        String(brand.primary_color || "").trim() ||
-        themeColor;
-
-      backgroundColor =
-        String(brand.primary_color || "").trim() ||
-        String(theme.primary_color || "").trim() ||
-        backgroundColor;
+      themeColor = sanitizeHexColor(
+        brand.secondary_color || theme.secondary_color || brand.primary_color,
+        themeColor,
+      );
+      backgroundColor = sanitizeHexColor(
+        brand.primary_color || theme.primary_color,
+        backgroundColor,
+      );
+      // Catálogo: fundo do ícone usa primary da marca se existir (identidade da loja)
+      iconBg = sanitizeHexColor(brand.primary_color || theme.primary_color, iconBg);
+    } else if (context.app === "admin") {
+      displayName = "LeadCapture";
+      shortName = "LeadCapture";
     }
   } catch {
-    // Fall back to generic app identity.
+    // defaults
   }
 
-  const startUrl = isAffiliate
-    ? `${rootPath}/painel?source=pwa`
-    : rootPath === "/"
-      ? "/?source=pwa"
-      : `${rootPath}?source=pwa`;
+  return { displayName, shortName, description, themeColor, backgroundColor, iconBg };
+}
 
-  const manifest = isAffiliate
-    ? {
-        id: rootPath,
-        name: displayName,
-        short_name: displayName.slice(0, 12) || "Afiliados",
-        description,
-        lang: "pt-BR",
-        dir: "ltr",
-        start_url: startUrl,
-        scope,
-        display: "fullscreen",
-        display_override: ["fullscreen", "standalone", "minimal-ui"],
-        orientation: "portrait-primary",
-        background_color: backgroundColor,
-        theme_color: themeColor,
-        categories: ["business", "finance"],
-        prefer_related_applications: false,
-        icons: [
+router.get("/icon", async (req: Request, res: Response) => {
+  const context = resolvePwaContext(req);
+  const size = parseSize(req.query.size);
+  const maskable = String(req.query.maskable || "") === "1" || String(req.query.maskable || "") === "true";
+
+  try {
+    const theme = await resolveThemeOverrides(context);
+    const logo = await resolveLogoBuffer(context);
+    const png = await renderAppIcon({
+      logo,
+      size,
+      bg: theme.iconBg,
+      maskable,
+    });
+
+    res.setHeader("Content-Type", "image/png");
+    res.setHeader("Cache-Control", "public, max-age=300, stale-while-revalidate=86400");
+    res.setHeader("X-Pwa-App", context.app);
+    return res.send(png);
+  } catch (err: any) {
+    console.error("[pwa/icon]", err?.message || err);
+    if (existsSync(fallbackLogoPath)) {
+      return res.sendFile(fallbackLogoPath);
+    }
+    return res.status(500).json({ error: "Falha ao gerar ícone" });
+  }
+});
+
+router.get("/manifest.webmanifest", async (req: Request, res: Response) => {
+  const context = resolvePwaContext(req);
+  const rootPath = buildRootPath(context);
+  // Host dedicado de parceiros: scope cobre o domínio inteiro.
+  // Em app.* com path /parceiros: limita ao prefixo para não misturar com admin.
+  const hostIsPartners =
+    context.host === "parceiros.leadcapture.online"
+    || context.host === "afiliados.leadcapture.online"
+    || /^(?:parceiros|afiliados)\./i.test(String(context.host || ""));
+  const scope =
+    context.app === "admin"
+      ? "/"
+      : context.app === "affiliate" && (context.surface === "partners" || hostIsPartners)
+        ? (hostIsPartners ? "/" : "/parceiros/")
+        : rootPath === "/"
+          ? "/"
+          : `${rootPath}/`;
+  const iconQuery = buildIconQuery(context);
+  const base =
+    context.app === "affiliate" && (context.surface === "partners" || !context.slug)
+      ? PARTNERS_THEME
+      : APP_THEMES[context.app];
+  const theme = await resolveThemeOverrides(context);
+
+  const startUrl =
+    context.app === "affiliate" && (context.surface === "partners" || !context.slug)
+      ? `/parceiros/painel?source=pwa`
+      : context.app === "affiliate"
+        ? `${rootPath}/painel?source=pwa`
+        : context.app === "admin"
+          ? "/admin?source=pwa"
+          : context.app === "stock"
+            ? `${rootPath}?source=pwa`
+            : rootPath === "/"
+              ? "/?source=pwa"
+              : `${rootPath}?source=pwa`;
+
+  const icon192 = `/pwa/icon${iconQuery}&size=192`;
+  const icon512 = `/pwa/icon${iconQuery}&size=512`;
+  const iconMaskable = `/pwa/icon${iconQuery}&size=512&maskable=1`;
+
+  const affiliateBase =
+    context.app === "affiliate" && (context.surface === "partners" || !context.slug)
+      ? "/parceiros/painel"
+      : `${rootPath}/painel`;
+
+  const shortcuts =
+    context.app === "affiliate"
+      ? [
           {
-            src: `/pwa/icon${iconQuery}${iconQuery ? "&" : "?"}size=192`,
-            sizes: "192x192",
-            purpose: "any",
+            name: "Programas",
+            short_name: "Programas",
+            url: context.surface === "partners" || !context.slug
+              ? "/parceiros/painel"
+              : `${rootPath}/painel`,
+            icons: [{ src: icon192, sizes: "192x192" }],
           },
-          {
-            src: `/pwa/icon${iconQuery}${iconQuery ? "&" : "?"}size=512`,
-            sizes: "512x512",
-            purpose: "any",
-          },
-          {
-            src: `/pwa/icon${iconQuery}${iconQuery ? "&" : "?"}size=512&maskable=1`,
-            sizes: "512x512",
-            purpose: "maskable",
-          },
-        ],
-        shortcuts: [
           {
             name: "Divulgar",
             short_name: "Divulgar",
-            url: `${rootPath}/painel/divulgacao`,
-            icons: [{ src: `/pwa/icon${iconQuery}${iconQuery ? "&" : "?"}size=192`, sizes: "192x192" }],
+            url: `${affiliateBase}/divulgacao`,
+            icons: [{ src: icon192, sizes: "192x192" }],
           },
           {
             name: "Links",
             short_name: "Links",
-            url: `${rootPath}/painel/links`,
-            icons: [{ src: `/pwa/icon${iconQuery}${iconQuery ? "&" : "?"}size=192`, sizes: "192x192" }],
+            url: `${affiliateBase}/links`,
+            icons: [{ src: icon192, sizes: "192x192" }],
           },
-          {
-            name: "Vendas",
-            short_name: "Vendas",
-            url: `${rootPath}/painel/vendas`,
-            icons: [{ src: `/pwa/icon${iconQuery}${iconQuery ? "&" : "?"}size=192`, sizes: "192x192" }],
-          },
-        ],
-      }
-    : {
-        id: rootPath,
-        name: displayName,
-        short_name: displayName.slice(0, 12) || "Catálogo",
-        description,
-        lang: "pt-BR",
-        dir: "ltr",
-        start_url: startUrl,
-        scope,
-        display: "fullscreen",
-        display_override: ["fullscreen", "standalone", "minimal-ui"],
-        orientation: "portrait-primary",
-        background_color: backgroundColor,
-        theme_color: themeColor,
-        categories: ["shopping", "food", "business"],
-        prefer_related_applications: false,
-        icons: [
-          {
-            src: `/pwa/icon${iconQuery}${iconQuery ? "&" : "?"}size=192`,
-            sizes: "192x192",
-            purpose: "any",
-          },
-          {
-            src: `/pwa/icon${iconQuery}${iconQuery ? "&" : "?"}size=512`,
-            sizes: "512x512",
-            purpose: "any",
-          },
-          {
-            src: `/pwa/icon${iconQuery}${iconQuery ? "&" : "?"}size=512&maskable=1`,
-            sizes: "512x512",
-            purpose: "maskable",
-          },
-        ],
-        shortcuts: [
-          {
-            name: "Catálogo",
-            short_name: "Catálogo",
-            url: rootPath,
-            icons: [{ src: `/pwa/icon${iconQuery}${iconQuery ? "&" : "?"}size=192`, sizes: "192x192" }],
-          },
-          {
-            name: "Acompanhar pedido",
-            short_name: "Pedido",
-            url: rootPath === "/" ? "/pedido" : `${rootPath}/pedido`,
-            icons: [{ src: `/pwa/icon${iconQuery}${iconQuery ? "&" : "?"}size=192`, sizes: "192x192" }],
-          },
-          {
-            name: "Histórico",
-            short_name: "Histórico",
-            url: rootPath === "/" ? "/historico" : `${rootPath}/historico`,
-            icons: [{ src: `/pwa/icon${iconQuery}${iconQuery ? "&" : "?"}size=192`, sizes: "192x192" }],
-          },
-        ],
-      };
+        ]
+      : context.app === "admin"
+        ? [
+            {
+              name: "Painel",
+              short_name: "Painel",
+              url: "/admin",
+              icons: [{ src: icon192, sizes: "192x192" }],
+            },
+            {
+              name: "Leads",
+              short_name: "Leads",
+              url: "/leads",
+              icons: [{ src: icon192, sizes: "192x192" }],
+            },
+            {
+              name: "Mensagens",
+              short_name: "Mensagens",
+              url: "/mensagens",
+              icons: [{ src: icon192, sizes: "192x192" }],
+            },
+          ]
+        : context.app === "stock"
+          ? [
+              {
+                name: "Inventário",
+                short_name: "Inventário",
+                url: rootPath,
+                icons: [{ src: icon192, sizes: "192x192" }],
+              },
+            ]
+          : [
+              {
+                name: "Catálogo",
+                short_name: "Catálogo",
+                url: rootPath,
+                icons: [{ src: icon192, sizes: "192x192" }],
+              },
+              {
+                name: "Acompanhar pedido",
+                short_name: "Pedido",
+                url: rootPath === "/" ? "/pedido" : `${rootPath}/pedido`,
+                icons: [{ src: icon192, sizes: "192x192" }],
+              },
+              {
+                name: "Histórico",
+                short_name: "Histórico",
+                url: rootPath === "/" ? "/historico" : `${rootPath}/historico`,
+                icons: [{ src: icon192, sizes: "192x192" }],
+              },
+            ];
+
+  // `id` precisa ser same-origin (path ou URL absoluta). Valores tipo "admin:/admin" são ignorados pelo browser.
+  // Separar PWA de parceiros do PWA admin (ids distintos).
+  const manifestId =
+    context.app === "admin"
+      ? "/admin?app=admin"
+      : context.app === "stock"
+        ? `${rootPath}?app=stock`
+        : context.app === "affiliate" && (context.surface === "partners" || !context.slug)
+          ? "/parceiros?app=affiliate&surface=partners"
+          : context.app === "affiliate"
+            ? `${rootPath}?app=affiliate`
+            : rootPath === "/"
+              ? "/?app=store"
+              : `${rootPath}?app=store`;
+
+  const manifest = {
+    id: manifestId,
+    name: theme.displayName,
+    short_name: theme.shortName.slice(0, 12) || base.shortName,
+    description: theme.description,
+    lang: "pt-BR",
+    dir: "ltr",
+    start_url: startUrl,
+    scope,
+    display: "standalone",
+    display_override: ["standalone", "minimal-ui", "fullscreen"],
+    orientation: "portrait-primary",
+    background_color: theme.backgroundColor,
+    theme_color: theme.themeColor,
+    categories: base.categories,
+    prefer_related_applications: false,
+    icons: [
+      { src: icon192, sizes: "192x192", type: "image/png", purpose: "any" },
+      { src: icon512, sizes: "512x512", type: "image/png", purpose: "any" },
+      { src: iconMaskable, sizes: "512x512", type: "image/png", purpose: "maskable" },
+    ],
+    shortcuts,
+  };
 
   res.setHeader("Content-Type", "application/manifest+json");
   res.setHeader("Cache-Control", "no-store, must-revalidate");
   res.send(JSON.stringify(manifest, null, 2));
+});
+
+/** Meta/diagnóstico: cores e nomes por app (útil para UI install banner) */
+router.get("/identity", async (req: Request, res: Response) => {
+  const context = resolvePwaContext(req);
+  const theme = await resolveThemeOverrides(context);
+  const iconQuery = buildIconQuery(context);
+  res.json({
+    app: context.app,
+    slug: context.slug || null,
+    name: theme.displayName,
+    short_name: theme.shortName,
+    theme_color: theme.themeColor,
+    background_color: theme.backgroundColor,
+    icon_bg: theme.iconBg,
+    icon_url: `/pwa/icon${iconQuery}&size=192`,
+  });
 });
 
 export default router;

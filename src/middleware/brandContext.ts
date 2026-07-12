@@ -1,6 +1,7 @@
 import { NextFunction, Response } from "express";
 import { AuthRequest } from "./auth";
 import { BrandUnitsService } from "../services/brandUnits";
+import { getBrandStatus, isSuperAdminUser } from "../services/planEntitlements";
 
 export interface BrandRequest extends AuthRequest {
   brandId?: string | null;
@@ -47,6 +48,24 @@ export async function attachBrandContext(
 
     const requestedBrandId = getRequestedBrandId(req);
     req.brandId = await brandUnitsService.resolveActiveBrandId(userId, requestedBrandId);
+
+    /* Suspended / archived brands cannot be used as active context (except super-admin). */
+    if (req.brandId && !(await isSuperAdminUser(userId))) {
+      const st = await getBrandStatus(req.brandId);
+      if (!st.active) {
+        res.status(403).json({
+          error: "brand_inactive",
+          message:
+            st.status === "suspended"
+              ? "Esta organização está suspensa. Contate o suporte."
+              : "Esta organização está arquivada.",
+          status: st.status,
+          brand_id: req.brandId,
+        });
+        return;
+      }
+    }
+
     next();
   } catch (error: any) {
     res.status(400).json({ error: error.message || "Invalid brand context" });

@@ -148,10 +148,10 @@ async function resolveInboxInstanceScope(req: BrandRequest): Promise<{ clause: s
   return buildInboxInstanceClause(scope, req.brandId, "i");
 }
 
-function normalizeAIMode(value: unknown): ConversationAIMode {
-  const raw = String(value || "autonomous").trim().toLowerCase();
+function normalizeAIMode(value: unknown, fallback: ConversationAIMode = "manual"): ConversationAIMode {
+  const raw = String(value || "").trim().toLowerCase();
   if (raw === "autonomous" || raw === "supervised" || raw === "manual") return raw;
-  return "autonomous";
+  return fallback;
 }
 
 function safeParseJson<T = Record<string, unknown>>(value: unknown): T | null {
@@ -253,7 +253,16 @@ async function ensureAIConversationSchema(pool: any): Promise<void> {
     };
 
     await ensureColumn("ai_mode", "ai_mode VARCHAR(16) NOT NULL DEFAULT 'manual'");
-    await ensureColumn("ai_lock_human", "ai_lock_human BOOLEAN NOT NULL DEFAULT TRUE");
+    // lock humano desligado por padrão — operador sempre pode intervir
+    await ensureColumn("ai_lock_human", "ai_lock_human BOOLEAN NOT NULL DEFAULT FALSE");
+    // Libera locks antigos que bloqueavam envio manual com IA ligada
+    try {
+      await pool.query(
+        `UPDATE whatsapp_conversations SET ai_lock_human = FALSE WHERE ai_lock_human IS TRUE OR ai_lock_human = TRUE`
+      );
+    } catch {
+      /* dialect / tipo — ignore */
+    }
     await ensureColumn("ai_last_decision_json", "ai_last_decision_json JSON NULL");
     await ensureColumn("ai_updated_at", "ai_updated_at TIMESTAMP NULL");
     await ensureColumn("ai_updated_by", "ai_updated_by VARCHAR(36) NULL");
@@ -368,10 +377,14 @@ async function getOwnedConversation(
   return (rows?.[0] as any) || null;
 }
 
-function isHumanReplyBlocked(conversation: any): boolean {
-  const mode = normalizeAIMode(conversation?.ai_mode);
-  const lockHuman = parseBooleanInput(conversation?.ai_lock_human, true);
-  return mode === "autonomous" && lockHuman;
+/**
+ * Operador do painel sempre pode enviar (texto, botões, mídia).
+ * IA automática responde em paralelo quando ai_mode=autonomous;
+ * não bloqueamos intervenção humana.
+ * @deprecated mantido por compat — sempre false.
+ */
+function isHumanReplyBlocked(_conversation: any): boolean {
+  return false;
 }
 
 async function getGlobalAIState(pool: any, brandId?: string | null) {
@@ -1666,8 +1679,8 @@ router.get("/conversations/:id/ai-state", async (req: BrandRequest, res: Respons
     return res.json({
       success: true,
       ai: {
-        mode: normalizeAIMode(conv.ai_mode),
-        lock_human: parseBooleanInput(conv.ai_lock_human, true),
+        mode: normalizeAIMode(conv.ai_mode, "manual"),
+        lock_human: parseBooleanInput(conv.ai_lock_human, false),
         last_decision: safeParseJson(conv.ai_last_decision_json),
         updated_at: conv.ai_updated_at || null,
         updated_by: conv.ai_updated_by || null,
@@ -1690,16 +1703,26 @@ router.patch("/conversations/:id/ai-state", async (req: BrandRequest, res: Respo
     const conv = await getOwnedConversation(pool, String(req.params.id), req);
     if (!conv) return res.status(404).json({ error: "Conversation not found" });
 
-    const mode = normalizeAIMode(req.body?.mode);
+    // Aceita mode | ai_mode | aiMode (frontend envia ai_mode)
+    const rawMode = req.body?.mode ?? req.body?.ai_mode ?? req.body?.aiMode;
+    const currentMode = normalizeAIMode(conv.ai_mode, "manual");
+    const mode = normalizeAIMode(rawMode, currentMode);
+
     const globalState = await getGlobalAIState(pool, req.brandId);
     if (!globalState.enabled && mode !== "manual") {
       return res.status(409).json({
-        error: "Atendimento Automatico globalmente desabilitado para esta marca.",
+        error: "Atendimento Automatico globalmente desabilitado para esta marca. Ative em Agente IA.",
         code: "AI_GLOBAL_DISABLED",
       });
     }
 
-    const lockHuman = parseBooleanInput(req.body?.lock_human, true);
+    // Nunca bloquear operador por padrão — lock só se pedido explicitamente
+    const lockRaw = req.body?.lock_human ?? req.body?.lockHuman;
+    const lockHuman =
+      lockRaw === undefined || lockRaw === null
+        ? false
+        : parseBooleanInput(lockRaw, false);
+
     const reason = String(req.body?.reason || "").trim();
     const decisionPayload = {
       event: "mode_update",
@@ -1714,7 +1737,7 @@ router.patch("/conversations/:id/ai-state", async (req: BrandRequest, res: Respo
       `UPDATE whatsapp_conversations
        SET ai_mode = ?, ai_lock_human = ?, ai_last_decision_json = ?, ai_updated_at = NOW(), ai_updated_by = ?, updated_at = NOW()
        WHERE id = ?`,
-      [mode, lockHuman ? 1 : 0, JSON.stringify(decisionPayload), userId, String(req.params.id)]
+      [mode, lockHuman ? true : false, JSON.stringify(decisionPayload), userId, String(req.params.id)]
     );
 
     await logAIDecision(pool, {
@@ -1723,11 +1746,14 @@ router.patch("/conversations/:id/ai-state", async (req: BrandRequest, res: Respo
       brandId: req.brandId,
       decisionType: "mode_update",
       mode,
-      summary: `Modo IA alterado para ${mode}${lockHuman ? " com lock" : " sem lock"}.`,
+      summary: `Modo IA alterado para ${mode}${lockHuman ? " (lock legado)" : ""} — operador pode intervir a qualquer momento.`,
       payload: decisionPayload,
     });
 
-    res.json({ success: true, ai: decisionPayload });
+    res.json({
+      success: true,
+      ai: decisionPayload,
+    });
   } catch (error: any) {
     logger.error(error, "Error updating conversation ai state");
     res.status(500).json({ error: error.message });

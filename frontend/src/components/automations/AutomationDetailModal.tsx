@@ -101,15 +101,16 @@ export function AutomationDetailModal({
   }
 
   async function handleSave() {
-    if (!draft) return
-    await onSave(draft)
+    if (!draft || !automacao) return
+    // Preserve live toggle from header (source of truth is automacao.ativa after toggle)
+    await onSave({ ...draft, ativa: draft.ativa ?? automacao.ativa })
     setDirty(false)
   }
 
   return (
     <div className="fixed inset-0 z-[90] bg-black/50 grid place-items-center p-2 sm:p-4" onClick={onClose}>
       <div
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[94vh] flex flex-col overflow-hidden"
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[94vh] h-[94vh] sm:h-auto sm:max-h-[94vh] flex flex-col overflow-hidden min-h-0"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -142,8 +143,17 @@ export function AutomationDetailModal({
             </button>
             <button
               type="button"
-              onClick={() => onToggle(automacao.id, !automacao.ativa)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-[11px] font-bold text-gray-700 hover:bg-gray-50"
+              onClick={async () => {
+                const next = !automacao.ativa
+                await onToggle(automacao.id, next)
+                // Keep draft in sync so Salvar doesn't overwrite the toggle
+                setDraft((d) => (d ? { ...d, ativa: next } : d))
+              }}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold ${
+                automacao.ativa
+                  ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                  : 'bg-amber-500 text-white hover:bg-amber-600'
+              }`}
             >
               {automacao.ativa ? <Pause size={12} /> : <Play size={12} />}
               {automacao.ativa ? 'Pausar' : 'Ativar'}
@@ -177,8 +187,8 @@ export function AutomationDetailModal({
           </div>
         </div>
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto px-5 py-4">
+        {/* Content — min-h-0 is required for nested scroll inside flex modal */}
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 py-4">
           {tab === 'geral' && (
             <div className="space-y-4 max-w-xl">
               <label className="block">
@@ -199,14 +209,13 @@ export function AutomationDetailModal({
                   className={inputCls + ' resize-none'}
                 />
               </label>
-              <label className="flex items-center gap-2 text-sm text-gray-700">
-                <input
-                  type="checkbox"
-                  checked={draft.ativa ?? false}
-                  onChange={(e) => patch({ ativa: e.target.checked })}
-                />
-                Automação ativa
-              </label>
+              <p className="text-[12px] text-gray-500">
+                Status:{' '}
+                <strong className={automacao.ativa ? 'text-emerald-700' : 'text-amber-700'}>
+                  {automacao.ativa ? 'Ativa' : 'Pausada'}
+                </strong>
+                {' — '}use o botão <em>Ativar / Pausar</em> no topo do modal (evita controle duplicado).
+              </p>
               <div className="grid grid-cols-2 gap-3 p-4 bg-gray-50 rounded-xl text-xs text-gray-600">
                 <div>
                   <span className="text-gray-400 block text-[10px] uppercase font-bold">Próxima execução</span>

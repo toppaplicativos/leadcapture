@@ -12,6 +12,7 @@ import {
   toggleAutomationDefinition,
   duplicateAutomationDefinition,
   executeAutomationDefinition,
+  seedInstagramAutomationDefinitions,
 } from '@/lib/automations/definitions-api'
 import { AutomationCard } from './AutomationCard'
 import { AutomationWizard } from './AutomationWizard'
@@ -28,6 +29,7 @@ export function AutomationDefinitionsHub() {
   const [toast, setToast] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
   const [detailFor, setDetailFor] = useState<Automacao | null>(null)
   const [detailSaving, setDetailSaving] = useState(false)
+  const [seeding, setSeeding] = useState(false)
 
   const showToast = useCallback((text: string, kind: 'ok' | 'err' = 'ok') => {
     setToast({ kind, text })
@@ -48,6 +50,33 @@ export function AutomationDefinitionsHub() {
   }, [showToast])
 
   useEffect(() => { void load() }, [load])
+
+  // Deep link ?open=<definitionId>
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const openId = params.get('open')
+    if (!openId || !items.length) return
+    const found = items.find((x) => x.id === openId)
+    if (found) setDetailFor(found)
+  }, [items])
+
+  async function handleSeedInstagram() {
+    setSeeding(true)
+    try {
+      const r = await seedInstagramAutomationDefinitions(false)
+      const n = (r.created?.length || 0) + (r.updated?.length || 0)
+      showToast(
+        n > 0
+          ? `Seeds Instagram: ${r.created?.length || 0} criados (inativos). Edite e ative.`
+          : 'Seeds Instagram já instalados (nada novo).',
+      )
+      await load()
+    } catch (e: any) {
+      showToast(e?.message || 'Falha ao instalar seeds', 'err')
+    } finally {
+      setSeeding(false)
+    }
+  }
 
   async function handleSave(input: AutomacaoInput) {
     setSaving(true)
@@ -95,12 +124,24 @@ export function AutomationDefinitionsHub() {
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-bold text-gray-900">Minhas automações</h2>
-          <p className="text-[12px] text-gray-500">Cada automação tem gatilho, pipeline e limites próprios</p>
+          <h2 className="text-lg font-bold text-gray-900">Todas as automações</h2>
+          <p className="text-[12px] text-gray-500">
+            Gestão central: Instagram, WhatsApp, e-mail, leads e agendadas — cada uma com gatilho, pipeline e ativador.
+          </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap justify-end">
           <button type="button" onClick={() => void load()} className="p-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-gray-600">
             <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleSeedInstagram()}
+            disabled={seeding}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-gray-200 bg-white text-gray-700 text-sm font-semibold hover:bg-gray-50 disabled:opacity-60"
+            title="Instala modelos de resposta IG inativos para editar e ativar"
+          >
+            {seeding ? <Loader2 size={16} className="animate-spin" /> : <Zap size={16} />}
+            Modelos Instagram
           </button>
           <button
             type="button"
@@ -110,6 +151,12 @@ export function AutomationDefinitionsHub() {
             <Plus size={16} /> Nova automação
           </button>
         </div>
+      </div>
+
+      <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-[12px] text-gray-700">
+        <strong>Esta é a página de gestão.</strong> Automações com Instagram também aparecem em
+        Instagram → Automações IG (apenas espelho). Ativar/desativar e editar acontece aqui.
+        Modelos Instagram instalam templates <em>inativos</em> (DM, comentário, menção) para você editar e ligar.
       </div>
 
       {kpis && (

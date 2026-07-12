@@ -99,7 +99,7 @@ export function MasterProviders() {
     <>
       <MasterPageHeader
         title="Providers IA"
-        subtitle="Chaves globais da plataforma — fallback para todos os clientes sem provider próprio."
+        subtitle="Chaves globais (credenciais). Qual modelo cada ação usa fica em Algoritmos."
       />
 
       {error && (

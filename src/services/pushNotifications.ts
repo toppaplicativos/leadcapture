@@ -618,9 +618,20 @@ export class PushNotificationService {
       const soundKey = policy?.sound_key || sub.preferences_json.sounds.default || "default"
       const eventSoundPref = sub.preferences_json.sound_events?.[input.eventKey]
       const playSound = sub.sound_enabled && eventSoundPref !== false
+      const publicBase =
+        String(process.env.PUBLIC_APP_URL || process.env.APP_URL || "https://app.leadcapture.online")
+          .replace(/\/$/, "")
+      const iconUrl =
+        (input.metadata && (input.metadata.icon || input.metadata.logo)) ||
+        `${publicBase}/brand-mark.png`
+      const badgeUrl =
+        (input.metadata && input.metadata.badge) || `${publicBase}/brand-mark.png`
+
       const payload = JSON.stringify({
         title: input.title,
         body: input.body,
+        icon: iconUrl,
+        badge: badgeUrl,
         tag: `${input.eventKey}:${input.notificationId || randomUUID().slice(0, 8)}`,
         requireInteraction: priority === "critical",
         data: {
@@ -630,6 +641,8 @@ export class PushNotificationService {
           notification_id: input.notificationId,
           sound: playSound ? soundKey : null,
           vibrate: sub.preferences_json.vibrate_enabled ? [200, 100, 200] : null,
+          icon: iconUrl,
+          badge: badgeUrl,
           ...input.metadata,
         },
       })

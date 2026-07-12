@@ -439,7 +439,7 @@ export function PanfleteiroMapMapbox({
           amber quando buscando, cinza so se 'idle' (panfleteiro off / sem state). */}
       {statusBadge && (
         <div
-          className="absolute top-3 left-3 px-3 py-1.5 rounded-full bg-black/75 backdrop-blur-sm text-white text-xs font-bold flex items-center gap-2 border border-white/10"
+          className="panfleteiro-status-badge absolute top-3 left-3 px-3 py-1.5 rounded-full bg-black/75 backdrop-blur-sm text-white text-xs font-bold flex items-center gap-2 border border-white/10"
           style={{ zIndex: 15 }}
         >
           <span className="relative flex w-2.5 h-2.5">

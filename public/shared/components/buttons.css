@@ -23,22 +23,27 @@ button, .btn {
   line-height: 1;
 }
 
-/* ── Primary (brand secondary color) ── */
-.btn-primary {
+/* ── Primary on storefront = brand CTA (white-label).
+   React admin uses components/ui/Button primary = ink #171717. */
+.btn-primary,
+.btn-brand {
   background: var(--brand-secondary);
   color: #fff;
 }
-.btn-primary:hover { opacity: 0.9; }
-.btn-primary:active { transform: scale(0.98); }
-.btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+.btn-primary:hover,
+.btn-brand:hover { opacity: 0.9; }
+.btn-primary:active,
+.btn-brand:active { transform: scale(0.98); }
+.btn-primary:disabled,
+.btn-brand:disabled { opacity: 0.45; cursor: not-allowed; }
 
 /* ── Secondary ── */
 .btn-secondary {
-  background: #f3f4f6;
-  color: var(--color-text);
+  background: #f3f3f3;
+  color: #404040;
   border: 1px solid var(--color-border);
 }
-.btn-secondary:hover { background: var(--color-border); }
+.btn-secondary:hover { background: #e5e5e5; }
 
 /* ── Status variants ── */
 .btn-success { background: var(--color-success); color: #fff; }

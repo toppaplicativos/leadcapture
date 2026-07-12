@@ -199,6 +199,24 @@ export const SKILLS: Record<string, SkillDefinition> = {
     permissions: [],
     ui: [],
   },
+  "settings.open": {
+    id: "settings.open",
+    name: "Configurações",
+    description: "Marcas da conta, WhatsApp e tipos de cliente. Estilo visual fica no Studio da Loja.",
+    squad: "dashboard",
+    intents: ["configurações", "configuracoes", "config", "marcas", "brands", "configurações da conta"],
+    permissions: [],
+    ui: ["nav_suggestions"],
+  },
+  "design.edit": {
+    id: "design.edit",
+    name: "Studio da Loja",
+    description: "Edita cores, logo, capa e vitrine da loja no canvas.",
+    squad: "catalog",
+    intents: ["loja", "studio da loja", "editar loja", "design da loja", "cores da marca", "estilo da loja"],
+    permissions: ["catalog.write"],
+    ui: ["nav_suggestions"],
+  },
   "order.assisted": {
     id: "order.assisted",
     name: "Pedido assistido",
@@ -220,16 +238,16 @@ export const SKILLS: Record<string, SkillDefinition> = {
   "automation.open": {
     id: "automation.open",
     name: "Automações",
-    description: "Resumo de fluxos reativos e proativos WhatsApp.",
+    description: "Hub de gestão de automações (todas as finalidades: IG, WA, agendadas).",
     squad: "automations",
-    intents: ["automações", "automacoes", "fluxos whatsapp", "abrir automações"],
+    intents: ["automações", "automacoes", "abrir automações", "gerenciar automações"],
     permissions: ["automations.read"],
     ui: ["automation_stats", "nav_suggestions"],
   },
   "automation.create": {
     id: "automation.create",
     name: "Criar automação",
-    description: "Gera fluxo a partir de briefing conversacional (ex: pedido completo WhatsApp).",
+    description: "Cria automação no hub /automacoes (gatilho + pipeline).",
     squad: "automations",
     intents: [
       "criar automação",
@@ -495,13 +513,13 @@ export const SQUADS: Record<string, SquadDefinition> = {
     id: "catalog",
     name: "Catálogo",
     description: "Produtos, pedidos e estoque da loja.",
-    skills: ["catalog.products", "catalog.products.table", "catalog.products.create", "catalog.orders", "order.assisted"],
+    skills: ["catalog.products", "catalog.products.table", "catalog.products.create", "catalog.orders", "order.assisted", "design.edit"],
   },
   dashboard: {
     id: "dashboard",
     name: "Painel",
     description: "Visão geral do negócio.",
-    skills: ["dashboard.show", "dashboard.overview"],
+    skills: ["dashboard.show", "dashboard.overview", "settings.open"],
   },
   automations: {
     id: "automations",
@@ -557,10 +575,11 @@ export const NAV_PATHS: Record<string, { path: string; label: string }> = {
   galeria: { path: "/galeria", label: "Galeria" },
   instagram: { path: "/instagram", label: "Instagram" },
   facebook: { path: "/facebook", label: "Facebook" },
-  whatsapp: { path: "/configuracoes?tab=whatsapp", label: "WhatsApp" },
+  whatsapp: { path: "/whatsapp", label: "WhatsApp" },
   automacoes: { path: "/automacoes", label: "Automações" },
   afiliados: { path: "/afiliados", label: "Afiliados" },
   configuracoes: { path: "/configuracoes", label: "Configurações" },
+  loja: { path: "/loja", label: "Studio da Loja" },
 };
 
 export function buildSkillsCatalog(): string {

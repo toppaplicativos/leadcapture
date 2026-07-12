@@ -37,11 +37,9 @@ import {
   type PostType,
   type WhenMode,
 } from '@/lib/instagram/createForm'
-import { instagramApi, fmtIgMetric } from '@/lib/instagram/pageApi'
+import { instagramApi } from '@/lib/instagram/pageApi'
 
 const api = instagramApi
-const fmtMetric = fmtIgMetric
-
 type Props = {
   profile: any
   analytics?: any
@@ -56,7 +54,6 @@ type Props = {
 
 export function InstagramCreateTab({
   profile,
-  analytics,
   brandId,
   editPostId,
   editToken,
@@ -333,8 +330,8 @@ export function InstagramCreateTab({
   const videoTips = postType === 'REELS' || postType === 'VIDEO'
 
   return (
-    <div className="grid grid-cols-3 gap-5">
-      <div className="col-span-2 space-y-4">
+    <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_20rem] gap-4 xl:gap-5">
+      <div className="min-w-0 space-y-4">
         {isEditing && (
           <div className="ig-create-edit-banner">
             <Pencil size={14} />
@@ -352,30 +349,11 @@ export function InstagramCreateTab({
           </div>
         )}
 
-        {analytics && !isEditing && (
-          <div className="grid grid-cols-4 gap-2">
-            {[
-              { label: 'Seguidores', value: fmtMetric(analytics.profile?.followers_count) },
-              { label: 'Alcance 7d', value: fmtMetric(analytics.account?.reach) },
-              {
-                label: 'Engajamento',
-                value: `${analytics.media_summary?.engagement_rate?.toFixed(1) || '0.0'}%`,
-              },
-              { label: 'Posts', value: fmtMetric(analytics.profile?.media_count) },
-            ].map((s) => (
-              <div key={s.label} className="bg-white border border-gray-100 rounded-lg px-3 py-2">
-                <p className="text-[10px] text-gray-400 uppercase">{s.label}</p>
-                <p className="text-sm font-bold text-gray-900 tabular-nums">{s.value}</p>
-              </div>
-            ))}
-          </div>
-        )}
-
         <div className="bg-white border border-gray-100 rounded-xl p-4">
           <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
             Tipo de Post
           </h3>
-          <div className="grid grid-cols-4 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
             {postTypes.map((pt) => (
               <button
                 key={pt.key}
@@ -383,17 +361,17 @@ export function InstagramCreateTab({
                 onClick={() => handlePostTypeChange(pt.key)}
                 className={`flex flex-col items-center gap-1 p-3 rounded-xl border-2 transition text-center ${
                   postType === pt.key
-                    ? 'border-purple-500 bg-purple-50'
+                    ? 'border-gray-900 bg-gray-50'
                     : 'border-gray-100 hover:border-gray-200'
                 }`}
               >
                 <pt.icon
                   size={18}
-                  className={postType === pt.key ? 'text-purple-500' : 'text-gray-400'}
+                  className={postType === pt.key ? 'text-gray-900' : 'text-gray-400'}
                 />
                 <span
                   className={`text-xs font-semibold ${
-                    postType === pt.key ? 'text-purple-600' : 'text-gray-600'
+                    postType === pt.key ? 'text-gray-900' : 'text-gray-600'
                   }`}
                 >
                   {pt.label}
@@ -413,7 +391,7 @@ export function InstagramCreateTab({
         <div className="bg-white border border-gray-100 rounded-xl p-4">
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
-              Caption
+              Legenda
             </h3>
             <div className="flex items-center gap-2">
               <span className="text-[10px] text-gray-400">{caption.length}/2200</span>
@@ -428,7 +406,7 @@ export function InstagramCreateTab({
                 type="button"
                 onClick={handleGenerateCaption}
                 disabled={generatingCaption}
-                className="px-2 py-1 rounded-lg bg-purple-500 text-white text-[10px] font-semibold hover:bg-purple-600 flex items-center gap-1 disabled:opacity-50"
+                className="min-h-9 px-3 py-1 rounded-xl bg-gray-900 text-white text-[11px] font-semibold hover:bg-gray-800 flex items-center gap-1 disabled:opacity-50"
               >
                 {generatingCaption ? (
                   <Loader2 size={10} className="animate-spin" />
@@ -476,9 +454,9 @@ export function InstagramCreateTab({
         </button>
       </div>
 
-      <div className="bg-white border border-gray-100 rounded-xl p-4 sticky top-4 self-start">
+      <aside className="bg-white border border-gray-100 rounded-xl p-4 xl:sticky xl:top-4 self-start">
         <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
-          Preview
+          Prévia
         </h3>
         <div className="border border-gray-100 rounded-lg overflow-hidden">
           <div className="flex items-center gap-2 p-2 border-b border-gray-100">
@@ -493,7 +471,7 @@ export function InstagramCreateTab({
             ) : (
               <div className="text-center">
                 <Upload size={24} className="mx-auto text-gray-300 mb-1" />
-                <p className="text-[10px] text-gray-400">Selecione uma midia acima</p>
+                <p className="text-[10px] text-gray-400">Selecione uma mídia acima</p>
               </div>
             )}
           </div>
@@ -515,22 +493,22 @@ export function InstagramCreateTab({
               <Sparkles size={10} /> Dicas — Imagem
             </p>
             <ul className="text-[10px] text-gray-500 space-y-0.5">
-              <li>Resolucao: 1080x1080 ou 1080x1350</li>
+              <li>Resolução: 1080x1080 ou 1080x1350</li>
               <li>Formatos: JPG, PNG (convertido automaticamente)</li>
-              <li>Maximo: 8MB por arquivo</li>
+              <li>Máximo: 8MB por arquivo</li>
             </ul>
           </div>
         )}
         {videoTips && (
           <div className="mt-3 p-3 bg-gray-50 rounded-lg">
             <p className="text-[10px] font-semibold text-gray-400 uppercase mb-1 flex items-center gap-1">
-              <Film size={10} /> Dicas — {postType === 'REELS' ? 'Reels' : 'Video'}
+              <Film size={10} /> Dicas — {postType === 'REELS' ? 'Reels' : 'Vídeo'}
             </p>
             <ul className="text-[10px] text-gray-500 space-y-0.5">
               <li>Formato: MP4 ou MOV (H.264 + AAC)</li>
-              <li>Reels: 9:16, ate 90 segundos</li>
-              <li>Video feed: ate 60 segundos, max 100MB</li>
-              <li>URL publica deve ser acessivel pelo Instagram</li>
+              <li>Reels: 9:16, até 90 segundos</li>
+              <li>Vídeo no feed: até 60 segundos, máximo de 100MB</li>
+              <li>A URL pública deve estar acessível para o Instagram</li>
             </ul>
           </div>
         )}
@@ -541,7 +519,7 @@ export function InstagramCreateTab({
               : 'Rascunho — nao publicado'}
           </div>
         )}
-      </div>
+      </aside>
 
       <InstagramCaptionTemplatesModal
         open={templatesOpen}

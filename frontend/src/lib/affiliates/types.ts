@@ -12,6 +12,7 @@ export type AffiliateMaterial = {
   category?: AffiliateMaterialCategory | string
   channel?: AffiliateMaterialChannel | string
   product_id?: string | null
+  program_id?: string | null
   is_published?: boolean
   sort_order?: number
   created_at?: string

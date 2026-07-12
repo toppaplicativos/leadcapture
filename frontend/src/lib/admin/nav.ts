@@ -1,8 +1,9 @@
 import {
-  LayoutDashboard, Users, Megaphone, ShoppingCart,
+  LayoutDashboard, Megaphone, ShoppingCart,
   Package, Palette, Search, Mail, Truck, Globe, Bot, Zap,
   BarChart3, Receipt, Ticket, Star, Sparkles, Film, Images,
   GitBranch, Brain, Headphones, Bell, Settings, Handshake, Store,
+  MessageSquare, ContactRound, UserRound,
 } from 'lucide-react'
 import { FacebookIcon, InstagramIcon, WhatsAppIcon } from '@/components/icons'
 import type { IconComponent } from '@/components/icons'
@@ -63,10 +64,10 @@ export type NavItem = {
 
 export const NAV_ITEMS: NavItem[] = [
   { key: 'dashboard', path: '/admin', icon: LayoutDashboard, label: 'Painel', group: 'main' },
-  { key: 'leads', path: '/leads', icon: Users, label: 'Leads', group: 'main' },
-  { key: 'clientes', path: '/clientes', icon: Users, label: 'Clientes', group: 'main' },
+  { key: 'leads', path: '/leads', icon: UserRound, label: 'Leads', group: 'main' },
+  { key: 'clientes', path: '/clientes', icon: ContactRound, label: 'Clientes', group: 'main' },
   { key: 'busca', path: '/busca', icon: Search, label: 'Busca', group: 'main' },
-  { key: 'mensagens', path: '/mensagens', icon: WhatsAppIcon, label: 'Mensagens', group: 'main' },
+  { key: 'mensagens', path: '/mensagens', icon: MessageSquare, label: 'Mensagens', group: 'main' },
   { key: 'campanhas', path: '/campanhas', icon: Megaphone, label: 'Campanhas', group: 'main' },
   { key: 'automacoes', path: '/automacoes', icon: Zap, label: 'Automações', group: 'main', badge: 'Novo' },
   { key: 'fluxos', path: '/fluxos', icon: GitBranch, label: 'Fluxos', group: 'main' },
@@ -90,7 +91,7 @@ export const NAV_ITEMS: NavItem[] = [
   { key: 'pagamentos', path: '/pagamentos', icon: ShoppingCart, label: 'Pagamentos', group: 'loja' },
   { key: 'frete', path: '/frete', icon: Truck, label: 'Frete', group: 'loja' },
   { key: 'dominio', path: '/dominio', icon: Globe, label: 'Dominio', group: 'loja' },
-  { key: 'whatsapp', path: '/configuracoes?tab=whatsapp', icon: WhatsAppIcon, label: 'WhatsApp', group: 'config' },
+  { key: 'whatsapp', path: '/whatsapp', icon: WhatsAppIcon, label: 'WhatsApp', group: 'config' },
   { key: 'configuracoes', path: '/configuracoes', icon: Settings, label: 'Configurações', group: 'config' },
   { key: 'emails', path: '/emails', icon: Mail, label: 'Emails', group: 'config' },
   { key: 'provedores-ia', path: '/provedores-ia', icon: Sparkles, label: 'Provedores IA', group: 'config' },

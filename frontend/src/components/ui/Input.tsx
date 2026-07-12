@@ -43,9 +43,11 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
           aria-invalid={!!error || undefined}
           aria-describedby={describedBy}
           className={cn(
+            'ds-control',
             'w-full h-11 rounded-xl border bg-white text-sm text-gray-900',
             'placeholder:text-gray-400 transition-[border,box-shadow] duration-150',
             'focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900',
+            'disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed',
             error
               ? 'border-red-300 focus:ring-red-500/10 focus:border-red-500'
               : 'border-border',

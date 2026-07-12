@@ -1,6 +1,34 @@
 /* eslint-disable no-restricted-globals */
-const SHELL_CACHE_NAME = "lead-system-shell-v99-20260709";
-const RUNTIME_CACHE_NAME = "lead-system-runtime-v91-20260709";
+const IS_LOCAL_DEV =
+  self.location.hostname === "localhost" ||
+  self.location.hostname === "127.0.0.1" ||
+  self.location.hostname === "::1";
+
+if (IS_LOCAL_DEV) {
+  self.addEventListener("install", (event) => {
+    event.waitUntil(self.skipWaiting());
+  });
+
+  self.addEventListener("activate", (event) => {
+    event.waitUntil(
+      Promise.all([
+        self.registration.unregister(),
+        caches.keys().then((cacheNames) =>
+          Promise.all(
+            cacheNames
+              .filter((cacheName) => cacheName.startsWith("lead-system-"))
+              .map((cacheName) => caches.delete(cacheName))
+          )
+        ),
+        self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) =>
+          Promise.all(clients.map((client) => client.navigate(client.url)))
+        )
+      ])
+    );
+  });
+} else {
+const SHELL_CACHE_NAME = "lead-system-shell-v157-20260711";
+const RUNTIME_CACHE_NAME = "lead-system-runtime-v148-20260711";
 
 function getBasePath() {
   try {
@@ -54,25 +82,30 @@ self.addEventListener("install", (event) => {
 });
 
 // Ativacao do Service Worker
+//
+// PWA stability note (Bug-5 fix): we KEEP old runtime caches alive even when
+// the shell cache name bumps. Reason: Vite generates hashed chunk filenames
+// like AdminDashboard-{hash}.js. When a tab is open with an old bundle and we
+// purge the old runtime cache, that tab's React.lazy() calls fail with 404 →
+// blank screen. The frontend has a ChunkLoadError handler that triggers a
+// reload, but we also keep up to 2 runtime caches around so the transition
+// is smooth even before the reload fires.
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     Promise.all([
-      caches.keys().then((cacheNames) =>
-        Promise.all(
-          cacheNames.map((cacheName) => {
-            const isLeadSystemCache =
-              cacheName.startsWith("lead-system-v") ||
-              cacheName.startsWith("lead-system-shell-") ||
-              cacheName.startsWith("lead-system-runtime-");
-
-            if (!isLeadSystemCache) return Promise.resolve();
-            if (cacheName === SHELL_CACHE_NAME || cacheName === RUNTIME_CACHE_NAME) {
-              return Promise.resolve();
-            }
-            return caches.delete(cacheName);
-          })
-        )
-      ),
+      caches.keys().then((cacheNames) => {
+        /* Keep only the active shell + active runtime + the SINGLE most recent old runtime.
+         * Older shells get cleaned, but old runtime caches can serve hash-stamped chunks
+         * for already-open tabs while they're still alive. */
+        const shellCaches = cacheNames.filter((n) => n.startsWith("lead-system-shell-") && n !== SHELL_CACHE_NAME);
+        const runtimeCaches = cacheNames
+          .filter((n) => n.startsWith("lead-system-runtime-") && n !== RUNTIME_CACHE_NAME)
+          .sort()
+          .reverse(); // most recent old first
+        /* Delete: all old shells (we always have shellCacheKey as the latest) + runtime older than the most recent old */
+        const toDelete = [...shellCaches, ...runtimeCaches.slice(1)];
+        return Promise.all(toDelete.map((cacheName) => caches.delete(cacheName)));
+      }),
       self.registration.navigationPreload
         ? self.registration.navigationPreload.enable().catch(() => Promise.resolve())
         : Promise.resolve(),
@@ -168,10 +201,21 @@ self.addEventListener("push", (event) => {
   const priority = meta.priority || "normal";
   const hasSound = !!meta.sound;
 
+  /* Official monochrome BrandMark — never legacy colorful logo.png */
+  const officialIcon =
+    data.icon ||
+    meta.icon ||
+    `${self.location.origin}/brand-mark.png`;
+  const officialBadge =
+    data.badge ||
+    meta.badge ||
+    `${self.location.origin}/brand-mark.png`;
+
   const options = {
     body: data.body || "Nova notificacao",
-    icon: toScopedPath("logo.png"),
-    badge: toScopedPath("logo.png"),
+    icon: officialIcon,
+    badge: officialBadge,
+    image: data.image || meta.image || undefined,
     tag: data.tag || "lead-system",
     requireInteraction: data.requireInteraction || priority === "critical",
     silent: !hasSound,
@@ -307,4 +351,4 @@ async function markMessageAsSent(db, messageId) {
     request.onsuccess = () => resolve(null);
   });
 }
-
+}

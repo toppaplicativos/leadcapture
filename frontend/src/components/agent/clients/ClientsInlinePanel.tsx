@@ -149,6 +149,15 @@ export function ClientsInlinePanel() {
   const clientsRef = useRef<any[]>([])
   const loadedRef = useRef(false)
 
+  useEffect(() => {
+    if (!detailClient) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setDetailClient(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [detailClient])
+
   const load = useCallback(async (opts?: { q?: string; status?: string }) => {
     setLoading(true)
     try {
@@ -322,7 +331,12 @@ export function ClientsInlinePanel() {
       )}
 
       {detailClient && (
-        <div className="catalog-client-detail" role="dialog">
+        <div
+          className="catalog-client-detail"
+          role="dialog"
+          aria-modal="true"
+          aria-label={detailClient.name || 'Detalhe do cliente'}
+        >
           <div className="catalog-client-detail__head">
             <h3 className="catalog-client-detail__title">{detailClient.name || 'Cliente'}</h3>
             <button type="button" className="catalog-client-detail__close" onClick={() => setDetailClient(null)} aria-label="Fechar">×</button>

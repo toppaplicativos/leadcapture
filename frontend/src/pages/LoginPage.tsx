@@ -33,6 +33,24 @@ export function LoginPage() {
     return '/admin'
   }
 
+  /* Master impersonation: /login?impersonate=1#token=JWT */
+  useEffect(() => {
+    if (searchParams.get('impersonate') !== '1') return
+    const hash = typeof window !== 'undefined' ? window.location.hash || '' : ''
+    const m = hash.match(/token=([^&]+)/)
+    if (!m?.[1]) return
+    try {
+      const tok = decodeURIComponent(m[1])
+      localStorage.setItem('lead-system-token', tok)
+      sessionStorage.setItem('lead-system:impersonation', '1')
+      window.history.replaceState(null, '', window.location.pathname)
+      navigate('/admin', { replace: true })
+    } catch {
+      /* ignore */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const token = localStorage.getItem('lead-system-token')
   useEffect(() => {
     if (!token) return

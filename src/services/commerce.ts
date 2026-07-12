@@ -831,6 +831,29 @@ export class CommerceService {
       origem: input.origem || "whatsapp",
     });
 
+    /* Transactional e-mails: seller + buyer (fire-and-forget) */
+    try {
+      const { emailTriggers } = await import("./emailTriggers");
+      const itemsSummary = itensResolved
+        .map((it) => `${it.quantidade}× ${it.nome}`)
+        .join(", ")
+        .slice(0, 180);
+      emailTriggers.orderCreated({
+        userId,
+        brandId: normalizedBrandId,
+        order_id: orderId,
+        total: valorTotal,
+        customer_name: input.customer_name,
+        customer_email: input.customer_email,
+        customer_phone: input.customer_phone,
+        items_summary: itemsSummary,
+        checkout_url: checkoutUrl,
+        status: "aguardando_pagamento",
+      });
+    } catch {
+      /* never block order creation on email */
+    }
+
     /* Fase 12 — reserve stock atomically. Pre-check above already validated availability;
      * this just performs the FOR UPDATE locked decrement + writes a stock_movement per item.
      * If a race-condition concurrent order managed to slip through between the check and here,
@@ -926,6 +949,25 @@ export class CommerceService {
       payment_method: paymentMethod,
       data_pagamento: paidAt,
     });
+
+    if (status === "pago" && found.order.status_pedido !== "pago") {
+      try {
+        const { emailTriggers } = await import("./emailTriggers");
+        emailTriggers.orderPaid({
+          userId,
+          brandId,
+          order_id: orderId,
+          total: Number(found.order.valor_total || 0),
+          customer_name: found.order.customer_name,
+          customer_email: found.order.customer_email,
+          tracking_url: found.order.payment_link || found.order.checkout_token
+            ? String(found.order.payment_link || "")
+            : undefined,
+        });
+      } catch {
+        /* non-blocking */
+      }
+    }
 
     /* Fase 12 — release stock when an order goes to cancelado/abandonado/estornado.
      * Idempotent: checks if we already released for this order to avoid double-release. */

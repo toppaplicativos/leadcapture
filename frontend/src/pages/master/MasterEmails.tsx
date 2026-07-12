@@ -29,12 +29,39 @@ interface EmailTpl {
 }
 
 const SLUG_LABEL: Record<string, string> = {
-  welcome: 'Boas-vindas após cadastro',
+  'welcome-owner': 'Boas-vindas — dono da organização',
+  welcome: 'Boas-vindas (legado)',
+  'welcome-team': 'Boas-vindas — equipe',
   'payment-failed': 'Falha no pagamento',
   'subscription-canceled': 'Assinatura cancelada',
   'password-reset': 'Redefinir senha',
   'trial-ending': 'Trial terminando',
   'invoice-paid': 'Recibo de pagamento',
+  'security-alert': 'Alerta de segurança',
+  'welcome-customer': 'Boas-vindas cliente',
+  'welcome-customer-retail': 'Boas-vindas varejo',
+  'welcome-customer-b2b': 'Boas-vindas B2B',
+  'welcome-customer-service': 'Boas-vindas serviços',
+  'welcome-affiliate': 'Boas-vindas afiliado',
+  'affiliate-approved': 'Afiliado aprovado',
+  'affiliate-commission': 'Comissão de afiliado',
+  'order-confirmed-buyer': 'Pedido — comprador',
+  'order-received-seller': 'Pedido — loja',
+  'order-paid-buyer': 'Pagamento confirmado',
+  'order-shipped-buyer': 'Pedido enviado',
+  'order-delivered-buyer': 'Pedido entregue',
+  'order-canceled-buyer': 'Cancelamento — comprador',
+  'order-canceled-seller': 'Cancelamento — loja',
+  'payment-pending-buyer': 'Pagamento pendente',
+  'cart-abandoned': 'Carrinho abandonado',
+  'followup-lead': 'Follow-up de lead',
+  'review-request': 'Pedido de avaliação',
+  aniversario: 'Aniversário',
+  'recuperacao-cliente': 'Recuperação de cliente',
+  'lembrete-agendamento': 'Lembrete de agendamento',
+  'novo-produto': 'Novo produto',
+  'agradecimento-pedido': 'Agradecimento (legado)',
+  'abandono-carrinho': 'Abandono carrinho (legado)',
 }
 
 export function MasterEmails() {
@@ -81,7 +108,7 @@ export function MasterEmails() {
     <>
       <MasterPageHeader
         title="Emails transacionais"
-        subtitle="Templates do sistema usados pelo LeadCapture: cadastro, cobrança, recuperação de senha. Edite o assunto e o HTML."
+        subtitle="Catálogo com design system — onboarding, billing, pedidos, afiliados e recuperação. Envios já conectados aos eventos."
         action={
           <button
             onClick={() => setShowLogs(true)}

@@ -1,11 +1,23 @@
-import { Router, Response } from "express";
+import { Router, Response, NextFunction } from "express";
 import { AuthRequest } from "../middleware/auth";
 import { BrandUnitsService } from "../services/brandUnits";
 import { memoryEngine, LeadContextMemory } from "../services/memoryEngine";
 import { getPool } from "../config/database";
+import { requirePermission } from "../middleware/permissions";
 
 const router = Router();
 const brandUnitsService = new BrandUnitsService();
+
+router.use((req: AuthRequest, res: Response, next: NextFunction) => {
+  const method = String(req.method || "GET").toUpperCase();
+  const perm =
+    method === "GET" || method === "HEAD"
+      ? "leads:read"
+      : method === "DELETE"
+        ? "leads:delete"
+        : "leads:write";
+  return requirePermission(perm)(req, res, next);
+});
 
 function getAuthenticatedUserId(req: AuthRequest): string | null {
   const userId = String(req.user?.userId || req.userId || req.user?.id || "").trim();

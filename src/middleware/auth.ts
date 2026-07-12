@@ -59,18 +59,32 @@ export function authenticateToken(
 export const authMiddleware = authenticateToken;
 
 /**
- * Middleware para verificar role do usuário
+ * Middleware para verificar role do usuário.
+ * Expande admin↔org (legado: dono de organização era "admin").
+ * Admin Master (is_super_admin) sempre passa em rotas de org.
  */
 export function requireRole(roles: string[]) {
   return (req: AuthRequest, res: Response, next: NextFunction) => {
-    const userRole = req.user?.role || 'user';
-    
-    if (!roles.includes(userRole)) {
-      res.status(403).json({ error: 'Acesso negado' });
+    // Lazy import avoided for sync path — expand inline
+    const allowed = new Set(roles.map((r) => String(r).toLowerCase()));
+    if (allowed.has("admin") || allowed.has("org")) {
+      allowed.add("admin");
+      allowed.add("org");
+    }
+
+    const userRole = String(req.user?.role || "user").toLowerCase();
+    const isSuper = req.user?.is_super_admin === true;
+
+    if (isSuper || allowed.has(userRole)) {
+      next();
       return;
     }
-    
-    next();
+
+    res.status(403).json({
+      error: "Acesso negado",
+      code: "ROLE_FORBIDDEN",
+      required: Array.from(allowed),
+    });
   };
 }
 

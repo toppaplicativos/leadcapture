@@ -2,7 +2,18 @@ import {
   createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode,
 } from 'react'
 
-export type AffiliatesTabKey = 'overview' | 'distribution' | 'programs' | 'partners' | 'commissions' | 'payouts' | 'materials' | 'learning' | 'products' | 'settings'
+/** `settings` é legado — redireciona para Programas (config fica dentro de cada programa). */
+export type AffiliatesTabKey =
+  | 'overview'
+  | 'distribution'
+  | 'programs'
+  | 'partners'
+  | 'commissions'
+  | 'payouts'
+  | 'materials'
+  | 'learning'
+  | 'products'
+  | 'settings'
 
 export type AffiliatesSnapshot = {
   enabled: boolean

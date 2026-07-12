@@ -71,6 +71,35 @@ router.post("/:code", async (req: Request, res: Response) => {
     const storeSlug = String(affiliate.store_slug || affiliate.brand_slug || "alhopronto").trim();
     const coupon = String(affiliate.coupon_code || "").trim();
 
+    const contact = await affiliatesService.resolvePublicWhatsAppContact({
+      id: String(affiliate.id),
+      affiliate_user_id: affiliate.affiliate_user_id,
+      phone: affiliate.phone,
+      social_whatsapp: affiliate.social_whatsapp,
+      brand_id: affiliate.brand_id,
+      owner_user_id: affiliate.owner_user_id,
+    });
+
+    // Fallback final: WhatsApp da loja (studio / brand_units.whatsapp_phone)
+    let storeWhatsapp: string | null = null;
+    try {
+      const brandRow = await queryOne<{ whatsapp_phone: string | null }>(
+        `SELECT whatsapp_phone FROM brand_units WHERE id = ? LIMIT 1`,
+        [String(affiliate.brand_id)]
+      );
+      const digits = String(brandRow?.whatsapp_phone || "").replace(/\D/g, "");
+      storeWhatsapp = digits.length >= 10 ? digits : null;
+    } catch {
+      storeWhatsapp = null;
+    }
+
+    const whatsappPhone = contact.phone || storeWhatsapp || null;
+    const whatsappSource = contact.phone
+      ? contact.source
+      : storeWhatsapp
+        ? "store"
+        : null;
+
     res.json({
       success: true,
       affiliate_id: affiliate.id,
@@ -79,10 +108,65 @@ router.post("/:code", async (req: Request, res: Response) => {
       coupon_code: coupon,
       cookie_days: config.cookie_days,
       store_slug: storeSlug,
+      whatsapp_phone: whatsappPhone,
+      whatsapp_source: whatsappSource,
+      whatsapp_instance_id: contact.instance_id || null,
       redirect_url: `/catalogo/${encodeURIComponent(storeSlug)}?ref=${encodeURIComponent(code)}${coupon ? `&cupom=${encodeURIComponent(coupon)}` : ""}`,
     });
   } catch (e: any) {
     res.status(500).json({ error: e.message || "Falha ao processar link" });
+  }
+});
+
+/** GET — só resolve contato WhatsApp do afiliado (sem recontar clique). */
+router.get("/:code/whatsapp", async (req: Request, res: Response) => {
+  try {
+    const code = String(req.params.code || "").trim();
+    if (!code) return res.status(400).json({ error: "Código inválido" });
+
+    await affiliatesService.ensureSchema();
+
+    const affiliate = await queryOne<any>(
+      `SELECT a.*
+       FROM affiliates a
+       WHERE LOWER(a.code) = LOWER(?) AND a.status = 'active'
+       LIMIT 1`,
+      [code]
+    );
+    if (!affiliate) return res.status(404).json({ error: "Afiliado não encontrado" });
+
+    const contact = await affiliatesService.resolvePublicWhatsAppContact({
+      id: String(affiliate.id),
+      affiliate_user_id: affiliate.affiliate_user_id,
+      phone: affiliate.phone,
+      social_whatsapp: affiliate.social_whatsapp,
+      brand_id: affiliate.brand_id,
+      owner_user_id: affiliate.owner_user_id,
+    });
+
+    let storeWhatsapp: string | null = null;
+    try {
+      const brandRow = await queryOne<{ whatsapp_phone: string | null }>(
+        `SELECT whatsapp_phone FROM brand_units WHERE id = ? LIMIT 1`,
+        [String(affiliate.brand_id)]
+      );
+      const digits = String(brandRow?.whatsapp_phone || "").replace(/\D/g, "");
+      storeWhatsapp = digits.length >= 10 ? digits : null;
+    } catch {
+      storeWhatsapp = null;
+    }
+
+    const whatsappPhone = contact.phone || storeWhatsapp || null;
+    res.json({
+      success: true,
+      affiliate_id: affiliate.id,
+      code: affiliate.code,
+      whatsapp_phone: whatsappPhone,
+      whatsapp_source: contact.phone ? contact.source : storeWhatsapp ? "store" : null,
+      whatsapp_instance_id: contact.instance_id || null,
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Falha ao resolver WhatsApp" });
   }
 });
 

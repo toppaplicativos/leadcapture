@@ -64,6 +64,12 @@ if (-not (Test-Path "$Root\dist\index.js")) {
   Write-Host "ABORT: dist\index.js nao encontrado apos build backend"
   exit 1
 }
+Write-Host ">> Write build-meta (git sha + build time)"
+node "$PSScriptRoot\write-build-meta.mjs"
+if ($LASTEXITCODE -ne 0) {
+  Write-Host "ABORT: write-build-meta falhou"
+  exit $LASTEXITCODE
+}
 Write-Host "OK    backend build"
 
 Write-Host ">> Build frontend"

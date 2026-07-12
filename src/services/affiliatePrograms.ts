@@ -497,6 +497,10 @@ export class AffiliateProgramsService {
     return program;
   }
 
+  private stepIsRequired(step: any): boolean {
+    return Number(step?.is_required) === 1 || step?.is_required === true;
+  }
+
   private async ensureLegacyEnrollment(
     programId: string,
     affiliate: any,
@@ -509,23 +513,55 @@ export class AffiliateProgramsService {
     );
     if (existing) return existing;
 
-    const id = randomUUID();
-    await query(
-      `INSERT INTO affiliate_program_enrollments
-       (id, program_id, owner_user_id, brand_id, affiliate_id, affiliate_user_id,
-        status, enrollment_code, coupon_code, resources_unlocked_at, approved_at, onboarding_completed_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, NOW(), NOW(), NOW())`,
-      [
-        id,
-        programId,
-        ownerUserId,
-        brandId,
-        affiliate.id,
-        affiliate.affiliate_user_id,
-        affiliate.code,
-        affiliate.coupon_code,
-      ]
+    // Novos vínculos: se o programa tem termos/políticas obrigatórios, entra em onboarding.
+    // Antes: sempre 'active' e o aceite de termos falhava com "já concluído".
+    const steps = await query<any[]>(
+      `SELECT * FROM affiliate_program_steps WHERE program_id = ? ORDER BY sort_order ASC`,
+      [programId]
     );
+    const requiredSteps = (steps || []).filter(
+      (s) => this.stepIsRequired(s) && s.step_type !== "resource_unlock",
+    );
+    const firstStep = (steps || []).find((s) => s.step_type !== "resource_unlock") || steps?.[0];
+    const instantActive = requiredSteps.length === 0;
+
+    const id = randomUUID();
+    if (instantActive) {
+      await query(
+        `INSERT INTO affiliate_program_enrollments
+         (id, program_id, owner_user_id, brand_id, affiliate_id, affiliate_user_id,
+          status, enrollment_code, coupon_code, resources_unlocked_at, approved_at, onboarding_completed_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, NOW(), NOW(), NOW())`,
+        [
+          id,
+          programId,
+          ownerUserId,
+          brandId,
+          affiliate.id,
+          affiliate.affiliate_user_id,
+          affiliate.code,
+          affiliate.coupon_code,
+        ],
+      );
+    } else {
+      await query(
+        `INSERT INTO affiliate_program_enrollments
+         (id, program_id, owner_user_id, brand_id, affiliate_id, affiliate_user_id,
+          status, enrollment_code, coupon_code, current_step_id, approved_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'onboarding', ?, ?, ?, NOW())`,
+        [
+          id,
+          programId,
+          ownerUserId,
+          brandId,
+          affiliate.id,
+          affiliate.affiliate_user_id,
+          affiliate.code,
+          affiliate.coupon_code,
+          firstStep?.id || null,
+        ],
+      );
+    }
     return queryOne<any>(`SELECT * FROM affiliate_program_enrollments WHERE id = ? LIMIT 1`, [id]);
   }
 
@@ -1044,7 +1080,12 @@ export class AffiliateProgramsService {
     const firstStep = (steps || []).find((s) => s.step_type !== "resource_unlock") || steps?.[0];
 
     const enrollmentId = randomUUID();
-    const instantActive = !!program.is_default;
+    // Sempre passa por onboarding se houver etapas obrigatórias (termos, políticas, etc.).
+    // Antes: is_default pulava onboarding e gerava "já concluído" no aceite de termos.
+    const requiredSteps = (steps || []).filter(
+      (s) => this.stepIsRequired(s) && s.step_type !== "resource_unlock",
+    );
+    const instantActive = requiredSteps.length === 0;
 
     await query(
       `INSERT INTO affiliate_program_enrollments
@@ -1202,7 +1243,13 @@ export class AffiliateProgramsService {
           !application &&
           !enrollment &&
           participation_status === "not_applied",
-        can_continue: enrollment?.status === "onboarding",
+        // onboarding explícito OU active legado sem progresso de termos
+        can_continue:
+          enrollment?.status === "onboarding"
+          || (
+            enrollment?.status === "active"
+            && !enrollment?.onboarding_completed_at
+          ),
         resources_unlocked: !!enrollment?.resources_unlocked_at,
       };
     });
@@ -1416,10 +1463,12 @@ export class AffiliateProgramsService {
     if (idx <= 0) return false;
     for (let i = 0; i < idx; i++) {
       const prev = ordered[i];
-      if (!prev.is_required) continue;
+      if (!this.stepIsRequired(prev)) continue;
       const prog = progressMap.get(`step:${prev.id}`);
       if (prog?.status !== "completed") return true;
-      const prevTrainings = (trainings || []).filter((t) => t.step_id === prev.id && t.is_required);
+      const prevTrainings = (trainings || []).filter(
+        (t) => t.step_id === prev.id && this.stepIsRequired(t),
+      );
       for (const tr of prevTrainings) {
         if (progressMap.get(`training:${tr.id}`)?.status !== "completed") return true;
       }
@@ -1440,7 +1489,9 @@ export class AffiliateProgramsService {
       [input.enrollmentId, input.affiliateUserId]
     );
     if (!enrollment) throw new Error("Inscrição não encontrada");
-    if (enrollment.status !== "onboarding") throw new Error("Onboarding já concluído ou inscrição inativa");
+    if (enrollment.status === "suspended" || enrollment.status === "revoked") {
+      throw new Error("Inscrição inativa ou suspensa");
+    }
 
     const steps = await query<any[]>(
       `SELECT * FROM affiliate_program_steps WHERE program_id = ? ORDER BY sort_order ASC`,
@@ -1453,6 +1504,32 @@ export class AffiliateProgramsService {
     const progressMap = new Map(
       (progressRows || []).map((p) => [`${p.item_type}:${p.item_id}`, p])
     );
+
+    const requiredIncomplete = (steps || []).some((s) => {
+      if (!this.stepIsRequired(s) || s.step_type === "resource_unlock") return false;
+      return progressMap.get(`step:${s.id}`)?.status !== "completed";
+    });
+
+    // active/completed cedo demais (legado is_default / ensureLegacyEnrollment): reabre se faltar termo
+    if (enrollment.status === "onboarding") {
+      // ok — fluxo normal
+    } else if (
+      (enrollment.status === "active" || enrollment.status === "completed")
+      && requiredIncomplete
+    ) {
+      await query(
+        `UPDATE affiliate_program_enrollments
+         SET status = 'onboarding',
+             onboarding_completed_at = NULL,
+             resources_unlocked_at = NULL,
+             updated_at = NOW()
+         WHERE id = ?`,
+        [input.enrollmentId],
+      );
+      enrollment.status = "onboarding";
+    } else if (enrollment.status !== "onboarding") {
+      throw new Error("Onboarding já concluído ou inscrição inativa");
+    }
 
     if (input.itemType === "step") {
       const step = (steps || []).find((s) => s.id === input.itemId);
@@ -1525,7 +1602,7 @@ export class AffiliateProgramsService {
 
     const ordered = [...steps].sort((a, b) => Number(a.sort_order) - Number(b.sort_order));
     const nextStep = ordered.find(
-      (s) => s.is_required && !completedStepIds.has(s.id) && s.step_type !== "resource_unlock"
+      (s) => this.stepIsRequired(s) && !completedStepIds.has(s.id) && s.step_type !== "resource_unlock"
     );
 
     if (nextStep) {

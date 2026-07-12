@@ -2236,28 +2236,22 @@ function FilterPopover({
       </button>
       {open && (
         <div
-          className="absolute top-full left-0 mt-1 z-30 w-64 rounded-xl overflow-hidden"
-          style={{
-            animation: 'popover-enter 140ms cubic-bezier(0.16, 1, 0.3, 1)',
-            backgroundColor: '#ffffff',
-            border: '1px solid #e5e7eb',
-            boxShadow: '0 10px 30px -8px rgba(0,0,0,0.18), 0 2px 6px rgba(0,0,0,0.06)',
-          }}
+          className="ds-menu absolute top-full left-0 mt-1 z-[50] w-64"
+          style={{ animation: 'popover-enter 140ms cubic-bezier(0.16, 1, 0.3, 1)' }}
         >
           {searchable && options.length > 5 && (
-            <div className="p-2 border-b border-gray-100 bg-white">
+            <div className="p-2 border-b border-border-light bg-white">
               <input
                 type="text"
                 placeholder="Filtrar…"
                 value={query}
                 onChange={e => setQuery(e.target.value)}
                 autoFocus
-                style={{ color: '#111827' }}
-                className="w-full h-7 px-2 rounded-md bg-gray-50 border-0 text-[12px] placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-gray-300"
+                className="w-full h-8 px-2.5 rounded-lg bg-gray-50 border border-border-light text-[12px] text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900"
               />
             </div>
           )}
-          <div className="max-h-64 overflow-y-auto py-1 bg-white">
+          <div className="max-h-64 overflow-y-auto p-1 bg-white">
             {filtered.length === 0 ? (
               <p className="px-3 py-4 text-[11px] text-gray-500 text-center">
                 {emptyMessage || (query ? 'Nada encontrado' : 'Sem opções')}
@@ -2273,10 +2267,7 @@ function FilterPopover({
                       onToggle(opt.value)
                       if (single) setOpen(false)
                     }}
-                    style={{ color: isSel ? '#111827' : '#374151' }}
-                    className={`w-full flex items-center justify-between gap-2 px-3 py-1.5 text-[12px] font-medium transition ${
-                      isSel ? 'bg-gray-100' : 'bg-white hover:bg-gray-50'
-                    }`}
+                    className={`ds-menu__item justify-between gap-2 ${isSel ? 'is-active' : ''}`}
                   >
                     <span className="flex items-center gap-2 min-w-0">
                       <span className={`w-3.5 h-3.5 rounded grid place-items-center shrink-0 ${
@@ -2284,10 +2275,10 @@ function FilterPopover({
                       }`}>
                         {isSel && <Check size={9} strokeWidth={3} className="text-white" />}
                       </span>
-                      <span className="truncate" style={{ color: 'inherit' }}>{opt.label}</span>
+                      <span className="truncate text-gray-900">{opt.label}</span>
                     </span>
                     {opt.count !== undefined && (
-                      <span className="text-[10.5px] text-gray-400 tabular-nums shrink-0">{opt.count.toLocaleString('pt-BR')}</span>
+                      <span className="text-[10.5px] text-gray-500 tabular-nums shrink-0">{opt.count.toLocaleString('pt-BR')}</span>
                     )}
                   </button>
                 )

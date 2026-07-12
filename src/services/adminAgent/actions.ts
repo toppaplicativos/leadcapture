@@ -358,7 +358,7 @@ export async function generateProductDraftFromBrief(
     const result = await aiRouter.generateJson<ProductDraft>(prompt, {
       userId,
       brandId: brandId || undefined,
-    }, { temperature: 0.55 });
+    }, { temperature: 0.55, functionKey: "text.admin.product_draft" });
     return {
       name: String(result?.name || name).trim() || name,
       description: String(result?.description || brief || fallback.description).trim(),

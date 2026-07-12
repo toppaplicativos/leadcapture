@@ -186,9 +186,24 @@ Sistema **híbrido**: camadas tonais (canvas → surface → border) + sombras m
 - **Hover / Focus:** `focus-visible:ring-2 ring-offset-2`; hover escurece 1 step; `active:scale-[0.98]`
 - **Legado (migrar):** Gradientes `from-violet-500 to-purple-600` espalhados em `AdminDashboard`, modais IA — não usar em código novo
 
+### Inputs / Fields
+- **Canonical components:** `components/ui/Input`, `Select`, `Textarea` (mesmo vocabulario visual)
+- **Style:** `h-11 rounded-xl border-border bg-white text-sm text-gray-900`
+- **Focus:** `ring-4 ring-gray-900/5 border-gray-900` (ink, não azul)
+- **Error:** `border-red-300 ring-red-500/10` + mensagem `text-xs text-red-600`
+- **Label:** `text-[12px] font-semibold text-gray-700 mb-1.5`
+- **Classes CSS:** `.ds-control`, `.ds-select`, `.ds-textarea` — para markup fora do React
+
+### Selects / Dropdowns
+- **Native select:** fundo `#ffffff`, texto `#171717`, chevron SVG muted, `appearance: none`, padding-right 2.5rem
+- **`<option>` / `<optgroup>`:** sempre `color: #171717` + `background: #ffffff` (hex absolutos) — evita lista branca-no-branco no Windows
+- **Custom menus:** classe `.ds-menu` + `.ds-menu__item` (nunca herdar `text-white` de pais escuros)
+- **Z-index:** `--ds-z-dropdown: 50` (escala semântica dropdown → sticky → overlay → modal → toast)
+
 ### Chips / Badges
-- **Style:** `rounded-full`, 11px semibold, fundos pastel (`emerald-50`, `amber-50`, `red-50`, `blue-50`)
-- **Classes:** `.badge`, `.badge-success`, `.badge-warning`, `.badge-danger`, `.badge-info`
+- **Component:** `components/ui/Badge` (`neutral` | `success` | `warning` | `danger` | `info` | `brand`)
+- **Style:** `rounded-full`, 11px semibold, fundos pastel
+- **Classes legado:** `.badge`, `.badge-success`, `.badge-warning`, `.badge-danger`, `.badge-info`
 
 ### Cards / Containers
 - **Corner Style:** `rounded-2xl` (20px) no componente `Card`; `rounded-xl` (18px) no CSS legado `.card`
@@ -196,20 +211,28 @@ Sistema **híbrido**: camadas tonais (canvas → surface → border) + sombras m
 - **Shadow Strategy:** Sombra card em repouso; elevated no hover se `interactive`
 - **Padding:** `px-5 py-4` no `CardBody`
 
-### Inputs / Fields
-- **Style:** `h-11 rounded-xl border-border bg-white text-sm`
-- **Focus:** `ring-4 ring-gray-900/5 border-gray-900` (UI canônico) ou `ring-blue` (CSS global legado)
-- **Error:** `border-red-300 ring-red-500/10` + mensagem `text-xs text-red-600`
-- **Label:** `text-[12px] font-semibold text-gray-700 mb-1.5`
-
 ### Navigation
-- **Admin sidebar:** Ícone + label, grupos (`main`, `loja`, `config`), item ativo com `bg-blue-50 text-blue-600` (migrar para brand/ink)
+- **Admin sidebar:** Ícone + label, grupos (`main`, `loja`, `config`), item ativo com brand/ink (evitar azul hardcoded em código novo)
 - **Mobile:** Header fixo + sidebar overlay + bottom nav (5 itens: dashboard, leads, busca, mensagens, campanhas)
 - **Safe areas:** `--safe-area-top/bottom` para notch mobile
 
 ### KPI Cards (legado)
-- **Style:** `.kpi-card` — número 24px bold, label 10px uppercase tracking-wide
-- **Nota:** Padrão hero-metric; manter onde já existe, não replicar em telas novas
+- **Primitive:** `KpiCard` em `admin/primitives` — label 11px semibold (não uppercase tracking excessivo), valor `tabular-nums`
+- **CSS legado:** `.kpi-card` — manter onde já existe; não replicar o template hero-metric em telas novas
+
+### Multi-app surface map
+Uma família visual, três canais de entrega:
+
+| Superfície | Tokens | Controles |
+|---|---|---|
+| React app (admin, agent, affiliate, partners, store) | `frontend/src/index.css` `@theme` + `--ds-*` | `components/ui/*` |
+| Master console (dark) | `.master-console` + ink options absolutas | mesmos raios/focus; superfície `#0a0a0a` |
+| HTML legado (catálogo, estoque, inventário) | `public/shared/design-tokens.css` | `public/shared/components/*.css` via `loader.js` |
+| Marca runtime | `--brand-primary` / `--brand-secondary` (JS) | CTAs e seleção only |
+
+**The Shared Family Rule.** Neutros, raios, sombras e focus ink são idênticos entre React e shared CSS. Apps white-label mudam só `--brand-*`, nunca a base do shell.
+
+**The Master Dark Rule.** Shell master usa vidro escuro (`bg-white/[0.03]`); listas nativas de `<option>` continuam ink `#171717` em fundo `#ffffff` para legibilidade no Windows.
 
 ### Landing Signature
 - **Section:** Alternância `bg-white` / `bg-[#0a0a0a]`, max-width `6xl`, padding vertical 64–80px
@@ -219,7 +242,8 @@ Sistema **híbrido**: camadas tonais (canvas → surface → border) + sombras m
 ## Do's and Don'ts
 
 ### Do:
-- **Do** usar `components/ui/Button`, `Input`, `Card` como primitives canônicos em telas novas.
+- **Do** usar `components/ui/Button`, `Input`, `Select`, `Textarea`, `Card`, `Badge` como primitives canônicos em telas novas.
+- **Do** usar cores absolutas (`#171717` / `#ffffff`) em `<option>` e menus flutuantes — não confiar só em utilitários Tailwind para listas nativas.
 - **Do** aplicar cores de marca via `--brand-*` e classes `.bg-brand`, `.text-brand`.
 - **Do** manter touch targets ≥44px (`h-11` em botões e inputs).
 - **Do** usar `tabular-nums` em KPIs, tabelas e valores monetários.

@@ -1,33 +1,34 @@
+/**
+ * Espelho contextual: automações que usam Instagram.
+ * Gestão e criação ficam em /automacoes — esta aba só organiza por canal.
+ */
 import { useCallback, useEffect, useState } from 'react'
 import {
-  Zap, Play, Pause, RefreshCw, Loader2, ChevronDown, ChevronUp,
-  ExternalLink, History, CheckCircle2, AlertCircle, Clock,
+  Zap, Play, Pause, RefreshCw, Loader2, ExternalLink,
 } from 'lucide-react'
+import type { Automacao, AutomacaoInput } from '@/lib/automations/schema'
 import {
-  type InstagramAutomationItem,
-  IG_TYPE_COLORS,
-  IG_TYPE_LABELS,
-  formatRelativeTime,
-  humanizeCron,
-  isInstagramAutomation,
-  successRate,
-} from '@/lib/instagram/automations'
+  fetchAutomationDefinitions,
+  toggleAutomationDefinition,
+  executeAutomationDefinition,
+  updateAutomationDefinition,
+} from '@/lib/automations/definitions-api'
+import { AutomationDetailModal } from '@/components/automations/AutomationDetailModal'
+import { getEventoLabel } from '@/lib/automations/schema'
 
-function getHeaders(): Record<string, string> {
-  const h: Record<string, string> = { 'Content-Type': 'application/json' }
-  const t = localStorage.getItem('lead-system-token')
-  if (t) h.Authorization = `Bearer ${t}`
-  const b = localStorage.getItem('lead-system:active-brand-id')
-  if (b) h['x-brand-id'] = b
-  return h
+function getStatusPill(a: Automacao) {
+  if (a.ativa && a.status === 'live') return { label: 'Ativa', cls: 'bg-emerald-100 text-emerald-700' }
+  if (a.status === 'erro') return { label: 'Erro', cls: 'bg-red-100 text-red-700' }
+  if (a.status === 'pausado' || !a.ativa) return { label: 'Inativa', cls: 'bg-gray-100 text-gray-600' }
+  return { label: a.status, cls: 'bg-amber-100 text-amber-800' }
 }
 
 export function InstagramAutomationsTab() {
-  const [items, setItems] = useState<InstagramAutomationItem[]>([])
+  const [items, setItems] = useState<Automacao[]>([])
   const [loading, setLoading] = useState(true)
-  const [togglingSlug, setTogglingSlug] = useState<string | null>(null)
-  const [runningId, setRunningId] = useState<string | null>(null)
-  const [expandedSlug, setExpandedSlug] = useState<string | null>(null)
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const [detailFor, setDetailFor] = useState<Automacao | null>(null)
+  const [detailSaving, setDetailSaving] = useState(false)
   const [toast, setToast] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
 
   const showToast = useCallback((text: string, kind: 'ok' | 'err' = 'ok') => {
@@ -38,13 +39,10 @@ export function InstagramAutomationsTab() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const r = await fetch('/api/automations', { headers: getHeaders() })
-      const d = await r.json()
-      if (!r.ok) throw new Error(d?.error || `Erro ${r.status}`)
-      const all = Array.isArray(d?.automations) ? d.automations : []
-      setItems(all.filter(isInstagramAutomation))
+      const list = await fetchAutomationDefinitions({ platform: 'instagram' })
+      setItems(list)
     } catch (e: any) {
-      showToast(e?.message || 'Falha ao carregar automacoes', 'err')
+      showToast(e?.message || 'Falha ao carregar', 'err')
     } finally {
       setLoading(false)
     }
@@ -52,81 +50,71 @@ export function InstagramAutomationsTab() {
 
   useEffect(() => { void load() }, [load])
 
-  const handleToggle = async (slug: string) => {
-    setTogglingSlug(slug)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const openId = params.get('open')
+    if (!openId || !items.length) return
+    const found = items.find((x) => x.id === openId)
+    if (found) setDetailFor(found)
+  }, [items])
+
+  const activeCount = items.filter((a) => a.ativa).length
+
+  async function handleDetailSave(input: AutomacaoInput) {
+    if (!detailFor) return
+    setDetailSaving(true)
     try {
-      const r = await fetch(`/api/automations/${encodeURIComponent(slug)}/toggle`, {
-        method: 'POST',
-        headers: getHeaders(),
-      })
-      const d = await r.json()
-      if (!r.ok) throw new Error(d?.error || `Erro ${r.status}`)
-      showToast(d?.automation?.status === 'active' ? 'Automacao ativada' : 'Automacao pausada')
+      const updated = await updateAutomationDefinition(detailFor.id, input)
+      showToast('Salva (mesmo registro da página Automações)')
+      setDetailFor(updated)
       await load()
     } catch (e: any) {
-      showToast(e?.message || 'Falha ao alterar status', 'err')
+      showToast(e?.message || 'Erro ao salvar', 'err')
+      throw e
     } finally {
-      setTogglingSlug(null)
+      setDetailSaving(false)
     }
   }
-
-  const handleRun = async (item: InstagramAutomationItem) => {
-    if (!item.state?.id) {
-      showToast('Ative a automacao antes de executar', 'err')
-      return
-    }
-    setRunningId(item.state.id)
-    try {
-      const r = await fetch(`/api/automations/${item.state.id}/run`, {
-        method: 'POST',
-        headers: getHeaders(),
-      })
-      const d = await r.json()
-      if (d?.run?.status === 'success') showToast('Executada com sucesso')
-      else showToast(d?.run?.errorMessage || 'Falha na execucao', 'err')
-      await load()
-    } catch (e: any) {
-      showToast(e?.message || 'Falha ao executar', 'err')
-    } finally {
-      setRunningId(null)
-    }
-  }
-
-  const activeCount = items.filter((a) => a.state?.status === 'active').length
-  const totalRuns = items.reduce((s, a) => s + Number(a.state?.run_count || 0), 0)
-  const totalSuccesses = items.reduce((s, a) => s + Number(a.state?.success_count || 0), 0)
 
   return (
     <div className="space-y-5">
+      {toast && (
+        <div className={`fixed bottom-4 right-4 z-[90] px-4 py-2 rounded-xl text-sm font-medium shadow-lg ${toast.kind === 'ok' ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'}`}>
+          {toast.text}
+        </div>
+      )}
+
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-base font-bold text-gray-900 flex items-center gap-2">
             <Zap size={18} className="text-purple-500" />
-            Automacoes Instagram
+            Automações que usam Instagram
           </h2>
           <p className="text-xs text-gray-400 mt-0.5">
-            {items.length} automacoes estrategicas — conteudo, engajamento, monitoramento e analise
+            Espelho organizacional — os mesmos registros da página <strong>Automações</strong>.
+            Crie e gerencie o portfólio completo lá.
           </p>
         </div>
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-4 text-xs">
-            <div className="text-center">
-              <p className="text-lg font-bold text-emerald-600">{activeCount}</p>
-              <p className="text-gray-400">Ativas</p>
-            </div>
-            <div className="text-center">
-              <p className="text-lg font-bold text-gray-900">{totalRuns}</p>
-              <p className="text-gray-400">Execucoes</p>
-            </div>
-            <div className="text-center">
-              <p className="text-lg font-bold text-purple-600">{totalSuccesses}</p>
-              <p className="text-gray-400">Sucessos</p>
-            </div>
+        <div className="flex items-center gap-2">
+          <div className="text-center px-2">
+            <p className="text-lg font-bold text-emerald-600">{activeCount}</p>
+            <p className="text-[10px] text-gray-400">Ativas</p>
           </div>
-          <button onClick={() => void load()} className="p-2 rounded-lg border border-gray-200 hover:bg-gray-50">
+          <a
+            href="/automacoes"
+            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-gray-900 text-white text-xs font-semibold hover:bg-black"
+          >
+            <ExternalLink size={12} /> Gerenciar em Automações
+          </a>
+          <button type="button" onClick={() => void load()} className="p-2 rounded-lg border border-gray-200 hover:bg-gray-50">
             <RefreshCw size={14} className={loading ? 'animate-spin text-gray-400' : 'text-gray-500'} />
           </button>
         </div>
+      </div>
+
+      <div className="rounded-xl border border-amber-100 bg-amber-50/80 px-3 py-2 text-[11px] text-amber-950">
+        Esta aba <strong>não</strong> é o hub de criação. Novas automações, modelos Instagram e conversão de modelos
+        prontos ficam em <a href="/automacoes" className="underline font-semibold">Automações</a>.
       </div>
 
       {loading ? (
@@ -134,129 +122,120 @@ export function InstagramAutomationsTab() {
       ) : items.length === 0 ? (
         <div className="bg-white border border-gray-100 rounded-xl p-8 text-center">
           <Zap size={28} className="mx-auto text-gray-300 mb-2" />
-          <p className="text-sm text-gray-600">Nenhuma automacao Instagram no catalogo</p>
+          <p className="text-sm text-gray-600">Nenhuma automação Instagram ainda</p>
+          <p className="text-xs text-gray-400 mt-1 mb-3">Instale modelos ou crie na página Automações.</p>
+          <a
+            href="/automacoes"
+            className="inline-flex items-center gap-1 px-4 py-2 rounded-xl bg-gray-900 text-white text-sm font-semibold"
+          >
+            Ir para Automações
+          </a>
         </div>
       ) : (
         <div className="space-y-2">
-          {items.map((item) => {
-            const isActive = item.state?.status === 'active'
-            const rate = successRate(item)
-            const schedule = humanizeCron(
-              item.state?.cron_expression || item.default_cron || null,
-              item.default_frequency,
-            )
-            const expanded = expandedSlug === item.slug
+          {items.map((a) => {
+            const pill = getStatusPill(a)
+            const triggerLabel =
+              a.trigger?.tipo === 'evento'
+                ? `Instagram · ${getEventoLabel(a.trigger.plataforma, a.trigger.evento)}`
+                : a.trigger?.tipo === 'agendamento'
+                  ? 'Agendada'
+                  : '—'
             return (
-              <div key={item.slug} className="bg-white border border-gray-100 rounded-xl p-3 sm:p-4 hover:border-gray-200 transition">
-                <div className="flex items-center gap-3 sm:gap-4">
-                  <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${isActive ? 'bg-emerald-500' : 'bg-gray-300'}`} />
-                  <div className="flex-1 min-w-0">
+              <div
+                key={a.id}
+                className="bg-white border border-gray-100 rounded-xl p-3 sm:p-4 hover:border-purple-200 transition cursor-pointer"
+                onClick={() => setDetailFor(a)}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <p className="text-sm font-semibold text-gray-900 truncate">{item.name}</p>
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${IG_TYPE_COLORS[item.task_type] || 'bg-gray-100 text-gray-600'}`}>
-                        {IG_TYPE_LABELS[item.task_type] || item.task_type}
-                      </span>
-                      {!item.is_implemented && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-semibold">Em breve</span>
+                      <p className="text-sm font-semibold text-gray-900 truncate">{a.nome}</p>
+                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${pill.cls}`}>{pill.label}</span>
+                      {a.seed_key && (
+                        <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-violet-50 text-violet-700">seed</span>
                       )}
                     </div>
-                    <p className="text-xs text-gray-500 truncate mt-0.5">{item.description}</p>
-                    <div className="flex items-center gap-3 mt-1 text-[10px] text-gray-400">
-                      <span className="inline-flex items-center gap-1"><Clock size={10} /> {schedule}</span>
-                      {item.state?.last_run_at && <span>Ultima: {formatRelativeTime(item.state.last_run_at)}</span>}
-                      {item.state?.next_run_at && isActive && <span className="text-purple-500">Proxima: {formatRelativeTime(item.state.next_run_at)}</span>}
-                    </div>
+                    <p className="text-[11px] text-gray-400 mt-0.5">{triggerLabel}</p>
+                    {a.descricao && <p className="text-xs text-gray-500 mt-1 line-clamp-2">{a.descricao}</p>}
                   </div>
-
-                  <div className="hidden md:flex items-center gap-4 text-xs text-gray-500 shrink-0">
-                    <div className="text-center">
-                      <p className="text-[10px] text-gray-400">Taxa</p>
-                      <p className={rate >= 80 ? 'text-emerald-600 font-bold' : rate >= 50 ? 'text-amber-600 font-bold' : 'text-gray-700 font-bold'}>{rate}%</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-[10px] text-gray-400">Runs</p>
-                      <p className="font-bold text-gray-800">{item.state?.run_count || 0}</p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-1 shrink-0">
-                    <a href="/admin/automacoes" className="p-1.5 rounded-lg hover:bg-gray-100" title="Ver automacoes completas">
-                      <ExternalLink size={14} className="text-gray-400" />
-                    </a>
+                  <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
                     <button
-                      onClick={() => void handleRun(item)}
-                      disabled={runningId === item.state?.id}
-                      className="p-1.5 rounded-lg hover:bg-gray-100 disabled:opacity-50"
-                      title="Executar agora"
+                      type="button"
+                      disabled={busyId === a.id}
+                      onClick={async () => {
+                        setBusyId(a.id)
+                        try {
+                          await toggleAutomationDefinition(a.id, !a.ativa)
+                          await load()
+                          showToast(!a.ativa ? 'Ativada' : 'Pausada')
+                        } catch (e: any) {
+                          showToast(e?.message || 'Erro', 'err')
+                        } finally {
+                          setBusyId(null)
+                        }
+                      }}
+                      className={`p-2 rounded-lg border text-xs ${a.ativa ? 'border-amber-200 text-amber-700' : 'border-emerald-200 text-emerald-700'}`}
+                      title={a.ativa ? 'Pausar' : 'Ativar'}
                     >
-                      {runningId === item.state?.id
-                        ? <Loader2 size={14} className="animate-spin text-gray-400" />
-                        : <Play size={14} className="text-gray-500" />}
+                      {a.ativa ? <Pause size={14} /> : <Play size={14} />}
                     </button>
                     <button
-                      onClick={() => void handleToggle(item.slug)}
-                      disabled={togglingSlug === item.slug}
-                      className="p-1.5 rounded-lg hover:bg-gray-100 disabled:opacity-50"
-                      title={isActive ? 'Pausar' : 'Ativar'}
+                      type="button"
+                      disabled={busyId === a.id}
+                      onClick={async () => {
+                        setBusyId(a.id)
+                        try {
+                          const r = await executeAutomationDefinition(a.id)
+                          showToast(r?.ok ? (r.outcome === 'stub' ? 'Simulado' : 'Executada') : r?.message || 'Falha', r?.ok ? 'ok' : 'err')
+                          await load()
+                        } catch (e: any) {
+                          showToast(e?.message || 'Erro', 'err')
+                        } finally {
+                          setBusyId(null)
+                        }
+                      }}
+                      className="p-2 rounded-lg border border-gray-200 text-gray-600"
+                      title="Executar"
                     >
-                      {togglingSlug === item.slug
-                        ? <Loader2 size={14} className="animate-spin text-gray-400" />
-                        : <Pause size={14} className={isActive ? 'text-emerald-600' : 'text-gray-400'} />}
-                    </button>
-                    <button
-                      onClick={() => setExpandedSlug(expanded ? null : item.slug)}
-                      className="p-1.5 rounded-lg hover:bg-gray-100"
-                    >
-                      {expanded ? <ChevronUp size={14} className="text-gray-400" /> : <ChevronDown size={14} className="text-gray-400" />}
+                      <Zap size={14} />
                     </button>
                   </div>
                 </div>
-
-                {expanded && (
-                  <div className="mt-3 pt-3 border-t border-gray-100 text-xs text-gray-600 space-y-2">
-                    {item.is_squad && item.execution_steps?.length ? (
-                      <p><span className="font-semibold text-gray-700">Pipeline:</span> {item.execution_steps.join(' → ')}</p>
-                    ) : null}
-                    <p><span className="font-semibold text-gray-700">Status:</span> {item.state?.status || 'nao configurada'}</p>
-                    {item.state?.last_error && (
-                      <p className="text-red-600"><span className="font-semibold">Ultimo erro:</span> {item.state.last_error}</p>
-                    )}
-                    <div className="flex gap-2 pt-1">
-                      <button
-                        onClick={() => void handleToggle(item.slug)}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold ${isActive ? 'bg-gray-100 text-gray-700' : 'bg-purple-500 text-white'}`}
-                      >
-                        {isActive ? 'Pausar' : 'Ativar'}
-                      </button>
-                      <button
-                        onClick={() => void handleRun(item)}
-                        disabled={!item.state}
-                        className="px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-                      >
-                        Executar agora
-                      </button>
-                    </div>
-                  </div>
-                )}
               </div>
             )
           })}
         </div>
       )}
 
-      <p className="text-[10px] text-gray-400 text-center">
-        Automações avançadas (DM por evento, webhook, publicação automática) em{' '}
-        <a href="/admin/automacoes" className="text-purple-500 hover:underline">Automacoes gerais</a>
-      </p>
-
-      {toast && (
-        <div className={`fixed bottom-5 right-5 z-50 px-4 py-2.5 rounded-xl shadow-lg flex items-center gap-2 text-xs font-semibold ${
-          toast.kind === 'ok' ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'
-        }`}>
-          {toast.kind === 'ok' ? <CheckCircle2 size={14} /> : <AlertCircle size={14} />}
-          {toast.text}
-        </div>
-      )}
+      <AutomationDetailModal
+        open={!!detailFor}
+        automacao={detailFor}
+        onClose={() => setDetailFor(null)}
+        onSave={handleDetailSave}
+        saving={detailSaving}
+        executing={busyId === detailFor?.id}
+        onToggle={async (id, ativa) => {
+          await toggleAutomationDefinition(id, ativa)
+          await load()
+          const fresh = (await fetchAutomationDefinitions({ platform: 'instagram' })).find((x) => x.id === id)
+          if (fresh) setDetailFor(fresh)
+        }}
+        onExecute={async (id) => {
+          setBusyId(id)
+          try {
+            const r = await executeAutomationDefinition(id)
+            showToast(r?.ok ? 'Executada' : r?.message || 'Falha', r?.ok ? 'ok' : 'err')
+            await load()
+            const fresh = (await fetchAutomationDefinitions({ platform: 'instagram' })).find((x) => x.id === id)
+            if (fresh) setDetailFor(fresh)
+          } catch (e: any) {
+            showToast(e?.message || 'Erro', 'err')
+          } finally {
+            setBusyId(null)
+          }
+        }}
+      />
     </div>
   )
 }

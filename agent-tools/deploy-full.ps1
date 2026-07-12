@@ -36,11 +36,20 @@ if (-not $SkipBuild) {
   npm run build
   Pop-Location
 
+  Write-Host ">> Write build-meta (git sha + build time)"
+  node "$PSScriptRoot\write-build-meta.mjs"
+
   Write-Host ">> Build frontend"
   Push-Location "$Root\frontend"
   npm run build
   Pop-Location
   Start-Sleep -Seconds 2
+} else {
+  # SkipBuild path (from run-deploy-verified.ps1): ensure meta exists after backend build
+  if (-not (Test-Path "$Root\dist\build-meta.json")) {
+    Write-Host ">> Write build-meta (missing after SkipBuild)"
+    node "$PSScriptRoot\write-build-meta.mjs"
+  }
 }
 
 if (-not (Test-Path "$Root\frontend\dist\index.html")) {

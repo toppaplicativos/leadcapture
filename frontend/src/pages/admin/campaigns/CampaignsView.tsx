@@ -27,6 +27,7 @@ import type { GalleryItem } from '@/lib/gallery/types'
 import { useCampaignsBridgeOptional } from '@/lib/agent/CampaignsBridgeContext'
 import { useAgentShell } from '@/lib/agent/AgentShellContext'
 import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
+import { fieldControlClass, fieldLabelLegacyClass } from '@/components/ui'
 
 export function CampaignsView({
   showToast,
@@ -37,7 +38,7 @@ export function CampaignsView({
 }) {
   const [campaigns, setCampaigns] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [tab, setTab] = useState<'all' | 'active' | 'draft' | 'done'>('all')
+  const [tab, setTab] = useState<'all' | 'active' | 'paused' | 'draft' | 'done'>('all')
   const [modalOpen, setModalOpen] = useState(false)
   const [editCampaign, setEditCampaign] = useState<any>(null)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
@@ -192,7 +193,8 @@ export function CampaignsView({
 
   const filtered = tab === 'all' ? campaigns
     : tab === 'active' ? campaigns.filter(c => ['active', 'running', 'sending'].includes(c.status))
-    : tab === 'draft' ? campaigns.filter(c => ['draft', 'paused'].includes(c.status))
+    : tab === 'paused' ? campaigns.filter(c => c.status === 'paused')
+    : tab === 'draft' ? campaigns.filter(c => c.status === 'draft')
     : campaigns.filter(c => ['completed', 'cancelled', 'finished'].includes(c.status))
 
   const statusBadge = (s?: string) => {
@@ -233,26 +235,26 @@ export function CampaignsView({
           </div>
         </div>
       ) : (
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
             <h2 className="text-[26px] font-bold text-gray-900 tracking-tight">Campanhas</h2>
             <p className="text-[13px] text-gray-400 mt-0.5">{campaigns.length} campanhas</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="grid grid-cols-2 sm:flex sm:items-center gap-2 w-full sm:w-auto">
             <button onClick={() => setAiWizardOpen(true)}
               title="Descreva o objetivo em linguagem natural - a IA monta a campanha completa em rascunho"
-              className="ai-shimmer relative overflow-hidden flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-gray-900 hover:bg-black text-white text-xs font-bold transition-all">
+              className="order-1 ai-shimmer relative overflow-hidden flex items-center justify-center gap-1.5 min-h-11 px-4 py-2.5 rounded-xl bg-gray-900 hover:bg-black text-white text-xs font-bold transition-all">
               <Sparkles size={14} className="relative z-10" />
               <span className="relative z-10">Criar com IA</span>
             </button>
             <button onClick={createFollowupRuler} disabled={creatingRuler}
               title="Cria 8 follow-ups (FU0..FU7) adaptados ao tom do agente, produto e prova social do brand"
-              className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-white border border-gray-200 text-gray-700 text-xs font-bold hover:bg-gray-50 transition-all disabled:opacity-60 disabled:cursor-not-allowed">
+              className="order-3 sm:order-2 col-span-2 sm:col-span-1 flex items-center justify-center gap-1.5 min-h-11 px-4 py-2.5 rounded-xl bg-white border border-gray-200 text-gray-700 text-xs font-bold hover:bg-gray-50 transition-all disabled:opacity-60 disabled:cursor-not-allowed">
               {creatingRuler ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-              {creatingRuler ? 'Gerando regua...' : 'Criar regua de Follow-up'}
+              {creatingRuler ? 'Gerando régua...' : 'Régua de follow-up'}
             </button>
             <button onClick={openCreate}
-              className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-gray-900 hover:bg-black text-white text-xs font-bold transition-all">
+              className="order-2 sm:order-3 flex items-center justify-center gap-1.5 min-h-11 px-4 py-2.5 rounded-xl bg-gray-900 hover:bg-black text-white text-xs font-bold transition-all">
               <Plus size={14} /> Nova Campanha
             </button>
           </div>
@@ -260,10 +262,10 @@ export function CampaignsView({
       )}
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-gray-100 p-0.5 rounded-xl w-fit">
-        {([['all', 'Todas'], ['active', 'Ativas'], ['draft', 'Rascunhos'], ['done', 'Finalizadas']] as const).map(([k, l]) => (
+      <div className="flex gap-1 bg-gray-100 p-0.5 rounded-xl w-full sm:w-fit overflow-x-auto">
+        {([['all', 'Todas'], ['active', 'Ativas'], ['paused', 'Pausadas'], ['draft', 'Rascunhos'], ['done', 'Finalizadas']] as const).map(([k, l]) => (
           <button key={k} onClick={() => setTab(k)}
-            className={`px-3.5 py-1.5 rounded-lg text-[11px] font-semibold transition ${
+            className={`shrink-0 px-3.5 py-1.5 rounded-lg text-[11px] font-semibold transition ${
               tab === k ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'
             }`}>{l}</button>
         ))}
@@ -279,7 +281,15 @@ export function CampaignsView({
             const isRunning = ['active', 'running', 'sending'].includes(c.status)
             const canStart = ['draft', 'paused', 'scheduled'].includes(c.status)
             const isDone = ['completed', 'cancelled'].includes(c.status)
-            const accentColor = isRunning ? 'bg-blue-500' : canStart ? 'bg-emerald-500' : isDone ? 'bg-gray-300' : 'bg-amber-400'
+            const accentColor = isRunning
+              ? 'bg-blue-500'
+              : c.status === 'paused'
+                ? 'bg-amber-400'
+                : c.status === 'draft'
+                  ? 'bg-gray-300'
+                  : isDone
+                    ? 'bg-gray-300'
+                    : 'bg-gray-300'
             return (
               <div key={c.id} className="bg-white rounded-2xl border border-gray-100 shadow-[0_1px_4px_rgba(0,0,0,0.07)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.1)] transition-all overflow-hidden flex flex-col">
                 {/* Accent bar */}
@@ -292,15 +302,24 @@ export function CampaignsView({
                       <h4 className="font-extrabold text-[13px] text-gray-900 truncate leading-tight">{c.name || 'Sem titulo'}</h4>
                       <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                         {statusBadge(c.status)}
-                        {c.use_ai && <span className="text-[8px] font-bold px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 border border-violet-200">IA</span>}
+                        {c.use_ai && <span className="text-[8px] font-bold px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-900 border border-gray-200">IA</span>}
                         <span className="text-[9px] text-gray-400">· {dt(c.created_at)}</span>
                       </div>
                     </div>
                     {/* Primary action (compact) */}
                     <div className="shrink-0">
                       {canStart && (
-                        <button onClick={() => doAction(c.id, 'start')} disabled={actionLoading === c.id}
-                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 text-white text-[10px] font-bold hover:bg-emerald-700 transition-all shadow-sm disabled:opacity-60">
+                        <button onClick={async () => {
+                          const ok = await confirm({
+                            title: 'Iniciar esta campanha?',
+                            message: <span>A campanha <b>{c.name || 'sem título'}</b> começará a processar os leads configurados.</span>,
+                            confirmLabel: 'Iniciar campanha',
+                            cancelLabel: 'Revisar antes',
+                            variant: 'info',
+                          })
+                          if (ok) void doAction(c.id, 'start')
+                        }} disabled={actionLoading === c.id}
+                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-gray-900 text-white text-[10px] font-bold hover:bg-black transition-all shadow-sm disabled:opacity-60">
                           {actionLoading === c.id ? <Loader2 size={10} className="animate-spin" /> : <Send size={10} />} Iniciar
                         </button>
                       )}
@@ -326,8 +345,8 @@ export function CampaignsView({
                       <p className="text-[12px] font-extrabold text-gray-900 leading-none" style={{ fontVariantNumeric: 'tabular-nums' }}>{num(c.target_count || 0)}</p>
                       <p className="text-[8px] text-gray-400 uppercase tracking-wide font-bold mt-0.5">Leads</p>
                     </div>
-                    <div className={`rounded-lg px-2 py-1.5 text-center transition-colors duration-700 ${isRunning ? 'bg-violet-50' : 'bg-gray-50'}`}>
-                      <p className="text-[12px] font-extrabold text-violet-700 leading-none" style={{ fontVariantNumeric: 'tabular-nums' }}>{num(c.sent_count || 0)}</p>
+                    <div className={`rounded-lg px-2 py-1.5 text-center transition-colors duration-700 ${isRunning ? 'bg-gray-50' : 'bg-gray-50'}`}>
+                      <p className="text-[12px] font-extrabold text-gray-900 leading-none" style={{ fontVariantNumeric: 'tabular-nums' }}>{num(c.sent_count || 0)}</p>
                       <p className="text-[8px] text-gray-400 uppercase tracking-wide font-bold mt-0.5">Enviados</p>
                     </div>
                     <div className={`rounded-lg px-2 py-1.5 text-center transition-colors duration-700 ${(c.replied_count || 0) > 0 ? 'bg-emerald-50' : 'bg-gray-50'}`}>
@@ -353,7 +372,7 @@ export function CampaignsView({
                   {/* Secondary actions (compact, footer-aligned) */}
                   <div className="flex items-center gap-1 pt-2 mt-auto border-t border-gray-100">
                     <button onClick={() => openEdit(c)} title="Configurar"
-                      className="flex items-center gap-1 px-2 py-1 rounded-md bg-violet-50 text-violet-700 text-[10px] font-bold hover:bg-violet-100 transition">
+                      className="flex items-center gap-1 px-2 py-1 rounded-md bg-gray-50 text-gray-900 text-[10px] font-bold hover:bg-gray-100 transition">
                       <Settings size={10} /> Config
                     </button>
                     <button onClick={async () => { setActionLoading(c.id); try { await adminApi.duplicateCampaign(c.id); showToast('Campanha duplicada!'); loadCampaigns() } catch (e: any) { showToast(e.message, 'err') } setActionLoading(null) }}
@@ -701,12 +720,12 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
     { key: 'metricas', label: 'Metricas' },
   ]
 
-  const inputCls = 'w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-200'
-  const labelCls = 'text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5 block'
+  const inputCls = fieldControlClass
+  const labelCls = fieldLabelLegacyClass
 
   const Toggle = ({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) => (
     <button type="button" onClick={() => onChange(!value)}
-      className={`relative w-10 h-5 rounded-full transition shrink-0 ${value ? 'bg-violet-500' : 'bg-gray-300'}`}>
+      className={`relative w-10 h-5 rounded-full transition shrink-0 ${value ? 'bg-gray-900' : 'bg-gray-300'}`}>
       <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${value ? 'translate-x-5' : ''}`} />
     </button>
   )
@@ -714,10 +733,10 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
   const LEAD_STATUSES = ['new', 'contacted', 'replied', 'negotiating', 'converted', 'lost', 'inactive']
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm p-0 sm:p-4">
+      <div className="bg-white rounded-none sm:rounded-2xl shadow-2xl w-full max-w-2xl h-[100dvh] sm:h-auto max-h-[100dvh] sm:max-h-[85vh] flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between shrink-0">
+        <div className="px-4 sm:px-5 py-4 border-b border-gray-100 flex items-center justify-between shrink-0">
           <div>
             <h3 className="font-bold text-base text-gray-900">{isEdit ? 'Configurar Campanha' : 'Nova Campanha'}</h3>
             {isEdit && <p className="text-[11px] text-gray-400 mt-0.5">{campaign.name}</p>}
@@ -730,7 +749,7 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
         {isEdit && (() => {
           const statusCfg: Record<string, { label: string; bg: string; text: string; dot: string }> = {
             draft:     { label: 'Rascunho',  bg: 'bg-gray-100',     text: 'text-gray-700',    dot: 'bg-gray-400' },
-            scheduled: { label: 'Agendada',  bg: 'bg-violet-50',    text: 'text-violet-700',  dot: 'bg-violet-500' },
+            scheduled: { label: 'Agendada',  bg: 'bg-gray-50',    text: 'text-gray-900',  dot: 'bg-gray-900' },
             active:    { label: 'Ativa',     bg: 'bg-emerald-50',   text: 'text-emerald-700', dot: 'bg-emerald-500 animate-pulse' },
             running:   { label: 'Enviando',  bg: 'bg-blue-50',      text: 'text-blue-700',    dot: 'bg-blue-500 animate-pulse' },
             sending:   { label: 'Enviando',  bg: 'bg-blue-50',      text: 'text-blue-700',    dot: 'bg-blue-500 animate-pulse' },
@@ -792,13 +811,24 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
             if (ok) runStatusAction('cancel')
           }
 
+          async function confirmAndStart() {
+            const ok = await confirm({
+              title: liveStatus === 'paused' ? 'Retomar esta campanha?' : 'Iniciar esta campanha?',
+              message: <span>A campanha <b>{campaign.name || 'sem título'}</b> começará a processar os leads configurados.</span>,
+              confirmLabel: liveStatus === 'paused' ? 'Retomar campanha' : 'Iniciar campanha',
+              cancelLabel: 'Revisar antes',
+              variant: 'info',
+            })
+            if (ok) void runStatusAction('start')
+          }
+
           /* Progress for visual context — total sent vs target */
           const totalTarget = Number(campaign.target_count || 0)
           const totalSent = Number(campaign.sent_count || 0)
           const pct = totalTarget > 0 ? Math.min(100, Math.round((totalSent / totalTarget) * 100)) : 0
 
           return (
-            <div className={`px-5 py-3 border-b border-gray-100 ${cfg.bg} shrink-0`}>
+            <div className={`px-4 sm:px-5 py-3 border-b border-gray-100 ${cfg.bg} shrink-0`}>
               <div className="flex items-center justify-between gap-3 flex-wrap">
                 {/* Left: status badge + progress */}
                 <div className="flex items-center gap-3 min-w-0">
@@ -818,8 +848,8 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
                 {/* Right: contextual action buttons */}
                 <div className="flex items-center gap-1.5 flex-wrap">
                   {canStart && (
-                    <button onClick={() => runStatusAction('start')} disabled={!!statusActing}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-[11px] font-bold hover:bg-emerald-700 transition shadow-sm disabled:opacity-60">
+                    <button onClick={confirmAndStart} disabled={!!statusActing}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-900 text-white text-[11px] font-bold hover:bg-black transition shadow-sm disabled:opacity-60">
                       {statusActing === 'start' ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
                       {liveStatus === 'paused' ? 'Retomar' : 'Iniciar campanha'}
                     </button>
@@ -880,7 +910,7 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
         })()}
 
         {/* Tabs */}
-        <div className="px-5 pt-3 border-b border-gray-100 flex gap-1 shrink-0 overflow-x-auto scrollbar-hide">
+        <div className="px-4 sm:px-5 pt-3 border-b border-gray-100 flex gap-1 shrink-0 overflow-x-auto scrollbar-hide">
           {tabs.map(t => (
             <button key={t.key} onClick={() => setActiveTab(t.key)}
               className={`px-3.5 py-2 rounded-t-lg text-xs font-semibold transition whitespace-nowrap ${
@@ -890,7 +920,7 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+        <div className="flex-1 overflow-y-auto px-4 sm:px-5 py-4 space-y-4 min-w-0">
 
           {/* Tab: Geral */}
           {activeTab === 'geral' && (<>
@@ -906,11 +936,11 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
             </div>
             <div>
               <label className={labelCls}>Modo</label>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 {[['relationship', 'Relacionamento', 'Conversa 1-a-1'], ['broadcast', 'Broadcast', 'Mensagem em massa'], ['drip', 'Sequencia', 'Etapas programadas']].map(([k, l, d]) => (
                   <button key={k} type="button" onClick={() => setMode(k)}
-                    className={`p-3 rounded-xl border text-left transition ${mode === k ? 'border-violet-400 bg-violet-50' : 'border-gray-200 hover:border-gray-300'}`}>
-                    <p className={`text-xs font-bold ${mode === k ? 'text-violet-700' : 'text-gray-700'}`}>{l}</p>
+                    className={`p-3 rounded-xl border text-left transition ${mode === k ? 'border-gray-900 bg-gray-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                    <p className={`text-xs font-bold ${mode === k ? 'text-gray-900' : 'text-gray-700'}`}>{l}</p>
                     <p className="text-[10px] text-gray-400 mt-0.5">{d}</p>
                   </button>
                 ))}
@@ -924,6 +954,11 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
                   <option key={inst.id} value={inst.id}>{inst.name} ({inst.phone}) — {inst.status}</option>
                 ))}
               </select>
+              {instanceId && instances.find((inst: any) => String(inst.id) === String(instanceId))?.status !== 'connected' && (
+                <p className="mt-2 text-[11px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                  A instância selecionada está desconectada. Escolha uma conexão ativa antes de iniciar ou retomar a campanha.
+                </p>
+              )}
               {instanceMode === 'smart-rotation' && (
                 <p className="text-[9px] text-gray-400 mt-1">No rodizio, esta instancia e usada como fallback caso nenhuma do pool esteja disponivel.</p>
               )}
@@ -935,21 +970,31 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
 
             {/* ─── 1. MIDIA + LINK (topo) ─── */}
             <div className="bg-gray-50 rounded-xl p-3 space-y-3">
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
                 <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em]">Midia & Link (opcional)</p>
-                <button
-                  type="button"
-                  onClick={() => setGalleryPicker('image')}
-                  className="text-[10px] font-bold text-gray-700 hover:text-gray-900 underline-offset-2 hover:underline"
-                >
-                  Escolher da galeria
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setGalleryPicker('image')}
+                    className="text-[10px] font-bold text-rose-700 hover:text-rose-900 underline-offset-2 hover:underline"
+                  >
+                    Imagem · Publicidade
+                  </button>
+                  <span className="text-gray-300 text-[10px]">|</span>
+                  <button
+                    type="button"
+                    onClick={() => setGalleryPicker('video')}
+                    className="text-[10px] font-bold text-rose-700 hover:text-rose-900 underline-offset-2 hover:underline"
+                  >
+                    Vídeo · Publicidade
+                  </button>
+                </div>
               </div>
 
               {/* Imagem + Video */}
               <div className="grid grid-cols-2 gap-2">
                 {/* Imagem */}
-                <div className={`rounded-xl border-2 border-dashed overflow-hidden transition-all ${imageUrl ? 'border-violet-300 bg-violet-50/30' : 'border-gray-200 bg-white'}`}>
+                <div className={`rounded-xl border-2 border-dashed overflow-hidden transition-all ${imageUrl ? 'border-gray-300 bg-gray-50/30' : 'border-gray-200 bg-white'}`}>
                   {imageUrl ? (
                     <div className="relative group" style={{ aspectRatio: '16/10' }}>
                       <img src={imageUrl} alt="" className="w-full h-full object-cover" onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
@@ -961,8 +1006,8 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
                       </div>
                     </div>
                   ) : (
-                    <label className="flex flex-col items-center justify-center py-5 cursor-pointer hover:bg-violet-50/50 transition">
-                      {uploadingImage ? <Loader2 size={18} className="text-violet-400 animate-spin" /> : <Eye size={18} className="text-gray-300" />}
+                    <label className="flex flex-col items-center justify-center py-5 cursor-pointer hover:bg-gray-50/50 transition">
+                      {uploadingImage ? <Loader2 size={18} className="text-gray-400 animate-spin" /> : <Eye size={18} className="text-gray-300" />}
                       <p className="text-[10px] text-gray-400 mt-1 font-medium">{uploadingImage ? 'Enviando...' : 'Imagem'}</p>
                       <input type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) uploadMedia(f, 'image') }} />
                     </label>
@@ -971,8 +1016,8 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
                 {/* Video — aceita multiplos (ate 5) */}
                 {videoUrls.length === 0 && (
                   <div className="rounded-xl border-2 border-dashed overflow-hidden transition-all border-gray-200 bg-white">
-                    <label className="flex flex-col items-center justify-center py-5 cursor-pointer hover:bg-violet-50/50 transition">
-                      {uploadingVideo ? <Loader2 size={18} className="text-violet-400 animate-spin" /> : <Film size={18} className="text-gray-300" />}
+                    <label className="flex flex-col items-center justify-center py-5 cursor-pointer hover:bg-gray-50/50 transition">
+                      {uploadingVideo ? <Loader2 size={18} className="text-gray-400 animate-spin" /> : <Film size={18} className="text-gray-300" />}
                       <p className="text-[10px] text-gray-400 mt-1 font-medium">{uploadingVideo ? 'Enviando...' : 'Videos (ate 5)'}</p>
                       <input type="file" accept="video/mp4,video/webm" multiple className="hidden" onChange={e => { if (e.target.files?.length) uploadMultipleVideos(e.target.files) }} />
                     </label>
@@ -986,7 +1031,7 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
                   <div className="flex items-center justify-between">
                     <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em]">Videos ({videoUrls.length}/5)</p>
                     {videoUrls.length < 5 && (
-                      <label className="text-[10px] font-bold text-violet-500 cursor-pointer hover:text-violet-700 flex items-center gap-1">
+                      <label className="text-[10px] font-bold text-gray-500 cursor-pointer hover:text-gray-900 flex items-center gap-1">
                         {uploadingVideo ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
                         {uploadingVideo ? 'Enviando...' : 'Adicionar'}
                         <input type="file" accept="video/mp4,video/webm" multiple className="hidden" onChange={e => { if (e.target.files?.length) uploadMultipleVideos(e.target.files) }} />
@@ -995,7 +1040,7 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
                   </div>
                   <div className="grid grid-cols-5 gap-1.5">
                     {videoUrls.map((url, i) => (
-                      <div key={i} className="relative group rounded-lg overflow-hidden border border-violet-200 bg-violet-50/30" style={{ aspectRatio: '9/12' }}>
+                      <div key={i} className="relative group rounded-lg overflow-hidden border border-gray-200 bg-gray-50/30" style={{ aspectRatio: '9/12' }}>
                         <video src={url} className="w-full h-full object-cover" />
                         <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                           <button onClick={() => setVideoUrls(prev => prev.filter((_, j) => j !== i))} className="p-1 bg-red-500/90 rounded-full">
@@ -1040,7 +1085,7 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
               {/* Audio + Documento */}
               <div className="grid grid-cols-2 gap-2">
                 {/* Audio */}
-                <div className={`rounded-xl border-2 border-dashed transition-all ${audioUrl ? 'border-violet-300 bg-violet-50/30' : 'border-gray-200 bg-white'}`}>
+                <div className={`rounded-xl border-2 border-dashed transition-all ${audioUrl ? 'border-gray-300 bg-gray-50/30' : 'border-gray-200 bg-white'}`}>
                   {audioUrl ? (
                     <div className="p-2.5 space-y-2">
                       <audio src={audioUrl} controls className="w-full h-8" />
@@ -1053,19 +1098,19 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
                       </div>
                     </div>
                   ) : (
-                    <label className="flex flex-col items-center justify-center py-5 cursor-pointer hover:bg-violet-50/50 transition">
-                      {uploadingAudio ? <Loader2 size={18} className="text-violet-400 animate-spin" /> : <Volume2 size={18} className="text-gray-300" />}
+                    <label className="flex flex-col items-center justify-center py-5 cursor-pointer hover:bg-gray-50/50 transition">
+                      {uploadingAudio ? <Loader2 size={18} className="text-gray-400 animate-spin" /> : <Volume2 size={18} className="text-gray-300" />}
                       <p className="text-[10px] text-gray-400 mt-1 font-medium">{uploadingAudio ? 'Enviando...' : 'Audio'}</p>
                       <input type="file" accept="audio/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) uploadMedia(f, 'audio') }} />
                     </label>
                   )}
                 </div>
                 {/* Documento */}
-                <div className={`rounded-xl border-2 border-dashed transition-all ${documentUrl ? 'border-violet-300 bg-violet-50/30' : 'border-gray-200 bg-white'}`}>
+                <div className={`rounded-xl border-2 border-dashed transition-all ${documentUrl ? 'border-gray-300 bg-gray-50/30' : 'border-gray-200 bg-white'}`}>
                   {documentUrl ? (
                     <div className="p-2.5 space-y-2">
                       <div className="flex items-center gap-1.5">
-                        <FileText size={14} className="text-violet-500 shrink-0" />
+                        <FileText size={14} className="text-gray-500 shrink-0" />
                         <span className="text-[11px] font-bold text-gray-700 truncate">{documentName || 'documento'}</span>
                       </div>
                       <input type="text" value={documentName} onChange={e => setDocumentName(e.target.value)}
@@ -1073,8 +1118,8 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
                       <button onClick={() => { setDocumentUrl(''); setDocumentName('') }} className="text-[10px] text-red-500 font-bold">Remover</button>
                     </div>
                   ) : (
-                    <label className="flex flex-col items-center justify-center py-5 cursor-pointer hover:bg-violet-50/50 transition">
-                      {uploadingDocument ? <Loader2 size={18} className="text-violet-400 animate-spin" /> : <FileText size={18} className="text-gray-300" />}
+                    <label className="flex flex-col items-center justify-center py-5 cursor-pointer hover:bg-gray-50/50 transition">
+                      {uploadingDocument ? <Loader2 size={18} className="text-gray-400 animate-spin" /> : <FileText size={18} className="text-gray-300" />}
                       <p className="text-[10px] text-gray-400 mt-1 font-medium">{uploadingDocument ? 'Enviando...' : 'Documento'}</p>
                       <input type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) uploadMedia(f, 'document') }} />
                     </label>
@@ -1106,7 +1151,7 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
               </div>
 
               {attachedProduct ? (
-                <div className="flex gap-3 bg-white rounded-xl border border-violet-200 p-2.5">
+                <div className="flex gap-3 bg-white rounded-xl border border-gray-200 p-2.5">
                   {prodImg(attachedProduct) ? (
                     <img src={prodImg(attachedProduct)} alt="" className="w-16 h-16 rounded-lg object-cover shrink-0 border border-gray-100"
                       onError={e => { e.currentTarget.style.display = 'none'; const fb = e.currentTarget.nextElementSibling as HTMLElement; if (fb) fb.style.display = 'grid' }} />
@@ -1136,7 +1181,7 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
                       .then(d => { setPickerProducts(d.products || []); setPickerLoading(false) })
                       .catch(() => setPickerLoading(false))
                   }
-                }} className="w-full py-4 rounded-xl border-2 border-dashed border-gray-200 bg-white hover:border-violet-300 hover:bg-violet-50/30 transition text-center cursor-pointer">
+                }} className="w-full py-4 rounded-xl border-2 border-dashed border-gray-200 bg-white hover:border-gray-400 hover:bg-gray-50/30 transition text-center cursor-pointer">
                   <ShoppingBag size={18} className="text-gray-300 mx-auto" />
                   <p className="text-[10px] text-gray-400 mt-1 font-medium">Selecionar produto do catalogo</p>
                   <p className="text-[9px] text-gray-300 mt-0.5">A imagem e dados do produto serao enviados na campanha</p>
@@ -1155,18 +1200,18 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
                   <div className="px-5 py-3 border-b border-gray-100 shrink-0">
                     <input type="text" value={pickerSearch} onChange={e => setPickerSearch(e.target.value)}
                       placeholder="Buscar produto..."
-                      className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-200 placeholder:text-gray-300" />
+                      className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900 placeholder:text-gray-300" />
                   </div>
                   <div className="flex-1 overflow-y-auto p-3 space-y-1.5">
                     {pickerLoading ? (
-                      <div className="flex items-center justify-center py-8"><Loader2 size={20} className="animate-spin text-violet-400" /></div>
+                      <div className="flex items-center justify-center py-8"><Loader2 size={20} className="animate-spin text-gray-400" /></div>
                     ) : (() => {
                       const q = pickerSearch.toLowerCase().trim()
                       const filtered = q ? pickerProducts.filter(p => (p.name || '').toLowerCase().includes(q) || (p.category || '').toLowerCase().includes(q)) : pickerProducts
                       if (filtered.length === 0) return <p className="text-xs text-gray-400 text-center py-8">Nenhum produto encontrado</p>
                       return filtered.map((p: any) => (
                         <button key={p.id} type="button" onClick={() => { setAttachedProduct(p); setShowProductPicker(false) }}
-                          className="w-full flex items-center gap-3 p-2.5 rounded-xl border border-gray-200 hover:border-violet-400 hover:bg-violet-50/30 transition text-left">
+                          className="w-full flex items-center gap-3 p-2.5 rounded-xl border border-gray-200 hover:border-gray-400 hover:bg-gray-50/30 transition text-left">
                           {prodImg(p) ? (
                             <img src={prodImg(p)} alt="" className="w-12 h-12 rounded-lg object-cover shrink-0 border border-gray-100"
                               onError={e => { const el = e.currentTarget as HTMLImageElement; el.style.display = 'none'; el.nextElementSibling?.classList.remove('hidden') }} />
@@ -1213,17 +1258,17 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
 
               {useAi && (<>
                 <div>
-                  <label className="text-[10px] font-bold text-violet-500 uppercase tracking-wider mb-1 block">Instrucoes para a IA (prompt)</label>
+                  <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1 block">Instrucoes para a IA (prompt)</label>
                   <textarea value={aiPrompt} onChange={e => setAiPrompt(e.target.value)} rows={3}
                     placeholder="Ex: Fale sobre nossos produtos, mencione o nome do cliente, pergunte sobre interesse..."
-                    className="w-full px-3 py-2.5 border border-violet-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-violet-200 resize-none" />
+                    className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900 resize-none" />
                 </div>
                 <div>
-                  <label className="text-[10px] font-bold text-violet-500 uppercase tracking-wider mb-1 block">Texto de intencao (objetivo detalhado)</label>
+                  <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1 block">Texto de intencao (objetivo detalhado)</label>
                   <textarea value={intentText} onChange={e => setIntentText(e.target.value)} rows={3}
                     placeholder="Descreva o objetivo da abordagem, tom desejado, proposta de valor, CTA esperado..."
-                    className="w-full px-3 py-2.5 border border-violet-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-violet-200 resize-none" />
-                  <p className="text-[9px] text-violet-400 mt-1">Este texto guia o compositor para gerar conteudo contextualizado por lead.</p>
+                    className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900 resize-none" />
+                  <p className="text-[9px] text-gray-400 mt-1">Este texto guia o compositor para gerar conteudo contextualizado por lead.</p>
                 </div>
               </>)}
             </div>
@@ -1244,7 +1289,7 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
                     <Toggle value={useAutoVariations} onChange={setUseAutoVariations} />
                   </div>
                 </div>
-                <div className="flex items-center justify-between bg-violet-50 rounded-xl p-3 border border-violet-100">
+                <div className="flex items-center justify-between bg-gray-50 rounded-xl p-3 border border-gray-100">
                   <div>
                     <span className="text-[11px] font-medium text-gray-700">Buscar nome do contato</span>
                     <p className="text-[9px] text-gray-400 mt-0.5">Quando o prospect nao tem nome, busca automaticamente do WhatsApp e normaliza antes do envio</p>
@@ -1258,12 +1303,12 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
             <div className="rounded-xl border border-gray-200 overflow-hidden">
               <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
                 <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em]">Pipeline de execucao</p>
-                <span className="text-[8px] font-bold text-violet-500 bg-violet-50 px-1.5 py-0.5 rounded">BETA</span>
+                <span className="text-[8px] font-bold text-gray-500 bg-gray-50 px-1.5 py-0.5 rounded">BETA</span>
               </div>
               <div className="px-3 py-3 flex items-start gap-0 overflow-x-auto scrollbar-hide">
                 {[
                   { label: 'Filtrar', desc: filterStatuses.join(', ') || 'todos', color: 'bg-blue-500' },
-                  { label: imageUrl ? 'Midia + Msg' : 'Compor Msg', desc: useAi ? 'IA personalizada' : 'Template fixo', color: 'bg-violet-500' },
+                  { label: imageUrl ? 'Midia + Msg' : 'Compor Msg', desc: useAi ? 'IA personalizada' : 'Template fixo', color: 'bg-gray-900' },
                   { label: 'Validar', desc: filterHasWhatsapp ? 'WhatsApp only' : 'Todos', color: 'bg-emerald-500' },
                   { label: 'Enviar', desc: `${maxPerMinute}/min · ${dailyLimit}/dia`, color: 'bg-orange-500' },
                   { label: 'Classificar', desc: 'IA analisa replies', color: 'bg-indigo-500' },
@@ -1299,7 +1344,7 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
               health_food_store: 'Emporio', meal_delivery: 'Delivery', hamburger_restaurant: 'Hamburgueria',
               japanese_restaurant: 'Japones', wholesaler: 'Atacadista',
             }
-            const chipActive = 'border border-violet-400 bg-violet-50 text-violet-800'
+            const chipActive = 'border border-gray-900 bg-gray-50 text-violet-800'
             const chipInactive = 'border border-gray-200 bg-gray-50 text-gray-600 hover:border-gray-300'
             const sectionLabel = 'text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-2 block'
             const availCats: { value: string; count: number }[] = (filterOptions?.categories || []).slice(0, 12)
@@ -1481,8 +1526,8 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
               <div className="grid grid-cols-2 gap-2">
                 {[['specific', 'Instancia unica', 'Envia por uma unica instancia selecionada na aba Geral'], ['smart-rotation', 'Rodizio inteligente', 'Alterna entre multiplas instancias com distribuicao configuravel']].map(([k, l, d]) => (
                   <button key={k} type="button" onClick={() => setInstanceMode(k)}
-                    className={`p-3 rounded-xl border text-left transition ${instanceMode === k ? 'border-violet-400 bg-violet-50' : 'border-gray-200 hover:border-gray-300'}`}>
-                    <p className={`text-[11px] font-bold ${instanceMode === k ? 'text-violet-700' : 'text-gray-700'}`}>{l}</p>
+                    className={`p-3 rounded-xl border text-left transition ${instanceMode === k ? 'border-gray-900 bg-gray-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                    <p className={`text-[11px] font-bold ${instanceMode === k ? 'text-gray-900' : 'text-gray-700'}`}>{l}</p>
                     <p className="text-[9px] text-gray-400 mt-0.5 leading-tight">{d}</p>
                   </button>
                 ))}
@@ -1503,7 +1548,7 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
                     return (
                       <label key={inst.id}
                         className={`flex items-center gap-2.5 p-2.5 rounded-xl border cursor-pointer transition ${
-                          checked ? 'border-violet-400 bg-violet-50' : 'border-gray-200 bg-white hover:border-gray-300'
+                          checked ? 'border-gray-900 bg-gray-50' : 'border-gray-200 bg-white hover:border-gray-300'
                         } ${!isConnected ? 'opacity-60' : ''}`}>
                         <input type="checkbox" checked={checked}
                           onChange={() => setPoolIds(checked ? poolIds.filter(id => id !== inst.id) : [...poolIds, inst.id])}
@@ -1524,7 +1569,7 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
                 </div>
                 {poolIds.length > 0 && (
                   <div className="flex items-center justify-between mt-2 px-1">
-                    <span className="text-[10px] font-bold text-violet-600">{poolIds.length} instancia{poolIds.length > 1 ? 's' : ''} selecionada{poolIds.length > 1 ? 's' : ''}</span>
+                    <span className="text-[10px] font-bold text-gray-700">{poolIds.length} instancia{poolIds.length > 1 ? 's' : ''} selecionada{poolIds.length > 1 ? 's' : ''}</span>
                     <button type="button" onClick={() => setPoolIds([])} className="text-[10px] font-semibold text-gray-400 hover:text-red-500 transition">Limpar</button>
                   </div>
                 )}
@@ -1540,8 +1585,8 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
                     ['aggressive', 'Concentrado', 'Usa o maximo de uma instancia antes de passar pra proxima'],
                   ].map(([k, l, d]) => (
                     <button key={k} type="button" onClick={() => applyPreset(k)}
-                      className={`p-2.5 rounded-xl border text-left transition ${rotationMode === k ? 'border-violet-400 bg-violet-50 shadow-sm' : 'border-gray-200 hover:border-gray-300'}`}>
-                      <p className={`text-[11px] font-bold ${rotationMode === k ? 'text-violet-700' : 'text-gray-700'}`}>{l}</p>
+                      className={`p-2.5 rounded-xl border text-left transition ${rotationMode === k ? 'border-gray-900 bg-gray-50 shadow-sm' : 'border-gray-200 hover:border-gray-300'}`}>
+                      <p className={`text-[11px] font-bold ${rotationMode === k ? 'text-gray-900' : 'text-gray-700'}`}>{l}</p>
                       <p className="text-[9px] text-gray-400 mt-0.5 leading-tight">{d}</p>
                     </button>
                   ))}
@@ -1581,17 +1626,17 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
 
             {/* Effective throughput summary — only when rotation with multiple instances */}
             {isRotation && connectedPool > 1 && (
-              <div className="rounded-xl p-3 bg-violet-50 border border-violet-200">
+              <div className="rounded-xl p-3 bg-gray-50 border border-gray-200">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-[10px] font-bold text-violet-500 uppercase tracking-wider">Capacidade combinada</p>
+                    <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Capacidade combinada</p>
                     <p className="text-base font-extrabold text-gray-900 mt-0.5" style={{ fontVariantNumeric: 'tabular-nums' }}>
                       ~{effectivePerMin} msgs/min
                       <span className="text-[11px] font-semibold text-gray-400 ml-2">ate {effectiveDaily}/dia</span>
                     </p>
                   </div>
                   <div className="text-right">
-                    <p className="text-[10px] text-violet-600 font-bold">{connectedPool} ativas</p>
+                    <p className="text-[10px] text-gray-700 font-bold">{connectedPool} ativas</p>
                     <p className="text-[9px] text-gray-400">{perMin}/min x {connectedPool}</p>
                   </div>
                 </div>
@@ -1628,8 +1673,8 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
               <div className="grid grid-cols-2 gap-2">
                 {[['immediate', 'Imediato', 'Inicia ao clicar Iniciar'], ['scheduled', 'Agendado', 'Inicia em data/hora definida']].map(([k, l, d]) => (
                   <button key={k} type="button" onClick={() => setScheduleMode(k)}
-                    className={`p-3 rounded-xl border text-left transition ${scheduleMode === k ? 'border-violet-400 bg-violet-50' : 'border-gray-200'}`}>
-                    <p className={`text-xs font-bold ${scheduleMode === k ? 'text-violet-700' : 'text-gray-700'}`}>{l}</p>
+                    className={`p-3 rounded-xl border text-left transition ${scheduleMode === k ? 'border-gray-900 bg-gray-50' : 'border-gray-200'}`}>
+                    <p className={`text-xs font-bold ${scheduleMode === k ? 'text-gray-900' : 'text-gray-700'}`}>{l}</p>
                     <p className="text-[10px] text-gray-400 mt-0.5">{d}</p>
                   </button>
                 ))}
@@ -1740,7 +1785,7 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
                   { label: 'Enviados', value: campaign.sent_count, color: 'text-blue-600' },
                   { label: 'Entregues', value: campaign.delivered_count, color: 'text-emerald-600' },
                   { label: 'Lidos', value: campaign.read_count, color: 'text-indigo-600' },
-                  { label: 'Responderam', value: campaign.replied_count, color: 'text-violet-600' },
+                  { label: 'Responderam', value: campaign.replied_count, color: 'text-gray-700' },
                   { label: 'Falhas', value: campaign.failed_count, color: 'text-red-500' },
                   { label: 'Interessados', value: campaign.interested_count, color: 'text-emerald-600' },
                   { label: 'Neutros', value: campaign.neutral_count, color: 'text-gray-500' },
@@ -1772,7 +1817,7 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
               : 'Esta campanha não pode ser editada agora.'
           ) : ''
           return (
-            <div className="px-5 py-4 border-t border-gray-100 flex items-center justify-between shrink-0">
+            <div className="px-4 sm:px-5 py-3 sm:py-4 border-t border-gray-100 flex items-center justify-between gap-2 shrink-0">
               <button onClick={onClose} className="px-4 py-2.5 rounded-xl bg-gray-100 text-gray-600 text-xs font-semibold hover:bg-gray-200 transition">
                 Fechar
               </button>
@@ -1795,8 +1840,12 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
         open={galleryPicker !== null}
         onClose={() => setGalleryPicker(null)}
         accept={galleryPicker === 'video' ? ['video'] : ['image']}
-        folder={galleryPicker === 'video' ? undefined : 'campanhas'}
-        title={galleryPicker === 'video' ? 'Escolher vídeo' : 'Escolher imagem'}
+        preferSection="publicidade"
+        title={
+          galleryPicker === 'video'
+            ? 'Vídeo da Publicidade / Galeria'
+            : 'Imagem da Publicidade / Galeria'
+        }
         useContext="campaign"
         contextId={campaign?.id}
         onSelect={(item: GalleryItem) => {

@@ -70,7 +70,7 @@ export function MasterClientes() {
     <>
       <MasterPageHeader
         title="Usuários"
-        subtitle="Todos os usuários do SaaS — ativar, suspender e promover super-admin."
+        subtitle="Contas de usuário (consumer, org, staff, affiliate, platform). Planos e status de marca ficam em Organizações."
         action={
           <span className="text-[12px] text-white/50 font-medium tabular-nums">
             {total.toLocaleString('pt-BR')} cadastrados

@@ -3,7 +3,7 @@
  *
  * Todas as rotas exigem autenticação + contexto de brand (x-brand-id header ou body).
  * Funções administrativas sobre perfis exigem roles:write / roles:delete.
- * O owner (JWT role=admin) sempre passa.
+ * O dono da organização (role org|admin legado) e o Admin Master passam.
  *
  * Prefixo registrado em index.ts: /api/roles
  */
@@ -12,6 +12,7 @@ import { Router, Response } from "express";
 import { authMiddleware, AuthRequest } from "../middleware/auth";
 import { permissionsService } from "../services/permissions";
 import { requirePermission, resolveRequestBrandId } from "../middleware/permissions";
+import { isOrgPrincipal, isPlatformPrincipal } from "../config/identity";
 
 const router = Router();
 
@@ -25,8 +26,18 @@ function resolveBrand(req: AuthRequest): string | null {
 }
 
 function isOwnerAdmin(req: AuthRequest): boolean {
-  // Usuário dono da plataforma (JWT role = "admin") tem acesso irrestrito
-  return req.user?.role === "admin";
+  // Dono de organização (org) ou Admin Master — nunca confundir com "admin de plataforma" sem flag
+  return (
+    isPlatformPrincipal({
+      role: req.user?.role,
+      account_kind: req.user?.account_kind,
+      is_super_admin: req.user?.is_super_admin,
+    }) ||
+    isOrgPrincipal({
+      role: req.user?.role,
+      account_kind: req.user?.account_kind,
+    })
+  );
 }
 
 // ─── Permissões (catálogo global) ────────────────────────────────────────────

@@ -3,6 +3,8 @@ import { GeminiService } from "./gemini";
 import { OpenAIProvider, type TextGenerationResult } from "./providers/openai-provider";
 import { GrokProvider } from "./providers/grok-provider";
 import { DEFAULT_PREFERENCES, type AICategory } from "../config/ai-models";
+import { MODALITY_DEFAULT_KEYS } from "../config/ai-algorithms";
+import { algorithmsService } from "./algorithms";
 import { logger } from "../utils/logger";
 
 export interface AIRouterScope {
@@ -16,6 +18,14 @@ interface ProviderPreferences {
   video: { provider: string; model: string };
 }
 
+export type GenerateOptions = {
+  model?: string;
+  temperature?: number;
+  category?: AICategory;
+  /** Master · Algoritmos function key — preferred routing */
+  functionKey?: string;
+};
+
 // Cache preferences per account for 2 minutes
 const prefsCache = new Map<string, { data: ProviderPreferences; ts: number }>();
 const PREFS_CACHE_TTL = 120_000;
@@ -27,10 +37,28 @@ function cacheKey(scope: AIRouterScope): string {
 export class AIRouter {
   private gemini = new GeminiService();
 
+  /**
+   * Modality-level defaults for text/image/video.
+   * PR1: when algorithms_v1_enabled, uses Master global algorithms
+   * (text.router.default / image.product.studio / video.generate.veo).
+   * Legacy: per-org __preferences__ row.
+   */
   async getPreferences(scope: AIRouterScope): Promise<ProviderPreferences> {
     const key = cacheKey(scope);
     const cached = prefsCache.get(key);
     if (cached && Date.now() - cached.ts < PREFS_CACHE_TTL) return cached.data;
+
+    const useGlobal = await algorithmsService.isEnabled().catch(() => true);
+
+    if (useGlobal) {
+      try {
+        const globalPrefs = await algorithmsService.getGlobalModalityPreferences();
+        prefsCache.set(key, { data: globalPrefs, ts: Date.now() });
+        return globalPrefs;
+      } catch (err: any) {
+        logger.warn(`[aiRouter] global prefs failed: ${err?.message}`);
+      }
+    }
 
     try {
       const resolved = await integrationService.getProvider("__preferences__" as any, {
@@ -56,6 +84,16 @@ export class AIRouter {
   }
 
   async savePreferences(prefs: Partial<ProviderPreferences>, scope: AIRouterScope): Promise<void> {
+    const useGlobal = await algorithmsService.isEnabled().catch(() => true);
+    if (useGlobal) {
+      /* Org no longer owns model selection — persist is no-op for models.
+         Keep write for backward-compat clients but log once. */
+      logger.info(
+        `[aiRouter] savePreferences ignored (algorithms_v1); use Master · Algoritmos. scope=${cacheKey(scope)}`,
+      );
+      return;
+    }
+
     const current = await this.getPreferences(scope);
     const merged = {
       text: prefs.text || current.text,
@@ -68,13 +106,13 @@ export class AIRouter {
       is_active: true,
     }, { userId: scope.userId, brandId: scope.brandId });
 
-    // Invalidate cache
     prefsCache.delete(cacheKey(scope));
   }
 
   private async resolveProviderKey(providerName: string, scope: AIRouterScope): Promise<string | null> {
     try {
-      const resolved = await integrationService.getProvider(providerName as any, {
+      const keyProvider = providerName === "veo" ? "gemini" : providerName;
+      const resolved = await integrationService.getProvider(keyProvider as any, {
         userId: scope.userId,
         brandId: scope.brandId,
       });
@@ -85,84 +123,222 @@ export class AIRouter {
   }
 
   /**
-   * Resolve the user/brand's preferred image provider + model + key in
-   * a single call. This is THE source of truth for image-generation
-   * routing — every action that produces images (creative studio, edit,
-   * remix, future video frames) MUST go through this method.
-   *
-   * Returns:
-   *   provider — "openai" | "gemini" | "grok"
-   *   model    — the user-picked model id (gpt-image-1, gemini-2.5-flash-image, grok-imagine-image-pro, etc)
-   *   key      — the API key for that provider, or null if not configured
-   *
-   * Callers should refuse to fall back silently to a different provider
-   * — the user picked one, respect it. If key is null, throw a clear
-   * error pointing to Provedores IA.
+   * Resolve algorithm for a function_key (Master policy) + API key chain.
    */
-  async getImageProvider(scope: AIRouterScope): Promise<{
+  async resolveAlgorithm(
+    functionKey: string,
+    scope: AIRouterScope,
+  ): Promise<{
+    provider: string;
+    model: string;
+    key: string | null;
+    temperature: number | null;
+    function_key: string;
+    source: string;
+  }> {
+    const useGlobal = await algorithmsService.isEnabled().catch(() => true);
+    if (useGlobal) {
+      const r = await algorithmsService.resolve(functionKey, scope);
+      if (r.coming_soon) {
+        throw new Error(
+          `Algoritmo ${functionKey} ainda não tem adapter runtime (coming_soon). Configure outro modelo no Master · Algoritmos.`,
+        );
+      }
+      if (!r.is_enabled) {
+        throw new Error(`Algoritmo ${functionKey} está desativado no Master · Algoritmos.`);
+      }
+      return {
+        provider: r.provider,
+        model: r.model,
+        key: r.key,
+        temperature: r.temperature,
+        function_key: r.function_key,
+        source: r.source,
+      };
+    }
+
+    /* legacy modality map */
+    const prefs = await this.getPreferences(scope);
+    const modality =
+      functionKey.startsWith("image.") || functionKey.startsWith("video.")
+        ? functionKey.startsWith("video.")
+          ? "video"
+          : "image"
+        : "text";
+    const pref = prefs[modality as AICategory] || prefs.text;
+    const key = await this.resolveProviderKey(pref.provider, scope);
+    return {
+      provider: pref.provider,
+      model: pref.model,
+      key,
+      temperature: null,
+      function_key: functionKey,
+      source: "legacy_prefs",
+    };
+  }
+
+  /**
+   * Image routing — prefers functionKey image.product.studio (global algorithm).
+   */
+  async getImageProvider(
+    scope: AIRouterScope,
+    opts?: { functionKey?: string },
+  ): Promise<{
     provider: "openai" | "gemini" | "grok";
     model: string;
     key: string | null;
   }> {
-    const prefs = await this.getPreferences(scope);
-    const pref = prefs.image || DEFAULT_PREFERENCES.image;
-    const provider = (pref.provider as "openai" | "gemini" | "grok") || "gemini";
-    const model = pref.model || DEFAULT_PREFERENCES.image.model;
-    const key = await this.resolveProviderKey(provider, scope);
-    return { provider, model, key };
+    const functionKey = opts?.functionKey || MODALITY_DEFAULT_KEYS.image;
+    try {
+      const r = await this.resolveAlgorithm(functionKey, scope);
+      const provider = (r.provider as "openai" | "gemini" | "grok") || "gemini";
+      return { provider, model: r.model, key: r.key };
+    } catch {
+      const prefs = await this.getPreferences(scope);
+      const pref = prefs.image || DEFAULT_PREFERENCES.image;
+      const provider = (pref.provider as "openai" | "gemini" | "grok") || "gemini";
+      const model = pref.model || DEFAULT_PREFERENCES.image.model;
+      const key = await this.resolveProviderKey(provider, scope);
+      return { provider, model, key };
+    }
   }
 
-  async generateText(prompt: string, scope: AIRouterScope, options?: { model?: string; temperature?: number; category?: AICategory }): Promise<TextGenerationResult> {
-    const prefs = await this.getPreferences(scope);
-    const category = options?.category || "text";
-    const pref = prefs[category] || prefs.text;
-    const providerName = pref.provider;
-    const model = options?.model || pref.model;
+  async generateText(
+    prompt: string,
+    scope: AIRouterScope,
+    options?: GenerateOptions,
+  ): Promise<TextGenerationResult> {
+    const functionKey =
+      options?.functionKey ||
+      (options?.category === "image"
+        ? MODALITY_DEFAULT_KEYS.image
+        : options?.category === "video"
+          ? MODALITY_DEFAULT_KEYS.video
+          : MODALITY_DEFAULT_KEYS.text);
 
-    if (providerName === "openai") {
-      const key = await this.resolveProviderKey("openai", scope);
-      if (!key) throw new Error("API Key OpenAI nao configurada. Va em Provedores IA para configurar.");
-      const provider = new OpenAIProvider(key, model);
-      return provider.generateText(prompt, { model, temperature: options?.temperature });
+    let providerName: string;
+    let model: string;
+    let temperature = options?.temperature;
+
+    const useGlobal = await algorithmsService.isEnabled().catch(() => true);
+    if (useGlobal && !options?.model) {
+      const algo = await this.resolveAlgorithm(functionKey, scope);
+      providerName = algo.provider;
+      model = algo.model;
+      if (temperature === undefined && algo.temperature != null) temperature = algo.temperature;
+    } else {
+      const prefs = await this.getPreferences(scope);
+      const category = options?.category || "text";
+      const pref = prefs[category] || prefs.text;
+      providerName = pref.provider;
+      model = options?.model || pref.model;
     }
 
-    if (providerName === "grok") {
-      const key = await this.resolveProviderKey("grok", scope);
-      if (!key) throw new Error("API Key Grok nao configurada. Va em Provedores IA para configurar.");
-      const provider = new GrokProvider(key, model);
-      return provider.generateText(prompt, { model, temperature: options?.temperature });
-    }
+    const callPrimary = async (): Promise<TextGenerationResult> => {
+      if (providerName === "openai") {
+        const key = await this.resolveProviderKey("openai", scope);
+        if (!key) throw new Error("API Key OpenAI nao configurada. Configure em Master · Providers ou Provedores IA.");
+        const provider = new OpenAIProvider(key, model);
+        return provider.generateText(prompt, { model, temperature });
+      }
 
-    // Default: Gemini
-    const text = await this.gemini.generatePlainText(prompt, {
-      model,
-      temperature: options?.temperature,
-      userId: scope.userId,
-      brandId: scope.brandId,
-    });
-    return { text, model, provider: "gemini" };
+      if (providerName === "grok") {
+        const key = await this.resolveProviderKey("grok", scope);
+        if (!key) throw new Error("API Key Grok nao configurada. Configure em Master · Providers ou Provedores IA.");
+        const provider = new GrokProvider(key, model);
+        return provider.generateText(prompt, { model, temperature });
+      }
+
+      // Default: Gemini (also handles veo key path for text via gemini)
+      const text = await this.gemini.generatePlainText(prompt, {
+        model,
+        temperature,
+        userId: scope.userId,
+        brandId: scope.brandId,
+      });
+      return { text, model, provider: "gemini" };
+    };
+
+    try {
+      return await callPrimary();
+    } catch (err: any) {
+      // On quota/rate-limit, try alternate providers that already have keys configured
+      const msg = String(err?.message || err || "");
+      const isQuota =
+        /429|quota|rate.?limit|too many requests|resource.?exhausted/i.test(msg);
+      if (!isQuota) throw err;
+
+      const chain: Array<"openai" | "grok" | "gemini"> = ["openai", "grok", "gemini"];
+      for (const alt of chain) {
+        if (alt === providerName) continue;
+        try {
+          if (alt === "openai") {
+            const key = await this.resolveProviderKey("openai", scope);
+            if (!key) continue;
+            logger.warn(`[aiRouter] primary ${providerName} quota — falling back to openai`);
+            return new OpenAIProvider(key).generateText(prompt, { temperature });
+          }
+          if (alt === "grok") {
+            const key = await this.resolveProviderKey("grok", scope);
+            if (!key) continue;
+            logger.warn(`[aiRouter] primary ${providerName} quota — falling back to grok`);
+            return new GrokProvider(key).generateText(prompt, { temperature });
+          }
+          if (alt === "gemini") {
+            logger.warn(`[aiRouter] primary ${providerName} failed — falling back to gemini`);
+            const text = await this.gemini.generatePlainText(prompt, {
+              temperature,
+              userId: scope.userId,
+              brandId: scope.brandId,
+            });
+            return { text, model: "gemini-2.5-flash", provider: "gemini" };
+          }
+        } catch (altErr: any) {
+          logger.warn(`[aiRouter] fallback ${alt} failed: ${altErr?.message || altErr}`);
+        }
+      }
+      throw err;
+    }
   }
 
-  async generateJson<T>(prompt: string, scope: AIRouterScope, options?: { model?: string; temperature?: number }): Promise<T> {
-    const prefs = await this.getPreferences(scope);
-    const providerName = prefs.text.provider;
-    const model = options?.model || prefs.text.model;
+  async generateJson<T>(
+    prompt: string,
+    scope: AIRouterScope,
+    options?: GenerateOptions,
+  ): Promise<T> {
+    const functionKey = options?.functionKey || MODALITY_DEFAULT_KEYS.text;
+
+    let providerName: string;
+    let model: string;
+    let temperature = options?.temperature;
+
+    const useGlobal = await algorithmsService.isEnabled().catch(() => true);
+    if (useGlobal && !options?.model) {
+      const algo = await this.resolveAlgorithm(functionKey, scope);
+      providerName = algo.provider;
+      model = algo.model;
+      if (temperature === undefined && algo.temperature != null) temperature = algo.temperature;
+    } else {
+      const prefs = await this.getPreferences(scope);
+      providerName = prefs.text.provider;
+      model = options?.model || prefs.text.model;
+    }
 
     if (providerName === "openai") {
       const key = await this.resolveProviderKey("openai", scope);
       if (!key) throw new Error("API Key OpenAI nao configurada.");
-      return new OpenAIProvider(key, model).generateJson<T>(prompt, { model, temperature: options?.temperature });
+      return new OpenAIProvider(key, model).generateJson<T>(prompt, { model, temperature });
     }
 
     if (providerName === "grok") {
       const key = await this.resolveProviderKey("grok", scope);
       if (!key) throw new Error("API Key Grok nao configurada.");
-      return new GrokProvider(key, model).generateJson<T>(prompt, { model, temperature: options?.temperature });
+      return new GrokProvider(key, model).generateJson<T>(prompt, { model, temperature });
     }
 
     return this.gemini.generateJson<T>(prompt, {
       model,
-      temperature: options?.temperature,
+      temperature,
       userId: scope.userId,
       brandId: scope.brandId,
     });

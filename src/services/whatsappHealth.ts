@@ -275,8 +275,14 @@ function detectRuntimeStatusFallback(id: string): "connected" | "disconnected" |
     if (pairingSessions?.has(id)) return "pairing";
     const sock = sockets.get(id);
     const inst = instances.get(id);
-    if (sock && inst && inst.status === "connected") return "connected";
-    if (sock && inst && inst.status === "connecting") return "connecting";
+    const st = String(inst?.status || "").toLowerCase();
+    // Socket vivo + status de sessão autenticada = conectado
+    if (sock && inst && (st === "connected" || st === "authenticated" || st === "open")) {
+      return "connected";
+    }
+    if (sock && inst && (st === "connecting" || st === "qr_ready")) return "connecting";
+    // Sem socket mas DB/memória ainda diz connected: se o sock sumiu, é disconnected
+    if (!sock && inst && (st === "connected" || st === "authenticated")) return "disconnected";
     return "disconnected";
   } catch {
     return "unknown";

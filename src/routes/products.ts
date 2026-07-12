@@ -4,11 +4,13 @@ import fs from "fs";
 import path from "path";
 import { authMiddleware, AuthRequest } from "../middleware/auth";
 import { BrandRequest, requireBrandContext } from "../middleware/brandContext";
+import { requirePermission } from "../middleware/permissions";
 import { ProductsService } from "../services/products";
 import { offerCatalogService, productRelationsService } from "../services/offerCatalog";
 import { invalidateCatalogCacheByBrand } from "../services/storefrontCache";
 import { logger } from "../utils/logger";
 import { GeminiService } from "../services/gemini";
+import { aiRouter } from "../services/aiRouter";
 import { query, queryOne, update } from "../config/database";
 
 const router = Router();
@@ -235,10 +237,12 @@ async function generateRefinedProductTestimonials(input: {
     .join("\n");
 
   try {
-    const raw = await geminiService.generatePlainText(prompt, {
-      userId: input.userId || undefined,
-      brandId: input.brandId || undefined,
-    });
+    const raw = (
+      await aiRouter.generateText(prompt, {
+        userId: input.userId || undefined,
+        brandId: input.brandId || undefined,
+      }, { functionKey: "text.product.description" })
+    ).text;
     const clean = String(raw || "")
       .trim()
       .replace(/^```json\s*/i, "")
@@ -349,10 +353,12 @@ async function generateRefinedProductDescription(input: {
     .join("\n");
 
   try {
-    const text = await geminiService.generatePlainText(prompt, {
-      userId: input.userId || undefined,
-      brandId: input.brandId || undefined,
-    });
+    const text = (
+      await aiRouter.generateText(prompt, {
+        userId: input.userId || undefined,
+        brandId: input.brandId || undefined,
+      }, { functionKey: "text.product.description" })
+    ).text;
     const normalized = String(text || "").trim();
     return normalized || null;
   } catch {
@@ -410,6 +416,18 @@ function withMulterErrorHandling(middleware: (req: any, res: any, cb: (err?: any
 }
 
 router.use(authMiddleware, requireBrandContext);
+
+/* RBAC: brand owner always passes; team members need role assignment */
+router.use((req: AuthRequest, res: Response, next: NextFunction) => {
+  const method = String(req.method || "GET").toUpperCase();
+  const perm =
+    method === "GET" || method === "HEAD"
+      ? "products:read"
+      : method === "DELETE"
+        ? "products:delete"
+        : "products:write";
+  return requirePermission(perm)(req, res, next);
+});
 
 router.post("/refine-description-preview", async (req: BrandRequest, res: Response) => {
   try {

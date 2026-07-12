@@ -281,7 +281,7 @@ export async function generateLeadIdeas(
   const result = await aiRouter.generateJson<IdeasResponse>(
     buildPrompt(desc, brandBlock),
     { userId: scope.userId, brandId: scope.brandId },
-    { temperature: 0.7 },
+    { temperature: 0.7, functionKey: "text.lead.ideas" },
   );
 
   /* Validacao defensiva — IA pode retornar campos faltando ou fora do schema */
@@ -403,7 +403,7 @@ Retorne JSON: { "prompts": ["frase 1", "frase 2", "frase 3", "frase 4"] }
     const result = await aiRouter.generateJson<{ prompts: string[] }>(
       prompt,
       { userId, brandId: req.brandId || undefined },
-      { temperature: 0.85 },
+      { functionKey: "text.lead.ideas", temperature: 0.85 },
     );
 
     const prompts = Array.isArray(result?.prompts)

@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef, lazy, Suspense } from 'react'
 import {
-  Loader2, Handshake, Plus, ChevronRight, Wallet, Users, MousePointerClick, ExternalLink, Settings,
+  Loader2, Handshake, Plus, ChevronRight, Wallet, Users, MousePointerClick, ExternalLink,
 } from 'lucide-react'
 import { PageSplash } from '@/components/PageSplash'
 import { useToast } from '@/components/Toast'
@@ -27,7 +27,8 @@ function AffiliatesManagerEmbedded({ initialTab }: { initialTab: AffiliatesTabKe
 
 const TAB_CHIPS: { tab: AffiliatesTabKey; label: string }[] = [
   { tab: 'distribution', label: 'Distribuição' },
-  { tab: 'partners', label: 'Parceiros' },
+  { tab: 'programs', label: 'Programas' },
+  { tab: 'partners', label: 'Afiliados' },
   { tab: 'commissions', label: 'Comissões' },
   { tab: 'payouts', label: 'Saques' },
   { tab: 'materials', label: 'Materiais' },
@@ -86,7 +87,7 @@ export function AffiliatesInlinePanel() {
         label: 'Novo afiliado',
         assistantMessage: 'Vamos cadastrar um parceiro. Preencha os dados:',
       }),
-      openSettings: () => openManager('settings'),
+      openSettings: () => openManager('programs'),
     })
   }, [registerHandlers, openManager, load, snap?.activeTab, triggerSkill])
 
@@ -147,14 +148,6 @@ export function AffiliatesInlinePanel() {
             )}
           </button>
         ))}
-        <button
-          type="button"
-          className={`catalog-panel__filter-chip catalog-panel__filter-chip--affiliate${activeTab === 'settings' ? ' is-active' : ''}`}
-          onClick={() => openManager('settings')}
-        >
-          <Settings size={11} className="inline mr-0.5" />
-          Config
-        </button>
       </div>
 
       {isDesktop ? (

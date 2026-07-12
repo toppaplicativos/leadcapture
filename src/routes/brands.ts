@@ -3,6 +3,7 @@ import { AuthRequest } from "../middleware/auth";
 import { BrandUnitsService } from "../services/brandUnits";
 import { StorefrontService } from "../services/storefront";
 import { invalidateCatalogCacheByBrand } from "../services/storefrontCache";
+import { assertBrandLimit, EntitlementError, getBrandStatus } from "../services/planEntitlements";
 
 const router = Router();
 const brandUnitsService = new BrandUnitsService();
@@ -45,11 +46,20 @@ router.post("/", async (req: AuthRequest, res: Response) => {
     const userId = req.user?.userId as string | undefined;
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
+    await assertBrandLimit(userId);
+
     const brand = await brandUnitsService.create(userId, req.body || {});
     await storefrontService.synchronizeBrandStructure(userId, String(brand.id), { syncProducts: true });
     const activeBrandId = await brandUnitsService.getActiveBrandId(userId);
     res.status(201).json({ success: true, brand, active_brand_id: activeBrandId });
   } catch (error: any) {
+    if (error instanceof EntitlementError) {
+      return res.status(error.status).json({
+        error: error.code,
+        message: error.message,
+        details: error.details,
+      });
+    }
     const message = String(error?.message || "");
     if (message.includes("required") || message.includes("invalid")) {
       return res.status(400).json({ error: message });
@@ -84,6 +94,18 @@ router.post("/:id/activate", async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user?.userId as string | undefined;
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+    const brandStatus = await getBrandStatus(String(req.params.id));
+    if (brandStatus.id && !brandStatus.active) {
+      return res.status(403).json({
+        error: "brand_inactive",
+        message:
+          brandStatus.status === "suspended"
+            ? "Organização suspensa — não é possível ativar."
+            : "Organização arquivada — não é possível ativar.",
+        status: brandStatus.status,
+      });
+    }
 
     const ok = await brandUnitsService.setActiveBrand(userId, String(req.params.id));
     if (!ok) return res.status(404).json({ error: "Brand not found" });

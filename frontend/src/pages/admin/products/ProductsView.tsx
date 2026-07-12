@@ -29,6 +29,7 @@ import type { GalleryItem } from '@/lib/gallery/types'
 import { useProductsBridgeOptional } from '@/lib/agent/ProductsBridgeContext'
 import { useAgentShell } from '@/lib/agent/AgentShellContext'
 import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
+import { fieldControlClass, fieldLabelLegacyClass } from '@/components/ui'
 
 export function ProductsView({
   showToast,
@@ -306,7 +307,7 @@ export function ProductsView({
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
         <KpiCard label="Total" value={String(metrics.total)} icon={Package} bg="bg-blue-50" color="text-blue-500" accent="text-blue-600" />
         <KpiCard label="Ativos" value={String(metrics.active)} icon={Eye} bg="bg-emerald-50" color="text-emerald-500" accent="text-emerald-600" />
-        <KpiCard label="Com Imagem" value={String(metrics.withImage)} icon={Eye} bg="bg-violet-50" color="text-violet-500" accent="text-violet-600" />
+        <KpiCard label="Com Imagem" value={String(metrics.withImage)} icon={Eye} bg="bg-gray-50" color="text-gray-500" accent="text-gray-700" />
         <KpiCard label="Preco Medio" value={money(metrics.avgPrice)} icon={BarChart3} bg="bg-amber-50" color="text-amber-500" accent="text-amber-600" />
       </div>
 
@@ -1096,21 +1097,21 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
     }
   }
 
-  const inputCls = 'w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900'
-  const labelCls = 'text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5 block'
+  const inputCls = fieldControlClass
+  const labelCls = fieldLabelLegacyClass
 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between shrink-0">
           <h3 className="font-bold text-base text-gray-900">{isEdit ? 'Editar Produto' : 'Novo Produto'}</h3>
-          <button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100 transition"><X size={18} className="text-gray-400" /></button>
+          <button type="button" onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100 transition" aria-label="Fechar editor"><X size={18} className="text-gray-400" /></button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
           {/* Image */}
           <div className="flex items-center justify-between mb-1">
-            <span className={labelCls + ' mb-0'}>Imagem</span>
+            <span className={labelCls + ' mb-0'} id="product-image-label">Imagem do produto</span>
             <button
               type="button"
               onClick={() => setGalleryOpen(true)}
@@ -1119,22 +1120,27 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
               Escolher da galeria
             </button>
           </div>
-          <div className={`rounded-xl border-2 border-dashed overflow-hidden transition ${imageUrl ? 'border-blue-300' : 'border-gray-200'}`}>
+          <div
+            className={`rounded-xl border-2 border-dashed overflow-hidden transition ${imageUrl ? 'border-blue-300' : 'border-gray-200'}`}
+            role="group"
+            aria-labelledby="product-image-label"
+          >
             {imageUrl ? (
               <div className="relative group" style={{ aspectRatio: '16/10' }}>
-                <img src={imageUrl} alt="" className="w-full h-full object-cover" />
-                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                <img src={imageUrl} alt={name ? `Foto de ${name}` : 'Imagem do produto'} className="w-full h-full object-cover" />
+                <div className="absolute inset-0 bg-black/40 sm:opacity-0 sm:group-hover:opacity-100 opacity-100 transition-opacity flex items-center justify-center gap-2">
                   <label className="px-3 py-1.5 bg-white/90 rounded-lg text-[11px] font-bold text-gray-700 cursor-pointer">
-                    Trocar <input type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) uploadImage(f) }} />
+                    Trocar imagem
+                    <input type="file" accept="image/*" className="sr-only" aria-label="Trocar imagem do produto" onChange={e => { const f = e.target.files?.[0]; if (f) uploadImage(f) }} />
                   </label>
-                  <button onClick={() => setImageUrl('')} className="px-3 py-1.5 bg-red-500/90 rounded-lg text-[11px] font-bold text-white">Remover</button>
+                  <button type="button" onClick={() => setImageUrl('')} className="px-3 py-1.5 bg-red-500/90 rounded-lg text-[11px] font-bold text-white" aria-label="Remover imagem">Remover</button>
                 </div>
               </div>
             ) : (
               <label className="flex flex-col items-center justify-center py-8 cursor-pointer hover:bg-blue-50/30 transition">
                 {uploading ? <Loader2 size={24} className="text-blue-400 animate-spin" /> : <Package size={28} className="text-gray-300" />}
                 <p className="text-xs text-gray-400 mt-1">{uploading ? 'Enviando...' : 'Clique para adicionar imagem'}</p>
-                <input type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) uploadImage(f) }} />
+                <input type="file" accept="image/*" className="sr-only" aria-label="Enviar imagem do produto" onChange={e => { const f = e.target.files?.[0]; if (f) uploadImage(f) }} />
               </label>
             )}
           </div>
@@ -1150,7 +1156,7 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
               <div className="flex items-center justify-between mb-1.5">
                 <label className={labelCls + ' !mb-0'}>Categoria *</label>
                 <button type="button" onClick={() => setShowNewCategoryInput(s => !s)} disabled={creatingCategory}
-                  className="text-[10px] font-bold text-violet-600 hover:text-violet-700 px-1.5 py-0.5 rounded hover:bg-violet-50 flex items-center gap-0.5 disabled:opacity-50">
+                  className="text-[10px] font-bold text-gray-700 hover:text-gray-900 px-1.5 py-0.5 rounded hover:bg-gray-100 flex items-center gap-0.5 disabled:opacity-50">
                   <Plus size={10} strokeWidth={2.5} /> {creatingCategory ? '...' : (showNewCategoryInput ? 'Cancelar' : 'Nova')}
                 </button>
               </div>
@@ -1170,7 +1176,7 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
                   />
                   <button type="button" disabled={creatingCategory || !newCategoryName.trim()}
                     onClick={() => createCategoryInline(newCategoryName)}
-                    className="px-3 py-1.5 rounded-xl bg-violet-600 text-white text-[11px] font-bold hover:bg-violet-700 disabled:opacity-50">
+                    className="px-3 py-1.5 rounded-xl bg-gray-900 text-white text-[11px] font-bold hover:bg-gray-800 disabled:opacity-50">
                     OK
                   </button>
                 </div>
@@ -1187,8 +1193,8 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
               <label className={labelCls}>Unidade de medida</label>
               <div className="flex gap-2">
                 <input type="number" step="any" min="0.01" value={unitQty} onChange={e => setUnitQty(e.target.value)}
-                  placeholder="1" className={inputCls + ' !w-20 text-center'} />
-                <select value={baseUnit} onChange={e => setBaseUnit(e.target.value)} className={inputCls}>
+                  placeholder="1" className={inputCls + ' !w-20 text-center'} aria-label="Quantidade da unidade" title="Quantidade (ex.: 1, 500)" />
+                <select value={baseUnit} onChange={e => setBaseUnit(e.target.value)} className={inputCls} aria-label="Unidade base">
                   {UNITS.map(u => <option key={u.value} value={u.value}>{u.label}</option>)}
                 </select>
               </div>
@@ -1209,11 +1215,11 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
           </div>
 
           {/* ── Estoque (Fase 12) ── Vazio = ilimitado (não rastrear) */}
-          <div className="bg-violet-50/40 border border-violet-100 rounded-xl p-3">
+          <div className="bg-gray-50 border border-gray-200 rounded-xl p-3">
             <div className="flex items-center gap-2 mb-2">
-              <Package size={14} className="text-violet-600" strokeWidth={2.5} />
-              <span className="text-[11px] font-bold text-violet-900 uppercase tracking-wider">Estoque</span>
-              <span className="text-[10px] text-violet-700/70 font-normal">deixe vazio para não rastrear</span>
+              <Package size={14} className="text-gray-700" strokeWidth={2.5} />
+              <span className="text-[11px] font-bold text-gray-900 uppercase tracking-wider">Estoque</span>
+              <span className="text-[10px] text-gray-500 font-normal">deixe vazio para não rastrear</span>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -1319,38 +1325,46 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
               </div>
               <button type="button"
                 onClick={() => setShowNewAttrForm(s => !s)}
-                className="text-[11px] font-bold text-violet-600 hover:text-violet-700 px-2 py-1 rounded hover:bg-violet-50 flex items-center gap-1">
+                className="text-[11px] font-bold text-gray-700 hover:text-gray-900 px-2 py-1 rounded hover:bg-gray-100 flex items-center gap-1">
                 <Plus size={11} strokeWidth={2.5} /> {showNewAttrForm ? 'Cancelar' : 'Atributo'}
               </button>
             </div>
 
             {showNewAttrForm && (
-              <div className="mb-3 flex gap-2 items-center bg-violet-50/40 border border-violet-100 rounded-xl p-2">
-                <input
-                  type="text"
-                  autoFocus
-                  value={newAttrKey}
-                  onChange={e => setNewAttrKey(e.target.value)}
-                  placeholder="Nome (ex: Material)"
-                  className={inputCls}
-                />
-                <input
-                  type="text"
-                  value={newAttrValue}
-                  onChange={e => setNewAttrValue(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter' && newAttrKey.trim() && newAttrValue.trim()) {
-                      e.preventDefault()
-                      const k = newAttrKey.trim().toLowerCase().replace(/[^a-z0-9_]/gi, '_').replace(/_+/g, '_').replace(/^_|_$/g, '')
-                      if (k) {
-                        setAttrValues(prev => ({ ...prev, [k]: newAttrValue.trim() }))
-                        setNewAttrKey(''); setNewAttrValue(''); setShowNewAttrForm(false)
+              <div className="mb-3 grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-2 items-end bg-gray-50 border border-gray-200 rounded-xl p-2">
+                <div>
+                  <label className={labelCls} htmlFor="product-attr-key">Nome do atributo</label>
+                  <input
+                    id="product-attr-key"
+                    type="text"
+                    autoFocus
+                    value={newAttrKey}
+                    onChange={e => setNewAttrKey(e.target.value)}
+                    placeholder="Ex: Material"
+                    className={inputCls}
+                  />
+                </div>
+                <div>
+                  <label className={labelCls} htmlFor="product-attr-value">Valor</label>
+                  <input
+                    id="product-attr-value"
+                    type="text"
+                    value={newAttrValue}
+                    onChange={e => setNewAttrValue(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' && newAttrKey.trim() && newAttrValue.trim()) {
+                        e.preventDefault()
+                        const k = newAttrKey.trim().toLowerCase().replace(/[^a-z0-9_]/gi, '_').replace(/_+/g, '_').replace(/^_|_$/g, '')
+                        if (k) {
+                          setAttrValues(prev => ({ ...prev, [k]: newAttrValue.trim() }))
+                          setNewAttrKey(''); setNewAttrValue(''); setShowNewAttrForm(false)
+                        }
                       }
-                    }
-                  }}
-                  placeholder="Valor (ex: Algodão)"
-                  className={inputCls}
-                />
+                    }}
+                    placeholder="Ex: Algodão"
+                    className={inputCls}
+                  />
+                </div>
                 <button type="button" disabled={!newAttrKey.trim() || !newAttrValue.trim()}
                   onClick={() => {
                     const k = newAttrKey.trim().toLowerCase().replace(/[^a-z0-9_]/gi, '_').replace(/_+/g, '_').replace(/^_|_$/g, '')
@@ -1358,7 +1372,7 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
                     setAttrValues(prev => ({ ...prev, [k]: newAttrValue.trim() }))
                     setNewAttrKey(''); setNewAttrValue(''); setShowNewAttrForm(false)
                   }}
-                  className="px-3 py-1.5 rounded-xl bg-violet-600 text-white text-[11px] font-bold hover:bg-violet-700 disabled:opacity-50">
+                  className="px-3 py-1.5 rounded-xl bg-gray-900 text-white text-[11px] font-bold hover:bg-gray-800 disabled:opacity-50 h-[38px]">
                   Adicionar
                 </button>
               </div>
@@ -1458,7 +1472,7 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
                       <span className="text-[11px] font-semibold text-gray-700 min-w-[100px]">{k}:</span>
                       <input type="text" value={String(v ?? '')}
                         onChange={e => setAttrValues(prev => ({ ...prev, [k]: e.target.value }))}
-                        className="flex-1 px-2 py-1 border border-gray-200 rounded text-xs bg-white focus:outline-none focus:ring-2 focus:ring-violet-200" />
+                        className="flex-1 px-2 py-1 border border-gray-200 rounded text-xs bg-white focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900" />
                       <button type="button"
                         onClick={() => setAttrValues(prev => {
                           const next = { ...prev }
@@ -1530,7 +1544,7 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
                       ...serviceConfig,
                       weekday_hours: [...(serviceConfig.weekday_hours || []), { weekday: 1, start: '09:00', end: '18:00' }],
                     })}
-                    className="text-[11px] font-bold text-violet-600 hover:text-violet-700 px-2 py-1 rounded hover:bg-violet-50">
+                    className="text-[11px] font-bold text-gray-700 hover:text-gray-900 px-2 py-1 rounded hover:bg-gray-100">
                     + horário
                   </button>
                 </div>
@@ -1546,7 +1560,7 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
                             next[idx] = { ...next[idx], weekday: Number(e.target.value) }
                             setServiceConfig({ ...serviceConfig, weekday_hours: next })
                           }}
-                          className="px-2 py-1 rounded-lg border border-gray-200 text-xs focus:outline-none focus:ring-2 focus:ring-violet-200">
+                          className="px-2 py-1 rounded-lg border border-gray-200 text-xs focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900">
                           {['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'].map((d, i) => <option key={i} value={i}>{d}</option>)}
                         </select>
                         <input type="time" value={h.start}
@@ -1555,7 +1569,7 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
                             next[idx] = { ...next[idx], start: e.target.value }
                             setServiceConfig({ ...serviceConfig, weekday_hours: next })
                           }}
-                          className="px-2 py-1 rounded-lg border border-gray-200 text-xs focus:outline-none focus:ring-2 focus:ring-violet-200" />
+                          className="px-2 py-1 rounded-lg border border-gray-200 text-xs focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900" />
                         <span className="text-xs text-gray-400">—</span>
                         <input type="time" value={h.end}
                           onChange={e => {
@@ -1563,7 +1577,7 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
                             next[idx] = { ...next[idx], end: e.target.value }
                             setServiceConfig({ ...serviceConfig, weekday_hours: next })
                           }}
-                          className="px-2 py-1 rounded-lg border border-gray-200 text-xs focus:outline-none focus:ring-2 focus:ring-violet-200" />
+                          className="px-2 py-1 rounded-lg border border-gray-200 text-xs focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900" />
                         <button type="button"
                           onClick={() => {
                             const next = (serviceConfig.weekday_hours || []).filter((_, i) => i !== idx)
@@ -1606,7 +1620,7 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
                         <span className="flex-1 text-xs text-gray-700 truncate">{name}</span>
                         <input type="number" min={1} value={it.quantity}
                           onChange={e => updateBundleItem(idx, { quantity: Math.max(1, Number(e.target.value) || 1) })}
-                          className="w-16 px-2 py-1 border border-gray-200 rounded text-xs text-center bg-white focus:outline-none focus:ring-2 focus:ring-violet-200" />
+                          className="w-16 px-2 py-1 border border-gray-200 rounded text-xs text-center bg-white focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900" />
                         <span className="text-[10px] text-gray-400">un</span>
                         <button type="button" onClick={() => removeBundleItem(idx)}
                           className="p-1 rounded text-gray-500 hover:text-red-600 hover:bg-red-50 transition">
@@ -1654,7 +1668,7 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
                           <input type="text" value={g.name}
                             onChange={e => updateGroup(gi, { name: e.target.value })}
                             placeholder="Nome do grupo"
-                            className="flex-1 px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs font-semibold bg-white focus:outline-none focus:ring-2 focus:ring-violet-200" />
+                            className="flex-1 px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs font-semibold bg-white focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900" />
                           <button type="button" onClick={() => removeGroup(gi)}
                             className="p-1.5 rounded-md text-gray-400 hover:text-red-500 hover:bg-red-50 transition">
                             <Trash2 size={12} />
@@ -1685,11 +1699,11 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
                               <input type="text" value={o.name}
                                 onChange={e => updateOption(gi, oi, { name: e.target.value })}
                                 placeholder="Nome da opção"
-                                className="flex-1 px-2 py-1 border border-gray-200 rounded text-xs focus:outline-none focus:ring-2 focus:ring-violet-200" />
+                                className="flex-1 px-2 py-1 border border-gray-200 rounded text-xs focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900" />
                               <input type="number" step="0.01" value={o.price_delta}
                                 onChange={e => updateOption(gi, oi, { price_delta: Number(e.target.value) || 0 })}
                                 placeholder="+R$"
-                                className="w-20 px-2 py-1 border border-gray-200 rounded text-xs text-right focus:outline-none focus:ring-2 focus:ring-violet-200" />
+                                className="w-20 px-2 py-1 border border-gray-200 rounded text-xs text-right focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900" />
                               <button type="button" onClick={() => removeOption(gi, oi)}
                                 className="p-1 rounded-md text-gray-400 hover:text-red-500 hover:bg-red-50 transition">
                                 <Trash2 size={11} />
@@ -1697,7 +1711,7 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
                             </div>
                           ))}
                           <button type="button" onClick={() => addOption(gi)}
-                            className="text-[11px] font-bold text-violet-600 hover:text-violet-700 px-2 py-1 rounded hover:bg-violet-50 flex items-center gap-1">
+                            className="text-[11px] font-bold text-gray-700 hover:text-gray-900 px-2 py-1 rounded hover:bg-gray-100 flex items-center gap-1">
                             <Plus size={11} strokeWidth={2.5} /> Adicionar opção
                           </button>
                         </div>
@@ -1706,7 +1720,7 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
                   </div>
                 )}
                 <button type="button" onClick={addConfigGroup}
-                  className="mt-2 text-[12px] font-bold text-violet-600 hover:text-violet-700 px-3 py-1.5 rounded-lg hover:bg-violet-50 flex items-center gap-1">
+                  className="mt-2 text-[12px] font-bold text-gray-700 hover:text-gray-900 px-3 py-1.5 rounded-lg hover:bg-gray-100 flex items-center gap-1">
                   <Plus size={12} strokeWidth={2.5} /> Adicionar grupo
                 </button>
               </>
@@ -1721,7 +1735,7 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
                 <p className="text-[10px] text-gray-400 mt-0.5">Ex: 500g/1kg, P/M/G, Casal/Queen/King. Sobrescrevem preço e estoque do produto.</p>
               </div>
               <button type="button" onClick={addVariant}
-                className="text-[11px] font-bold text-violet-600 hover:text-violet-700 px-2.5 py-1.5 rounded-lg hover:bg-violet-50 transition flex items-center gap-1">
+                className="text-[11px] font-bold text-gray-700 hover:text-gray-900 px-2.5 py-1.5 rounded-lg hover:bg-gray-100 transition flex items-center gap-1">
                 <Plus size={12} strokeWidth={2.5} /> Adicionar
               </button>
             </div>
@@ -1740,25 +1754,25 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
                       <input type="text" value={v.name || ''}
                         onChange={e => updateVariant(idx, { name: e.target.value })}
                         placeholder="Nome (ex: 1kg, Tamanho M)"
-                        className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-violet-200" />
+                        className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900" />
                       <input type="text" value={v.sku || ''}
                         onChange={e => updateVariant(idx, { sku: e.target.value })}
                         placeholder="SKU (opcional)"
-                        className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-violet-200" />
+                        className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900" />
                     </div>
                     <div className="grid grid-cols-3 gap-2">
                       <input type="number" step="0.01" value={v.price || ''}
                         onChange={e => updateVariant(idx, { price: e.target.value })}
                         placeholder="Preço"
-                        className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-violet-200" />
+                        className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900" />
                       <input type="number" step="0.01" value={v.promo_price || ''}
                         onChange={e => updateVariant(idx, { promo_price: e.target.value })}
                         placeholder="Promo"
-                        className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-violet-200" />
+                        className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900" />
                       <input type="number" step="1" value={v.stock_quantity || ''}
                         onChange={e => updateVariant(idx, { stock_quantity: e.target.value })}
                         placeholder="Estoque"
-                        className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-violet-200" />
+                        className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900" />
                     </div>
                     <div className="flex gap-2 flex-wrap items-center">
                       {Object.entries(v.attributes || {}).map(([k, val]) => (
@@ -1769,14 +1783,14 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
                         </span>
                       ))}
                       {variantAttrDraft[idx] ? (
-                        <span className="inline-flex items-center gap-1 bg-violet-50 border border-violet-200 rounded-full px-1.5 py-0.5">
+                        <span className="inline-flex items-center gap-1 bg-gray-50 border border-gray-200 rounded-full px-1.5 py-0.5">
                           <input
                             type="text"
                             autoFocus
                             value={variantAttrDraft[idx]?.key || ''}
                             onChange={e => setVariantAttrDraft(d => ({ ...d, [idx]: { ...(d[idx] || { key: '', value: '' }), key: e.target.value } }))}
                             placeholder="cor"
-                            className="text-[10px] bg-transparent border-b border-violet-300 focus:outline-none w-14"
+                            className="text-[10px] bg-transparent border-b border-gray-300 focus:outline-none w-14"
                           />
                           <span className="text-[10px] text-gray-400">:</span>
                           <input
@@ -1793,7 +1807,7 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
                               if (e.key === 'Escape') setVariantAttrDraft(d => ({ ...d, [idx]: null }))
                             }}
                             placeholder="azul"
-                            className="text-[10px] bg-transparent border-b border-violet-300 focus:outline-none w-16"
+                            className="text-[10px] bg-transparent border-b border-gray-300 focus:outline-none w-16"
                           />
                           <button type="button"
                             onClick={() => {
@@ -1802,7 +1816,7 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
                               updateVariantAttr(idx, draft.key.trim().toLowerCase(), draft.value.trim())
                               setVariantAttrDraft(d => ({ ...d, [idx]: null }))
                             }}
-                            className="text-violet-600 text-[10px] font-bold px-1 hover:text-violet-700">OK</button>
+                            className="text-gray-700 text-[10px] font-bold px-1 hover:text-gray-900">OK</button>
                           <button type="button"
                             onClick={() => setVariantAttrDraft(d => ({ ...d, [idx]: null }))}
                             className="text-gray-400 text-[10px] px-1 hover:text-red-500">×</button>
@@ -1810,7 +1824,7 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
                       ) : (
                         <button type="button"
                           onClick={() => setVariantAttrDraft(d => ({ ...d, [idx]: { key: '', value: '' } }))}
-                          className="text-[10px] font-bold text-violet-600 hover:text-violet-700 px-2 py-0.5 rounded-full hover:bg-violet-50">
+                          className="text-[10px] font-bold text-gray-700 hover:text-gray-900 px-2 py-0.5 rounded-full hover:bg-gray-100">
                           + atributo
                         </button>
                       )}
@@ -1835,10 +1849,10 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
                     <button key={p.id} type="button"
                       onClick={() => setRelatedIds(prev => selected ? prev.filter(x => x !== p.id) : [...prev, p.id])}
                       className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left transition ${
-                        selected ? 'bg-violet-50 ring-1 ring-violet-300' : 'hover:bg-gray-50'
+                        selected ? 'bg-gray-50 ring-1 ring-gray-300' : 'hover:bg-gray-50'
                       }`}>
                       <span className={`w-4 h-4 rounded border grid place-items-center shrink-0 ${
-                        selected ? 'bg-violet-600 border-violet-600' : 'border-gray-300'
+                        selected ? 'bg-gray-900 border-gray-900' : 'border-gray-300'
                       }`}>
                         {selected && <CheckCircle2 size={10} className="text-white" />}
                       </span>
@@ -1958,6 +1972,8 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
         onClose={() => setGalleryOpen(false)}
         accept={['image']}
         folder="produtos"
+        preferSection="library"
+        allowCreateFolder={false}
         title="Escolher imagem do produto"
         useContext="product"
         contextId={product?.id}
@@ -2066,9 +2082,9 @@ function CollectionsManager({
           <input type="text" value={newName} onChange={e => setNewName(e.target.value)}
             placeholder="Ex: Mais vendidos, Promoções, Premium"
             onKeyDown={e => e.key === 'Enter' && createCollection()}
-            className="flex-1 px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-200" />
+            className="flex-1 px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900" />
           <button onClick={createCollection} disabled={!newName.trim()}
-            className="px-4 py-2.5 rounded-xl bg-violet-600 text-white text-xs font-bold hover:bg-violet-700 disabled:opacity-50 transition">
+            className="px-4 py-2.5 rounded-xl bg-gray-900 text-white text-xs font-bold hover:bg-gray-800 disabled:opacity-50 transition">
             Criar
           </button>
         </div>
@@ -2095,7 +2111,7 @@ function CollectionsManager({
                 </div>
                 <div className="flex items-center gap-1">
                   <button onClick={() => setEditing(isEditing ? null : c)}
-                    className="px-3 py-1.5 rounded-lg text-[11px] font-bold text-violet-600 hover:bg-violet-50 transition">
+                    className="px-3 py-1.5 rounded-lg text-[11px] font-bold text-gray-700 hover:bg-gray-100 transition">
                     {isEditing ? 'Cancelar' : 'Editar'}
                   </button>
                   <button onClick={() => deleteCollection(c.id)}
@@ -2111,7 +2127,7 @@ function CollectionsManager({
                     <input type="text" value={current.name}
                       onChange={e => setEditing({ ...current, name: e.target.value })}
                       placeholder="Nome"
-                      className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-200" />
+                      className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900" />
                     <div className="flex items-center justify-between bg-white rounded-lg px-3 py-2 border border-gray-200">
                       <span className="text-xs text-gray-600">Coleção ativa</span>
                       <button type="button"
@@ -2124,7 +2140,7 @@ function CollectionsManager({
                   <textarea value={current.description || ''}
                     onChange={e => setEditing({ ...current, description: e.target.value })}
                     rows={2} placeholder="Descrição (opcional)"
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-200 resize-none" />
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900 resize-none" />
 
                   <div>
                     <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Produtos incluídos</p>
@@ -2137,10 +2153,10 @@ function CollectionsManager({
                           <button key={p.id} type="button"
                             onClick={() => toggleProduct(current, p.id)}
                             className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left transition ${
-                              selected ? 'bg-violet-50 ring-1 ring-violet-300' : 'hover:bg-gray-50'
+                              selected ? 'bg-gray-50 ring-1 ring-gray-300' : 'hover:bg-gray-50'
                             }`}>
                             <span className={`w-4 h-4 rounded border grid place-items-center shrink-0 ${
-                              selected ? 'bg-violet-600 border-violet-600' : 'border-gray-300'
+                              selected ? 'bg-gray-900 border-gray-900' : 'border-gray-300'
                             }`}>
                               {selected && <CheckCircle2 size={10} className="text-white" />}
                             </span>
@@ -2159,7 +2175,7 @@ function CollectionsManager({
                       Cancelar
                     </button>
                     <button onClick={() => saveCollection(current)}
-                      className="px-5 py-2 rounded-xl bg-violet-600 text-white text-xs font-bold hover:bg-violet-700 transition shadow-sm">
+                      className="px-5 py-2 rounded-xl bg-gray-900 text-white text-xs font-bold hover:bg-gray-800 transition shadow-sm">
                       Salvar coleção
                     </button>
                   </div>
@@ -2285,13 +2301,13 @@ function AttributeDefinitionsManager({ showToast }: { showToast: (t: string, tp?
           <input type="text" value={newLabel} onChange={e => setNewLabel(e.target.value)}
             placeholder="Ex: Cor, Tamanho, Peso, Sabor, Material..."
             onKeyDown={e => e.key === 'Enter' && createDef()}
-            className="px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-200" />
+            className="px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900" />
           <select value={newType} onChange={e => setNewType(e.target.value as AttrType)}
-            className="px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-200">
+            className="px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900">
             {Object.entries(ATTR_TYPE_LABELS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
           </select>
           <button onClick={createDef} disabled={!newLabel.trim()}
-            className="px-4 py-2.5 rounded-xl bg-violet-600 text-white text-xs font-bold hover:bg-violet-700 disabled:opacity-50 transition">
+            className="px-4 py-2.5 rounded-xl bg-gray-900 text-white text-xs font-bold hover:bg-gray-800 disabled:opacity-50 transition">
             Criar
           </button>
         </div>
@@ -2322,7 +2338,7 @@ function AttributeDefinitionsManager({ showToast }: { showToast: (t: string, tp?
                   </div>
                   <div className="flex items-center gap-1">
                     <button onClick={() => setEditing(isEditing ? null : def)}
-                      className="px-3 py-1.5 rounded-lg text-[11px] font-bold text-violet-600 hover:bg-violet-50 transition">
+                      className="px-3 py-1.5 rounded-lg text-[11px] font-bold text-gray-700 hover:bg-gray-100 transition">
                       {isEditing ? 'Cancelar' : 'Editar'}
                     </button>
                     <button onClick={() => deleteDef(def.id)}
@@ -2339,13 +2355,13 @@ function AttributeDefinitionsManager({ showToast }: { showToast: (t: string, tp?
                         <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1 block">Nome exibido</label>
                         <input type="text" value={current.label}
                           onChange={e => setEditing({ ...current, label: e.target.value })}
-                          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-200" />
+                          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900" />
                       </div>
                       <div>
                         <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1 block">Tipo</label>
                         <select value={current.type}
                           onChange={e => setEditing({ ...current, type: e.target.value as AttrType })}
-                          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-200">
+                          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900">
                           {Object.entries(ATTR_TYPE_LABELS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
                         </select>
                       </div>
@@ -2357,7 +2373,7 @@ function AttributeDefinitionsManager({ showToast }: { showToast: (t: string, tp?
                         <input type="text" value={current.options.join(', ')}
                           onChange={e => setEditing({ ...current, options: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })}
                           placeholder="Ex: Pequeno, Médio, Grande"
-                          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-200" />
+                          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900" />
                       </div>
                     )}
 
@@ -2386,7 +2402,7 @@ function AttributeDefinitionsManager({ showToast }: { showToast: (t: string, tp?
                         Cancelar
                       </button>
                       <button onClick={() => saveDef(current)}
-                        className="px-5 py-2 rounded-xl bg-violet-600 text-white text-xs font-bold hover:bg-violet-700 transition shadow-sm">
+                        className="px-5 py-2 rounded-xl bg-gray-900 text-white text-xs font-bold hover:bg-gray-800 transition shadow-sm">
                         Salvar atributo
                       </button>
                     </div>

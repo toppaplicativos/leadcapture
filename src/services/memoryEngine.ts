@@ -1,6 +1,7 @@
 import { getPool } from "../config/database";
 import { logger } from "../utils/logger";
 import { GeminiService } from "./gemini";
+import { aiRouter } from "./aiRouter";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -147,11 +148,11 @@ export class MemoryEngineService {
 
       let updatedMemory: LeadContextMemory;
       try {
-        const parsed = await this.gemini.generateJson<Partial<LeadContextMemory>>(prompt, {
-          userId,
-          brandId,
-          model: process.env.GEMINI_MEMORY_MODEL || process.env.GEMINI_TEXT_MODEL || undefined,
-        });
+        const parsed = await aiRouter.generateJson<Partial<LeadContextMemory>>(
+          prompt,
+          { userId, brandId: brandId || undefined },
+          { functionKey: "text.memory.update" },
+        );
         updatedMemory = { ...DEFAULT_MEMORY, ...memory, ...parsed };
       } catch (aiErr: any) {
         // If AI fails, at minimum update last_interaction_at

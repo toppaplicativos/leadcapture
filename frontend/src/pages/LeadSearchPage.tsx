@@ -16,7 +16,7 @@ import {
   Building2, Navigation, Users, Filter, Map as MapIcon, List,
   Zap, Pause, Maximize2, Minimize2,
   Smile, UtensilsCrossed, Dumbbell, Scissors, Home, Scale,
-  PawPrint, Wrench, Shirt, Pill, Camera, Activity, X, Send,
+  PawPrint, Wrench, Shirt, Pill, Camera, Activity, X, Send, SlidersHorizontal,
 } from 'lucide-react'
 import { WhatsAppIcon } from '@/components/icons'
 import { WhatsAppSendModal } from '@/components/WhatsAppSendModal'
@@ -25,6 +25,7 @@ import 'leaflet/dist/leaflet.css'
 import { PanfleteiroMapMapbox, type PanfleteiroPlace } from '@/components/PanfleteiroMapMapbox'
 import { IdeaGeneratorModal } from '@/components/IdeaGeneratorModal'
 import { useProspectBridgeOptional } from '@/lib/agent/ProspectBridgeContext'
+import { ProspectSearchControls } from '@/components/agent/prospect/ProspectSearchControls'
 
 /* Sugestões de segmento (substituem emojis por lucide icons — regra UI no_emojis_in_ui) */
 const SUGGESTIONS: Array<{ icon: typeof Smile; label: string; query: string }> = [
@@ -144,6 +145,7 @@ export function LeadSearchPage({ variant = 'page' }: { variant?: 'page' | 'canva
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null)
   /* Modal Gerar Ideias IA — aceita texto humanizado e sugere segmento+cidade+raio */
   const [ideasModalOpen, setIdeasModalOpen] = useState(false)
+  const [mobileMapSettingsOpen, setMobileMapSettingsOpen] = useState(false)
 
   /* Mapa Mapbox (substitui Leaflet) */
   const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number; zoom: number }>({ lat: -19.9167, lng: -43.9345, zoom: 13 })
@@ -1068,7 +1070,7 @@ export function LeadSearchPage({ variant = 'page' }: { variant?: 'page' | 'canva
                   (que fica em bottom-6 centralizada). Some no imersivo pra evitar
                   competicao visual. */}
               {!immersive && (
-                <div className="absolute bottom-3 right-3 z-20 flex items-center gap-2 sm:gap-3 px-3 py-1.5 rounded-full bg-black/75 backdrop-blur-sm border border-white/10 whitespace-nowrap">
+                <div className="prospect-pipeline-legend absolute bottom-3 right-3 z-20 flex items-center gap-2 sm:gap-3 px-3 py-1.5 rounded-full bg-black/75 backdrop-blur-sm border border-white/10 whitespace-nowrap">
                   {PIPELINE.map(s => (
                     <span key={s.key} className="flex items-center gap-1 text-[10px] font-semibold text-white/90">
                       <span className="w-2 h-2 rounded-full" style={{ backgroundColor: s.color }} />
@@ -1110,8 +1112,38 @@ export function LeadSearchPage({ variant = 'page' }: { variant?: 'page' | 'canva
 
               {/* Painel de detalhe — overlay flutuante no canto direito, NAO compete pelo
                   espaco do mapa (preserva markers/centro). Oculto em modo imersivo. */}
+              {isCanvas && !immersive && (
+                <>
+                  <button
+                    type="button"
+                    className="prospect-mobile-settings-trigger"
+                    onClick={() => setMobileMapSettingsOpen(true)}
+                    aria-label="Configurar busca no mapa"
+                    aria-expanded={mobileMapSettingsOpen}
+                  >
+                    <SlidersHorizontal size={16} />
+                    <span>Ajustar busca</span>
+                  </button>
+                  {mobileMapSettingsOpen && (
+                    <div className="prospect-mobile-settings-layer">
+                      <button type="button" className="prospect-mobile-settings-backdrop" onClick={() => setMobileMapSettingsOpen(false)} aria-label="Fechar configurações" />
+                      <section className="prospect-mobile-settings-sheet" aria-label="Configurações da busca">
+                        <header className="prospect-mobile-settings-sheet__header">
+                          <div>
+                            <h3>Ajustar busca</h3>
+                            <p>Altere o segmento, a cidade ou o alcance do radar.</p>
+                          </div>
+                          <button type="button" onClick={() => setMobileMapSettingsOpen(false)} aria-label="Fechar configurações"><X size={18} /></button>
+                        </header>
+                        <ProspectSearchControls compact placement="sheet" />
+                      </section>
+                    </div>
+                  )}
+                </>
+              )}
+
               {selectedLead && !immersive && (
-                <div className="absolute top-14 right-3 z-40 w-72 max-w-[calc(100%-1.5rem)] max-h-[calc(100%-5rem)] overflow-y-auto shadow-xl rounded-2xl">
+                <div className="prospect-lead-detail absolute top-14 right-3 z-40 w-72 max-w-[calc(100%-1.5rem)] max-h-[calc(100%-5rem)] overflow-y-auto shadow-xl rounded-2xl">
                   <LeadDetailPanel lead={selectedLead} onClose={() => setSelectedLead(null)} />
                 </div>
               )}
@@ -1170,7 +1202,7 @@ export function LeadSearchPage({ variant = 'page' }: { variant?: 'page' | 'canva
         </div>
       )}
 
-      {searched && !loading && leads.length === 0 && !error && (
+      {!mapOnly && searched && !loading && leads.length === 0 && !error && (
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <div className="w-14 h-14 rounded-2xl bg-gray-100 grid place-items-center mb-3">
             <Users size={22} className="text-gray-400" strokeWidth={1.5} />
@@ -1261,11 +1293,11 @@ function RadarCard({
   )
   return (
     <div
-      className="absolute top-3 left-3 z-30 w-[230px] rounded-2xl bg-[#0a0a14]/92 backdrop-blur-xl border border-white/10 shadow-2xl overflow-hidden"
+      className="prospect-radar-card absolute top-3 left-3 z-30 w-[230px] rounded-2xl bg-[#0a0a14]/92 backdrop-blur-xl border border-white/10 shadow-2xl overflow-hidden"
       style={{ boxShadow: active ? '0 0 0 1px rgba(52,211,153,0.25), 0 20px 40px -10px rgba(0,0,0,0.6)' : undefined }}
     >
       {/* Header */}
-      <div className="flex items-center gap-2 px-3.5 pt-3 pb-2">
+      <div className="prospect-radar-card__header flex items-center gap-2 px-3.5 pt-3 pb-2">
         <span className="relative flex w-2.5 h-2.5 shrink-0">
           {active && (
             <span className={`absolute inset-0 rounded-full animate-ping opacity-75 ${searching ? 'bg-amber-400' : 'bg-emerald-400'}`} />
@@ -1283,7 +1315,7 @@ function RadarCard({
       {/* Metricas — destaque para "no raio" (numero grande). O numero apos a barra
           eh o acumulado da sessao (todos os pins ja mapeados, mesmo fora do raio
           atual). Isso resolve a confusao "tem 18 leads mas nenhum aqui no raio". */}
-      <div className="grid grid-cols-3 gap-1 px-3.5 pb-2.5">
+      <div className="prospect-radar-card__metrics grid grid-cols-3 gap-1 px-3.5 pb-2.5">
         <div className="text-center">
           <div className="text-[18px] font-bold text-white tabular-nums leading-none">
             {inRange}
@@ -1308,7 +1340,7 @@ function RadarCard({
           Sinal claro de que o user precisa ajustar (mudar raio, mover pra outra regiao,
           ou voltar pra origem). */}
       {lastRadarResult && lastRadarResult.count === 0 && !searching && (
-        <div className="mx-3.5 mb-2 px-2.5 py-1.5 rounded-lg bg-amber-500/10 border border-amber-400/20">
+        <div className="prospect-radar-card__feedback mx-3.5 mb-2 px-2.5 py-1.5 rounded-lg bg-amber-500/10 border border-amber-400/20">
           <p className="text-[10px] text-amber-200/90 leading-snug">
             Nenhum lead novo neste raio. Tente <span className="font-bold">aumentar o raio</span> ou
             {initialCenter ? <> <button type="button" onClick={onResetCenter} className="font-bold underline underline-offset-2 hover:text-amber-100">voltar para a origem</button>.</> : ' mover o mapa.'}
@@ -1317,7 +1349,7 @@ function RadarCard({
       )}
 
       {/* Acumulado total + hoje */}
-      <div className="grid grid-cols-2 gap-1 px-3.5 pb-2 border-t border-white/[0.06] pt-2">
+      <div className="prospect-radar-card__totals grid grid-cols-2 gap-1 px-3.5 pb-2 border-t border-white/[0.06] pt-2">
         <div className="text-center">
           <div className="text-[14px] font-bold text-white tabular-nums leading-none">{today}</div>
           <div className="text-[9px] text-white/40 uppercase tracking-wide mt-0.5">Hoje</div>
@@ -1329,7 +1361,7 @@ function RadarCard({
       </div>
 
       {/* Origem (cidade que iniciou) + Centro atual (fonte da verdade do radar) */}
-      <div className="px-3.5 pb-2 border-t border-white/[0.06] pt-2 space-y-1">
+      <div className="prospect-radar-card__context px-3.5 pb-2 border-t border-white/[0.06] pt-2 space-y-1">
         {/* Origem — a cidade que o user digitou inicialmente */}
         {(initialCenter?.label || location) && (
           <div className="flex items-center justify-between gap-2">
@@ -1364,7 +1396,7 @@ function RadarCard({
       </div>
 
       {/* Ações */}
-      <div className="flex items-stretch gap-1.5 px-2.5 pb-2.5 pt-1">
+      <div className="prospect-radar-card__actions flex items-stretch gap-1.5 px-2.5 pb-2.5 pt-1">
         <button
           type="button"
           onClick={onShowAll}

@@ -26,6 +26,7 @@ import { Skeleton, KpiCard, EmptyState } from '@/components/admin/primitives'
 import { useOrdersBridgeOptional } from '@/lib/agent/OrdersBridgeContext'
 import { useAgentShellOptional } from '@/lib/agent/AgentShellContext'
 import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
+import { orderRef } from '@/lib/orders/orderRef'
 
 export function OrdersView({
   showToast,
@@ -186,7 +187,7 @@ export function OrdersView({
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
         <KpiCard label="Total" value={String(metrics.total)} icon={ShoppingCart} bg="bg-blue-50" color="text-blue-500" accent="text-blue-600" />
         <KpiCard label="Faturamento" value={money(metrics.totalValue)} icon={BarChart3} bg="bg-emerald-50" color="text-emerald-500" accent="text-emerald-600" />
-        <KpiCard label="Pagos" value={String(metrics.paid)} icon={Eye} bg="bg-violet-50" color="text-violet-500" accent="text-violet-600" />
+        <KpiCard label="Pagos" value={String(metrics.paid)} icon={Eye} bg="bg-violet-50" color="text-violet-500" accent="text-gray-700" />
         <KpiCard label="Ticket Medio" value={metrics.total > 0 ? money(metrics.totalValue / metrics.total) : '—'} icon={Zap} bg="bg-amber-50" color="text-amber-500" accent="text-amber-600" />
       </div>
 
@@ -215,7 +216,7 @@ export function OrdersView({
           </tr></thead><tbody>
             {filtered.map((o: any) => { const st = STATUS_CFG[(o.business_status || o.status_pedido || '').toLowerCase()] || { label: '?', cls: 'bg-gray-100 text-gray-600' }; return (
               <tr key={o.id} onClick={() => openDetail(o)} className="border-b border-gray-100 last:border-0 cursor-pointer hover:bg-blue-50/30 transition group">
-                <td className="px-4 py-3"><p className="font-mono text-xs font-bold text-gray-700 group-hover:text-blue-600">#{o.order_number || o.id?.slice(0, 8)}</p><p className="text-[9px] text-gray-400">{o.channel || o.origem}</p></td>
+                <td className="px-4 py-3"><p className="font-mono text-xs font-bold text-gray-700 group-hover:text-blue-600">#{orderRef(o)}</p><p className="text-[9px] text-gray-400">{o.channel || o.origem}</p></td>
                 <td className="px-4 py-3"><p className="font-semibold text-gray-900 truncate max-w-[140px]">{o.customer_name || '—'}</p></td>
                 <td className="px-4 py-3 hidden sm:table-cell"><p className="text-xs text-gray-600">{o.seller_name || o.vendedor || '—'}</p></td>
                 <td className="px-4 py-3 text-center"><span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${st.cls}`}>{st.label}</span></td>
@@ -233,7 +234,7 @@ export function OrdersView({
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => { setSelectedOrder(null); setOrderDetail(null) }}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
             <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between shrink-0">
-              <div><h3 className="font-bold text-base text-gray-900">Pedido #{selectedOrder.order_number || selectedOrder.id?.slice(0, 8)}</h3>
+              <div><h3 className="font-bold text-base text-gray-900">Pedido #{orderRef(selectedOrder)}</h3>
                 <p className="text-[11px] text-gray-400">{selectedOrder.customer_name} · {money(selectedOrder.valor_total)}</p></div>
               <button onClick={() => { setSelectedOrder(null); setOrderDetail(null) }} className="p-2 rounded-lg hover:bg-gray-100 transition"><X size={18} className="text-gray-400" /></button>
             </div>
@@ -290,7 +291,7 @@ export function OrdersView({
                     <div><p className="text-sm font-extrabold text-violet-700">{money(orderDetail.customer_profile.total_spent)}</p><p className="text-[8px] text-violet-400">Total</p></div>
                     <div><p className="text-sm font-extrabold text-violet-700">{money(orderDetail.customer_profile.average_ticket)}</p><p className="text-[8px] text-violet-400">Ticket</p></div>
                   </div>
-                  {orderDetail.customer_profile.vip && <p className="text-center text-[9px] font-bold text-violet-600 mt-1.5 bg-violet-100 rounded-lg py-1">VIP</p>}
+                  {orderDetail.customer_profile.vip && <p className="text-center text-[9px] font-bold text-gray-700 mt-1.5 bg-violet-100 rounded-lg py-1">VIP</p>}
                 </div>)}
                 {/* Actions */}
                 <div className="flex gap-2 flex-wrap pt-1">
@@ -483,7 +484,7 @@ function BookingsView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err')
                     {canComplete && (
                       <button onClick={() => updateStatus(b.customer_id, 'completed')}
                         disabled={acting === String(b.customer_id)}
-                        className="px-3 py-1.5 rounded-lg bg-violet-600 text-white text-[11px] font-bold hover:bg-violet-700 disabled:opacity-50 transition">
+                        className="px-3 py-1.5 rounded-lg bg-gray-900 text-white text-[11px] font-bold hover:bg-gray-800 disabled:opacity-50 transition">
                         Concluir
                       </button>
                     )}

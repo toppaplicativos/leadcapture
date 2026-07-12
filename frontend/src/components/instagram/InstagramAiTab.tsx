@@ -177,7 +177,7 @@ export function InstagramAiTab({ profile, conversationsCount }: Props) {
         </div>
       )}
 
-      <div className="flex flex-wrap gap-2 mb-4">
+      <div className="flex flex-wrap gap-2 mb-4 items-center">
         <button
           type="button"
           className="px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-medium text-gray-600 hover:bg-gray-50 flex items-center gap-1"
@@ -187,22 +187,15 @@ export function InstagramAiTab({ profile, conversationsCount }: Props) {
           {seeding ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
           Seed com contexto do site
         </button>
-        <button
-          type="button"
-          onClick={() => setSettings((s) => ({ ...s, auto_reply_dm: !s.auto_reply_dm }))}
-          className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 ${settings.auto_reply_dm ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}
+        <a
+          href="/automacoes"
+          className="px-3 py-1.5 rounded-lg border border-purple-200 bg-purple-50 text-purple-800 text-xs font-semibold hover:bg-purple-100"
         >
-          <span className={`w-1.5 h-1.5 rounded-full ${settings.auto_reply_dm ? 'bg-emerald-500' : 'bg-gray-400'}`} />
-          Auto-reply DMs: {settings.auto_reply_dm ? 'ON' : 'OFF'}
-        </button>
-        <button
-          type="button"
-          onClick={() => setSettings((s) => ({ ...s, auto_reply_comments: !s.auto_reply_comments }))}
-          className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 ${settings.auto_reply_comments ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}
-        >
-          <span className={`w-1.5 h-1.5 rounded-full ${settings.auto_reply_comments ? 'bg-emerald-500' : 'bg-gray-400'}`} />
-          Auto-reply Comentários: {settings.auto_reply_comments ? 'ON' : 'OFF'}
-        </button>
+          Gerenciar automações de resposta
+        </a>
+        <span className="text-[11px] text-gray-500 max-w-md">
+          Persona e FAQ alimentam respostas com IA. Ligar/desligar DM ou comentário é no toggle de cada automação (não aqui).
+        </span>
       </div>
 
       <div className="flex gap-1 mb-4 bg-gray-50 rounded-lg p-0.5 w-fit flex-wrap">

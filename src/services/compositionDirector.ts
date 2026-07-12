@@ -416,7 +416,7 @@ export async function generateCompositionDirections(
       aiRouter.generateJson<{ directions: CompositionDirection[] }>(
         prompt,
         params.scope,
-        { temperature: 0.95 }
+        { temperature: 0.95, functionKey: "text.composition.director" },
       ),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error("timeout")), 12_000)

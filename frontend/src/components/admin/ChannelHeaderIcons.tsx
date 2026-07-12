@@ -20,10 +20,32 @@ export function ChannelHeaderIcons({ brandKey = '' }: Props) {
 
   const loadInstagram = useCallback(async () => {
     try {
-      const r = await fetch('/api/instagram/connection-status', { headers: getHeaders() })
-      const d = await r.json()
-      setIgConnected(!!d.connected)
-      setIgUsername(d.username || null)
+      // status + connection em paralelo (mesma regra do studio)
+      const [statusRes, connRes] = await Promise.all([
+        fetch('/api/instagram/connection-status', { headers: getHeaders() }),
+        fetch('/api/instagram/connection', { headers: getHeaders() }),
+      ])
+      const status = await statusRes.json().catch(() => ({}))
+      const connBody = await connRes.json().catch(() => ({}))
+
+      // 403 plano/módulo: não inventar "desconectado" se a API só bloqueou o plano
+      if (statusRes.status === 403 && connRes.status === 403) {
+        setIgConnected(false)
+        setIgUsername(null)
+        setIgLoading(false)
+        return
+      }
+
+      const conn = connBody?.connection || null
+      const linked = !!(
+        status?.connected
+        || conn?.username
+        || conn?.account_id
+        || conn?.ig_user_id
+        || (conn?.access_token && String(conn.access_token).trim())
+      )
+      setIgConnected(linked)
+      setIgUsername(status?.username || conn?.username || null)
     } catch {
       setIgConnected(false)
       setIgUsername(null)
@@ -70,11 +92,8 @@ export function ChannelHeaderIcons({ brandKey = '' }: Props) {
   }
 
   const openWhatsApp = () => {
-    if (waConnected) {
-      triggerNav('mensagens')
-    } else {
-      triggerNav('whatsapp')
-    }
+    // Org: gerenciar contas / mensagens — sem empurrar reconexão de afiliado
+    triggerNav(waConnected ? 'mensagens' : 'whatsapp')
   }
 
   return (
@@ -129,18 +148,18 @@ export function ChannelHeaderIcons({ brandKey = '' }: Props) {
         onClick={openWhatsApp}
         aria-label={
           waConnected
-            ? `WhatsApp conectado (${summary?.connected ?? 0} instância${(summary?.connected ?? 0) === 1 ? '' : 's'})`
-            : 'WhatsApp desconectado — toque para conectar'
+            ? `WhatsApp · ${summary?.connected ?? 0} sessão(ões) da org — mensagens e gestão`
+            : 'WhatsApp · gerenciar sessões da organização'
         }
         title={
           waConnected
             ? `WhatsApp · ${summary?.connected ?? 0} ativa(s)`
-            : 'WhatsApp · desconectado'
+            : 'WhatsApp · gerenciar contas'
         }
       >
         <WhatsAppIcon size={17} className="agent-shell__channel-icon agent-shell__channel-icon--wa" />
         <span
-          className={`agent-shell__channel-dot${waLoading ? ' is-loading' : waConnected ? ' is-on' : ' is-off'}`}
+          className={`agent-shell__channel-dot${waLoading ? ' is-loading' : waConnected ? ' is-on' : ' is-neutral'}`}
           aria-hidden
         />
       </button>

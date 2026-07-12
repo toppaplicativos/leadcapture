@@ -206,18 +206,27 @@ function EventoFields({ trigger, onChange }: { trigger: TriggerEvento; onChange:
           </button>
         ))}
       </div>
-      <label className="block text-xs text-gray-600">
-        Evento
-        <select
-          value={trigger.evento}
-          onChange={(e) => onChange({ ...trigger, evento: e.target.value })}
-          className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
-        >
-          {eventosForPlatform(trigger.plataforma).map((ev) => (
-            <option key={ev.id} value={ev.id}>{ev.label}</option>
-          ))}
-        </select>
-      </label>
+      <div>
+        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Evento</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {eventosForPlatform(trigger.plataforma).map((ev) => {
+            const active = trigger.evento === ev.id
+            return (
+              <button
+                key={ev.id}
+                type="button"
+                onClick={() => onChange({ ...trigger, evento: ev.id })}
+                className={`p-3 rounded-xl border-2 text-left transition ${
+                  active ? 'border-gray-900 bg-gray-50' : 'border-gray-100 bg-white hover:border-gray-300'
+                }`}
+              >
+                <span className="text-[12px] font-bold text-gray-900 block">{ev.label}</span>
+                <span className="text-[10px] text-gray-400 font-mono">{ev.id}</span>
+              </button>
+            )
+          })}
+        </div>
+      </div>
       <label className="block text-xs text-gray-600">
         Palavras-chave (opcional)
         <input

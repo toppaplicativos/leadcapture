@@ -84,7 +84,7 @@ export async function extractLeadsFromText(
     const response = await aiRouter.generateJson<ExtractionResponse>(
       fullPrompt,
       { userId: scope.userId, brandId: scope.brandId },
-      { temperature: 0.2 } // baixa pra ser determinístico
+      { temperature: 0.2, functionKey: "text.import.extract" },
     );
     return Array.isArray(response?.leads) ? response.leads : [];
   } catch (err: any) {

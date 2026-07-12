@@ -3,11 +3,10 @@ import { AICampaignWizardModal } from '@/components/AICampaignWizardModal'
 import { SkillTrainerWizardModal } from '@/components/SkillTrainerWizardModal'
 import {
   Send, Loader2, LayoutGrid, Search, MapPin, Zap as ZapIcon,
-  Maximize2, Sparkles, Megaphone, ShoppingCart,
-  PanelRight, X, Package, Images, Users, Building2, LayoutDashboard, Brain, Handshake,
-  Phone, Settings, SquarePen, History, ChevronDown, Trash2, Pencil, Pin, Copy,
+  Maximize2, Sparkles, Brain,
+  PanelRight, X, SquarePen, History, ChevronDown, Trash2, Pencil, Pin, Copy,
 } from 'lucide-react'
-import { FacebookIcon, InstagramIcon, WhatsAppIcon, type IconComponent } from '@/components/icons'
+import type { IconComponent } from '@/components/icons'
 import { AgentUIRenderer } from './AgentUIRenderer'
 import { ProspectModuleBlock } from './prospect/ProspectModuleBlock'
 import { ProspectSearchControls } from './prospect/ProspectSearchControls'
@@ -25,6 +24,8 @@ import { InstagramModuleBlock } from './instagram/InstagramModuleBlock'
 import { FacebookModuleBlock } from './facebook/FacebookModuleBlock'
 import { AutomationsModuleBlock } from './automations/AutomationsModuleBlock'
 import { AffiliatesModuleBlock } from './affiliates/AffiliatesModuleBlock'
+import { SettingsModuleBlock } from './settings/SettingsModuleBlock'
+import { StoreModuleBlock } from './store/StoreModuleBlock'
 import { CatalogComposerDock } from './catalog/CatalogComposerDock'
 import { ModuleComposerDock } from './catalog/ModuleComposerDock'
 import { useAgentShell } from '@/lib/agent/AgentShellContext'
@@ -32,9 +33,12 @@ import { useProspectBridgeOptional } from '@/lib/agent/ProspectBridgeContext'
 import { useInboxBridgeOptional } from '@/lib/agent/InboxBridgeContext'
 import { WorkspaceNav } from './WorkspaceNav'
 import { WorkspaceWelcome } from './WorkspaceWelcome'
+import { OperationalChatCompanion, OperationalChatContextBar } from './OperationalChatCompanion'
+import { useLocation } from 'react-router-dom'
+import { isOperationalCanvasPath } from '@/lib/agent/operationalRoutes'
 
 import { turnNeedsCanvas, turnShowsInline } from '@/lib/agent/canvasRegistry'
-import { OBJECTIVE_TRIGGERS } from '@/lib/agent/workspaceTriggers'
+import { OBJECTIVE_GROUPS, QUICK_STARTERS } from '@/lib/agent/workspaceTriggers'
 import {
   isCampaignSkill,
   isLeadsSkill,
@@ -94,6 +98,8 @@ const CATALOG_INLINE_SKILLS = new Set([
   'dashboard.overview',
   'skills.list',
   'lead.prospect',
+  'settings.open',
+  'design.edit',
 ])
 
 function isProductSkill(skill?: string) {
@@ -115,7 +121,8 @@ type Shortcut = {
 function filterInlineComponents(turn?: AgentTurn): ComponentSpec[] | undefined {
   if (!turn?.components?.length) return turn?.components
   if (turn.skill === 'lead.prospect') {
-    return turn.components.filter((c) => c.type !== 'prospect_stats')
+    // Segmento/cidade pertencem ao composer. Nunca repetir o formulário no corpo da conversa.
+    return turn.components.filter((c) => c.type !== 'prospect_stats' && c.type !== 'form')
   }
   if (turn.skill === 'messages.inbox') {
     return turn.components.filter((c) => c.type !== 'inbox_stats')
@@ -200,6 +207,8 @@ export function WorkspaceChat({
     ordersModuleOpen,
     dashboardModuleOpen,
     skillsModuleOpen,
+    settingsModuleOpen,
+    storeModuleOpen,
     sessionId,
     sessionTitle,
     sessionHydrating,
@@ -223,8 +232,11 @@ export function WorkspaceChat({
   const bridge = useProspectBridgeOptional()
   const inboxBridge = useInboxBridgeOptional()
   const isDesktop = useIsDesktop()
+  const location = useLocation()
+  const operationalRoute = isOperationalCanvasPath(location.pathname)
   const [input, setInput] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
+  const [menuGroup, setMenuGroup] = useState<string | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [memoryOpen, setMemoryOpen] = useState(false)
   const [historySearch, setHistorySearch] = useState('')
@@ -282,7 +294,7 @@ export function WorkspaceChat({
     : sessions.filter((s) => {
       const q = historyQuery.toLowerCase()
       if (!q) return true
-      const label = (s.title || 'Conversa sem t+�tulo').toLowerCase()
+      const label = (s.title || 'Conversa sem título').toLowerCase()
       return label.includes(q)
     })
 
@@ -296,7 +308,7 @@ export function WorkspaceChat({
 
   function startRename(sessionId: string, currentTitle: string) {
     setRenamingId(sessionId)
-    setRenameDraft(currentTitle === 'Conversa sem t+�tulo' ? '' : currentTitle)
+    setRenameDraft(currentTitle === 'Conversa sem título' ? '' : currentTitle)
   }
 
   async function commitRename(sessionId: string) {
@@ -309,7 +321,7 @@ export function WorkspaceChat({
   async function copyConversation() {
     const lines = messages
       .filter((m) => !m.loading && m.content)
-      .map((m) => `${m.role === 'user' ? 'Voc+�' : 'Assistente'}: ${m.content}`)
+      .map((m) => `${m.role === 'user' ? 'Você' : 'Assistente'}: ${m.content}`)
     if (sessionSummary) lines.unshift(`[Resumo compactado]\n${sessionSummary}\n`)
     const text = lines.join('\n\n')
     try {
@@ -409,7 +421,13 @@ export function WorkspaceChat({
   const lastSkillsMsg = [...display].reverse().find(
     (m) => m.role === 'assistant' && !m.loading && isSkillsModuleSkill(m.turn?.skill),
   )
-  const catalogModuleOpen = productsModuleOpen || campaignsModuleOpen || galleryModuleOpen || instagramModuleOpen || facebookModuleOpen || automationsModuleOpen || affiliatesModuleOpen || leadsModuleOpen || clientsModuleOpen || ordersModuleOpen || dashboardModuleOpen || skillsModuleOpen
+  const lastSettingsMsg = [...display].reverse().find(
+    (m) => m.role === 'assistant' && !m.loading && m.turn?.skill === 'settings.open',
+  )
+  const lastStoreMsg = [...display].reverse().find(
+    (m) => m.role === 'assistant' && !m.loading && m.turn?.skill === 'design.edit',
+  )
+  const catalogModuleOpen = productsModuleOpen || campaignsModuleOpen || galleryModuleOpen || instagramModuleOpen || facebookModuleOpen || automationsModuleOpen || affiliatesModuleOpen || leadsModuleOpen || clientsModuleOpen || ordersModuleOpen || dashboardModuleOpen || skillsModuleOpen || settingsModuleOpen || storeModuleOpen
   const showCanvasBtn = lastAssistant?.turn
     && turnNeedsCanvas(lastAssistant.turn)
     && !desktopCanvasOpen
@@ -422,278 +440,64 @@ export function WorkspaceChat({
     if (isDesktop) openCanvas('/busca')
   }
 
-  const shortcuts: Shortcut[] = [
-    {
-      id: 'prospect',
-      label: 'Buscar no mapa',
-      desc: 'Modo paleteiro ��� segmento + cidade',
-      icon: Search,
-      action: () => {
-        setMenuOpen(false)
-        triggerSkill('lead.prospect', { label: 'Prospectar no mapa', assistantMessage: 'Vamos prospectar no mapa. Qual segmento e cidade?' })
-      },
-    },
-    {
-      id: 'map',
-      label: isDesktop ? 'Abrir mapa' : 'Mapa no chat',
-      desc: isDesktop ? 'Canvas lateral' : 'J+� embutido na conversa',
-      icon: MapPin,
-      action: () => {
-        setMenuOpen(false)
-        if (isDesktop) openCanvas('/busca')
-        else triggerSkill('lead.prospect', { label: 'Prospectar no mapa' })
-      },
-    },
-    {
-      id: 'capture',
-      label: 'Capturar todos',
-      desc: `${bridge?.snapshot.newCount ?? 0} novos no mapa`,
-      icon: ZapIcon,
-      action: () => {
-        setMenuOpen(false)
-        ensureMapDesktop()
-        bridge?.dispatch({ type: 'capture_batch' })
-      },
-    },
-    {
-      id: 'auto',
-      label: bridge?.snapshot.autoCapture ? 'Auto-captura ON' : 'Auto-captura',
-      desc: 'Captura ao arrastar o mapa',
-      icon: ZapIcon,
-      action: () => {
-        setMenuOpen(false)
-        bridge?.dispatch({ type: 'toggle_auto_capture' })
-      },
-    },
-    {
-      id: 'immersive',
-      label: 'Tela cheia',
-      desc: 'Modo imersivo do mapa',
-      icon: Maximize2,
-      action: () => {
-        setMenuOpen(false)
-        bridge?.dispatch({ type: 'set_immersive', value: true })
-      },
-    },
-    {
-      id: 'ideas',
-      label: 'Gerar ideias IA',
-      desc: 'Segmento e cidade sugeridos',
-      icon: Sparkles,
-      action: () => {
-        setMenuOpen(false)
-        ensureMapDesktop()
-        bridge?.dispatch({ type: 'open_ideas' })
-      },
-    },
-    {
-      id: 'messages',
-      label: 'Conversas',
-      icon: WhatsAppIcon,
-      action: () => {
-        setMenuOpen(false)
-        triggerNav('mensagens')
-      },
-    },
-    {
-      id: 'whatsapp',
-      label: 'Conectar WhatsApp',
-      desc: 'Hub de conex+�o ��� c+�digo de 8 caracteres',
-      icon: WhatsAppIcon,
-      action: () => {
-        setMenuOpen(false)
-        triggerSkill('whatsapp.connect', {
-          label: 'Conectar WhatsApp',
-          assistantMessage: 'Vamos vincular pelo c+�digo no seu n+�mero:',
-        })
-      },
-    },
-    {
-      id: 'settings',
-      label: 'Configura+�+�es',
-      desc: 'Conta, marca e sess+�es WhatsApp',
-      icon: Settings,
-      action: () => {
-        setMenuOpen(false)
-        triggerSkill('settings.open', {
-          label: 'Configura+�+�es',
-          assistantMessage: 'Abrindo configura+�+�es da conta�Ǫ',
-        })
-      },
-    },
-    {
-      id: 'leads',
-      label: 'Leads',
-      desc: 'CRM e gest+�o',
-      icon: Users,
-      action: () => {
-        setMenuOpen(false)
-        triggerSkill('crm.leads.table', { label: 'Ver leads', assistantMessage: 'Seus leads recentes:' })
-      },
-    },
-    {
-      id: 'clients',
-      label: 'Clientes',
-      desc: 'Base convertida e importa+�+�o',
-      icon: Building2,
-      action: () => {
-        setMenuOpen(false)
-        triggerSkill('crm.clients.table', { label: 'Ver clientes', assistantMessage: 'Sua base de clientes:' })
-      },
-    },
-    {
-      id: 'orders',
-      label: 'Pedidos',
-      desc: 'Vendas e expedi+�+�o',
-      icon: ShoppingCart,
-      action: () => {
-        setMenuOpen(false)
-        triggerSkill('catalog.orders', { label: 'Ver pedidos', assistantMessage: 'Seus pedidos recentes:' })
-      },
-    },
-    {
-      id: 'products',
-      label: 'Produtos',
-      desc: 'Cat+�logo no chat ou canvas',
-      icon: Package,
-      action: () => {
-        setMenuOpen(false)
-        triggerSkill('catalog.products', { label: 'Produtos', assistantMessage: 'Seu cat+�logo:' })
-      },
-    },
-    {
-      id: 'gallery',
-      label: 'Galeria',
-      desc: 'Assets e upload inline',
-      icon: Images,
-      action: () => {
-        setMenuOpen(false)
-        triggerSkill('gallery.open', { label: 'Galeria', assistantMessage: 'Assets da marca:' })
-      },
-    },
-    {
-      id: 'instagram',
-      label: 'Instagram',
-      desc: 'Posts, DMs e m+�tricas',
-      icon: InstagramIcon,
-      action: () => {
-        setMenuOpen(false)
-        triggerSkill('instagram.open', { label: 'Instagram', assistantMessage: 'Sua conta Instagram:' })
-      },
-    },
-    {
-      id: 'instagram-post',
-      label: 'Criar post IG',
-      desc: 'IA gera legenda e imagem',
-      icon: InstagramIcon,
-      action: () => {
-        setMenuOpen(false)
-        triggerSkill('instagram.post.create', { label: 'Criar post', assistantMessage: 'Sobre o que +� o post?' })
-      },
-    },
-    {
-      id: 'facebook',
-      label: 'Facebook',
-      desc: 'Posts, mensagens e m+�tricas',
-      icon: FacebookIcon,
-      action: () => {
-        setMenuOpen(false)
-        triggerSkill('facebook.open', { label: 'Facebook', assistantMessage: 'Sua p+�gina Facebook:' })
-      },
-    },
-    {
-      id: 'facebook-post',
-      label: 'Criar post FB',
-      desc: 'IA gera texto e imagem',
-      icon: FacebookIcon,
-      action: () => {
-        setMenuOpen(false)
-        triggerSkill('facebook.post.create', { label: 'Post Facebook', assistantMessage: 'Sobre o que +� o post no Facebook?' })
-      },
-    },
-    {
-      id: 'automations',
-      label: 'Automa+�+�es',
-      desc: 'Fluxos reativos e proativos',
-      icon: ZapIcon,
-      action: () => {
-        setMenuOpen(false)
-        triggerSkill('automation.open', { label: 'Automa+�+�es', assistantMessage: 'Suas automa+�+�es WhatsApp:' })
-      },
-    },
-    {
-      id: 'affiliates',
-      label: 'Afiliados',
-      desc: 'Parceiros, comiss+�es e saques',
-      icon: Handshake,
-      action: () => {
-        setMenuOpen(false)
-        triggerSkill('affiliate.open', { label: 'Afiliados', assistantMessage: 'Seu programa de parceiros:' })
-      },
-    },
-    {
-      id: 'automation-order',
-      label: 'Fluxo pedido WA',
-      desc: 'Pedido completo no WhatsApp',
-      icon: ZapIcon,
-      action: () => {
-        setMenuOpen(false)
-        triggerSkill('automation.create', {
-          label: 'Fluxo pedido',
-          assistantMessage: 'Montando fluxo de pedidos�Ǫ',
-          context: { brief: 'crie um fluxo de pedidos completo para whatsapp' },
-        })
-      },
-    },
-    {
-      id: 'campaigns',
-      label: 'Campanhas',
-      desc: 'Ver e criar campanhas',
-      icon: Megaphone,
-      action: () => {
-        setMenuOpen(false)
-        triggerNav('campanhas')
-      },
-    },
-    {
-      id: 'campaign',
-      label: 'Criar campanha',
-      icon: Megaphone,
-      action: () => {
-        setMenuOpen(false)
-        triggerSkill('campaigns.create', { label: 'Criar campanha', assistantMessage: 'Vamos criar sua campanha.' })
-      },
-    },
-    {
-      id: 'dashboard',
-      label: 'Painel',
-      desc: 'KPIs do neg+�cio',
-      icon: LayoutDashboard,
-      action: () => {
-        setMenuOpen(false)
-        triggerNav('dashboard')
-      },
-    },
-    {
-      id: 'skills',
-      label: 'Habilidades',
-      desc: 'Skills do agente IA',
-      icon: Brain,
-      action: () => {
-        setMenuOpen(false)
-        triggerNav('habilidades')
-      },
-    },
-    {
-      id: 'order',
-      label: 'Fazer pedido',
-      icon: ShoppingCart,
-      action: () => {
-        setMenuOpen(false)
-        triggerSkill('order.assisted', { label: 'Fazer pedido', assistantMessage: 'Vamos montar esse pedido. Para quem +�?' })
-      },
-    },
-  ]
+  /** Atalhos contextuais do mapa — só quando prospecção aberta. */
+  const prospectShortcuts: Shortcut[] = prospectModuleOpen
+    ? [
+        {
+          id: 'capture',
+          label: 'Capturar todos',
+          desc: `${bridge?.snapshot.newCount ?? 0} novos no mapa`,
+          icon: ZapIcon,
+          action: () => {
+            setMenuOpen(false)
+            ensureMapDesktop()
+            bridge?.dispatch({ type: 'capture_batch' })
+          },
+        },
+        {
+          id: 'auto',
+          label: bridge?.snapshot.autoCapture ? 'Auto-captura ON' : 'Auto-captura',
+          desc: 'Captura ao arrastar o mapa',
+          icon: ZapIcon,
+          action: () => {
+            setMenuOpen(false)
+            bridge?.dispatch({ type: 'toggle_auto_capture' })
+          },
+        },
+        {
+          id: 'immersive',
+          label: 'Tela cheia',
+          desc: 'Modo imersivo do mapa',
+          icon: Maximize2,
+          action: () => {
+            setMenuOpen(false)
+            bridge?.dispatch({ type: 'set_immersive', value: true })
+          },
+        },
+        {
+          id: 'ideas',
+          label: 'Gerar ideias IA',
+          desc: 'Segmento e cidade sugeridos',
+          icon: Sparkles,
+          action: () => {
+            setMenuOpen(false)
+            ensureMapDesktop()
+            bridge?.dispatch({ type: 'open_ideas' })
+          },
+        },
+        {
+          id: 'map',
+          label: isDesktop ? 'Abrir mapa' : 'Mapa no chat',
+          desc: isDesktop ? 'Painel à direita' : 'Embutido na conversa',
+          icon: MapPin,
+          action: () => {
+            setMenuOpen(false)
+            if (isDesktop) openCanvas('/busca')
+            else triggerSkill('lead.prospect', { label: 'Prospectar no mapa' })
+          },
+        },
+      ]
+    : []
 
   function submit(e: FormEvent) {
     e.preventDefault()
@@ -704,13 +508,21 @@ export function WorkspaceChat({
   }
 
   return (
-    <div className="workspace-chat">
+    <div className={`workspace-chat${operationalRoute ? ' workspace-chat--operational' : ''}`}>
+      {/* Companion: alinha chat com o canvas em /atendente, /agente, … */}
+      {operationalRoute && !sessionHydrating && isEmpty && <OperationalChatCompanion />}
+      {operationalRoute && !sessionHydrating && !isEmpty && <OperationalChatContextBar />}
+
       <div className="workspace-chat__session-wrap" ref={historyRef}>
         <div className={`workspace-chat__session-bar${sessionHydrating ? ' is-loading' : ''}`}>
           {sessionHydrating ? (
             <>
               <Loader2 size={13} className="animate-spin" aria-hidden />
-              <span>Restaurando conversa�Ǫ</span>
+              <span>
+                {operationalRoute
+                  ? 'Sincronizando chat… o painel ao lado permanece aberto'
+                  : 'Restaurando conversa…'}
+              </span>
             </>
           ) : (
             <>
@@ -719,10 +531,10 @@ export function WorkspaceChat({
                 className={`workspace-chat__session-history${historyOpen ? ' is-open' : ''}`}
                 onClick={toggleHistory}
                 aria-expanded={historyOpen}
-                aria-label="Ver hist+�rico de conversas"
+                aria-label="Ver histórico de conversas"
               >
                 <History size={13} strokeWidth={2} aria-hidden />
-                <span>Hist+�rico</span>
+                <span>Histórico</span>
                 <ChevronDown size={12} className="workspace-chat__session-chevron" aria-hidden />
               </button>
               <button
@@ -730,10 +542,10 @@ export function WorkspaceChat({
                 className={`workspace-chat__session-memory${memoryOpen ? ' is-open' : ''}${hasBrandMemory ? ' has-data' : ''}`}
                 onClick={toggleMemory}
                 aria-expanded={memoryOpen}
-                aria-label="Ver mem+�ria do agente"
+                aria-label="Ver memória do agente"
+                title="Memória do agente"
               >
                 <Brain size={13} strokeWidth={2} aria-hidden />
-                <span>Mem+�ria</span>
               </button>
               <span className="workspace-chat__session-title-wrap">
                 <span className="workspace-chat__session-title" title={sessionTitle || undefined}>
@@ -765,9 +577,9 @@ export function WorkspaceChat({
                 }}
                 disabled={loading}
                 aria-label="Iniciar nova conversa"
+                title="Nova conversa"
               >
                 <SquarePen size={13} strokeWidth={2} aria-hidden />
-                <span>Nova</span>
               </button>
             </>
           )}
@@ -784,7 +596,7 @@ export function WorkspaceChat({
                 type="search"
                 value={historySearch}
                 onChange={(e) => setHistorySearch(e.target.value)}
-                placeholder="Buscar por tema, produto, lead�Ǫ"
+                placeholder="Buscar por tema, produto, lead…"
                 aria-label="Buscar conversa"
               />
               {useSemanticSearch ? (
@@ -792,9 +604,9 @@ export function WorkspaceChat({
               ) : null}
             </div>
             {sessionsLoading && sessions.length === 0 ? (
-              <p className="workspace-chat__history-empty">Carregando�Ǫ</p>
+              <p className="workspace-chat__history-empty">Carregando…</p>
             ) : useSemanticSearch && searchLoading ? (
-              <p className="workspace-chat__history-empty">Buscando�Ǫ</p>
+              <p className="workspace-chat__history-empty">Buscando…</p>
             ) : filteredSessions.length === 0 ? (
               <p className="workspace-chat__history-empty">
                 {sessions.length === 0 ? 'Nenhuma conversa salva ainda.' : 'Nenhum resultado.'}
@@ -803,7 +615,7 @@ export function WorkspaceChat({
               <ul className="workspace-chat__history-list">
                 {filteredSessions.map((s) => {
                   const isActive = s.id === sessionId
-                  const label = s.title?.trim() || 'Conversa sem t+�tulo'
+                  const label = s.title?.trim() || 'Conversa sem título'
                   const when = formatSessionDate(s.last_message_at || s.updated_at || s.created_at)
                   const isRenaming = renamingId === s.id
                   return (
@@ -818,7 +630,7 @@ export function WorkspaceChat({
                               if (e.key === 'Escape') setRenamingId(null)
                             }}
                             autoFocus
-                            aria-label="Novo t+�tulo da conversa"
+                            aria-label="Novo título da conversa"
                           />
                           <button type="button" onClick={() => void commitRename(s.id)}>OK</button>
                         </div>
@@ -841,8 +653,8 @@ export function WorkspaceChat({
                               </span>
                             ) : null}
                             <span className="workspace-chat__history-item-meta">
-                              {s.is_pinned ? 'Fixada -� ' : ''}{when}
-                              {isActive ? ' -� Atual' : ''}
+                              {s.is_pinned ? 'Fixada · ' : ''}{when}
+                              {isActive ? ' · Atual' : ''}
                             </span>
                           </button>
                           <div className="workspace-chat__history-actions">
@@ -881,7 +693,7 @@ export function WorkspaceChat({
           </div>
         )}
         {memoryOpen && !sessionHydrating && (
-          <div className="workspace-chat__memory-panel" aria-label="Mem+�ria do agente">
+          <div className="workspace-chat__memory-panel" aria-label="Memória do agente">
             <div className="workspace-chat__history-head">
               <span>O agente lembra</span>
               {hasBrandMemory && (
@@ -906,8 +718,8 @@ export function WorkspaceChat({
                 value={newFact}
                 onChange={(e) => setNewFact(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') void addMemoryFact() }}
-                placeholder="Adicionar fato manualmente�Ǫ"
-                aria-label="Novo fato para mem+�ria"
+                placeholder="Adicionar fato manualmente…"
+                aria-label="Novo fato para memória"
               />
               <button type="button" onClick={() => void addMemoryFact()} disabled={!newFact.trim()}>
                 +
@@ -915,7 +727,7 @@ export function WorkspaceChat({
             </div>
             {!hasBrandMemory ? (
               <p className="workspace-chat__history-empty">
-                Ainda sem mem+�ria da marca. Converse ou adicione fatos acima.
+                Ainda sem memória da marca. Converse ou adicione fatos acima.
               </p>
             ) : (
               <div className="workspace-chat__memory-body">
@@ -942,7 +754,7 @@ export function WorkspaceChat({
                 )}
                 {Object.keys(brandMemory.preferences).length > 0 && (
                   <section>
-                    <h4>Prefer+�ncias</h4>
+                    <h4>Preferências</h4>
                     <ul>
                       {Object.entries(brandMemory.preferences).map(([k, v]) => (
                         <li key={k}><strong>{k}:</strong> {v}</li>
@@ -952,7 +764,7 @@ export function WorkspaceChat({
                 )}
                 {brandMemory.last_topics.length > 0 && (
                   <section>
-                    <h4>T+�picos</h4>
+                    <h4>Tópicos</h4>
                     <p>{brandMemory.last_topics.join(', ')}</p>
                   </section>
                 )}
@@ -1025,6 +837,12 @@ export function WorkspaceChat({
           const isSkillsActive = skillsModuleOpen
             && msg.id === lastSkillsMsg?.id
             && isSkillsModuleSkill(msg.turn?.skill)
+          const isSettingsActive = settingsModuleOpen
+            && msg.id === lastSettingsMsg?.id
+            && msg.turn?.skill === 'settings.open'
+          const isStoreActive = storeModuleOpen
+            && msg.id === lastStoreMsg?.id
+            && msg.turn?.skill === 'design.edit'
           const inlineComponents = filterInlineComponents(msg.turn)
 
           return (
@@ -1084,6 +902,12 @@ export function WorkspaceChat({
                       {isSkillsModuleSkill(msg.turn?.skill) && (
                         <SkillsModuleBlock messageId={msg.id} isActive={!!isSkillsActive} />
                       )}
+                      {msg.turn?.skill === 'settings.open' && (
+                        <SettingsModuleBlock messageId={msg.id} isActive={!!isSettingsActive} />
+                      )}
+                      {msg.turn?.skill === 'design.edit' && (
+                        <StoreModuleBlock messageId={msg.id} isActive={!!isStoreActive} />
+                      )}
                       {msg.turn && turnShowsInline(msg.turn) && inlineComponents && inlineComponents.length > 0 && (
                         <AgentUIRenderer
                           components={inlineComponents}
@@ -1117,8 +941,8 @@ export function WorkspaceChat({
 
       <div className="workspace-chat__footer">
         {messages.length > 0 && messages.length < 6 && !prospectModuleOpen && !inboxModuleOpen && !catalogModuleOpen && (
-          <div className="workspace-chat__objectives">
-            {OBJECTIVE_TRIGGERS.map((chip) => (
+          <div className="workspace-chat__objectives" aria-label="Atalhos rápidos">
+            {QUICK_STARTERS.map((chip) => (
               <button
                 key={chip.userLabel}
                 type="button"
@@ -1155,36 +979,92 @@ export function WorkspaceChat({
           <button
             type="button"
             className={`workspace-chat__menu-btn ${menuOpen ? 'is-open' : ''}`}
-            onClick={() => setMenuOpen((v) => !v)}
-            aria-label="Atalhos"
+            onClick={() => {
+              setMenuOpen((v) => !v)
+              setMenuGroup(null)
+            }}
+            aria-label="Atalhos por área"
             aria-expanded={menuOpen}
+            aria-haspopup="menu"
           >
             {menuOpen ? <X size={16} /> : <LayoutGrid size={16} />}
           </button>
 
           {menuOpen && (
             <div className="workspace-chat__shortcuts" role="menu">
-              <p className="workspace-chat__shortcuts-title">Atalhos</p>
-              {shortcuts.map((s) => {
-                const Icon = s.icon
-                return (
-                  <button
-                    key={s.id}
-                    type="button"
-                    role="menuitem"
-                    className="workspace-chat__shortcut"
-                    onClick={s.action}
-                  >
-                    <span className="workspace-chat__shortcut-icon">
-                      <Icon size={14} strokeWidth={1.75} />
-                    </span>
-                    <span className="min-w-0">
-                      <span className="workspace-chat__shortcut-label">{s.label}</span>
-                      {s.desc && <span className="workspace-chat__shortcut-desc">{s.desc}</span>}
-                    </span>
-                  </button>
-                )
-              })}
+              <p className="workspace-chat__shortcuts-title">
+                {menuGroup
+                  ? OBJECTIVE_GROUPS.find((g) => g.id === menuGroup)?.label || 'Atalhos'
+                  : 'Áreas de trabalho'}
+              </p>
+              {menuGroup && (
+                <button
+                  type="button"
+                  className="workspace-chat__shortcut workspace-chat__shortcut--back"
+                  onClick={() => setMenuGroup(null)}
+                >
+                  <span className="workspace-chat__shortcut-label">← Voltar</span>
+                </button>
+              )}
+              {!menuGroup && prospectShortcuts.length > 0 && (
+                <>
+                  <p className="workspace-chat__shortcuts-subtitle">Mapa ativo</p>
+                  {prospectShortcuts.map((sc) => {
+                    const Icon = sc.icon
+                    return (
+                      <button
+                        key={sc.id}
+                        type="button"
+                        role="menuitem"
+                        className="workspace-chat__shortcut"
+                        onClick={sc.action}
+                      >
+                        <span className="workspace-chat__shortcut-icon">
+                          <Icon size={14} strokeWidth={1.75} />
+                        </span>
+                        <span className="min-w-0">
+                          <span className="workspace-chat__shortcut-label">{sc.label}</span>
+                          {sc.desc && <span className="workspace-chat__shortcut-desc">{sc.desc}</span>}
+                        </span>
+                      </button>
+                    )
+                  })}
+                  <p className="workspace-chat__shortcuts-subtitle">Todas as áreas</p>
+                </>
+              )}
+              {!menuGroup && OBJECTIVE_GROUPS.map((group) => (
+                <button
+                  key={group.id}
+                  type="button"
+                  role="menuitem"
+                  className="workspace-chat__shortcut"
+                  onClick={() => setMenuGroup(group.id)}
+                >
+                  <span className="min-w-0">
+                    <span className="workspace-chat__shortcut-label">{group.label}</span>
+                    <span className="workspace-chat__shortcut-desc">{group.hint}</span>
+                  </span>
+                </button>
+              ))}
+              {menuGroup && OBJECTIVE_GROUPS.find((g) => g.id === menuGroup)?.items.map((item) => (
+                <button
+                  key={`${menuGroup}-${item.skill}-${item.userLabel}`}
+                  type="button"
+                  role="menuitem"
+                  className="workspace-chat__shortcut"
+                  onClick={() => {
+                    setMenuOpen(false)
+                    setMenuGroup(null)
+                    triggerSkill(item.skill, {
+                      label: item.userLabel,
+                      assistantMessage: item.assistantMessage,
+                      context: item.context,
+                    })
+                  }}
+                >
+                  <span className="workspace-chat__shortcut-label">{item.userLabel}</span>
+                </button>
+              ))}
             </div>
           )}
         </div>
@@ -1212,6 +1092,7 @@ export function WorkspaceChat({
             }}
             rows={1}
             placeholder="Ex: buscar pizzarias em Fortaleza"
+            aria-label="Mensagem para o assistente"
             disabled={loading}
             className="workspace-chat__input"
           />

@@ -293,7 +293,7 @@ REGRAS:
 - Se ha regra de negocio → 'policy'`;
 
   const result = await withTimeout(
-    aiRouter.generateJson<IntentResult>(prompt, { userId: ctx.userId, brandId: ctx.brandId }, { temperature: 0.5 }),
+    aiRouter.generateJson<IntentResult>(prompt, { userId: ctx.userId, brandId: ctx.brandId }, { temperature: 0.5, functionKey: "text.skill.trainer" }),
     20_000, "understandIntent",
   );
 
@@ -365,7 +365,7 @@ REGRAS:
   let result: StructuredDataResult;
   try {
     result = await withTimeout(
-      aiRouter.generateJson<StructuredDataResult>(prompt, { userId: ctx.userId, brandId: ctx.brandId }, { temperature: 0.4 }),
+      aiRouter.generateJson<StructuredDataResult>(prompt, { userId: ctx.userId, brandId: ctx.brandId }, { temperature: 0.4, functionKey: "text.skill.trainer" }),
       20_000, "extractStructuredData",
     );
   } catch (e: any) {
@@ -407,7 +407,7 @@ REGRAS:
 - intents em ingles snake_case`;
 
   const result = await withTimeout(
-    aiRouter.generateJson<TriggersResult>(prompt, { userId: ctx.userId, brandId: ctx.brandId }, { temperature: 0.6 }),
+    aiRouter.generateJson<TriggersResult>(prompt, { userId: ctx.userId, brandId: ctx.brandId }, { temperature: 0.6, functionKey: "text.skill.trainer" }),
     15_000, "defineTriggers",
   );
 
@@ -462,7 +462,7 @@ REGRAS CRITICAS:
 - Maximo 1800 chars no instructions, max 4 examples.`;
 
   const result = await withTimeout(
-    aiRouter.generateJson<InstructionsResult>(prompt, { userId: ctx.userId, brandId: ctx.brandId }, { temperature: 0.6 }),
+    aiRouter.generateJson<InstructionsResult>(prompt, { userId: ctx.userId, brandId: ctx.brandId }, { temperature: 0.6, functionKey: "text.skill.trainer" }),
     25_000, "composeInstructions",
   );
 
@@ -513,7 +513,7 @@ REGRAS:
   let result: ValidationResult;
   try {
     result = await withTimeout(
-      aiRouter.generateJson<ValidationResult>(prompt, { userId: ctx.userId, brandId: ctx.brandId }, { temperature: 0.6 }),
+      aiRouter.generateJson<ValidationResult>(prompt, { userId: ctx.userId, brandId: ctx.brandId }, { temperature: 0.6, functionKey: "text.skill.trainer" }),
       20_000, "validateSkill",
     );
   } catch (e: any) {

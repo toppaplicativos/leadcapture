@@ -1,19 +1,19 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
-  Handshake, LayoutDashboard, Users, Wallet, Image, Settings, Plus, Layers,
-  ExternalLink, Loader2, ToggleLeft, ToggleRight, ChevronRight, CheckCircle2,
-  Clock, Ban, DollarSign, Copy, BookOpen, Package, Share2,
+  Handshake, LayoutDashboard, Users, Wallet, Image, Plus, Layers,
+  ExternalLink, ToggleLeft, ToggleRight, ChevronRight, CheckCircle2,
+  Clock, DollarSign, BookOpen, Package, Share2, Sparkles,
 } from 'lucide-react'
 import { AffiliateDistributionSection } from '@/pages/admin/affiliates/AffiliateDistributionSection'
 import { AffiliateMaterialsSection } from '@/pages/admin/affiliates/AffiliateMaterialsSection'
 import { AffiliateLearningSection } from '@/pages/admin/affiliates/AffiliateLearningSection'
 import { AffiliateProductsSection } from '@/pages/admin/affiliates/AffiliateProductsSection'
 import { AffiliateProgramsSection } from '@/pages/admin/affiliates/AffiliateProgramsSection'
+import { AffiliateReadinessPanel } from '@/pages/admin/affiliates/AffiliateReadinessPanel'
+import { AffiliateAiFillModal } from '@/pages/admin/affiliates/AffiliateAiFillModal'
 import type { AffiliateLearningModule, AffiliateMaterial, AffiliateProductCatalogItem } from '@/lib/affiliates/types'
 import { getHeaders, pickStockBrandSlug, buildAffiliateAppUrl } from '@/lib/admin/helpers'
 import {
-  COMMISSION_MODE_OPTIONS,
-  commissionValueLabel,
   formatCommissionShort,
   normalizeCommissionMode,
   type CommissionMode,
@@ -26,13 +26,12 @@ const TABS = [
   { key: 'overview' as const, label: 'Visão geral', icon: LayoutDashboard },
   { key: 'distribution' as const, label: 'Distribuição', icon: Share2 },
   { key: 'programs' as const, label: 'Programas', icon: Layers },
-  { key: 'partners' as const, label: 'Parceiros', icon: Users },
+  { key: 'partners' as const, label: 'Afiliados', icon: Users },
   { key: 'commissions' as const, label: 'Comissões', icon: DollarSign },
   { key: 'payouts' as const, label: 'Saques', icon: Wallet },
   { key: 'materials' as const, label: 'Materiais', icon: Image },
   { key: 'learning' as const, label: 'Aprendizado', icon: BookOpen },
   { key: 'products' as const, label: 'Produtos IA', icon: Package },
-  { key: 'settings' as const, label: 'Configurações', icon: Settings },
 ]
 
 type TabKey = AffiliatesTabKey
@@ -64,6 +63,7 @@ export function AffiliatesPage({ showToast = () => {}, embedded = false, initial
   const [brandSlug, setBrandSlug] = useState('')
   const [managing, setManaging] = useState<any>(null)
   const [showForm, setShowForm] = useState(false)
+  const [aiFillOpen, setAiFillOpen] = useState(false)
 
   const [formName, setFormName] = useState('')
   const [formEmail, setFormEmail] = useState('')
@@ -71,8 +71,6 @@ export function AffiliatesPage({ showToast = () => {}, embedded = false, initial
   const [formPhone, setFormPhone] = useState('')
   const [formCode, setFormCode] = useState('')
   const [formRegion, setFormRegion] = useState('')
-
-  const [shareImageUploading, setShareImageUploading] = useState(false)
 
   const [settingsForm, setSettingsForm] = useState<{
     is_enabled: boolean
@@ -103,7 +101,7 @@ export function AffiliatesPage({ showToast = () => {}, embedded = false, initial
     cookie_days: 30,
     min_withdrawal: 50,
     payment_days: 15,
-    app_subdomain: 'parceiros.alhopronto.online',
+    app_subdomain: 'parceiros.leadcapture.online',
     training_html: '',
     terms_html: '',
     share_title: '',
@@ -111,6 +109,14 @@ export function AffiliatesPage({ showToast = () => {}, embedded = false, initial
     share_image_url: '',
     promotion_tone: '',
   })
+  const [partnersUrls, setPartnersUrls] = useState<{
+    public_url?: string
+    path_url?: string
+    custom_url?: string | null
+    app_subdomain?: string | null
+    marketplace_url?: string
+    brand_slug?: string | null
+  } | null>(null)
 
   async function loadData(activeBrandId?: string) {
     setLoading(true)
@@ -155,8 +161,20 @@ export function AffiliatesPage({ showToast = () => {}, embedded = false, initial
       setMaterials(materialsData.materials || [])
       setLearningModules(learningData.modules || [])
       setCatalogProducts(productsData.products || [])
+      setPartnersUrls(progData.partners || null)
 
       if (progData.program) {
+        const slugHint = String(progData.partners?.brand_slug || brandSlug || '').toLowerCase()
+        let sub = String(
+          progData.program.app_subdomain
+          || progData.partners?.app_subdomain
+          || 'parceiros.leadcapture.online',
+        ).trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '')
+        // Legado alho em marca alheia → raiz da plataforma
+        if (/alhopronto/i.test(sub) && slugHint !== 'alhopronto') {
+          sub = 'parceiros.leadcapture.online'
+        }
+        if (!sub) sub = 'parceiros.leadcapture.online'
         setSettingsForm({
           is_enabled: !!progData.program.is_enabled,
           accept_new_affiliates: progData.program.accept_new_affiliates !== false,
@@ -168,7 +186,7 @@ export function AffiliatesPage({ showToast = () => {}, embedded = false, initial
           cookie_days: Number(progData.program.cookie_days || 30),
           min_withdrawal: Number(progData.program.min_withdrawal || 50),
           payment_days: Number(progData.program.payment_days || 15),
-          app_subdomain: progData.program.app_subdomain || 'parceiros.alhopronto.online',
+          app_subdomain: sub,
           training_html: progData.program.training_html || '',
           terms_html: progData.program.terms_html || '',
           share_title: progData.program.share_title || '',
@@ -216,9 +234,14 @@ export function AffiliatesPage({ showToast = () => {}, embedded = false, initial
     return () => { cancelled = true }
   }, [])
 
-  useEffect(() => { setTab(initialTab) }, [initialTab])
   useEffect(() => {
-    if (bridge?.snapshot.activeTab) setTab(bridge.snapshot.activeTab)
+    // Configurações migraram para dentro de cada programa
+    setTab(initialTab === 'settings' ? 'programs' : initialTab)
+  }, [initialTab])
+  useEffect(() => {
+    const active = bridge?.snapshot.activeTab
+    if (!active) return
+    setTab(active === 'settings' ? 'programs' : active)
   }, [bridge?.snapshot.activeTab])
 
   const refresh = useCallback(() => {
@@ -251,45 +274,6 @@ export function AffiliatesPage({ showToast = () => {}, embedded = false, initial
       showToast('Afiliado cadastrado!')
       setShowForm(false)
       setFormName(''); setFormEmail(''); setFormPassword(''); setFormPhone(''); setFormCode(''); setFormRegion('')
-      refresh()
-    } catch (e: unknown) {
-      showToast(e instanceof Error ? e.message : 'Erro', 'err')
-    }
-    setSaving(false)
-  }
-
-  async function uploadShareImage(file: File) {
-    setShareImageUploading(true)
-    try {
-      const fd = new FormData()
-      fd.append('file', file)
-      const r = await fetch('/api/media/upload', {
-        method: 'POST',
-        headers: { Authorization: getHeaders().Authorization || '' },
-        body: fd,
-      })
-      const d = await r.json()
-      if (!r.ok || !d.file?.url) throw new Error(d.error || 'Falha no upload')
-      setSettingsForm((f) => ({ ...f, share_image_url: d.file.url }))
-      showToast('Capa de compartilhamento enviada!')
-    } catch (e: unknown) {
-      showToast(e instanceof Error ? e.message : 'Erro no upload', 'err')
-    }
-    setShareImageUploading(false)
-  }
-
-  async function saveSettings() {
-    setSaving(true)
-    try {
-      const brandId = localStorage.getItem('lead-system:active-brand-id') || ''
-      const r = await fetch('/api/affiliates/program', {
-        method: 'PUT',
-        headers: getHeaders(),
-        body: JSON.stringify({ ...settingsForm, brand_id: brandId }),
-      })
-      const d = await r.json()
-      if (!r.ok) throw new Error(d.error || 'Erro ao salvar')
-      showToast('Configurações salvas!')
       refresh()
     } catch (e: unknown) {
       showToast(e instanceof Error ? e.message : 'Erro', 'err')
@@ -348,8 +332,27 @@ export function AffiliatesPage({ showToast = () => {}, embedded = false, initial
     setSaving(false)
   }
 
-  const affiliateAppUrl = buildAffiliateAppUrl(brandSlug)
-  const subdomainUrl = settingsForm.app_subdomain ? `https://${settingsForm.app_subdomain}` : affiliateAppUrl
+  const PLATFORM_PARTNERS = 'https://parceiros.leadcapture.online'
+  const affiliateAppPath = buildAffiliateAppUrl(brandSlug)
+  const brandPathUrl = partnersUrls?.path_url
+    || (typeof window !== 'undefined'
+      ? `${window.location.origin}${affiliateAppPath}`
+      : `https://app.leadcapture.online${affiliateAppPath}`)
+  let host = String(settingsForm.app_subdomain || partnersUrls?.app_subdomain || 'parceiros.leadcapture.online')
+    .trim()
+    .replace(/^https?:\/\//i, '')
+    .replace(/\/+$/, '')
+    .toLowerCase()
+  // Nunca mostrar host alho em outra org
+  if (/alhopronto/i.test(host) && !/alhopronto/i.test(brandSlug)) {
+    host = 'parceiros.leadcapture.online'
+  }
+  if (!host) host = 'parceiros.leadcapture.online'
+  const partnersPublicUrl = partnersUrls?.public_url || `https://${host}`
+  const marketplaceUrl = partnersUrls?.marketplace_url || PLATFORM_PARTNERS
+  const showBrandPathFallback =
+    brandSlug
+    && partnersPublicUrl.replace(/\/+$/, '') !== brandPathUrl.replace(/\/+$/, '')
   const pendingSales = sales.filter((s) => s.commission_status === 'pending')
   const pendingPayouts = payouts.filter((p) => p.status === 'requested')
 
@@ -365,18 +368,27 @@ export function AffiliatesPage({ showToast = () => {}, embedded = false, initial
           <div>
             <h1 className="affiliates-page__title">Programa de Afiliados</h1>
             <p className="affiliates-page__subtitle">
-              Parceiros, comissões, saques e materiais — ajuste aqui ou pelo chat
+              Afiliados, comissões, saques e programas — materiais e configurações ficam em cada programa
             </p>
           </div>
         </div>
         <div className="affiliates-page__header-actions">
-          <button type="button" className="affiliates-page__btn affiliates-page__btn--ghost" onClick={() => { setTab('settings'); setShowForm(false) }}>
-            <Settings size={14} />
-            Config
+          <button
+            type="button"
+            className="affiliates-page__btn affiliates-page__btn--primary"
+            onClick={() => setAiFillOpen(true)}
+            title="Preencher programa completo com IA"
+          >
+            <Sparkles size={14} />
+            Criar com IA
           </button>
-          <button type="button" className="affiliates-page__btn affiliates-page__btn--primary" onClick={() => { setTab('partners'); setShowForm(true) }}>
+          <button type="button" className="affiliates-page__btn affiliates-page__btn--ghost" onClick={() => { setTab('programs'); setShowForm(false) }}>
+            <Layers size={14} />
+            Programas
+          </button>
+          <button type="button" className="affiliates-page__btn affiliates-page__btn--ghost" onClick={() => { setTab('partners'); setShowForm(true) }}>
             <Plus size={14} />
-            Novo parceiro
+            Novo afiliado
           </button>
         </div>
       </header>
@@ -419,20 +431,29 @@ export function AffiliatesPage({ showToast = () => {}, embedded = false, initial
               <div className="affiliates-page__hero">
                 <div className="affiliates-page__hero-content">
                   <p className="affiliates-page__hero-label">Central do parceiro</p>
-                  <p className="affiliates-page__hero-desc">PWA para afiliados venderem com link e cupom exclusivos</p>
-                  <p className="affiliates-page__hero-url">{subdomainUrl}</p>
-                  <p className="affiliates-page__hero-url affiliates-page__hero-url--muted">{window.location.origin}{affiliateAppUrl}</p>
+                  <p className="affiliates-page__hero-desc">
+                    App para afiliados desta marca — link e cupom exclusivos
+                  </p>
+                  <p className="affiliates-page__hero-url">{partnersPublicUrl}</p>
+                  {showBrandPathFallback ? (
+                    <p className="affiliates-page__hero-url affiliates-page__hero-url--muted">
+                      Acesso direto da marca: {brandPathUrl}
+                    </p>
+                  ) : null}
+                  {marketplaceUrl !== partnersPublicUrl ? (
+                    <p className="affiliates-page__hero-url affiliates-page__hero-url--muted">
+                      Mercado de parceiros: {marketplaceUrl}
+                    </p>
+                  ) : null}
                 </div>
-                {brandSlug ? (
-                  <a href={affiliateAppUrl} target="_blank" rel="noreferrer" className="affiliates-page__hero-link">
-                    <ExternalLink size={12} /> Abrir PWA
-                  </a>
-                ) : null}
+                <a href={partnersPublicUrl} target="_blank" rel="noreferrer" className="affiliates-page__hero-link">
+                  <ExternalLink size={12} /> Abrir PWA
+                </a>
               </div>
 
               <div className="affiliates-page__kpi-grid">
                 <div className="affiliates-page__kpi">
-                  <span className="affiliates-page__kpi-label">Parceiros ativos</span>
+                  <span className="affiliates-page__kpi-label">Afiliados ativos</span>
                   <p className="affiliates-page__kpi-value tabular-nums">{stats?.affiliates_active ?? 0}</p>
                 </div>
                 <div className="affiliates-page__kpi">
@@ -453,10 +474,20 @@ export function AffiliatesPage({ showToast = () => {}, embedded = false, initial
                 {program?.is_enabled ? <ToggleRight size={18} className="text-emerald-500" /> : <ToggleLeft size={18} className="text-gray-300" />}
                 <span>{program?.is_enabled ? 'Programa ativo' : 'Programa desativado'}</span>
                 <span className="affiliates-page__status-sep">·</span>
-                <span>Comissão padrão {settingsForm.default_commission_pct}%</span>
+                <span>
+                  Comissão {formatCommissionShort(settingsForm.default_commission_mode, settingsForm.default_commission_value)}
+                </span>
                 <span className="affiliates-page__status-sep">·</span>
                 <span>Saque mín. {fmtMoney(settingsForm.min_withdrawal)}</span>
               </div>
+
+              <AffiliateReadinessPanel
+                program={program}
+                learningModules={learningModules}
+                materials={materials}
+                catalogProductsCount={catalogProducts.length}
+                onGoTab={(t) => setTab(t as TabKey)}
+              />
             </div>
           )}
 
@@ -464,7 +495,7 @@ export function AffiliatesPage({ showToast = () => {}, embedded = false, initial
             <div className="affiliates-page__section">
               {showForm && (
                 <div className="affiliates-page__form-card">
-                  <h3 className="affiliates-page__form-title">Cadastrar parceiro</h3>
+                  <h3 className="affiliates-page__form-title">Cadastrar afiliado</h3>
                   <div className="affiliates-page__form-grid">
                     <label className="affiliates-page__field">
                       <span>Nome</span>
@@ -501,7 +532,7 @@ export function AffiliatesPage({ showToast = () => {}, embedded = false, initial
               )}
 
               {credentials.length === 0 ? (
-                <EmptyState icon={Handshake} text="Nenhum parceiro cadastrado" />
+                <EmptyState icon={Handshake} text="Nenhum afiliado cadastrado" />
               ) : (
                 <ul className="affiliates-page__partner-list">
                   {credentials.map((c: any) => (
@@ -614,17 +645,37 @@ export function AffiliatesPage({ showToast = () => {}, embedded = false, initial
           )}
 
           {tab === 'programs' && (
-            <AffiliateProgramsSection showToast={showToast} saving={saving} setSaving={setSaving} />
-          )}
-
-          {tab === 'materials' && (
-            <AffiliateMaterialsSection
-              materials={materials}
-              onRefresh={refresh}
+            <AffiliateProgramsSection
               showToast={showToast}
               saving={saving}
               setSaving={setSaving}
+              materials={materials}
+              onRefreshMaterials={refresh}
             />
+          )}
+
+          {tab === 'materials' && (
+            <div className="affiliates-page__section">
+              <div className="affiliates-page__section-head mb-3">
+                <div>
+                  <h3 className="affiliates-page__section-title">Materiais da marca</h3>
+                  <p className="affiliates-page__section-desc">
+                    Visão geral de todas as artes. Para materiais de um programa específico, abra{' '}
+                    <button type="button" className="text-emerald-600 font-semibold underline-offset-2 hover:underline" onClick={() => setTab('programs')}>
+                      Programas → Materiais
+                    </button>
+                    .
+                  </p>
+                </div>
+              </div>
+              <AffiliateMaterialsSection
+                materials={materials}
+                onRefresh={refresh}
+                showToast={showToast}
+                saving={saving}
+                setSaving={setSaving}
+              />
+            </div>
           )}
 
           {tab === 'learning' && (
@@ -647,176 +698,6 @@ export function AffiliatesPage({ showToast = () => {}, embedded = false, initial
             />
           )}
 
-          {tab === 'settings' && (
-            <div className="affiliates-page__section">
-              <div className="affiliates-page__settings-grid">
-                <label className="affiliates-page__check">
-                  <input type="checkbox" checked={settingsForm.is_enabled} onChange={(e) => setSettingsForm((f) => ({ ...f, is_enabled: e.target.checked }))} />
-                  Programa ativo
-                </label>
-                <label className="affiliates-page__check">
-                  <input type="checkbox" checked={settingsForm.accept_new_affiliates} onChange={(e) => setSettingsForm((f) => ({ ...f, accept_new_affiliates: e.target.checked }))} />
-                  Aceitar cadastro público
-                </label>
-                <label className="affiliates-page__check">
-                  <input type="checkbox" checked={settingsForm.auto_approve_affiliates} onChange={(e) => setSettingsForm((f) => ({ ...f, auto_approve_affiliates: e.target.checked }))} />
-                  Aprovar automaticamente
-                </label>
-                <label className="affiliates-page__field affiliates-page__field--wide">
-                  <span>Modo de comissão padrão</span>
-                  <select
-                    value={settingsForm.default_commission_mode}
-                    onChange={(e) => {
-                      const mode = normalizeCommissionMode(e.target.value)
-                      setSettingsForm((f) => ({
-                        ...f,
-                        default_commission_mode: mode,
-                        default_commission_value: mode === 'percentage' ? f.default_commission_pct : f.default_commission_value,
-                      }))
-                    }}
-                  >
-                    {COMMISSION_MODE_OPTIONS.map((opt) => (
-                      <option key={opt.value} value={opt.value}>{opt.label}</option>
-                    ))}
-                  </select>
-                  <p className="affiliates-page__field-hint">
-                    {COMMISSION_MODE_OPTIONS.find((o) => o.value === settingsForm.default_commission_mode)?.hint}
-                  </p>
-                </label>
-                <label className="affiliates-page__field">
-                  <span>{commissionValueLabel(settingsForm.default_commission_mode)}</span>
-                  <input
-                    type="number"
-                    step={settingsForm.default_commission_mode === 'percentage' ? '0.1' : '0.01'}
-                    min={0}
-                    max={settingsForm.default_commission_mode === 'percentage' ? 100 : undefined}
-                    value={settingsForm.default_commission_value}
-                    onChange={(e) => {
-                      const val = Number(e.target.value)
-                      setSettingsForm((f) => ({
-                        ...f,
-                        default_commission_value: val,
-                        default_commission_pct: f.default_commission_mode === 'percentage' ? val : f.default_commission_pct,
-                      }))
-                    }}
-                  />
-                </label>
-                <div className="affiliates-page__field affiliates-page__field--wide">
-                  <span className="affiliates-page__preview-label">Prévia para o afiliado</span>
-                  <p className="affiliates-page__commission-preview">
-                    {formatCommissionShort(settingsForm.default_commission_mode, settingsForm.default_commission_value)}
-                  </p>
-                </div>
-                <label className="affiliates-page__field affiliates-page__field--wide">
-                  <span>Regras de comissão</span>
-                  <textarea
-                    value={settingsForm.commission_rules}
-                    onChange={(e) => setSettingsForm((f) => ({ ...f, commission_rules: e.target.value }))}
-                    rows={5}
-                    placeholder={'Ex.:\n• Comissão paga após confirmação do pagamento\n• Produtos promocionais: comissão reduzida pela metade\n• Devoluções cancelam a comissão'}
-                  />
-                </label>
-                <label className="affiliates-page__field">
-                  <span>Saque mínimo (R$)</span>
-                  <input type="number" value={settingsForm.min_withdrawal} onChange={(e) => setSettingsForm((f) => ({ ...f, min_withdrawal: Number(e.target.value) }))} />
-                </label>
-                <label className="affiliates-page__field">
-                  <span>Prazo pagamento (dias)</span>
-                  <input type="number" value={settingsForm.payment_days} onChange={(e) => setSettingsForm((f) => ({ ...f, payment_days: Number(e.target.value) }))} />
-                </label>
-                <label className="affiliates-page__field">
-                  <span>Cookie rastreio (dias)</span>
-                  <input type="number" value={settingsForm.cookie_days} onChange={(e) => setSettingsForm((f) => ({ ...f, cookie_days: Number(e.target.value) }))} />
-                </label>
-                <label className="affiliates-page__field affiliates-page__field--wide">
-                  <span>Subdomínio PWA</span>
-                  <input value={settingsForm.app_subdomain} onChange={(e) => setSettingsForm((f) => ({ ...f, app_subdomain: e.target.value }))} />
-                </label>
-
-                <label className="affiliates-page__field affiliates-page__field--wide">
-                  <span>Tom de voz na divulgação (afiliados)</span>
-                  <textarea
-                    value={settingsForm.promotion_tone}
-                    onChange={(e) => setSettingsForm((f) => ({ ...f, promotion_tone: e.target.value }))}
-                    rows={3}
-                    placeholder="Ex.: amigável e direto, sem gírias, foco em qualidade e confiança. Use emojis com moderação."
-                  />
-                  <p className="affiliates-page__field-hint">
-                    Orienta os kits prontos e a IA ao gerar legendas. Se vazio, usa o tom da marca (voice_json).
-                  </p>
-                </label>
-
-                <div className="affiliates-page__field affiliates-page__field--wide">
-                  <span>Preview ao compartilhar (WhatsApp / redes)</span>
-                  <p className="affiliates-page__field-hint">
-                    Capa, título e descrição exibidos quando você envia o link do programa para vendedores.
-                  </p>
-                  <div className="flex flex-col sm:flex-row gap-3 mt-2">
-                    <label className="affiliates-page__share-upload shrink-0">
-                      {settingsForm.share_image_url ? (
-                        <img src={settingsForm.share_image_url} alt="" className="affiliates-page__share-preview" />
-                      ) : (
-                        <div className="affiliates-page__share-preview affiliates-page__share-preview--empty">
-                          <Image size={22} className="opacity-35" />
-                          <span className="text-xs text-gray-400 mt-1">1200×630 recomendado</span>
-                        </div>
-                      )}
-                      <input
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        disabled={shareImageUploading}
-                        onChange={(e) => {
-                          const file = e.target.files?.[0]
-                          if (file) void uploadShareImage(file)
-                          e.target.value = ''
-                        }}
-                      />
-                      <span className="affiliates-page__share-upload-btn">
-                        {shareImageUploading ? 'Enviando…' : settingsForm.share_image_url ? 'Trocar capa' : 'Enviar capa'}
-                      </span>
-                    </label>
-                    <div className="flex-1 space-y-2 min-w-0">
-                      <input
-                        value={settingsForm.share_title}
-                        onChange={(e) => setSettingsForm((f) => ({ ...f, share_title: e.target.value }))}
-                        placeholder="Título do link (ex: Seja parceiro e ganhe comissão)"
-                        className="w-full"
-                      />
-                      <textarea
-                        value={settingsForm.share_description}
-                        onChange={(e) => setSettingsForm((f) => ({ ...f, share_description: e.target.value }))}
-                        rows={3}
-                        placeholder="Descrição curta que aparece no preview do WhatsApp"
-                      />
-                      {settingsForm.share_image_url && (
-                        <button
-                          type="button"
-                          className="text-xs font-semibold text-red-500"
-                          onClick={() => setSettingsForm((f) => ({ ...f, share_image_url: '' }))}
-                        >
-                          Remover capa
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-                <label className="affiliates-page__field affiliates-page__field--wide">
-                  <span>Treinamento (HTML)</span>
-                  <textarea value={settingsForm.training_html} onChange={(e) => setSettingsForm((f) => ({ ...f, training_html: e.target.value }))} rows={4} />
-                </label>
-                <label className="affiliates-page__field affiliates-page__field--wide">
-                  <span>Termos do programa (HTML)</span>
-                  <textarea value={settingsForm.terms_html} onChange={(e) => setSettingsForm((f) => ({ ...f, terms_html: e.target.value }))} rows={4} placeholder="Regras, política de comissão, prazos…" />
-                </label>
-              </div>
-              <div className="affiliates-page__form-actions">
-                <button type="button" className="affiliates-page__btn affiliates-page__btn--primary" disabled={saving} onClick={saveSettings}>
-                  {saving ? 'Salvando…' : 'Salvar configurações'}
-                </button>
-              </div>
-            </div>
-          )}
         </div>
       )}
 
@@ -829,6 +710,20 @@ export function AffiliatesPage({ showToast = () => {}, embedded = false, initial
           showToast={showToast}
         />
       )}
+
+      <AffiliateAiFillModal
+        open={aiFillOpen}
+        onClose={() => setAiFillOpen(false)}
+        onDone={() => refresh()}
+        showToast={showToast}
+        defaults={{
+          commission_mode: settingsForm.default_commission_mode,
+          commission_value: settingsForm.default_commission_value,
+          payment_days: settingsForm.payment_days,
+          min_withdrawal: settingsForm.min_withdrawal,
+          opportunity_hint: settingsForm.share_description || settingsForm.commission_rules || '',
+        }}
+      />
     </div>
   )
 }

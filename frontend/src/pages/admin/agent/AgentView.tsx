@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react'
-import { useNavigate, useLocation } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Users, MessageSquare, Megaphone, ShoppingCart,
   Package, Palette, Search, RefreshCw, LogOut, Menu, X, Loader2,
@@ -22,9 +22,11 @@ import {
 } from '@/lib/admin/helpers'
 import type { ShowToast } from '@/lib/admin/types'
 import { Skeleton, KpiCard, EmptyState } from '@/components/admin/primitives'
+import { Select, fieldControlClass, fieldLabelLegacyClass, fieldTextareaClass } from '@/components/ui'
 import { SquadRules } from '@/pages/admin/messages/SquadRules'
 
 export function AgentView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') => void }) {
+  const navigate = useNavigate()
   const [data, setData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   /* Tab principal — 'knowledge' substitui 'training' + 'skills' antigos (sub-abas dentro) */
@@ -73,7 +75,8 @@ export function AgentView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'e
       setIncludeEmojis(p.include_emojis !== false)
       setMaxLength(String(p.max_length || 500))
       const g = aiState.global_ai || {}
-      setGlobalAiEnabled(g.enabled !== false && !g.reason?.includes('Pausa'))
+      // Respeita enabled real do backend (default desligado)
+      setGlobalAiEnabled(g.enabled === true || g.enabled === 1 || g.enabled === 'true')
       setGlobalAiReason(g.reason || '')
       setKbEntries(kb.entries || [])
       setLoading(false)
@@ -168,6 +171,18 @@ export function AgentView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'e
 
   return (
     <div className="space-y-5">
+      {/* Atalho para o treino multi-canal (Global + Instagram + WhatsApp) */}
+      <button
+        type="button"
+        onClick={() => navigate('/atendente')}
+        className="w-full text-left rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 hover:bg-emerald-100/80 transition"
+      >
+        <p className="text-sm font-bold text-emerald-900">Treinamento Global + Atendimento por canal</p>
+        <p className="text-[12px] text-emerald-800/80 mt-0.5">
+          Abra <strong>/atendente</strong> para proposta de valor, objeções, treino do Instagram e do WhatsApp, limites e split multi-bolha.
+        </p>
+      </button>
+
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-[26px] font-bold text-gray-900 tracking-tight">Agente IA</h2>
@@ -307,7 +322,7 @@ export function AgentView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'e
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         {items.map(item => (
-                          <div key={item.id} className="border border-gray-200 rounded-xl p-3 flex flex-col gap-2 hover:border-violet-300 hover:bg-violet-50/30 transition">
+                          <div key={item.id} className="border border-gray-200 rounded-xl p-3 flex flex-col gap-2 hover:border-gray-300 hover:bg-gray-50 transition">
                             <div className="flex items-start justify-between gap-2">
                               <div className="min-w-0 flex-1">
                                 <p className="text-[13px] font-semibold text-gray-900 leading-snug">{item.title}</p>
@@ -368,57 +383,59 @@ export function AgentView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'e
         <div className="bg-white rounded-2xl border border-border-light p-5 space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5 block">Nome do Agente</label>
+              <label className={fieldLabelLegacyClass}>Nome do Agente</label>
               <input type="text" value={agentName} onChange={e => setAgentName(e.target.value)} placeholder="Ex: Consultor Alho Pronto"
-                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-200" />
+                className={fieldControlClass} />
             </div>
             <div>
-              <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5 block">Tom de voz</label>
-              <select value={tone} onChange={e => setTone(e.target.value)}
-                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-200">
+              <Select
+                label="Tom de voz"
+                value={tone}
+                onChange={e => setTone(e.target.value)}
+              >
                 <option value="friendly">Amigavel</option>
                 <option value="professional">Profissional</option>
                 <option value="casual">Casual</option>
                 <option value="formal">Formal</option>
-              </select>
+              </Select>
             </div>
           </div>
           <div>
-            <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5 block">Objetivo do Agente</label>
+            <label className={fieldLabelLegacyClass}>Objetivo do Agente</label>
             <textarea value={objective} onChange={e => setObjective(e.target.value)} rows={3} placeholder="O que o agente deve fazer..."
-              className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-200 resize-none" />
+              className={fieldTextareaClass} />
           </div>
           <div>
-            <label data-field="business_context" className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5 block">Contexto do Negocio</label>
+            <label data-field="business_context" className={fieldLabelLegacyClass}>Contexto do Negocio</label>
             <textarea value={businessContext} onChange={e => setBusinessContext(e.target.value)} rows={3} placeholder="Descreva seu negocio, produtos, diferenciais..."
-              className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-200 resize-none" />
+              className={fieldTextareaClass} />
           </div>
           <div>
-            <label data-field="communication_rules" className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5 block">Regras de Comunicacao</label>
+            <label data-field="communication_rules" className={fieldLabelLegacyClass}>Regras de Comunicacao</label>
             <textarea value={communicationRules} onChange={e => setCommunicationRules(e.target.value)} rows={3}
               placeholder="Como o agente deve escrever: tom, formalidade, limites, padroes de fechamento..."
-              className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-200 resize-none" />
+              className={fieldTextareaClass} />
           </div>
           <div>
-            <label data-field="training_notes" className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5 block">Notas de Treinamento</label>
+            <label data-field="training_notes" className={fieldLabelLegacyClass}>Notas de Treinamento</label>
             <textarea value={trainingNotes} onChange={e => setTrainingNotes(e.target.value)} rows={3}
               placeholder="Aprendizados internos, padroes de objecao, scripts da equipe..."
-              className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-200 resize-none" />
+              className={fieldTextareaClass} />
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label data-field="preferred_terms" className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5 block">Termos Preferidos</label>
+              <label data-field="preferred_terms" className={fieldLabelLegacyClass}>Termos Preferidos</label>
               <input type="text" value={preferredTerms} onChange={e => setPreferredTerms(e.target.value)}
                 placeholder="parceiro, sob medida, premium (separe por virgula)"
-                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-200" />
-              <p className="text-[10px] text-gray-400 mt-1">Palavras que a marca quer ver nas respostas.</p>
+                className={fieldControlClass} />
+              <p className="text-[10px] text-gray-500 mt-1">Palavras que a marca quer ver nas respostas.</p>
             </div>
             <div>
-              <label data-field="forbidden_terms" className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5 block">Termos Proibidos</label>
+              <label data-field="forbidden_terms" className={fieldLabelLegacyClass}>Termos Proibidos</label>
               <input type="text" value={forbiddenTerms} onChange={e => setForbiddenTerms(e.target.value)}
                 placeholder="barato, mais ou menos, nome do concorrente (separe por virgula)"
-                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-200" />
-              <p className="text-[10px] text-gray-400 mt-1">Palavras que NUNCA podem aparecer nas respostas.</p>
+                className={fieldControlClass} />
+              <p className="text-[10px] text-gray-500 mt-1">Palavras que NUNCA podem aparecer nas respostas.</p>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -427,13 +444,13 @@ export function AgentView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'e
               <Toggle value={includeEmojis} onChange={() => setIncludeEmojis(!includeEmojis)} />
             </div>
             <div>
-              <label className="text-[11px] font-bold text-gray-400 uppercase mb-1 block">Max. caracteres</label>
+              <label className={fieldLabelLegacyClass}>Max. caracteres</label>
               <input type="number" value={maxLength} onChange={e => setMaxLength(e.target.value)} min={100} max={2000}
-                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-200" />
+                className={fieldControlClass} />
             </div>
           </div>
           <button onClick={saveProfile} disabled={saving}
-            className="px-5 py-2.5 rounded-xl bg-violet-600 text-white text-xs font-bold hover:bg-violet-700 disabled:opacity-50 transition shadow-sm">
+            className="px-5 py-2.5 rounded-xl bg-gray-900 text-white text-xs font-bold hover:bg-gray-800 disabled:opacity-50 transition shadow-sm">
             {saving ? 'Salvando...' : 'Salvar Perfil'}
           </button>
         </div>
@@ -479,7 +496,7 @@ export function AgentView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'e
               <MessageSquare size={12} strokeWidth={2.25} />
               Ver mensagens
             </a>
-            <a href="/configuracoes?tab=whatsapp" className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-white hover:bg-gray-50 border border-gray-200 text-[11.5px] font-semibold text-gray-700 transition">
+            <a href="/whatsapp" className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-white hover:bg-gray-50 border border-gray-200 text-[11.5px] font-semibold text-gray-700 transition">
               <Phone size={12} strokeWidth={2.25} />
               Instancias WhatsApp
             </a>
@@ -539,19 +556,23 @@ export function AgentView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'e
               <div className="sm:col-span-3">
                 <textarea value={trainingText} onChange={e => setTrainingText(e.target.value)} rows={2}
                   placeholder="Ex: Nosso alho descascado tipo A e ideal para restaurantes que processam grandes volumes..."
-                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 resize-none" />
+                  className={fieldTextareaClass} />
               </div>
               <div className="flex flex-col gap-2">
-                <select value={trainingCategory} onChange={e => setTrainingCategory(e.target.value)}
-                  className="px-3 py-2 border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-gray-900/10">
+                <Select
+                  value={trainingCategory}
+                  onChange={e => setTrainingCategory(e.target.value)}
+                  className="h-10 text-xs"
+                  aria-label="Categoria do texto"
+                >
                   <option value="faq">FAQ</option>
                   <option value="produto">Produto</option>
                   <option value="preco">Preço</option>
                   <option value="entrega">Entrega</option>
                   <option value="geral">Geral</option>
-                </select>
+                </Select>
                 <button onClick={addTraining}
-                  className="px-3 py-2 rounded-xl bg-gray-900 hover:bg-black text-white text-xs font-bold transition">Adicionar</button>
+                  className="px-3 py-2 rounded-xl bg-gray-900 hover:bg-gray-800 text-white text-xs font-bold transition">Adicionar</button>
               </div>
             </div>
             <p className="text-[10.5px] text-gray-400 leading-snug">

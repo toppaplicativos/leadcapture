@@ -121,7 +121,6 @@ export function WhatsAppPairingFlow({
           .then((r) => r.json())
           .then((d) => {
             const pairingActive = Boolean(d.instance?.pairing_active ?? d.pairing_active)
-            if (pairingActive) return
             const st = String(d.instance?.status || d.status || '')
             if (st === 'connected' || st === 'authenticated') {
               setLinked(true)
@@ -129,11 +128,25 @@ export function WhatsAppPairingFlow({
                 connectedNotifiedRef.current = true
                 onConnected?.()
               }
+              return
             }
+            if (pairingActive) return
+            const pairingErr = String(d.instance?.pairing_error || d.pairing_error || '').trim()
+            if (pairingErr) {
+              setErrorMsg(pairingErr)
+              onError?.(pairingErr)
+              setPairingCode(null)
+              return
+            }
+            /* Sessão encerrou sem conectar (socket 428 etc.) — pede novo código. */
+            setErrorMsg(
+              'A sessão de pareamento encerrou antes de vincular. Gere um novo código e digite no WhatsApp em até 2 minutos.',
+            )
+            setPairingCode(null)
           })
           .catch(() => {})
       }, 3000)
-    }, 15000)
+    }, 8000)
 
     return () => {
       if (pollRef.current) clearInterval(pollRef.current)
@@ -364,12 +377,13 @@ export function WhatsAppPairingFlow({
           </button>
         </div>
         <ol className="wa-pairing__steps">
-          <li>Abra o WhatsApp no celular</li>
+          <li>Abra o WhatsApp no celular <b>agora</b> (não espere)</li>
           <li>Configurações → Aparelhos conectados</li>
           <li>Conectar aparelho → <b>Conectar com número de telefone</b></li>
-          <li>Digite o <b>mesmo número</b> mostrado acima (com DDD)</li>
-          <li>Cole o código copiado — válido por ~2 minutos</li>
+          <li>Informe exatamente: <b>{pairingPhone ? formatPairingE164Display(pairingPhone) : 'o número acima'}</b></li>
+          <li>Cole o código <b>sem hífen</b> ({rawCode}) — válido ~2 min</li>
         </ol>
+        {errorMsg && <p className="wa-pairing__error" role="alert">{errorMsg}</p>}
         {!linked && (
           <div className="wa-pairing__waiting">
             <span className="wa-pairing__pulse" />

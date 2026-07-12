@@ -13,17 +13,24 @@ import {
   Ticket,
   Grid3x3,
   ImageIcon,
+  Users,
+  Sparkles,
 } from 'lucide-react'
 import { Button, Input } from '@/components/ui'
 import { WhatsAppIcon } from '@/components/icons'
 import { StorePreviewPane } from './StorePreviewPane'
 import { useStoreStudio, getStoreStudioHeaders, type StoreStudioTab } from './useStoreStudio'
 import type { StorePageScope } from '@/lib/store-marketing'
+import { WhatsAppButtonStyleSection } from './WhatsAppButtonStyleSection'
+import { StoreClientTypesSection } from './StoreClientTypesSection'
+import { StoreConversionSection } from './StoreConversionSection'
 
 const TABS: { id: StoreStudioTab; label: string; icon: typeof Palette }[] = [
   { id: 'identity', label: 'Identidade', icon: Palette },
   { id: 'whatsapp', label: 'Contato & WhatsApp', icon: MessageCircle },
+  { id: 'conversion', label: 'Conversão', icon: Sparkles },
   { id: 'checkout', label: 'Checkout', icon: ShoppingCart },
+  { id: 'clients', label: 'Tipos de cliente', icon: Users },
   { id: 'status', label: 'Status & links', icon: Globe },
 ]
 
@@ -226,7 +233,7 @@ export function StoreStudioPage() {
         <div>
           <h2 className="text-[26px] font-bold tracking-tight text-gray-900">Loja</h2>
           <p className="text-[13px] text-gray-500 mt-0.5">
-            Identidade, WhatsApp, checkout e vitrine do catálogo público
+            Identidade, WhatsApp, conversão, checkout e vitrine do catálogo
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
@@ -499,28 +506,30 @@ export function StoreStudioPage() {
               <div className="rounded-xl border border-border-light divide-y divide-border-light">
                 <SettingRow
                   label="Ativar WhatsApp na loja"
-                  sub="Controla chip no topo e botão flutuante"
+                  sub="Controla o botão flutuante de contato"
                 >
                   <Toggle
                     value={studio.whatsappMarketing.enabled}
                     onChange={(v) =>
-                      studio.setWhatsappMarketing({ ...studio.whatsappMarketing, enabled: v })
+                      studio.setWhatsappMarketing({
+                        ...studio.whatsappMarketing,
+                        enabled: v,
+                        // Ao ativar, garante FAB; nunca chip no card da capa
+                        show_fab: v ? true : studio.whatsappMarketing.show_fab,
+                        show_in_hero: false,
+                      })
                     }
                   />
                 </SettingRow>
-                <SettingRow label="Chip no topo do catálogo" sub="Exibido abaixo do nome da loja">
-                  <Toggle
-                    value={studio.whatsappMarketing.show_in_hero}
-                    onChange={(v) =>
-                      studio.setWhatsappMarketing({ ...studio.whatsappMarketing, show_in_hero: v })
-                    }
-                  />
-                </SettingRow>
-                <SettingRow label="Botão flutuante" sub="Fixo no canto da tela (recomendado no mobile)">
+                <SettingRow label="Botão flutuante" sub="Fixo no canto — único CTA de WhatsApp (sem chip no card)">
                   <Toggle
                     value={studio.whatsappMarketing.show_fab}
                     onChange={(v) =>
-                      studio.setWhatsappMarketing({ ...studio.whatsappMarketing, show_fab: v })
+                      studio.setWhatsappMarketing({
+                        ...studio.whatsappMarketing,
+                        show_fab: v,
+                        show_in_hero: false,
+                      })
                     }
                   />
                 </SettingRow>
@@ -583,6 +592,23 @@ export function StoreStudioPage() {
                 />
               </div>
 
+              {/* Seção dedicada — estilo do botão flutuante */}
+              <WhatsAppButtonStyleSection
+                design={studio.whatsappMarketing.button}
+                onChange={(button) =>
+                  studio.setWhatsappMarketing({ ...studio.whatsappMarketing, button })
+                }
+                brandPrimary={studio.primaryColor}
+                phoneDigits={waDigits}
+                prefilledMessage={studio.whatsappMarketing.prefilled_message}
+                fabPosition={studio.whatsappMarketing.fab_position}
+              />
+
+              <p className="text-[11px] text-gray-500 bg-gray-50 border border-border-light rounded-xl px-3 py-2">
+                Com link de afiliado, o número é dinâmico (sessão de atendimento → número ativo do
+                afiliado → fallback da loja). No acesso direto à loja, usa este número do studio.
+              </p>
+
               {waPreviewUrl && (
                 <a
                   href={waPreviewUrl}
@@ -598,6 +624,15 @@ export function StoreStudioPage() {
             </section>
           )}
 
+          {tab === 'conversion' && (
+            <StoreConversionSection
+              conversion={studio.conversion}
+              announcement={studio.announcementBar}
+              onConversionChange={studio.setConversion}
+              onAnnouncementChange={studio.setAnnouncementBar}
+            />
+          )}
+
           {tab === 'checkout' && (
             <section className="bg-white border border-border-light rounded-2xl p-5 space-y-4">
               <SectionHeader Icon={ShoppingCart} title="Checkout" />
@@ -610,6 +645,10 @@ export function StoreStudioPage() {
                 </SettingRow>
               </div>
             </section>
+          )}
+
+          {tab === 'clients' && (
+            <StoreClientTypesSection onToast={(msg, type) => studio.flash(msg, type === 'err' ? 'err' : 'ok')} />
           )}
 
           {tab === 'status' && (

@@ -228,10 +228,22 @@ function todayDateOnly(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-function mapWhatsappStatus(summary: { connected: number; total: number; has_critical: boolean }): WhatsappStatusValue {
+function mapWhatsappStatus(
+  summary: { connected: number; total: number; has_critical: boolean },
+  instances?: Array<{ status_runtime?: string; status_db?: string; drift?: boolean }>,
+): WhatsappStatusValue {
   if (!summary.total) return "none";
-  if (summary.connected > 0 && !summary.has_critical) return "connected";
-  if (summary.connected > 0) return "unstable";
+
+  // Elegibilidade: basta UMA sessão viva. has_critical em outra sessão offline
+  // não pode marcar o afiliado como "desconectado" depois de conectar.
+  const liveConnected = (instances || []).some((i) => {
+    if (i.drift) return false;
+    if (i.status_runtime === "connected") return true;
+    if (i.status_runtime === "unknown" && i.status_db === "connected") return true;
+    return false;
+  });
+  if (liveConnected || summary.connected > 0) return "connected";
+  if (summary.has_critical) return "disconnected";
   return "disconnected";
 }
 
@@ -696,9 +708,11 @@ export class AffiliateDistributionService {
       isAffiliate: true,
       ownerActorId: input.affiliateUserId,
     });
-    const whatsappStatus = mapWhatsappStatus(health.summary);
+    const whatsappStatus = mapWhatsappStatus(health.summary, health.instances || []);
     const connectedInstance = (health.instances || []).find(
       (i) => i.status_runtime === "connected" && !i.drift
+    ) || (health.instances || []).find(
+      (i) => !i.drift && i.status_runtime === "unknown" && i.status_db === "connected"
     ) || (health.instances || []).find((i) => i.status_runtime === "connected");
 
     const affiliateActive = String(affiliate?.status || "").toLowerCase() === "active";
@@ -852,6 +866,19 @@ export class AffiliateDistributionService {
         body: "Reconecte para voltar a receber contatos. Novos leads ficam em pausa.",
         actionPath: "/conexoes",
       });
+    } else if (whatsappStatus === "connected") {
+      // Limpa alerta de desconexão quando já reconectou
+      try {
+        await query(
+          `UPDATE affiliate_alerts
+           SET is_read = TRUE, updated_at = NOW()
+           WHERE affiliate_id = ? AND brand_id = ?
+             AND alert_type = 'whatsapp_disconnected' AND is_read = FALSE`,
+          [input.affiliateId, input.brandId],
+        );
+      } catch {
+        /* coluna/tabela opcional */
+      }
     }
 
     const stats = await this.loadAffiliateStats(input.affiliateId, input.brandId, input.ownerUserId);
@@ -1319,7 +1346,11 @@ export class AffiliateDistributionService {
         isAffiliate: true,
         ownerActorId: pick.affiliate_user_id,
       });
-      const instance = (health.instances || []).find((i) => i.status_runtime === "connected");
+      const instance = (health.instances || []).find(
+        (i) => i.status_runtime === "connected" && !i.drift,
+      ) || (health.instances || []).find(
+        (i) => !i.drift && i.status_runtime === "unknown" && i.status_db === "connected",
+      ) || (health.instances || []).find((i) => i.status_runtime === "connected");
 
       const assignmentId = randomUUID();
       const today = todayDateOnly();

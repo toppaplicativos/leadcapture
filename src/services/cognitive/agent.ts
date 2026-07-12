@@ -15,6 +15,7 @@ import { buildCouponIntelligenceBlock } from "./skills/couponIntelligence";
 import { decideResponse, SuggestedTone } from "./skills/responseGate";
 import { silenceLogService } from "./silenceLog";
 import { CognitiveInput, CognitiveOutput, EMPTY_MEMORY } from "./types";
+import { formatSalesModeBlock, detectFunnelStageLight } from "../salesChannelHelpers";
 
 /**
  * Top-level orchestrator for the cognitive pipeline.
@@ -145,6 +146,20 @@ export class CognitiveAgent {
     };
     const brandIdentityBlock = buildBrandProtectionBlock(brandGuard);
 
+    /* Channel attendance (WA/IG) — training + sales + objections from brandContextPack */
+    const channelExtra = [
+      input.channelTraining ? `TREINAMENTO DO CANAL:\n${input.channelTraining}` : "",
+      input.channelRules ? `REGRAS DO CANAL:\n${input.channelRules}` : "",
+      formatSalesModeBlock(
+        String(input.salesMode || "full"),
+        detectFunnelStageLight(incomingMessage),
+        Array.isArray(input.objections) ? input.objections : [],
+      ),
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+    const knowledgeBlockWithChannel = [knowledgeBlock, channelExtra].filter(Boolean).join("\n\n");
+
     /* PASS 1: Reasoner */
     const tReasoner = Date.now();
     const trace = await this.reasoner.analyze({
@@ -153,7 +168,7 @@ export class CognitiveAgent {
       incomingMessage,
       conversationHistory: history,
       catalogBlock,
-      knowledgeBlock,
+      knowledgeBlock: knowledgeBlockWithChannel,
       skillsBlock,
       brandIdentityBlock,
       memoryBlock,
@@ -182,23 +197,42 @@ export class CognitiveAgent {
 
     /* PASS 2: Composer */
     const tComposer = Date.now();
+    const maxFromChannel = Number(input.channelMaxLength || 0);
+    const maxLength = Math.max(
+      180,
+      Math.min(
+        maxFromChannel > 0 ? maxFromChannel : Number(profile.max_length || 500),
+        4096,
+      ),
+    );
+
     const composed = await this.composer.compose({
       userId,
       brandId,
       incomingMessage,
       conversationHistory: history,
       catalogBlock,
-      knowledgeBlock,
+      knowledgeBlock: knowledgeBlockWithChannel,
       skillsBlock,
       brandIdentityBlock,
       memoryBlock,
       lastOutgoingMessages,
       brandGuard,
       trace,
-      maxLength: Math.max(180, Math.min(Number(profile.max_length || 500), 900)),
+      maxLength,
       includeEmojis: Boolean(profile.include_emojis),
-      communicationRules: String(profile.communication_rules || "").trim(),
-      trainingNotes: String(profile.training_notes || "").trim() || undefined,
+      communicationRules: [
+        String(profile.communication_rules || "").trim(),
+        String(input.channelRules || "").trim(),
+      ]
+        .filter(Boolean)
+        .join("\n"),
+      trainingNotes: [
+        String(profile.training_notes || "").trim(),
+        String(input.channelTraining || "").trim(),
+      ]
+        .filter(Boolean)
+        .join("\n") || undefined,
       /* Fase 16.5 — emotional intelligence: gate detected the lead's tone
        * (seco/amigavel/respeitoso) so the Composer can match register. */
       suggestedTone,

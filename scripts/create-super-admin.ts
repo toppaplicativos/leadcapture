@@ -51,18 +51,20 @@ async function main() {
       console.error("Missing --password")
       process.exit(1)
     }
+    // Temporary org row; promoteUser sets platform + admin immediately after
     const created = await usersService.create({
       email,
       password,
       name,
-      role: "admin",
+      accountKind: "org",
+      role: "org",
     })
     user = created as any
     console.log(`✔ Created user: ${user.email} (${user.id})`)
   }
 
   await masterService.promoteUser(user.email)
-  console.log(`✔ Promoted to super admin: ${user.email}`)
+  console.log(`✔ Promoted to Admin Master (platform): ${user.email}`)
   console.log("")
   console.log("Login: https://adm.leadcapture.online/admin")
   console.log("Ou: app.leadcapture.online/login (super-admin → /master)")

@@ -23,6 +23,7 @@ import {
 import type { ShowToast } from '@/lib/admin/types'
 import { Skeleton, KpiCard, EmptyState } from '@/components/admin/primitives'
 import type { CouponRow } from '@/pages/admin/row-types'
+import { Select, fieldControlClass, fieldLabelLegacyClass } from '@/components/ui'
 
 export function CouponsView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') => void }) {
   const { confirm } = useConfirm()
@@ -132,12 +133,12 @@ export function CouponsView({ showToast }: { showToast: (t: string, tp?: 'ok' | 
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="text-[20px] font-bold tracking-tight text-gray-900 flex items-center gap-2">
-            <Ticket size={18} className="text-violet-600" strokeWidth={2.5} /> Cupons
+            <Ticket size={18} className="text-gray-700" strokeWidth={2.5} /> Cupons
           </h2>
           <p className="text-[12px] text-gray-500 mt-0.5">Códigos de desconto aplicáveis no checkout. O agente também pode oferecê-los proativamente.</p>
         </div>
         <button onClick={() => setEditing({ discount_type: 'percentage', applies_to: 'all', active: true } as any)}
-          className="px-4 py-2 rounded-xl bg-violet-600 text-white text-[12px] font-bold hover:bg-violet-700 flex items-center gap-1.5">
+          className="px-4 py-2 rounded-xl bg-gray-900 text-white text-[12px] font-bold hover:bg-gray-800 flex items-center gap-1.5">
           <Plus size={14} strokeWidth={2.5} /> Novo cupom
         </button>
       </div>
@@ -145,7 +146,7 @@ export function CouponsView({ showToast }: { showToast: (t: string, tp?: 'ok' | 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
         <KpiCard label="Total" value={num(kpis.total)} icon={Ticket} bg="bg-gray-50" color="text-gray-500" />
         <KpiCard label="Ativos" value={num(kpis.active)} icon={CheckCircle2} bg="bg-green-50" color="text-green-600" />
-        <KpiCard label="Resgates" value={num(kpis.totalRedeemed)} icon={Percent} bg="bg-violet-50" color="text-violet-600" />
+        <KpiCard label="Resgates" value={num(kpis.totalRedeemed)} icon={Percent} bg="bg-violet-50" color="text-gray-700" />
         <KpiCard label="Expirando (7d)" value={num(kpis.expiring)} icon={Clock} bg="bg-amber-50" color="text-amber-600" />
       </div>
 
@@ -239,8 +240,8 @@ function CouponEditorModal({ coupon, saving, onChange, onSave, onClose }: {
   onSave: () => void
   onClose: () => void
 }) {
-  const inputCls = 'w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900'
-  const labelCls = 'text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1.5 block'
+  const inputCls = fieldControlClass
+  const labelCls = fieldLabelLegacyClass
   const lockedCode = !!coupon.id && Number(coupon.used_count || 0) > 0
   return (
     <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
@@ -264,13 +265,14 @@ function CouponEditorModal({ coupon, saving, onChange, onSave, onClose }: {
               {lockedCode && <p className="text-[10px] text-amber-600 mt-1">Cupom já usado — código fixo.</p>}
             </div>
             <div>
-              <label className={labelCls}>Status</label>
-              <select value={coupon.active !== false ? 'active' : 'inactive'}
+              <Select
+                label="Status"
+                value={coupon.active !== false ? 'active' : 'inactive'}
                 onChange={e => onChange({ ...coupon, active: e.target.value === 'active' })}
-                className={inputCls}>
+              >
                 <option value="active">Ativo</option>
                 <option value="inactive">Inativo</option>
-              </select>
+              </Select>
             </div>
           </div>
 
@@ -282,13 +284,14 @@ function CouponEditorModal({ coupon, saving, onChange, onSave, onClose }: {
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className={labelCls}>Tipo</label>
-              <select value={coupon.discount_type || 'percentage'}
+              <Select
+                label="Tipo"
+                value={coupon.discount_type || 'percentage'}
                 onChange={e => onChange({ ...coupon, discount_type: e.target.value as any })}
-                className={inputCls}>
+              >
                 <option value="percentage">Percentual (%)</option>
                 <option value="fixed">Valor fixo (R$)</option>
-              </select>
+              </Select>
             </div>
             <div>
               <label className={labelCls}>Valor *</label>

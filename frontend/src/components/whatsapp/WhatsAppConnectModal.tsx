@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react'
 import { X, Loader2 } from 'lucide-react'
 import { useWhatsAppConnect } from '@/lib/whatsapp/WhatsAppConnectContext'
 import { WhatsAppPairingFlow } from './WhatsAppPairingFlow'
-import { isAffiliateAppRoute } from '@/lib/api-affiliate'
+import { isAffiliateWhatsAppContext } from '@/lib/api-affiliate'
 import { fetchWhatsAppInstances, pickWhatsAppInstance } from '@/lib/whatsapp/resolveInstance'
+import { Select } from '@/components/ui'
 
 type InstanceRow = {
   id: string
@@ -65,7 +66,11 @@ export function WhatsAppConnectModal({
         <div className="wa-connect-modal__head">
           <div>
             <p id="wa-connect-title" className="wa-connect-modal__title">Conectar WhatsApp</p>
-            <p className="wa-connect-modal__sub">Vincule pelo número — código de 8 caracteres no app</p>
+            <p className="wa-connect-modal__sub">
+              {selected
+                ? `Sessão: ${selected.name}${selected.phone ? ` · ${selected.phone}` : ''} — código de 8 caracteres no app`
+                : 'Vincule pelo número — código de 8 caracteres no app'}
+            </p>
           </div>
           <button
             type="button"
@@ -84,22 +89,25 @@ export function WhatsAppConnectModal({
           </div>
         ) : !selectedId ? (
           <p className="wa-connect-modal__empty">
-            {isAffiliateAppRoute()
+            {isAffiliateWhatsAppContext()
               ? 'Nenhuma sessão WhatsApp. Crie uma na aba Conexões.'
               : 'Nenhuma sessão WhatsApp. Crie uma em Configurações → WhatsApp.'}
           </p>
         ) : (
           <>
             {disconnected.length > 1 && (
-              <select
-                value={selectedId}
+              <Select
+                value={selectedId || ''}
                 onChange={(e) => setSelectedId(e.target.value)}
-                className="wa-connect-modal__select"
+                className="mb-3 h-10 text-xs"
+                aria-label="Sessão WhatsApp"
               >
                 {disconnected.map((i) => (
-                  <option key={i.id} value={i.id}>{i.name}</option>
+                  <option key={i.id} value={i.id}>
+                    {i.name}{i.phone ? ` · ${i.phone}` : ''}
+                  </option>
                 ))}
-              </select>
+              </Select>
             )}
             <WhatsAppPairingFlow
               key={selectedId}

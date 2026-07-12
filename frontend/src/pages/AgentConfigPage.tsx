@@ -12,6 +12,8 @@ import {
   Bot, MessageSquare, BookOpen, Settings2, Save, Loader2,
   CheckCircle2, AlertCircle, ChevronDown, ChevronUp, Info, Target,
 } from 'lucide-react'
+import { InstagramIcon } from '@/components/icons'
+import { ChannelAttendancePanel } from '../components/attendance/ChannelAttendancePanel'
 
 /* ─────────────────────────────────────────────────────────────
    Helpers
@@ -144,6 +146,7 @@ function Textarea({
    Main component
    ───────────────────────────────────────────────────────────── */
 export function AgentConfigPage() {
+  const [mainTab, setMainTab] = useState<'global' | 'instagram' | 'whatsapp'>('global')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -166,6 +169,7 @@ export function AgentConfigPage() {
   const [trainingNotes, setTrainingNotes] = useState('')
   const [preferredTerms, setPreferredTerms] = useState('')
   const [forbiddenTerms, setForbiddenTerms] = useState('')
+  const [objectionsText, setObjectionsText] = useState('')
 
   /* ── Load ── */
   const load = useCallback(async () => {
@@ -190,6 +194,17 @@ export function AgentConfigPage() {
       setForbiddenTerms(
         Array.isArray(p.forbidden_terms) ? p.forbidden_terms.join(', ') : (p.forbidden_terms || '')
       )
+      // objections: one per line "sinal => resposta"
+      if (Array.isArray(p.objections) && p.objections.length) {
+        setObjectionsText(
+          p.objections
+            .map((o: any) => `${o.signal || ''} => ${o.response || ''}`.trim())
+            .filter(Boolean)
+            .join('\n'),
+        )
+      } else {
+        setObjectionsText('')
+      }
     } catch {
       setError('Falha ao carregar configurações.')
     } finally {
@@ -199,12 +214,37 @@ export function AgentConfigPage() {
 
   useEffect(() => { load() }, [load])
 
+  /* Chat companion → troca de aba sem perder o painel */
+  useEffect(() => {
+    const onTab = (e: Event) => {
+      const tab = (e as CustomEvent).detail?.tab
+      if (tab === 'global' || tab === 'instagram' || tab === 'whatsapp') {
+        setMainTab(tab)
+      }
+    }
+    window.addEventListener('lc:atendente-tab', onTab)
+    return () => window.removeEventListener('lc:atendente-tab', onTab)
+  }, [])
+
   /* ── Save ── */
   const save = async () => {
     setSaving(true)
     setError(null)
     setSaved(false)
     try {
+      const objections = objectionsText
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line) => {
+          const parts = line.split(/\s*=>\s*|\s*—\s*|\s*->\s*/)
+          if (parts.length >= 2) {
+            return { signal: parts[0].trim(), response: parts.slice(1).join(' => ').trim() }
+          }
+          return null
+        })
+        .filter(Boolean)
+
       const r = await fetch('/api/ai/agent-profile', {
         method: 'PUT',
         headers: getHeaders(),
@@ -221,6 +261,7 @@ export function AgentConfigPage() {
           training_notes: trainingNotes,
           preferred_terms: splitCsv(preferredTerms),
           forbidden_terms: splitCsv(forbiddenTerms),
+          objections,
         }),
       })
       if (!r.ok) throw new Error(`HTTP ${r.status}`)
@@ -250,33 +291,71 @@ export function AgentConfigPage() {
   }
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-6 space-y-4">
+    <div className="atendente-page max-w-2xl mx-auto px-3 sm:px-4 py-4 sm:py-6 space-y-4 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
 
-      {/* Header */}
-      <div className="flex items-center justify-between mb-2">
-        <div>
-          <h1 className="text-xl font-bold text-gray-900">Atendente</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
-            Configure a identidade e o comportamento do agente IA
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={save}
-          disabled={saving}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-900 text-white text-sm font-medium hover:bg-gray-800 disabled:opacity-60 transition-colors"
-        >
-          {saving ? (
-            <Loader2 size={15} className="animate-spin" />
-          ) : saved ? (
-            <CheckCircle2 size={15} />
-          ) : (
-            <Save size={15} />
+      {/* Sticky chrome — página de verdade, não overlay do chat */}
+      <div className="sticky top-0 z-20 -mx-3 sm:-mx-4 px-3 sm:px-4 pt-1 pb-3 bg-[color-mix(in_srgb,var(--color-surface)_94%,transparent)] backdrop-blur-md border-b border-gray-200/80">
+        <div className="flex items-start justify-between gap-3 mb-3">
+          <div className="min-w-0">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-700/80 mb-0.5">
+              Configuração
+            </p>
+            <h1 className="text-xl sm:text-2xl font-bold text-gray-900 tracking-tight">Atendente</h1>
+            <p className="text-[12px] sm:text-sm text-gray-500 mt-0.5 leading-snug">
+              Treino global + Instagram + WhatsApp · venda com catálogo
+            </p>
+          </div>
+          {mainTab === 'global' && (
+            <button
+              type="button"
+              onClick={save}
+              disabled={saving}
+              className="shrink-0 flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-gray-900 text-white text-sm font-semibold hover:bg-gray-800 disabled:opacity-60 transition-colors shadow-sm min-h-[44px]"
+            >
+              {saving ? (
+                <Loader2 size={15} className="animate-spin" />
+              ) : saved ? (
+                <CheckCircle2 size={15} />
+              ) : (
+                <Save size={15} />
+              )}
+              {saving ? '…' : saved ? 'Salvo' : 'Salvar'}
+            </button>
           )}
-          {saving ? 'Salvando...' : saved ? 'Salvo' : 'Salvar'}
-        </button>
+        </div>
+
+        <div className="flex gap-1 p-1 rounded-xl bg-gray-100/90 border border-gray-200/80">
+          {(
+            [
+              { id: 'global' as const, label: 'Global', labelFull: 'Treinamento Global', Icon: BookOpen },
+              { id: 'instagram' as const, label: 'Instagram', labelFull: 'Instagram', Icon: InstagramIcon },
+              { id: 'whatsapp' as const, label: 'WhatsApp', labelFull: 'WhatsApp', Icon: MessageSquare },
+            ] as const
+          ).map(({ id, label, labelFull, Icon }) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setMainTab(id)}
+              className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-2.5 rounded-lg text-xs sm:text-sm font-semibold transition-colors min-h-[44px] ${
+                mainTab === id
+                  ? 'bg-white text-gray-900 shadow-sm ring-1 ring-black/5'
+                  : 'text-gray-500 hover:text-gray-800'
+              }`}
+              aria-current={mainTab === id ? 'page' : undefined}
+            >
+              <Icon size={14} />
+              <span className="sm:hidden">{label}</span>
+              <span className="hidden sm:inline">{labelFull}</span>
+            </button>
+          ))}
+        </div>
       </div>
 
+      {mainTab === 'instagram' && <ChannelAttendancePanel channel="instagram" />}
+      {mainTab === 'whatsapp' && <ChannelAttendancePanel channel="whatsapp" />}
+
+      {mainTab === 'global' && (
+      <>
       {error && (
         <div className="flex items-center gap-2 px-4 py-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">
           <AlertCircle size={15} className="flex-shrink-0" />
@@ -521,6 +600,20 @@ export function AgentConfigPage() {
         <p className="text-[11px] text-gray-400">
           Separe os termos por virgula ou uma por linha.
         </p>
+        <div>
+          <Label hint="Uma objeção por linha no formato: sinal => resposta. Ex: caro => parcelamos e o custo-benefício…">
+            Quebra de objeções
+          </Label>
+          <Textarea
+            value={objectionsText}
+            onChange={setObjectionsText}
+            placeholder={"caro => Entendo! Muitos clientes começam pelo kit menor e escalam.\nvou pensar => Claro — posso te mandar um resumo com preços para decidir com calma?"}
+            rows={4}
+          />
+          <p className="mt-1 text-[11px] text-gray-400">
+            Usado no Instagram e WhatsApp quando o modo de vendas do canal está em assist/full.
+          </p>
+        </div>
       </Section>
 
       {/* Save footer */}
@@ -541,6 +634,8 @@ export function AgentConfigPage() {
           {saving ? 'Salvando...' : saved ? 'Configuracoes salvas' : 'Salvar configuracoes'}
         </button>
       </div>
+      </>
+      )}
     </div>
   )
 }

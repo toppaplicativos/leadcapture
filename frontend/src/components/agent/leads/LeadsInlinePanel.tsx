@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef, lazy, Suspense } from 'react'
 import {
   Loader2, Users, Search, ChevronRight, LayoutGrid, List, Rows3,
-  ExternalLink, Phone, MapPin, Star,
+  ExternalLink, Phone, MapPin, Star, MessageCircle, Check,
 } from 'lucide-react'
 import { PageSplash } from '@/components/PageSplash'
 import { WhatsAppIcon } from '@/components/icons'
@@ -40,6 +40,41 @@ const STATUS_LABEL: Record<string, { label: string; tone: string }> = {
   converted: { label: 'Convertido', tone: 'is-converted' },
   lost: { label: 'Perdido', tone: 'is-lost' },
   inactive: { label: 'Inativo', tone: 'is-inactive' },
+}
+
+/** Status editáveis no chat (sem abrir a página completa). */
+export const LEAD_EDITABLE_STATUSES = [
+  'new',
+  'contacted',
+  'replied',
+  'negotiating',
+  'converted',
+  'lost',
+] as const
+
+export type LeadEditableStatus = (typeof LEAD_EDITABLE_STATUSES)[number]
+
+/** Atualiza status via API real do produto — entry point shipado. */
+export async function updateLeadStatus(
+  leadId: string,
+  status: string,
+  headers: Record<string, string>,
+): Promise<{ ok: boolean; lead?: any; error?: string }> {
+  const id = String(leadId || '').trim()
+  const next = String(status || '').trim()
+  if (!id || !next) return { ok: false, error: 'id e status obrigatórios' }
+  try {
+    const r = await fetch(`/api/leads/${encodeURIComponent(id)}/status`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ status: next }),
+    })
+    const d = await r.json().catch(() => ({}))
+    if (!r.ok) return { ok: false, error: d.error || `Erro ${r.status}` }
+    return { ok: true, lead: d.lead || null }
+  } catch (e: any) {
+    return { ok: false, error: e?.message || 'Falha de rede' }
+  }
 }
 
 function leadStatus(lead: any) {
@@ -141,8 +176,56 @@ export function LeadsInlinePanel() {
   const [chatView, setChatView] = useState<ChatViewMode>('compact')
   const [managerOpen, setManagerOpen] = useState(false)
   const [detailLead, setDetailLead] = useState<any>(null)
+  const [statusSaving, setStatusSaving] = useState(false)
   const leadsRef = useRef<any[]>([])
   const loadedRef = useRef(false)
+
+  useEffect(() => {
+    if (!detailLead) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setDetailLead(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [detailLead])
+
+  const applyLocalLeadPatch = useCallback((leadId: string, patch: Record<string, unknown>) => {
+    setLeads((prev) => {
+      const next = prev.map((l) =>
+        String(l.id) === String(leadId) ? { ...l, ...patch } : l,
+      )
+      leadsRef.current = next
+      return next
+    })
+    setDetailLead((prev: any) =>
+      prev && String(prev.id) === String(leadId) ? { ...prev, ...patch } : prev,
+    )
+  }, [])
+
+  const changeLeadStatus = useCallback(async (lead: any, status: string) => {
+    if (!lead?.id || statusSaving) return
+    if (String(lead.status || '') === status) return
+    setStatusSaving(true)
+    const result = await updateLeadStatus(String(lead.id), status, getHeaders())
+    setStatusSaving(false)
+    if (!result.ok) {
+      showToast(result.error || 'Não foi possível atualizar o status', 'error')
+      return
+    }
+    const nextStatus = result.lead?.status || status
+    applyLocalLeadPatch(String(lead.id), {
+      status: nextStatus,
+      ...(result.lead || {}),
+    })
+    const label = STATUS_LABEL[nextStatus]?.label || nextStatus
+    showToast(`Status: ${label}`)
+    const newCount = leadsRef.current.filter((l) => l.status === 'new').length
+    publishSnapshot?.({
+      newCount,
+      selectedId: String(lead.id),
+      selectedName: lead.name || lead.trade_name || '',
+    })
+  }, [statusSaving, showToast, applyLocalLeadPatch, publishSnapshot])
 
   const load = useCallback(async (opts?: { q?: string; status?: string }) => {
     setLoading(true)
@@ -318,7 +401,12 @@ export function LeadsInlinePanel() {
       )}
 
       {detailLead && (
-        <div className="catalog-lead-detail" role="dialog">
+        <div
+          className="catalog-lead-detail"
+          role="dialog"
+          aria-modal="true"
+          aria-label={detailLead.name || 'Detalhe do lead'}
+        >
           <div className="catalog-lead-detail__head">
             <h3 className="catalog-lead-detail__title">{detailLead.name || 'Lead'}</h3>
             <button type="button" className="catalog-lead-detail__close" onClick={() => setDetailLead(null)} aria-label="Fechar">×</button>
@@ -326,11 +414,54 @@ export function LeadsInlinePanel() {
           <div className="catalog-lead-detail__body">
             <p className="catalog-lead-detail__row"><Phone size={12} /> {detailLead.phone || 'Sem telefone'}</p>
             {detailLead.city && <p className="catalog-lead-detail__row"><MapPin size={12} /> {detailLead.city}{detailLead.state ? `, ${detailLead.state}` : ''}</p>}
-            <p className="catalog-lead-detail__status">{leadStatus(detailLead).label}</p>
+            <p className="catalog-lead-detail__status">
+              Status atual: <strong>{leadStatus(detailLead).label}</strong>
+            </p>
+
+            <div className="catalog-lead-detail__edit" role="group" aria-label="Alterar status do lead">
+              <p className="catalog-lead-detail__edit-label">Alterar no chat</p>
+              <div className="catalog-lead-detail__status-grid">
+                {LEAD_EDITABLE_STATUSES.map((s) => {
+                  const meta = STATUS_LABEL[s]
+                  const active = String(detailLead.status || '') === s
+                  return (
+                    <button
+                      key={s}
+                      type="button"
+                      disabled={statusSaving}
+                      className={`catalog-lead-detail__status-btn ${meta.tone}${active ? ' is-active' : ''}`}
+                      aria-pressed={active}
+                      onClick={() => void changeLeadStatus(detailLead, s)}
+                    >
+                      {active && <Check size={11} strokeWidth={2.5} aria-hidden />}
+                      {meta.label}
+                    </button>
+                  )
+                })}
+              </div>
+              {statusSaving && (
+                <p className="catalog-lead-detail__saving">
+                  <Loader2 size={12} className="animate-spin" aria-hidden />
+                  Salvando…
+                </p>
+              )}
+            </div>
           </div>
-          <button type="button" className="catalog-panel__action" onClick={() => { setDetailLead(null); openManager() }}>
-            Editar completo
-          </button>
+          <div className="catalog-lead-detail__actions">
+            {detailLead.phone && (
+              <a
+                className="catalog-panel__action catalog-panel__action--ghost"
+                href={`https://wa.me/${String(detailLead.phone).replace(/\D/g, '')}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <MessageCircle size={14} /> WhatsApp
+              </a>
+            )}
+            <button type="button" className="catalog-panel__action" onClick={() => { setDetailLead(null); openManager() }}>
+              Abrir gestão completa
+            </button>
+          </div>
         </div>
       )}
 

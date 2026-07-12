@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
+import { AlertCircle, CheckCircle2, Info, X } from 'lucide-react'
 
 export type ToastVariant = 'default' | 'success' | 'error'
 
@@ -14,12 +15,6 @@ export function useToast() {
   return { showToast: _showToast }
 }
 
-const VARIANT_CLASS: Record<ToastVariant, string> = {
-  default: 'bg-gray-900 text-white',
-  success: 'bg-emerald-700 text-white',
-  error: 'bg-red-700 text-white',
-}
-
 export function Toast() {
   const [state, setState] = useState<ToastState>({ message: '', visible: false, variant: 'default' })
 
@@ -32,17 +27,32 @@ export function Toast() {
     _showToast = show
   }, [show])
 
+  const Icon = state.variant === 'success'
+    ? CheckCircle2
+    : state.variant === 'error'
+      ? AlertCircle
+      : Info
+
   return (
     <div
-      className={`fixed bottom-20 left-1/2 -translate-x-1/2 z-[200] text-sm font-medium px-5 py-2.5 rounded-full shadow-lg transition-all duration-300 max-w-[min(92vw,24rem)] text-center text-pretty ${
-        VARIANT_CLASS[state.variant]
-      } ${
+      className={`app-toast app-toast--${state.variant} ${
         state.visible
-          ? 'opacity-100 translate-y-0'
-          : 'opacity-0 translate-y-4 pointer-events-none'
+          ? 'is-visible'
+          : ''
       }`}
+      role="status"
+      aria-live="polite"
     >
-      {state.message}
+      <Icon size={18} className="app-toast__icon" aria-hidden />
+      <span className="app-toast__message">{state.message}</span>
+      <button
+        type="button"
+        className="app-toast__close"
+        onClick={() => setState((current) => ({ ...current, visible: false }))}
+        aria-label="Fechar notificação"
+      >
+        <X size={14} />
+      </button>
     </div>
   )
 }

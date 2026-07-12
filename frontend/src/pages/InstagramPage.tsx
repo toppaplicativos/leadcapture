@@ -22,6 +22,7 @@ import { useInstagramQueueAlerts } from '@/lib/instagram/useInstagramQueueAlerts
 import { instagramApi, fmtIgMetric, getInstagramHeaders } from '@/lib/instagram/pageApi'
 import { fetchInstagramSnapshot, invalidateInstagramSnapshotCache } from '@/lib/instagram/client'
 import { useToast } from '@/components/Toast'
+import { useConfirm } from '@/components/ConfirmModal'
 import type { InstagramTabKey } from '@/lib/instagram/nav'
 
 export type { InstagramTabKey } from '@/lib/instagram/nav'
@@ -52,6 +53,7 @@ export function InstagramPage({ embedded = false, initialTab = 'overview' }: Ins
   const [queuePost, setQueuePost] = useState<any>(null)
   const [postsRefreshToken, setPostsRefreshToken] = useState(0)
   const { showToast } = useToast()
+  const { confirm } = useConfirm()
   const brandId =
     typeof window !== 'undefined' ? localStorage.getItem('lead-system:active-brand-id') || undefined : undefined
 
@@ -183,7 +185,14 @@ export function InstagramPage({ embedded = false, initialTab = 'overview' }: Ins
   }
 
   const handleReconnect = async () => {
-    if (!confirm('Desconectar a conta atual e reconectar?')) return
+    const confirmed = await confirm({
+      title: 'Reconectar o Instagram?',
+      message: 'A conexão atual será encerrada. Depois, será necessário autorizar novamente a conta do Instagram.',
+      confirmLabel: 'Desconectar e continuar',
+      cancelLabel: 'Manter conexão',
+      variant: 'danger',
+    })
+    if (!confirmed) return
     await api('/connection', { method: 'DELETE' })
     invalidateInstagramSnapshotCache()
     setConnection(null)
@@ -900,12 +909,9 @@ function PerformanceTab() {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-base font-bold text-gray-900">Performance</h2>
-          <p className="text-xs text-gray-400">Historico diario armazenado no banco — seguidores, engajamento, alcance e posts</p>
-        </div>
-        <div className="flex items-center gap-2">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <p className="text-xs text-gray-500">Histórico diário de seguidores, engajamento, alcance e publicações</p>
+        <div className="flex items-center gap-2 flex-wrap">
           {[7, 30, 90].map(d => (
             <button key={d} onClick={() => setPeriod(d)}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium ${period === d ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
@@ -913,13 +919,13 @@ function PerformanceTab() {
             </button>
           ))}
           <button onClick={snapshot} className="px-3 py-1.5 rounded-lg border border-gray-200 text-xs font-medium text-gray-600 hover:bg-gray-50 flex items-center gap-1">
-            <Camera size={12} /> Snapshot
+            <Camera size={12} /> Atualizar métricas
           </button>
         </div>
       </div>
 
       {/* Top Cards */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="bg-white border border-gray-100 rounded-xl p-4">
           <div className="flex items-center justify-between mb-1"><span className="text-[10px] font-semibold text-gray-400 uppercase">Seguidores ({period}D)</span><Users size={14} className="text-gray-300" /></div>
           <p className="text-2xl font-bold text-gray-900">{profile?.followers_count || 0}</p>
@@ -935,16 +941,15 @@ function PerformanceTab() {
       </div>
 
       {/* Detail Metrics */}
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[
-          { label: 'Posts Publicados', value: profile?.media_count || 0, icon: CheckCircle2 },
-          { label: 'Visualizacoes', value: fmtMetric(account?.views), icon: Eye },
+          { label: 'Visualizações', value: fmtMetric(account?.views), icon: Eye },
           { label: 'Alcance Total', value: fmtMetric(account?.reach), icon: TrendingUp },
           { label: 'Curtidas (API)', value: fmtMetric(account?.likes || mediaSummary?.total_likes), icon: Heart },
-          { label: 'Comentarios (API)', value: fmtMetric(account?.comments || mediaSummary?.total_comments), icon: MessageCircle },
+          { label: 'Comentários (API)', value: fmtMetric(account?.comments || mediaSummary?.total_comments), icon: MessageCircle },
           { label: 'Salvos', value: fmtMetric(account?.saves), icon: Bookmark },
-          { label: 'Engajamento Medio', value: `${mediaSummary?.engagement_rate?.toFixed(1) || '0.0'}%`, icon: BarChart3 },
-          { label: 'Interacoes Totais', value: fmtMetric(account?.total_interactions), icon: CalendarDays },
+          { label: 'Engajamento Médio', value: `${mediaSummary?.engagement_rate?.toFixed(1) || '0.0'}%`, icon: BarChart3 },
+          { label: 'Interações Totais', value: fmtMetric(account?.total_interactions), icon: CalendarDays },
         ].map(m => (
           <div key={m.label} className="bg-white border border-gray-100 rounded-xl p-3">
             <div className="flex items-center justify-between mb-1"><span className="text-[10px] font-semibold text-gray-400 uppercase">{m.label}</span><m.icon size={14} className="text-gray-300" /></div>
@@ -954,25 +959,26 @@ function PerformanceTab() {
       </div>
 
       {/* Charts Placeholder */}
-      <div className="grid grid-cols-2 gap-5">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <div className="bg-white border border-gray-100 rounded-xl p-4">
           <h3 className="text-sm font-bold text-gray-900 mb-1">Seguidores ao longo do tempo</h3>
-          <p className="text-[10px] text-gray-400 mb-3">Evolucao nos ultimos {period} dias</p>
+          <p className="text-[10px] text-gray-400 mb-3">Evolução nos últimos {period} dias</p>
           {metrics.length > 0 ? (
             <div className="h-40 flex items-end gap-1">
               {metrics.map((m, i) => {
                 const max = Math.max(...metrics.map(x => x.followers_count || 1))
                 const h = ((m.followers_count || 0) / max) * 100
-                return <div key={i} className="flex-1 bg-purple-200 rounded-t" style={{ height: `${Math.max(h, 2)}%` }} title={`${m.date}: ${m.followers_count}`} />
+                const date = new Date(m.date).toLocaleDateString('pt-BR')
+                return <div key={i} className="flex-1 bg-purple-200 rounded-t" style={{ height: `${Math.max(h, 2)}%` }} title={`${date}: ${m.followers_count} seguidores`} />
               })}
             </div>
           ) : (
-            <p className="text-xs text-gray-400 py-8 text-center">Sem dados. Clique em "Snapshot" para coletar.</p>
+            <p className="text-xs text-gray-400 py-8 text-center">Sem dados históricos. Clique em “Atualizar métricas” para iniciar a coleta.</p>
           )}
         </div>
         <div className="bg-white border border-gray-100 rounded-xl p-4">
-          <h3 className="text-sm font-bold text-gray-900 mb-1">Visualizacoes e alcance</h3>
-          <p className="text-[10px] text-gray-400 mb-3">Snapshots diarios · {period} dias</p>
+          <h3 className="text-sm font-bold text-gray-900 mb-1">Visualizações e alcance</h3>
+          <p className="text-[10px] text-gray-400 mb-3">Dados diários · {period} dias</p>
           {metrics.some((m: any) => (m.impressions || m.reach || m.reach_count)) ? (
             <div className="h-40 flex items-end gap-1">
               {metrics.map((m: any, i: number) => {
@@ -981,8 +987,9 @@ function PerformanceTab() {
                 const max = Math.max(...metrics.map((x: any) => Math.max(x.impressions || 0, x.reach || x.reach_count || 0, 1)))
                 const hViews = (views / max) * 100
                 const hReach = (reach / max) * 100
+                const date = new Date(m.date).toLocaleDateString('pt-BR')
                 return (
-                  <div key={i} className="flex-1 flex gap-0.5 items-end h-full" title={`${m.date}: ${views} views, ${reach} alcance`}>
+                  <div key={i} className="flex-1 flex gap-0.5 items-end h-full" title={`${date}: ${views} visualizações, ${reach} de alcance`}>
                     <div className="flex-1 bg-pink-200 rounded-t" style={{ height: `${Math.max(hViews, 2)}%` }} />
                     <div className="flex-1 bg-purple-300 rounded-t" style={{ height: `${Math.max(hReach, 2)}%` }} />
                   </div>
@@ -991,7 +998,7 @@ function PerformanceTab() {
             </div>
           ) : (
             <p className="text-xs text-gray-400 py-8 text-center">
-              Periodo atual: {fmtMetric(account?.views)} views · {fmtMetric(account?.reach)} alcance. Clique em Snapshot para historico.
+              Período atual: {fmtMetric(account?.views)} visualizações · {fmtMetric(account?.reach)} de alcance. Clique em “Atualizar métricas” para criar o histórico.
             </p>
           )}
         </div>
@@ -999,9 +1006,5 @@ function PerformanceTab() {
     </div>
   )
 }
-
-
-
-
 
 

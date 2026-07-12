@@ -56,7 +56,7 @@ function parseDispatchResult(raw?: string | Record<string, unknown>) {
   }
 }
 
-export function InstagramMessagesTab({ initialCount = 0 }: Props) {
+export function InstagramMessagesTab({}: Props) {
   const [threads, setThreads] = useState<IgThread[]>([])
   const [meta, setMeta] = useState<{ api_count?: number; local_count?: number; api_error?: string } | null>(null)
   const [events, setEvents] = useState<WebhookEvent[]>([])
@@ -150,7 +150,9 @@ export function InstagramMessagesTab({ initialCount = 0 }: Props) {
     <div className="ig-messages">
       <div className="ig-messages__toolbar">
         <p className="ig-messages__stats">
-          Direct do Instagram · {threads.length || initialCount} conversa{(threads.length || initialCount) === 1 ? '' : 's'}
+          {loading
+            ? 'Carregando conversas…'
+            : `Direct do Instagram · ${threads.length} conversa${threads.length === 1 ? '' : 's'}`}
           {meta && (
             <>
               {' · '}

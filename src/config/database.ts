@@ -83,9 +83,28 @@ function normalizeSchemaSql(sql: string): string {
     .replace(/\s+AFTER\s+[\w"`]+/gi, "")
     .replace(/\bNOW\(\)/gi, "CURRENT_TIMESTAMP")
     .replace(/\bCURDATE\(\)/gi, "CURRENT_DATE")
+    // DATE_SUB com literal
     .replace(/\bDATE_SUB\s*\(\s*CURRENT_TIMESTAMP\s*,\s*INTERVAL\s+(\d+)\s+DAY\s*\)/gi, "CURRENT_TIMESTAMP - INTERVAL '$1 day'")
     .replace(/\bDATE_SUB\s*\(\s*CURRENT_TIMESTAMP\s*,\s*INTERVAL\s+(\d+)\s+HOUR\s*\)/gi, "CURRENT_TIMESTAMP - INTERVAL '$1 hour'")
     .replace(/\bDATE_SUB\s*\(\s*CURRENT_TIMESTAMP\s*,\s*INTERVAL\s+(\d+)\s+MINUTE\s*\)/gi, "CURRENT_TIMESTAMP - INTERVAL '$1 minute'")
+    .replace(/\bDATE_SUB\s*\(\s*CURRENT_DATE\s*,\s*INTERVAL\s+(\d+)\s+DAY\s*\)/gi, "CURRENT_DATE - INTERVAL '$1 day'")
+    // DATE_SUB com placeholder (?) — ex.: INTERVAL ? DAY
+    .replace(
+      /\bDATE_SUB\s*\(\s*CURRENT_TIMESTAMP\s*,\s*INTERVAL\s+\?\s+DAY\s*\)/gi,
+      "(CURRENT_TIMESTAMP - (? * INTERVAL '1 day'))",
+    )
+    .replace(
+      /\bDATE_SUB\s*\(\s*CURRENT_DATE\s*,\s*INTERVAL\s+\?\s+DAY\s*\)/gi,
+      "(CURRENT_DATE - (? * INTERVAL '1 day'))",
+    )
+    .replace(
+      /\bDATE_SUB\s*\(\s*CURRENT_TIMESTAMP\s*,\s*INTERVAL\s+\?\s+HOUR\s*\)/gi,
+      "(CURRENT_TIMESTAMP - (? * INTERVAL '1 hour'))",
+    )
+    .replace(
+      /\bDATE_SUB\s*\(\s*CURRENT_TIMESTAMP\s*,\s*INTERVAL\s+\?\s+MINUTE\s*\)/gi,
+      "(CURRENT_TIMESTAMP - (? * INTERVAL '1 minute'))",
+    )
     .replace(/,\s*\)/g, ")");
 }
 

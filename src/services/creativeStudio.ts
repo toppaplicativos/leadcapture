@@ -1053,9 +1053,6 @@ export class CreativeStudioService {
     input: GenerateTextInput,
     brandId?: string | null
   ): Promise<{ text: string; model: string; asset: CreativeAsset }> {
-    const model = config.creatives.textModel;
-    const apiKey = await this.getApiKey(userId, brandId);
-
     const instruction = [
       "Voce e um especialista em marketing de performance para campanhas de WhatsApp.",
       "Responda em portugues, direto ao ponto, com alta conversao.",
@@ -1063,32 +1060,19 @@ export class CreativeStudioService {
       input.objective ? `Objetivo da peca: ${input.objective}.` : "",
       input.audience ? `Publico alvo: ${input.audience}.` : "",
       input.maxCharacters ? `Limite maximo de ${input.maxCharacters} caracteres.` : "",
-      "Entregue somente o texto final, sem markdown."
+      "Entregue somente o texto final, sem markdown.",
     ]
       .filter(Boolean)
       .join("\n");
 
-    const response = await axios.post(
-      `${this.baseUrl}/models/${model}:generateContent`,
-      {
-        contents: [
-          {
-            parts: [
-              {
-                text: `${instruction}\n\nPedido:\n${input.prompt}`
-              }
-            ]
-          }
-        ]
-      },
-      {
-        params: { key: apiKey },
-        timeout: 30000
-      }
+    const result = await aiRouter.generateText(
+      `${instruction}\n\nPedido:\n${input.prompt}`,
+      { userId, brandId: brandId || undefined },
+      { functionKey: "text.creative.copy" },
     );
-
-    const text = this.extractTextFromCandidate(response.data?.candidates?.[0]);
+    const text = String(result.text || "").trim();
     if (!text) throw new Error("Model did not return text content");
+    const model = result.model || "unknown";
 
     const asset = await this.saveAsset({
       userId,
@@ -1102,8 +1086,10 @@ export class CreativeStudioService {
         tone: input.tone || null,
         objective: input.objective || null,
         audience: input.audience || null,
-        maxCharacters: input.maxCharacters || null
-      }
+        maxCharacters: input.maxCharacters || null,
+        provider: result.provider || null,
+        algorithm: "text.creative.copy",
+      },
     });
 
     return { text, model, asset };
@@ -1114,8 +1100,19 @@ export class CreativeStudioService {
     input: GenerateImageInput,
     brandId?: string | null
   ): Promise<{ imageUrl: string; caption: string; model: string; asset: CreativeAsset }> {
-    const model = config.creatives.imageModel;
-    const apiKey = await this.getApiKey(userId, brandId);
+    /* Prefer Master · Algoritmos image.creative.simple; keep Gemini REST path for image gen */
+    const resolved = await aiRouter.getImageProvider(
+      { userId, brandId: brandId || undefined },
+      { functionKey: "image.creative.simple" },
+    );
+    const model =
+      resolved.provider === "gemini"
+        ? resolved.model || config.creatives.imageModel
+        : config.creatives.imageModel;
+    const apiKey =
+      resolved.provider === "gemini" && resolved.key
+        ? resolved.key
+        : await this.getApiKey(userId, brandId);
 
     const formatHint =
       input.format === "portrait"
@@ -1331,7 +1328,7 @@ export class CreativeStudioService {
       const resolved = await aiRouter.getImageProvider({
         userId,
         brandId: String(brandId || "").trim() || undefined,
-      });
+      }, { functionKey: "image.product.studio" });
       provider = resolved.provider;
       chosenImageModel = resolved.model;
     }
@@ -1551,8 +1548,18 @@ export class CreativeStudioService {
   }
 
   async startVideoGeneration(userId: string, input: GenerateVideoInput, brandId?: string | null): Promise<VideoJob> {
-    const model = config.creatives.videoModel;
-    const apiKey = await this.getApiKey(userId, brandId);
+    let model = config.creatives.videoModel;
+    let apiKey = await this.getApiKey(userId, brandId);
+    try {
+      const algo = await aiRouter.resolveAlgorithm("video.generate.veo", {
+        userId,
+        brandId: brandId || undefined,
+      });
+      if (algo.model) model = algo.model;
+      if (algo.key) apiKey = algo.key;
+    } catch {
+      /* keep env defaults */
+    }
 
     const body: Record<string, unknown> = { instances: [{ prompt: input.prompt }] };
     if (input.aspectRatio) body.parameters = { aspectRatio: input.aspectRatio };

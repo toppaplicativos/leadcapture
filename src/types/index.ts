@@ -1,10 +1,24 @@
 // ============ USERS ============
+/** See src/config/identity.ts for canonical model. */
+export type UserRole =
+  | "org"
+  | "manager"
+  | "operator"
+  | "affiliate"
+  | "consumer"
+  | "admin"
+  | "platform";
+
+export type AccountKind = "org" | "staff" | "affiliate" | "consumer" | "platform";
+
 export interface User {
   id: number;
   email: string;
   password_hash: string;
   name: string;
-  role: "admin" | "manager" | "operator";
+  role: UserRole | string;
+  account_kind?: AccountKind | string;
+  is_super_admin?: boolean;
   is_active: boolean;
   last_login_at?: Date;
   created_at: Date;
@@ -15,7 +29,8 @@ export interface UserCreateDTO {
   email: string;
   password: string;
   name: string;
-  role?: "admin" | "manager" | "operator";
+  role?: UserRole | string;
+  accountKind?: AccountKind | string;
 }
 
 export interface UserLoginDTO {
@@ -27,6 +42,12 @@ export interface AuthPayload {
   userId: string;
   email: string;
   role: string;
+  account_kind?: string;
+  is_super_admin?: boolean;
+  brand_id?: string;
+  credential_type?: string;
+  owner_user_id?: string;
+  credential_id?: string;
 }
 
 // ============ COMPANY ============

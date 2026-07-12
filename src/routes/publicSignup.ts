@@ -37,12 +37,42 @@ router.get("/plans", async (_req: Request, res: Response) => {
   return res.json({ plans })
 })
 
+router.get("/platform-status", async (_req: Request, res: Response) => {
+  try {
+    const { getPublicPlatformStatus } = await import("../services/platformTools")
+    const status = await getPublicPlatformStatus()
+    return res.json({ status })
+  } catch {
+    return res.status(500).json({ error: "internal" })
+  }
+})
+
 router.post("/signup", async (req: Request, res: Response) => {
   const name = String(req.body?.name || "").trim()
   const email = String(req.body?.email || "").trim().toLowerCase()
   const password = String(req.body?.password || "")
   const brandName = String(req.body?.brand_name || "").trim() || name
   const planSlug = String(req.body?.plan_slug || "").trim()
+
+  /* platform flags — enforced */
+  try {
+    const { getPlatformTools } = await import("../services/platformTools")
+    const tools = await getPlatformTools()
+    if (tools.signup_enabled === false || tools.public_signup === false) {
+      return res.status(403).json({
+        error: "signup_disabled",
+        message: "Cadastros públicos estão desabilitados no momento.",
+      })
+    }
+    if (tools.maintenance_mode) {
+      return res.status(503).json({
+        error: "maintenance_mode",
+        message: tools.maintenance_message || "Plataforma em manutenção.",
+      })
+    }
+  } catch {
+    /* if tools fail open for signup only when DB is down — still validate fields */
+  }
 
   /* validations */
   if (!name) return res.status(400).json({ error: "name_required" })
@@ -164,7 +194,8 @@ router.get("/signup/session/:id", async (req: Request, res: Response) => {
       for (let i = 0; i < 6 && !user; i++) {
         await new Promise(r => setTimeout(r, 1000))
         user = await queryOne(
-          `SELECT id, email, name, role FROM users WHERE LOWER(email) = LOWER(?) AND is_active = true LIMIT 1`,
+          `SELECT id, email, name, role, account_kind, COALESCE(is_super_admin, false) AS is_super_admin
+           FROM users WHERE LOWER(email) = LOWER(?) AND is_active = true LIMIT 1`,
           [email],
         )
       }
@@ -176,8 +207,13 @@ router.get("/signup/session/:id", async (req: Request, res: Response) => {
     // Issue token (lazy import to avoid circular)
     const { UsersService } = await import("../services/users")
     const us = new UsersService()
-    const token = us.signToken({ id: user.id, email: user.email, role: user.role as any })
-
+    const token = us.signToken({
+      id: user.id,
+      email: user.email,
+      role: user.role as any,
+      account_kind: (user as any).account_kind,
+      is_super_admin: Boolean((user as any).is_super_admin),
+    })
     return res.json({ paid: true, ready: true, token, user })
   } catch (err: any) {
     logger.error({ err: err?.message }, "signup session retrieve error")

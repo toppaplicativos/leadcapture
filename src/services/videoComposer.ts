@@ -1,4 +1,5 @@
 import { GeminiService } from './gemini'
+import { aiRouter } from './aiRouter'
 import { integrationService } from './integrations'
 import { query } from '../config/database'
 
@@ -403,12 +404,12 @@ Dados da marca:
   const userPrompt = `${historyText ? `Histórico da conversa:\n${historyText}\n\n` : ''}${brandContext}\n\nPedido atual do usuário: ${userMessage}\n\nGere a especificação JSON do vídeo.`
 
   const fullPrompt = `${SYSTEM_PROMPT}\n\n---\n\n${userPrompt}`
-  const responseText = await geminiService.generatePlainText(fullPrompt, {
-    userId,
-    brandId,
-    model: 'gemini-2.5-flash',
-    temperature: 0.8,
-  })
+  const responseText = (
+    await aiRouter.generateText(fullPrompt, { userId, brandId }, {
+      functionKey: 'text.video.spec',
+      temperature: 0.8,
+    })
+  ).text
 
   const parsed = parseJsonBlock(responseText)
 
@@ -475,12 +476,12 @@ Aplique as modificações solicitadas e retorne o JSON completo atualizado.`
 
   const fullPrompt = `${REFINE_SYSTEM_PROMPT}\n\n---\n\n${refineUserPrompt}`
 
-  const responseText = await geminiService.generatePlainText(fullPrompt, {
-    userId,
-    brandId,
-    model: 'gemini-2.5-flash',
-    temperature: 0.6,
-  })
+  const responseText = (
+    await aiRouter.generateText(fullPrompt, { userId, brandId }, {
+      functionKey: 'text.video.spec',
+      temperature: 0.6,
+    })
+  ).text
 
   const parsed = parseJsonBlock(responseText)
 

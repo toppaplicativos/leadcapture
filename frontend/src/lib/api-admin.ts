@@ -92,8 +92,16 @@ function rewriteInventoryUrl(url: string): string {
 
 /* ── Generic authenticated fetch ── */
 async function authFetch<T>(url: string, headers: Record<string, string>, options?: RequestInit): Promise<T> {
+  const extra: Record<string, string> = {}
+  try {
+    const rid = sessionStorage.getItem('lead-system:last-request-id')
+    if (rid) extra['X-Request-Id'] = rid
+  } catch {
+    /* ignore */
+  }
   const mergedHeaders = {
     ...headers,
+    ...extra,
     ...(options?.headers as Record<string, string> || {}),
   }
   const res = await fetch(url, {
@@ -101,11 +109,30 @@ async function authFetch<T>(url: string, headers: Record<string, string>, option
     headers: mergedHeaders,
   })
   const data = await res.json().catch(() => ({}))
+  const responseRequestId =
+    res.headers.get('x-request-id') || (data as any)?.request_id || null
+  if (responseRequestId) {
+    try {
+      sessionStorage.setItem('lead-system:last-request-id', String(responseRequestId))
+    } catch {
+      /* ignore */
+    }
+  }
   if (!res.ok) {
     if (isTokenAuthFailure(res.status, data, Boolean(mergedHeaders.Authorization))) {
       clearAuthAndRedirect(url)
     }
-    throw new Error(data.error || data.message || `Erro ${res.status}`)
+    const { ApiError, notifyEntitlementError } = await import('@/lib/api-errors')
+    const err = new ApiError({
+      status: res.status,
+      code: (data as any)?.code || (data as any)?.error,
+      message: (data as any)?.message || (data as any)?.error || `Erro ${res.status}`,
+      requestId: responseRequestId,
+      details: (data as any)?.details,
+      raw: data,
+    })
+    notifyEntitlementError(err)
+    throw err
   }
   return data
 }

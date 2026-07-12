@@ -121,21 +121,25 @@ export function MessagesPage({
     if (!msgText || !activeConvo) return
     setSending(true)
     try {
-      await fetch(`/api/inbox/conversations/${activeConvo.id}/send`, {
+      const r = await fetch(`/api/inbox/conversations/${activeConvo.id}/send`, {
         method: 'POST', headers: getHeaders(), body: JSON.stringify({ message: msgText }),
       })
+      const d = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(d.error || 'Falha ao enviar')
       setNewMsg('')
-      // Add optimistic message
       setMessages(prev => [...prev, {
         id: `sent-${Date.now()}`, conversation_id: activeConvo.id, from_me: true,
         message_type: 'text', body: msgText, timestamp: new Date().toISOString(), status: 'sent',
       }])
       loadConvos()
-    } catch {}
+    } catch (e) {
+      console.error('[MessagesPage] sendMessage', e)
+      alert(e instanceof Error ? e.message : 'Erro ao enviar mensagem')
+    }
     setSending(false)
     setShowCommands(false)
     setShowInteractive(false)
-  }, [activeConvo, newMsg, loadConvos])
+  }, [activeConvo, newMsg, loadConvos, getHeaders])
 
   const handleInteractiveSent = useCallback((result: InteractiveMessageResult) => {
     if (!activeConvo) return
@@ -153,13 +157,32 @@ export function MessagesPage({
 
   const toggleAiMode = useCallback(async (mode: string) => {
     if (!activeConvo) return
+    const prev = activeConvo.ai_mode
+    // Optimistic UI
+    setActiveConvo({ ...activeConvo, ai_mode: mode })
     try {
-      await fetch(`/api/inbox/conversations/${activeConvo.id}/ai-state`, {
-        method: 'PATCH', headers: getHeaders(), body: JSON.stringify({ ai_mode: mode }),
+      const r = await fetch(`/api/inbox/conversations/${activeConvo.id}/ai-state`, {
+        method: 'PATCH',
+        headers: getHeaders(),
+        body: JSON.stringify({
+          mode,
+          ai_mode: mode,
+          // Operador sempre pode falar — não trava envio manual
+          lock_human: false,
+        }),
       })
-      setActiveConvo({ ...activeConvo, ai_mode: mode })
+      const d = await r.json().catch(() => ({}))
+      if (!r.ok) {
+        setActiveConvo({ ...activeConvo, ai_mode: prev })
+        throw new Error(d.error || 'Falha ao alterar modo da IA')
+      }
+      const nextMode = d?.ai?.mode || mode
+      setActiveConvo((c) => (c ? { ...c, ai_mode: nextMode } : c))
       loadConvos()
-    } catch { /* ignore */ }
+    } catch (e) {
+      console.error('[MessagesPage] toggleAiMode', e)
+      setActiveConvo((c) => (c ? { ...c, ai_mode: prev } : c))
+    }
   }, [activeConvo, loadConvos])
 
   useEffect(() => {

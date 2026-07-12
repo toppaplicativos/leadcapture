@@ -1,18 +1,19 @@
 /* ═══════════════════════════════════════════════════════
    COMPONENTE: FORMS
    Inputs, labels, selects, textareas, form layouts
+   Alinhado ao product register (Input / Select React)
    ═══════════════════════════════════════════════════════ */
 
 /* ── Base inputs ── */
 input, select, textarea {
   width: 100%;
-  border: 1.5px solid var(--color-border);
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--ds-border, var(--color-border));
+  border-radius: var(--ds-radius-control, var(--radius-xl));
   padding: 12px var(--space-4);
   font-size: var(--text-base);
   font-family: var(--font-family);
-  background: var(--color-card);
-  color: var(--color-text);
+  background: #ffffff;
+  color: #171717;
   -webkit-appearance: none;
   appearance: none;
   transition: border-color var(--duration-fast), box-shadow var(--duration-fast);
@@ -20,21 +21,50 @@ input, select, textarea {
 
 input:focus, select:focus, textarea:focus {
   outline: none;
-  border-color: var(--brand-secondary);
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+  border-color: #171717;
+  box-shadow: 0 0 0 3px var(--ds-focus-ring, rgba(23, 23, 23, 0.06));
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #9a9a9a;
 }
 
 textarea {
   min-height: 80px;
   resize: vertical;
   font-family: inherit;
+  line-height: var(--line-height);
 }
 
+/* Select — chevron + readable native list (Windows fix) */
 select {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  min-height: var(--ds-control-h, 44px);
+  padding-right: 40px;
+  font-weight: 500;
+  cursor: pointer;
+  color: #171717;
+  background-color: #ffffff;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236b6b6b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 14px center;
-  padding-right: 40px;
+  background-size: 16px 16px;
+}
+
+select option,
+select optgroup {
+  color: #171717 !important;
+  background-color: #ffffff !important;
+  font-weight: 500;
+}
+
+select:disabled,
+input:disabled,
+textarea:disabled {
+  color: #9a9a9a;
+  background-color: #f3f3f3;
+  cursor: not-allowed;
+  opacity: 1;
 }
 
 /* ── Form group ── */
@@ -45,9 +75,9 @@ select {
 }
 
 .form-group label {
-  font-size: var(--text-base);
+  font-size: var(--text-sm);
   font-weight: var(--font-semibold);
-  color: var(--color-muted);
+  color: var(--color-text-secondary, #404040);
 }
 
 .form-helper {
@@ -115,6 +145,7 @@ form { display: grid; gap: var(--space-3); }
 .field label {
   font-size: var(--text-base);
   font-weight: var(--font-semibold);
+  color: var(--color-text-secondary, #404040);
 }
 
 /* ── Chips (checkboxes style) ── */
@@ -124,7 +155,7 @@ form { display: grid; gap: var(--space-3); }
   gap: var(--space-2);
 }
 .chip {
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--color-border);
   border-radius: var(--radius-full);
   padding: 6px var(--space-3);
   font-size: var(--text-base);
@@ -132,6 +163,7 @@ form { display: grid; gap: var(--space-3); }
   align-items: center;
   gap: 6px;
   background: var(--color-bg);
+  color: var(--color-text);
   cursor: pointer;
   transition: border-color var(--duration-fast), background var(--duration-fast);
 }
@@ -146,7 +178,8 @@ form { display: grid; gap: var(--space-3); }
   width: 100%;
   padding: 14px var(--space-4) 14px 44px;
   font-size: var(--text-lg);
-  background: var(--color-card);
+  background: #ffffff;
+  color: #171717;
 }
 .search-box .si {
   position: absolute;

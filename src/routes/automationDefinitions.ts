@@ -35,11 +35,30 @@ router.get("/", async (req: BrandRequest, res: Response) => {
   try {
     const bid = brandId(req);
     if (!bid) return res.status(400).json({ error: "Brand ativo não definido" });
-    const automacoes = await automationDefinitionsService.list(bid, req.user!.userId);
+    const platform = typeof req.query.platform === "string" ? req.query.platform : undefined;
+    const automacoes = await automationDefinitionsService.list(bid, req.user!.userId, { platform });
     res.json({ success: true, automacoes });
   } catch (e: any) {
     logger.error(e, "GET /api/automation-defs");
     res.status(500).json({ error: e?.message || "Erro" });
+  }
+});
+
+/** Install Instagram reply seed pack (inactive fill-missing). */
+router.post("/seed/instagram", async (req: BrandRequest, res: Response) => {
+  try {
+    const bid = brandId(req);
+    if (!bid) return res.status(400).json({ error: "Brand ativo não definido" });
+    const { seedInstagramReplyDefinitions } = await import("../services/automationDefinitionSeeds");
+    const force = Boolean(req.body?.force);
+    const result = await seedInstagramReplyDefinitions(bid, req.user!.userId, {
+      force,
+      mode: "fill-missing",
+    });
+    res.json({ success: true, ...result });
+  } catch (e: any) {
+    logger.error(e, "POST /api/automation-defs/seed/instagram");
+    res.status(500).json({ error: e?.message || "Erro ao semear" });
   }
 });
 

@@ -2,9 +2,23 @@ const AFFILIATE_TOKEN_KEY = 'lead-system-token-afiliado'
 const AFFILIATE_BRAND_KEY = 'lead-system:active-brand-id-afiliado'
 const AFFILIATE_BRAND_REF_KEY = 'lead-system:active-brand-ref-afiliado'
 
+/** Rota da Central do Afiliado por marca (ex.: /central-afiliado/alhopronto/...). */
 export function isAffiliateAppRoute(): boolean {
   if (typeof window === 'undefined') return false
   return window.location.pathname.startsWith('/central-afiliado')
+}
+
+/**
+ * Contexto de sessão WhatsApp do afiliado — inclui:
+ * - rotas /central-afiliado/...
+ * - rotas /parceiros/painel/programa/.../painel (AffiliateAppPage embutido)
+ * - qualquer tela com token de afiliado em localStorage
+ */
+export function isAffiliateWhatsAppContext(): boolean {
+  if (typeof window === 'undefined') return false
+  if (isAffiliateAppRoute()) return true
+  if (getAffiliateToken()) return true
+  return window.location.pathname.includes('/parceiros/painel/programa/')
 }
 
 export function getAffiliateToken(): string | null {

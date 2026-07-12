@@ -458,7 +458,7 @@ export async function activateTemplate(
         trigger_keywords: string[];
         trigger_examples: string[];
         examples: Array<{ q: string; a: string }>;
-      }>(customizationPrompt, { userId, brandId }, { temperature: 0.4 });
+      }>(customizationPrompt, { userId, brandId }, { temperature: 0.4, functionKey: "text.skill.templates" });
 
       if (
         result &&

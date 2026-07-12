@@ -27,8 +27,8 @@ if (IS_LOCAL_DEV) {
     );
   });
 } else {
-const SHELL_CACHE_NAME = "lead-system-shell-v99-20260709";
-const RUNTIME_CACHE_NAME = "lead-system-runtime-v91-20260709";
+const SHELL_CACHE_NAME = "lead-system-shell-v157-20260711-route-page";
+const RUNTIME_CACHE_NAME = "lead-system-runtime-v148-20260711-route-page";
 
 function getBasePath() {
   try {
@@ -201,10 +201,21 @@ self.addEventListener("push", (event) => {
   const priority = meta.priority || "normal";
   const hasSound = !!meta.sound;
 
+  /* Official monochrome BrandMark — never legacy colorful logo.png */
+  const officialIcon =
+    data.icon ||
+    meta.icon ||
+    `${self.location.origin}/brand-mark.png`;
+  const officialBadge =
+    data.badge ||
+    meta.badge ||
+    `${self.location.origin}/brand-mark.png`;
+
   const options = {
     body: data.body || "Nova notificacao",
-    icon: toScopedPath("logo.png"),
-    badge: toScopedPath("logo.png"),
+    icon: officialIcon,
+    badge: officialBadge,
+    image: data.image || meta.image || undefined,
     tag: data.tag || "lead-system",
     requireInteraction: data.requireInteraction || priority === "critical",
     silent: !hasSound,

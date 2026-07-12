@@ -942,6 +942,8 @@ export async function previewComposition(
   const imagePref = await aiRouter.getImageProvider({
     userId,
     brandId: input.brandId || undefined,
+  }, {
+    functionKey: "image.product.studio",
   });
 
   /* Make the default CTA the first option so the modal pre-selects it. */

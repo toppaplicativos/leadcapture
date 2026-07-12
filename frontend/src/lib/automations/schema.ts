@@ -50,12 +50,17 @@ export type MensagemStepTipo =
   | 'cta'
   | 'botoes'
   | 'lista'
+  | 'enquete'
 
 export type MensagemStepSource = 'url' | 'gallery' | 'upload'
 
 export interface MensagemStepButton {
   id: string
   label: string
+  /** Postback payload (IG quick_reply / button template) */
+  payload?: string
+  /** If set, sends as web_url button on Instagram button template */
+  url?: string
 }
 
 export interface MensagemStepListRow {
@@ -84,6 +89,10 @@ export interface MensagemStep {
   buttons?: MensagemStepButton[]
   listButtonText?: string
   listSections?: MensagemStepListSection[]
+  /** Enquete (WhatsApp / canais que suportam poll) */
+  pollOptions?: string[]
+  pollMultiple?: boolean
+  pollSelectableCount?: number
 }
 
 export interface ContentPublishingConfig {
@@ -122,6 +131,30 @@ export const MENSAGEM_STEP_LABELS: Record<MensagemStepTipo, string> = {
   cta: 'Botão CTA',
   botoes: 'Botões rápidos',
   lista: 'Lista interativa',
+  enquete: 'Enquete',
+}
+
+/** Canal principal do bloco — UI e validação de pipeline */
+export type StepChannelAffinity = 'any' | 'whatsapp' | 'instagram' | 'email'
+
+export const MENSAGEM_STEP_META: Record<
+  MensagemStepTipo,
+  { label: string; desc: string; channel: StepChannelAffinity }
+> = {
+  texto: { label: 'Texto', desc: 'Mensagem de texto', channel: 'any' },
+  imagem: { label: 'Imagem', desc: 'Foto ou sticker', channel: 'any' },
+  video: { label: 'Vídeo', desc: 'MP4 ou MOV', channel: 'any' },
+  audio: { label: 'Áudio', desc: 'Nota de voz', channel: 'whatsapp' },
+  documento: { label: 'Documento', desc: 'PDF, DOC…', channel: 'whatsapp' },
+  link: { label: 'Link', desc: 'URL clicável', channel: 'any' },
+  cta: { label: 'CTA', desc: 'Botão com link', channel: 'any' },
+  botoes: {
+    label: 'Botões',
+    desc: 'IG: Quick Replies · WA: replies rápidos (até 13 no IG, 3 no template)',
+    channel: 'any',
+  },
+  lista: { label: 'Lista', desc: 'Menu de opções (WhatsApp)', channel: 'whatsapp' },
+  enquete: { label: 'Enquete', desc: 'Poll interativo (WhatsApp)', channel: 'whatsapp' },
 }
 
 export function newMensagemStepId(): string {
@@ -157,13 +190,26 @@ export function actionUsesMessageBlocks(tipo: TipoAcao): boolean {
 }
 
 export function allowedStepTypesForAction(tipo: TipoAcao): MensagemStepTipo[] {
-  if (tipo === 'enviar_dm_ig' || tipo === 'comentar_ig') {
-    return ['texto', 'imagem', 'video']
+  if (tipo === 'enviar_dm_ig') {
+    // IG DM via Messaging API: texto, mídia, link, CTA (web_url), botões (quick_replies / button template)
+    return ['texto', 'imagem', 'video', 'link', 'cta', 'botoes']
+  }
+  if (tipo === 'comentar_ig') {
+    return ['texto']
   }
   if (tipo === 'enviar_dm_wa' || tipo === 'notificar_equipe') {
-    return ['texto', 'imagem', 'video', 'audio', 'documento', 'link', 'cta', 'botoes', 'lista']
+    return ['texto', 'imagem', 'video', 'audio', 'documento', 'link', 'cta', 'botoes', 'lista', 'enquete']
   }
-  return ['texto']
+  return ['texto', 'link']
+}
+
+export function stepChannelHint(tipo: MensagemStepTipo): string | null {
+  // Botões no IG usam Quick Replies / Button Template da Messaging API
+  if (tipo === 'botoes' || tipo === 'cta') return 'IG + WA'
+  const ch = MENSAGEM_STEP_META[tipo]?.channel
+  if (ch === 'whatsapp') return 'WhatsApp'
+  if (ch === 'instagram') return 'Instagram'
+  return null
 }
 
 export function normalizeAcaoConfig(config: AcaoConfig): AcaoConfig {
@@ -209,6 +255,11 @@ export interface Automacao {
   pipeline: AcaoPipeline[]
   limites: Limites
   metrics: AutomationMetrics
+  seed_key?: string | null
+  origin?: string | null
+  priority?: number
+  system_version?: number
+  user_modified_at?: string | null
   created_at: string
   updated_at: string
 }

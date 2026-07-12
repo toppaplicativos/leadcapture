@@ -61,6 +61,8 @@ export function formatCommissionDescription(mode: CommissionMode, value: number)
 export function resolveCommissionFromProfile(input: {
   affiliate?: { commission_mode?: string | null; commission_value?: number | null; commission_pct?: number | null } | null
   program?: {
+    commission_mode?: string | null
+    commission_value?: number | null
     default_commission_mode?: string | null
     default_commission_value?: number | null
     default_commission_pct?: number | null
@@ -68,11 +70,26 @@ export function resolveCommissionFromProfile(input: {
 }): { mode: CommissionMode; value: number; isCustom: boolean } {
   const affiliate = input.affiliate
   const program = input.program || {}
-  if (affiliate?.commission_mode) {
+  // Override só com commission_mode explícito (admin). commission_pct sozinho é legado.
+  if (affiliate?.commission_mode != null && String(affiliate.commission_mode).trim() !== '') {
     return {
       mode: normalizeCommissionMode(affiliate.commission_mode),
-      value: Number(affiliate.commission_value ?? affiliate.commission_pct ?? program.default_commission_value ?? program.default_commission_pct ?? 10),
+      value: Number(
+        affiliate.commission_value
+          ?? affiliate.commission_pct
+          ?? program.commission_value
+          ?? program.default_commission_value
+          ?? program.default_commission_pct
+          ?? 10,
+      ),
       isCustom: true,
+    }
+  }
+  if (program.commission_mode != null && String(program.commission_mode).trim() !== '') {
+    return {
+      mode: normalizeCommissionMode(program.commission_mode),
+      value: Number(program.commission_value ?? program.default_commission_value ?? program.default_commission_pct ?? 0),
+      isCustom: false,
     }
   }
   if (affiliate?.commission_pct != null) {

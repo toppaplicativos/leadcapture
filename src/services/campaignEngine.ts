@@ -483,6 +483,45 @@ export class CampaignEngineService {
   private readonly contextEngine = new ContextEngineService();
   private readonly gemini = new GeminiService();
 
+  /** Campaign outbound message — routed via Master · Algoritmos `text.campaign.message` */
+  private async generateCampaignMessageAi(
+    lead: { name?: string; address?: string; category?: string; rating?: number; website?: string },
+    templatePrompt: string,
+    scope: { userId?: string; brandId?: string },
+  ): Promise<string> {
+    const prompt = `Voce e um assistente de vendas profissional. Gere uma mensagem de WhatsApp personalizada para o seguinte lead.
+
+REGRAS IMPORTANTES:
+- A mensagem deve ser curta (maximo 3 paragrafos)
+- Tom profissional mas amigavel
+- Personalizada com o nome do negocio
+- Inclua uma proposta de valor clara
+- Termine com uma pergunta ou call-to-action
+- NAO use emojis em excesso (maximo 2-3)
+- Escreva em portugues brasileiro
+- O bloco TEMPLATE/CONTEXTO DA CAMPANHA e obrigatorio e tem prioridade maxima.
+- Se houver conflito entre qualquer regra geral e o TEMPLATE/CONTEXTO DA CAMPANHA, siga o TEMPLATE/CONTEXTO DA CAMPANHA.
+- Nao invente nome de atendente/remetente. So use nome proprio se estiver explicitamente no TEMPLATE/CONTEXTO DA CAMPANHA.
+- Nao invente produto, volume, promocao ou condicao comercial que nao esteja no TEMPLATE/CONTEXTO DA CAMPANHA.
+
+DADOS DO LEAD:
+- Nome do negocio: ${lead.name || "Nao informado"}
+- Endereco: ${lead.address || "Nao informado"}
+- Categoria: ${lead.category || "Nao informada"}
+- Avaliacao: ${lead.rating ? lead.rating + "/5" : "Nao informada"}
+- Website: ${lead.website || "Nao possui"}
+
+TEMPLATE/CONTEXTO DA CAMPANHA:
+${templatePrompt}
+
+Gere APENAS a mensagem, sem explicacoes adicionais.`;
+
+    const result = await aiRouter.generateText(prompt, scope, {
+      functionKey: "text.campaign.message",
+    });
+    return String(result.text || "").trim();
+  }
+
   private async columnExists(tableName: string, columnName: string): Promise<boolean> {
     const row = await queryOne<{ total: number }>(
       `SELECT COUNT(*) AS total
@@ -1731,7 +1770,7 @@ export class CampaignEngineService {
 
     let generated = templatePrompt;
     try {
-      generated = await this.gemini.generateMessage(leadContext, templatePrompt, { userId });
+      generated = await this.generateCampaignMessageAi(leadContext, templatePrompt, { userId });
     } catch {
       generated = templatePrompt;
     }
@@ -2048,7 +2087,7 @@ export class CampaignEngineService {
             .filter(Boolean)
             .join("\n\n");
 
-          messageText = await this.gemini.generateMessage(leadContext, fullPrompt, {
+          messageText = await this.generateCampaignMessageAi(leadContext, fullPrompt, {
             userId,
             brandId: normalizedBrandId || undefined,
           });

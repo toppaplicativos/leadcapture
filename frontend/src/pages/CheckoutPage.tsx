@@ -2,12 +2,13 @@ import { useEffect, useState, useCallback } from 'react'
 import { Minus, Plus, Trash2, ShoppingBag, ArrowLeft, ArrowRight, CreditCard, ImageOff, User, MapPin, CheckCircle2, QrCode, FileText, Banknote, Truck, Clock, PartyPopper, Ticket, X as XIcon, Loader2 } from 'lucide-react'
 import { WhatsAppIcon } from '@/components/icons'
 import { useNavigate } from 'react-router-dom'
-import { fetchCatalog, createOrder, validateCoupon, type Product } from '@/lib/api'
+import { fetchCatalog, createOrder, validateCoupon, fetchPublicClientTypes, type Product, type PublicClientType } from '@/lib/api'
 import { useCartStore } from '@/lib/store'
 import { getCustomer, setCustomer } from '@/lib/store'
 import { money, storeUrl, normalizePhone } from '@/lib/store-context'
 import { useToast } from '@/components/Toast'
 import { getAffiliateCoupon, getAffiliateOrderMeta } from '@/lib/affiliate-tracking'
+import { ClientTypePicker } from '@/components/store/ClientTypePicker'
 
 type Step = 'cart' | 'customer' | 'delivery' | 'payment'
 
@@ -29,6 +30,8 @@ export function CheckoutPage() {
   const [establishmentName, setEstablishmentName] = useState(profile.establishment_name || profile.establishment || '')
   const [phone, setPhone] = useState(profile.phone || '')
   const [address, setAddress] = useState(profile.address || '')
+  const [clientType, setClientType] = useState(profile.client_type || '')
+  const [clientTypes, setClientTypes] = useState<PublicClientType[]>([])
   const [paymentMethod, setPaymentMethod] = useState('')
   const [notes, setNotes] = useState('')
   const [whatsappNotify, setWhatsappNotify] = useState(true)
@@ -62,6 +65,10 @@ export function CheckoutPage() {
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false))
+
+    fetchPublicClientTypes()
+      .then((d) => setClientTypes(d.types || []))
+      .catch(() => setClientTypes([]))
   }, [])
 
   const cartKeys = Object.keys(items).filter((k) => (items[k]?.quantity || 0) > 0)
@@ -172,7 +179,23 @@ export function CheckoutPage() {
 
   async function handleSubmit() {
     if (!email || !responsibleName) { setError('Preencha nome e email'); return }
-    setCustomer({ email, responsible_name: responsibleName, establishment_name: establishmentName, phone, name: responsibleName, establishment: establishmentName, address })
+    if (clientTypes.length > 0 && !clientType.trim()) {
+      setError('Selecione o tipo de cliente')
+      setStep('customer')
+      return
+    }
+    const matchedType = clientTypes.find((t) => t.name === clientType)
+    setCustomer({
+      email,
+      responsible_name: responsibleName,
+      establishment_name: establishmentName,
+      phone,
+      name: responsibleName,
+      establishment: establishmentName,
+      address,
+      client_type: clientType.trim() || undefined,
+      client_type_id: matchedType?.id,
+    })
     const orderItems = cartKeys
       .map((key) => {
         const it = items[key]
@@ -192,11 +215,18 @@ export function CheckoutPage() {
     try {
       const result = await createOrder({
         items: orderItems,
-        customer: { name: responsibleName || establishmentName, phone, email, address: { text: address || undefined, establishment_name: establishmentName || undefined } },
+        customer: {
+          name: responsibleName || establishmentName,
+          phone,
+          email,
+          address: { text: address || undefined, establishment_name: establishmentName || undefined },
+          client_type: clientType.trim() || undefined,
+        },
         payment_method: paymentMethod,
-        notes: [establishmentName ? `Estabelecimento: ${establishmentName}` : '', whatsappNotify && phone ? `WhatsApp: ${phone}` : '', notes].filter(Boolean).join(' | '),
+        notes: [establishmentName ? `Estabelecimento: ${establishmentName}` : '', whatsappNotify && phone ? `WhatsApp: ${phone}` : '', clientType ? `Tipo: ${clientType}` : '', notes].filter(Boolean).join(' | '),
         /* Fase 13 — forward the validated coupon code; server re-validates */
         cupom_codigo: couponApplied?.code || undefined,
+        client_type: clientType.trim() || undefined,
         ...getAffiliateOrderMeta(),
       })
       clear()
@@ -216,7 +246,10 @@ export function CheckoutPage() {
 
   function canAdvance(): boolean {
     if (step === 'cart') return cartKeys.length > 0
-    if (step === 'customer') return !!email.trim() && !!responsibleName.trim()
+    if (step === 'customer') {
+      const hasType = clientTypes.length === 0 || !!clientType.trim()
+      return !!email.trim() && !!responsibleName.trim() && hasType
+    }
     if (step === 'delivery') return true
     return !!paymentMethod
   }
@@ -446,6 +479,16 @@ export function CheckoutPage() {
                   <label className="text-xs font-medium text-gray-600 mb-1.5 block">Telefone / WhatsApp</label>
                   <input type="tel" value={phone} onChange={e => setPhone(e.target.value)} placeholder="(00) 00000-0000" className={inputCls} />
                 </div>
+                {clientTypes.length > 0 && (
+                  <ClientTypePicker
+                    types={clientTypes}
+                    value={clientType}
+                    onChange={setClientType}
+                    required
+                    label="Tipo de cliente *"
+                    hint="Ajuda a loja a te atender melhor."
+                  />
+                )}
                 <div>
                   <label className="text-xs font-medium text-gray-600 mb-1.5 block">Estabelecimento (se aplicavel)</label>
                   <input type="text" value={establishmentName} onChange={e => setEstablishmentName(e.target.value)} placeholder="Nome do seu negocio" className={inputCls} />

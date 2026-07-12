@@ -1,5 +1,6 @@
-import { Images, LayoutGrid, Search, X } from 'lucide-react'
+import { CheckSquare, Images, LayoutGrid, Search, Square, X } from 'lucide-react'
 import { Input } from '@/components/ui/Input'
+import { Select } from '@/components/ui/Select'
 import { cn } from '@/lib/cn'
 
 export function GalleryToolbar({
@@ -10,6 +11,8 @@ export function GalleryToolbar({
   dense,
   onDenseChange,
   total,
+  selectMode,
+  onSelectModeChange,
 }: {
   search: string
   onSearchChange: (v: string) => void
@@ -18,6 +21,8 @@ export function GalleryToolbar({
   dense: boolean
   onDenseChange: (v: boolean) => void
   total: number
+  selectMode?: boolean
+  onSelectModeChange?: (v: boolean) => void
 }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -41,22 +46,40 @@ export function GalleryToolbar({
         )}
       </div>
 
-      <select
+      <Select
+        fullWidth={false}
         value={typeFilter}
         onChange={(e) => onTypeFilterChange(e.target.value as '' | 'image' | 'video')}
-        className="h-11 px-3 rounded-xl border border-gray-200 bg-white text-sm text-gray-700 focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900"
+        className="w-auto min-w-[9.5rem]"
         aria-label="Filtrar por tipo"
       >
         <option value="">Todos os tipos</option>
         <option value="image">Imagens</option>
         <option value="video">Vídeos</option>
-      </select>
+      </Select>
 
       <p className="text-[12px] text-gray-500 tabular-nums hidden sm:block">
         {total} {total === 1 ? 'item' : 'itens'}
       </p>
 
       <span className="ml-auto inline-flex items-center gap-1">
+        {onSelectModeChange && (
+          <button
+            type="button"
+            onClick={() => onSelectModeChange(!selectMode)}
+            className={cn(
+              'h-9 px-2.5 inline-flex items-center gap-1.5 rounded-full text-[11px] font-bold transition',
+              selectMode
+                ? 'bg-gray-900 text-white'
+                : 'bg-white text-gray-600 ring-1 ring-gray-200 hover:bg-gray-50',
+            )}
+            aria-pressed={!!selectMode}
+            title="Selecionar itens em massa"
+          >
+            {selectMode ? <CheckSquare size={14} /> : <Square size={14} />}
+            <span className="hidden sm:inline">Selecionar</span>
+          </button>
+        )}
         <button
           type="button"
           onClick={() => onDenseChange(false)}

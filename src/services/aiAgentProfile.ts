@@ -17,6 +17,8 @@ type AIAgentProfile = {
   training_notes?: string;
   first_contact_script?: string;
   value_proposition?: string;
+  /** Structured objection breakers: [{ signal, response }] */
+  objections?: Array<{ signal: string; response: string }>;
   forbidden_terms: string[];
   preferred_terms: string[];
   created_at?: Date | string;
@@ -39,10 +41,30 @@ type AIAgentProfileUpdateDTO = Partial<
     | "training_notes"
     | "first_contact_script"
     | "value_proposition"
+    | "objections"
     | "forbidden_terms"
     | "preferred_terms"
   >
 >;
+
+function parseObjections(value: unknown): Array<{ signal: string; response: string }> {
+  if (!value) return [];
+  let raw: any = value;
+  if (typeof value === "string") {
+    try {
+      raw = JSON.parse(value);
+    } catch {
+      return [];
+    }
+  }
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item: any) => ({
+      signal: String(item?.signal || item?.objection || item?.q || "").trim(),
+      response: String(item?.response || item?.answer || item?.a || "").trim(),
+    }))
+    .filter((x) => x.signal && x.response);
+}
 
 function parseJsonArray(value: unknown): string[] {
   if (!value) return [];
@@ -211,6 +233,20 @@ export class AIAgentProfileService {
         await query("ALTER TABLE ai_agent_profiles ADD COLUMN first_contact_script TEXT NULL");
       }
 
+      /* objections_json — quebra de objeções estruturada */
+      const hasObjBrand = await this.columnExists("ai_agent_profiles_brand", "objections_json");
+      if (!hasObjBrand) {
+        await query("ALTER TABLE ai_agent_profiles_brand ADD COLUMN objections_json JSONB NULL").catch(() =>
+          query("ALTER TABLE ai_agent_profiles_brand ADD COLUMN objections_json JSON NULL").catch(() => undefined),
+        );
+      }
+      const hasObjGlobal = await this.columnExists("ai_agent_profiles", "objections_json");
+      if (!hasObjGlobal) {
+        await query("ALTER TABLE ai_agent_profiles ADD COLUMN objections_json JSONB NULL").catch(() =>
+          query("ALTER TABLE ai_agent_profiles ADD COLUMN objections_json JSON NULL").catch(() => undefined),
+        );
+      }
+
       /* value_proposition — proposta de valor central da marca, diretriz de toda comunicação */
       const hasVPBrand = await this.columnExists("ai_agent_profiles_brand", "value_proposition");
       if (!hasVPBrand) {
@@ -251,6 +287,7 @@ export class AIAgentProfileService {
       training_notes: "",
       first_contact_script: "",
       value_proposition: "",
+      objections: [],
       forbidden_terms: [],
       preferred_terms: [],
     };
@@ -272,6 +309,7 @@ export class AIAgentProfileService {
       training_notes: row.training_notes || "",
       first_contact_script: row.first_contact_script || "",
       value_proposition: row.value_proposition || "",
+      objections: parseObjections(row.objections_json ?? row.objections),
       forbidden_terms: parseJsonArray(row.forbidden_terms),
       preferred_terms: parseJsonArray(row.preferred_terms),
       created_at: row.created_at,
@@ -351,13 +389,14 @@ export class AIAgentProfileService {
       brand_id: normalizedScopeId || undefined,
       forbidden_terms: payload.forbidden_terms ?? current.forbidden_terms,
       preferred_terms: payload.preferred_terms ?? current.preferred_terms,
+      objections: payload.objections ?? current.objections ?? [],
     };
 
     if (normalizedScopeId) {
       await query(
         `INSERT INTO ai_agent_profiles_brand
-          (user_id, brand_id, agent_name, tone, language, include_emojis, max_length, objective, business_context, communication_rules, training_notes, first_contact_script, value_proposition, forbidden_terms, preferred_terms)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          (user_id, brand_id, agent_name, tone, language, include_emojis, max_length, objective, business_context, communication_rules, training_notes, first_contact_script, value_proposition, objections_json, forbidden_terms, preferred_terms)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (user_id, brand_id) DO UPDATE SET
            agent_name = EXCLUDED.agent_name,
            tone = EXCLUDED.tone,
@@ -370,6 +409,7 @@ export class AIAgentProfileService {
            training_notes = EXCLUDED.training_notes,
            first_contact_script = EXCLUDED.first_contact_script,
            value_proposition = EXCLUDED.value_proposition,
+           objections_json = EXCLUDED.objections_json,
            forbidden_terms = EXCLUDED.forbidden_terms,
            preferred_terms = EXCLUDED.preferred_terms,
            updated_at = CURRENT_TIMESTAMP`,
@@ -387,6 +427,7 @@ export class AIAgentProfileService {
           merged.training_notes || null,
           merged.first_contact_script || null,
           merged.value_proposition || null,
+          JSON.stringify(merged.objections || []),
           JSON.stringify(merged.forbidden_terms || []),
           JSON.stringify(merged.preferred_terms || []),
         ]
@@ -398,8 +439,8 @@ export class AIAgentProfileService {
     if (!existing?.user_id) {
       await insert(
         `INSERT INTO ai_agent_profiles
-          (user_id, company_id, brand_id, agent_name, tone, language, include_emojis, max_length, objective, business_context, communication_rules, training_notes, first_contact_script, value_proposition, forbidden_terms, preferred_terms)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          (user_id, company_id, brand_id, agent_name, tone, language, include_emojis, max_length, objective, business_context, communication_rules, training_notes, first_contact_script, value_proposition, objections_json, forbidden_terms, preferred_terms)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           userId,
           null,
@@ -415,6 +456,7 @@ export class AIAgentProfileService {
           merged.training_notes || null,
           merged.first_contact_script || null,
           merged.value_proposition || null,
+          JSON.stringify(merged.objections || []),
           JSON.stringify(merged.forbidden_terms || []),
           JSON.stringify(merged.preferred_terms || []),
         ]
@@ -434,6 +476,7 @@ export class AIAgentProfileService {
              training_notes = ?,
              first_contact_script = ?,
              value_proposition = ?,
+             objections_json = ?,
              forbidden_terms = ?,
              preferred_terms = ?
          WHERE user_id = ? AND ${normalizedScopeId ? "(brand_id = ? OR (brand_id IS NULL AND company_id = ?))" : "(brand_id IS NULL AND (company_id IS NULL OR company_id = ''))"}`,
@@ -450,6 +493,7 @@ export class AIAgentProfileService {
           merged.training_notes || null,
           merged.first_contact_script || null,
           merged.value_proposition || null,
+          JSON.stringify(merged.objections || []),
           JSON.stringify(merged.forbidden_terms || []),
           JSON.stringify(merged.preferred_terms || []),
           userId,
@@ -488,6 +532,12 @@ export class AIAgentProfileService {
     }
     if (profile.forbidden_terms.length) {
       rules.push(`Evite os termos: ${profile.forbidden_terms.join(", ")}`);
+    }
+    if (Array.isArray(profile.objections) && profile.objections.length) {
+      rules.push("QUEBRA DE OBJEÇÕES:");
+      for (const o of profile.objections.slice(0, 12)) {
+        if (o?.signal && o?.response) rules.push(`- Se "${o.signal}" → ${o.response}`);
+      }
     }
 
     return rules.join("\n");

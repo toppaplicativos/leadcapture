@@ -1,5 +1,6 @@
-import { Router, Response } from "express";
+import { Router, Response, NextFunction } from "express";
 import { AuthRequest } from "../middleware/auth";
+import { requirePermission } from "../middleware/permissions";
 import { BrandUnitsService } from "../services/brandUnits";
 import { CommerceService, CommerceOrderStatus } from "../services/commerce";
 import { FlowExecutorService } from "../services/flowExecutor";
@@ -26,6 +27,17 @@ const router = Router();
 const commerceService = new CommerceService();
 const brandUnitsService = new BrandUnitsService();
 const omsService = new OrderManagementService();
+
+router.use((req: AuthRequest, res: Response, next: NextFunction) => {
+  const method = String(req.method || "GET").toUpperCase();
+  const perm =
+    method === "GET" || method === "HEAD"
+      ? "orders:read"
+      : method === "DELETE"
+        ? "orders:delete"
+        : "orders:write";
+  return requirePermission(perm)(req, res, next);
+});
 
 let schemaReady = false;
 let schemaPromise: Promise<void> | null = null;
@@ -524,23 +536,35 @@ router.get("/", async (req: AuthRequest, res: Response) => {
       params
     );
 
-    // Backfill meta silently — don't break listing if meta upsert fails
-    for (const row of rows) {
-      try {
-        await ensureOrderMeta({
-          orderId: String(row.id),
-          userId,
-          brandId,
-          storeId: row.resolved_store_id ? String(row.resolved_store_id) : null,
-          origin: String(row.origin || "site") as OrderOrigin,
-          businessStatus: normalizeBusinessStatus(row.business_status),
-          paymentStatus: normalizePaymentStatus(row.payment_status),
-          deliveryStatus: String(row.delivery_status || "nao_iniciado"),
-        });
-      } catch { /* meta backfill is best-effort */ }
-    }
+    // Identificador legível (não há coluna order_number no schema legado)
+    const orders = (rows || []).map((row: any) => {
+      const id = String(row.id || "");
+      const orderNumber = id
+        .replace(/[^a-z0-9]/gi, "")
+        .slice(0, 8)
+        .toUpperCase();
+      return { ...row, order_number: orderNumber };
+    });
 
-    res.json({ success: true, orders: rows });
+    // Backfill meta em background (não bloqueia a lista — era causa de 8–16s)
+    void Promise.all(
+      orders.map(async (row: any) => {
+        try {
+          await ensureOrderMeta({
+            orderId: String(row.id),
+            userId,
+            brandId,
+            storeId: row.resolved_store_id ? String(row.resolved_store_id) : null,
+            origin: String(row.origin || "site") as OrderOrigin,
+            businessStatus: normalizeBusinessStatus(row.business_status),
+            paymentStatus: normalizePaymentStatus(row.payment_status),
+            deliveryStatus: String(row.delivery_status || "nao_iniciado"),
+          });
+        } catch { /* meta backfill is best-effort */ }
+      }),
+    );
+
+    res.json({ success: true, orders });
   } catch (error: any) {
     res.status(500).json({ error: error.message || "Failed to list managed orders" });
   }

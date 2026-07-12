@@ -163,8 +163,13 @@ export class MasterService {
         )
       `)
       try {
+        /* Legacy prod tables may predate brand_id — CREATE IF NOT EXISTS won't add columns */
+        await query(`ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS brand_id VARCHAR(36) NULL`)
+      } catch { /* ignore */ }
+      try {
         await query(`CREATE INDEX IF NOT EXISTS idx_subscriptions_user ON subscriptions (user_id)`)
         await query(`CREATE INDEX IF NOT EXISTS idx_subscriptions_status ON subscriptions (status)`)
+        await query(`CREATE INDEX IF NOT EXISTS idx_subscriptions_brand ON subscriptions (brand_id)`)
       } catch { /* ignore */ }
 
       // 6. email_templates — system + tenant scoped
@@ -592,7 +597,14 @@ export class MasterService {
       [email],
     )
     if (!user) throw new Error(`User not found: ${email}`)
-    await query(`UPDATE users SET is_super_admin = TRUE WHERE id = ?`, [user.id])
+    await query(
+      `UPDATE users
+       SET is_super_admin = TRUE,
+           account_kind = 'platform',
+           role = CASE WHEN LOWER(role) IN ('org','operator','manager','affiliate','consumer') THEN 'admin' ELSE role END
+       WHERE id = ?`,
+      [user.id],
+    )
     logger.info(`Promoted to super admin: ${user.email}`)
     return user
   }

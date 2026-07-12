@@ -66,18 +66,21 @@ Regras:
 
     try {
       const fullPrompt = `${systemPrompt}\n\nSolicitacao: ${prompt}`;
-      if (options.userId) {
-        const result = await aiRouter.generateText(fullPrompt, { userId: options.userId, brandId: options.brandId });
-        return result.text;
-      }
-      return await this.gemini.generatePlainText(fullPrompt);
+      const scope = { userId: options.userId, brandId: options.brandId };
+      const result = await aiRouter.generateText(fullPrompt, scope, {
+        functionKey: "text.whatsapp.legacy",
+      });
+      return result.text;
     } catch (error) {
       logger.error(error, "Erro ao gerar mensagem customizada");
       throw new Error("Falha ao gerar mensagem com IA");
     }
   }
 
-  async analyzeMessage(message: string): Promise<AIAnalysisResult> {
+  async analyzeMessage(
+    message: string,
+    scope?: { userId?: string; brandId?: string },
+  ): Promise<AIAnalysisResult> {
     const prompt = `Analise a seguinte mensagem de WhatsApp e retorne um JSON com:
 - sentiment: "positive", "negative" ou "neutral"
 - intent: intencao principal do remetente (ex: "interesse_compra", "reclamacao", "duvida", "agradecimento")
@@ -89,8 +92,9 @@ Mensagem: "${message}"
 Retorne APENAS o JSON valido, sem markdown.`;
 
     try {
-      // analyzeMessage nao tem userId — usa Gemini direto (fallback)
-      return await this.gemini.generateJson<AIAnalysisResult>(prompt);
+      return await aiRouter.generateJson<AIAnalysisResult>(prompt, scope || {}, {
+        functionKey: "text.message.analyze",
+      });
     } catch (error) {
       logger.error(error, "Erro ao analisar mensagem");
       return {
@@ -102,7 +106,11 @@ Retorne APENAS o JSON valido, sem markdown.`;
     }
   }
 
-  async improveMessage(originalMessage: string, instructions: string = ""): Promise<string> {
+  async improveMessage(
+    originalMessage: string,
+    instructions: string = "",
+    scope?: { userId?: string; brandId?: string },
+  ): Promise<string> {
     const prompt = `Melhore a seguinte mensagem de WhatsApp Business mantendo a essencia:
 
 Mensagem original: "${originalMessage}"
@@ -117,14 +125,21 @@ Regras:
 - Retorne APENAS a mensagem melhorada, sem explicacoes`;
 
     try {
-      return await this.gemini.generatePlainText(prompt);
+      const r = await aiRouter.generateText(prompt, scope || {}, {
+        functionKey: "text.message.improve",
+      });
+      return r.text;
     } catch (error) {
       logger.error(error, "Erro ao melhorar mensagem");
       throw new Error("Falha ao melhorar mensagem");
     }
   }
 
-  async generateBulkVariations(baseMessage: string, count: number = 5): Promise<string[]> {
+  async generateBulkVariations(
+    baseMessage: string,
+    count: number = 5,
+    scope?: { userId?: string; brandId?: string },
+  ): Promise<string[]> {
     const prompt = `Gere ${count} variacoes da seguinte mensagem de WhatsApp Business.
 Cada variacao deve manter a mesma intencao mas com palavras diferentes para evitar bloqueio por spam.
 
@@ -133,7 +148,9 @@ Mensagem base: "${baseMessage}"
 Retorne APENAS um JSON array com as ${count} variacoes. Sem markdown.`;
 
     try {
-      return await this.gemini.generateJson<string[]>(prompt);
+      return await aiRouter.generateJson<string[]>(prompt, scope || {}, {
+        functionKey: "text.message.variations",
+      });
     } catch (error) {
       logger.error(error, "Erro ao gerar variacoes");
       return [baseMessage];

@@ -203,7 +203,7 @@ export function IdeaGeneratorModal({ open, onClose, onApply }: Props) {
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) generate() }}
-                  placeholder="Ex: Alho descascado a vácuo, distribuição B2B em Fortaleza"
+                  placeholder="Ex.: produto ou serviço, público-alvo e região de atuação"
                   rows={4}
                   autoFocus
                   className="w-full p-3 rounded-xl border border-gray-200 text-[13px] text-gray-900 placeholder:text-gray-400 placeholder:font-normal resize-none focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900 transition"

@@ -17,11 +17,12 @@ import {
   Cpu,
   Wrench,
   BellRing,
+  Sparkles,
 } from 'lucide-react'
 import { BrandMark } from '@/components/BrandMark'
 import { NotificationBellButton } from '@/components/notifications/NotificationCenter'
 import { PushActivationCard } from '@/components/push/PushActivationCard'
-import { masterApi } from '@/lib/master-api'
+import { masterApi, type PlatformVersionInfo } from '@/lib/master-api'
 import { masterAdminBase } from '@/lib/master-host'
 
 interface NavItem {
@@ -40,6 +41,7 @@ function buildNav(): NavItem[] {
     { to: `${base}/ferramentas`, label: 'Ferramentas', Icon: Wrench },
     { to: `${base}/push-notificacoes`, label: 'Push', Icon: BellRing },
     { to: `${base}/providers`, label: 'Providers IA', Icon: Cpu },
+    { to: `${base}/algoritmos`, label: 'Algoritmos', Icon: Sparkles },
     { to: `${base}/integracoes`, label: 'Integrações', Icon: Plug },
     { to: `${base}/emails`, label: 'Emails', Icon: Mail },
     { to: `${base}/configuracoes`, label: 'Configurações', Icon: Settings },
@@ -57,6 +59,7 @@ export function MasterShell({ children }: MasterShellProps) {
   const [authReady, setAuthReady] = useState(false)
   const [me, setMe] = useState<{ id: string; email: string; name: string } | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [deployStamp, setDeployStamp] = useState<PlatformVersionInfo | null>(null)
 
   const adminBase = masterAdminBase()
   const nav = buildNav()
@@ -84,6 +87,22 @@ export function MasterShell({ children }: MasterShellProps) {
       })
   }, [navigate, adminBase])
 
+  /* deploy stamp always visible in sidebar */
+  useEffect(() => {
+    if (!authReady) return
+    masterApi
+      .platformVersion()
+      .then(r => setDeployStamp(r.platform))
+      .catch(() => {
+        masterApi
+          .health()
+          .then(h => {
+            if (h.platform) setDeployStamp(h.platform)
+          })
+          .catch(() => {})
+      })
+  }, [authReady])
+
   /* close drawer on route change (mobile) */
   useEffect(() => {
     setDrawerOpen(false)
@@ -104,14 +123,14 @@ export function MasterShell({ children }: MasterShellProps) {
 
   if (!authReady || !me) {
     return (
-      <div className="min-h-screen grid place-items-center bg-[#0a0a0a]">
+      <div className="master-console min-h-screen grid place-items-center bg-[#0a0a0a]">
         <Loader2 size={20} className="animate-spin text-white/60" />
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-white flex">
+    <div className="master-console min-h-screen bg-[#0a0a0a] text-white flex">
       {/* Mobile drawer overlay */}
       {drawerOpen && (
         <div
@@ -157,16 +176,16 @@ export function MasterShell({ children }: MasterShellProps) {
                 key={item.to}
                 to={item.to}
                 aria-current={active ? 'page' : undefined}
-                className={`flex items-center gap-3 px-3 h-10 text-[13px] rounded-lg transition-colors ${
+                className={`master-console__nav-item flex items-center gap-3 px-3 h-10 text-[13px] rounded-xl transition-colors ${
                   active
-                    ? 'bg-white/[0.10] text-white font-semibold'
+                    ? 'is-active bg-white/[0.10] text-white font-semibold ring-1 ring-white/[0.08]'
                     : 'text-white/60 hover:bg-white/[0.05] hover:text-white'
                 }`}
               >
                 <item.Icon
                   size={16}
                   strokeWidth={active ? 2 : 1.75}
-                  className={active ? 'text-white' : 'text-white/40'}
+                  className={active ? 'text-emerald-400' : 'text-white/40'}
                 />
                 <span className="truncate">{item.label}</span>
               </Link>
@@ -174,8 +193,29 @@ export function MasterShell({ children }: MasterShellProps) {
           })}
         </nav>
 
-        {/* User pill */}
-        <div className="p-3 border-t border-white/[0.06]">
+        {/* User pill + deploy stamp */}
+        <div className="p-3 border-t border-white/[0.06] space-y-2">
+          {deployStamp && (
+            <div
+              className="px-2.5 py-2 rounded-lg bg-white/[0.03] border border-white/[0.06]"
+              title={[
+                deployStamp.build_time ? `build ${deployStamp.build_time}` : '',
+                deployStamp.git_branch ? `branch ${deployStamp.git_branch}` : '',
+                `uptime ${deployStamp.uptime_s}s`,
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            >
+              <p className="text-[9px] font-semibold uppercase tracking-wide text-white/35 mb-0.5">
+                Deploy
+              </p>
+              <p className="text-[11px] font-mono text-emerald-400/90 truncate">
+                {deployStamp.git_sha || 'sha?'}
+                <span className="text-white/30"> · </span>
+                <span className="text-white/55 font-sans">{deployStamp.version}</span>
+              </p>
+            </div>
+          )}
           <div className="flex items-center gap-2.5 px-2 py-2">
             <div className="w-8 h-8 rounded-full bg-white text-gray-900 grid place-items-center text-xs font-bold">
               {me.name?.charAt(0).toUpperCase() || me.email.charAt(0).toUpperCase()}
@@ -265,7 +305,7 @@ export function MasterCard({
 }) {
   return (
     <div
-      className={`rounded-2xl bg-white/[0.03] ring-1 ring-white/[0.06] ${className}`}
+      className={`master-console__card rounded-2xl bg-white/[0.03] ring-1 ring-white/[0.06] ${className}`}
     >
       {children}
     </div>

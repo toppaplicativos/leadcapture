@@ -85,7 +85,7 @@ export function MasterFerramentas() {
     <>
       <MasterPageHeader
         title="Ferramentas"
-        subtitle="Controle global de módulos, cadastros e modo manutenção da plataforma."
+        subtitle="Kill-switches enforced na API e no admin: manutenção, signup e módulos do produto."
         action={
           <button
             onClick={save}

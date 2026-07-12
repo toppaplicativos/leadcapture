@@ -5,6 +5,7 @@ import { CommerceService } from "../services/commerce";
 import { ClientsService } from "../services/clients";
 import { ClientTypesService } from "../services/clientTypes";
 import { GeminiService } from "../services/gemini";
+import { aiRouter } from "../services/aiRouter";
 import { InventoryService } from "../services/inventory";
 import { OrderManagementService } from "../services/orderManagement";
 import { StorefrontService, sanitizePublicMarketingSettings, sanitizePublicDesignSettings } from "../services/storefront";
@@ -1000,10 +1001,14 @@ async function generatePageWithAi(input: {
   ].join("\n");
 
   try {
-    const parsed = await gemini.generateJson<any>(prompt, {
-      userId: String(input.store?.owner_user_id || input.store?.user_id || "").trim() || undefined,
-      brandId: String(input.store?.brand_id || "").trim() || undefined,
-    });
+    const parsed = await aiRouter.generateJson<any>(
+      prompt,
+      {
+        userId: String(input.store?.owner_user_id || input.store?.user_id || "").trim() || undefined,
+        brandId: String(input.store?.brand_id || "").trim() || undefined,
+      },
+      { functionKey: "text.storefront.compose" },
+    );
 
     const title = String(parsed?.title || fallbackTitle).trim() || fallbackTitle;
     const slug = String(parsed?.slug || "pagina-ia").trim() || "pagina-ia";
@@ -2034,6 +2039,36 @@ publicRouter.get("/stores/:slug", async (req, res) => {
 
 /* Catalog cache moved to ./services/storefrontCache so other routes/services can invalidate it. */
 
+/** Tipos de cliente públicos da marca (para cadastro na loja / checkout). */
+publicRouter.get("/stores/:slug/client-types", async (req, res) => {
+  try {
+    const slug = String(req.params.slug || "").trim();
+    const bundle = await storefront.resolvePublicStore({ slug });
+    if (!bundle) return res.status(404).json({ error: "Store not found" });
+
+    const ownerUserId = String(bundle.store.owner_user_id || "").trim();
+    const brandId = normalizeBrandId(bundle.store.brand_id) || undefined;
+    if (!ownerUserId) {
+      return res.json({ success: true, types: [] });
+    }
+
+    const types = await clientTypesService.list(ownerUserId, brandId);
+    res.set("Cache-Control", "public, max-age=120, stale-while-revalidate=300");
+    res.json({
+      success: true,
+      types: (types || []).map((t) => ({
+        id: String(t.id),
+        name: String(t.name || "").trim(),
+        description: t.description ? String(t.description) : null,
+        color: t.color ? String(t.color) : null,
+        icon: t.icon ? String(t.icon) : null,
+      })).filter((t) => t.name),
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || "Failed to load client types" });
+  }
+});
+
 publicRouter.get("/stores/:slug/catalog", async (req, res) => {
   try {
     const slug = String(req.params.slug || "").trim();
@@ -2123,8 +2158,124 @@ publicRouter.get("/stores/:slug/catalog", async (req, res) => {
         position: Number(item?.position || 0),
         related_product_ids: relatedStorefrontIds,
         bundle_items: bundleItems,
+        /* interno — removido antes da resposta; usado para enriquecer reviews */
+        _source_product_id: ownSourceId || null,
       };
     });
+
+    /* Reviews: lê agregados da tabela products (fonte) — metadata_json do storefront
+     * costuma ficar 0 mesmo com avaliações aprovadas. */
+    const reviewAggBySource = new Map<string, { avg: number; count: number }>();
+    const uniqueSourceIds = Array.from(
+      new Set(
+        products
+          .map((p: any) => String(p._source_product_id || "").trim())
+          .filter(Boolean)
+      )
+    );
+    if (uniqueSourceIds.length > 0) {
+      try {
+        const ph = uniqueSourceIds.map(() => "?").join(",");
+        const revRows = (await query<any[]>(
+          `SELECT id,
+                  COALESCE(reviews_avg, 0) AS reviews_avg,
+                  COALESCE(reviews_count, 0) AS reviews_count
+             FROM products
+            WHERE id IN (${ph})`,
+          uniqueSourceIds
+        )) as any[];
+        for (const row of revRows || []) {
+          const id = String(row?.id || "").trim();
+          if (!id) continue;
+          reviewAggBySource.set(id, {
+            avg: Number(row?.reviews_avg || 0),
+            count: Number(row?.reviews_count || 0),
+          });
+        }
+        /* Fallback: agrega ao vivo se denorm estiver zerado mas houver reviews aprovadas */
+        const zeroIds = uniqueSourceIds.filter((id) => {
+          const a = reviewAggBySource.get(id);
+          return !a || a.count <= 0;
+        });
+        if (zeroIds.length > 0) {
+          const ph2 = zeroIds.map(() => "?").join(",");
+          const live = (await query<any[]>(
+            `SELECT product_id,
+                    COUNT(*)::int AS n,
+                    COALESCE(AVG(rating), 0)::float AS avg
+               FROM product_reviews
+              WHERE product_id IN (${ph2}) AND status = 'approved'
+              GROUP BY product_id`,
+            zeroIds
+          ).catch(() => [])) as any[];
+          for (const row of live || []) {
+            const id = String(row?.product_id || "").trim();
+            const n = Number(row?.n || 0);
+            if (!id || n <= 0) continue;
+            reviewAggBySource.set(id, {
+              avg: Math.round(Number(row?.avg || 0) * 100) / 100,
+              count: n,
+            });
+          }
+        }
+      } catch (e: any) {
+        logger.warn(`[catalog] reviews enrich failed: ${e?.message || e}`);
+      }
+    }
+
+    for (const p of products as any[]) {
+      const sid = String(p._source_product_id || "").trim();
+      const agg = sid ? reviewAggBySource.get(sid) : null;
+      if (agg && agg.count > 0) {
+        p.reviews_avg = agg.avg;
+        p.reviews_count = agg.count;
+      }
+      delete p._source_product_id;
+    }
+
+    /* Snippets públicos recentes da marca (home / social proof) */
+    let recentReviews: Array<{
+      id: string;
+      customer_name: string;
+      rating: number;
+      comment: string | null;
+      product_name: string | null;
+      product_id: string | null;
+      verified_purchase: boolean;
+      created_at: string;
+    }> = [];
+    const catalogBrandId = normalizeBrandId(bundle.store.brand_id);
+    if (catalogBrandId) {
+      try {
+        const snippetRows = (await query<any[]>(
+          `SELECT r.id, r.customer_name, r.rating, r.comment, r.verified_purchase,
+                  r.created_at, r.product_id, p.name AS product_name
+             FROM product_reviews r
+             LEFT JOIN products p ON p.id = r.product_id
+            WHERE r.brand_id = ? AND r.status = 'approved'
+              AND r.comment IS NOT NULL AND LENGTH(TRIM(r.comment)) > 0
+            ORDER BY r.verified_purchase DESC, r.created_at DESC
+            LIMIT 8`,
+          [catalogBrandId]
+        )) as any[];
+        recentReviews = (snippetRows || []).map((row) => {
+          const sourcePid = String(row?.product_id || "").trim();
+          const sfId = sourcePid ? sourceToStorefrontId.get(sourcePid) || null : null;
+          return {
+            id: String(row.id),
+            customer_name: String(row.customer_name || "Cliente"),
+            rating: Number(row.rating) || 5,
+            comment: row.comment ? String(row.comment).trim().slice(0, 280) : null,
+            product_name: row.product_name ? String(row.product_name) : null,
+            product_id: sfId,
+            verified_purchase: Boolean(row.verified_purchase),
+            created_at: row.created_at ? new Date(row.created_at).toISOString() : "",
+          };
+        });
+      } catch (e: any) {
+        logger.warn(`[catalog] recent reviews failed: ${e?.message || e}`);
+      }
+    }
 
     const soldByProductId = new Map<string, number>();
     const managedSales = await query<any[]>(
@@ -2328,6 +2479,7 @@ publicRouter.get("/stores/:slug/catalog", async (req, res) => {
       best_sellers: fallbackBest,
       other_products: others,
       all_products: ranked,
+      recent_reviews: recentReviews,
       /* Attribute definitions for client-side filters (Fase 2). Only is_filter=TRUE. */
       attribute_definitions: await attributeDefinitionService
         .listForPublic(normalizeBrandId(bundle.store.brand_id))
@@ -2918,17 +3070,44 @@ publicRouter.post("/stores/:slug/orders", async (req, res) => {
       notes: deliveryAddress,
     });
 
-    // Auto-create/upsert client with "Site" type (non-blocking)
+    // Auto-create/upsert client with tipo escolhido no cadastro da loja (fallback "Site")
     try {
-      await clientTypesService.ensureByName(
+      const requestedType = String(
+        req.body?.customer?.client_type ||
+          req.body?.client_type ||
+          ""
+      ).trim();
+      const registeredTypes = await clientTypesService.list(
         inventoryUserId,
-        "Site",
-        { color: "#3b82f6", icon: "globe", description: "Cliente que comprou pelo catálogo público" },
         inventoryBrandId || undefined
       );
+      const matchedType =
+        registeredTypes.find(
+          (t) =>
+            String(t.name).toLowerCase() === requestedType.toLowerCase() ||
+            String(t.id) === requestedType
+        ) || null;
+      const clientTypeName = matchedType?.name || requestedType || "Site";
+
+      if (!matchedType && clientTypeName === "Site") {
+        await clientTypesService.ensureByName(
+          inventoryUserId,
+          "Site",
+          { color: "#3b82f6", icon: "globe", description: "Cliente que comprou pelo catálogo público" },
+          inventoryBrandId || undefined
+        );
+      } else if (requestedType && !matchedType) {
+        // Tipo livre enviado pela loja — garante cadastro se for nome novo
+        await clientTypesService.ensureByName(
+          inventoryUserId,
+          clientTypeName,
+          { color: "#64748b", description: "Informado no cadastro da loja" },
+          inventoryBrandId || undefined
+        );
+      }
+
       const normalizedPhone = customerPhone.replace(/\D/g, "");
       if (normalizedPhone) {
-        // Check if client already exists
         const existing = await clientsService.getAll(inventoryUserId, {
           search: normalizedPhone,
           brand_id: inventoryBrandId || undefined,
@@ -2944,11 +3123,19 @@ publicRouter.post("/stores/:slug/orders", async (req, res) => {
               email: req.body?.customer?.email || undefined,
               address: deliveryAddress || undefined,
               source: "manual",
-              client_type: "Site",
+              client_type: clientTypeName,
               status: "new",
             } as any,
             inventoryBrandId || undefined
           );
+        } else if (matchedType || requestedType) {
+          // Atualiza tipo se o cliente já existe e informou tipo no pedido
+          const clientId = String(existing.clients[0]?.id || "");
+          if (clientId) {
+            await clientsService
+              .update(clientId, inventoryUserId, { client_type: clientTypeName } as any, inventoryBrandId || undefined)
+              .catch(() => undefined);
+          }
         }
       }
     } catch (error) {

@@ -146,6 +146,17 @@ export function defaultMarketingWhatsAppSettings(): Record<string, any> {
     fab_position: "bottom-right",
     prefilled_message: "Olá! Vim pelo catálogo e gostaria de mais informações.",
     show_on_pages: "all",
+    button: {
+      shape: "circle",
+      size: "md",
+      color_preset: "whatsapp",
+      bg_color: "#25D366",
+      text_color: "#FFFFFF",
+      border_color: "#25D366",
+      effect: "shadow",
+      content: "icon",
+      label: "Chamar no WhatsApp",
+    },
   };
 }
 
@@ -193,16 +204,105 @@ export function defaultStoreSettings(): Record<string, any> {
     },
     marketing: {
       whatsapp: defaultMarketingWhatsAppSettings(),
-      announcement_bar: { enabled: false, text: "", link_url: null, dismissible: true },
+      announcement_bar: { enabled: true, text: "", link_url: null, dismissible: true },
+      trust_strip: { enabled: true, items: [] },
+      conversion: {
+        show_best_sellers: true,
+        best_sellers_title: "Mais vendidos",
+        best_sellers_limit: 8,
+        show_product_badges: true,
+        sticky_atc: true,
+        show_pdp_trust: true,
+        cart_drawer: true,
+        cart_upsell: true,
+        urgency_low_stock: true,
+        promo_ends_at: null,
+        promo_label: "Oferta por tempo limitado",
+      },
       widgets: [],
       popups: [],
     },
   };
 }
 
+const WA_SHAPES = new Set(["circle", "rounded", "pill"]);
+const WA_SIZES = new Set(["sm", "md", "lg"]);
+const WA_COLOR_PRESETS = new Set(["whatsapp", "brand", "dark", "soft", "outline", "custom"]);
+const WA_EFFECTS = new Set(["none", "shadow", "pulse", "glow"]);
+const WA_CONTENTS = new Set(["icon", "icon_text", "text"]);
+
+function isHexColor(v: unknown): boolean {
+  return /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(String(v || "").trim());
+}
+
+function sanitizeWhatsAppButton(raw: any, legacy: any): Record<string, any> {
+  const src = raw && typeof raw === "object" ? raw : {};
+  // Migração legada button_style → button
+  const legacyStyle = String(legacy?.button_style || "").trim();
+  let shape = String(src.shape || "");
+  let size = String(src.size || "");
+  let colorPreset = String(src.color_preset || "");
+  let effect = String(src.effect || "");
+  let content = String(src.content || "");
+
+  if (!WA_SHAPES.has(shape) || !WA_COLOR_PRESETS.has(colorPreset)) {
+    if (legacyStyle === "soft") colorPreset = colorPreset || "soft";
+    else if (legacyStyle === "outline") colorPreset = colorPreset || "outline";
+    else if (legacyStyle === "brand") colorPreset = colorPreset || "brand";
+    else if (legacyStyle === "dark") colorPreset = colorPreset || "dark";
+    else if (legacyStyle === "pulse") {
+      colorPreset = colorPreset || "whatsapp";
+      effect = effect || "pulse";
+      shape = shape || "circle";
+      content = content || "icon";
+    } else if (legacyStyle === "gradient") {
+      colorPreset = colorPreset || "whatsapp";
+      effect = effect || "glow";
+    }
+    if (legacy?.fab_size === "lg") size = size || "lg";
+    if (legacy?.fab_show_label === false) {
+      content = content || "icon";
+      shape = shape || "circle";
+    } else if (legacy?.fab_show_label === true || legacyStyle) {
+      content = content || "icon_text";
+      shape = shape || "pill";
+    }
+  }
+
+  shape = WA_SHAPES.has(shape) ? shape : "circle";
+  size = WA_SIZES.has(size) ? size : "md";
+  colorPreset = WA_COLOR_PRESETS.has(colorPreset) ? colorPreset : "whatsapp";
+  effect = WA_EFFECTS.has(effect) ? effect : "shadow";
+  content = WA_CONTENTS.has(content) ? content : "icon";
+  if (shape === "circle") content = "icon";
+
+  return {
+    shape,
+    size,
+    color_preset: colorPreset,
+    bg_color: isHexColor(src.bg_color) ? String(src.bg_color) : "#25D366",
+    text_color: isHexColor(src.text_color) ? String(src.text_color) : "#FFFFFF",
+    border_color: isHexColor(src.border_color) ? String(src.border_color) : "#25D366",
+    effect,
+    content,
+    label: String(src.label || "Chamar no WhatsApp").trim().slice(0, 40) || "Chamar no WhatsApp",
+  };
+}
+
 export function sanitizePublicMarketingSettings(settings: Record<string, any> | null | undefined): Record<string, any> {
   const marketing = (settings || {}).marketing || {};
   const whatsapp = marketing.whatsapp || {};
+  const bar = marketing.announcement_bar || {};
+  const strip = marketing.trust_strip || {};
+  const conv = marketing.conversion || {};
+  const stripItems = Array.isArray(strip.items)
+    ? strip.items
+        .map((it: any, i: number) => ({
+          id: String(it?.id || `t${i}`),
+          label: String(it?.label || "").trim().slice(0, 48),
+        }))
+        .filter((it: any) => it.label)
+    : [];
   return {
     whatsapp: {
       enabled: whatsapp.enabled === true,
@@ -213,6 +313,30 @@ export function sanitizePublicMarketingSettings(settings: Record<string, any> | 
       show_on_pages: ["all", "home_only", "product_only"].includes(String(whatsapp.show_on_pages || ""))
         ? String(whatsapp.show_on_pages)
         : "all",
+      button: sanitizeWhatsAppButton(whatsapp.button, whatsapp),
+    },
+    announcement_bar: {
+      enabled: bar.enabled !== false,
+      text: String(bar.text || "").trim().slice(0, 160),
+      link_url: bar.link_url ? String(bar.link_url).trim().slice(0, 500) : null,
+      dismissible: bar.dismissible !== false,
+    },
+    trust_strip: {
+      enabled: strip.enabled !== false,
+      items: stripItems,
+    },
+    conversion: {
+      show_best_sellers: conv.show_best_sellers !== false,
+      best_sellers_title: String(conv.best_sellers_title || "Mais vendidos").trim().slice(0, 60),
+      best_sellers_limit: Math.min(12, Math.max(4, Number(conv.best_sellers_limit) || 8)),
+      show_product_badges: conv.show_product_badges !== false,
+      sticky_atc: conv.sticky_atc !== false,
+      show_pdp_trust: conv.show_pdp_trust !== false,
+      cart_drawer: conv.cart_drawer !== false,
+      cart_upsell: conv.cart_upsell !== false,
+      urgency_low_stock: conv.urgency_low_stock !== false,
+      promo_ends_at: conv.promo_ends_at ? String(conv.promo_ends_at) : null,
+      promo_label: String(conv.promo_label || "Oferta por tempo limitado").trim().slice(0, 80),
     },
   };
 }

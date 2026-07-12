@@ -232,16 +232,16 @@ export const SKILL_META: Record<string, SkillMeta> = {
   },
   "automation.open": {
     kind: "business",
-    objectives: ["ver automações", "fluxos whatsapp"],
-    requiresCanvas: false,
-    canvasRoute: "/fluxos",
+    objectives: ["ver automações", "gerenciar automações", "modelos"],
+    requiresCanvas: true,
+    canvasRoute: "/automacoes",
     inlineComponents: true,
   },
   "automation.create": {
     kind: "business",
-    objectives: ["criar fluxo pedido", "automação whatsapp", "comportamento reativo"],
-    requiresCanvas: false,
-    canvasRoute: "/fluxos",
+    objectives: ["criar automação", "automação whatsapp", "resposta instagram", "comportamento reativo"],
+    requiresCanvas: true,
+    canvasRoute: "/automacoes",
     inlineComponents: true,
   },
   "automation.confirm": {

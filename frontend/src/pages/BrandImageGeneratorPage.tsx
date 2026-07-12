@@ -737,7 +737,7 @@ export function BrandImageGeneratorPage() {
               <Input label="Publico principal" value={audience} onChange={event => setAudience(event.target.value)} />
               <label className="text-[12px] font-semibold text-gray-700">
                 Tom da marca
-                <select value={tone} onChange={event => setTone(event.target.value)} className="mt-1.5 w-full h-11 rounded-xl border border-border bg-white px-3 text-sm">
+                <select value={tone} onChange={event => setTone(event.target.value)} className="ds-select mt-1.5 w-full h-11 rounded-xl border border-border bg-white px-3 pr-10 text-sm text-gray-900 font-medium">
                   {TONE_OPTIONS.map(item => <option key={item} value={item}>{item}</option>)}
                 </select>
               </label>
@@ -855,7 +855,7 @@ export function BrandImageGeneratorPage() {
             <div className="grid sm:grid-cols-2 gap-3">
               <label className="text-[12px] font-semibold text-gray-700">
                 Objetivo da campanha
-                <select value={objective} onChange={event => setObjective(event.target.value)} className="mt-1.5 w-full h-11 rounded-xl border border-border bg-white px-3 text-sm">
+                <select value={objective} onChange={event => setObjective(event.target.value)} className="ds-select mt-1.5 w-full h-11 rounded-xl border border-border bg-white px-3 pr-10 text-sm text-gray-900 font-medium">
                   {OBJECTIVE_OPTIONS.map(item => <option key={item} value={item}>{item}</option>)}
                 </select>
               </label>
@@ -880,11 +880,11 @@ export function BrandImageGeneratorPage() {
               </label>
               <label className="text-[12px] font-semibold text-gray-700">
                 Variacoes
-                <input type="number" min={1} max={4} value={variations} onChange={event => setVariations(Math.max(1, Math.min(4, Number(event.target.value) || 1)))} className="mt-1.5 w-full h-10 rounded-xl border border-border bg-white px-3 text-sm" />
+                <input type="number" min={1} max={4} value={variations} onChange={event => setVariations(Math.max(1, Math.min(4, Number(event.target.value) || 1)))} className="ds-select mt-1.5 w-full h-10 rounded-xl border border-border bg-white px-3 pr-10 text-sm text-gray-900 font-medium" />
               </label>
               <label className="text-[12px] font-semibold text-gray-700">
                 Qualidade
-                <select value={quality} onChange={event => setQuality(event.target.value as 'fast' | 'high')} className="mt-1.5 w-full h-10 rounded-xl border border-border bg-white px-3 text-sm">
+                <select value={quality} onChange={event => setQuality(event.target.value as 'fast' | 'high')} className="ds-select mt-1.5 w-full h-10 rounded-xl border border-border bg-white px-3 pr-10 text-sm text-gray-900 font-medium">
                   <option value="high">Alta</option>
                   <option value="fast">Rapida</option>
                 </select>
@@ -913,7 +913,7 @@ export function BrandImageGeneratorPage() {
             <div className="grid sm:grid-cols-2 gap-3">
               <label className="text-[12px] font-semibold text-gray-700">
                 Fonte
-                <select value={fontFamily} onChange={event => setFontFamily(event.target.value)} className="mt-1.5 w-full h-11 rounded-xl border border-border bg-white px-3 text-sm">
+                <select value={fontFamily} onChange={event => setFontFamily(event.target.value)} className="ds-select mt-1.5 w-full h-11 rounded-xl border border-border bg-white px-3 pr-10 text-sm text-gray-900 font-medium">
                   {FONT_OPTIONS.map(font => <option key={font.id} value={font.id}>{font.label}</option>)}
                 </select>
               </label>
@@ -927,7 +927,7 @@ export function BrandImageGeneratorPage() {
             <div className="grid sm:grid-cols-2 gap-3 rounded-2xl border border-border-light bg-gray-50 p-3">
               <label className="text-[12px] font-semibold text-gray-700">
                 Tratamento da logo
-                <select value={logoVariant} onChange={event => setLogoVariant(event.target.value as LogoVariant)} className="mt-1.5 w-full h-10 rounded-xl border border-border bg-white px-3 text-sm">
+                <select value={logoVariant} onChange={event => setLogoVariant(event.target.value as LogoVariant)} className="ds-select mt-1.5 w-full h-10 rounded-xl border border-border bg-white px-3 pr-10 text-sm text-gray-900 font-medium">
                   <option value="original">Original</option>
                   <option value="white">Versao branca</option>
                   <option value="dark">Versao escura</option>

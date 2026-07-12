@@ -83,6 +83,10 @@ export class InstanceManager {
   private pairingSessionTimers: Map<string, NodeJS.Timeout> = new Map();
   private pairingLocks: Map<string, Promise<PairingCodeResult>> = new Map();
   private pairingReconnecting: Set<string> = new Set();
+  /** Código já emitido para a sessão (socket deve ficar vivo até o usuário digitar). */
+  private pairingCodeIssued: Set<string> = new Set();
+  /** Erro legível para o frontend quando o socket de pairing morre antes do vínculo. */
+  private pairingErrors: Map<string, string> = new Map();
   private static readonly PAIRING_SESSION_TTL_MS = 10 * 60 * 1000;
   private mediaLogger = pino({ level: "silent" }) as any;
   private static MAX_RETRIES = 5;
@@ -389,6 +393,14 @@ export class InstanceManager {
     return this.pairingSessions.has(id);
   }
 
+  getPairingError(id: string): string | null {
+    return this.pairingErrors.get(id) || null;
+  }
+
+  clearPairingError(id: string): void {
+    this.pairingErrors.delete(id);
+  }
+
   /** Código Baileys: 8 caracteres alfanuméricos (ex: ABNF6HHJ). */
   normalizePairingCodeValue(code: string): string {
     return String(code || "")
@@ -439,6 +451,7 @@ export class InstanceManager {
 
   private clearPairingSessionGuard(id: string): void {
     this.pairingSessions.delete(id);
+    this.pairingCodeIssued.delete(id);
     const timer = this.pairingSessionTimers.get(id);
     if (timer) {
       clearTimeout(timer);
@@ -448,11 +461,16 @@ export class InstanceManager {
 
   private armPairingSessionGuard(id: string): void {
     this.clearPairingSessionGuard(id);
+    this.pairingErrors.delete(id);
     this.pairingSessions.add(id);
     this.pauseAllReconnectsForPairing();
     const timer = setTimeout(() => {
       if (!this.pairingSessions.has(id)) return;
       logger.warn(`Pairing session TTL expired for ${id} — releasing guard and cleaning socket.`);
+      this.pairingErrors.set(
+        id,
+        "O código expirou. Gere um novo código e digite no WhatsApp em até 2 minutos.",
+      );
       this.clearPairingSessionGuard(id);
       this.cleanupSocket(id).catch(() => {});
       const instance = this.instances.get(id);
@@ -464,6 +482,25 @@ export class InstanceManager {
       }
     }, InstanceManager.PAIRING_SESSION_TTL_MS);
     this.pairingSessionTimers.set(id, timer);
+  }
+
+  /** Socket morreu antes do vínculo — código no celular deixa de valer. */
+  private failPairingSession(id: string, reason: string, statusCode?: number): void {
+    if (!this.pairingSessions.has(id)) return;
+    const msg =
+      statusCode === 428 || statusCode === DisconnectReason.connectionClosed
+        ? "A conexão com o WhatsApp caiu antes de vincular. Gere um novo código e tente de novo."
+        : reason;
+    logger.warn(`Pairing failed for ${id}: ${msg} (status=${statusCode ?? "-"})`);
+    this.pairingErrors.set(id, msg);
+    this.clearPairingSessionGuard(id);
+    const instance = this.instances.get(id);
+    if (instance && instance.status !== "connected") {
+      instance.status = "disconnected";
+      instance.qrCode = undefined;
+      this.instances.set(id, instance);
+      this.syncInstanceToDB(instance).catch(() => {});
+    }
   }
 
   /** Encerra socket, timers, auth e estado antes de um novo pairing ou QR. */
@@ -823,15 +860,19 @@ export class InstanceManager {
   }
 
   private makePairingSocket(version: any, state: any) {
+    /* Ubuntu/Chrome = default Baileys e plataforma WEB_BROWSER.
+       macOS("Desktop") gera companion_platform Desktop/DARWIN e o WhatsApp
+       encerra com 428 antes do vínculo — erro no celular:
+       "Não foi possível conectar o dispositivo". */
     return makeWASocket({
       version,
       auth: state,
       printQRInTerminal: false,
       logger: pino({ level: "silent" }) as any,
-      browser: Browsers.macOS("Desktop"),
+      browser: Browsers.ubuntu("Chrome"),
       connectTimeoutMs: 60000,
       defaultQueryTimeoutMs: 0,
-      keepAliveIntervalMs: 30000,
+      keepAliveIntervalMs: 25000,
       emitOwnEvents: true,
       retryRequestDelayMs: 500,
       markOnlineOnConnect: false,
@@ -902,30 +943,105 @@ export class InstanceManager {
     const sock = this.makePairingSocket(version, state);
     this.sockets.set(id, sock);
     sock.ev.on("creds.update", saveCreds);
+    /* NÃO reconectar em registered=true sozinho.
+       No fluxo por código, companion_finish marca registered cedo demais —
+       o pair-success (account + device JID) ainda não chegou. Matar o socket
+       nesse momento gera 401 no celular e no post-reconnect. */
     sock.ev.on("creds.update", (creds) => {
-      if (this.pairingSessions.has(id) && creds.registered && instance.status !== "connected") {
-        setTimeout(() => {
-          if (instance.status !== "connected" && this.pairingSessions.has(id)) {
-            logger.info(`Pairing creds registered for ${instance.name} — ensuring reconnect.`);
-            void this.completePairingReconnect(id, instance);
-          }
-        }, 2000);
+      if (!this.pairingSessions.has(id) || instance.status === "connected") return;
+      if (!creds.registered) return;
+      if (this.isPairingAuthReady(creds)) {
+        logger.info(
+          `Pairing multi-device ready for ${instance.name} (account/device) — waiting restart or fallback reconnect.`,
+        );
+        return;
       }
+      logger.info(
+        `Pairing companion_finish for ${instance.name} (registered early) — keeping socket open for pair-success.`,
+      );
+    });
+    /* Fallback se o WA não emitir restartRequired após pair-success completo. */
+    sock.ev.on("creds.update", (creds) => {
+      if (!this.pairingSessions.has(id) || !creds.registered) return;
+      if (!this.isPairingAuthReady(creds)) return;
+      setTimeout(() => {
+        if (instance.status === "connected" || !this.pairingSessions.has(id)) return;
+        if (this.pairingReconnecting.has(id)) return;
+        logger.info(`Pairing fallback reconnect for ${instance.name} (creds ready, no open yet).`);
+        void this.completePairingReconnect(id, instance);
+      }, 12_000);
     });
     this.bindPairingSessionHandlers(id, instance, sock);
     return sock;
+  }
+
+  /** Credenciais completas pós pair-success (não basta registered do companion_finish). */
+  private isPairingAuthReady(creds: any): boolean {
+    if (!creds?.registered) return false;
+    const meId = String(creds.me?.id || "");
+    const hasDevice = meId.includes(":");
+    const hasAccount = Boolean(creds.account);
+    return hasAccount || hasDevice;
+  }
+
+  private async waitForPairingCredsReady(authPath: string, timeoutMs: number): Promise<boolean> {
+    const started = Date.now();
+    while (Date.now() - started < timeoutMs) {
+      try {
+        const credsPath = path.join(authPath, "creds.json");
+        if (fs.existsSync(credsPath)) {
+          const creds = JSON.parse(fs.readFileSync(credsPath, "utf8"));
+          if (this.isPairingAuthReady(creds)) return true;
+        }
+      } catch {
+        /* arquivo ainda sendo escrito */
+      }
+      await new Promise((r) => setTimeout(r, 350));
+    }
+    return false;
   }
 
   /** Após o usuário digitar o código, WhatsApp envia restartRequired — reconecta com creds salvas. */
   private async completePairingReconnect(id: string, instance: WhatsAppInstance): Promise<void> {
     if (this.pairingReconnecting.has(id)) return;
     this.pairingReconnecting.add(id);
+    const authPath = path.join(config.authDir, id);
     try {
+      /* Esperar pair-success gravar account/device — NÃO fechar o socket antes disso. */
+      const liveBefore = this.sockets.get(id) as any;
+      const socketStillOpen = Boolean(
+        liveBefore?.ws?.isOpen === true || liveBefore?.ws?.readyState === 1,
+      );
+      const ready = await this.waitForPairingCredsReady(authPath, socketStillOpen ? 25_000 : 8_000);
+      if (!ready) {
+        const liveAfter = this.sockets.get(id) as any;
+        const stillOpen = Boolean(
+          liveAfter?.ws?.isOpen === true || liveAfter?.ws?.readyState === 1,
+        );
+        if (stillOpen && this.pairingSessions.has(id)) {
+          logger.info(
+            `completePairingReconnect: pairing incompleto para ${instance.name} — socket ainda aberto, aguardando pair-success.`,
+          );
+          return;
+        }
+        logger.warn(
+          `completePairingReconnect: pairing incompleto para ${instance.name} (sem account/device).`,
+        );
+        this.failPairingSession(
+          id,
+          "O WhatsApp não concluiu o vínculo a tempo. Gere um novo código e tente de novo.",
+        );
+        return;
+      }
+
+      logger.info(`Pairing creds complete for ${instance.name} — reconnecting with saved multi-device auth.`);
       await this.cleanupSocket(id);
-      const authPath = path.join(config.authDir, id);
+      await new Promise((r) => setTimeout(r, 1200));
+
       const { state, saveCreds } = await useMultiFileAuthState(authPath);
-      if (!state.creds.registered) {
-        logger.warn(`completePairingReconnect: creds not registered yet for ${instance.name}`);
+      if (!this.isPairingAuthReady(state.creds)) {
+        logger.warn(`completePairingReconnect: creds lost readiness for ${instance.name}`);
+        this.failPairingSession(id, "Credenciais incompletas após o código. Gere um novo código.");
         return;
       }
 
@@ -936,10 +1052,13 @@ export class InstanceManager {
       instance.status = "connecting";
       this.instances.set(id, instance);
 
+      let settled = false;
       sock.ev.on("connection.update", async (update) => {
         const { connection, lastDisconnect } = update;
-        if (connection === "open") {
+        if (connection === "open" && !settled) {
+          settled = true;
           this.clearPairingSessionGuard(id);
+          this.pairingErrors.delete(id);
           const user = sock.user;
           instance.status = "connected";
           instance.phone = user?.id?.split(":")[0] || user?.id?.split("@")[0];
@@ -950,19 +1069,102 @@ export class InstanceManager {
           this.retryCount.delete(id);
           this.preconditionCloseCount.delete(id);
           logger.info(`Instance connected after pairing reconnect: ${instance.name} (${instance.phone})`);
+          /* Anexa handlers de mensagem do fluxo normal de pairing. */
+          this.bindPostPairingRuntimeHandlers(id, instance, sock);
         }
         if (connection === "close") {
           const statusCode = (lastDisconnect?.error as Boom | undefined)?.output?.statusCode;
-          if (instance.status !== "connected") {
+          if (instance.status === "connected") {
+            logger.warn(`Post-pairing session closed for ${instance.name}: status=${statusCode}`);
+            instance.status = "disconnected";
+            this.instances.set(id, instance);
+            await this.syncInstanceToDB(instance);
+            return;
+          }
+          if (statusCode === DisconnectReason.restartRequired && !settled) {
+            logger.info(`Post-pairing restartRequired again for ${instance.name} — retrying once.`);
+            setTimeout(() => {
+              if (instance.status !== "connected") {
+                this.pairingReconnecting.delete(id);
+                void this.completePairingReconnect(id, instance);
+              }
+            }, 1500);
+            return;
+          }
+          if (!settled) {
+            settled = true;
             logger.warn(`Post-pairing reconnect closed for ${instance.name}: status=${statusCode}`);
+            if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
+              this.failPairingSession(
+                id,
+                "O WhatsApp recusou a sessão após o código. Gere um novo código e tente de novo.",
+                statusCode,
+              );
+            } else if (statusCode === DisconnectReason.connectionClosed || statusCode === 428) {
+              setTimeout(() => {
+                if (instance.status !== "connected" && this.pairingSessions.has(id)) {
+                  this.pairingReconnecting.delete(id);
+                  void this.completePairingReconnect(id, instance);
+                }
+              }, 2000);
+            }
           }
         }
       });
+
+      /* Timeout de segurança se nunca abrir. */
+      setTimeout(() => {
+        if (settled || instance.status === "connected") return;
+        logger.warn(`Post-pairing reconnect timeout for ${instance.name}`);
+        this.failPairingSession(
+          id,
+          "Tempo esgotado ao finalizar a conexão. Gere um novo código.",
+        );
+      }, 45_000);
     } catch (err: any) {
       logger.error(`completePairingReconnect failed for ${instance.name}: ${err?.message || err}`);
+      this.failPairingSession(
+        id,
+        "Falha ao finalizar a conexão com o WhatsApp. Gere um novo código.",
+      );
     } finally {
       this.pairingReconnecting.delete(id);
     }
+  }
+
+  /** Handlers mínimos de runtime após pairing (mensagens + acks). */
+  private bindPostPairingRuntimeHandlers(id: string, instance: WhatsAppInstance, sock: WASocket): void {
+    sock.ev.on("messages.upsert", async ({ messages, type }) => {
+      if (type !== "notify") return;
+      for (const msg of messages) {
+        if (msg.key.fromMe) {
+          for (const handler of this.globalMessageHandlers) {
+            try { handler(id, msg); } catch { /* ignore */ }
+          }
+          continue;
+        }
+        instance.messagesReceived++;
+        this.instances.set(id, instance);
+        const handler = this.messageHandlers.get(id);
+        if (handler) handler(msg);
+        for (const gHandler of this.globalMessageHandlers) {
+          try { gHandler(id, msg); } catch { /* ignore */ }
+        }
+      }
+    });
+    sock.ev.on("messages.update", (updates) => {
+      for (const u of updates) {
+        if (u.update?.status && u.update.status >= 2 && u.key.id) {
+          const pending = this.pendingAcks.get(u.key.id);
+          if (pending) {
+            clearTimeout(pending.timer);
+            this.pendingAcks.delete(u.key.id);
+            this.consecutiveAckTimeouts.delete(pending.instanceId);
+            pending.resolve(true);
+          }
+        }
+      }
+    });
   }
 
   private async connectWithPairingCodeInternal(id: string, phoneNumber: string): Promise<PairingCodeResult> {
@@ -1114,6 +1316,8 @@ export class InstanceManager {
               }),
             ]);
             codeIssued = true;
+            this.pairingCodeIssued.add(id);
+            this.pairingErrors.delete(id);
             finish(() => resolve({ code: pairingCode, phone: resolvedPhone }));
           } catch (err: any) {
             inFlight = false;
@@ -1180,12 +1384,14 @@ export class InstanceManager {
       const { connection, lastDisconnect } = update;
 
       if (connection === "open") {
-        const credsRegistered = Boolean(sock.authState?.creds?.registered);
-        if (this.pairingSessions.has(id) && !credsRegistered) {
-          logger.info(`Pairing socket open (awaiting code) for ${instance.name} — not marking connected yet.`);
+        const creds = sock.authState?.creds as any;
+        const fullyPaired = this.isPairingAuthReady(creds);
+        if (this.pairingSessions.has(id) && !fullyPaired) {
+          logger.info(`Pairing socket open (awaiting code / pair-success) for ${instance.name}.`);
           return;
         }
         this.clearPairingSessionGuard(id);
+        this.pairingErrors.delete(id);
         const user = sock.user;
         instance.status = "connected";
         instance.phone = user?.id?.split(":")[0] || user?.id?.split("@")[0];
@@ -1202,16 +1408,62 @@ export class InstanceManager {
         const live = this.instances.get(id);
         const statusCode = (lastDisconnect?.error as Boom | undefined)?.output?.statusCode;
         if (this.pairingSessions.has(id) && live?.status !== "connected") {
-          if (statusCode === DisconnectReason.restartRequired) {
-            logger.info(`Pairing restartRequired for ${instance.name} — completing auth reconnect.`);
+          const creds = sock.authState?.creds as any;
+          const fullyPaired = this.isPairingAuthReady(creds);
+          const registeredEarly = Boolean(creds?.registered);
+
+          if (
+            statusCode === DisconnectReason.restartRequired
+            || (fullyPaired && (statusCode === DisconnectReason.connectionClosed || statusCode === 428))
+          ) {
+            logger.info(
+              `Pairing restart for ${instance.name} (status=${statusCode}, fullyPaired=${fullyPaired}) — completing auth reconnect.`,
+            );
             void this.completePairingReconnect(id, instance);
             return;
           }
-          if (statusCode === DisconnectReason.loggedOut) {
-            logger.warn(`Pairing logged out for ${instance.name} (pre-link).`);
+
+          if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
+            /* 401 no meio do companion_finish (sem account) = código aceito mas sessão incompleta se matamos cedo.
+               Se ainda não tem account, falha; se tem, tenta reconnect. */
+            if (fullyPaired) {
+              logger.info(`Pairing 401 with full creds for ${instance.name} — trying reconnect.`);
+              void this.completePairingReconnect(id, instance);
+              return;
+            }
+            logger.warn(`Pairing logged out for ${instance.name} (pre-link). status=${statusCode}`);
+            this.failPairingSession(
+              id,
+              "Sessão encerrada pelo WhatsApp. Gere um novo código.",
+              statusCode,
+            );
             return;
           }
-          logger.warn(`Pairing socket closed for ${instance.name} before link completed. status=${statusCode}`);
+
+          /* Código gerado: só reconecta se pair-success já completou (account/device).
+             Se só houve companion_finish (registered early), o handshake falhou — novo código. */
+          if (this.pairingCodeIssued.has(id)) {
+            if (fullyPaired) {
+              logger.info(
+                `Pairing socket closed with full creds for ${instance.name} (status=${statusCode}) — reconnecting.`,
+              );
+              void this.completePairingReconnect(id, instance);
+              return;
+            }
+            logger.warn(
+              `Pairing socket closed for ${instance.name} before pair-success. status=${statusCode} registeredEarly=${registeredEarly}`,
+            );
+            this.failPairingSession(
+              id,
+              registeredEarly
+                ? "O WhatsApp aceitou o código mas não finalizou o vínculo. Gere um novo código e tente de novo."
+                : "A conexão caiu antes de concluir o vínculo. Gere um novo código.",
+              statusCode,
+            );
+            await this.cleanupSocket(id).catch(() => {});
+            return;
+          }
+          logger.warn(`Pairing socket closed for ${instance.name} before code issued. status=${statusCode}`);
           return;
         }
         if (live?.status === "connected") {

@@ -44,6 +44,7 @@ O deploy verificado (`run-deploy-verified.ps1`) roda o smoke de ownership após 
 - **Conexões** — criar/gerenciar sessões próprias
 - **Mensagens** (menu Mais) — inbox filtrado pelas sessões do afiliado
 - Sem Instagram
+- **Pareamento por código** — mesmo pipeline da org (`WhatsAppPairingFlow` + `InstanceManager`). Ver `docs/whatsapp-pairing.md` (paridade admin ↔ afiliado, invariantes Baileys).
 
 ## Admin
 

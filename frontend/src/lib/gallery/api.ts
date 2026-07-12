@@ -26,6 +26,26 @@ export async function fetchGalleryFolders(): Promise<GalleryFolder[]> {
   return d.folders || []
 }
 
+export async function createGalleryFolder(label: string, section: 'publicidade' | 'library' = 'publicidade'): Promise<GalleryFolder> {
+  const r = await fetch(`${BASE}/folders`, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({ label, section }),
+  })
+  const d = await r.json()
+  if (!r.ok) throw new Error(d.error || 'Falha ao criar pasta')
+  return d.folder
+}
+
+export async function deleteGalleryFolder(slug: string): Promise<void> {
+  const r = await fetch(`${BASE}/folders/${encodeURIComponent(slug)}`, {
+    method: 'DELETE',
+    headers: getHeaders(),
+  })
+  const d = await r.json().catch(() => ({}))
+  if (!r.ok) throw new Error(d.error || 'Falha ao remover pasta')
+}
+
 export async function fetchGalleryItems(params: GalleryListParams = {}): Promise<{
   items: GalleryItem[]
   total: number

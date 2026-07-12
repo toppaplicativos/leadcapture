@@ -98,6 +98,12 @@ export interface CognitiveInput {
   incomingMessageType?: string;
   conversationHistory: string[];      /* Linhas "Atendente|Lead: <texto>" */
   lastOutgoingMessages?: string[];    /* Últimas 3 respostas que o agente deu, para evitar repetição */
+  /** Channel attendance extras (from brandContextPack) */
+  channelTraining?: string;
+  channelRules?: string;
+  channelMaxLength?: number;
+  salesMode?: string;
+  objections?: Array<{ signal: string; response: string }>;
 }
 
 export interface CognitiveOutput {

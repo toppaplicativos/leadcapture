@@ -9,6 +9,12 @@ import {
   normalizeStoreDesign,
   type StoreDesign,
 } from '@/lib/store-design'
+import {
+  DEFAULT_CONVERSION,
+  normalizeConversionSettings,
+  type StoreAnnouncementBar,
+  type StoreConversionSettings,
+} from '@/lib/store-conversion'
 
 export function getStoreStudioHeaders(): Record<string, string> {
   const h: Record<string, string> = { 'Content-Type': 'application/json' }
@@ -19,7 +25,7 @@ export function getStoreStudioHeaders(): Record<string, string> {
   return h
 }
 
-export type StoreStudioTab = 'identity' | 'whatsapp' | 'checkout' | 'status'
+export type StoreStudioTab = 'identity' | 'whatsapp' | 'conversion' | 'checkout' | 'clients' | 'status'
 
 export function useStoreStudio() {
   const [loading, setLoading] = useState(true)
@@ -42,6 +48,10 @@ export function useStoreStudio() {
   const [whatsappPhone, setWhatsappPhone] = useState('')
   const [whatsappMarketing, setWhatsappMarketing] = useState<StoreMarketingWhatsApp>(DEFAULT_WHATSAPP_MARKETING)
   const [storeDesign, setStoreDesign] = useState<StoreDesign>(DEFAULT_STORE_DESIGN)
+  const [conversion, setConversion] = useState<StoreConversionSettings>(DEFAULT_CONVERSION)
+  const [announcementBar, setAnnouncementBar] = useState<StoreAnnouncementBar>(
+    DEFAULT_CONVERSION.announcement_bar,
+  )
 
   const [collectEmail, setCollectEmail] = useState(true)
   const [collectAddress, setCollectAddress] = useState(true)
@@ -96,6 +106,9 @@ export function useStoreStudio() {
         setWhatsappPhone(String(brand.whatsapp_phone || '').replace(/\D/g, ''))
         setWhatsappMarketing(normalizeWhatsAppMarketing(marketing.whatsapp))
         setStoreDesign(normalizeStoreDesign(settings.design))
+        const conv = normalizeConversionSettings(marketing)
+        setConversion(conv)
+        setAnnouncementBar(conv.announcement_bar)
         setCollectEmail(checkout.collect_email !== false)
         setCollectAddress(checkout.collect_address !== false)
         setStoreStatus(brand.status === 'fechado' ? 'fechado' : 'aberto')
@@ -169,6 +182,29 @@ export function useStoreStudio() {
             },
             marketing: {
               whatsapp: normalizeWhatsAppMarketing(whatsappMarketing),
+              announcement_bar: {
+                enabled: announcementBar.enabled,
+                text: announcementBar.text,
+                link_url: announcementBar.link_url,
+                dismissible: announcementBar.dismissible,
+              },
+              trust_strip: {
+                enabled: conversion.trust_strip.enabled,
+                items: conversion.trust_strip.items,
+              },
+              conversion: {
+                show_best_sellers: conversion.show_best_sellers,
+                best_sellers_title: conversion.best_sellers_title,
+                best_sellers_limit: conversion.best_sellers_limit,
+                show_product_badges: conversion.show_product_badges,
+                sticky_atc: conversion.sticky_atc,
+                show_pdp_trust: conversion.show_pdp_trust,
+                cart_drawer: conversion.cart_drawer,
+                cart_upsell: conversion.cart_upsell,
+                urgency_low_stock: conversion.urgency_low_stock,
+                promo_ends_at: conversion.promo_ends_at,
+                promo_label: conversion.promo_label,
+              },
             },
             design: normalizeStoreDesign(storeDesign),
           },
@@ -196,12 +232,13 @@ export function useStoreStudio() {
     whatsappPhone,
     whatsappMarketing,
     storeDesign,
+    conversion,
+    announcementBar,
     currentBrand,
     description,
     storeStatus,
     collectEmail,
     collectAddress,
-    storeDesign,
     flash,
   ])
 
@@ -232,6 +269,10 @@ export function useStoreStudio() {
     setWhatsappMarketing,
     storeDesign,
     setStoreDesign,
+    conversion,
+    setConversion,
+    announcementBar,
+    setAnnouncementBar,
     collectEmail,
     setCollectEmail,
     collectAddress,
@@ -240,5 +281,6 @@ export function useStoreStudio() {
     setStoreStatus,
     uploadFile,
     save,
+    flash,
   }
 }

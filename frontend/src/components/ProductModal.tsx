@@ -8,6 +8,7 @@ import { Button } from '@/components/ui'
 import { optimizedImage, optimizedSrcset } from '@/lib/image'
 import { LeadCaptureForm } from '@/components/LeadCaptureForm'
 import { ServiceBookingForm } from '@/components/ServiceBookingForm'
+import { resolveStoreContactPhone } from '@/lib/affiliate-tracking'
 
 export interface ModalAddToCartPayload {
   productId: string
@@ -76,6 +77,8 @@ function chipClass(active: boolean, disabled = false) {
 }
 
 export function ProductModal({ product, onClose, onAddToCart, whatsappPhone, allProducts, onSelectProduct }: ProductModalProps) {
+  /** Afiliado (se houver link) tem prioridade sobre o número da loja. */
+  const contactPhone = resolveStoreContactPhone(whatsappPhone) || String(whatsappPhone || '').replace(/\D/g, '')
   const [qty, setQty] = useState(1)
   const [leadFormFor, setLeadFormFor] = useState<Exclude<OfferCta, 'buy' | 'whatsapp'> | null>(null)
   const [bookingOpen, setBookingOpen] = useState(false)
@@ -539,12 +542,12 @@ export function ProductModal({ product, onClose, onAddToCart, whatsappPhone, all
             if (cta === 'whatsapp') {
               return (
                 <Button
-                  onClick={() => whatsappPhone && openWhatsApp(whatsappPhone, product.name)}
+                  onClick={() => contactPhone && openWhatsApp(contactPhone, product.name)}
                   size="lg"
                   variant="brand"
                   className="w-full"
-                  disabled={!whatsappPhone}
-                  title={!whatsappPhone ? 'WhatsApp não configurado pela loja' : undefined}
+                  disabled={!contactPhone}
+                  title={!contactPhone ? 'WhatsApp não configurado pela loja' : undefined}
                 >
                   <Icon size={15} strokeWidth={2.25} /> {meta.label}
                 </Button>

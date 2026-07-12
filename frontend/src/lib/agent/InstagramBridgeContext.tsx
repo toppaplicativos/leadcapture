@@ -48,6 +48,8 @@ type Value = {
   setModuleOpen: (v: boolean) => void
   setModuleExpanded: (v: boolean) => void
   publishSnapshot: (s: Partial<InstagramSnapshot>) => void
+  /** Zera estado ao trocar de marca — evita snapshot stale de outra brand. */
+  resetSnapshot: () => void
   registerHandlers: (h: InstagramHandlers) => () => void
   dispatch: (cmd: InstagramCommand) => void
   queueCommand: (cmd: InstagramCommand) => void
@@ -81,11 +83,34 @@ export function InstagramBridgeProvider({ children }: { children: ReactNode }) {
 
   const publishSnapshot = useCallback((s: Partial<InstagramSnapshot>) => {
     setSnapshot((prev) => {
+      let next = { ...prev, ...s }
+      // Não rebaixar "conectado" se o orquestrador mandar false sem username
+      // depois de um load real (race comum no chat).
+      if (
+        s.connected === false
+        && prev.connected
+        && prev.username
+        && !s.username
+      ) {
+        next = {
+          ...next,
+          connected: true,
+          username: prev.username,
+          name: prev.name || next.name,
+          avatarUrl: prev.avatarUrl || next.avatarUrl,
+        }
+      }
       const keys = Object.keys(s) as (keyof InstagramSnapshot)[]
-      if (keys.every((k) => prev[k] === s[k])) return prev
-      return { ...prev, ...s }
+      if (keys.every((k) => next[k] === prev[k])) return prev
+      return next
     })
     setIsReady(true)
+  }, [])
+
+  const resetSnapshot = useCallback(() => {
+    setSnapshot({ ...EMPTY })
+    setIsReady(false)
+    queueRef.current = []
   }, [])
 
   const registerHandlers = useCallback((h: InstagramHandlers) => {
@@ -106,8 +131,12 @@ export function InstagramBridgeProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo(() => ({
     snapshot, isReady, moduleOpen, moduleExpanded,
-    setModuleOpen, setModuleExpanded, publishSnapshot, registerHandlers, dispatch, queueCommand,
-  }), [snapshot, isReady, moduleOpen, moduleExpanded, publishSnapshot, registerHandlers, dispatch, queueCommand])
+    setModuleOpen, setModuleExpanded, publishSnapshot, resetSnapshot,
+    registerHandlers, dispatch, queueCommand,
+  }), [
+    snapshot, isReady, moduleOpen, moduleExpanded,
+    publishSnapshot, resetSnapshot, registerHandlers, dispatch, queueCommand,
+  ])
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

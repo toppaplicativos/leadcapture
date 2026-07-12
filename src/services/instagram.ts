@@ -1507,7 +1507,8 @@ class InstagramService {
         guidelines: "",
         faq: [],
         rules: [],
-        auto_reply_dm: false,
+        // Default ON when row missing so catalog webhook path is not silently dead
+        auto_reply_dm: true,
         auto_reply_comments: false,
         notify_whatsapp: false,
         notify_phone: "",
@@ -1537,7 +1538,8 @@ class InstagramService {
       brand_name: String(data.brand_name || ""),
       persona: String(data.persona || ""),
       tone: String(data.tone || ""),
-      max_chars: Math.max(100, Math.min(2000, Number(data.max_chars || 500))),
+      // Instagram Messaging hard cap is 1000 chars — never store a higher "soft" limit
+      max_chars: Math.max(50, Math.min(1000, Number(data.max_chars || 900))),
       guidelines: String(data.guidelines || ""),
       faq_json: JSON.stringify(faq),
       rules_json: JSON.stringify(rules),
@@ -1624,17 +1626,63 @@ class InstagramService {
       `SELECT event_type, processed_at, dispatch_result FROM instagram_webhook_events WHERE brand_id = ? ORDER BY processed_at DESC LIMIT 1`,
       [brandId],
     );
+
+    // Prefer definition-based status when hybrid/definitions seeds exist
+    let activeIgDefs = 0;
+    let dmDefActive = false;
+    let commentDefActive = false;
+    try {
+      const defRows = await query<any[]>(
+        `SELECT id, ativa, trigger_json FROM automation_definitions
+         WHERE brand_id = ? AND ativa = TRUE
+           AND trigger_json->>'plataforma' = 'instagram'
+           AND trigger_json->>'tipo' = 'evento'`,
+        [brandId],
+      );
+      for (const r of defRows || []) {
+        activeIgDefs += 1;
+        let tr: any = r.trigger_json;
+        if (typeof tr === "string") {
+          try {
+            tr = JSON.parse(tr);
+          } catch {
+            tr = {};
+          }
+        }
+        const ev = String(tr?.evento || "");
+        if (ev === "resposta_padrao_dm" || ev === "dm_keyword") dmDefActive = true;
+        if (ev === "comentario_keyword") commentDefActive = true;
+      }
+    } catch {
+      /* table may not exist yet */
+    }
+
+    const dmStatus =
+      activeIgDefs > 0
+        ? dmDefActive
+          ? "active"
+          : "inactive"
+        : automations["ig-webhook-dm-reply"] || "inactive";
+    const commentStatus =
+      activeIgDefs > 0
+        ? commentDefActive
+          ? "active"
+          : "inactive"
+        : automations["ig-webhook-comment-keyword"] || "inactive";
+
     return {
       connected: Boolean(conn?.access_token),
       username: conn?.username || null,
       auto_reply_dm: settings.auto_reply_dm,
       auto_reply_comments: settings.auto_reply_comments,
-      dm_automation_status: automations["ig-webhook-dm-reply"] || "inactive",
-      comment_automation_status: automations["ig-webhook-comment-keyword"] || "inactive",
+      dm_automation_status: dmStatus,
+      comment_automation_status: commentStatus,
+      active_ig_definitions: activeIgDefs,
       last_webhook_at: lastEvent?.processed_at || null,
       last_webhook_type: lastEvent?.event_type || null,
       notify_whatsapp: settings.notify_whatsapp,
       notify_phone: settings.notify_phone,
+      note: "Respostas sob hybrid/definitions usam toggle de cada automação — não os toggles globais legados.",
     };
   }
 
@@ -2416,10 +2464,55 @@ class InstagramService {
 
   async getConnectionByIgUserId(igUserId: string): Promise<InstagramConnection | null> {
     await init();
+    const id = String(igUserId || "").trim();
+    if (!id) return null;
+    // Meta may send entry.id as IG user_id OR app-scoped graph id (/me.id)
     return queryOne<InstagramConnection>(
-      `SELECT * FROM instagram_connections WHERE ig_user_id = ? OR account_id = ? LIMIT 1`,
-      [String(igUserId), String(igUserId)],
+      `SELECT * FROM instagram_connections
+       WHERE ig_user_id = ? OR account_id = ?
+          OR app_id = ?
+          OR CAST(id AS TEXT) = ?
+       LIMIT 1`,
+      [id, id, id, id],
     );
+  }
+
+  /**
+   * Ensure both Meta identifiers are stored for webhook lookup:
+   * - user_id (1784…) used as ig_user_id
+   * - id from /me (app-scoped) stored in account_id if different
+   */
+  async syncGraphIdentity(brandId: string): Promise<{ ok: boolean; user_id?: string; graph_id?: string; error?: string }> {
+    const conn = await this.getConnection(brandId);
+    if (!conn?.access_token) return { ok: false, error: "not connected" };
+    try {
+      const resp = await fetch(
+        `${IG_GRAPH_URL}/me?fields=user_id,username,id&access_token=${encodeURIComponent(conn.access_token)}`,
+      );
+      const profile: any = await resp.json().catch(() => ({}));
+      if (!resp.ok) return { ok: false, error: profile?.error?.message || `HTTP ${resp.status}` };
+      const userId = String(profile.user_id || "");
+      const graphId = String(profile.id || "");
+      await update(
+        `UPDATE instagram_connections
+         SET ig_user_id = COALESCE(NULLIF(?, ''), ig_user_id),
+             account_id = COALESCE(NULLIF(?, ''), account_id),
+             username = COALESCE(NULLIF(?, ''), username),
+             updated_at = NOW()
+         WHERE brand_id = ?`,
+        [userId || graphId, graphId || userId, profile.username || "", brandId],
+      );
+      // If Meta webhooks use graph id, also keep it on account_id
+      if (userId && graphId && userId !== graphId) {
+        await update(
+          `UPDATE instagram_connections SET ig_user_id = ?, account_id = ?, updated_at = NOW() WHERE brand_id = ?`,
+          [userId, graphId, brandId],
+        );
+      }
+      return { ok: true, user_id: userId, graph_id: graphId };
+    } catch (e: any) {
+      return { ok: false, error: e.message };
+    }
   }
 
   async storeIncomingMessage(input: {
@@ -2466,21 +2559,30 @@ class InstagramService {
   }): Promise<void> {
     await init();
     const id = randomUUID();
-    await insert(
-      `INSERT INTO instagram_messages (id, connection_id, brand_id, sender_id, message_id, message_text, direction, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE message_text = VALUES(message_text), direction = VALUES(direction)`,
-      [
-        id,
-        input.connectionId,
-        input.brandId,
-        input.senderId,
-        input.messageId,
-        input.messageText,
-        input.direction,
-        input.timestamp || new Date().toISOString(),
-      ],
-    );
+    try {
+      await insert(
+        `INSERT INTO instagram_messages (id, connection_id, brand_id, sender_id, message_id, message_text, direction, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (message_id) DO UPDATE SET
+           message_text = EXCLUDED.message_text,
+           direction = EXCLUDED.direction`,
+        [
+          id,
+          input.connectionId,
+          input.brandId,
+          input.senderId,
+          input.messageId,
+          input.messageText,
+          input.direction,
+          input.timestamp || new Date().toISOString(),
+        ],
+      );
+    } catch (err: any) {
+      // Idempotent on retries / dual webhook aliases; never abort DM orchestration
+      if (!/duplicate|unique|conflict/i.test(String(err?.message || ""))) {
+        logger.warn(`[Instagram] storeMessage: ${err?.message || err}`);
+      }
+    }
   }
 
   async recordWebhookEvent(input: {
@@ -2521,45 +2623,199 @@ class InstagramService {
     }
   }
 
+  /**
+   * Low-level send to Instagram Messaging API.
+   * `message` is the Meta `message` object (text, quick_replies, or attachment template).
+   *
+   * Aligned with Tattoo AI apps/admin/lib/instagram/client.server.ts sendDm:
+   * - graph.instagram.com first (Instagram Login tokens)
+   * - Authorization: Bearer <token> (not access_token in body — body form often
+   *   fails with "Cannot parse access token" on IG Login)
+   * - path: /{ig-user-id}/messages
+   */
+  async sendDmRaw(
+    brandId: string,
+    recipientId: string,
+    message: Record<string, any>,
+    storeText?: string,
+  ): Promise<{ ok: boolean; error?: string; messageId?: string; raw?: any }> {
+    const conn = await this.getConnection(brandId);
+    if (!conn?.access_token) return { ok: false, error: "Instagram nao conectado" };
+
+    // Prefer IG professional id (user_id 1784…); also try account_id / me
+    const candidates = [conn.ig_user_id, conn.account_id, "me"].filter(Boolean).map(String);
+    if (!candidates.length) return { ok: false, error: "IG user id ausente na conexao" };
+    if (!recipientId) return { ok: false, error: "recipientId ausente" };
+
+    const token = String(conn.access_token).trim();
+    const isIgLoginToken = /^IG/i.test(token) || token.includes("|");
+    // Instagram Login → only graph.instagram.com (Tattoo AI). Page tokens → also facebook.
+    const hosts = isIgLoginToken
+      ? ["https://graph.instagram.com/v23.0", "https://graph.instagram.com/v21.0"]
+      : [
+          "https://graph.instagram.com/v23.0",
+          "https://graph.instagram.com/v21.0",
+          "https://graph.facebook.com/v21.0",
+        ];
+
+    let lastError = "send failed";
+    let lastRaw: any = null;
+    const attemptLog: string[] = [];
+
+    try {
+      for (const host of hosts) {
+        for (const igUserId of candidates) {
+          // Tattoo AI style: Bearer header + JSON body without access_token field
+          const attempts: Array<{ label: string; headers: Record<string, string>; body: any; url: string }> = [
+            {
+              label: "bearer",
+              url: `${host}/${igUserId}/messages`,
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`,
+              },
+              body: { recipient: { id: recipientId }, message },
+            },
+            {
+              label: "body_token",
+              url: `${host}/${igUserId}/messages`,
+              headers: { "Content-Type": "application/json" },
+              body: { recipient: { id: recipientId }, message, access_token: token },
+            },
+            {
+              label: "query_token",
+              url: `${host}/${igUserId}/messages?access_token=${encodeURIComponent(token)}`,
+              headers: { "Content-Type": "application/json" },
+              body: { recipient: { id: recipientId }, message },
+            },
+          ];
+
+          for (const att of attempts) {
+            const resp = await fetch(att.url, {
+              method: "POST",
+              headers: att.headers,
+              body: JSON.stringify(att.body),
+            });
+            const data: any = await resp.json().catch(() => ({}));
+            lastRaw = data;
+            if (resp.ok) {
+              const messageId = data?.message_id || data?.id;
+              const preview =
+                storeText ||
+                String(message?.text || message?.attachment?.payload?.text || "[interactive]").slice(0, 500);
+              if (messageId) {
+                await this.storeOutgoingMessage({
+                  connectionId: conn.id,
+                  brandId,
+                  recipientId,
+                  messageId: String(messageId),
+                  messageText: preview,
+                }).catch(() => undefined);
+              }
+              logger.info(
+                `[Instagram] sendDmRaw OK host=${host} ig=${igUserId} mode=${att.label} mid=${messageId}`,
+              );
+              return { ok: true, messageId, raw: data };
+            }
+            lastError = data?.error?.message || `HTTP ${resp.status}`;
+            const code = data?.error?.code;
+            attemptLog.push(`${host.split("//")[1]}/${igUserId}/${att.label}:${code || resp.status}:${lastError}`);
+            // Don't keep thrashing FB with IG Login tokens
+            if (/parse access token|invalid oauth/i.test(lastError) && host.includes("facebook")) {
+              break;
+            }
+          }
+        }
+      }
+      logger.warn(
+        `[Instagram] sendDmRaw fail brand=${brandId} recipient=${recipientId}: ${lastError} attempts=${attemptLog.slice(0, 8).join(" | ")}`,
+      );
+      return { ok: false, error: lastError, raw: lastRaw };
+    } catch (err: any) {
+      return { ok: false, error: err.message };
+    }
+  }
+
   async sendDm(
     brandId: string,
     recipientId: string,
     text: string,
   ): Promise<{ ok: boolean; error?: string; messageId?: string }> {
-    const conn = await this.getConnection(brandId);
-    if (!conn?.access_token) return { ok: false, error: "Instagram nao conectado" };
+    // Caller (sendInstagramDm helper) should already split long text into bubbles.
+    // Hard cap only — never soft-truncate mid-sentence here beyond Meta limit.
+    const body = String(text || "").trim().slice(0, 1000);
+    return this.sendDmRaw(brandId, recipientId, { text: body }, body);
+  }
 
-    const igUserId = conn.ig_user_id || conn.account_id;
-    if (!igUserId) return { ok: false, error: "IG user id ausente na conexao" };
+  /** Quick replies — up to 13 navigation buttons under a prompt (title ≤ 20 chars). */
+  async sendDmQuickReplies(
+    brandId: string,
+    recipientId: string,
+    text: string,
+    quickReplies: Array<{ title: string; payload: string; content_type?: "text" }>,
+  ): Promise<{ ok: boolean; error?: string; messageId?: string }> {
+    const { buildQuickReplies } = await import("./instagramMessagingPayloads");
+    const built = buildQuickReplies(
+      quickReplies.map((q) => ({ label: q.title, payload: q.payload })),
+    );
+    return this.sendDmRaw(
+      brandId,
+      recipientId,
+      { text: String(text || "Escolha:").slice(0, 640), quick_replies: built },
+      `${text} [quick_replies:${built.length}]`,
+    );
+  }
 
-    try {
-      const resp = await fetch(`${IG_GRAPH_URL}/${igUserId}/messages`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          recipient: { id: recipientId },
-          message: { text: text.slice(0, 1000) },
-          access_token: conn.access_token,
-        }),
-      });
-      const data: any = await resp.json().catch(() => ({}));
-      if (!resp.ok) {
-        return { ok: false, error: data?.error?.message || `HTTP ${resp.status}` };
-      }
-      const messageId = data?.message_id || data?.id;
-      if (messageId) {
-        await this.storeOutgoingMessage({
-          connectionId: conn.id,
-          brandId,
-          recipientId,
-          messageId: String(messageId),
-          messageText: text,
-        });
-      }
-      return { ok: true, messageId };
-    } catch (err: any) {
-      return { ok: false, error: err.message };
-    }
+  /**
+   * Button template — up to 3 buttons (postback | web_url).
+   * Best when some options open URLs or you need sticky template buttons.
+   */
+  async sendDmButtonTemplate(
+    brandId: string,
+    recipientId: string,
+    text: string,
+    buttons: Array<{ title: string; type: "postback" | "web_url"; payload?: string; url?: string }>,
+  ): Promise<{ ok: boolean; error?: string; messageId?: string }> {
+    const { buildTemplateButtons } = await import("./instagramMessagingPayloads");
+    const mapped = buildTemplateButtons(
+      buttons.map((b) => ({
+        label: b.title,
+        url: b.type === "web_url" ? b.url : undefined,
+        payload: b.payload,
+      })),
+    );
+    return this.sendDmRaw(
+      brandId,
+      recipientId,
+      {
+        attachment: {
+          type: "template",
+          payload: {
+            template_type: "button",
+            text: String(text || "Escolha:").slice(0, 640),
+            buttons: mapped,
+          },
+        },
+      },
+      `${text} [buttons:${mapped.length}]`,
+    );
+  }
+
+  /** Send BuiltIgMessage from payload builders (pipeline → API). */
+  async sendDmBuilt(
+    brandId: string,
+    recipientId: string,
+    built: { kind: string; message: Record<string, any> },
+  ): Promise<{ ok: boolean; error?: string; messageId?: string; kind?: string }> {
+    const res = await this.sendDmRaw(
+      brandId,
+      recipientId,
+      built.message,
+      built.kind === "text"
+        ? String(built.message?.text || "")
+        : `[${built.kind}]`,
+    );
+    return { ...res, kind: built.kind };
   }
 
   async replyToComment(
@@ -2603,26 +2859,48 @@ class InstagramService {
     const conn = await this.getConnection(brandId);
     if (!conn?.access_token) return { ok: false, error: "Instagram nao conectado" };
 
-    const igUserId = conn.ig_user_id || conn.account_id;
-    if (!igUserId) return { ok: false, error: "IG user id ausente" };
+    const ids = [conn.ig_user_id, conn.account_id].filter(Boolean).map(String);
+    if (!ids.length) return { ok: false, error: "IG user id ausente" };
 
-    try {
-      const resp = await fetch(`${IG_GRAPH_URL}/${igUserId}/subscribed_apps`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          subscribed_fields: ["messages", "comments", "mentions", "message_reactions"],
-          access_token: conn.access_token,
-        }),
-      });
-      const data: any = await resp.json().catch(() => ({}));
-      if (!resp.ok || data?.success === false) {
-        return { ok: false, error: data?.error?.message || `HTTP ${resp.status}` };
+    // Align with Tattoo AI field set + messaging_postbacks for buttons
+    const subscribed_fields = [
+      "messages",
+      "messaging_postbacks",
+      "comments",
+      "mentions",
+      "message_reactions",
+      "live_comments",
+    ];
+
+    const hosts = [
+      "https://graph.instagram.com/v21.0",
+      "https://graph.facebook.com/v21.0",
+    ];
+
+    let lastError = "subscribe failed";
+    for (const host of hosts) {
+      for (const igUserId of ids) {
+        try {
+          const resp = await fetch(`${host}/${igUserId}/subscribed_apps`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              subscribed_fields,
+              access_token: conn.access_token,
+            }),
+          });
+          const data: any = await resp.json().catch(() => ({}));
+          if (resp.ok && data?.success !== false) {
+            logger.info(`[Instagram] subscribeWebhooks OK host=${host} ig=${igUserId}`);
+            return { ok: true };
+          }
+          lastError = data?.error?.message || `HTTP ${resp.status}`;
+        } catch (err: any) {
+          lastError = err.message;
+        }
       }
-      return { ok: true };
-    } catch (err: any) {
-      return { ok: false, error: err.message };
     }
+    return { ok: false, error: lastError };
   }
 }
 

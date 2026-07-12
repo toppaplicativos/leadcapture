@@ -91,7 +91,7 @@ export class Reasoner {
       const raw = await aiRouter.generateJson<any>(prompt, {
         userId: input.userId,
         brandId: input.brandId || undefined,
-      }, { temperature: 0.25 });
+      }, { temperature: 0.25, functionKey: "text.cognitive.reason" });
 
       return this.normalize(raw);
     } catch (e: any) {

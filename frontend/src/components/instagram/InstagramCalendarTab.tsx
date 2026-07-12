@@ -201,11 +201,11 @@ export function InstagramCalendarTab({ onOpenPost, onCreateForDay, onPostsChange
               : `${MONTH_NAMES[month]} ${year}`}
           </h2>
           <p className="ig-cal__subtitle">
-            {monthPosts.length} posts neste mes · {igPublished} no Instagram
+            {monthPosts.length} posts neste mês · {igPublished} no Instagram
             {saving ? ' · salvando…' : ''}
           </p>
         </div>
-        <button type="button" onClick={next} className="ig-cal__nav" aria-label="Proximo">
+        <button type="button" onClick={next} className="ig-cal__nav" aria-label="Próximo">
           <ChevronRight size={16} />
         </button>
       </div>

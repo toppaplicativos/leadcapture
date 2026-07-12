@@ -10,6 +10,7 @@ import {
   formatCommissionDescription,
   formatCommissionShort,
   resolveCommissionConfig,
+  type CommissionConfig,
 } from "../services/affiliateCommission";
 import { affiliateDistributionService } from "../services/affiliateDistribution";
 import { affiliateCrmService } from "../services/affiliateCrm";
@@ -69,6 +70,77 @@ async function getAffiliateProfile(ctx: AffiliateContext) {
   );
 }
 
+/** Comissão da inscrição/programa multi (R$/kg etc.) — não o mock 10% da config legada */
+async function resolveBrandCommissionDisplay(
+  ctx: AffiliateContext,
+  affiliate: any,
+): Promise<{
+  commission: CommissionConfig;
+  rules: string | null;
+  program_name: string | null;
+  program_id: string | null;
+  config: any;
+}> {
+  const config = await affiliatesService.getOrCreateProgramConfig(ctx.ownerUserId, ctx.brandId);
+  let programRow: any = null;
+  try {
+    await affiliateProgramsService.ensureSchema();
+    if (affiliate?.id) {
+      // Preferir inscrição mais recente (ex.: R$/kg), não o programa default legado (10%)
+      programRow = await queryOne<any>(
+        `SELECT p.id, p.name, p.commission_mode, p.commission_value, p.commission_rules, p.is_default, e.status AS enrollment_status
+         FROM affiliate_program_enrollments e
+         INNER JOIN affiliate_programs p ON p.id = e.program_id
+         WHERE e.affiliate_id = ? AND e.brand_id = ?
+           AND e.status IN ('active', 'onboarding')
+         ORDER BY CASE WHEN e.status = 'active' THEN 0 ELSE 1 END,
+                  e.updated_at DESC,
+                  e.created_at DESC,
+                  CASE WHEN p.is_default THEN 1 ELSE 0 END
+         LIMIT 1`,
+        [affiliate.id, ctx.brandId],
+      );
+    }
+    if (!programRow) {
+      programRow = await queryOne<any>(
+        `SELECT id, name, commission_mode, commission_value, commission_rules, is_default
+         FROM affiliate_programs
+         WHERE brand_id = ? AND status = 'active'
+         ORDER BY is_default DESC, sort_order ASC, created_at ASC
+         LIMIT 1`,
+        [ctx.brandId],
+      );
+    }
+  } catch {
+    programRow = null;
+  }
+
+  const commission = resolveCommissionConfig({
+    affiliate,
+    program: programRow
+      ? {
+          commission_mode: programRow.commission_mode,
+          commission_value: programRow.commission_value,
+          default_commission_mode: config.default_commission_mode,
+          default_commission_value: config.default_commission_value,
+          default_commission_pct: config.default_commission_pct,
+        }
+      : {
+          default_commission_mode: config.default_commission_mode,
+          default_commission_value: config.default_commission_value,
+          default_commission_pct: config.default_commission_pct,
+        },
+  });
+
+  return {
+    commission,
+    rules: String(programRow?.commission_rules || config.commission_rules || "").trim() || null,
+    program_name: programRow?.name ? String(programRow.name) : null,
+    program_id: programRow?.id ? String(programRow.id) : null,
+    config,
+  };
+}
+
 router.get("/me", async (req: AuthRequest, res: Response) => {
   const ctx = await requireAffiliateCredential(req, res);
   if (!ctx) return;
@@ -81,8 +153,7 @@ router.get("/me", async (req: AuthRequest, res: Response) => {
   if (!brand) return res.status(403).json({ error: "Marca não encontrada" });
 
   const affiliate = await getAffiliateProfile(ctx);
-  const config = await affiliatesService.getOrCreateProgramConfig(ctx.ownerUserId, ctx.brandId);
-  const commission = resolveCommissionConfig({ affiliate, program: config });
+  const { commission, rules, program_name, program_id, config } = await resolveBrandCommissionDisplay(ctx, affiliate);
 
   res.json({
     success: true,
@@ -105,13 +176,17 @@ router.get("/me", async (req: AuthRequest, res: Response) => {
     },
     affiliate,
     program: config,
+    active_program: program_id
+      ? { id: program_id, name: program_name, commission_mode: commission.mode, commission_value: commission.value }
+      : null,
     commission: {
       mode: commission.mode,
       value: commission.value,
       source: commission.source,
       label: formatCommissionShort(commission.mode, commission.value),
       description: formatCommissionDescription(commission.mode, commission.value),
-      rules: config.commission_rules || null,
+      rules,
+      program_name,
     },
   });
 });
@@ -122,9 +197,8 @@ router.get("/dashboard", async (req: AuthRequest, res: Response) => {
     if (!ctx) return;
     const affiliate = await getAffiliateProfile(ctx);
     if (!affiliate) return res.status(404).json({ error: "Perfil de afiliado não encontrado" });
-    const config = await affiliatesService.getOrCreateProgramConfig(ctx.ownerUserId, ctx.brandId);
     const stats = await affiliatesService.getDashboardStats(String(affiliate.id), ctx.brandId);
-    const commission = resolveCommissionConfig({ affiliate, program: config });
+    const { commission, rules, program_name } = await resolveBrandCommissionDisplay(ctx, affiliate);
     res.json({
       success: true,
       ...stats,
@@ -134,7 +208,8 @@ router.get("/dashboard", async (req: AuthRequest, res: Response) => {
         source: commission.source,
         label: formatCommissionShort(commission.mode, commission.value),
         description: formatCommissionDescription(commission.mode, commission.value),
-        rules: config.commission_rules || null,
+        rules,
+        program_name,
       },
     });
   } catch (e: any) {
@@ -166,45 +241,73 @@ router.get("/links", async (req: AuthRequest, res: Response) => {
     if (!affiliate) return res.status(404).json({ error: "Perfil de afiliado não encontrado" });
 
     const brand = await queryOne<any>(
-      `SELECT slug FROM brand_units WHERE id = ? LIMIT 1`,
+      `SELECT slug, name FROM brand_units WHERE id = ? LIMIT 1`,
       [ctx.brandId]
     );
-    const store = await queryOne<any>(
-      `SELECT slug FROM storefront_stores WHERE brand_id = ? AND status = 'active' ORDER BY updated_at DESC LIMIT 1`,
-      [ctx.brandId]
-    );
-    const storeSlug = String(store?.slug || brand?.slug || "").trim();
+    let storeSlug = String(brand?.slug || "").trim();
+    try {
+      const store = await queryOne<any>(
+        `SELECT slug FROM storefront_stores WHERE brand_id = ? AND status = 'active' ORDER BY updated_at DESC LIMIT 1`,
+        [ctx.brandId]
+      );
+      if (store?.slug) storeSlug = String(store.slug).trim();
+    } catch {
+      /* storefront opcional */
+    }
+
     const days = Math.min(Math.max(Number(req.query.days) || 30, 7), 90);
     const programId = String(req.query.program_id || "").trim() || undefined;
 
-    const linkCtx = await affiliateProgramsService.resolveEnrollmentContext(
-      ctx.affiliateUserId,
-      ctx.brandId,
-      programId
-    );
+    let linkCtx: any = { enrollment: null, program_id: null, enrollments: [] };
+    try {
+      linkCtx = await affiliateProgramsService.resolveEnrollmentContext(
+        ctx.affiliateUserId,
+        ctx.brandId,
+        programId
+      );
+    } catch (enrollErr: any) {
+      console.error("[affiliate-app/links] enrollment context:", enrollErr?.message || enrollErr);
+    }
+
     const enrollment = linkCtx.enrollment;
     const activeProgramId = linkCtx.program_id || undefined;
 
     const code = String(
-      enrollment?.resources_unlocked ? enrollment.enrollment_code : enrollment?.legacy_code || affiliate.code || ""
+      enrollment?.resources_unlocked
+        ? (enrollment.enrollment_code || enrollment.legacy_code || affiliate.code || "")
+        : (enrollment?.legacy_code || affiliate.code || "")
     ).trim();
     const coupon = String(
-      enrollment?.resources_unlocked ? enrollment.coupon_code : enrollment?.legacy_coupon || affiliate.coupon_code || ""
+      enrollment?.resources_unlocked
+        ? (enrollment.coupon_code || enrollment.legacy_coupon || affiliate.coupon_code || "")
+        : (enrollment?.legacy_coupon || affiliate.coupon_code || "")
     ).trim().toUpperCase();
 
-    const analytics = await affiliatesService.getAffiliateLinkAnalytics(
-      String(affiliate.id),
-      ctx.brandId,
-      days,
-      activeProgramId
-    );
-    let products = await affiliateProductLearningService.listCatalog(ctx.ownerUserId, ctx.brandId);
-    if (activeProgramId) {
-      const offerProductIds = await affiliateProgramsService.listProgramProductIds(activeProgramId);
-      if (offerProductIds.length) {
-        const idSet = new Set(offerProductIds);
-        products = products.filter((p: any) => idSet.has(String(p.id)));
+    let analytics: any = null;
+    try {
+      analytics = await affiliatesService.getAffiliateLinkAnalytics(
+        String(affiliate.id),
+        ctx.brandId,
+        days,
+        activeProgramId
+      );
+    } catch (anErr: any) {
+      console.error("[affiliate-app/links] analytics:", anErr?.message || anErr);
+    }
+
+    let products: any[] = [];
+    try {
+      products = await affiliateProductLearningService.listCatalog(ctx.ownerUserId, ctx.brandId);
+      if (activeProgramId) {
+        const offerProductIds = await affiliateProgramsService.listProgramProductIds(activeProgramId);
+        if (offerProductIds.length) {
+          const idSet = new Set(offerProductIds);
+          products = products.filter((p: any) => idSet.has(String(p.id)));
+        }
       }
+    } catch (prodErr: any) {
+      console.error("[affiliate-app/links] products:", prodErr?.message || prodErr);
+      products = [];
     }
 
     const productClickMap = new Map<string, number>();
@@ -222,6 +325,7 @@ router.get("/links", async (req: AuthRequest, res: Response) => {
       code,
       coupon_code: coupon,
       store_slug: storeSlug,
+      brand_name: brand?.name ? String(brand.name) : null,
       program_id: activeProgramId || null,
       program_name: enrollment?.program_name || null,
       resources_unlocked: !!enrollment?.resources_unlocked,
@@ -246,6 +350,7 @@ router.get("/links", async (req: AuthRequest, res: Response) => {
       })),
     });
   } catch (e: any) {
+    console.error("[affiliate-app/links]", e?.message || e);
     res.status(500).json({ error: e.message || "Falha ao carregar links" });
   }
 });
@@ -259,16 +364,23 @@ router.get("/links/analytics", async (req: AuthRequest, res: Response) => {
 
     const days = Math.min(Math.max(Number(req.query.days) || 30, 7), 90);
     const programId = String(req.query.program_id || "").trim() || undefined;
-    const linkCtx = await affiliateProgramsService.resolveEnrollmentContext(
-      ctx.affiliateUserId,
-      ctx.brandId,
-      programId
-    );
+    let resolvedProgramId: string | undefined = programId;
+    try {
+      const linkCtx = await affiliateProgramsService.resolveEnrollmentContext(
+        ctx.affiliateUserId,
+        ctx.brandId,
+        programId
+      );
+      resolvedProgramId = linkCtx.program_id || programId || undefined;
+    } catch {
+      /* usa program_id da query se houver */
+    }
+
     const analytics = await affiliatesService.getAffiliateLinkAnalytics(
       String(affiliate.id),
       ctx.brandId,
       days,
-      linkCtx.program_id || undefined
+      resolvedProgramId
     );
     if (!analytics) return res.status(404).json({ error: "Afiliado não encontrado" });
 
@@ -281,8 +393,16 @@ router.get("/links/analytics", async (req: AuthRequest, res: Response) => {
 
     res.json({
       success: true,
-      ...analytics,
-      by_type: analytics.by_type.map((row) => ({
+      period_days: analytics.period_days,
+      clicks_total: analytics.clicks_total,
+      clicks_period: analytics.clicks_period,
+      conversions_total: analytics.conversions_total,
+      conversions_period: analytics.conversions_period,
+      conversion_rate: analytics.conversion_rate,
+      commission_period: analytics.commission_period,
+      series: analytics.series || [],
+      top_products: analytics.top_products || [],
+      by_type: (analytics.by_type || []).map((row: any) => ({
         ...row,
         label: typeLabels[row.link_type] || row.link_type,
       })),
@@ -293,6 +413,7 @@ router.get("/links/analytics", async (req: AuthRequest, res: Response) => {
       },
     });
   } catch (e: any) {
+    console.error("[affiliate-app/links/analytics]", e?.message || e);
     res.status(500).json({ error: e.message || "Falha ao carregar análise" });
   }
 });
@@ -466,8 +587,7 @@ router.post("/share/generate", async (req: AuthRequest, res: Response) => {
       materialTitle = material ? String(material.title || "").trim() : undefined;
     }
 
-    const config = await affiliatesService.getOrCreateProgramConfig(ctx.ownerUserId, ctx.brandId);
-    const commission = resolveCommissionConfig({ affiliate, program: config });
+    const { commission } = await resolveBrandCommissionDisplay(ctx, affiliate);
 
     const pack = await generateAffiliateSharePack({
       ownerUserId: ctx.ownerUserId,
@@ -563,15 +683,14 @@ router.get("/content", async (req: AuthRequest, res: Response) => {
       region,
       channel,
     });
-    const config = await affiliatesService.getOrCreateProgramConfig(ctx.ownerUserId, ctx.brandId);
-    const commission = resolveCommissionConfig({ affiliate, program: config });
+    const { commission, rules, config } = await resolveBrandCommissionDisplay(ctx, affiliate);
     res.json({
       success: true,
       ...bundle,
       training: {
         terms_html: config.terms_html,
         training_html: config.training_html,
-        commission_rules: config.commission_rules,
+        commission_rules: rules || config.commission_rules,
         default_commission_pct: config.default_commission_pct,
         commission: {
           mode: commission.mode,
@@ -655,14 +774,13 @@ router.get("/training", async (req: AuthRequest, res: Response) => {
   try {
     const ctx = await requireAffiliateCredential(req, res);
     if (!ctx) return;
-    const config = await affiliatesService.getOrCreateProgramConfig(ctx.ownerUserId, ctx.brandId);
     const affiliate = await getAffiliateProfile(ctx);
-    const commission = resolveCommissionConfig({ affiliate, program: config });
+    const { commission, rules, config } = await resolveBrandCommissionDisplay(ctx, affiliate);
     res.json({
       success: true,
       terms_html: config.terms_html,
       training_html: config.training_html,
-      commission_rules: config.commission_rules,
+      commission_rules: rules || config.commission_rules,
       default_commission_pct: config.default_commission_pct,
       commission: {
         mode: commission.mode,

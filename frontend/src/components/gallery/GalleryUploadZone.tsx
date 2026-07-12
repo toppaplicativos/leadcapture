@@ -8,16 +8,22 @@ export function GalleryUploadZone({
   open,
   onClose,
   onUploaded,
+  folder,
 }: {
   open: boolean
   onClose: () => void
   onUploaded: () => void
+  /** Pasta destino (ex: publicidade, pub-stories-julho). "all" → uploads */
+  folder?: string
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [dragging, setDragging] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [progress, setProgress] = useState(0)
+
+  const targetFolder =
+    folder && folder !== 'all' ? folder : 'uploads'
 
   const handleFiles = useCallback(
     async (files: FileList | File[]) => {
@@ -32,7 +38,7 @@ export function GalleryUploadZone({
       try {
         const step = 100 / list.length
         for (let i = 0; i < list.length; i++) {
-          await uploadGalleryFiles([list[i]])
+          await uploadGalleryFiles([list[i]], targetFolder)
           setProgress(Math.round((i + 1) * step))
         }
         onUploaded()
@@ -43,7 +49,7 @@ export function GalleryUploadZone({
         setUploading(false)
       }
     },
-    [onClose, onUploaded],
+    [onClose, onUploaded, targetFolder],
   )
 
   if (!open) return null
@@ -61,7 +67,14 @@ export function GalleryUploadZone({
         onClick={(e) => e.stopPropagation()}
       >
         <header className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-          <h3 className="text-[15px] font-bold text-gray-900">Enviar mídia</h3>
+          <div>
+            <h3 className="text-[15px] font-bold text-gray-900">Enviar mídia</h3>
+            {targetFolder && targetFolder !== 'uploads' && (
+              <p className="text-[11px] text-gray-500 mt-0.5">
+                Destino: <span className="font-semibold text-gray-700">{targetFolder}</span>
+              </p>
+            )}
+          </div>
           <button
             type="button"
             onClick={onClose}

@@ -138,9 +138,15 @@ async function onCheckoutCompleted(session: any, stripe: StripeClient) {
       resolvedUserId = existingByEmail.id
     } else {
       resolvedUserId = uuidv4()
+      try {
+        const { identityService } = await import("../services/identity")
+        await identityService.ensureSchema()
+      } catch {
+        /* best-effort */
+      }
       await query(
-        `INSERT INTO users (id, email, password_hash, name, role, is_active)
-         VALUES (?, ?, ?, ?, 'admin', true)`,
+        `INSERT INTO users (id, email, password_hash, name, role, account_kind, is_active)
+         VALUES (?, ?, ?, ?, 'org', 'org', true)`,
         [
           resolvedUserId,
           metadata.signup_email.toLowerCase(),
@@ -158,17 +164,26 @@ async function onCheckoutCompleted(session: any, stripe: StripeClient) {
     return
   }
 
-  /* 2. Auto-create brand for new signup */
+  /* 2. Auto-create brand for new signup — keep brand_id for subscription link */
+  let createdBrandId: string | null = metadata.brand_id || null
   if (isNewUser && metadata.signup_brand_name) {
     try {
       const { BrandUnitsService } = await import("../services/brandUnits")
       const svc = new BrandUnitsService()
-      await svc.create(resolvedUserId, {
+      const brand = await svc.create(resolvedUserId, {
         name: metadata.signup_brand_name,
       } as any)
+      createdBrandId = brand?.id ? String(brand.id) : createdBrandId
     } catch (err: any) {
       logger.warn(`failed to auto-create brand: ${err?.message}`)
     }
+  }
+  if (!createdBrandId) {
+    const existingBrand = await queryOne<{ id: string }>(
+      `SELECT id FROM brand_units WHERE user_id = ? ORDER BY is_default DESC, created_at ASC LIMIT 1`,
+      [resolvedUserId],
+    ).catch(() => null)
+    createdBrandId = existingBrand?.id || null
   }
 
   /* 3. Subscription details */
@@ -189,18 +204,19 @@ async function onCheckoutCompleted(session: any, stripe: StripeClient) {
 
   if (existing) {
     await query(
-      `UPDATE subscriptions SET status = ?, current_period_start = ?, current_period_end = ?, updated_at = NOW() WHERE id = ?`,
-      [status, periodStart, periodEnd, existing.id],
+      `UPDATE subscriptions SET status = ?, brand_id = COALESCE(brand_id, ?), current_period_start = ?, current_period_end = ?, updated_at = NOW() WHERE id = ?`,
+      [status, createdBrandId, periodStart, periodEnd, existing.id],
     )
   } else {
     await query(
       `INSERT INTO subscriptions
-        (id, user_id, plan_id, status, gateway, gateway_customer_id, gateway_subscription_id,
+        (id, user_id, brand_id, plan_id, status, gateway, gateway_customer_id, gateway_subscription_id,
          current_period_start, current_period_end, metadata)
-       VALUES (?, ?, ?, ?, 'stripe', ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, 'stripe', ?, ?, ?, ?, ?)`,
       [
         uuidv4(),
         resolvedUserId,
+        createdBrandId,
         planId,
         status,
         customerId,
@@ -218,16 +234,36 @@ async function onCheckoutCompleted(session: any, stripe: StripeClient) {
   if (isNewUser) {
     try {
       const plan = await queryOne<{ name: string }>(`SELECT name FROM plans WHERE id = ?`, [planId])
-      await emailService.sendTemplate("welcome", metadata.signup_email!, {
+      const { emailTriggers } = await import("../services/emailTriggers")
+      await emailTriggers.welcomeOwner({
+        email: metadata.signup_email!,
         user_name: metadata.signup_name || metadata.signup_email!.split("@")[0],
         brand_name: metadata.signup_brand_name || metadata.signup_name || "sua marca",
         plan_name: plan?.name || "LeadCapture",
-        login_url: "https://app.leadcapture.online/login",
+        userId: resolvedUserId,
       })
     } catch (err: any) {
       logger.warn(`welcome email failed: ${err?.message}`)
     }
   }
+}
+
+async function resolveSubUser(gatewaySubId: string) {
+  return queryOne<{
+    user_id: string
+    email: string
+    name: string
+    plan_name: string
+    current_period_end: Date | null
+  }>(
+    `SELECT s.user_id, u.email, u.name, p.name AS plan_name, s.current_period_end
+       FROM subscriptions s
+       JOIN users u ON u.id = s.user_id
+       LEFT JOIN plans p ON p.id = s.plan_id
+      WHERE s.gateway_subscription_id = ?
+      LIMIT 1`,
+    [gatewaySubId],
+  )
 }
 
 async function onSubscriptionUpdate(sub: any) {
@@ -258,6 +294,23 @@ async function onSubscriptionDeleted(sub: any) {
     [sub.id],
   )
   logger.info(`stripe: subscription ${sub.id} canceled`)
+  try {
+    const row = await resolveSubUser(sub.id)
+    if (row?.email) {
+      const { emailTriggers } = await import("../services/emailTriggers")
+      await emailTriggers.subscriptionCanceled({
+        email: row.email,
+        user_name: row.name || row.email.split("@")[0],
+        plan_name: row.plan_name || "LeadCapture",
+        ends_at: row.current_period_end
+          ? new Date(row.current_period_end).toLocaleDateString("pt-BR")
+          : "fim do período",
+        userId: row.user_id,
+      })
+    }
+  } catch (err: any) {
+    logger.warn(`cancel email failed: ${err?.message}`)
+  }
 }
 
 async function onInvoicePaid(inv: any) {
@@ -269,6 +322,31 @@ async function onInvoicePaid(inv: any) {
     [inv.subscription as string],
   )
   logger.info(`stripe: invoice paid for subscription ${inv.subscription}`)
+  try {
+    const row = await resolveSubUser(String(inv.subscription))
+    if (row?.email) {
+      const { emailTriggers } = await import("../services/emailTriggers")
+      const amount =
+        inv.amount_paid != null
+          ? (Number(inv.amount_paid) / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
+          : "—"
+      const next =
+        inv.lines?.data?.[0]?.period?.end
+          ? new Date(inv.lines.data[0].period.end * 1000).toLocaleDateString("pt-BR")
+          : "—"
+      await emailTriggers.invoicePaid({
+        email: row.email,
+        user_name: row.name || row.email.split("@")[0],
+        plan_name: row.plan_name || "LeadCapture",
+        amount,
+        next_billing: next,
+        invoice_url: inv.hosted_invoice_url || inv.invoice_pdf || "https://app.leadcapture.online/admin",
+        userId: row.user_id,
+      })
+    }
+  } catch (err: any) {
+    logger.warn(`invoice-paid email failed: ${err?.message}`)
+  }
 }
 
 async function onInvoiceFailed(inv: any) {
@@ -280,6 +358,20 @@ async function onInvoiceFailed(inv: any) {
     [inv.subscription as string],
   )
   logger.warn(`stripe: invoice payment FAILED for subscription ${inv.subscription}`)
+  try {
+    const row = await resolveSubUser(String(inv.subscription))
+    if (row?.email) {
+      const { emailTriggers } = await import("../services/emailTriggers")
+      await emailTriggers.paymentFailed({
+        email: row.email,
+        user_name: row.name || row.email.split("@")[0],
+        plan_name: row.plan_name || "LeadCapture",
+        userId: row.user_id,
+      })
+    }
+  } catch (err: any) {
+    logger.warn(`payment-failed email failed: ${err?.message}`)
+  }
 }
 
 export default router

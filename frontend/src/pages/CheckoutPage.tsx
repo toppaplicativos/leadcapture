@@ -268,7 +268,9 @@ export function CheckoutPage() {
     )
   }
 
-  const inputCls = 'store-search w-full !pl-4 !pr-4 !h-auto py-3'
+  const inputCls =
+    'store-search w-full !pl-3.5 !pr-3.5 !h-auto min-h-11 py-3 text-sm text-gray-900 bg-white'
+  const labelCls = 'text-[12px] font-semibold text-gray-700 mb-1.5 block'
 
   return (
     <div className="store-page page-enter min-h-screen">
@@ -468,15 +470,15 @@ export function CheckoutPage() {
               <p className="text-xs text-gray-400 -mt-2">Campos com * sao obrigatorios</p>
               <div className="space-y-3">
                 <div>
-                  <label className="text-xs font-medium text-gray-600 mb-1.5 block">Nome completo *</label>
+                  <label className={labelCls}>Nome completo *</label>
                   <input type="text" value={responsibleName} onChange={e => setResponsibleName(e.target.value)} required placeholder="Seu nome" className={inputCls} />
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-gray-600 mb-1.5 block">E-mail *</label>
+                  <label className={labelCls}>E-mail *</label>
                   <input type="email" value={email} onChange={e => setEmail(e.target.value)} required placeholder="seu@email.com" className={inputCls} />
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-gray-600 mb-1.5 block">Telefone / WhatsApp</label>
+                  <label className={labelCls}>Telefone / WhatsApp</label>
                   <input type="tel" value={phone} onChange={e => setPhone(e.target.value)} placeholder="(00) 00000-0000" className={inputCls} />
                 </div>
                 {clientTypes.length > 0 && (
@@ -490,7 +492,7 @@ export function CheckoutPage() {
                   />
                 )}
                 <div>
-                  <label className="text-xs font-medium text-gray-600 mb-1.5 block">Estabelecimento (se aplicavel)</label>
+                  <label className={labelCls}>Estabelecimento (se aplicavel)</label>
                   <input type="text" value={establishmentName} onChange={e => setEstablishmentName(e.target.value)} placeholder="Nome do seu negocio" className={inputCls} />
                 </div>
               </div>
@@ -502,12 +504,12 @@ export function CheckoutPage() {
             <section className="space-y-4">
               <h2 className="text-lg font-bold text-gray-900">Entrega</h2>
               <div>
-                <label className="text-xs font-medium text-gray-600 mb-1.5 block">Endereco de entrega</label>
+                <label className={labelCls}>Endereco de entrega</label>
                 <textarea value={address} onChange={e => setAddress(e.target.value)} rows={3}
                   placeholder="Rua, numero, bairro, cidade..." className={inputCls + ' resize-none'} />
               </div>
               <div>
-                <label className="text-xs font-medium text-gray-600 mb-1.5 block">Observacoes</label>
+                <label className={labelCls}>Observacoes</label>
                 <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2}
                   placeholder="Complemento, referencia, horario preferido..." className={inputCls + ' resize-none'} />
               </div>

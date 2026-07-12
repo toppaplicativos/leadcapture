@@ -158,7 +158,7 @@ function Navbar() {
   return (
     <header
       className={`fixed top-0 inset-x-0 z-50 transition-colors ${
-        scrolled ? 'bg-[#0a0a0a]/80 backdrop-blur-xl border-b border-white/[0.06]' : 'bg-transparent'
+        scrolled ? 'bg-[#0a0a0a]/95 border-b border-white/[0.08]' : 'bg-transparent'
       }`}
     >
       <div className="mx-auto max-w-6xl px-5 sm:px-8 h-16 flex items-center justify-between">

@@ -1,4 +1,4 @@
-import { lazy, Suspense, type ReactNode } from 'react'
+import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
 import { PageSplash, canvasSplashLabel } from '@/components/PageSplash'
 import { useToast } from '@/components/Toast'
 import { useAgentShellOptional } from '@/lib/agent/AgentShellContext'
@@ -9,38 +9,72 @@ import type { InstagramTabKey } from '@/lib/instagram/nav'
 import type { FacebookTabKey } from '@/pages/FacebookPage'
 import type { AffiliatesTabKey } from '@/lib/agent/AffiliatesBridgeContext'
 
-const DashboardView = lazy(() => import('@/pages/admin/dashboard/DashboardView').then(m => ({ default: m.DashboardView })))
-const CampaignsView = lazy(() => import('@/pages/admin/campaigns/CampaignsView').then(m => ({ default: m.CampaignsView })))
-const FlowBuilderPage = lazy(() => import('@/pages/FlowBuilderPage').then(m => ({ default: m.FlowBuilderPage })))
-const CriativosPage = lazy(() => import('@/pages/CriativosPage').then(m => ({ default: m.CriativosPage })))
-const GaleriaPage = lazy(() => import('@/pages/GaleriaPage').then(m => ({ default: m.GaleriaPage })))
-const VideoStudioPage = lazy(() => import('@/pages/VideoStudioPage').then(m => ({ default: m.VideoStudioPage })))
-const AgentView = lazy(() => import('@/pages/admin/agent/AgentView').then(m => ({ default: m.AgentView })))
-const AgentConfigPage = lazy(() => import('@/pages/AgentConfigPage').then(m => ({ default: m.AgentConfigPage })))
-const AgentPDVPage = lazy(() => import('@/pages/AgentPDVPage').then(m => ({ default: m.AgentPDVPage })))
-const AutomationsView = lazy(() => import('@/pages/admin/automations/AutomationsView').then(m => ({ default: m.AutomationsView })))
-const StoreStudioPage = lazy(() => import('@/pages/admin/store/StoreStudioPage').then(m => ({ default: m.StoreStudioPage })))
-const LeadSearchPage = lazy(() => import('@/pages/LeadSearchPage').then(m => ({ default: m.LeadSearchPage })))
-const MessagesPage = lazy(() => import('@/pages/MessagesPage').then(m => ({ default: m.MessagesPage })))
-const ProductsView = lazy(() => import('@/pages/admin/products/ProductsView').then(m => ({ default: m.ProductsView })))
-const LeadsPage = lazy(() => import('@/pages/LeadsPage').then(m => ({ default: m.LeadsPage })))
-const ClientesPage = lazy(() => import('@/pages/ClientesPage').then(m => ({ default: m.ClientesPage })))
-const OrdersView = lazy(() => import('@/pages/admin/orders/OrdersView').then(m => ({ default: m.OrdersView })))
-const BrandSkillsPage = lazy(() => import('@/pages/BrandSkillsPage').then(m => ({ default: m.BrandSkillsPage })))
-const InstagramPage = lazy(() => import('@/pages/InstagramPage').then(m => ({ default: m.InstagramPage })))
-const FacebookPage = lazy(() => import('@/pages/FacebookPage').then(m => ({ default: m.FacebookPage })))
-const AffiliatesPage = lazy(() => import('@/pages/AffiliatesPage').then(m => ({ default: m.AffiliatesPage })))
-const SettingsView = lazy(() => import('@/pages/admin/settings/SettingsView').then(m => ({ default: m.SettingsView })))
-const WhatsAppManagerView = lazy(() => import('@/pages/admin/whatsapp/WhatsAppManagerView').then(m => ({ default: m.WhatsAppManagerView })))
-const NotificationsView = lazy(() => import('@/pages/admin/notifications/NotificationsView').then(m => ({ default: m.NotificationsView })))
-const DomainView = lazy(() => import('@/pages/admin/domain/DomainView').then(m => ({ default: m.DomainView })))
-const FreteView = lazy(() => import('@/pages/admin/frete/FreteView').then(m => ({ default: m.FreteView })))
-const EstoqueAccessView = lazy(() => import('@/pages/admin/estoque/EstoqueAccessView').then(m => ({ default: m.EstoqueAccessView })))
-const CouponsView = lazy(() => import('@/pages/admin/coupons/CouponsView').then(m => ({ default: m.CouponsView })))
-const ReviewsView = lazy(() => import('@/pages/admin/reviews/ReviewsView').then(m => ({ default: m.ReviewsView })))
-const PaymentConfigView = lazy(() => import('@/pages/admin/payments/PaymentConfigView').then(m => ({ default: m.PaymentConfigView })))
-const AIProvidersPage = lazy(() => import('@/pages/AIProvidersPage').then(m => ({ default: m.AIProvidersPage })))
-const AdminEmailsPage = lazy(() => import('@/pages/AdminEmailsPage').then(m => ({ default: m.AdminEmailsPage })))
+/** Loaders nomeados — reutilizados por lazy + prefetch de chunk */
+const loadDashboard = () => import('@/pages/admin/dashboard/DashboardView').then(m => ({ default: m.DashboardView }))
+const loadCampaigns = () => import('@/pages/admin/campaigns/CampaignsView').then(m => ({ default: m.CampaignsView }))
+const loadFlowBuilder = () => import('@/pages/FlowBuilderPage').then(m => ({ default: m.FlowBuilderPage }))
+const loadCriativos = () => import('@/pages/CriativosPage').then(m => ({ default: m.CriativosPage }))
+const loadGaleria = () => import('@/pages/GaleriaPage').then(m => ({ default: m.GaleriaPage }))
+const loadVideoStudio = () => import('@/pages/VideoStudioPage').then(m => ({ default: m.VideoStudioPage }))
+const loadAgentView = () => import('@/pages/admin/agent/AgentView').then(m => ({ default: m.AgentView }))
+const loadAgentConfig = () => import('@/pages/AgentConfigPage').then(m => ({ default: m.AgentConfigPage }))
+const loadAgentPDV = () => import('@/pages/AgentPDVPage').then(m => ({ default: m.AgentPDVPage }))
+const loadAutomations = () => import('@/pages/admin/automations/AutomationsView').then(m => ({ default: m.AutomationsView }))
+const loadStoreStudio = () => import('@/pages/admin/store/StoreStudioPage').then(m => ({ default: m.StoreStudioPage }))
+const loadLeadSearch = () => import('@/pages/LeadSearchPage').then(m => ({ default: m.LeadSearchPage }))
+const loadMessages = () => import('@/pages/MessagesPage').then(m => ({ default: m.MessagesPage }))
+const loadProducts = () => import('@/pages/admin/products/ProductsView').then(m => ({ default: m.ProductsView }))
+const loadLeads = () => import('@/pages/LeadsPage').then(m => ({ default: m.LeadsPage }))
+const loadClientes = () => import('@/pages/ClientesPage').then(m => ({ default: m.ClientesPage }))
+const loadOrders = () => import('@/pages/admin/orders/OrdersView').then(m => ({ default: m.OrdersView }))
+const loadBrandSkills = () => import('@/pages/BrandSkillsPage').then(m => ({ default: m.BrandSkillsPage }))
+const loadInstagram = () => import('@/pages/InstagramPage').then(m => ({ default: m.InstagramPage }))
+const loadFacebook = () => import('@/pages/FacebookPage').then(m => ({ default: m.FacebookPage }))
+const loadAffiliates = () => import('@/pages/AffiliatesPage').then(m => ({ default: m.AffiliatesPage }))
+const loadSettings = () => import('@/pages/admin/settings/SettingsView').then(m => ({ default: m.SettingsView }))
+const loadWhatsApp = () => import('@/pages/admin/whatsapp/WhatsAppManagerView').then(m => ({ default: m.WhatsAppManagerView }))
+const loadNotifications = () => import('@/pages/admin/notifications/NotificationsView').then(m => ({ default: m.NotificationsView }))
+const loadDomain = () => import('@/pages/admin/domain/DomainView').then(m => ({ default: m.DomainView }))
+const loadFrete = () => import('@/pages/admin/frete/FreteView').then(m => ({ default: m.FreteView }))
+const loadEstoque = () => import('@/pages/admin/estoque/EstoqueAccessView').then(m => ({ default: m.EstoqueAccessView }))
+const loadCoupons = () => import('@/pages/admin/coupons/CouponsView').then(m => ({ default: m.CouponsView }))
+const loadReviews = () => import('@/pages/admin/reviews/ReviewsView').then(m => ({ default: m.ReviewsView }))
+const loadPayments = () => import('@/pages/admin/payments/PaymentConfigView').then(m => ({ default: m.PaymentConfigView }))
+const loadAIProviders = () => import('@/pages/AIProvidersPage').then(m => ({ default: m.AIProvidersPage }))
+const loadEmails = () => import('@/pages/AdminEmailsPage').then(m => ({ default: m.AdminEmailsPage }))
+
+const DashboardView = lazy(loadDashboard)
+const CampaignsView = lazy(loadCampaigns)
+const FlowBuilderPage = lazy(loadFlowBuilder)
+const CriativosPage = lazy(loadCriativos)
+const GaleriaPage = lazy(loadGaleria)
+const VideoStudioPage = lazy(loadVideoStudio)
+const AgentView = lazy(loadAgentView)
+const AgentConfigPage = lazy(loadAgentConfig)
+const AgentPDVPage = lazy(loadAgentPDV)
+const AutomationsView = lazy(loadAutomations)
+const StoreStudioPage = lazy(loadStoreStudio)
+const LeadSearchPage = lazy(loadLeadSearch)
+const MessagesPage = lazy(loadMessages)
+const ProductsView = lazy(loadProducts)
+const LeadsPage = lazy(loadLeads)
+const ClientesPage = lazy(loadClientes)
+const OrdersView = lazy(loadOrders)
+const BrandSkillsPage = lazy(loadBrandSkills)
+const InstagramPage = lazy(loadInstagram)
+const FacebookPage = lazy(loadFacebook)
+const AffiliatesPage = lazy(loadAffiliates)
+const SettingsView = lazy(loadSettings)
+const WhatsAppManagerView = lazy(loadWhatsApp)
+const NotificationsView = lazy(loadNotifications)
+const DomainView = lazy(loadDomain)
+const FreteView = lazy(loadFrete)
+const EstoqueAccessView = lazy(loadEstoque)
+const CouponsView = lazy(loadCoupons)
+const ReviewsView = lazy(loadReviews)
+const PaymentConfigView = lazy(loadPayments)
+const AIProvidersPage = lazy(loadAIProviders)
+const AdminEmailsPage = lazy(loadEmails)
 
 function InstagramCanvas() {
   const bridge = useInstagramBridgeOptional()
@@ -164,8 +198,76 @@ function SettingsCanvas({ forcedTab }: { forcedTab?: string } = {}) {
   )
 }
 
+/** Chunk preload por rota — 1ª visita deixa de bloquear no splash */
+const CANVAS_PRELOADERS: Record<string, () => Promise<unknown>> = {
+  '/admin': loadDashboard,
+  '/dashboard': loadDashboard,
+  '/leads': loadLeads,
+  '/clientes': loadClientes,
+  '/produtos': loadProducts,
+  '/pedidos': loadOrders,
+  '/mensagens': loadMessages,
+  '/atendente': loadAgentConfig,
+  '/campanhas': loadCampaigns,
+  '/campanha': loadCampaigns,
+  '/configuracoes': loadSettings,
+  '/whatsapp': loadWhatsApp,
+  '/instagram': loadInstagram,
+  '/facebook': loadFacebook,
+  '/automacoes': loadAutomations,
+  '/afiliados': loadAffiliates,
+  '/galeria': loadGaleria,
+  '/loja': loadStoreStudio,
+  '/design': loadStoreStudio,
+  '/busca': loadLeadSearch,
+  '/habilidades': loadBrandSkills,
+  '/skills': loadBrandSkills,
+  '/agente': loadAgentView,
+  '/fluxos': loadFlowBuilder,
+  '/criativos': loadCriativos,
+  '/video-studio': loadVideoStudio,
+  '/notificacoes': loadNotifications,
+  '/cupons': loadCoupons,
+  '/frete': loadFrete,
+  '/estoque': loadEstoque,
+  '/avaliacoes': loadReviews,
+  '/pagamentos': loadPayments,
+  '/dominio': loadDomain,
+  '/emails': loadEmails,
+  '/provedores-ia': loadAIProviders,
+  '/tirar-pedido': loadAgentPDV,
+}
+
+const prefetched = new Set<string>()
+
+export function normalizeCanvasPath(route: string): string {
+  const p = (route || '').split('?')[0] || ''
+  if (p === '/dashboard') return '/admin'
+  return p
+}
+
+/** Prefetch do JS da área (hover / idle). Seguro chamar várias vezes. */
+export function prefetchCanvasRoute(route: string): void {
+  const key = normalizeCanvasPath(route)
+  if (!key || prefetched.has(key)) return
+  const loader = CANVAS_PRELOADERS[key]
+  if (!loader) return
+  prefetched.add(key)
+  void loader().catch(() => {
+    prefetched.delete(key)
+  })
+}
+
+/** Prefetch das áreas mais usadas (atalhos do dia a dia). */
+export function prefetchHotCanvasRoutes(): void {
+  ;[
+    '/admin', '/leads', '/mensagens', '/atendente', '/produtos', '/pedidos',
+    '/configuracoes', '/campanhas', '/galeria', '/instagram',
+  ].forEach(prefetchCanvasRoute)
+}
+
 export function CanvasPageEmbed({ route }: { route: string }) {
-  const pathOnly = (route || '').split('?')[0]
+  const pathOnly = normalizeCanvasPath(route)
   const qs = (route || '').includes('?') ? (route || '').slice((route || '').indexOf('?') + 1) : ''
   const flush = CANVAS_FLUSH_ROUTES.has(pathOnly)
 
@@ -210,5 +312,77 @@ export function CanvasPageEmbed({ route }: { route: string }) {
         {render()}
       </div>
     </Suspense>
+  )
+}
+
+const MAX_CACHED_PAGES = 8
+
+/**
+ * Keep-alive do painel: páginas visitadas ficam montadas (hidden).
+ * Troca de atalho = só display, sem remount / re-fetch / splash.
+ */
+export function CanvasPageCache({ activeRoute }: { activeRoute: string }) {
+  const shell = useAgentShellOptional()
+  const brandId = String((shell as { brandId?: string } | null)?.brandId || '').trim()
+  const activePath = normalizeCanvasPath(activeRoute)
+  // Cache key inclui marca — troca de Alho Pronto ↔ CE não reutiliza painel stale
+  const cacheKey = (path: string) => `${brandId || 'nobrand'}::${path}`
+  const [visited, setVisited] = useState<string[]>(() =>
+    activePath ? [cacheKey(activePath)] : [cacheKey('/admin')],
+  )
+
+  useEffect(() => {
+    if (!activePath) return
+    prefetchCanvasRoute(activePath)
+    const key = cacheKey(activePath)
+    setVisited((prev) => {
+      if (prev[prev.length - 1] === key) return prev
+      const without = prev.filter((p) => p !== key)
+      const next = [...without, key]
+      if (next.length > MAX_CACHED_PAGES) return next.slice(next.length - MAX_CACHED_PAGES)
+      return next
+    })
+  }, [activePath, brandId])
+
+  useEffect(() => {
+    const run = () => prefetchHotCanvasRoutes()
+    const w = window as Window & {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number
+      cancelIdleCallback?: (id: number) => void
+    }
+    if (typeof w.requestIdleCallback === 'function') {
+      const id = w.requestIdleCallback(run, { timeout: 2500 })
+      return () => w.cancelIdleCallback?.(id)
+    }
+    const t = window.setTimeout(run, 900)
+    return () => window.clearTimeout(t)
+  }, [])
+
+  const flushActive = isCanvasFlushRoute(activePath)
+  const activeKey = cacheKey(activePath)
+
+  return (
+    <div
+      className={`agent-canvas__cache h-full min-h-0${flushActive ? ' agent-canvas__cache--flush' : ''}`}
+      data-active-route={activePath}
+      data-brand={brandId || undefined}
+    >
+      {visited.map((key) => {
+        const path = key.includes('::') ? key.split('::').slice(1).join('::') : key
+        const active = key === activeKey
+        return (
+          <div
+            key={key}
+            className="agent-canvas__cache-page h-full min-h-0"
+            style={{ display: active ? 'flex' : 'none', flexDirection: 'column' }}
+            aria-hidden={!active}
+            data-route={path}
+            data-active={active ? 'true' : 'false'}
+          >
+            <CanvasPageEmbed route={path} />
+          </div>
+        )
+      })}
+    </div>
   )
 }

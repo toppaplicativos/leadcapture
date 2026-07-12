@@ -175,7 +175,7 @@ const HIDDEN_CATALOG_SLUGS = new Set([
   'ig-webhook-mention-thanks',
 ])
 
-export function AutomationsPage({ embedded = false }: { embedded?: boolean } = {}) {
+export function AutomationsPage({ embedded = false, channel }: { embedded?: boolean; channel?: 'whatsapp' } = {}) {
   const [mainTab, setMainTab] = useState<'defs' | 'catalog'>('defs')
   const [items, setItems] = useState<CatalogItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -203,13 +203,18 @@ export function AutomationsPage({ embedded = false }: { embedded?: boolean } = {
       if (!r.ok) throw new Error(d?.error || `Erro ${r.status}`)
       const all = Array.isArray(d?.automations) ? d.automations as CatalogItem[] : []
       // Webhook replies are definitions, not catalog "tarefas"
-      setItems(all.filter((i) => !HIDDEN_CATALOG_SLUGS.has(i.slug)))
+      setItems(all.filter((i) => {
+        if (HIDDEN_CATALOG_SLUGS.has(i.slug)) return false
+        if (!channel) return true
+        const searchable = `${i.slug} ${i.task_type} ${i.name} ${i.description} ${JSON.stringify(i.default_config || {})}`.toLowerCase()
+        return searchable.includes('whatsapp') || searchable.includes('enviar_dm_wa')
+      }))
     } catch (e: any) {
       setError(e?.message || 'Falha ao carregar')
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [channel])
 
   useEffect(() => { load() }, [load])
 
@@ -381,19 +386,19 @@ export function AutomationsPage({ embedded = false }: { embedded?: boolean } = {
           onClick={() => setMainTab('defs')}
           className={`px-4 py-2 rounded-lg text-[12px] font-semibold transition ${mainTab === 'defs' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500'}`}
         >
-          Todas as automações
+          {channel === 'whatsapp' ? 'Fluxos WhatsApp' : 'Todas as automações'}
         </button>
         <button
           type="button"
           onClick={() => setMainTab('catalog')}
           className={`px-4 py-2 rounded-lg text-[12px] font-semibold transition ${mainTab === 'catalog' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500'}`}
         >
-          Modelos prontos
+          {channel === 'whatsapp' ? 'Modelos WhatsApp' : 'Modelos prontos'}
         </button>
       </div>
 
       {mainTab === 'defs' ? (
-        <AutomationDefinitionsHub />
+        <AutomationDefinitionsHub channel={channel} />
       ) : (
         <>
       {/* Stats cards */}

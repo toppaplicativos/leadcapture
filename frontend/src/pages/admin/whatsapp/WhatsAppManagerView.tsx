@@ -62,8 +62,8 @@ export function WhatsAppManagerView() {
     if (section === 'messages') return <Suspense fallback={<PageSplash variant="panel" label="Mensagens" />}><MessagesPage variant="canvas" /></Suspense>
     if (section === 'connections') return renderConnections()
     if (section === 'attendance') return <ChannelAttendancePanel channel="whatsapp" />
-    if (section === 'automations') return <Suspense fallback={<PageSplash variant="panel" label="Automações" />}><AutomationsPage embedded /></Suspense>
-    if (section === 'campaigns') return <Suspense fallback={<PageSplash variant="panel" label="Campanhas" />}><CampaignsView embedded showToast={toast} /></Suspense>
+    if (section === 'automations') return <Suspense fallback={<PageSplash variant="panel" label="Automações" />}><AutomationsPage embedded channel="whatsapp" /></Suspense>
+    if (section === 'campaigns') return <Suspense fallback={<PageSplash variant="panel" label="Campanhas" />}><CampaignsView embedded channel="whatsapp" showToast={toast} /></Suspense>
     if (section === 'settings') return (
       <div className="grid gap-3 md:grid-cols-2">
         {[

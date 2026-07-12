@@ -389,6 +389,31 @@ export class InboxService {
       return;
     }
 
+    // Afiliados podem pausar o assistente apenas nas instâncias que pertencem a eles.
+    // Sem registro, preserva o comportamento existente (ativo); a política global da marca continua soberana.
+    try {
+      const [affiliateControlRows] = await input.pool.execute(
+        `SELECT assistant_enabled AS enabled FROM affiliates
+         WHERE affiliate_user_id = ? AND brand_id = ? LIMIT 1`,
+        [userId || "", brandId]
+      );
+      const affiliateControl = affiliateControlRows?.[0];
+      if (affiliateControl && !this.parseBool(affiliateControl.enabled, true)) {
+        await this.logAIDecision(input.pool, {
+          conversationId: input.conversationId,
+          userId,
+          brandId,
+          decisionType: "affiliate_paused_skip",
+          mode,
+          summary: "Resposta autônoma pausada pelo afiliado responsável pela conexão.",
+          payload: { event: "affiliate_ai_paused", incoming_message_id: input.incomingMessageId, at: new Date().toISOString() },
+        });
+        return;
+      }
+    } catch {
+      // Coluna opcional durante atualização de instalações antigas.
+    }
+
     if (escalation.shouldEscalate) {
       logger.info(`${ctx} GATE: escalando para humano — motivo=${escalation.reason}. Conversa vira ai_mode='manual'. Mensagem detectada: "${input.incomingBody.slice(0, 80)}"`);
       const payload = {

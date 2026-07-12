@@ -1443,32 +1443,54 @@ app.get("/api/instances", authMiddleware, async (req: any, res) => {
 
     const scope = String(req.query?.scope || "all").trim().toLowerCase();
     const brandScoped = scope === "brand" || scope === "active-brand" || authScope.isAffiliate;
+    const requestedBrand = getRequestedBrandId(req);
     let activeBrandId: string | null = authScope.brandId || null;
     if (brandScoped) {
       if (!activeBrandId) {
         activeBrandId = await brandUnitsService
-          .resolveActiveBrandId(authScope.ownerUserId, getRequestedBrandId(req))
+          .resolveActiveBrandId(authScope.ownerUserId, requestedBrand)
           .catch(() => null);
       }
     } else if (!authScope.isAffiliate) {
-      activeBrandId = await brandUnitsService.getActiveBrandId(authScope.ownerUserId).catch(() => null);
+      activeBrandId = await brandUnitsService
+        .resolveActiveBrandId(authScope.ownerUserId, requestedBrand)
+        .catch(() => brandUnitsService.getActiveBrandId(authScope.ownerUserId).catch(() => null));
     }
+
+    // Dono da marca (brand_units.user_id) — usado no filtro legado sem brand_id
+    let brandOwnerUserId: string | null = authScope.ownerUserId;
+    if (activeBrandId) {
+      const brandRow = await queryOne<{ user_id?: string }>(
+        `SELECT user_id FROM brand_units WHERE id = ? LIMIT 1`,
+        [activeBrandId],
+      ).catch(() => null);
+      if (brandRow?.user_id) brandOwnerUserId = String(brandRow.user_id);
+    }
+
     if (brandScoped && !activeBrandId) {
-      return res.json({
-        success: true,
-        instances: [],
-        scope: "brand",
-        brand_id: null,
-        actor_scope: authScope.isAffiliate ? "affiliate_own" : "admin_all",
-      });
+      // Não devolver lista vazia silenciosa: tenta escopo do dono (todas as marcas)
+      // para admin; afiliado continua vazio sem brand.
+      if (authScope.isAffiliate) {
+        return res.json({
+          success: true,
+          instances: [],
+          scope: "brand",
+          brand_id: null,
+          actor_scope: "affiliate_own",
+          warning: "brand_id ausente ou sem permissão",
+        });
+      }
     }
-    const listBrandId = brandScoped ? activeBrandId : null;
+    const listBrandId = brandScoped && activeBrandId ? activeBrandId : null;
     const ownerFilter = String(req.query?.owner_type || "").trim().toLowerCase();
     const listScope = { ...authScope } as import("./services/instanceOwnership").InstanceAuthScope;
     if (!authScope.isAffiliate && (ownerFilter === "admin" || ownerFilter === "affiliate")) {
       listScope.ownerTypeFilter = ownerFilter;
     }
-    const accessFilter = buildInstanceAccessFilter(listScope, listBrandId, "wi");
+    // Admin sem marca resolvida: lista por created_by (todas as marcas do usuário)
+    const accessFilter = buildInstanceAccessFilter(listScope, listBrandId, "wi", {
+      brandOwnerUserId,
+    });
 
     const runtimeMap = new Map(
       instanceManager.getAllInstances(authScope.ownerUserId).map((instance) => [instance.id, instance])

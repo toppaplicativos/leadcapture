@@ -1,6 +1,6 @@
 import { useState, useEffect, FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { Eye, EyeOff, Mail, Lock, ArrowRight, User, Loader2, Gift } from 'lucide-react'
+import { Eye, EyeOff, Mail, Lock, ArrowRight, User, Loader2, Gift, Building2, X } from 'lucide-react'
 import { Button, Input } from '@/components/ui'
 import { BrandMark } from '@/components/BrandMark'
 import {
@@ -35,7 +35,10 @@ export function PartnersLoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPw, setConfirmPw] = useState('')
-  const [phone, setPhone] = useState('')
+  const [brandQuery, setBrandQuery] = useState('')
+  const [brandOptions, setBrandOptions] = useState<Array<{ id: string; name: string; slug: string; logo_url?: string | null }>>([])
+  const [selectedBrand, setSelectedBrand] = useState<{ id: string; name: string; slug: string; logo_url?: string | null } | null>(null)
+  const [brandSearching, setBrandSearching] = useState(false)
   const [showPw, setShowPw] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -65,6 +68,22 @@ export function PartnersLoginPage() {
       .catch((err: Error) => setInviteError(err.message || 'Convite inválido'))
       .finally(() => setInviteLoading(false))
   }, [inviteCode])
+
+  useEffect(() => {
+    const query = brandQuery.trim()
+    if (selectedBrand || query.length < 2) {
+      setBrandOptions([])
+      return
+    }
+    const timer = window.setTimeout(() => {
+      setBrandSearching(true)
+      partnersApi.searchBrands(query)
+        .then((data) => setBrandOptions(data.brands || []))
+        .catch(() => setBrandOptions([]))
+        .finally(() => setBrandSearching(false))
+    }, 250)
+    return () => window.clearTimeout(timer)
+  }, [brandQuery, selectedBrand])
 
   function switchMode(m: Mode) {
     if (emailLocked && m === 'register') return
@@ -114,7 +133,7 @@ export function PartnersLoginPage() {
         name: name.trim(),
         email: email.trim(),
         password,
-        phone: phone.trim() || undefined,
+        brand_id: selectedBrand?.id,
       })
       setSuccess(result.message || 'Conta criada!')
       await afterAuth(result)
@@ -180,7 +199,7 @@ export function PartnersLoginPage() {
                 </div>
               )}
               <div className="min-w-0">
-                <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">
+                <p className="text-[11px] font-semibold text-gray-500 tracking-tight">
                   Convite de afiliado
                 </p>
                 <p className="text-sm font-semibold text-gray-900 mt-0.5">
@@ -353,14 +372,30 @@ export function PartnersLoginPage() {
                 iconLeft={<Lock size={16} strokeWidth={1.75} />}
               />
 
-              <Input
-                label="WhatsApp (opcional)"
-                type="tel"
-                value={phone}
-                onChange={e => setPhone(e.target.value)}
-                placeholder="(11) 99999-9999"
-                autoComplete="tel"
-              />
+              <div className="w-full">
+                <label className="block text-[12px] font-semibold text-gray-700 mb-1.5">Marca de interesse <span className="font-normal text-gray-400">(opcional)</span></label>
+                {selectedBrand ? (
+                  <div className="flex h-12 items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50/60 px-3">
+                    <span className="grid h-8 w-8 place-items-center overflow-hidden rounded-lg bg-white text-emerald-700">
+                      {selectedBrand.logo_url ? <img src={selectedBrand.logo_url} alt="" className="h-full w-full object-cover" /> : <Building2 size={16} />}
+                    </span>
+                    <span className="min-w-0 flex-1"><strong className="block truncate text-sm text-gray-900">{selectedBrand.name}</strong><span className="text-[10px] text-gray-500">Será associada ao seu cadastro</span></span>
+                    <button type="button" onClick={() => { setSelectedBrand(null); setBrandQuery('') }} aria-label="Remover marca" className="grid h-8 w-8 place-items-center rounded-full text-gray-400 hover:bg-white hover:text-gray-700"><X size={15} /></button>
+                  </div>
+                ) : (
+                  <div className="relative">
+                    <Building2 size={16} className="pointer-events-none absolute left-3.5 top-3.5 z-10 text-gray-400" />
+                    <input value={brandQuery} onChange={(event) => setBrandQuery(event.target.value)} placeholder="Busque pelo nome da marca" className="ds-control ds-control--icon-left h-11" />
+                    {brandSearching && <Loader2 size={15} className="absolute right-3.5 top-3.5 animate-spin text-gray-400" />}
+                    {brandOptions.length > 0 && (
+                      <div className="absolute z-30 mt-1.5 w-full overflow-hidden rounded-xl border border-gray-200 bg-white p-1 shadow-xl">
+                        {brandOptions.map((brand) => <button key={brand.id} type="button" onClick={() => { setSelectedBrand(brand); setBrandQuery(brand.name); setBrandOptions([]) }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm hover:bg-gray-50"><Building2 size={14} className="text-gray-400" /><span className="truncate font-medium text-gray-800">{brand.name}</span></button>)}
+                      </div>
+                    )}
+                  </div>
+                )}
+                <p className="mt-1.5 text-[10px] leading-relaxed text-gray-400">Você também pode continuar sem escolher uma marca e explorar os programas depois.</p>
+              </div>
 
               {error && (
                 <div className="px-3.5 py-2.5 rounded-xl bg-red-50 border border-red-100 text-[13px] text-red-700 font-medium">

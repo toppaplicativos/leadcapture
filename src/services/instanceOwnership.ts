@@ -168,21 +168,44 @@ export type InstanceAccessFilter = {
   params: unknown[];
 };
 
-/** Filtro de listagem / acesso por tenant (created_by) + marca + dono (admin vs afiliado). */
+/**
+ * Filtro de listagem / acesso por tenant + marca + dono (admin vs afiliado).
+ *
+ * Admin + brandId: prioriza `brand_id` da marca ativa (todas as sessões da marca,
+ * sistema e afiliado). Também inclui legado sem brand_id do dono da marca.
+ * Afiliado: só as próprias sessões da marca.
+ */
 export function buildInstanceAccessFilter(
   scope: InstanceAuthScope,
   brandId?: string | null,
   alias = "wi",
+  options?: { brandOwnerUserId?: string | null },
 ): InstanceAccessFilter {
-  const params: unknown[] = [scope.ownerUserId];
-  let where = `${alias}.created_by = ?`;
-
   const normalizedBrand = String(brandId || scope.brandId || "").trim();
+  const brandOwner = String(options?.brandOwnerUserId || scope.ownerUserId || "").trim();
+  const params: unknown[] = [];
+  let where: string;
   if (normalizedBrand) {
-    where += ` AND ${alias}.brand_id = ?`;
-    params.push(normalizedBrand);
+    if (scope.isAffiliate) {
+      where = `${alias}.created_by = ? AND ${alias}.brand_id = ?`;
+      params.push(scope.ownerUserId, normalizedBrand);
+    } else {
+      // Admin: tudo com brand_id da marca + legado null do dono da marca
+      where = `(
+        ${alias}.brand_id = ?
+        OR (
+          ${alias}.brand_id IS NULL
+          AND ${alias}.created_by = ?
+        )
+      )`;
+      params.push(normalizedBrand, brandOwner || scope.ownerUserId);
+    }
   } else if (scope.isAffiliate) {
-    where += ` AND ${alias}.brand_id IS NOT NULL`;
+    where = `${alias}.created_by = ? AND ${alias}.brand_id IS NOT NULL`;
+    params.push(scope.ownerUserId);
+  } else {
+    where = `${alias}.created_by = ?`;
+    params.push(scope.ownerUserId);
   }
 
   if (scope.isAffiliate) {

@@ -57,10 +57,19 @@ export const partnersApi = {
       body: JSON.stringify({ email, password }),
     }),
 
-  register: (payload: { name: string; email: string; password: string; phone?: string }) =>
+  register: (payload: { name: string; email: string; password: string; brand_id?: string }) =>
     partnersFetch<any>('/api/auth/partners-register', {
       method: 'POST',
       body: JSON.stringify(payload),
+    }),
+
+  searchBrands: (q: string) =>
+    fetch(`/api/auth/partners-brands?q=${encodeURIComponent(q)}`, {
+      headers: { 'Content-Type': 'application/json' },
+    }).then(async (r) => {
+      const data = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(data.error || `Erro ${r.status}`)
+      return data as { success: boolean; brands: Array<{ id: string; name: string; slug: string; logo_url?: string | null }> }
     }),
 
   me: () => partnersFetch<any>('/api/partners-app/me'),

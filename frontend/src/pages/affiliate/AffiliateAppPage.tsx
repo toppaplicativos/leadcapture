@@ -3,7 +3,7 @@ import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, ShoppingBag, Wallet, Megaphone, Banknote, User,
   LogOut, Loader2, Copy, QrCode, Share2, Trophy, MousePointerClick,
-  TrendingUp, Clock, ChevronRight, ChevronLeft, GraduationCap, LayoutGrid, X, Phone, Package, MessageCircle, AlertCircle, Link2, Crown, Store, Bell, Home, Target,
+  TrendingUp, Clock, ChevronRight, ChevronLeft, GraduationCap, LayoutGrid, X, Phone, Package, MessageCircle, AlertCircle, Link2, Crown, Store, Bell, Home, Target, Radio,
 } from 'lucide-react'
 import { AffiliateOpportunitiesPanel } from '@/pages/affiliate/AffiliateOpportunitiesPanel'
 import { AffiliateCustomersPanel } from '@/pages/affiliate/AffiliateCustomersPanel'
@@ -23,6 +23,8 @@ import { AffiliateConnections } from '@/pages/affiliate/AffiliateConnections'
 import { AffiliateMessages } from '@/pages/affiliate/AffiliateMessages'
 import { AffiliateDistributionBanner } from '@/pages/affiliate/AffiliateDistributionBanner'
 import { AffiliateWhatsAppHeaderIcon } from '@/pages/affiliate/AffiliateWhatsAppHeaderIcon'
+import { AffiliateLiveDispatchPanel } from '@/pages/affiliate/AffiliateLiveDispatchPanel'
+import { AffiliateOrdersHub } from '@/pages/affiliate/AffiliateOrdersHub'
 
 import { WhatsAppIcon } from '@/components/icons'
 import { AffiliateCommissionCard } from '@/pages/affiliate/AffiliateCommissionCard'
@@ -43,12 +45,13 @@ const dt = (v?: string) => {
   }
 }
 
-type TabId = 'resumo' | 'vendas' | 'financeiro' | 'divulgacao' | 'links' | 'contatos' | 'mercado' | 'alertas' | 'clientes' | 'aprendizado' | 'produtos' | 'perfil' | 'conexoes' | 'mensagens'
+type TabId = 'resumo' | 'ao-vivo' | 'vendas' | 'financeiro' | 'divulgacao' | 'links' | 'contatos' | 'mercado' | 'alertas' | 'clientes' | 'aprendizado' | 'produtos' | 'perfil' | 'conexoes' | 'mensagens'
 type FinanceiroMode = 'comissoes' | 'saques' | 'pagamentos'
 
 const TAB_ROUTES: { key: TabId; path: string; icon: typeof LayoutDashboard; label: string }[] = [
   { key: 'resumo', path: '', icon: LayoutDashboard, label: 'Início' },
-  { key: 'vendas', path: 'vendas', icon: ShoppingBag, label: 'Vendas' },
+  { key: 'ao-vivo', path: 'ao-vivo', icon: Radio, label: 'Ao vivo' },
+  { key: 'vendas', path: 'vendas', icon: ShoppingBag, label: 'Pedidos' },
   { key: 'divulgacao', path: 'divulgacao', icon: Megaphone, label: 'Divulgar' },
   { key: 'financeiro', path: 'financeiro', icon: Wallet, label: 'Carteira' },
   { key: 'links', path: 'links', icon: Link2, label: 'Links' },
@@ -61,21 +64,39 @@ const TAB_ROUTES: { key: TabId; path: string; icon: typeof LayoutDashboard; labe
   { key: 'perfil', path: 'perfil', icon: User, label: 'Perfil' },
 ]
 
+const TAB_PATHS: Partial<Record<TabId, string>> = {
+  resumo: '',
+  'ao-vivo': 'ao-vivo',
+  vendas: 'vendas',
+  divulgacao: 'divulgacao',
+  links: 'links',
+  contatos: 'contatos',
+  mercado: 'mercado',
+  alertas: 'alertas',
+  clientes: 'clientes',
+  aprendizado: 'aprendizado',
+  produtos: 'produtos',
+  perfil: 'perfil',
+  conexoes: 'conexoes',
+  mensagens: 'mensagens',
+}
+
 /** Início · Vendas · Divulgar · Carteira · Mais */
 const BOTTOM_NAV: { key: TabId; path: string; icon: typeof LayoutDashboard; label: string }[] = [
   { key: 'resumo', path: '', icon: LayoutDashboard, label: 'Início' },
-  { key: 'vendas', path: 'vendas', icon: ShoppingBag, label: 'Vendas' },
-  { key: 'divulgacao', path: 'divulgacao', icon: Megaphone, label: 'Divulgar' },
+  { key: 'ao-vivo', path: 'ao-vivo', icon: Radio, label: 'Ao vivo' },
+  { key: 'vendas', path: 'vendas', icon: ShoppingBag, label: 'Pedidos' },
   { key: 'financeiro', path: 'financeiro', icon: Wallet, label: 'Carteira' },
 ]
 
-const MORE_MENU_TABS_BASE: TabId[] = ['links', 'contatos', 'mercado', 'clientes', 'aprendizado', 'produtos', 'perfil', 'conexoes', 'mensagens', 'alertas']
+const MORE_MENU_TABS_BASE: TabId[] = ['divulgacao', 'links', 'contatos', 'mercado', 'clientes', 'aprendizado', 'produtos', 'perfil', 'conexoes', 'mensagens', 'alertas']
 
 type MoreMenuItem =
   | { kind: 'tab'; tab: TabId; icon: typeof LayoutDashboard; label: string; desc: string }
   | { kind: 'financeiro'; mode: FinanceiroMode; icon: typeof LayoutDashboard; label: string; desc: string }
 
 const MORE_MENU_BASE: MoreMenuItem[] = [
+  { kind: 'tab', tab: 'divulgacao', icon: Megaphone, label: 'Divulgar', desc: 'Materiais, argumentos e canais para vender' },
   { kind: 'tab', tab: 'contatos', icon: Target, label: 'Contatos', desc: 'Prospects e leads enviados pela marca e pelos seus links' },
   { kind: 'tab', tab: 'clientes', icon: Crown, label: 'Clientes', desc: 'Quem já comprou — faturamento, pós-venda e comissões' },
   { kind: 'tab', tab: 'links', icon: Link2, label: 'Links', desc: 'Compartilhar e rastrear cliques' },
@@ -94,6 +115,7 @@ const MORE_MENU_BASE: MoreMenuItem[] = [
 function tabFromPath(pathname: string, base: string): TabId {
   const rest = pathname.startsWith(base) ? pathname.slice(base.length).replace(/^\//, '') : ''
   if (!rest) return 'resumo'
+  if (rest === 'ao-vivo') return 'ao-vivo'
   if (rest === 'conexoes') return 'conexoes'
   if (rest === 'mensagens') return 'mensagens'
   if (rest === 'links') return 'links'
@@ -102,8 +124,8 @@ function tabFromPath(pathname: string, base: string): TabId {
   if (rest === 'mercado') return 'mercado'
   if (rest === 'clientes') return 'clientes'
   if (rest === 'comissoes' || rest === 'saques' || rest === 'pagamentos' || rest === 'financeiro') return 'financeiro'
-  const hit = TAB_ROUTES.find((n) => n.path === rest)
-  return hit?.key || 'resumo'
+  const hit = Object.entries(TAB_PATHS).find(([, path]) => path === rest)
+  return (hit?.[0] as TabId | undefined) || 'resumo'
 }
 
 function isMoreMenuActive(tab: TabId, hideMercado: boolean, hidePerfil: boolean) {
@@ -784,8 +806,8 @@ export function AffiliateAppPage() {
       goFinanceiro(financeiroMode)
       return
     }
-    const item = TAB_ROUTES.find((n) => n.key === tab)
-    const dest = item?.path ? `${base}/${item.path}` : base
+    const path = TAB_PATHS[tab]
+    const dest = path ? `${base}/${path}` : base
     if (location.pathname !== dest) navigate(dest, { replace: true })
   }
 
@@ -832,7 +854,8 @@ export function AffiliateAppPage() {
 
   const tabTitles: Record<TabId, string> = {
     resumo: 'Início',
-    vendas: 'Vendas',
+    'ao-vivo': 'Distribuição ao vivo',
+    vendas: 'Pedidos',
     financeiro: financeiroMode === 'saques' ? 'Saques' : financeiroMode === 'pagamentos' ? 'Recebimento Pix' : 'Comissões',
     divulgacao: 'Divulgação',
     links: 'Links',
@@ -871,7 +894,9 @@ export function AffiliateAppPage() {
             onViewOpportunities={() => goTab('contatos')}
           />
         )
-      case 'vendas': return <AffiliateSales ctx={appCtx} />
+      case 'ao-vivo':
+        return <AffiliateLiveDispatchPanel ctx={appCtx} onConnectWhatsApp={() => goTab('conexoes')} />
+      case 'vendas': return <AffiliateOrdersHub ctx={appCtx} />
       case 'financeiro':
         return (
           <div className="space-y-3 pb-2">
@@ -1000,43 +1025,36 @@ export function AffiliateAppPage() {
       >
         <header
           className="affiliate-app__header"
-          style={{ background: `linear-gradient(160deg, ${primary}, ${appCtx.secondary})` }}
+          style={{ '--affiliate-brand': primary } as React.CSSProperties}
         >
-          <div className="flex items-center justify-between gap-3 max-w-lg mx-auto">
-            <div className="flex items-center gap-2 min-w-0">
+          <div className="affiliate-app__header-inner">
+            <div className="affiliate-app__identity">
               {isPartnersProgram && (
                 <button
                   type="button"
                   onClick={exitProgram}
-                  className="w-10 h-10 rounded-xl bg-white/15 grid place-items-center hover:bg-white/25 active:scale-95 transition shrink-0"
+                  className="affiliate-app__back"
                   aria-label={shell.exitLabel || 'Voltar ao início'}
                   title={shell.exitLabel || 'Voltar ao início'}
                 >
                   <Home size={17} />
                 </button>
               )}
-              <div className="flex items-center gap-3 min-w-0">
+              <div className="affiliate-app__brandmark">
                 {appCtx.brand?.logo_url ? (
-                  <img src={appCtx.brand.logo_url} alt="" className="w-10 h-10 rounded-xl object-cover ring-2 ring-white/25 shadow-sm shrink-0" />
+                  <img src={appCtx.brand.logo_url} alt="" />
                 ) : (
-                  <div className="w-10 h-10 rounded-xl bg-white/20 grid place-items-center font-bold text-sm shadow-inner shrink-0">
+                  <span>
                     {(appCtx.brand?.name || 'A')[0]}
-                  </div>
+                  </span>
                 )}
-                <div className="min-w-0">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-white/65">
-                    {isPartnersProgram ? 'Programa · LeadCapture Parceiros' : 'Central do Afiliado'}
-                  </p>
-                  <p className="text-base font-extrabold truncate tracking-tight">
-                    {isPartnersProgram ? (appCtx.brand?.name || tabTitles[activeTab]) : tabTitles[activeTab]}
-                  </p>
-                  {isPartnersProgram && (
-                    <p className="text-[10px] text-white/75 truncate">{tabTitles[activeTab]}</p>
-                  )}
-                </div>
+              </div>
+              <div className="affiliate-app__header-copy">
+                <h1>{tabTitles[activeTab]}</h1>
+                <p>{isPartnersProgram ? (appCtx.brand?.name || 'Programa de parceiros') : (appCtx.brand?.name || 'Central do afiliado')}</p>
               </div>
             </div>
-            <div className="flex items-center gap-1.5 shrink-0">
+            <div className="affiliate-app__header-actions">
               <AffiliateWhatsAppHeaderIcon
                 cacheVersion={cacheVersion}
                 onClick={() => goTab('conexoes')}
@@ -1065,15 +1083,9 @@ export function AffiliateAppPage() {
 
         <main className="affiliate-app__main">
           <div className="affiliate-panels">
-            {(['resumo', 'vendas', 'financeiro', 'divulgacao', 'links', 'contatos', 'mercado', 'alertas', 'clientes', 'aprendizado', 'produtos', 'perfil', 'conexoes', 'mensagens'] as TabId[]).map((tab) => (
-              <section
-                key={tab}
-                className={`affiliate-panel${activeTab === tab ? ' affiliate-panel--active' : ''}`}
-                aria-hidden={activeTab !== tab}
-              >
-                {renderPanel(tab)}
-              </section>
-            ))}
+            <section key={`${activeTab}-${financeiroMode}`} className="affiliate-panel affiliate-panel--active">
+              {renderPanel(activeTab)}
+            </section>
           </div>
         </main>
 

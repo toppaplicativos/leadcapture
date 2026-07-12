@@ -225,7 +225,9 @@ Uma família visual, três canais de entrega:
 
 | Superfície | Tokens | Controles |
 |---|---|---|
-| React app (admin, agent, affiliate, partners, store) | `frontend/src/index.css` `@theme` + `--ds-*` | `components/ui/*` |
+| React app (admin, agent) | `frontend/src/index.css` `@theme` + `--ds-*` | `components/ui/*` |
+| App afiliado / parceiros PWA | `.affiliate-app` (`--affiliate-ink`, canvas `#f5f5f5`) + accent de marca | bottom nav sólida, cards borda flat |
+| Storefront React | `.store-page` + `--store-*` + brand focus | `.store-search` ink text / brand ring |
 | Master console (dark) | `.master-console` + ink options absolutas | mesmos raios/focus; superfície `#0a0a0a` |
 | HTML legado (catálogo, estoque, inventário) | `public/shared/design-tokens.css` | `public/shared/components/*.css` via `loader.js` |
 | Marca runtime | `--brand-primary` / `--brand-secondary` (JS) | CTAs e seleção only |

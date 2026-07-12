@@ -51,8 +51,8 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
             error
               ? 'border-red-300 focus:ring-red-500/10 focus:border-red-500'
               : 'border-border',
-            iconLeft ? 'pl-10' : 'pl-3.5',
-            iconRight ? 'pr-10' : 'pr-3.5',
+            iconLeft ? 'ds-control--icon-left' : 'pl-3.5',
+            iconRight ? 'ds-control--icon-right' : 'pr-3.5',
             className,
           )}
           {...rest}

@@ -8,6 +8,7 @@ import { getHealthSnapshot } from "./whatsappHealth";
 import { logger } from "../utils/logger";
 
 let schemaReady = false;
+let schemaPromise: Promise<void> | null = null;
 
 let imRef: InstanceManager | null = null;
 export function setDistributionInstanceManagerRef(im: InstanceManager): void {
@@ -69,15 +70,17 @@ export type AffiliateEligibilitySnapshot = {
   enrollment_status: string | null;
   connected_instance_id: string | null;
   connected_instance_name: string | null;
+  connected_instances: number;
   stats: {
     assigned_total: number;
     assigned_active: number;
+    assigned_today: number;
     alerts_unread: number;
     queued_for_brand: number;
   };
 };
 
-async function ensureDistributionSchema(): Promise<void> {
+async function initializeDistributionSchema(): Promise<void> {
   if (schemaReady) return;
 
   await query(`
@@ -222,6 +225,16 @@ async function ensureDistributionSchema(): Promise<void> {
   `);
 
   schemaReady = true;
+}
+
+async function ensureDistributionSchema(): Promise<void> {
+  if (schemaReady) return;
+  if (!schemaPromise) {
+    schemaPromise = initializeDistributionSchema().finally(() => {
+      if (!schemaReady) schemaPromise = null;
+    });
+  }
+  await schemaPromise;
 }
 
 function todayDateOnly(): string {
@@ -894,15 +907,19 @@ export class AffiliateDistributionService {
       enrollment_status: enrollment?.status ? String(enrollment.status) : null,
       connected_instance_id: connectedInstance?.id ? String(connectedInstance.id) : null,
       connected_instance_name: connectedInstance?.name ? String(connectedInstance.name) : null,
+      connected_instances: (health.instances || []).filter(
+        (i) => i.status_runtime === "connected" && !i.drift
+      ).length,
       stats,
     };
   }
 
   private async loadAffiliateStats(affiliateId: string, brandId: string, ownerUserId: string) {
-    const assigned = await queryOne<{ total: number; active: number }>(
+    const assigned = await queryOne<{ total: number; active: number; today: number }>(
       `SELECT
          COUNT(*) AS total,
-         SUM(CASE WHEN assignment_status NOT IN ('lost', 'converted', 'recycled') THEN 1 ELSE 0 END) AS active
+         SUM(CASE WHEN assignment_status NOT IN ('lost', 'converted', 'recycled') THEN 1 ELSE 0 END) AS active,
+         SUM(CASE WHEN DATE(assigned_at) = CURRENT_DATE THEN 1 ELSE 0 END) AS today
        FROM prospect_assignments
        WHERE affiliate_id = ? AND brand_id = ?`,
       [affiliateId, brandId]
@@ -920,6 +937,7 @@ export class AffiliateDistributionService {
     return {
       assigned_total: Number(assigned?.total || 0),
       assigned_active: Number(assigned?.active || 0),
+      assigned_today: Number(assigned?.today || 0),
       alerts_unread: Number(alerts?.unread || 0),
       queued_for_brand: Number(queued?.total || 0),
     };
@@ -938,6 +956,12 @@ export class AffiliateDistributionService {
   }
 
   private mapAssignment(r: any) {
+    let metadata: Record<string, any> = {};
+    try { metadata = typeof r.metadata_json === "string" ? JSON.parse(r.metadata_json || "{}") : (r.metadata_json || {}); } catch { metadata = {}; }
+    const niche = String(
+      metadata.niche || metadata.keyword || metadata.palavra_chave || metadata.segment
+      || metadata.category || metadata.categoria || ""
+    ).trim() || null;
     return {
       id: String(r.id),
       prospect_id: String(r.prospect_id),
@@ -952,6 +976,7 @@ export class AffiliateDistributionService {
       last_interaction_at: r.last_interaction_at ? String(r.last_interaction_at) : null,
       next_followup_at: r.next_followup_at ? String(r.next_followup_at) : null,
       conversion_status: String(r.conversion_status || "open"),
+      niche,
     };
   }
 
@@ -1358,8 +1383,8 @@ export class AffiliateDistributionService {
         `INSERT INTO prospect_assignments
          (id, owner_user_id, brand_id, program_id, prospect_id, prospect_ref_table,
           prospect_name, prospect_phone, prospect_city, prospect_region,
-          affiliate_id, affiliate_user_id, instance_id, source, assignment_status, current_stage, priority_score)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'assigned', 'assigned_to_affiliate', ?)`,
+          affiliate_id, affiliate_user_id, instance_id, source, assignment_status, current_stage, priority_score, metadata_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'assigned', 'assigned_to_affiliate', ?, ?)`,
         [
           assignmentId,
           ownerUserId,
@@ -1376,6 +1401,7 @@ export class AffiliateDistributionService {
           instance?.id || null,
           item.source || "distribution",
           item.priority_score || 50,
+          typeof item.metadata_json === "string" ? item.metadata_json : JSON.stringify(item.metadata_json || {}),
         ]
       );
 

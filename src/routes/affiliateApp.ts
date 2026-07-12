@@ -1,6 +1,6 @@
 import { Router, Response } from "express";
 import { AuthRequest } from "../middleware/auth";
-import { queryOne } from "../config/database";
+import { query, queryOne } from "../config/database";
 import { AffiliatesService } from "../services/affiliates";
 import { affiliateProductLearningService } from "../services/affiliateProductLearning";
 import { CreativeStudioService } from "../services/creativeStudio";
@@ -14,10 +14,12 @@ import {
 } from "../services/affiliateCommission";
 import { affiliateDistributionService } from "../services/affiliateDistribution";
 import { affiliateCrmService } from "../services/affiliateCrm";
+import { CommerceService } from "../services/commerce";
 
 const router = Router();
 const affiliatesService = new AffiliatesService();
 const creativeStudio = new CreativeStudioService();
+const affiliateCommerceService = new CommerceService();
 
 const MATERIAL_PURPOSE_GUIDE: Record<string, string> = {
   instagram_feed:
@@ -59,9 +61,11 @@ async function requireAffiliateCredential(req: AuthRequest, res: Response): Prom
 }
 
 async function getAffiliateProfile(ctx: AffiliateContext) {
-  await affiliatesService.ensureSchema();
   if (ctx.credentialId) {
-    const byCred = await affiliatesService.getAffiliateByCredential(ctx.credentialId, ctx.brandId);
+    const byCred = await queryOne<any>(
+      `SELECT * FROM affiliates WHERE credential_id = ? AND brand_id = ? LIMIT 1`,
+      [ctx.credentialId, ctx.brandId]
+    );
     if (byCred) return byCred;
   }
   return queryOne<any>(
@@ -719,6 +723,67 @@ router.get("/products", async (req: AuthRequest, res: Response) => {
   }
 });
 
+router.get("/orders", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = await requireAffiliateCredential(req, res);
+    if (!ctx) return;
+    const affiliate = await getAffiliateProfile(ctx);
+    if (!affiliate) return res.status(404).json({ error: "Perfil de afiliado não encontrado" });
+
+    const orders = await query<any[]>(
+      `SELECT o.*,
+              (SELECT COUNT(*) FROM commerce_order_items oi WHERE oi.order_id = o.id) AS items_count
+       FROM commerce_orders o
+       WHERE o.brand_id = ? AND UPPER(COALESCE(o.cupom_codigo, '')) = UPPER(?)
+       ORDER BY o.data_criacao DESC, o.created_at DESC
+       LIMIT 100`,
+      [ctx.brandId, String(affiliate.coupon_code || "")]
+    ).catch(() => []);
+
+    const summary = {
+      total: orders.length,
+      open: orders.filter((o) => !["entregue", "cancelado", "estornado", "abandonado"].includes(String(o.status_pedido))).length,
+      awaiting_payment: orders.filter((o) => ["criado", "aguardando_pagamento"].includes(String(o.status_pedido))).length,
+      completed: orders.filter((o) => String(o.status_pedido) === "entregue").length,
+      revenue: orders.filter((o) => !["cancelado", "estornado", "abandonado"].includes(String(o.status_pedido))).reduce((sum, o) => sum + Number(o.valor_total || 0), 0),
+    };
+    res.json({ success: true, orders, summary });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Falha ao listar pedidos" });
+  }
+});
+
+router.post("/orders", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = await requireAffiliateCredential(req, res);
+    if (!ctx) return;
+    const affiliate = await getAffiliateProfile(ctx);
+    if (!affiliate) return res.status(404).json({ error: "Perfil de afiliado não encontrado" });
+    const payload = req.body || {};
+    const items = Array.isArray(payload.items) ? payload.items : [];
+    if (!String(payload.customer_name || "").trim()) return res.status(400).json({ error: "Informe o nome do cliente" });
+    if (!String(payload.customer_phone || "").replace(/\D/g, "")) return res.status(400).json({ error: "Informe o WhatsApp do cliente" });
+    if (!items.length) return res.status(400).json({ error: "Adicione pelo menos um produto" });
+
+    const origin = `${req.protocol}://${req.get("host")}`;
+    const created = await affiliateCommerceService.createOrder(ctx.ownerUserId, ctx.brandId, {
+      lead_id: payload.lead_id ? String(payload.lead_id) : undefined,
+      origem: "whatsapp",
+      forma_pagamento: String(payload.payment_method || "pix"),
+      customer_name: String(payload.customer_name).trim(),
+      customer_email: String(payload.customer_email || "").trim() || undefined,
+      customer_phone: String(payload.customer_phone).trim(),
+      cupom_codigo: String(affiliate.coupon_code || "").trim() || undefined,
+      checkout_base_url: origin,
+      itens: items.map((item: any) => ({ product_id: String(item.product_id || ""), quantidade: Math.max(1, Number(item.quantity || 1)) })),
+    });
+    res.status(201).json({ success: true, ...created });
+  } catch (e: any) {
+    const status = e?.code === "INSUFFICIENT_STOCK" ? 409 : 400;
+    res.status(status).json({ error: e.message || "Falha ao criar pedido", shortages: e?.shortages || undefined });
+  }
+});
+
 router.get("/products/:productId/guide", async (req: AuthRequest, res: Response) => {
   try {
     const ctx = await requireAffiliateCredential(req, res);
@@ -982,6 +1047,95 @@ router.get("/distribution/status", async (req: AuthRequest, res: Response) => {
     res.json({ success: true, ...snapshot });
   } catch (e: any) {
     res.status(500).json({ error: e.message || "Falha ao carregar status de distribuição" });
+  }
+});
+
+router.get("/assistant-control", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = await requireAffiliateCredential(req, res);
+    if (!ctx) return;
+    const [control, globalState, instanceStats, conversationStats, campaignStats] = await Promise.all([
+      queryOne<any>(
+        `SELECT assistant_enabled AS enabled, updated_at FROM affiliates
+         WHERE affiliate_user_id = ? AND brand_id = ? LIMIT 1`,
+        [ctx.affiliateUserId, ctx.brandId]
+      ).catch(() => null),
+      queryOne<any>(
+        `SELECT auto_reply_enabled, reason FROM ai_global_settings WHERE brand_id = ? LIMIT 1`,
+        [ctx.brandId]
+      ).catch(() => null),
+      queryOne<any>(
+        `SELECT COUNT(*) AS total,
+                SUM(CASE WHEN status = 'connected' THEN 1 ELSE 0 END) AS connected
+         FROM whatsapp_instances WHERE created_by = ? AND brand_id = ?`,
+        [ctx.affiliateUserId, ctx.brandId]
+      ),
+      queryOne<any>(
+        `SELECT COUNT(*) AS total,
+                SUM(CASE WHEN c.ai_mode = 'autonomous' THEN 1 ELSE 0 END) AS autonomous,
+                SUM(CASE WHEN c.unread_count > 0 THEN 1 ELSE 0 END) AS waiting
+         FROM whatsapp_conversations c
+         JOIN whatsapp_instances i ON i.id = c.instance_id
+         WHERE i.created_by = ? AND i.brand_id = ? AND c.status = 'open'`,
+        [ctx.affiliateUserId, ctx.brandId]
+      ).catch(() => null),
+      queryOne<any>(
+        `SELECT COUNT(*) AS campaigns
+         FROM campaign_history ch
+         JOIN whatsapp_instances i ON i.id = ch.instance_id
+         WHERE i.created_by = ? AND i.brand_id = ?
+           AND ch.status IN ('active','running','scheduled','paused')`,
+        [ctx.affiliateUserId, ctx.brandId]
+      ).catch(() => null),
+    ]);
+
+    const affiliateEnabled = control ? Boolean(control.enabled) : true;
+    const organizationEnabled = globalState ? Boolean(globalState.auto_reply_enabled) : false;
+    const connected = Number(instanceStats?.connected || 0);
+    res.json({
+      success: true,
+      assistant: {
+        affiliate_enabled: affiliateEnabled,
+        organization_enabled: organizationEnabled,
+        effective_enabled: affiliateEnabled && organizationEnabled,
+        organization_reason: globalState?.reason || null,
+        updated_at: control?.updated_at || null,
+      },
+      connections: {
+        total: Number(instanceStats?.total || 0),
+        connected,
+        daily_capacity: connected * 40,
+      },
+      conversations: {
+        total: Number(conversationStats?.total || 0),
+        autonomous: Number(conversationStats?.autonomous || 0),
+        waiting: Number(conversationStats?.waiting || 0),
+      },
+      campaigns: {
+        active: Number(campaignStats?.campaigns || 0),
+        queued: 0,
+        sent_today: 0,
+      },
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Falha ao carregar controle do assistente" });
+  }
+});
+
+router.patch("/assistant-control", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = await requireAffiliateCredential(req, res);
+    if (!ctx) return;
+    if (typeof req.body?.enabled !== "boolean") return res.status(400).json({ error: "Informe se o assistente deve ficar ativo" });
+    await query(`ALTER TABLE affiliates ADD COLUMN assistant_enabled BOOLEAN NOT NULL DEFAULT TRUE`).catch(() => undefined);
+    await query(
+      `UPDATE affiliates SET assistant_enabled = ?, updated_at = NOW()
+       WHERE affiliate_user_id = ? AND brand_id = ?`,
+      [req.body.enabled, ctx.affiliateUserId, ctx.brandId]
+    );
+    res.json({ success: true, affiliate_enabled: req.body.enabled });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message || "Falha ao atualizar o assistente" });
   }
 });
 

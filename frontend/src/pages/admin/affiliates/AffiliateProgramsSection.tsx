@@ -2,7 +2,7 @@
 import {
   Plus, Loader2, ChevronRight, Layers, Users, CheckCircle2, XCircle,
   GraduationCap, BookOpen, Package, ArrowUp, ArrowDown, Trash2, Ban, Shield, Link2, Copy,
-  Settings, Image,
+  Settings, Image, Search, Mail, CalendarDays,
 } from 'lucide-react'
 import { getHeaders } from '@/lib/admin/helpers'
 import { buildPartnersInviteUrl } from '@/lib/api-partners'
@@ -78,6 +78,8 @@ export function AffiliateProgramsSection({
   const [bundle, setBundle] = useState<any>(null)
   const [applications, setApplications] = useState<any[]>([])
   const [enrollments, setEnrollments] = useState<any[]>([])
+  const [peopleSearch, setPeopleSearch] = useState('')
+  const [peopleStatus, setPeopleStatus] = useState<'all' | 'active' | 'onboarding' | 'suspended' | 'revoked'>('all')
   const [catalogProducts, setCatalogProducts] = useState<any[]>([])
   const [shareImageUploading, setShareImageUploading] = useState(false)
   const [trainingForm, setTrainingForm] = useState({ title: '', description: '', content_html: '', step_id: '' })
@@ -720,6 +722,21 @@ export function AffiliateProgramsSection({
     return <div className="grid place-items-center py-12"><Loader2 className="animate-spin text-gray-300" /></div>
   }
 
+  const pendingApplications = applications.filter((item) => item.status === 'pending')
+  const activeInvites = invitations.filter((item) => item.status === 'active')
+  const peopleCounts = {
+    total: enrollments.length,
+    active: enrollments.filter((item) => item.status === 'active').length,
+    onboarding: enrollments.filter((item) => item.status === 'onboarding').length,
+    attention: enrollments.filter((item) => item.status === 'suspended' || item.status === 'revoked').length,
+  }
+  const filteredEnrollments = enrollments.filter((item) => {
+    if (peopleStatus !== 'all' && item.status !== peopleStatus) return false
+    const term = peopleSearch.trim().toLowerCase()
+    if (!term) return true
+    return `${item.display_name || ''} ${item.email || ''} ${item.code || ''}`.toLowerCase().includes(term)
+  })
+
   return (
     <div className="affiliates-programs">
       <div className="affiliates-programs__layout">
@@ -974,9 +991,45 @@ export function AffiliateProgramsSection({
 
               {detailTab === 'people' && (
                 <>
+                  <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+                    {[
+                      { label: 'No programa', value: peopleCounts.total, tone: 'text-gray-900' },
+                      { label: 'Ativos', value: peopleCounts.active, tone: 'text-emerald-700' },
+                      { label: 'Em onboarding', value: peopleCounts.onboarding, tone: 'text-sky-700' },
+                      { label: 'Precisam atenção', value: peopleCounts.attention + pendingApplications.length, tone: 'text-amber-700' },
+                    ].map((stat) => (
+                      <div key={stat.label} className="affiliate-card p-4">
+                        <p className="text-[10px] font-bold uppercase tracking-wide text-gray-400">{stat.label}</p>
+                        <p className={`mt-1 text-2xl font-bold tabular-nums ${stat.tone}`}>{stat.value}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="affiliate-card p-4">
+                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                      <div>
+                        <p className="font-bold text-sm">Gestão de participantes</p>
+                        <p className="text-xs text-gray-500 mt-0.5">Localize pessoas, acompanhe a jornada e tome ações sem perder o contexto.</p>
+                      </div>
+                      <div className="flex flex-col sm:flex-row gap-2 w-full lg:w-auto">
+                        <label className="relative min-w-0 sm:w-64">
+                          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                          <input className="wa-instances__input w-full pl-9" value={peopleSearch} onChange={(event) => setPeopleSearch(event.target.value)} placeholder="Buscar nome, e-mail ou código" />
+                        </label>
+                        <select className="wa-instances__input" value={peopleStatus} onChange={(event) => setPeopleStatus(event.target.value as typeof peopleStatus)}>
+                          <option value="all">Todos os status</option>
+                          <option value="active">Ativos</option>
+                          <option value="onboarding">Em onboarding</option>
+                          <option value="suspended">Suspensos</option>
+                          <option value="revoked">Revogados</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+
                   <div className="affiliate-card p-4">
                     <p className="font-bold text-sm flex items-center gap-2 mb-2">
-                      <Link2 size={14} /> Convites diretos ({invitations.filter((i) => i.status === 'active').length} ativos)
+                      <Link2 size={14} /> Convites diretos ({activeInvites.length} ativos)
                     </p>
                     <p className="text-xs text-gray-500 mb-3">
                       Gere links para convidar afiliados diretamente a este programa.
@@ -1032,25 +1085,35 @@ export function AffiliateProgramsSection({
 
                   <div className="affiliate-card p-4">
                     <p className="font-bold text-sm flex items-center gap-2 mb-2"><Users size={14} /> Inscrições ({enrollments.length})</p>
-                    {enrollments.length === 0 ? (
-                      <p className="text-xs text-gray-400">Nenhuma inscrição neste programa</p>
+                    {filteredEnrollments.length === 0 ? (
+                      <p className="text-xs text-gray-400">{enrollments.length ? 'Nenhuma pessoa corresponde aos filtros' : 'Nenhuma inscrição neste programa'}</p>
                     ) : (
-                      <ul className="space-y-2 mb-3 max-h-48 overflow-y-auto">
-                        {enrollments.map((e) => (
-                          <li key={e.id} className="text-xs text-gray-600 flex items-center justify-between gap-2 border-b border-gray-100 pb-2">
-                            <span className="min-w-0 truncate">{e.display_name || e.email}</span>
-                            <span className="flex items-center gap-1 shrink-0">
-                              <span className={`font-bold ${e.status === 'active' ? 'text-emerald-600' : e.status === 'onboarding' ? 'text-sky-600' : e.status === 'suspended' ? 'text-red-500' : 'text-gray-400'}`}>
-                                {e.status}
+                      <ul className="space-y-2 mb-3 max-h-[28rem] overflow-y-auto">
+                        {filteredEnrollments.map((e) => (
+                          <li key={e.id} className="text-xs text-gray-600 flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-gray-100 p-3">
+                            <span className="min-w-0 flex items-center gap-3">
+                              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-gray-100 font-bold text-gray-700">{String(e.display_name || e.email || '?').charAt(0).toUpperCase()}</span>
+                              <span className="min-w-0">
+                                <strong className="block truncate text-sm text-gray-900">{e.display_name || e.email}</strong>
+                                <span className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-gray-400">
+                                  {e.email && <span className="inline-flex items-center gap-1"><Mail size={10} />{e.email}</span>}
+                                  {e.created_at && <span className="inline-flex items-center gap-1"><CalendarDays size={10} />Desde {new Date(e.created_at).toLocaleDateString('pt-BR')}</span>}
+                                  {e.code && <span>Código {e.code}</span>}
+                                </span>
+                              </span>
+                            </span>
+                            <span className="flex items-center justify-between sm:justify-end gap-2 shrink-0">
+                              <span className={`rounded-full px-2 py-1 text-[10px] font-bold ${e.status === 'active' ? 'bg-emerald-50 text-emerald-700' : e.status === 'onboarding' ? 'bg-sky-50 text-sky-700' : e.status === 'suspended' ? 'bg-amber-50 text-amber-700' : 'bg-gray-100 text-gray-500'}`}>
+                                {e.status === 'active' ? 'Ativo' : e.status === 'onboarding' ? 'Onboarding' : e.status === 'suspended' ? 'Suspenso' : 'Revogado'}
                               </span>
                               {e.status === 'active' && (
-                                <button type="button" title="Suspender" className="text-amber-600" onClick={() => updateEnrollment(e.id, 'suspended')}><Ban size={12} /></button>
+                                <button type="button" title="Suspender" className="affiliates-page__btn affiliates-page__btn--ghost" onClick={() => updateEnrollment(e.id, 'suspended')}><Ban size={12} /> Suspender</button>
                               )}
                               {e.status === 'suspended' && (
-                                <button type="button" title="Reativar" className="text-emerald-600" onClick={() => updateEnrollment(e.id, 'active')}><Shield size={12} /></button>
+                                <button type="button" title="Reativar" className="affiliates-page__btn affiliates-page__btn--ghost" onClick={() => updateEnrollment(e.id, 'active')}><Shield size={12} /> Reativar</button>
                               )}
                               {e.status !== 'revoked' && e.status !== 'onboarding' && (
-                                <button type="button" title="Revogar" className="text-red-500" onClick={() => updateEnrollment(e.id, 'revoked')}><XCircle size={12} /></button>
+                                <button type="button" title="Revogar" className="grid h-8 w-8 place-items-center rounded-lg text-red-500 hover:bg-red-50" onClick={() => updateEnrollment(e.id, 'revoked')}><XCircle size={13} /></button>
                               )}
                             </span>
                           </li>
@@ -1060,17 +1123,17 @@ export function AffiliateProgramsSection({
                   </div>
 
                   <div className="affiliate-card p-4">
-                    <p className="font-bold text-sm flex items-center gap-2 mb-2"><Users size={14} /> Candidaturas pendentes</p>
-                    {applications.filter((a) => a.status === 'pending').length === 0 ? (
+                    <p className="font-bold text-sm flex items-center gap-2 mb-2"><Users size={14} /> Candidaturas pendentes ({pendingApplications.length})</p>
+                    {pendingApplications.length === 0 ? (
                       <p className="text-xs text-gray-400">Nenhuma candidatura pendente</p>
                     ) : (
                       <ul className="space-y-2">
-                        {applications.filter((a) => a.status === 'pending').map((a) => (
+                        {pendingApplications.map((a) => (
                           <li key={a.id} className="flex items-center justify-between gap-2 text-xs border-b border-gray-100 pb-2">
                             <span>{a.display_name || a.user_name || a.email}</span>
                             <span className="flex gap-1">
-                              <button type="button" className="text-emerald-600" onClick={() => reviewApp(a.id, 'approved')}><CheckCircle2 size={14} /></button>
-                              <button type="button" className="text-red-500" onClick={() => reviewApp(a.id, 'rejected')}><XCircle size={14} /></button>
+                              <button type="button" className="affiliates-page__btn affiliates-page__btn--ghost text-emerald-700" onClick={() => reviewApp(a.id, 'approved')}><CheckCircle2 size={14} /> Aprovar</button>
+                              <button type="button" className="affiliates-page__btn affiliates-page__btn--ghost text-red-600" onClick={() => reviewApp(a.id, 'rejected')}><XCircle size={14} /> Recusar</button>
                             </span>
                           </li>
                         ))}

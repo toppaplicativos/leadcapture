@@ -1125,12 +1125,31 @@ router.get("/partners-invite", async (req: Request, res: Response) => {
   }
 });
 
+router.get("/partners-brands", async (req: Request, res: Response) => {
+  try {
+    const q = String(req.query.q || "").trim();
+    if (q.length < 2) return res.json({ success: true, brands: [] });
+    const brands = await query<any[]>(
+      `SELECT DISTINCT b.id, b.name, b.slug, b.logo_url
+       FROM brand_units b
+       INNER JOIN affiliate_program_config cfg ON cfg.brand_id = b.id AND cfg.is_enabled = TRUE
+       INNER JOIN affiliate_programs p ON p.brand_id = b.id AND p.status = 'active'
+       WHERE LOWER(b.name) LIKE LOWER(?) OR LOWER(b.slug) LIKE LOWER(?)
+       ORDER BY b.name ASC LIMIT 8`,
+      [`%${q}%`, `%${q}%`],
+    );
+    res.json({ success: true, brands });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || "Falha ao buscar marcas" });
+  }
+});
+
 router.post("/partners-register", async (req: Request, res: Response) => {
   try {
     const email = String(req.body?.email || "").trim().toLowerCase();
     const password = String(req.body?.password || "").trim();
     const name = String(req.body?.name || "").trim();
-    const phone = String(req.body?.phone || "").trim() || null;
+    const brandId = String(req.body?.brand_id || "").trim() || null;
 
     if (!email || !password || !name) {
       return res.status(400).json({ error: "Nome, e-mail e senha são obrigatórios" });
@@ -1144,8 +1163,35 @@ router.post("/partners-register", async (req: Request, res: Response) => {
       email,
       passwordHash: password_hash,
       name,
-      phone,
+      phone: null,
     });
+
+    let brandAssociation: { brand_id: string; status: string } | null = null;
+    if (brandId) {
+      const brand = await queryOne<any>(
+        `SELECT b.id, b.user_id AS owner_user_id,
+                COALESCE(p.auto_approve_applications, FALSE) AS auto_approve
+         FROM brand_units b
+         INNER JOIN affiliate_program_config cfg ON cfg.brand_id = b.id AND cfg.is_enabled = TRUE
+         LEFT JOIN affiliate_programs p ON p.brand_id = b.id AND p.status = 'active' AND p.is_default = TRUE
+         WHERE b.id = ? LIMIT 1`,
+        [brandId],
+      );
+      if (brand) {
+        const autoApprove = brand.auto_approve === true || brand.auto_approve === 1;
+        await affiliateGlobalService.linkToBrand({
+          affiliateUserId: created.userId,
+          email,
+          brandId: String(brand.id),
+          ownerUserId: String(brand.owner_user_id),
+          displayName: name,
+          phone: null,
+          source: "global_signup_brand_search",
+          autoApprove,
+        });
+        brandAssociation = { brand_id: String(brand.id), status: autoApprove ? "active" : "pending" };
+      }
+    }
 
     const token = signPartnersGlobalToken({
       affiliateUserId: created.userId,
@@ -1156,6 +1202,7 @@ router.post("/partners-register", async (req: Request, res: Response) => {
       success: true,
       token,
       profile: created.profile,
+      brand_association: brandAssociation,
       user: {
         id: created.userId,
         email,

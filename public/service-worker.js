@@ -27,8 +27,8 @@ if (IS_LOCAL_DEV) {
     );
   });
 } else {
-const SHELL_CACHE_NAME = "lead-system-shell-v157-20260711";
-const RUNTIME_CACHE_NAME = "lead-system-runtime-v148-20260711";
+const SHELL_CACHE_NAME = "lead-system-shell-v164-20260712-route-page";
+const RUNTIME_CACHE_NAME = "lead-system-runtime-v155-20260712-route-page";
 
 function getBasePath() {
   try {
@@ -75,9 +75,41 @@ function shouldCacheRuntime(request) {
   return ["script", "style", "font", "manifest", "worker"].includes(request.destination);
 }
 
-// Instalacao do Service Worker
+// Instalacao do Service Worker — precache do shell SPA (PWA first paint)
 self.addEventListener("install", (event) => {
-  event.waitUntil(Promise.resolve());
+  event.waitUntil(
+    (async () => {
+      try {
+        const cache = await caches.open(SHELL_CACHE_NAME);
+        const shellUrls = [
+          toScopedPath(""),
+          toScopedPath("index.html"),
+          toScopedPath("manifest.json"),
+          toScopedPath("brand-mark.png"),
+          toScopedPath("brand-mark.svg"),
+          toScopedPath("brand-mark-dark.png"),
+          toScopedPath("brand-mark-dark.svg"),
+        ];
+        await Promise.all(
+          shellUrls.map(async (url) => {
+            try {
+              const res = await fetch(url, { cache: "reload" });
+              if (res && res.ok) {
+                await cache.put(url, res.clone());
+                if (url.endsWith("index.html") || url === toScopedPath("")) {
+                  await cache.put(shellCacheKey, res.clone());
+                }
+              }
+            } catch {
+              /* ignore individual failures */
+            }
+          })
+        );
+      } catch {
+        /* install must not fail permanently */
+      }
+    })()
+  );
   self.skipWaiting();
 });
 
@@ -135,13 +167,13 @@ async function handleNavigationRequest(event) {
   const { request } = event;
 
   try {
-    const preloadResponse = await event.preloadResponse;
-    const networkResponse = preloadResponse || (await fetch(request));
+    // Sempre rede fresca no navigate (evita PWA/HTML antigo após deploy)
+    const networkResponse = await fetch(request, { cache: "no-store" });
 
     if (networkResponse && networkResponse.ok) {
       const shellCache = await caches.open(SHELL_CACHE_NAME);
+      // Guarda só o shell genérico da SPA (index), não cada rota
       await shellCache.put(shellCacheKey, networkResponse.clone());
-      await shellCache.put(request, networkResponse.clone());
       return networkResponse;
     }
   } catch (_error) {
@@ -149,9 +181,6 @@ async function handleNavigationRequest(event) {
   }
 
   const shellCache = await caches.open(SHELL_CACHE_NAME);
-  const exactMatch = await shellCache.match(request);
-  if (exactMatch) return exactMatch;
-
   const cachedShell = await shellCache.match(shellCacheKey);
   if (cachedShell) return cachedShell;
 
@@ -163,6 +192,7 @@ async function handleRuntimeRequest(request) {
   const cached = await runtimeCache.match(request);
 
   if (cached) {
+    // Stale-while-revalidate: responde do cache, atualiza em background
     fetch(request)
       .then((response) => {
         if (response && response.ok) {
@@ -183,6 +213,45 @@ async function handleRuntimeRequest(request) {
     return new Response("Offline - recurso nao disponivel", { status: 503 });
   }
 }
+
+/** Warm cache: app manda lista de /assets/* após o boot */
+async function warmRuntimeUrls(urls) {
+  if (!Array.isArray(urls) || !urls.length) return;
+  const runtimeCache = await caches.open(RUNTIME_CACHE_NAME);
+  const origin = self.location.origin;
+  await Promise.all(
+    urls.slice(0, 80).map(async (raw) => {
+      try {
+        const url = new URL(raw, origin);
+        if (url.origin !== origin) return;
+        if (url.pathname.startsWith("/api/")) return;
+        const isAsset =
+          url.pathname.startsWith("/assets/")
+          || url.pathname.endsWith(".js")
+          || url.pathname.endsWith(".css")
+          || url.pathname.endsWith(".woff2")
+          || url.pathname.endsWith(".woff");
+        if (!isAsset) return;
+        const existing = await runtimeCache.match(url.href);
+        if (existing) return;
+        const res = await fetch(url.href, { credentials: "same-origin" });
+        if (res && res.ok) await runtimeCache.put(url.href, res.clone());
+      } catch {
+        /* ignore */
+      }
+    })
+  );
+}
+
+self.addEventListener("message", (event) => {
+  const data = event.data || {};
+  if (data.type === "WARM_URLS" && Array.isArray(data.urls)) {
+    event.waitUntil(warmRuntimeUrls(data.urls));
+  }
+  if (data.type === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
+});
 
 // Suporte para notificacoes push
 self.addEventListener("push", (event) => {

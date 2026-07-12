@@ -31,6 +31,7 @@ import { ChannelHeaderIcons } from '@/components/admin/ChannelHeaderIcons'
 import { ProspectSearchControls } from '@/components/agent/prospect/ProspectSearchControls'
 import { EntitlementsProvider, useEntitlements } from '@/lib/EntitlementsContext'
 import { NAV_ITEMS } from '@/lib/admin/nav'
+import { prefetchCanvasRoute } from '@/lib/agent/canvasPages'
 
 const COLLAPSED_CHAT_GROUPS = [
   { label: 'Principal', keys: ['dashboard', 'busca', 'clientes', 'leads'] },
@@ -75,7 +76,7 @@ function ConversationalShellBody({
 }) {
   const {
     mobileCanvasOpen, setMobileCanvasOpen, desktopCanvasOpen,
-    activeModuleId, activeModuleLabel, workspaceSurface, onNavigate,
+    activeModuleId, activeModuleLabel, workspaceSurface, triggerNav, optimisticRoute,
   } = useAgentShell()
   const location = useLocation()
   const navigate = useNavigate()
@@ -85,14 +86,15 @@ function ConversationalShellBody({
   )
   const [shortcutTooltip, setShortcutTooltip] = useState<{ label: string; top: number; left: number } | null>(null)
   // Rotas operacionais (/atendente, …): experiência de página, não overlay frágil
-  const pathOnlyNow = (location.pathname || '').split('?')[0] || ''
+  // optimisticRoute = clique de atalho antes do router atualizar
+  const pathOnlyNow = ((optimisticRoute || location.pathname) || '').split('?')[0] || ''
   const urlDrivenOpen =
     pathOnlyNow !== '/assistente' &&
     pathOnlyNow !== '' &&
     pathOnlyNow !== '/'
   // Com o chat recolhido, /admin representa o dashboard no canvas e deve permanecer aberto.
   // A hidratação tardia da conversa não pode desmontar a navegação rápida.
-  const dashboardPinnedOpen = isDesktop && chatCollapsed && pathOnlyNow === '/admin'
+  const dashboardPinnedOpen = isDesktop && chatCollapsed && (pathOnlyNow === '/admin' || pathOnlyNow === '/dashboard')
   const canvasOpen = desktopCanvasOpen || urlDrivenOpen || dashboardPinnedOpen
   const { brand, brands, activeBrandId, showBrandPicker, setShowBrandPicker, switchBrand, logout, refreshKey } = brandState
   const brandMenuRef = useRef<HTMLDivElement>(null)
@@ -310,17 +312,25 @@ function ConversationalShellBody({
                     {groupIndex > 0 && <span className="agent-shell__collapsed-nav-separator" role="separator" />}
                     {group.items.map((item) => {
                       const Icon = item.icon
-                      const active = pathOnlyNow === item.path || (item.key === 'dashboard' && pathOnlyNow === '/dashboard')
+                      const active =
+                        pathOnlyNow === item.path
+                        || (item.key === 'dashboard' && (pathOnlyNow === '/dashboard' || pathOnlyNow === '/admin'))
+                        || (item.key === 'configuracoes' && pathOnlyNow.startsWith('/configuracoes'))
                       return (
                         <button
                           key={item.key}
                           type="button"
                           className={`agent-shell__collapsed-nav-item${active ? ' is-active' : ''}`}
-                          onClick={() => onNavigate(item.path)}
+                          onClick={() => {
+                            triggerNav(item.key)
+                            setShortcutTooltip(null)
+                          }}
                           onMouseEnter={(event) => {
+                            prefetchCanvasRoute(item.path)
                             const rect = event.currentTarget.getBoundingClientRect()
                             setShortcutTooltip({ label: item.label, top: rect.top + rect.height / 2, left: rect.right + 10 })
                           }}
+                          onPointerDown={() => prefetchCanvasRoute(item.path)}
                           onMouseLeave={() => setShortcutTooltip(null)}
                           onFocus={(event) => {
                             const rect = event.currentTarget.getBoundingClientRect()

@@ -9,16 +9,19 @@ export function isAffiliateAppRoute(): boolean {
 }
 
 /**
- * Contexto de sessão WhatsApp do afiliado — inclui:
- * - rotas /central-afiliado/...
- * - rotas /parceiros/painel/programa/.../painel (AffiliateAppPage embutido)
- * - qualquer tela com token de afiliado em localStorage
+ * Contexto de sessão WhatsApp do afiliado — SOMENTE em rotas do afiliado/parceiros.
+ *
+ * NÃO usar só a presença de `lead-system-token-afiliado` no localStorage:
+ * se o admin testou o app de afiliado no mesmo browser, o painel /whatsapp
+ * da org passaria a listar só a sessão daquele afiliado (ex.: 1× "Atendimento").
  */
 export function isAffiliateWhatsAppContext(): boolean {
   if (typeof window === 'undefined') return false
   if (isAffiliateAppRoute()) return true
-  if (getAffiliateToken()) return true
-  return window.location.pathname.includes('/parceiros/painel/programa/')
+  const path = window.location.pathname || ''
+  // Painel do programa embutido em Parceiros
+  if (path.startsWith('/parceiros/') && path.includes('/painel')) return true
+  return false
 }
 
 export function getAffiliateToken(): string | null {
@@ -176,6 +179,15 @@ export const affiliateApi = {
   training: () => affiliateFetch<any>('/api/affiliate-app/training'),
   learning: () => affiliateFetch<any>('/api/affiliate-app/learning'),
   products: () => affiliateFetch<any>('/api/affiliate-app/products'),
+  orders: () => affiliateFetch<any>('/api/affiliate-app/orders'),
+  createOrder: (payload: {
+    customer_name: string
+    customer_phone: string
+    customer_email?: string
+    payment_method: string
+    lead_id?: string
+    items: Array<{ product_id: string; quantity: number }>
+  }) => affiliateFetch<any>('/api/affiliate-app/orders', { method: 'POST', body: JSON.stringify(payload) }),
   links: (days = 30, programId?: string) => {
     const qs = new URLSearchParams({ days: String(days) })
     if (programId) qs.set('program_id', programId)
@@ -231,6 +243,12 @@ export const affiliateApi = {
     }),
 
   distributionStatus: () => affiliateFetch<any>('/api/affiliate-app/distribution/status'),
+  assistantControl: () => affiliateFetch<any>('/api/affiliate-app/assistant-control'),
+  updateAssistantControl: (enabled: boolean) =>
+    affiliateFetch<any>('/api/affiliate-app/assistant-control', {
+      method: 'PATCH',
+      body: JSON.stringify({ enabled }),
+    }),
   distributionAssignments: () => affiliateFetch<any>('/api/affiliate-app/distribution/assignments'),
   distributionAlerts: () => affiliateFetch<any>('/api/affiliate-app/distribution/alerts'),
   convertDistributionAssignment: (assignmentId: string, body?: { order_id?: string; order_total?: number; notes?: string }) =>

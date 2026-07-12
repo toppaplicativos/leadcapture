@@ -4,7 +4,7 @@ import { Sparkles, MessageSquare } from 'lucide-react'
 import { AgentUIRenderer } from './AgentUIRenderer'
 import { AICampaignWizardModal } from '@/components/AICampaignWizardModal'
 import { SkillTrainerWizardModal } from '@/components/SkillTrainerWizardModal'
-import { CanvasPageEmbed, isCanvasFlushRoute } from '@/lib/agent/canvasPages'
+import { CanvasPageCache, isCanvasFlushRoute, normalizeCanvasPath } from '@/lib/agent/canvasPages'
 import { useAgentShell } from '@/lib/agent/AgentShellContext'
 import { turnNeedsCanvas } from '@/lib/agent/canvasRegistry'
 import { isAgentHomePath, isOperationalCanvasPath, pathOnly } from '@/lib/agent/operationalRoutes'
@@ -17,6 +17,7 @@ export function AgentCanvas({ children }: { children?: React.ReactNode }) {
     canvasMode,
     embeddedRoute,
     desktopCanvasOpen,
+    optimisticRoute,
     onNavigate,
     triggerNav,
     onOpenModal,
@@ -44,21 +45,19 @@ export function AgentCanvas({ children }: { children?: React.ReactNode }) {
   }
 
   const pathname = pathOnly(location.pathname)
-  const urlDriven = isOperationalCanvasPath(pathname)
+  // Rota otimista: troca o painel no clique, sem esperar o React Router
+  const displayPath = normalizeCanvasPath(optimisticRoute || pathname)
+  const urlDriven = isOperationalCanvasPath(pathname) || isOperationalCanvasPath(displayPath)
 
-  // ─── URL LOCK ─────────────────────────────────────────────────────────────
-  // Rotas operacionais (/atendente, /agente, …) NUNCA dependem de canvasMode /
-  // embeddedRoute / desktopCanvasOpen. Hidratação do chat e closeModule não
-  // podem desmontar este ramo — se o shell desligar o painel, a URL ainda manda.
+  // ─── URL LOCK + keep-alive ────────────────────────────────────────────────
   if (urlDriven) {
-    const route = location.pathname + (location.search || '')
-    const flushUrl = isCanvasFlushRoute(pathname)
+    const flushUrl = isCanvasFlushRoute(displayPath)
     return (
       <div className="agent-canvas flex flex-col h-full min-h-0" data-canvas-lock="url">
         <div
           className={`agent-canvas__body flex-1 min-h-0 overflow-y-auto${flushUrl ? '' : ' agent-canvas__body--inset'}`}
         >
-          <CanvasPageEmbed key={pathname} route={route} />
+          <CanvasPageCache activeRoute={displayPath} />
         </div>
         <AICampaignWizardModal
           open={campaignModal}
@@ -80,10 +79,9 @@ export function AgentCanvas({ children }: { children?: React.ReactNode }) {
     )
   }
 
-  // URL operacional vence estado do shell (hidratação do chat / closeModule não desmonta)
   const activeCanvasRoute =
-    canvasMode === 'embed' && embeddedRoute
-      ? embeddedRoute
+    canvasMode === 'embed' && (optimisticRoute || embeddedRoute)
+      ? normalizeCanvasPath(optimisticRoute || embeddedRoute || '')
       : null
 
   const showEmbed = Boolean(activeCanvasRoute)
@@ -100,9 +98,8 @@ export function AgentCanvas({ children }: { children?: React.ReactNode }) {
     Boolean(children)
 
   const hasContent = showEmbed || showAgentUI || showPage
-  // Em rota operacional, canvas sempre "aberto" visualmente
   const forceOpen = desktopCanvasOpen || hasContent
-  const flush = Boolean(showEmbed && activeCanvasRoute && isCanvasFlushRoute(pathOnly(activeCanvasRoute)))
+  const flush = Boolean(showEmbed && activeCanvasRoute && isCanvasFlushRoute(activeCanvasRoute))
 
   if (!forceOpen) {
     return null
@@ -113,8 +110,8 @@ export function AgentCanvas({ children }: { children?: React.ReactNode }) {
       <div
         className={`agent-canvas__body flex-1 min-h-0 overflow-y-auto${flush ? '' : ' agent-canvas__body--inset'}`}
       >
-        {showEmbed ? (
-          <CanvasPageEmbed key={pathOnly(activeCanvasRoute!)} route={activeCanvasRoute!} />
+        {showEmbed && activeCanvasRoute ? (
+          <CanvasPageCache activeRoute={activeCanvasRoute} />
         ) : showAgentUI ? (
           <div className="agent-canvas__stage">
             {activeTurn?.message && (

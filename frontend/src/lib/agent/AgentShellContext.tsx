@@ -79,6 +79,10 @@ type AgentShellValue = {
   mobileCanvasOpen: boolean
   setMobileCanvasOpen: (v: boolean) => void
   openCanvas: (route: string) => void
+  /** Rota do painel no clique (antes do router atualizar) — troca fluida de atalho */
+  optimisticRoute: string | null
+  /** Marca ativa do shell (troca no seletor de marca) */
+  brandId: string
   closeProspectModule: () => void
   prospectModuleOpen: boolean
   closeInboxModule: () => void
@@ -203,6 +207,7 @@ export function AgentShellProvider({
   const lastOrdersFilterKey = useRef('')
   const [canvasMode, setCanvasMode] = useState<CanvasMode>('agent')
   const [embeddedRoute, setEmbeddedRoute] = useState<string | null>(null)
+  const [optimisticRoute, setOptimisticRoute] = useState<string | null>(null)
   const [desktopCanvasOpen, setDesktopCanvasOpen] = useState(false)
   const [mobileCanvasOpen, setMobileCanvasOpen] = useState(false)
   const [openModalFn, setOpenModalFn] = useState<((m: AgentModalId) => void) | null>(null)
@@ -840,21 +845,52 @@ export function AgentShellProvider({
   }, [chat])
 
   const openCanvas = useCallback((route: string) => {
-    const normalized = route.startsWith('/') ? route : `/${route}`
+    let normalized = route.startsWith('/') ? route : `/${route}`
+    // Painel canônico
+    if (normalized === '/dashboard') normalized = '/admin'
+    // Strip query for stable keep-alive key (tabs still via full navigate when needed)
+    const pathOnlyNorm = normalized.split('?')[0] || normalized
+    setOptimisticRoute(pathOnlyNorm)
     setCanvasMode('embed')
-    setEmbeddedRoute(normalized)
+    setEmbeddedRoute(pathOnlyNorm)
     setDesktopCanvasOpen(true)
     setMobileCanvasOpen(true)
+    return pathOnlyNorm
   }, [])
+
+  // Limpa otimista quando a URL real alcança o destino
+  useEffect(() => {
+    if (!optimisticRoute) return
+    const current = (location.pathname || '').split('?')[0]
+    const target = optimisticRoute.split('?')[0]
+    const same =
+      current === target
+      || (target === '/admin' && (current === '/dashboard' || current === '/admin'))
+      || (target === '/dashboard' && current === '/admin')
+    if (same) setOptimisticRoute(null)
+  }, [location.pathname, location.search, optimisticRoute])
 
   /** Abre área operacional no painel (canvas), sem cartão no chat e sem travar o composer. */
   const openOperationalArea = useCallback((path: string, openModule?: () => void) => {
-    const route = (path.startsWith('/') ? path : `/${path}`) || '/'
-    // Embute a página no painel (CanvasPageEmbed) e sincroniza a URL
-    openCanvas(route)
-    navigate(route, { replace: false })
-    openModule?.()
-  }, [openCanvas, navigate])
+    const route = openCanvas(path)
+    // URL em paralelo — UI já trocou via optimisticRoute + keep-alive
+    const current = (location.pathname || '').split('?')[0]
+    if (current !== route) {
+      navigate(route, { replace: false })
+    } else {
+      setCanvasMode('embed')
+      setEmbeddedRoute(route)
+      setDesktopCanvasOpen(true)
+      setMobileCanvasOpen(true)
+      setOptimisticRoute(null)
+    }
+    // Módulos legados (catalog cards) — não bloquear a troca de URL
+    try {
+      openModule?.()
+    } catch {
+      /* ignore bridge errors */
+    }
+  }, [openCanvas, navigate, location.pathname])
 
   const triggerSkill = useCallback((
     skillId: string,
@@ -1078,8 +1114,9 @@ export function AgentShellProvider({
     const DIRECT_CANVAS_KEYS: Record<string, string> = {
       atendente: '/atendente',
       agente: '/agente',
-      dashboard: '/dashboard',
-      painel: '/dashboard',
+      dashboard: '/admin',
+      painel: '/admin',
+      admin: '/admin',
       busca: '/busca',
       habilidades: '/habilidades',
       skills: '/habilidades',
@@ -1101,7 +1138,7 @@ export function AgentShellProvider({
       return
     }
     if (raw.startsWith('/') && (
-      raw === '/atendente' || raw === '/agente' || raw === '/dashboard'
+      raw === '/atendente' || raw === '/agente' || raw === '/dashboard' || raw === '/admin'
       || raw === '/busca' || raw === '/habilidades' || raw === '/criativos'
       || raw === '/notificacoes' || raw === '/cupons' || raw === '/frete'
       || raw === '/estoque' || raw === '/avaliacoes' || raw === '/pagamentos'
@@ -1142,13 +1179,9 @@ export function AgentShellProvider({
   }, [chat])
 
   const onNavigate = useCallback((path: string) => {
-    const normalized = path.startsWith('/') ? path : `/${path}`
-    navigate(normalized)
-    setCanvasMode('embed')
-    setEmbeddedRoute(normalized)
-    setDesktopCanvasOpen(true)
-    setMobileCanvasOpen(true)
-  }, [navigate])
+    // Mesmo pipeline dos atalhos — evita divergência onNavigate vs triggerNav
+    openOperationalArea(path)
+  }, [openOperationalArea])
 
   const onOpenModal = useCallback((modal: AgentModalId) => {
     openModalFn?.(modal)
@@ -1227,6 +1260,8 @@ export function AgentShellProvider({
     mobileCanvasOpen,
     setMobileCanvasOpen,
     openCanvas,
+    optimisticRoute,
+    brandId: brandId || '',
     closeProspectModule,
     prospectModuleOpen: moduleFlags.prospect,
     closeInboxModule,
@@ -1319,6 +1354,8 @@ export function AgentShellProvider({
     registerOpenModal,
     mobileCanvasOpen,
     openCanvas,
+    optimisticRoute,
+    brandId,
     closeProspectModule,
     closeInboxModule,
     closeProductsModule,

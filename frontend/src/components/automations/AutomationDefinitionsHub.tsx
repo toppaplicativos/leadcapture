@@ -3,6 +3,7 @@ import {
   Plus, RefreshCw, Zap, Calendar, Activity, Loader2,
 } from 'lucide-react'
 import type { Automacao, AutomacaoInput, AutomationKpis } from '@/lib/automations/schema'
+import type { Plataforma } from '@/lib/automations/schema'
 import {
   fetchAutomationDefinitions,
   fetchAutomationKpis,
@@ -18,7 +19,29 @@ import { AutomationCard } from './AutomationCard'
 import { AutomationWizard } from './AutomationWizard'
 import { AutomationDetailModal } from './AutomationDetailModal'
 
-export function AutomationDefinitionsHub() {
+function belongsToChannel(item: Automacao, channel?: Plataforma) {
+  if (!channel) return true
+  if (item.trigger.tipo === 'evento' && item.trigger.plataforma === channel) return true
+  if (item.pipeline.some((step) => {
+    const tipo = String(step.tipo || '')
+    if (channel === 'whatsapp') {
+      return tipo === 'enviar_dm_wa' || tipo.includes('wa') || tipo.includes('whatsapp')
+    }
+    if (channel === 'instagram') {
+      return tipo === 'enviar_dm_ig' || tipo === 'comentar_ig' || tipo === 'publicar_conteudo'
+    }
+    if (channel === 'email') return tipo === 'enviar_email'
+    return false
+  })) return true
+  // Fallback textual (modelos legados / seeds)
+  const blob = `${item.nome || ''} ${item.descricao || ''} ${item.trigger?.tipo || ''} ${JSON.stringify(item.trigger || {})} ${JSON.stringify(item.pipeline || [])}`.toLowerCase()
+  if (channel === 'whatsapp') return /whatsapp|wa\b|enviar_dm_wa|pairing|zapi|evolution/.test(blob)
+  if (channel === 'instagram') return /instagram|\big\b|enviar_dm_ig|comentar_ig/.test(blob)
+  if (channel === 'email') return /e-?mail|enviar_email/.test(blob)
+  return false
+}
+
+export function AutomationDefinitionsHub({ channel }: { channel?: Plataforma } = {}) {
   const [items, setItems] = useState<Automacao[]>([])
   const [kpis, setKpis] = useState<AutomationKpis | null>(null)
   const [loading, setLoading] = useState(true)
@@ -40,14 +63,14 @@ export function AutomationDefinitionsHub() {
     setLoading(true)
     try {
       const [list, k] = await Promise.all([fetchAutomationDefinitions(), fetchAutomationKpis()])
-      setItems(list)
+      setItems(list.filter((item) => belongsToChannel(item, channel)))
       setKpis(k)
     } catch (e: any) {
       showToast(e?.message || 'Falha ao carregar', 'err')
     } finally {
       setLoading(false)
     }
-  }, [showToast])
+  }, [channel, showToast])
 
   useEffect(() => { void load() }, [load])
 
@@ -114,6 +137,13 @@ export function AutomationDefinitionsHub() {
     }
   }
 
+  const visibleKpis = channel ? {
+    total: items.length,
+    live: items.filter((item) => item.ativa && item.status === 'live').length,
+    agendadas: items.filter((item) => item.trigger.tipo === 'agendamento').length,
+    eventos: items.filter((item) => item.trigger.tipo === 'evento').length,
+  } : kpis
+
   return (
     <div className="space-y-5">
       {toast && (
@@ -124,25 +154,39 @@ export function AutomationDefinitionsHub() {
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-bold text-gray-900">Todas as automações</h2>
+          <h2 className="text-lg font-bold text-gray-900">
+            {channel === 'whatsapp'
+              ? 'Automações do WhatsApp'
+              : channel === 'instagram'
+                ? 'Automações do Instagram'
+                : channel === 'email'
+                  ? 'Automações de e-mail'
+                  : 'Todas as automações'}
+          </h2>
           <p className="text-[12px] text-gray-500">
-            Gestão central: Instagram, WhatsApp, e-mail, leads e agendadas — cada uma com gatilho, pipeline e ativador.
+            {channel === 'whatsapp'
+              ? 'Filtro ativo: só fluxos com gatilho/evento WhatsApp ou envio de DM WA.'
+              : channel
+                ? `Filtro ativo: canal ${channel}.`
+                : 'Gestão central de todos os canais, gatilhos e pipelines.'}
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap justify-end">
           <button type="button" onClick={() => void load()} className="p-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-gray-600">
             <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
           </button>
-          <button
-            type="button"
-            onClick={() => void handleSeedInstagram()}
-            disabled={seeding}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-gray-200 bg-white text-gray-700 text-sm font-semibold hover:bg-gray-50 disabled:opacity-60"
-            title="Instala modelos de resposta IG inativos para editar e ativar"
-          >
-            {seeding ? <Loader2 size={16} className="animate-spin" /> : <Zap size={16} />}
-            Modelos Instagram
-          </button>
+          {!channel && (
+            <button
+              type="button"
+              onClick={() => void handleSeedInstagram()}
+              disabled={seeding}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-gray-200 bg-white text-gray-700 text-sm font-semibold hover:bg-gray-50 disabled:opacity-60"
+              title="Instala modelos de resposta IG inativos para editar e ativar"
+            >
+              {seeding ? <Loader2 size={16} className="animate-spin" /> : <Zap size={16} />}
+              Modelos Instagram
+            </button>
+          )}
           <button
             type="button"
             onClick={() => { setEditTarget(null); setWizardOpen(true) }}
@@ -153,18 +197,25 @@ export function AutomationDefinitionsHub() {
         </div>
       </div>
 
-      <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-[12px] text-gray-700">
-        <strong>Esta é a página de gestão.</strong> Automações com Instagram também aparecem em
-        Instagram → Automações IG (apenas espelho). Ativar/desativar e editar acontece aqui.
-        Modelos Instagram instalam templates <em>inativos</em> (DM, comentário, menção) para você editar e ligar.
-      </div>
+      {channel === 'whatsapp' ? (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-[12px] text-emerald-900">
+          <strong>Canal WhatsApp.</strong> Lista filtrada para conexões e disparos deste canal.
+          Gestão completa de todos os canais em <span className="font-semibold">Automações</span> no menu principal.
+        </div>
+      ) : !channel ? (
+        <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-[12px] text-gray-700">
+          <strong>Esta é a página de gestão.</strong> Automações com Instagram também aparecem em
+          Instagram → Automações IG (apenas espelho). Ativar/desativar e editar acontece aqui.
+          Modelos Instagram instalam templates <em>inativos</em> (DM, comentário, menção) para você editar e ligar.
+        </div>
+      ) : null}
 
-      {kpis && (
+      {visibleKpis && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <Kpi icon={Zap} label="Total" value={kpis.total} />
-          <Kpi icon={Activity} label="Ativas" value={kpis.live} accent="emerald" />
-          <Kpi icon={Calendar} label="Agendadas" value={kpis.agendadas} accent="sky" />
-          <Kpi icon={Zap} label="Por evento" value={kpis.eventos} accent="violet" />
+          <Kpi icon={Zap} label="Total" value={visibleKpis.total} />
+          <Kpi icon={Activity} label="Ativas" value={visibleKpis.live} accent="emerald" />
+          <Kpi icon={Calendar} label="Agendadas" value={visibleKpis.agendadas} accent="sky" />
+          <Kpi icon={Zap} label="Por evento" value={visibleKpis.eventos} accent="violet" />
         </div>
       )}
 

@@ -96,10 +96,75 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator) {
     return '/'
   })()
 
+  // Novo SW ativou → recarrega 1x para pegar HTML/chunks do deploy
+  let refreshing = false
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (refreshing) return
+    if (sessionStorage.getItem('lead-system:sw-controller-reloaded') === '1') return
+    refreshing = true
+    sessionStorage.setItem('lead-system:sw-controller-reloaded', '1')
+    window.location.reload()
+  })
+
   window.addEventListener('load', () => {
+    // limpa flag na carga estável (próximo deploy pode recarregar de novo)
+    window.setTimeout(() => {
+      try { sessionStorage.removeItem('lead-system:sw-controller-reloaded') } catch { /* ignore */ }
+    }, 8000)
+
     navigator.serviceWorker
       .register('/service-worker.js', { scope: baseScope })
-      .then((registration) => registration.update().catch(() => undefined))
+      .then((registration) => {
+        void registration.update().catch(() => undefined)
+
+        // Se já há SW waiting (deploy), ativa na hora
+        if (registration.waiting) {
+          registration.waiting.postMessage({ type: 'SKIP_WAITING' })
+        }
+        registration.addEventListener('updatefound', () => {
+          const installing = registration.installing
+          if (!installing) return
+          installing.addEventListener('statechange', () => {
+            if (installing.state === 'installed' && navigator.serviceWorker.controller) {
+              installing.postMessage({ type: 'SKIP_WAITING' })
+            }
+          })
+        })
+
+        // Warm cache: scripts/CSS já no DOM + modulepreload → navegação PWA mais rápida
+        const warm = () => {
+          const urls = new Set<string>()
+          document.querySelectorAll('script[src], link[rel="stylesheet"], link[rel="modulepreload"], link[rel="preload"]').forEach((el) => {
+            const href = (el as HTMLScriptElement).src || (el as HTMLLinkElement).href
+            if (href && href.startsWith(window.location.origin)) urls.add(href)
+          })
+          try {
+            performance.getEntriesByType('resource').forEach((entry) => {
+              const name = (entry as PerformanceResourceTiming).name
+              if (name && name.includes('/assets/') && name.startsWith(window.location.origin)) {
+                urls.add(name)
+              }
+            })
+          } catch {
+            /* ignore */
+          }
+          const list = [...urls]
+          if (!list.length) return
+          const post = (sw: ServiceWorker | null | undefined) => {
+            sw?.postMessage({ type: 'WARM_URLS', urls: list })
+          }
+          post(registration.active)
+          post(navigator.serviceWorker.controller)
+        }
+        const w = window as Window & {
+          requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number
+        }
+        if (typeof w.requestIdleCallback === 'function') {
+          w.requestIdleCallback(warm, { timeout: 4000 })
+        } else {
+          window.setTimeout(warm, 1200)
+        }
+      })
       .catch(() => undefined)
   })
 }

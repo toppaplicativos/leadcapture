@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Loader2, RefreshCw, Play, Users, Inbox, CheckCircle2, Clock, AlertTriangle, ToggleLeft, ToggleRight,
 } from 'lucide-react'
@@ -34,6 +34,8 @@ export function AffiliateDistributionSection({ showToast, saving, setSaving }: P
   const [loading, setLoading] = useState(true)
   const [overview, setOverview] = useState<any>(null)
   const [queue, setQueue] = useState<any[]>([])
+  const showToastRef = useRef(showToast)
+  useEffect(() => { showToastRef.current = showToast }, [showToast])
   const [rulesForm, setRulesForm] = useState({
     is_enabled: true,
     auto_enqueue_capture: true,
@@ -83,11 +85,11 @@ export function AffiliateDistributionSection({ showToast, saving, setSaving }: P
         allowed_regions_json: String(r.allowed_regions_json || ''),
       })
     } catch (e: unknown) {
-      showToast(e instanceof Error ? e.message : 'Erro', 'err')
+      showToastRef.current(e instanceof Error ? e.message : 'Erro', 'err')
     } finally {
       setLoading(false)
     }
-  }, [brandId, showToast])
+  }, [brandId])
 
   useEffect(() => { void load() }, [load])
 

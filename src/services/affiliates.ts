@@ -10,6 +10,7 @@ import {
 } from "./affiliateCommission";
 
 let schemaReady = false;
+let schemaPromise: Promise<void> | null = null;
 
 export type AffiliateProgramConfig = {
   id: string;
@@ -64,7 +65,7 @@ export type AffiliateProfile = {
   updated_at: string;
 };
 
-async function ensureAffiliateSchema(): Promise<void> {
+async function initializeAffiliateSchema(): Promise<void> {
   if (schemaReady) return;
 
   await query(`
@@ -131,7 +132,6 @@ async function ensureAffiliateSchema(): Promise<void> {
   await query(
     `ALTER TABLE affiliates ADD COLUMN commission_value DECIMAL(12,4) NULL`
   ).catch(() => undefined);
-
   await query(`
     CREATE TABLE IF NOT EXISTS affiliates (
       id VARCHAR(36) PRIMARY KEY,
@@ -305,6 +305,16 @@ async function ensureAffiliateSchema(): Promise<void> {
   `);
 
   schemaReady = true;
+}
+
+async function ensureAffiliateSchema(): Promise<void> {
+  if (schemaReady) return;
+  if (!schemaPromise) {
+    schemaPromise = initializeAffiliateSchema().finally(() => {
+      if (!schemaReady) schemaPromise = null;
+    });
+  }
+  await schemaPromise;
 }
 
 const DEFAULT_LEARNING_MODULES = [

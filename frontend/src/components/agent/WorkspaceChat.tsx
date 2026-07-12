@@ -773,11 +773,10 @@ export function WorkspaceChat({
           </div>
         )}
       </div>
-      {!isEmpty && (
-        <div className="workspace-chat__header">
-          <WorkspaceNav />
-        </div>
-      )}
+      {/* Atalhos sempre visíveis — não dependem de chat vazio/cheio nem de loading */}
+      <div className="workspace-chat__header">
+        <WorkspaceNav />
+      </div>
       <div
         ref={scrollRef}
         className={`workspace-chat__scroll${isEmpty ? ' workspace-chat__scroll--empty' : ''}${sessionHydrating ? ' workspace-chat__scroll--hydrating' : ''}`}

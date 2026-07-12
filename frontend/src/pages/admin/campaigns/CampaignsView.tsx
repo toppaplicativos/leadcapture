@@ -32,9 +32,11 @@ import { fieldControlClass, fieldLabelLegacyClass } from '@/components/ui'
 export function CampaignsView({
   showToast,
   embedded = false,
+  channel,
 }: {
   showToast: (t: string, tp?: 'ok' | 'err') => void
   embedded?: boolean
+  channel?: 'whatsapp'
 }) {
   const [campaigns, setCampaigns] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -56,11 +58,14 @@ export function CampaignsView({
   function loadCampaigns(silent = false) {
     if (!silent) setLoading(true)
     adminApi.campaigns().then(d => {
-      setCampaigns(d.campaigns || d.items || (Array.isArray(d) ? d : []))
+      const all = d.campaigns || d.items || (Array.isArray(d) ? d : [])
+      setCampaigns(channel === 'whatsapp'
+        ? all.filter((campaign: any) => Boolean(campaign.instance_id || campaign.whatsapp_instance_id) || String(campaign.channel || campaign.canal || '').toLowerCase() === 'whatsapp')
+        : all)
       if (!silent) setLoading(false)
     }).catch(e => { if (!silent) { showToast(e.message, 'err'); setLoading(false) } })
   }
-  useEffect(() => { loadCampaigns() }, [])
+  useEffect(() => { loadCampaigns() }, [channel])
 
   useEffect(() => {
     const hasRunning = campaigns.some(c => ['active', 'running', 'sending'].includes(c.status))

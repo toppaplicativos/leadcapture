@@ -36,6 +36,9 @@ import { useSkillsBridgeOptional } from './SkillsBridgeContext'
 import { useWhatsAppConnectOptional } from '@/lib/whatsapp/WhatsAppConnectContext'
 import { isAgentHomePath, isOperationalCanvasPath } from './operationalRoutes'
 import type { AgentModalId, AgentTurn, ComponentEvent, SkillContext, TriggerSkillOptions } from './types'
+import { isNavAllowed, NAV_MODULE_MAP } from '@/lib/entitlements'
+import { openPlanUpgradeForModule } from '@/lib/plan-upgrade'
+import { useEntitlements } from '@/lib/EntitlementsContext'
 
 export type CanvasMode = 'agent' | 'page' | 'embed'
 
@@ -79,6 +82,8 @@ type AgentShellValue = {
   mobileCanvasOpen: boolean
   setMobileCanvasOpen: (v: boolean) => void
   openCanvas: (route: string) => void
+  /** Volta ao chat home no mobile/desktop — limpa canvas, módulos e navega para /assistente */
+  returnToChat: (opts?: { replace?: boolean }) => void
   /** Rota do painel no clique (antes do router atualizar) — troca fluida de atalho */
   optimisticRoute: string | null
   /** Marca ativa do shell (troca no seletor de marca) */
@@ -165,6 +170,9 @@ export function AgentShellProvider({
 }) {
   const navigate = useNavigate()
   const location = useLocation()
+  const { entitlements } = useEntitlements()
+  const planModules = entitlements?.modules
+  const planSlug = entitlements?.subscription?.plan_slug
   const waConnect = useWhatsAppConnectOptional()
   const chat = useAdminAgentChat(location.pathname, brandId)
   const prospectBridge = useProspectBridgeOptional()
@@ -221,6 +229,18 @@ export function AgentShellProvider({
   }, [chat.messages])
 
   useEffect(() => {
+    // A rota canônica do chat sempre começa limpa. O último turno continua no
+    // histórico, mas não pode reabrir silenciosamente o painel ao voltar ou
+    // iniciar o PWA.
+    if (location.pathname === '/assistente') {
+      setDesktopCanvasOpen(false)
+      setMobileCanvasOpen(false)
+      setEmbeddedRoute(null)
+      setCanvasMode('agent')
+      setOptimisticRoute(null)
+      return
+    }
+
     // Rotas operacionais: canvas amarrado à URL. Não depende de activeTurn (hidratação do chat).
     if (isOperationalCanvasPath(location.pathname)) {
       setCanvasMode('embed')
@@ -848,6 +868,15 @@ export function AgentShellProvider({
     let normalized = route.startsWith('/') ? route : `/${route}`
     // Painel canônico
     if (normalized === '/dashboard') normalized = '/admin'
+    // Nunca “abrir canvas” no destino de chat — isso trava o voltar no mobile
+    if (normalized === '/assistente' || normalized === '/') {
+      setOptimisticRoute(null)
+      setCanvasMode('agent')
+      setEmbeddedRoute(null)
+      setDesktopCanvasOpen(false)
+      setMobileCanvasOpen(false)
+      return '/assistente'
+    }
     // Strip query for stable keep-alive key (tabs still via full navigate when needed)
     const pathOnlyNorm = normalized.split('?')[0] || normalized
     setOptimisticRoute(pathOnlyNorm)
@@ -858,10 +887,85 @@ export function AgentShellProvider({
     return pathOnlyNorm
   }, [])
 
-  // Limpa otimista quando a URL real alcança o destino
-  useEffect(() => {
-    if (!optimisticRoute) return
+  /**
+   * Volta determinística ao chat (mobile crítico):
+   * 1) limpa estado do canvas/módulos na hora (sem esperar o router)
+   * 2) navega para /assistente
+   * Sem isso o optimisticRoute mantém a página operacional cobrindo o chat.
+   */
+  const returnToChat = useCallback((opts?: { replace?: boolean }) => {
+    const replace = opts?.replace !== false
+    setOptimisticRoute(null)
+    setDesktopCanvasOpen(false)
+    setMobileCanvasOpen(false)
+    setEmbeddedRoute(null)
+    setCanvasMode('agent')
+    // Fecha módulos inline/bridge — evita reabrir overlay no próximo paint
+    try {
+      prospectBridge?.setModuleOpen?.(false)
+      prospectBridge?.setModuleExpanded?.(false)
+      inboxBridge?.setModuleOpen?.(false)
+      inboxBridge?.setModuleExpanded?.(false)
+      productsBridge?.setModuleOpen?.(false)
+      productsBridge?.setModuleExpanded?.(false)
+      campaignsBridge?.setModuleOpen?.(false)
+      campaignsBridge?.setModuleExpanded?.(false)
+      galleryBridge?.setModuleOpen?.(false)
+      galleryBridge?.setModuleExpanded?.(false)
+      leadsBridge?.setModuleOpen?.(false)
+      leadsBridge?.setModuleExpanded?.(false)
+      clientsBridge?.setModuleOpen?.(false)
+      clientsBridge?.setModuleExpanded?.(false)
+      ordersBridge?.setModuleOpen?.(false)
+      ordersBridge?.setModuleExpanded?.(false)
+      dashboardBridge?.setModuleOpen?.(false)
+      skillsBridge?.setModuleOpen?.(false)
+      instagramBridge?.setModuleOpen?.(false)
+      instagramBridge?.setModuleExpanded?.(false)
+      facebookBridge?.setModuleOpen?.(false)
+      facebookBridge?.setModuleExpanded?.(false)
+      automationsBridge?.setModuleOpen?.(false)
+      automationsBridge?.setModuleExpanded?.(false)
+      affiliatesBridge?.setModuleOpen?.(false)
+      affiliatesBridge?.setModuleExpanded?.(false)
+      setSettingsModuleOpen(false)
+      setSettingsModuleExpanded(false)
+      setStoreModuleOpen(false)
+      setStoreModuleExpanded(false)
+    } catch {
+      /* bridges opcionais */
+    }
     const current = (location.pathname || '').split('?')[0]
+    if (current !== '/assistente') {
+      navigate('/assistente', { replace })
+    }
+  }, [
+    navigate,
+    location.pathname,
+    prospectBridge,
+    inboxBridge,
+    productsBridge,
+    campaignsBridge,
+    galleryBridge,
+    leadsBridge,
+    clientsBridge,
+    ordersBridge,
+    dashboardBridge,
+    skillsBridge,
+    instagramBridge,
+    facebookBridge,
+    automationsBridge,
+    affiliatesBridge,
+  ])
+
+  // Limpa otimista quando a URL real alcança o destino OU quando estamos no chat home
+  useEffect(() => {
+    const current = (location.pathname || '').split('?')[0]
+    if (current === '/assistente' || current === '' || current === '/') {
+      if (optimisticRoute) setOptimisticRoute(null)
+      return
+    }
+    if (!optimisticRoute) return
     const target = optimisticRoute.split('?')[0]
     const same =
       current === target
@@ -1009,6 +1113,35 @@ export function AgentShellProvider({
     const raw = String(navKeyOrPath || '').trim().replace(/\/$/, '')
     const key = raw.startsWith('/') ? raw.slice(1) : raw
 
+    // Home do chat — nunca abrir como canvas operacional
+    if (
+      key === 'assistente' ||
+      key === 'chat' ||
+      raw === '/assistente' ||
+      raw === '/' ||
+      raw === ''
+    ) {
+      returnToChat({ replace: true })
+      return
+    }
+
+    /* Plano: bloqueia navegação e abre modal de upgrade */
+    const navKey =
+      key === 'whatsapp'
+        ? 'whatsapp'
+        : key.includes('/')
+          ? key.split('/').filter(Boolean)[0] || key
+          : key
+    if (!isNavAllowed(navKey, planModules)) {
+      const mod = NAV_MODULE_MAP[navKey]
+      openPlanUpgradeForModule(
+        mod || navKey,
+        'Este recurso não está incluído no seu plano atual.',
+        planSlug,
+      )
+      return
+    }
+
     if (key === 'whatsapp' || raw === '/whatsapp' || raw.includes('tab=whatsapp')) {
       openOperationalArea('/whatsapp')
       return
@@ -1125,6 +1258,8 @@ export function AgentShellProvider({
       notificacoes: '/notificacoes',
       cupons: '/cupons',
       frete: '/frete',
+      entregas: '/entregas',
+      mob: '/entregas',
       estoque: '/estoque',
       avaliacoes: '/avaliacoes',
       pagamentos: '/pagamentos',
@@ -1141,6 +1276,7 @@ export function AgentShellProvider({
       raw === '/atendente' || raw === '/agente' || raw === '/dashboard' || raw === '/admin'
       || raw === '/busca' || raw === '/habilidades' || raw === '/criativos'
       || raw === '/notificacoes' || raw === '/cupons' || raw === '/frete'
+      || raw === '/entregas' || raw === '/mob'
       || raw === '/estoque' || raw === '/avaliacoes' || raw === '/pagamentos'
       || raw === '/dominio' || raw === '/emails' || raw === '/provedores-ia'
       || raw === '/tirar-pedido' || raw === '/video-studio'
@@ -1165,10 +1301,11 @@ export function AgentShellProvider({
     }
     openOperationalArea(navKeyOrPath.startsWith('/') ? navKeyOrPath : `/${navKeyOrPath}`)
   }, [
-    navigate, openOperationalArea, triggerSkill,
+    navigate, openOperationalArea, triggerSkill, returnToChat,
     productsBridge, ordersBridge, leadsBridge, clientsBridge,
     galleryBridge, instagramBridge, facebookBridge, automationsBridge,
     affiliatesBridge, inboxBridge, campaignsBridge,
+    planModules, planSlug,
   ])
 
   const handleComponentEvent = useCallback((
@@ -1180,8 +1317,19 @@ export function AgentShellProvider({
 
   const onNavigate = useCallback((path: string) => {
     // Mesmo pipeline dos atalhos — evita divergência onNavigate vs triggerNav
+    const p = String(path || '').trim()
+    const navKey = p.replace(/^\//, '').split('/')[0] || p
+    if (navKey && !isNavAllowed(navKey, planModules)) {
+      const mod = NAV_MODULE_MAP[navKey]
+      openPlanUpgradeForModule(
+        mod || navKey,
+        'Este recurso não está incluído no seu plano atual.',
+        planSlug,
+      )
+      return
+    }
     openOperationalArea(path)
-  }, [openOperationalArea])
+  }, [openOperationalArea, planModules, planSlug])
 
   const onOpenModal = useCallback((modal: AgentModalId) => {
     openModalFn?.(modal)
@@ -1260,6 +1408,7 @@ export function AgentShellProvider({
     mobileCanvasOpen,
     setMobileCanvasOpen,
     openCanvas,
+    returnToChat,
     optimisticRoute,
     brandId: brandId || '',
     closeProspectModule,
@@ -1354,6 +1503,7 @@ export function AgentShellProvider({
     registerOpenModal,
     mobileCanvasOpen,
     openCanvas,
+    returnToChat,
     optimisticRoute,
     brandId,
     closeProspectModule,

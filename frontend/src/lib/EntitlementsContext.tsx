@@ -22,6 +22,9 @@ type Ctx = {
   navItems: NavItem[]
   moduleEnabled: (moduleKey: string) => boolean
   featureEnabled: (featureKey: string) => boolean
+  /** Returns true if allowed; if blocked, opens upgrade modal and returns false */
+  requireModule: (moduleKey: string, message?: string) => boolean
+  requireFeature: (featureKey: string, message?: string) => boolean
   brandActive: boolean
   maintenanceMode: boolean
 }
@@ -55,13 +58,30 @@ export function EntitlementsProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<Ctx>(() => {
     const modules = entitlements?.modules
+    const planSlug = entitlements?.subscription?.plan_slug
+    const moduleEnabled = (key: string) => modules?.[key] !== false
+    const featureEnabled = (key: string) => entitlements?.features?.[key] !== false
     return {
       entitlements,
       loading,
       refresh,
       navItems: filterNavItems(NAV_ITEMS, modules),
-      moduleEnabled: (key: string) => modules?.[key] !== false,
-      featureEnabled: (key: string) => entitlements?.features?.[key] !== false,
+      moduleEnabled,
+      featureEnabled,
+      requireModule: (key: string, message?: string) => {
+        if (moduleEnabled(key)) return true
+        void import('@/lib/plan-upgrade').then(({ openPlanUpgradeForModule }) => {
+          openPlanUpgradeForModule(key, message, planSlug)
+        })
+        return false
+      },
+      requireFeature: (key: string, message?: string) => {
+        if (featureEnabled(key)) return true
+        void import('@/lib/plan-upgrade').then(({ openPlanUpgradeForFeature }) => {
+          openPlanUpgradeForFeature(key, message, planSlug)
+        })
+        return false
+      },
       brandActive: entitlements?.brand?.active !== false,
       maintenanceMode: !!entitlements?.maintenance_mode && !entitlements?.is_super_admin,
     }
@@ -82,6 +102,8 @@ export function useEntitlements(): Ctx {
       navItems: NAV_ITEMS,
       moduleEnabled: () => true,
       featureEnabled: () => true,
+      requireModule: () => true,
+      requireFeature: () => true,
       brandActive: true,
       maintenanceMode: false,
     }

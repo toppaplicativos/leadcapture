@@ -51,14 +51,30 @@ export function registerApiErrorToast(fn: ToastFn) {
 }
 
 export function notifyEntitlementError(err: ApiError) {
-  if (!err.isEntitlement || !toastFn) return
-  const msg = err.message || 'Ação bloqueada pelo plano ou plataforma.'
+  if (!err.isEntitlement) return
+
   const now = Date.now()
-  /* debounce identical toasts (evita spam no chat/dashboard em retries) */
-  if (msg === lastToastMsg && now - lastToastAt < 12_000) return
+  const msg = err.message || 'Ação bloqueada pelo plano ou plataforma.'
+  /* debounce identical opens (evita spam em retries) */
+  if (msg === lastToastMsg && now - lastToastAt < 4_000) return
   lastToastMsg = msg
   lastToastAt = now
-  toastFn(msg, 'err')
+
+  /* Primary UX: modal de upgrade (impeccable) — toast só se modal não estiver montado */
+  void import('@/lib/plan-upgrade')
+    .then(({ openPlanUpgrade, buildUpgradePayload }) => {
+      openPlanUpgrade(
+        buildUpgradePayload({
+          code: err.code,
+          message: err.message,
+          details: err.details as Record<string, any> | undefined,
+          requestId: err.requestId,
+        }),
+      )
+    })
+    .catch(() => {
+      if (toastFn) toastFn(msg, 'err')
+    })
 }
 
 export function parseApiError(status: number, data: any, requestId?: string | null): ApiError {

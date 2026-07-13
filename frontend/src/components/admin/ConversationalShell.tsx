@@ -30,13 +30,15 @@ import { WhatsAppConnectModal } from '@/components/whatsapp/WhatsAppConnectModal
 import { ChannelHeaderIcons } from '@/components/admin/ChannelHeaderIcons'
 import { ProspectSearchControls } from '@/components/agent/prospect/ProspectSearchControls'
 import { EntitlementsProvider, useEntitlements } from '@/lib/EntitlementsContext'
+import { PlanUpgradeModalHost } from '@/components/billing/PlanUpgradeModal'
 import { NAV_ITEMS } from '@/lib/admin/nav'
 import { prefetchCanvasRoute } from '@/lib/agent/canvasPages'
+import { useConfirm } from '@/components/ConfirmModal'
 
 const COLLAPSED_CHAT_GROUPS = [
   { label: 'Principal', keys: ['dashboard', 'busca', 'clientes', 'leads'] },
   { label: 'Canais', keys: ['mensagens', 'whatsapp', 'instagram', 'facebook', 'emails'] },
-  { label: 'Vendas', keys: ['campanhas', 'loja', 'produtos', 'pedidos', 'afiliados', 'galeria'] },
+  { label: 'Vendas', keys: ['campanhas', 'loja', 'produtos', 'pedidos', 'pagamentos', 'afiliados', 'galeria'] },
   { label: 'Inteligência', keys: ['automacoes', 'notificacoes', 'habilidades', 'agente', 'atendente', 'provedores-ia'] },
   { label: 'Sistema', keys: ['configuracoes'] },
 ] as const
@@ -77,9 +79,9 @@ function ConversationalShellBody({
   const {
     mobileCanvasOpen, setMobileCanvasOpen, desktopCanvasOpen,
     activeModuleId, activeModuleLabel, workspaceSurface, triggerNav, optimisticRoute,
+    returnToChat,
   } = useAgentShell()
   const location = useLocation()
-  const navigate = useNavigate()
   const isDesktop = useIsDesktop()
   const [chatCollapsed, setChatCollapsed] = useState(
     () => localStorage.getItem('lead-system:desktop-chat-collapsed') === 'true',
@@ -87,7 +89,13 @@ function ConversationalShellBody({
   const [shortcutTooltip, setShortcutTooltip] = useState<{ label: string; top: number; left: number } | null>(null)
   // Rotas operacionais (/atendente, …): experiência de página, não overlay frágil
   // optimisticRoute = clique de atalho antes do router atualizar
-  const pathOnlyNow = ((optimisticRoute || location.pathname) || '').split('?')[0] || ''
+  // A volta explícita ao chat tem prioridade sobre uma rota otimista antiga do
+  // canvas. Sem isso a URL muda, mas o painel permanece visível no PWA.
+  const routeForSurface = location.pathname === '/assistente'
+    ? location.pathname
+    : (optimisticRoute || location.pathname)
+  const pathOnlyNow = (routeForSurface || '').split('?')[0] || ''
+  const isExplicitChatHome = pathOnlyNow === '/assistente'
   const urlDrivenOpen =
     pathOnlyNow !== '/assistente' &&
     pathOnlyNow !== '' &&
@@ -95,9 +103,25 @@ function ConversationalShellBody({
   // Com o chat recolhido, /admin representa o dashboard no canvas e deve permanecer aberto.
   // A hidratação tardia da conversa não pode desmontar a navegação rápida.
   const dashboardPinnedOpen = isDesktop && chatCollapsed && (pathOnlyNow === '/admin' || pathOnlyNow === '/dashboard')
-  const canvasOpen = desktopCanvasOpen || urlDrivenOpen || dashboardPinnedOpen
+  // /assistente é um destino explícito: ao voltar para o chat, nenhum canvas
+  // hidratado da conversa anterior pode continuar cobrindo a conversa.
+  const canvasOpen = !isExplicitChatHome && (desktopCanvasOpen || urlDrivenOpen || dashboardPinnedOpen)
+  const visibleWorkspaceSurface = isExplicitChatHome ? 'chat' : workspaceSurface
   const { brand, brands, activeBrandId, showBrandPicker, setShowBrandPicker, switchBrand, logout, refreshKey } = brandState
+  const { confirm } = useConfirm()
   const brandMenuRef = useRef<HTMLDivElement>(null)
+
+  const requestLogout = async () => {
+    const approved = await confirm({
+      title: 'Sair da sua conta?',
+      message: 'Você precisará entrar novamente para acessar a organização e continuar seu trabalho.',
+      confirmLabel: 'Sair da conta',
+      cancelLabel: 'Continuar no app',
+      variant: 'danger',
+      icon: LogOut,
+    })
+    if (approved) logout()
+  }
 
   /* Mobile: em rota operacional o canvas é a página principal (sempre is-open).
      Skills/hidratação NÃO podem esconder com activeModuleId. */
@@ -141,7 +165,7 @@ function ConversationalShellBody({
   })).filter((group) => group.items.length > 0)
 
   useEffect(() => {
-    /* register toast hook for plan/module denials from api-admin */
+    /* toast residual for non-entitlement messages; plan walls open PlanUpgradeModal */
     import('@/lib/api-errors').then(({ registerApiErrorToast }) => {
       registerApiErrorToast((msg, type) => {
         if (type === 'err') showToast(msg, 'err')
@@ -155,11 +179,43 @@ function ConversationalShellBody({
     refreshEntitlements()
   }, [activeBrandId, refreshEntitlements])
 
+  /*
+   * PWA mobile: se o browser restaurar /admin (home legado), manda para o chat.
+   * A conversa (última sessão) é restaurada pelo WorkspaceChat; painel fica sob demanda.
+   * Só na 1ª entrada da aba/sessão — depois o usuário pode abrir o Painel à vontade.
+   */
+  useEffect(() => {
+    if (isDesktop) return
+    if (typeof window === 'undefined') return
+    const path = (location.pathname || '').split('?')[0]
+    if (path !== '/admin' && path !== '/dashboard') return
+    let standalone = false
+    try {
+      standalone =
+        window.matchMedia('(display-mode: standalone)').matches
+        || window.matchMedia('(display-mode: fullscreen)').matches
+        || (window.navigator as { standalone?: boolean }).standalone === true
+    } catch {
+      standalone = false
+    }
+    // Também trata mobile browser com source=pwa (manifest / atalho)
+    const fromPwa = new URLSearchParams(location.search || '').get('source') === 'pwa'
+    if (!standalone && !fromPwa) return
+    const flag = 'lead-system:pwa-chat-home'
+    try {
+      if (sessionStorage.getItem(flag) === '1') return
+      sessionStorage.setItem(flag, '1')
+    } catch {
+      /* private mode */
+    }
+    returnToChat({ replace: true })
+  }, [isDesktop, location.pathname, location.search, returnToChat])
+
   return (
     <div
       className={[
         'agent-shell flex flex-col bg-bg',
-        `agent-shell--${workspaceSurface}`,
+        `agent-shell--${visibleWorkspaceSurface}`,
         urlDrivenOpen ? 'agent-shell--route-page' : '',
         canvasOpen ? 'agent-shell--canvas-open' : '',
       ].filter(Boolean).join(' ')}
@@ -184,6 +240,18 @@ function ConversationalShellBody({
         )}
         <WhatsAppHealthBanner embedded />
         <header className="agent-shell__header">
+        {/* Mobile: voltar ao chat no header (fora do canvas) — evita z-index sob o chrome */}
+        {!isDesktop && urlDrivenOpen && (
+          <button
+            type="button"
+            className="agent-shell__header-back"
+            onClick={() => returnToChat({ replace: true })}
+            aria-label="Voltar ao chat"
+          >
+            <ArrowLeft size={16} strokeWidth={2.25} aria-hidden />
+            <span>Chat</span>
+          </button>
+        )}
         <div className="agent-shell__brand" ref={brandMenuRef}>
           <button
             type="button"
@@ -270,7 +338,7 @@ function ConversationalShellBody({
             </span>
           )}
           <ChannelHeaderIcons brandKey={activeBrandId || refreshKey} />
-          <button type="button" onClick={logout} className="agent-shell__logout" aria-label="Sair">
+          <button type="button" onClick={requestLogout} className="agent-shell__logout" aria-label="Sair">
             <LogOut size={16} strokeWidth={1.75} />
             <span className="hidden sm:inline">Sair</span>
           </button>
@@ -372,29 +440,20 @@ function ConversationalShellBody({
           }
           aria-hidden={urlDrivenOpen || mobileCanvasVisible || canvasOpen ? undefined : true}
         >
-          {/* Em rota operacional no mobile NÃO oferecemos "fechar" — fecharia a página */}
+          {/* Overlay (skills/módulos): X no canvas. Rotas URL usam botão no header. */}
           {!isDesktop && mobileCanvasVisible && !urlDrivenOpen && (
             <button
               type="button"
               className="agent-shell__canvas-close"
-              onClick={() => setMobileCanvasOpen(false)}
+              onClick={() => returnToChat({ replace: true })}
               aria-label="Voltar ao chat"
             >
               <X size={18} />
             </button>
           )}
-          {!isDesktop && urlDrivenOpen && (
-            <button
-              type="button"
-              className="agent-shell__route-back"
-              onClick={() => navigate('/admin')}
-              aria-label="Voltar ao chat"
-            >
-              <ArrowLeft size={16} />
-              <span>Chat</span>
-            </button>
-          )}
-          <div key={`${activeBrandId}:${pathOnlyNow}`} className="h-full min-h-0">
+          {/* key só por brand — NÃO por path: remount a cada rota re-inicializava o mapa
+              panfleteiro, re-disparava radar e dava sensação de “app reabrindo”. */}
+          <div key={activeBrandId || 'brand'} className="h-full min-h-0">
             <AgentCanvas>{children}</AgentCanvas>
           </div>
           {isDesktop && chatCollapsed && pathOnlyNow === '/busca' && prospectBridge?.isReady && (
@@ -572,6 +631,7 @@ export function ConversationalShell({ children }: { children?: ReactNode }) {
                         <DashboardBridgeProvider>
                           <SkillsBridgeProvider>
                             <ConversationalShellInner>{children}</ConversationalShellInner>
+                            <PlanUpgradeModalHost />
                           </SkillsBridgeProvider>
                         </DashboardBridgeProvider>
                       </OrdersBridgeProvider>

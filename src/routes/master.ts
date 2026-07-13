@@ -266,7 +266,14 @@ router.get("/plans", async (_req: AuthRequest, res: Response) => {
   const plans = await query(
     `SELECT * FROM plans ORDER BY sort_order ASC, created_at ASC`,
   )
-  return res.json({ plans })
+  const { PLAN_FEATURE_CATALOG, ALL_PLAN_FEATURE_KEYS } = await import(
+    "../services/planEntitlements"
+  )
+  return res.json({
+    plans,
+    feature_catalog: PLAN_FEATURE_CATALOG,
+    feature_keys: ALL_PLAN_FEATURE_KEYS,
+  })
 })
 
 router.put("/plans/:id", async (req: AuthRequest, res: Response) => {

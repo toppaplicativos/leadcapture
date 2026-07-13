@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Loader2,
   Star,
@@ -8,9 +8,61 @@ import {
   CheckCircle2,
   RefreshCw,
   ExternalLink,
+  Infinity as InfinityIcon,
 } from 'lucide-react'
 import { masterApi } from '@/lib/master-api'
 import { MasterPageHeader, MasterCard } from './MasterShell'
+
+/** Mirrors backend PLAN_FEATURE_CATALOG — labels for master UI */
+type FeatureKey =
+  | 'radar'
+  | 'crm'
+  | 'smart_import'
+  | 'prospect_ai'
+  | 'creative_ai'
+  | 'video_studio'
+  | 'meta_integration'
+  | 'custom_domain'
+  | 'corporate_email'
+  | 'campaigns'
+  | 'automations'
+  | 'flow_builder'
+  | 'whatsapp'
+  | 'agent_workspace'
+  | 'multi_brand'
+  | 'api'
+  | 'affiliates'
+
+type FeatureMeta = { key: FeatureKey; label: string; group: string; description: string }
+
+const FALLBACK_FEATURE_CATALOG: FeatureMeta[] = [
+  { key: 'radar', label: 'Radar geográfico', group: 'Captação', description: 'Busca de leads no mapa' },
+  { key: 'smart_import', label: 'Importação inteligente', group: 'Captação', description: 'Import de listas com IA' },
+  { key: 'prospect_ai', label: 'Inteligência de prospecção', group: 'Captação', description: 'IA de prospecção' },
+  { key: 'crm', label: 'CRM, catálogo e vendas', group: 'Comercial', description: 'Clientes, produtos, pedidos, checkout, pagamentos' },
+  { key: 'whatsapp', label: 'WhatsApp', group: 'Canais', description: 'Instâncias, inbox e disparos WhatsApp' },
+  { key: 'campaigns', label: 'Campanhas', group: 'Canais', description: 'Campanhas e disparos em massa' },
+  { key: 'automations', label: 'Automações', group: 'Canais', description: 'Automações e regras de fluxo' },
+  { key: 'flow_builder', label: 'Construtor de fluxos', group: 'Canais', description: 'Flow builder visual' },
+  { key: 'agent_workspace', label: 'Agente / workspace', group: 'IA', description: 'Atendente IA e workspace do agente' },
+  { key: 'creative_ai', label: 'Criativos IA', group: 'IA', description: 'Posts, anúncios, galeria e copy' },
+  { key: 'video_studio', label: 'Video studio', group: 'IA', description: 'Geração e edição de vídeo' },
+  { key: 'meta_integration', label: 'Instagram + Facebook', group: 'Presença', description: 'Integrações Meta' },
+  { key: 'custom_domain', label: 'Domínio customizado', group: 'Presença', description: 'Domínio próprio da loja' },
+  { key: 'corporate_email', label: 'E-mail corporativo', group: 'Presença', description: 'Caixas @seudominio' },
+  { key: 'affiliates', label: 'Programa de afiliados', group: 'Rede', description: 'Afiliados da marca e repasses' },
+  { key: 'multi_brand', label: 'Multi-marca', group: 'Rede', description: 'Mais de uma organização' },
+  { key: 'api', label: 'API e webhooks', group: 'Enterprise', description: 'Acesso API dedicado' },
+]
+
+type PlanLimits = {
+  leads_per_day: number
+  leads_per_month: number
+  instances: number
+  brands: number
+  disparos_per_month: number
+  features: Partial<Record<FeatureKey, boolean>>
+}
 
 interface Plan {
   id: string
@@ -31,16 +83,30 @@ interface Plan {
   payment_link_id: string | null
 }
 
+type Draft = {
+  name: string
+  tagline: string
+  price_cents: number
+  interval: string
+  billing_type: string
+  is_active: boolean
+  is_featured: boolean
+  limits: PlanLimits
+  /** Optional extra marketing lines (beyond auto bullets) */
+  marketing_extra: string[]
+}
+
 const moneyBR = (cents: number) =>
   cents > 0
     ? (cents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
     : 'Sob consulta'
 
-function asFeatures(v: Plan['features']): string[] {
-  if (Array.isArray(v)) return v
+function asStringList(v: Plan['features']): string[] {
+  if (Array.isArray(v)) return v.map(String)
   if (typeof v === 'string') {
     try {
-      return JSON.parse(v)
+      const p = JSON.parse(v)
+      return Array.isArray(p) ? p.map(String) : []
     } catch {
       return []
     }
@@ -48,11 +114,61 @@ function asFeatures(v: Plan['features']): string[] {
   return []
 }
 
+function parseLimits(raw: any): PlanLimits {
+  let obj = raw
+  if (typeof raw === 'string') {
+    try {
+      obj = JSON.parse(raw)
+    } catch {
+      obj = {}
+    }
+  }
+  const f = (obj?.features && typeof obj.features === 'object' ? obj.features : {}) as Record<
+    string,
+    boolean
+  >
+  return {
+    leads_per_day: Number(obj?.leads_per_day ?? 50),
+    leads_per_month: Number(obj?.leads_per_month ?? 1500),
+    instances: Number(obj?.instances ?? 1),
+    brands: Number(obj?.brands ?? 1),
+    disparos_per_month: Number(obj?.disparos_per_month ?? 200),
+    features: { ...f },
+  }
+}
+
+function fmtLimit(n: number, unit = ''): string {
+  if (n < 0 || n === -1) return 'Ilimitado'
+  return `${n.toLocaleString('pt-BR')}${unit}`
+}
+
+function buildMarketingBullets(limits: PlanLimits, catalog: FeatureMeta[]): string[] {
+  const bullets: string[] = []
+  bullets.push(`Até ${fmtLimit(limits.leads_per_day)} leads/dia · ${fmtLimit(limits.leads_per_month)}/mês`)
+  bullets.push(
+    `${fmtLimit(limits.brands)} marca(s) · ${fmtLimit(limits.instances)} WhatsApp · ${fmtLimit(limits.disparos_per_month)} disparos/mês`,
+  )
+  for (const meta of catalog) {
+    if (limits.features[meta.key] === true) {
+      bullets.push(meta.label)
+    }
+  }
+  return bullets
+}
+
+/** Dark-theme safe field styles (avoid white bg + white text on selects/options) */
+const fieldClass =
+  'w-full h-10 px-3.5 rounded-xl border border-white/15 bg-zinc-900 text-[13px] text-white placeholder:text-white/35 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500/40 [color-scheme:dark]'
+const areaClass =
+  'w-full px-3.5 py-2.5 rounded-xl border border-white/15 bg-zinc-900 text-[13px] text-white placeholder:text-white/35 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500/40 resize-none font-mono [color-scheme:dark]'
+const selectClass = `${fieldClass} appearance-none`
+
 export function MasterPlanos() {
   const [plans, setPlans] = useState<Plan[]>([])
+  const [catalog, setCatalog] = useState<FeatureMeta[]>(FALLBACK_FEATURE_CATALOG)
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<string | null>(null)
-  const [draft, setDraft] = useState<Partial<Plan>>({})
+  const [draft, setDraft] = useState<Draft | null>(null)
   const [saving, setSaving] = useState(false)
   const [syncing, setSyncing] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -63,6 +179,9 @@ export function MasterPlanos() {
     try {
       const r = await masterApi.listPlans()
       setPlans(r.plans as Plan[])
+      if (Array.isArray((r as any).feature_catalog) && (r as any).feature_catalog.length) {
+        setCatalog((r as any).feature_catalog as FeatureMeta[])
+      }
     } catch (err: any) {
       setError(err?.message || 'Erro')
     } finally {
@@ -74,7 +193,33 @@ export function MasterPlanos() {
     load()
   }, [])
 
+  const catalogByGroup = useMemo(() => {
+    const map = new Map<string, FeatureMeta[]>()
+    for (const f of catalog) {
+      const list = map.get(f.group) || []
+      list.push(f)
+      map.set(f.group, list)
+    }
+    return Array.from(map.entries())
+  }, [catalog])
+
   function startEdit(p: Plan) {
+    const limits = parseLimits(p.limits)
+    // ensure every catalog key present
+    for (const meta of catalog) {
+      if (limits.features[meta.key] === undefined) {
+        // sensible defaults for missing keys
+        if (meta.key === 'whatsapp' || meta.key === 'agent_workspace' || meta.key === 'affiliates') {
+          limits.features[meta.key] = true
+        } else if (meta.key === 'flow_builder') {
+          limits.features[meta.key] = limits.features.automations === true
+        } else if (meta.key === 'video_studio') {
+          limits.features[meta.key] = limits.features.creative_ai === true
+        } else {
+          limits.features[meta.key] = false
+        }
+      }
+    }
     setEditing(p.id)
     setDraft({
       name: p.name,
@@ -82,26 +227,79 @@ export function MasterPlanos() {
       price_cents: p.price_cents,
       interval: p.interval,
       billing_type: p.billing_type || 'subscription',
-      features: asFeatures(p.features),
       is_active: p.is_active,
       is_featured: p.is_featured,
+      limits,
+      marketing_extra: [],
+    })
+  }
+
+  function setLimitNum(key: keyof Omit<PlanLimits, 'features'>, value: string) {
+    setDraft(d => {
+      if (!d) return d
+      const n = value.trim() === '' ? 0 : parseInt(value, 10)
+      return {
+        ...d,
+        limits: {
+          ...d.limits,
+          [key]: Number.isFinite(n) ? n : 0,
+        },
+      }
+    })
+  }
+
+  function toggleFeature(key: FeatureKey) {
+    setDraft(d => {
+      if (!d) return d
+      const cur = d.limits.features[key] === true
+      return {
+        ...d,
+        limits: {
+          ...d.limits,
+          features: { ...d.limits.features, [key]: !cur },
+        },
+      }
     })
   }
 
   async function save(id: string) {
+    if (!draft) return
     setSaving(true)
     setError(null)
     try {
-      await masterApi.updatePlan(id, draft)
+      const marketing = [
+        ...buildMarketingBullets(draft.limits, catalog),
+        ...draft.marketing_extra.filter(Boolean),
+      ]
+      // Deduplicate while preserving order
+      const seen = new Set<string>()
+      const features = marketing.filter(line => {
+        const k = line.toLowerCase()
+        if (seen.has(k)) return false
+        seen.add(k)
+        return true
+      })
+
+      await masterApi.updatePlan(id, {
+        name: draft.name,
+        tagline: draft.tagline,
+        price_cents: draft.price_cents,
+        interval: draft.interval,
+        billing_type: draft.billing_type,
+        is_active: draft.is_active,
+        is_featured: draft.is_featured,
+        limits: draft.limits,
+        features,
+      })
       setEditing(null)
-      setDraft({})
-      setFlash('Plano salvo. Para gerar o link de pagamento, clique em "Gerar link Stripe".')
+      setDraft(null)
+      setFlash('Plano salvo. Limites e módulos passam a valer no próximo refresh de entitlements dos tenants.')
       await load()
     } catch (err: any) {
       setError(err?.message || 'Erro')
     } finally {
       setSaving(false)
-      setTimeout(() => setFlash(null), 4500)
+      setTimeout(() => setFlash(null), 5000)
     }
   }
 
@@ -135,7 +333,7 @@ export function MasterPlanos() {
     <>
       <MasterPageHeader
         title="Planos"
-        subtitle="Os planos exibidos na landing são puxados desta tabela. Edite preço e features → clique em 'Gerar link' e o sistema cria o produto no Stripe automaticamente."
+        subtitle="O que você marca aqui libera ou bloqueia de verdade (nav, APIs e limites). Os bullets da landing são gerados a partir dessas regras."
       />
 
       {error && (
@@ -154,10 +352,11 @@ export function MasterPlanos() {
           const isEditing = editing === p.id
           const billingType = (p.billing_type as string) || 'subscription'
           const isSyncing = syncing === p.id
+          const limits = parseLimits(p.limits)
+          const enabledKeys = catalog.filter(c => limits.features[c.key] === true)
 
           return (
             <MasterCard key={p.id} className="p-6">
-              {/* Header */}
               <div className="flex items-start justify-between gap-4 mb-4 flex-wrap">
                 <div className="flex items-center gap-3 flex-wrap">
                   <h3 className="text-[18px] font-bold tracking-tight">{p.name}</h3>
@@ -189,39 +388,39 @@ export function MasterPlanos() {
                 </div>
               </div>
 
-              {/* Body */}
-              {isEditing ? (
-                <div className="space-y-3">
+              {isEditing && draft ? (
+                <div className="space-y-5">
                   <Field label="Nome">
                     <input
                       type="text"
-                      value={draft.name || ''}
-                      onChange={e => setDraft(d => ({ ...d, name: e.target.value }))}
-                      className="w-full h-10 px-3.5 rounded-xl border border-white/10 bg-white/[0.04] text-[13px] text-white focus:outline-none focus:ring-4 focus:ring-white/5 focus:border-white/30"
+                      value={draft.name}
+                      onChange={e => setDraft(d => (d ? { ...d, name: e.target.value } : d))}
+                      className={fieldClass}
                     />
                   </Field>
                   <Field label="Tagline">
                     <input
                       type="text"
-                      value={draft.tagline || ''}
-                      onChange={e => setDraft(d => ({ ...d, tagline: e.target.value }))}
-                      className="w-full h-10 px-3.5 rounded-xl border border-white/10 bg-white/[0.04] text-[13px] text-white focus:outline-none focus:ring-4 focus:ring-white/5 focus:border-white/30"
+                      value={draft.tagline}
+                      onChange={e => setDraft(d => (d ? { ...d, tagline: e.target.value } : d))}
+                      className={fieldClass}
                     />
                   </Field>
 
-                  {/* Billing type toggle */}
                   <Field label="Tipo de cobrança">
-                    <div className="inline-flex bg-white/[0.04] p-0.5 rounded-xl ring-1 ring-white/10">
+                    <div className="inline-flex bg-zinc-900 p-0.5 rounded-xl ring-1 ring-white/10">
                       {[
                         { value: 'subscription', label: 'Assinatura recorrente' },
                         { value: 'one_time', label: 'Pagamento único' },
                       ].map(opt => {
-                        const sel = (draft.billing_type || 'subscription') === opt.value
+                        const sel = draft.billing_type === opt.value
                         return (
                           <button
                             key={opt.value}
                             type="button"
-                            onClick={() => setDraft(d => ({ ...d, billing_type: opt.value }))}
+                            onClick={() =>
+                              setDraft(d => (d ? { ...d, billing_type: opt.value } : d))
+                            }
                             className={`px-3.5 h-9 rounded-lg text-[12px] font-semibold transition ${
                               sel ? 'bg-white text-gray-900' : 'text-white/60 hover:text-white'
                             }`}
@@ -234,48 +433,162 @@ export function MasterPlanos() {
                   </Field>
 
                   <div className="grid grid-cols-2 gap-3">
-                    <Field label="Preço (em centavos)">
+                    <Field label="Preço (centavos)">
                       <input
                         type="number"
-                        value={draft.price_cents ?? 0}
+                        value={draft.price_cents}
                         onChange={e =>
-                          setDraft(d => ({ ...d, price_cents: parseInt(e.target.value, 10) || 0 }))
+                          setDraft(d =>
+                            d
+                              ? { ...d, price_cents: parseInt(e.target.value, 10) || 0 }
+                              : d,
+                          )
                         }
-                        className="w-full h-10 px-3.5 rounded-xl border border-white/10 bg-white/[0.04] text-[13px] font-mono text-white focus:outline-none focus:ring-4 focus:ring-white/5 focus:border-white/30"
+                        className={fieldClass + ' font-mono'}
                       />
                       <p className="text-[10px] text-white/40 mt-1 tabular-nums">
                         = {moneyBR(draft.price_cents || 0)}
                       </p>
                     </Field>
-                    {(draft.billing_type || 'subscription') === 'subscription' && (
+                    {draft.billing_type === 'subscription' && (
                       <Field label="Intervalo">
                         <select
                           value={draft.interval || 'monthly'}
-                          onChange={e => setDraft(d => ({ ...d, interval: e.target.value }))}
-                          className="w-full h-10 px-3.5 rounded-xl border border-white/10 bg-white/[0.04] text-[13px] text-white focus:outline-none focus:ring-4 focus:ring-white/5 focus:border-white/30"
+                          onChange={e =>
+                            setDraft(d => (d ? { ...d, interval: e.target.value } : d))
+                          }
+                          className={selectClass}
                         >
-                          <option value="monthly">Mensal</option>
-                          <option value="yearly">Anual</option>
-                          <option value="weekly">Semanal</option>
+                          <option value="monthly" className="bg-zinc-900 text-white">
+                            Mensal
+                          </option>
+                          <option value="yearly" className="bg-zinc-900 text-white">
+                            Anual
+                          </option>
+                          <option value="weekly" className="bg-zinc-900 text-white">
+                            Semanal
+                          </option>
                         </select>
                       </Field>
                     )}
                   </div>
 
-                  <Field label="Features (uma por linha)">
+                  {/* ── Real limits ── */}
+                  <div className="rounded-2xl ring-1 ring-white/10 bg-black/20 p-4 space-y-3">
+                    <div>
+                      <p className="text-[12px] font-bold text-white">Limites (enforced)</p>
+                      <p className="text-[11px] text-white/45 mt-0.5">
+                        Use <span className="font-mono text-white/70">-1</span> para ilimitado. Estes
+                        valores bloqueiam criação de marcas, WhatsApp e captação de leads.
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                      {(
+                        [
+                          ['leads_per_day', 'Leads / dia'],
+                          ['leads_per_month', 'Leads / mês'],
+                          ['instances', 'Números WhatsApp'],
+                          ['brands', 'Marcas (orgs)'],
+                          ['disparos_per_month', 'Disparos / mês'],
+                        ] as const
+                      ).map(([key, label]) => (
+                        <Field key={key} label={label}>
+                          <div className="relative">
+                            <input
+                              type="number"
+                              value={draft.limits[key]}
+                              onChange={e => setLimitNum(key, e.target.value)}
+                              className={fieldClass + ' font-mono pr-9'}
+                            />
+                            {(draft.limits[key] < 0 || draft.limits[key] === -1) && (
+                              <InfinityIcon
+                                size={14}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-emerald-400"
+                              />
+                            )}
+                          </div>
+                        </Field>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* ── Real feature toggles ── */}
+                  <div className="rounded-2xl ring-1 ring-white/10 bg-black/20 p-4 space-y-4">
+                    <div>
+                      <p className="text-[12px] font-bold text-white">Módulos do plano (libera / bloqueia)</p>
+                      <p className="text-[11px] text-white/45 mt-0.5">
+                        Cada switch controla nav + API. Desligado = 403 / item oculto no admin do tenant.
+                      </p>
+                    </div>
+                    {catalogByGroup.map(([group, items]) => (
+                      <div key={group}>
+                        <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-white/40 mb-2">
+                          {group}
+                        </p>
+                        <div className="grid sm:grid-cols-2 gap-2">
+                          {items.map(meta => {
+                            const on = draft.limits.features[meta.key] === true
+                            return (
+                              <button
+                                key={meta.key}
+                                type="button"
+                                onClick={() => toggleFeature(meta.key)}
+                                className={`text-left px-3.5 py-3 rounded-xl ring-1 transition ${
+                                  on
+                                    ? 'bg-emerald-500/10 ring-emerald-500/30'
+                                    : 'bg-zinc-900/80 ring-white/10 hover:ring-white/20'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="text-[13px] font-semibold text-white">
+                                    {meta.label}
+                                  </span>
+                                  <span
+                                    className={`text-[10px] font-bold uppercase tracking-wide ${
+                                      on ? 'text-emerald-400' : 'text-white/35'
+                                    }`}
+                                  >
+                                    {on ? 'Ativo' : 'Bloqueado'}
+                                  </span>
+                                </div>
+                                <p className="text-[11px] text-white/50 mt-1 leading-snug">
+                                  {meta.description}
+                                </p>
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <Field label="Bullets da landing (gerados + extras opcionais)">
+                    <div className="rounded-xl ring-1 ring-white/10 bg-zinc-900/60 px-3.5 py-2.5 mb-2 space-y-1">
+                      {buildMarketingBullets(draft.limits, catalog).map((line, i) => (
+                        <p key={i} className="text-[12px] text-white/70 flex gap-2">
+                          <span className="text-emerald-400">·</span>
+                          {line}
+                        </p>
+                      ))}
+                    </div>
                     <textarea
-                      rows={6}
-                      value={(draft.features as string[] | undefined)?.join('\n') || ''}
+                      rows={3}
+                      placeholder="Linhas extras só para marketing (opcional, uma por linha)"
+                      value={draft.marketing_extra.join('\n')}
                       onChange={e =>
-                        setDraft(d => ({
-                          ...d,
-                          features: e.target.value
-                            .split('\n')
-                            .map(s => s.trim())
-                            .filter(Boolean),
-                        }))
+                        setDraft(d =>
+                          d
+                            ? {
+                                ...d,
+                                marketing_extra: e.target.value
+                                  .split('\n')
+                                  .map(s => s.trim())
+                                  .filter(Boolean),
+                              }
+                            : d,
+                        )
                       }
-                      className="w-full px-3.5 py-2.5 rounded-xl border border-white/10 bg-white/[0.04] text-[13px] text-white focus:outline-none focus:ring-4 focus:ring-white/5 focus:border-white/30 resize-none font-mono"
+                      className={areaClass}
                     />
                   </Field>
 
@@ -284,7 +597,9 @@ export function MasterPlanos() {
                       <input
                         type="checkbox"
                         checked={!!draft.is_active}
-                        onChange={e => setDraft(d => ({ ...d, is_active: e.target.checked }))}
+                        onChange={e =>
+                          setDraft(d => (d ? { ...d, is_active: e.target.checked } : d))
+                        }
                         className="w-4 h-4 accent-emerald-500"
                       />
                       <span className="text-[12px] text-white/70">Ativo</span>
@@ -293,14 +608,16 @@ export function MasterPlanos() {
                       <input
                         type="checkbox"
                         checked={!!draft.is_featured}
-                        onChange={e => setDraft(d => ({ ...d, is_featured: e.target.checked }))}
+                        onChange={e =>
+                          setDraft(d => (d ? { ...d, is_featured: e.target.checked } : d))
+                        }
                         className="w-4 h-4 accent-emerald-500"
                       />
                       <span className="text-[12px] text-white/70">Destacado na landing</span>
                     </label>
                   </div>
 
-                  <div className="flex items-center gap-2 pt-2">
+                  <div className="flex items-center gap-2 pt-1">
                     <button
                       onClick={() => save(p.id)}
                       disabled={saving}
@@ -311,12 +628,12 @@ export function MasterPlanos() {
                       ) : (
                         <Save size={14} strokeWidth={2} />
                       )}
-                      Salvar
+                      Salvar plano
                     </button>
                     <button
                       onClick={() => {
                         setEditing(null)
-                        setDraft({})
+                        setDraft(null)
                       }}
                       className="h-10 px-4 rounded-xl bg-white/[0.06] text-white text-[13px] font-semibold ring-1 ring-white/10 hover:bg-white/10 transition"
                     >
@@ -329,16 +646,67 @@ export function MasterPlanos() {
                   {p.tagline && (
                     <p className="text-[13px] text-white/60 mb-3">{p.tagline}</p>
                   )}
-                  <ul className="space-y-1.5 mb-5">
-                    {asFeatures(p.features).map((f, i) => (
-                      <li key={i} className="text-[13px] text-white/70 flex items-start gap-2">
-                        <span className="text-emerald-400 mt-0.5">·</span>
-                        {f}
-                      </li>
-                    ))}
-                  </ul>
 
-                  {/* Stripe section — link or call-to-generate */}
+                  {/* Real limits summary */}
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mb-4">
+                    {(
+                      [
+                        ['Leads/dia', limits.leads_per_day],
+                        ['Leads/mês', limits.leads_per_month],
+                        ['WhatsApp', limits.instances],
+                        ['Marcas', limits.brands],
+                        ['Disparos/mês', limits.disparos_per_month],
+                      ] as const
+                    ).map(([label, n]) => (
+                      <div
+                        key={label}
+                        className="rounded-xl bg-white/[0.04] ring-1 ring-white/[0.08] px-3 py-2"
+                      >
+                        <p className="text-[10px] font-semibold text-white/40 uppercase tracking-wide">
+                          {label}
+                        </p>
+                        <p className="text-[14px] font-bold text-white tabular-nums mt-0.5">
+                          {fmtLimit(n)}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="mb-4">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-white/40 mb-2">
+                      Módulos liberados ({enabledKeys.length}/{catalog.length})
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {catalog.map(meta => {
+                        const on = limits.features[meta.key] === true
+                        return (
+                          <span
+                            key={meta.key}
+                            title={meta.description}
+                            className={`inline-flex h-7 items-center px-2.5 rounded-lg text-[11px] font-semibold ring-1 ${
+                              on
+                                ? 'bg-emerald-500/10 text-emerald-300 ring-emerald-500/25'
+                                : 'bg-white/[0.03] text-white/30 ring-white/10 line-through decoration-white/20'
+                            }`}
+                          >
+                            {meta.label}
+                          </span>
+                        )
+                      })}
+                    </div>
+                  </div>
+
+                  {asStringList(p.features).length > 0 && (
+                    <ul className="space-y-1.5 mb-5">
+                      {asStringList(p.features).map((f, i) => (
+                        <li key={i} className="text-[13px] text-white/70 flex items-start gap-2">
+                          <span className="text-emerald-400 mt-0.5">·</span>
+                          {f}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+
                   <StripeSection plan={p} isSyncing={isSyncing} onSync={() => syncStripe(p.id)} />
 
                   <div className="flex items-center gap-2 mt-5">
@@ -346,7 +714,7 @@ export function MasterPlanos() {
                       onClick={() => startEdit(p)}
                       className="h-9 px-4 rounded-xl bg-white/[0.06] text-white text-[12px] font-semibold ring-1 ring-white/10 hover:bg-white/10 active:scale-[0.98] transition"
                     >
-                      Editar plano
+                      Configurar plano
                     </button>
                   </div>
                 </>
@@ -379,7 +747,7 @@ function StripeSection({
       setCopied(true)
       setTimeout(() => setCopied(false), 1800)
     } catch {
-      /* fallback could go here */
+      /* ignore */
     }
   }
 
@@ -397,7 +765,7 @@ function StripeSection({
         <div className="min-w-0">
           <p className="text-[12px] font-semibold text-white">Sem link de pagamento</p>
           <p className="text-[11px] text-white/50 mt-0.5">
-            Clique em "Gerar link Stripe" para criar produto + preço + checkout automaticamente.
+            Clique em &quot;Gerar link Stripe&quot; para criar produto + preço + checkout.
           </p>
         </div>
         <button
@@ -452,9 +820,7 @@ function StripeSection({
       </div>
 
       <div className="flex items-center gap-2 text-[10px] text-white/40 pt-1">
-        <span className="font-mono">
-          product: {plan.stripe_product_id || '—'}
-        </span>
+        <span className="font-mono">product: {plan.stripe_product_id || '—'}</span>
         <span className="text-white/20">·</span>
         <span className="font-mono">price: {plan.stripe_price_id || '—'}</span>
       </div>
@@ -475,13 +841,7 @@ function StripeSection({
   )
 }
 
-function Field({
-  label,
-  children,
-}: {
-  label: string
-  children: React.ReactNode
-}) {
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
       <label className="block text-[11px] font-semibold text-white/60 mb-1.5 tracking-wide">

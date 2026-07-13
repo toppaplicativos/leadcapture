@@ -68,7 +68,16 @@ export const masterApi = {
 
   /* plans */
   listPlans: () =>
-    req<{ plans: Array<any> }>('GET', '/plans'),
+    req<{
+      plans: Array<any>
+      feature_catalog?: Array<{
+        key: string
+        label: string
+        group: string
+        description: string
+      }>
+      feature_keys?: string[]
+    }>('GET', '/plans'),
   updatePlan: (id: string, patch: Record<string, any>) =>
     req<{ plan: any }>('PUT', `/plans/${id}`, patch),
   syncPlanStripe: (id: string) =>

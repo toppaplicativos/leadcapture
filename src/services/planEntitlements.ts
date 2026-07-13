@@ -6,20 +6,56 @@
 import { query, queryOne } from "../config/database"
 import { getPlatformTools, type PlatformModules } from "./platformTools"
 
+/**
+ * Capabilities that a commercial plan can enable/disable.
+ * These are enforced by planGuard + getEntitlements (modules + assertPlanFeature).
+ */
 export type PlanFeatureKey =
   | "radar"
   | "crm"
   | "smart_import"
   | "prospect_ai"
   | "creative_ai"
+  | "video_studio"
   | "meta_integration"
   | "custom_domain"
   | "corporate_email"
   | "campaigns"
   | "automations"
+  | "flow_builder"
+  | "whatsapp"
+  | "agent_workspace"
   | "multi_brand"
   | "api"
   | "affiliates"
+
+/** Ordered catalog for master UI + docs (single source of truth for labels). */
+export const PLAN_FEATURE_CATALOG: Array<{
+  key: PlanFeatureKey
+  label: string
+  group: string
+  description: string
+}> = [
+  { key: "radar", label: "Radar geográfico", group: "Captação", description: "Busca de leads no mapa" },
+  { key: "smart_import", label: "Importação inteligente", group: "Captação", description: "Import de listas com IA" },
+  { key: "prospect_ai", label: "Inteligência de prospecção", group: "Captação", description: "IA de prospecção" },
+  { key: "crm", label: "CRM, catálogo e vendas", group: "Comercial", description: "Clientes, produtos, pedidos, checkout, pagamentos" },
+  { key: "whatsapp", label: "WhatsApp", group: "Canais", description: "Instâncias, inbox e disparos WhatsApp" },
+  { key: "campaigns", label: "Campanhas", group: "Canais", description: "Campanhas e disparos em massa" },
+  { key: "automations", label: "Automações", group: "Canais", description: "Automações e regras de fluxo" },
+  { key: "flow_builder", label: "Construtor de fluxos", group: "Canais", description: "Flow builder visual" },
+  { key: "agent_workspace", label: "Agente / workspace", group: "IA", description: "Atendente IA e workspace do agente" },
+  { key: "creative_ai", label: "Criativos IA", group: "IA", description: "Posts, anúncios, galeria e copy" },
+  { key: "video_studio", label: "Video studio", group: "IA", description: "Geração e edição de vídeo" },
+  { key: "meta_integration", label: "Instagram + Facebook", group: "Presença", description: "Integrações Meta" },
+  { key: "custom_domain", label: "Domínio customizado", group: "Presença", description: "Domínio próprio da loja" },
+  { key: "corporate_email", label: "E-mail corporativo", group: "Presença", description: "Caixas @seudominio" },
+  { key: "affiliates", label: "Programa de afiliados", group: "Rede", description: "Afiliados da marca e repasses" },
+  { key: "multi_brand", label: "Multi-marca", group: "Rede", description: "Mais de uma organização" },
+  { key: "api", label: "API e webhooks", group: "Enterprise", description: "Acesso API dedicado" },
+]
+
+export const ALL_PLAN_FEATURE_KEYS: PlanFeatureKey[] = PLAN_FEATURE_CATALOG.map((f) => f.key)
 
 export type PlanLimits = {
   leads_per_day: number
@@ -72,11 +108,15 @@ const DEFAULT_LIMITS: PlanLimits = {
     smart_import: true,
     prospect_ai: true,
     creative_ai: false,
+    video_studio: false,
     meta_integration: false,
     custom_domain: false,
     corporate_email: false,
     campaigns: false,
     automations: false,
+    flow_builder: false,
+    whatsapp: true,
+    agent_workspace: true,
     multi_brand: false,
     api: false,
     affiliates: true,
@@ -85,19 +125,19 @@ const DEFAULT_LIMITS: PlanLimits = {
 
 /** Platform module → required plan feature (null = no plan gate) */
 export const MODULE_PLAN_FEATURE: Partial<Record<keyof PlatformModules, PlanFeatureKey | null>> = {
-  whatsapp: null,
+  whatsapp: "whatsapp",
   catalog: "crm",
   prospect_radar: "radar",
   lead_import: "smart_import",
   campaigns: "campaigns",
   automations: "automations",
-  flow_builder: "automations",
+  flow_builder: "flow_builder",
   ai_creatives: "creative_ai",
-  video_studio: "creative_ai",
+  video_studio: "video_studio",
   instagram: "meta_integration",
   facebook: "meta_integration",
   affiliates: "affiliates",
-  agent_workspace: null,
+  agent_workspace: "agent_workspace",
 }
 
 function parseJson<T>(v: any, fallback: T): T {
@@ -120,9 +160,18 @@ function normalizeLimits(raw: any): PlanLimits {
   const features = {
     ...base.features,
     ...planFeatures,
-  }
-  /* affiliates default true if missing from older plans */
+  } as Record<PlanFeatureKey, boolean>
+
+  /* Backward-compat for plans saved before new keys existed */
   if (features.affiliates === undefined) features.affiliates = true
+  if (features.whatsapp === undefined) features.whatsapp = true
+  if (features.agent_workspace === undefined) features.agent_workspace = true
+  if (features.flow_builder === undefined) {
+    features.flow_builder = features.automations === true
+  }
+  if (features.video_studio === undefined) {
+    features.video_studio = features.creative_ai === true
+  }
   /*
    * Planos legados (ex.: scale) omitem `features.campaigns` no JSON.
    * DEFAULT é false (starter); se a chave não veio no plano, habilita campanhas
@@ -161,11 +210,15 @@ const FULL_FEATURES: Record<PlanFeatureKey, boolean> = {
   smart_import: true,
   prospect_ai: true,
   creative_ai: true,
+  video_studio: true,
   meta_integration: true,
   custom_domain: true,
   corporate_email: true,
   campaigns: true,
   automations: true,
+  flow_builder: true,
+  whatsapp: true,
+  agent_workspace: true,
   multi_brand: true,
   api: true,
   affiliates: true,

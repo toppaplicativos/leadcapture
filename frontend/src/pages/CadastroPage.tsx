@@ -13,6 +13,7 @@ import {
   CreditCard,
 } from 'lucide-react'
 import { BrandMark } from '@/components/BrandMark'
+import { fetchPublicPlans } from '@/lib/public-plans'
 
 interface Plan {
   id: string
@@ -58,7 +59,12 @@ export function CadastroPage() {
   const [signupBlocked, setSignupBlocked] = useState<string | null>(null)
 
   useEffect(() => {
-    document.title = 'Criar conta · LeadCapture'
+    document.title = 'Ativar plano · LeadCapture'
+    // Sem plano na URL → volta para escolha de planos na landing
+    if (!params.get('plano')) {
+      navigate('/inicio#planos', { replace: true })
+      return
+    }
     fetch('/api/public/platform-status')
       .then(r => (r.ok ? r.json() : null))
       .then(d => {
@@ -71,23 +77,18 @@ export function CadastroPage() {
         }
       })
       .catch(() => {})
-    fetch('/api/public/plans')
-      .then(async r => {
-        if (!r.ok) {
-          // Fallback: try without auth via the storefront catalog (no public plans route yet)
-          // We'll just show the seeded fixed plans inline if endpoint doesn't exist.
-          throw new Error('plans_endpoint_missing')
-        }
-        return r.json()
-      })
+    fetchPublicPlans()
       .then(d => {
-        if (Array.isArray(d?.plans)) setPlans(d.plans)
+        setPlans(d.plans as Plan[])
+        if (!d.plans.length) {
+          setError('Nenhum plano ativo disponível. Volte à página de planos.')
+        }
       })
       .catch(() => {
-        // Fallback to a static list (matches seed)
-        setPlans(FALLBACK_PLANS)
+        setError('Não foi possível carregar os planos. Atualize a página ou volte à landing.')
+        setPlans([])
       })
-  }, [])
+  }, [params, navigate])
 
   const selectedPlan = plans.find(p => p.slug === selectedSlug)
 
@@ -165,10 +166,10 @@ export function CadastroPage() {
         {/* LEFT — form */}
         <section className="max-w-md">
           <h1 className="text-[32px] sm:text-[36px] font-bold tracking-[-0.025em] leading-tight">
-            Crie sua conta
+            Ative com pagamento
           </h1>
           <p className="text-[15px] text-gray-600 mt-2 leading-relaxed">
-            Cadastre-se para começar a capturar leads no WhatsApp em minutos.
+            Confirme os dados da conta e conclua o checkout do plano selecionado. Sem pagamento, a conta não é ativada.
           </p>
 
           {canceled && (
@@ -361,36 +362,4 @@ function Field({
   )
 }
 
-/* Fallback plans if /api/public/plans isn't available — matches default seed */
-const FALLBACK_PLANS: Plan[] = [
-  {
-    id: 'starter',
-    slug: 'starter',
-    name: 'Starter',
-    tagline: 'Para começar',
-    price_cents: 9700,
-    interval: 'monthly',
-    billing_type: 'subscription',
-    features: ['1 número WhatsApp', 'Captação no mapa', 'CRM básico', '500 disparos/mês'],
-    is_featured: false,
-    is_active: true,
-  },
-  {
-    id: 'pro',
-    slug: 'pro',
-    name: 'Pro',
-    tagline: 'Para escalar',
-    price_cents: 29700,
-    interval: 'monthly',
-    billing_type: 'subscription',
-    features: [
-      '3 números WhatsApp',
-      'Automação completa',
-      'Disparos ilimitados',
-      'IA adaptativa',
-      'Vendas & catálogo',
-    ],
-    is_featured: true,
-    is_active: true,
-  },
-]
+

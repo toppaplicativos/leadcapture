@@ -24,17 +24,25 @@ const isEmail = (s: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s)
 
 /**
  * GET /api/public/plans — used by /cadastro and the landing pricing section
- * to render plans without requiring auth.
+ * to render plans without requiring auth. Includes limits + feature catalog
+ * so marketing UI is always driven by the same rules that gate tenants.
  */
 router.get("/plans", async (_req: Request, res: Response) => {
   const plans = await query(
     `SELECT id, slug, name, tagline, price_cents, interval, billing_type, features,
-            is_featured, is_active, sort_order
+            limits, is_featured, is_active, sort_order
        FROM plans
       WHERE is_active = true
       ORDER BY sort_order ASC, created_at ASC`,
   )
-  return res.json({ plans })
+  const { PLAN_FEATURE_CATALOG, ALL_PLAN_FEATURE_KEYS } = await import(
+    "../services/planEntitlements"
+  )
+  return res.json({
+    plans,
+    feature_catalog: PLAN_FEATURE_CATALOG,
+    feature_keys: ALL_PLAN_FEATURE_KEYS,
+  })
 })
 
 router.get("/platform-status", async (_req: Request, res: Response) => {

@@ -1,11 +1,12 @@
-import { useState, useEffect, type ReactNode } from 'react'
+import { useState, useEffect, useRef, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import {
   ArrowRight, Play, Check, X, ChevronDown,
   Map, MessageSquare, Brain, ShoppingCart, Package, Store,
   Crosshair, Zap, Workflow, Users, Building2, TrendingUp,
   Sparkles, Target, Layers, Send, Image as ImageIcon, Globe, Mail,
-  Shield, Infinity as InfinityIcon, Phone, Code,
+  Shield, Infinity as InfinityIcon, Phone, Code, Handshake, HandCoins, Network,
+  Bell,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { FacebookIcon, InstagramIcon, WhatsAppIcon, type IconComponent } from '@/components/icons'
@@ -16,10 +17,186 @@ import { LandingChaosVsUnified } from '@/components/LandingChaosVsUnified'
 import { LandingFlowMockup } from '@/components/LandingFlowMockup'
 import { BrandMark } from '@/components/BrandMark'
 import { ChatWidget } from '@/components/ChatWidget'
+import {
+  asFeatureList,
+  buildComparisonMatrix,
+  fetchPublicPlans,
+  planHighlight,
+  planPriceLabel,
+  type FeatureMeta,
+  type MatrixCell,
+  type PublicPlan,
+} from '@/lib/public-plans'
+
+/* ──────────────────────────────────────────────────
+   LANDING MEDIA (imagine + imagine-video assets)
+   ────────────────────────────────────────────────── */
+
+const LANDING_MEDIA = {
+  hero: {
+    poster: '/landing/hero-city.jpg',
+    video: '/landing/hero-city.mp4',
+    alt: 'Cidade à noite com sobreposição de radar de oportunidades',
+  },
+  affiliates: {
+    poster: '/landing/affiliate-network.jpg',
+    video: '/landing/affiliate-network.mp4',
+    alt: 'Rede de afiliados conectados no mercado LeadCapture',
+  },
+  commerce: {
+    poster: '/landing/commerce-desk.jpg',
+    video: '/landing/commerce-desk.mp4',
+    alt: 'Venda e entrega pelo WhatsApp com pedido empacotado',
+  },
+} as const
+
+/** Vídeo de fundo com poster; respeita prefers-reduced-motion */
+function LandingVideoBackdrop({
+  poster,
+  video,
+  className = '',
+  opacity = 0.35,
+}: {
+  poster: string
+  video: string
+  className?: string
+  opacity?: number
+}) {
+  const [reduceMotion, setReduceMotion] = useState(false)
+
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
+    const apply = () => setReduceMotion(mq.matches)
+    apply()
+    mq.addEventListener?.('change', apply)
+    return () => mq.removeEventListener?.('change', apply)
+  }, [])
+
+  return (
+    <div className={`absolute inset-0 overflow-hidden pointer-events-none ${className}`} aria-hidden>
+      <img
+        src={poster}
+        alt=""
+        className="absolute inset-0 w-full h-full object-cover"
+        style={{ opacity }}
+        decoding="async"
+      />
+      {!reduceMotion && (
+        <video
+          className="absolute inset-0 w-full h-full object-cover"
+          style={{ opacity }}
+          autoPlay
+          muted
+          loop
+          playsInline
+          preload="metadata"
+          poster={poster}
+        >
+          <source src={video} type="video/mp4" />
+        </video>
+      )}
+      {/* Vinheta para legibilidade do copy */}
+      <div className="absolute inset-0 bg-gradient-to-r from-[#0a0a0a] via-[#0a0a0a]/85 to-[#0a0a0a]/40" />
+      <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0a] via-transparent to-[#0a0a0a]/50" />
+    </div>
+  )
+}
+
+/** Figura em card com vídeo ou still */
+function LandingMediaCard({
+  poster,
+  video,
+  alt,
+  className = '',
+}: {
+  poster: string
+  video: string
+  alt: string
+  className?: string
+}) {
+  const [reduceMotion, setReduceMotion] = useState(false)
+
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
+    const apply = () => setReduceMotion(mq.matches)
+    apply()
+    mq.addEventListener?.('change', apply)
+    return () => mq.removeEventListener?.('change', apply)
+  }, [])
+
+  return (
+    <figure
+      className={`relative overflow-hidden rounded-3xl ring-1 ring-white/10 bg-[#0a0a0a] shadow-[0_24px_64px_-24px_rgba(0,0,0,0.65)] ${className}`}
+    >
+      <div className="aspect-[16/10] relative">
+        <img
+          src={poster}
+          alt={alt}
+          className="absolute inset-0 w-full h-full object-cover"
+          loading="lazy"
+          decoding="async"
+        />
+        {!reduceMotion && (
+          <video
+            className="absolute inset-0 w-full h-full object-cover"
+            autoPlay
+            muted
+            loop
+            playsInline
+            preload="metadata"
+            poster={poster}
+            aria-label={alt}
+          >
+            <source src={video} type="video/mp4" />
+          </video>
+        )}
+        <div className="absolute inset-0 ring-1 ring-inset ring-white/10 rounded-3xl pointer-events-none" />
+      </div>
+    </figure>
+  )
+}
 
 /* ──────────────────────────────────────────────────
    PRIMITIVES
    ────────────────────────────────────────────────── */
+
+type LandingTone = 'dark' | 'light'
+
+/**
+ * Ponte enxuta dark↔light — gradiente curto + uma onda suave.
+ * (Mesma tonalidade: sem spacer extra.)
+ */
+function SectionBridge({
+  from,
+  to,
+  className = '',
+}: {
+  from: LandingTone
+  to: LandingTone
+  className?: string
+}) {
+  if (from === to) return null
+
+  const mode = `${from}-to-${to}` as const
+  const waveFill = to === 'dark' ? '#0a0a0a' : '#ffffff'
+
+  return (
+    <div className={`landing-bridge landing-bridge--${mode} ${className}`} aria-hidden>
+      <div className="landing-bridge__grad" />
+      <svg
+        className="landing-bridge__wave"
+        viewBox="0 0 1440 48"
+        preserveAspectRatio="none"
+        focusable="false"
+      >
+        <path
+          d="M0 24 C240 4 480 44 720 24 C960 4 1200 40 1440 20 L1440 48 L0 48 Z"
+          fill={waveFill}
+        />
+      </svg>
+    </div>
+  )
+}
 
 function Section({
   id,
@@ -35,13 +212,29 @@ function Section({
   return (
     <section
       id={id}
-      className={`relative ${dark ? 'bg-[#0a0a0a] text-white' : 'bg-white text-gray-900'} ${className}`}
+      className={`relative landing-section ${dark ? 'landing-section--dark bg-[#0a0a0a] text-white' : 'landing-section--light bg-white text-gray-900'} ${className}`}
     >
-      {/* Spacings reduzidos: 64-80px ao inves de 120-160px - sem gaps mortos entre seções */}
-      <div className="mx-auto max-w-6xl px-5 sm:px-8 py-16 sm:py-20">
+      <div className="landing-section__inner mx-auto max-w-6xl px-5 sm:px-8 py-14 sm:py-16 lg:py-20">
         {children}
       </div>
     </section>
+  )
+}
+
+/** Copy block: center on mobile, left on desktop */
+function Stack({
+  children,
+  className = '',
+  center = true,
+}: {
+  children: ReactNode
+  className?: string
+  center?: boolean
+}) {
+  return (
+    <div className={`landing-stack ${center ? 'landing-stack--center' : ''} ${className}`}>
+      {children}
+    </div>
   )
 }
 
@@ -54,7 +247,7 @@ function Eyebrow({
 }) {
   return (
     <div
-      className={`inline-flex items-center gap-2 px-3 h-7 rounded-full text-[11px] font-semibold tracking-[0.06em] uppercase mb-6 ${
+      className={`landing-eyebrow inline-flex items-center gap-2 px-3 h-7 rounded-full uppercase mb-5 sm:mb-6 ${
         dark ? 'bg-white/10 text-white/80 ring-1 ring-white/15' : 'bg-gray-100 text-gray-700'
       }`}
     >
@@ -65,11 +258,7 @@ function Eyebrow({
 
 function H1({ children, dark = false }: { children: ReactNode; dark?: boolean }) {
   return (
-    <h1
-      className={`text-[40px] sm:text-[56px] lg:text-[72px] font-bold tracking-[-0.035em] leading-[1.02] ${
-        dark ? 'text-white' : 'text-gray-900'
-      }`}
-    >
+    <h1 className={`landing-h1 ${dark ? 'text-white' : 'text-gray-900'}`}>
       {children}
     </h1>
   )
@@ -77,11 +266,7 @@ function H1({ children, dark = false }: { children: ReactNode; dark?: boolean })
 
 function H2({ children, dark = false }: { children: ReactNode; dark?: boolean }) {
   return (
-    <h2
-      className={`text-[32px] sm:text-[44px] lg:text-[56px] font-bold tracking-[-0.03em] leading-[1.05] ${
-        dark ? 'text-white' : 'text-gray-900'
-      }`}
-    >
+    <h2 className={`landing-h2 text-balance ${dark ? 'text-white' : 'text-gray-900'}`}>
       {children}
     </h2>
   )
@@ -96,16 +281,20 @@ function Lead({
   dark?: boolean
   className?: string
 }) {
+  /* Cor/tamanho vêm de .landing-lead — não forçar text-* grande aqui */
   return (
-    <p
-      className={`text-[17px] sm:text-[19px] leading-[1.6] font-medium ${
-        dark ? 'text-white/70' : 'text-gray-600'
-      } ${className}`}
-    >
+    <p className={`landing-lead ${dark ? 'landing-lead--dark' : 'landing-lead--light'} ${className}`}>
       {children}
     </p>
   )
 }
+
+const CTA_CLASS = (dark: boolean) =>
+  `group inline-flex items-center justify-center gap-2 h-12 px-6 rounded-full text-[15px] font-semibold tracking-tight transition-colors ${
+    dark
+      ? 'bg-white text-gray-900 hover:bg-gray-200'
+      : 'bg-gray-900 text-white hover:bg-gray-800'
+  }`
 
 function PrimaryCTA({
   to,
@@ -118,15 +307,8 @@ function PrimaryCTA({
   dark?: boolean
   iconRight?: boolean
 }) {
-  return (
-    <Link
-      to={to}
-      className={`group inline-flex items-center justify-center gap-2 h-12 px-6 rounded-full text-[15px] font-semibold tracking-tight transition-colors ${
-        dark
-          ? 'bg-white text-gray-900 hover:bg-gray-200'
-          : 'bg-gray-900 text-white hover:bg-gray-800'
-      }`}
-    >
+  const content = (
+    <>
       {children}
       {iconRight && (
         <ArrowRight
@@ -135,6 +317,21 @@ function PrimaryCTA({
           className="transition-transform group-hover:translate-x-0.5"
         />
       )}
+    </>
+  )
+
+  /* Hash âncoras: <a> nativo — React Router Link não faz scroll confiável no mesmo path */
+  if (to.startsWith('#')) {
+    return (
+      <a href={to} className={CTA_CLASS(dark)}>
+        {content}
+      </a>
+    )
+  }
+
+  return (
+    <Link to={to} className={CTA_CLASS(dark)}>
+      {content}
     </Link>
   )
 }
@@ -193,6 +390,7 @@ function Navbar() {
 
         <nav className="hidden md:flex items-center gap-7 text-[13px] font-medium text-white/70">
           <a href="#produto" className="hover:text-white transition">Produto</a>
+          <a href="#afiliados" className="hover:text-white transition">Afiliados</a>
           <a href="#para-quem" className="hover:text-white transition">Para quem</a>
           <a href="#planos" className="hover:text-white transition">Planos</a>
           <a href="#faq" className="hover:text-white transition">FAQ</a>
@@ -205,13 +403,13 @@ function Navbar() {
           >
             Entrar
           </Link>
-          <Link
-            to="/cadastro?plano=starter"
+          <a
+            href="#planos"
             className="inline-flex items-center justify-center gap-1.5 h-9 px-4 rounded-full bg-white text-gray-900 text-[13px] font-semibold hover:bg-gray-200 transition"
           >
-            Começar
+            Ver planos
             <ArrowRight size={13} strokeWidth={2.25} />
-          </Link>
+          </a>
         </div>
       </div>
     </header>
@@ -225,17 +423,13 @@ function Navbar() {
 function Hero() {
   return (
     <section className="relative bg-[#0a0a0a] text-white overflow-hidden pt-28 pb-12 sm:pt-32 sm:pb-16">
-      {/* Subtle radial glow no topo - mantém o respiro original */}
-      <div
-        className="absolute top-0 left-1/2 -translate-x-1/2 w-[900px] h-[600px] rounded-full opacity-60 pointer-events-none"
-        style={{
-          background:
-            'radial-gradient(ellipse at center, rgba(34,197,94,0.10) 0%, rgba(99,102,241,0.06) 35%, transparent 70%)',
-        }}
+      <LandingVideoBackdrop
+        poster={LANDING_MEDIA.hero.poster}
+        video={LANDING_MEDIA.hero.video}
+        opacity={0.38}
       />
-      {/* Grid lines tenues */}
       <div
-        className="absolute inset-0 opacity-[0.025] pointer-events-none"
+        className="absolute inset-0 opacity-[0.03] pointer-events-none z-[1]"
         style={{
           backgroundImage:
             'linear-gradient(to right, white 1px, transparent 1px), linear-gradient(to bottom, white 1px, transparent 1px)',
@@ -243,43 +437,39 @@ function Hero() {
         }}
       />
 
-      <div className="relative mx-auto max-w-6xl px-5 sm:px-8 grid lg:grid-cols-2 gap-10 lg:gap-12 items-center">
-        {/* COLUNA ESQUERDA — copy */}
-        <div className="text-center lg:text-left">
-          <div className="inline-flex items-center gap-2 px-3 h-7 rounded-full bg-white/5 ring-1 ring-white/15 text-[11px] font-semibold tracking-[0.06em] uppercase text-white/80 mb-6">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+      <div className="relative z-[2] mx-auto max-w-6xl px-5 sm:px-8 grid lg:grid-cols-2 gap-10 lg:gap-14 items-center">
+        <div className="landing-hero__copy text-center lg:text-left mx-auto lg:mx-0">
+          <div className="landing-hero__kicker">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" aria-hidden />
             Sistema operacional de crescimento
           </div>
 
-          <h1 className="text-[40px] sm:text-[56px] lg:text-[68px] font-bold tracking-[-0.04em] leading-[1.0]">
-            O mapa do Brasil é
-            <br />
-            <span className="text-shimmer"> sua próxima carteira </span>
-            <br />
-            de clientes.
+          <h1 className="landing-hero__title">
+            <span className="landing-hero__title-line">O mundo inteiro pode ser</span>
+            <span className="landing-hero__title-line">
+              <span className="text-shimmer">sua próxima fonte</span>
+            </span>
+            <span className="landing-hero__title-line landing-hero__title-line--soft">
+              de clientes.
+            </span>
           </h1>
 
-          <p className="mt-6 text-[16px] sm:text-[18px] text-white/60 leading-[1.55] font-medium max-w-xl mx-auto lg:mx-0">
-            Captação por radar geográfico, CRM inteligente, IA criativa e venda no WhatsApp —
-            uma única plataforma.
+          <p className="landing-hero__lead mx-auto lg:mx-0">
+            Encontre oportunidades em qualquer mercado e transforme em relacionamento,
+            negociação e venda — num só sistema.
           </p>
 
-          <div className="mt-8 flex items-center justify-center lg:justify-start gap-3 flex-wrap">
-            <PrimaryCTA to="/cadastro?plano=starter" dark>
-              Começar grátis
+          <div className="landing-hero__actions justify-center lg:justify-start">
+            <PrimaryCTA to="#planos" dark>
+              Escolher plano
             </PrimaryCTA>
-            <GhostCTA
-              to="#planos"
-              dark
-              iconLeft={<TrendingUp size={14} strokeWidth={2.25} />}
-            >
-              Ver planos
+            <GhostCTA to="/login" dark iconLeft={<TrendingUp size={14} strokeWidth={2.25} />}>
+              Entrar
             </GhostCTA>
           </div>
 
-          {/* Indicador discreto de prova social */}
-          <div className="mt-6 flex items-center justify-center lg:justify-start gap-2 text-[11px] font-medium text-white/40">
-            <span className="flex -space-x-1">
+          <div className="landing-hero__proof justify-center lg:justify-start">
+            <span className="flex -space-x-1 shrink-0" aria-hidden>
               {['#10b981', '#f59e0b', '#0ea5e9'].map((c, i) => (
                 <span
                   key={i}
@@ -289,13 +479,13 @@ function Hero() {
               ))}
             </span>
             <span>
-              <span className="font-semibold text-white/70">Negócios em todo Brasil</span> escalam com LeadCapture
+              <strong>Negócios em todo o Brasil</strong>
+              {' '}escalam com LeadCapture
             </span>
           </div>
         </div>
 
-        {/* COLUNA DIREITA — radar animado */}
-        <div className="relative w-full">
+        <div className="relative w-full min-w-0">
           <LandingRadarHero />
         </div>
       </div>
@@ -310,20 +500,20 @@ function Hero() {
 
 function MapInteractive() {
   return (
-    <section className="relative bg-[#0a0a0a] overflow-hidden pb-16 sm:pb-20">
+    <section className="relative bg-[#0a0a0a] overflow-hidden pb-12 sm:pb-16">
       <div className="relative mx-auto max-w-6xl px-5 sm:px-8">
-        {/* Header inline curto */}
-        <div className="text-center max-w-3xl mx-auto mb-8">
-          <div className="inline-flex items-center gap-2 px-3 h-7 rounded-full bg-amber-500/10 border border-amber-400/20 text-amber-300 text-[10.5px] font-bold tracking-[0.06em] uppercase mb-4">
-            <Shield size={10} strokeWidth={2.5} />
-            Demonstração interativa · Dados mascarados
-          </div>
-          <h2 className="text-[24px] sm:text-[32px] font-bold tracking-tight text-white">
-            Mova o mapa e veja como o radar trabalha.
+        <div className="landing-stack landing-stack--center-always max-w-2xl mx-auto mb-6 sm:mb-7">
+          <h2 className="landing-h2 text-white text-balance drop-shadow-[0_1px_12px_rgba(0,0,0,0.45)]">
+            Encontre clientes
+            <br />
+            <span className="text-shimmer-bright">onde eles estão.</span>
           </h2>
-          <p className="mt-2 text-[14px] text-white/55 font-medium max-w-xl mx-auto">
-            Cada cidade carrega oportunidades reais. Os dados completos (telefone, endereço, site)
-            ficam disponíveis na sua conta.
+          <p className="landing-lead landing-lead--dark">
+            Abra o mapa, enxergue o mercado e capture leads no mesmo movimento.
+            Cada região vira pipeline de venda.
+          </p>
+          <p className="mt-1.5 text-[10px] text-white/45 font-medium tracking-tight">
+            Demo interativa · dados mascarados até você entrar
           </p>
         </div>
 
@@ -343,55 +533,184 @@ function MapInteractive() {
 }
 
 /* ──────────────────────────────────────────────────
-   2. VALUE PROP
+   2. VALUE + TOOLS ROTATOR (dinâmico)
    ────────────────────────────────────────────────── */
 
-function ValueProp() {
-  /* Cards com ícones técnicos específicos por módulo, número grande de fundo, gradient
-     sutil pra dar profundidade. Sem mais 6 chips genericos. */
-  const blocks: Array<{ Icon: LucideIcon; title: string; desc: string }> = [
-    { Icon: Crosshair,  title: 'Captação inteligente',  desc: 'Radar geográfico vasculha o Brasil inteiro por segmento.' },
-    { Icon: Zap,        title: 'Prospecção ativa',      desc: 'WhatsApp com IA que personaliza cada disparo.' },
-    { Icon: Brain,      title: 'CRM com memória',       desc: 'Cada conversa, cada contexto, cada lead — sempre acessível.' },
-    { Icon: Workflow,   title: 'Automação de campanhas', desc: 'Sequências que rodam 24/7 sem você tocar.' },
-    { Icon: ShoppingCart, title: 'Vendas & pedidos',    desc: 'Fechamento direto no chat. Catálogo, checkout, entrega.' },
-    { Icon: Store,      title: 'Painel & operação',     desc: 'BI em tempo real do funil ao caixa.' },
-  ]
+const GROWTH_TOOLS: Array<{
+  Icon: LucideIcon | IconComponent
+  label: string
+  line: string
+  tone: string
+}> = [
+  { Icon: Map, label: 'Mapas', line: 'Radar geográfico: encontre quem compra na sua região.', tone: '#0d9488' },
+  { Icon: WhatsAppIcon, label: 'WhatsApp', line: 'Atenda, qualifique e feche no mesmo chat.', tone: '#16a34a' },
+  { Icon: InstagramIcon, label: 'Instagram', line: 'DM, stories e presença no feed — integrado à operação.', tone: '#db2777' },
+  { Icon: Mail, label: 'E-mail', line: 'Sequências e follow-up que não dependem de sorte.', tone: '#2563eb' },
+  { Icon: Bell, label: 'Push', line: 'Alertas no momento certo — lead, pedido, comissão.', tone: '#d97706' },
+  { Icon: Handshake, label: 'Afiliados', line: 'Rede pronta no mercado: publique a oferta e escale.', tone: '#059669' },
+  { Icon: Workflow, label: 'Automações', line: 'Fluxos 24/7: do primeiro contato ao pós-venda.', tone: '#7c3aed' },
+  { Icon: Brain, label: 'IA & CRM', line: 'Memória de conversa + inteligência de prospecção.', tone: '#0f172a' },
+]
+
+const TOOLS_CYCLE_MS = 3200
+
+function ToolsRotator() {
+  const [active, setActive] = useState(0)
+  const [paused, setPaused] = useState(false)
+  const [tick, setTick] = useState(0)
+  const railRef = useRef<HTMLDivElement | null>(null)
+  const n = GROWTH_TOOLS.length
+  const tool = GROWTH_TOOLS[active]
+  const Icon = tool.Icon
+
+  /* Auto-advance com progresso contínuo (não só troca brusca) */
+  useEffect(() => {
+    if (paused) return
+    const started = performance.now()
+    let frame = 0
+    const loop = (now: number) => {
+      const elapsed = now - started
+      setTick(Math.min(1, elapsed / TOOLS_CYCLE_MS))
+      if (elapsed >= TOOLS_CYCLE_MS) {
+        setActive((i) => (i + 1) % n)
+        return
+      }
+      frame = requestAnimationFrame(loop)
+    }
+    frame = requestAnimationFrame(loop)
+    return () => cancelAnimationFrame(frame)
+  }, [active, paused, n])
+
+  /* No mobile, centraliza o chip ativo no rail horizontal */
+  useEffect(() => {
+    const rail = railRef.current
+    if (!rail) return
+    const chip = rail.querySelector<HTMLElement>(`[data-tool-idx="${active}"]`)
+    if (!chip) return
+    const left = chip.offsetLeft - rail.clientWidth / 2 + chip.clientWidth / 2
+    rail.scrollTo({ left: Math.max(0, left), behavior: 'smooth' })
+  }, [active])
+
+  const select = (i: number) => {
+    setActive(i)
+    setTick(0)
+  }
+
+  const r = 34
+  const c = 2 * Math.PI * r
+  const dash = c * (1 - tick)
 
   return (
-    <Section dark={false}>
-      <div className="max-w-3xl">
-        <Eyebrow>Proposta de valor</Eyebrow>
-        <H2>
-          Um sistema. <span className="text-gray-400">Todo o seu crescimento.</span>
-        </H2>
-        <Lead className="mt-5">
-          Você não precisa mais de 5 ferramentas diferentes. O LeadCapture unifica
-          captação, conversa, automação e venda em uma única plataforma conectada.
-        </Lead>
+    <div
+      className="landing-tools"
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
+      onFocusCapture={() => setPaused(true)}
+      onBlurCapture={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node)) setPaused(false)
+      }}
+    >
+      {/* Stage — ícone com anel de progresso + copy */}
+      <div className="landing-tools__stage" aria-live="polite">
+        <div
+          className="landing-tools__orb"
+          style={{ ['--tool-tone' as string]: tool.tone }}
+        >
+          <svg className="landing-tools__ring" viewBox="0 0 80 80" aria-hidden>
+            <circle className="landing-tools__ring-track" cx="40" cy="40" r={r} />
+            <circle
+              className="landing-tools__ring-prog"
+              cx="40"
+              cy="40"
+              r={r}
+              style={{
+                strokeDasharray: c,
+                strokeDashoffset: dash,
+                stroke: tool.tone,
+              }}
+            />
+          </svg>
+          <span
+            className="landing-tools__icon"
+            key={tool.label}
+            style={{ backgroundColor: tool.tone }}
+          >
+            <Icon size={26} strokeWidth={1.75} />
+          </span>
+          <span className="landing-tools__glow" style={{ background: tool.tone }} aria-hidden />
+        </div>
+
+        <div className="landing-tools__copy" key={`copy-${tool.label}`}>
+          <p className="landing-tools__kicker">Ferramenta · {String(active + 1).padStart(2, '0')}/{String(n).padStart(2, '0')}</p>
+          <p className="landing-tools__label">{tool.label}</p>
+          <p className="landing-tools__line">{tool.line}</p>
+        </div>
       </div>
 
-      <div className="mt-12 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-        {blocks.map((b, i) => (
-          <article
-            key={b.title}
-            className="group relative p-6 rounded-2xl bg-gradient-to-br from-zinc-50 to-white border border-border-light hover:border-gray-300 hover:shadow-[0_10px_30px_-12px_rgba(0,0,0,0.08)] transition-all overflow-hidden"
-          >
-            {/* Número grande de fundo - detalhe técnico */}
-            <span
-              className="absolute top-2 right-3 text-[64px] font-black tracking-[-0.05em] text-gray-900 pointer-events-none select-none leading-none"
-              style={{ opacity: 0.06 }}
+      {/* Rail — scroll-snap no mobile, wrap no desktop */}
+      <div
+        ref={railRef}
+        className="landing-tools__rail"
+        role="tablist"
+        aria-label="Ferramentas da plataforma"
+      >
+        {GROWTH_TOOLS.map((t, i) => {
+          const TIcon = t.Icon
+          const on = i === active
+          return (
+            <button
+              key={t.label}
+              type="button"
+              role="tab"
+              data-tool-idx={i}
+              aria-selected={on}
+              className={`landing-tools__chip${on ? ' is-on' : ''}`}
+              style={on ? { ['--chip-tone' as string]: t.tone } : undefined}
+              onClick={() => select(i)}
             >
-              {String(i + 1).padStart(2, '0')}
-            </span>
+              <span className="landing-tools__chip-icon" style={{ color: on ? t.tone : undefined }}>
+                <TIcon size={15} strokeWidth={2} />
+              </span>
+              <span className="landing-tools__chip-label">{t.label}</span>
+            </button>
+          )
+        })}
+      </div>
 
-            <span className="relative inline-flex w-11 h-11 rounded-xl bg-gray-900 text-white items-center justify-center mb-4">
-              <b.Icon size={18} strokeWidth={1.75} />
-            </span>
-            <h3 className="relative text-[16px] font-bold text-gray-900 tracking-tight">{b.title}</h3>
-            <p className="relative mt-1.5 text-[13px] text-gray-600 leading-relaxed">{b.desc}</p>
-          </article>
-        ))}
+      {/* Progress bar fine */}
+      <div className="landing-tools__bar" aria-hidden>
+        <span
+          className="landing-tools__bar-fill"
+          style={{
+            width: `${tick * 100}%`,
+            backgroundColor: tool.tone,
+          }}
+        />
+      </div>
+    </div>
+  )
+}
+
+function ValueProp() {
+  return (
+    <Section dark={false} className="!py-14 sm:!py-16 lg:!py-20">
+      <div className="grid lg:grid-cols-[1fr_1.1fr] gap-8 lg:gap-14 items-center">
+        <Stack className="max-w-xl w-full">
+          <H2>
+            Encontre clientes.
+            <br />
+            <span className="landing-h2-muted">Venda com método.</span>
+          </H2>
+          <Lead>
+            A oferta certa para quem quer aumentar vendas: captação, atendimento e
+            fechamento no mesmo lugar — sem empilhar ferramenta.
+          </Lead>
+          <div className="landing-cta-row mt-7">
+            <PrimaryCTA to="#planos">Escolher plano</PrimaryCTA>
+          </div>
+        </Stack>
+
+        <ToolsRotator />
       </div>
     </Section>
   )
@@ -413,40 +732,35 @@ function Problem() {
 
   return (
     <Section dark>
-      <div className="grid lg:grid-cols-2 gap-10 lg:gap-16 items-center">
-        {/* COLUNA ESQUERDA — copy + dores */}
-        <div>
+      <div className="grid lg:grid-cols-2 gap-8 lg:gap-16 items-center">
+        <Stack>
           <Eyebrow dark>O problema</Eyebrow>
           <H2 dark>
             Seu negócio está perdendo dinheiro
             <span className="text-shimmer"> sem perceber.</span>
           </H2>
 
-          <div className="mt-8 grid grid-cols-2 gap-2">
+          <div className="landing-align-block mt-7 sm:mt-8 grid grid-cols-2 gap-2 landing-pain-grid">
             {pains.map(p => (
-              <div
-                key={p}
-                className="flex items-center gap-2 p-2.5 rounded-xl bg-white/5 ring-1 ring-white/[0.08]"
-              >
-                <span className="w-5 h-5 rounded-full bg-red-500/10 ring-1 ring-red-500/20 grid place-items-center shrink-0">
-                  <X size={11} strokeWidth={2.5} className="text-red-400" />
+              <div key={p} className="landing-pain-chip">
+                <span className="landing-pain-chip__x" aria-hidden>
+                  <X size={11} strokeWidth={2.5} />
                 </span>
-                <span className="text-[12px] font-medium text-white/85 leading-tight">{p}</span>
+                <span className="landing-pain-chip__t">{p}</span>
               </div>
             ))}
           </div>
 
-          <div className="mt-8 max-w-md">
-            <p className="text-[22px] sm:text-[28px] font-bold tracking-[-0.025em] leading-[1.2] text-white">
+          <div className="landing-align-block mt-7 sm:mt-8">
+            <p className="landing-punch">
               O problema não é falta de clientes.
               <br />
               <span className="text-shimmer">É falta de sistema.</span>
             </p>
           </div>
-        </div>
+        </Stack>
 
-        {/* COLUNA DIREITA — diagrama animado caos→unificado */}
-        <div className="relative w-full">
+        <div className="relative w-full max-w-lg mx-auto lg:max-w-none">
           <LandingChaosVsUnified />
         </div>
       </div>
@@ -476,14 +790,14 @@ function Ecosystem() {
       desc: 'Sistema que lembra de cada cliente, conversa e contexto.',
     },
     {
+      Icon: Handshake,
+      title: 'Mercado de afiliados',
+      desc: 'Publique campanhas e alcance parceiros já na plataforma.',
+    },
+    {
       Icon: ShoppingCart,
       title: 'Vendas & pedidos',
       desc: 'Fechamento direto no WhatsApp com catálogo e checkout.',
-    },
-    {
-      Icon: Package,
-      title: 'Expedição',
-      desc: 'Controle logístico completo, do estoque à entrega.',
     },
     {
       Icon: Store,
@@ -493,32 +807,210 @@ function Ecosystem() {
   ]
 
   return (
-    <Section id="produto" className="!py-24 sm:!py-32">
-      <div className="max-w-3xl">
+    <Section id="produto" className="!py-16 sm:!py-24 lg:!py-28">
+      <Stack className="max-w-3xl w-full">
         <Eyebrow>Ecossistema</Eyebrow>
         <H2>
           Tudo o que você precisa
           <br />
-          <span className="text-gray-400">em um único lugar.</span>
+          <span className="landing-h2-muted">em um único lugar.</span>
         </H2>
-        <Lead className="mt-6">
-          Seis módulos que se conectam. Não são features soltas — é uma operação inteira funcionando junta.
+        <Lead>
+          Módulos que se conectam — da captação ao pedido, com rede de afiliados pronta para escalar vendas.
         </Lead>
-      </div>
+      </Stack>
 
-      <div className="mt-14 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+      <div className="mt-10 sm:mt-12 lg:mt-14 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 sm:gap-3">
         {blocks.map(({ Icon, title, desc }) => (
-          <article
-            key={title}
-            className="group relative p-6 rounded-2xl bg-white border border-border-light hover:border-gray-300 transition-colors"
-          >
-            <span className="inline-flex w-11 h-11 rounded-xl bg-gray-900 text-white items-center justify-center mb-5">
+          <article key={title} className="landing-mod-card">
+            <span className="landing-mod-card__icon" aria-hidden>
               <Icon size={18} strokeWidth={1.75} />
             </span>
-            <h3 className="text-[17px] font-bold text-gray-900 tracking-tight">{title}</h3>
-            <p className="mt-1.5 text-[13px] text-gray-600 leading-relaxed">{desc}</p>
+            <h3 className="landing-mod-card__title">{title}</h3>
+            <p className="landing-mod-card__desc">{desc}</p>
           </article>
         ))}
+      </div>
+    </Section>
+  )
+}
+
+/* ──────────────────────────────────────────────────
+   4.5 MERCADO DE AFILIADOS — vantagem da rede pronta
+   ────────────────────────────────────────────────── */
+
+function AffiliateMarketplace() {
+  const flow = [
+    {
+      n: '01',
+      title: 'Publique a oferta',
+      desc: 'Programa com comissão, termos, onboarding e produtos — em minutos.',
+    },
+    {
+      n: '02',
+      title: 'A rede já está aqui',
+      desc: 'Afiliados da plataforma veem sua campanha no mercado e se candidatam.',
+    },
+    {
+      n: '03',
+      title: 'Venda e repasse',
+      desc: 'Link, cupom, comissão e PIX — com controle no painel da loja.',
+    },
+  ]
+
+  const perks = [
+    { Icon: Network, label: 'Não monta a rede do zero' },
+    { Icon: HandCoins, label: 'Comissão e PIX estruturados' },
+    { Icon: Package, label: 'Catálogo + checkout da loja' },
+    { Icon: Sparkles, label: 'Onboarding e aprendizado prontos' },
+  ]
+
+  return (
+    <Section id="afiliados" dark className="!py-24 sm:!py-32 overflow-hidden">
+      <LandingVideoBackdrop
+        poster={LANDING_MEDIA.affiliates.poster}
+        video={LANDING_MEDIA.affiliates.video}
+        opacity={0.28}
+        className="opacity-90"
+      />
+
+      <div className="relative z-[1] grid lg:grid-cols-[1.05fr_0.95fr] gap-8 lg:gap-14 items-center">
+        <Stack>
+          <p className="landing-section-kicker landing-section-kicker--emerald">
+            Mercado de afiliados
+          </p>
+          <H2 dark>
+            Sua loja já nasce
+            <br />
+            <span className="text-shimmer">com força de rede.</span>
+          </H2>
+          <Lead dark className="text-pretty">
+            No LeadCapture o dono da loja não precisa recrutar afiliado por afiliado no escuro.
+            Você publica a oportunidade e conta com uma <strong className="text-white font-semibold">estrutura vasta de parceiros</strong> já ativos na plataforma — mercado, candidatura, onboarding e repasse.
+          </Lead>
+
+          <ul className="landing-align-block landing-align-block--wide mt-7 sm:mt-8 grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {perks.map(({ Icon, label }) => (
+              <li key={label} className="landing-perk">
+                <span className="landing-perk__icon" aria-hidden>
+                  <Icon size={15} strokeWidth={2} />
+                </span>
+                <span className="landing-perk__label">{label}</span>
+              </li>
+            ))}
+          </ul>
+
+          <div className="landing-cta-row mt-8 sm:mt-9">
+            <PrimaryCTA to="#planos" dark>
+              Ativar com um plano
+            </PrimaryCTA>
+            <GhostCTA to="/parceiros" dark>
+              Sou afiliado
+            </GhostCTA>
+          </div>
+        </Stack>
+
+        <div className="relative space-y-4">
+          <LandingMediaCard
+            poster={LANDING_MEDIA.affiliates.poster}
+            video={LANDING_MEDIA.affiliates.video}
+            alt={LANDING_MEDIA.affiliates.alt}
+          />
+
+          {/* Painel operacional — fluxo, não card-grid genérico */}
+          <div className="rounded-3xl ring-1 ring-white/10 bg-[#0a0a0a]/80 backdrop-blur-md p-6 sm:p-7 overflow-hidden">
+            <div className="flex items-center justify-between gap-3 mb-6">
+              <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-white/40">
+                Como a rede trabalha
+              </p>
+              <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-emerald-500/15 text-emerald-300 text-[10px] font-bold">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                Ao vivo na plataforma
+              </span>
+            </div>
+
+            <ol className="space-y-0">
+              {flow.map((step, i) => (
+                <li key={step.n} className="relative flex gap-4">
+                  {i < flow.length - 1 && (
+                    <span
+                      className="absolute left-[15px] top-9 bottom-0 w-px bg-gradient-to-b from-emerald-400/40 to-white/10"
+                      aria-hidden
+                    />
+                  )}
+                  <span className="relative z-[1] w-8 h-8 rounded-full bg-[#0a0a0a] ring-1 ring-emerald-400/40 text-[11px] font-bold text-emerald-300 grid place-items-center shrink-0 tabular-nums">
+                    {step.n}
+                  </span>
+                  <div className={`min-w-0 pb-7 ${i === flow.length - 1 ? 'pb-0' : ''}`}>
+                    <p className="text-[15px] sm:text-[16px] font-bold text-white tracking-tight">{step.title}</p>
+                    <p className="mt-0.5 text-[12px] text-white/50 leading-relaxed text-pretty">{step.desc}</p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+
+            <div className="mt-7 pt-5 border-t border-white/[0.08] grid grid-cols-3 gap-2">
+              {[
+                { k: 'Programa', v: 'completo' },
+                { k: 'Parceiros', v: 'no mercado' },
+                { k: 'Repasse', v: 'via PIX' },
+              ].map((s) => (
+                <div key={s.k} className="text-center px-1">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-white/35">{s.k}</p>
+                  <p className="mt-0.5 text-[13px] font-bold text-white/90">{s.v}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </Section>
+  )
+}
+
+/* ──────────────────────────────────────────────────
+   4.6 COMÉRCIO VISUAL — WhatsApp → pedido → entrega
+   ────────────────────────────────────────────────── */
+
+function CommerceVisual() {
+  return (
+    <Section className="!py-14 sm:!py-20 lg:!py-24">
+      <div className="grid lg:grid-cols-[0.95fr_1.05fr] gap-8 lg:gap-14 items-center">
+        <LandingMediaCard
+          poster={LANDING_MEDIA.commerce.poster}
+          video={LANDING_MEDIA.commerce.video}
+          alt={LANDING_MEDIA.commerce.alt}
+          className="!ring-black/5 shadow-[0_20px_50px_-20px_rgba(0,0,0,0.2)] order-2 lg:order-1 max-w-lg mx-auto lg:max-w-none w-full"
+        />
+        <Stack className="order-1 lg:order-2">
+          <p className="landing-section-kicker landing-section-kicker--emerald-ink">
+            Do chat ao pedido
+          </p>
+          <H2>
+            Venda no WhatsApp
+            <br />
+            <span className="landing-h2-muted">com operação de verdade.</span>
+          </H2>
+          <Lead className="text-pretty">
+            Conversa, catálogo, checkout e expedição no mesmo sistema — o pedido não some
+            no meio do path do cliente. Ideal para lojas que fecham no celular e entregam no mesmo dia.
+          </Lead>
+          <ul className="landing-align-block mt-7 space-y-2.5">
+            {[
+              'Atendimento e venda no mesmo fluxo',
+              'Catálogo e checkout sem sair do chat',
+              'Rastreio do pedido até a entrega',
+            ].map((line) => (
+              <li key={line} className="landing-check-line">
+                <Check size={15} strokeWidth={2.5} className="landing-check-line__icon" />
+                {line}
+              </li>
+            ))}
+          </ul>
+          <div className="landing-cta-row mt-8">
+            <PrimaryCTA to="#planos">Escolher plano</PrimaryCTA>
+          </div>
+        </Stack>
       </div>
     </Section>
   )
@@ -538,8 +1030,8 @@ function Panfleteiro() {
 
   return (
     <Section dark>
-      <div className="grid lg:grid-cols-2 gap-10 lg:gap-16 items-center">
-        <div>
+      <div className="grid lg:grid-cols-2 gap-8 lg:gap-16 items-center">
+        <Stack>
           <Eyebrow dark>
             <Crosshair size={11} strokeWidth={2.5} /> Modo Panfleteiro
           </Eyebrow>
@@ -548,33 +1040,32 @@ function Panfleteiro() {
             <br />
             <span className="text-shimmer">como nunca antes.</span>
           </H2>
-          <Lead dark className="mt-5">
+          <Lead dark>
             Mova o mapa, descubra negócios em tempo real e capture leads automaticamente. Cada
             quadra é uma nova oportunidade.
           </Lead>
 
-          <div className="mt-8 space-y-2.5">
+          <div className="landing-align-block mt-7 sm:mt-8 space-y-2">
             {steps.map(({ Icon, label }, i) => (
-              <div key={label} className="flex items-center gap-4">
-                <span className="w-8 h-8 rounded-full bg-white/5 ring-1 ring-white/10 grid place-items-center text-[12px] font-bold text-white tabular-nums shrink-0">
-                  {i + 1}
-                </span>
-                <span className="inline-flex items-center gap-2 text-[15px] font-medium text-white/85">
-                  <Icon size={15} strokeWidth={1.75} className="text-white/50" /> {label}
+              <div key={label} className="landing-step-row">
+                <span className="landing-step-row__n">{i + 1}</span>
+                <span className="landing-step-row__label">
+                  <Icon size={15} strokeWidth={1.75} className="opacity-50" /> {label}
                 </span>
               </div>
             ))}
           </div>
 
-          <div className="mt-8">
+          <div className="landing-cta-row mt-8">
             <PrimaryCTA to="/login" dark>
               Ativar Panfleteiro
             </PrimaryCTA>
           </div>
-        </div>
+        </Stack>
 
-        {/* Live map preview com toasts múltiplos cascateando */}
-        <PanfleteiroPreviewWithToasts />
+        <div className="w-full max-w-md mx-auto lg:max-w-none">
+          <PanfleteiroPreviewWithToasts />
+        </div>
       </div>
     </Section>
   )
@@ -636,37 +1127,32 @@ function Automation() {
 
   return (
     <Section>
-      <div className="max-w-3xl">
+      <Stack className="max-w-3xl w-full">
         <Eyebrow>Automação</Eyebrow>
         <H2>
           O sistema trabalha
           <br />
-          <span className="text-gray-400">por você.</span>
+          <span className="landing-h2-muted">por você.</span>
         </H2>
-        <Lead className="mt-5">
+        <Lead>
           Construa fluxos visuais que captam, qualificam, disparam e fecham automaticamente.
           O exemplo abaixo está executando ao vivo.
         </Lead>
-      </div>
+      </Stack>
 
-      {/* Mockup de fluxo dark UI — full-width, simula uma tela de automação rodando */}
-      <div className="mt-10">
+      <div className="mt-8 sm:mt-10">
         <LandingFlowMockup />
       </div>
 
-      {/* Cards das features abaixo do mockup */}
-      <div className="mt-10 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="mt-8 sm:mt-10 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
         {items.map(({ Icon, label, desc }) => (
-          <article
-            key={label}
-            className="flex flex-col gap-3 p-5 rounded-2xl bg-gradient-to-br from-zinc-50 to-white border border-border-light hover:border-gray-300 transition-colors"
-          >
-            <span className="inline-flex w-10 h-10 rounded-xl bg-gray-900 text-white items-center justify-center shrink-0">
+          <article key={label} className="landing-mod-card landing-mod-card--compact">
+            <span className="landing-mod-card__icon" aria-hidden>
               <Icon size={16} strokeWidth={1.75} />
             </span>
             <div>
-              <h3 className="text-[14px] font-bold text-gray-900 tracking-tight">{label}</h3>
-              <p className="mt-1 text-[12.5px] text-gray-600 leading-relaxed">{desc}</p>
+              <h3 className="landing-mod-card__title">{label}</h3>
+              <p className="landing-mod-card__desc">{desc}</p>
             </div>
           </article>
         ))}
@@ -682,59 +1168,56 @@ function Automation() {
 function ForWho() {
   const targets = [
     {
+      Icon: Handshake,
+      title: 'Lojistas',
+      bullets: [
+        'Publique no mercado de afiliados',
+        'Rede de parceiros já na plataforma',
+        'Comissão, PIX e catálogo integrados',
+      ],
+    },
+    {
       Icon: Target,
       title: 'Afiliados',
       bullets: [
-        'Escale vendas sem equipe',
-        'Automatize prospecção',
-        'Gere comissões recorrentes',
+        'Escolha campanhas no mercado',
+        'Link, cupom e aprendizado prontos',
+        'Comissões e saque via PIX',
       ],
     },
     {
       Icon: Building2,
-      title: 'Empresas',
+      title: 'Empresas & agências',
       bullets: [
-        'Organize a operação comercial',
-        'Aumente a conversão',
-        'Controle total do funil',
-      ],
-    },
-    {
-      Icon: Users,
-      title: 'Agências',
-      bullets: [
-        'Gerencie múltiplos clientes',
-        'Escale campanhas',
-        'Entregue mais resultado',
+        'Operação comercial unificada',
+        'Multi-marca e campanhas em escala',
+        'Controle do funil ao pedido',
       ],
     },
   ]
 
   return (
-    <Section id="para-quem" dark className="!py-24 sm:!py-32">
-      <div className="max-w-3xl">
+    <Section id="para-quem" dark className="!py-16 sm:!py-24 lg:!py-28">
+      <Stack className="max-w-3xl w-full">
         <Eyebrow dark>Para quem é</Eyebrow>
         <H2 dark>
           Construído para quem
           <br />
           <span className="text-shimmer">escala de verdade.</span>
         </H2>
-      </div>
+      </Stack>
 
-      <div className="mt-14 grid grid-cols-1 md:grid-cols-3 gap-3">
+      <div className="mt-10 sm:mt-12 lg:mt-14 grid grid-cols-1 md:grid-cols-3 gap-2.5 sm:gap-3">
         {targets.map(({ Icon, title, bullets }) => (
-          <article
-            key={title}
-            className="p-7 rounded-3xl bg-white/[0.03] ring-1 ring-white/[0.08] hover:bg-white/[0.05] transition-colors"
-          >
-            <span className="inline-flex w-12 h-12 rounded-2xl bg-white text-gray-900 items-center justify-center mb-6">
+          <article key={title} className="landing-audience-card">
+            <span className="landing-audience-card__icon" aria-hidden>
               <Icon size={20} strokeWidth={1.75} />
             </span>
-            <h3 className="text-[22px] font-bold text-white tracking-tight">{title}</h3>
-            <ul className="mt-5 space-y-2.5">
+            <h3 className="landing-audience-card__title">{title}</h3>
+            <ul className="landing-audience-card__list">
               {bullets.map(b => (
-                <li key={b} className="flex items-start gap-2.5 text-[14px] text-white/70">
-                  <Check size={14} strokeWidth={2.5} className="text-emerald-400 mt-0.5 shrink-0" />
+                <li key={b}>
+                  <Check size={14} strokeWidth={2.5} className="text-emerald-400 shrink-0" />
                   {b}
                 </li>
               ))}
@@ -780,12 +1263,12 @@ function SocialProof() {
 
   return (
     <Section>
-      <div className="max-w-3xl">
+      <Stack className="max-w-3xl w-full">
         <Eyebrow>Prova social</Eyebrow>
         <H2>Resultados reais.</H2>
-      </div>
+      </Stack>
 
-      <div className="mt-10 grid grid-cols-1 md:grid-cols-3 gap-3">
+      <div className="mt-8 sm:mt-10 grid grid-cols-1 md:grid-cols-3 gap-2.5 sm:gap-3">
         {quotes.map((q) => (
           <figure
             key={q.author}
@@ -842,54 +1325,39 @@ function SocialProof() {
    ────────────────────────────────────────────────── */
 
 function Differential() {
-  /* Matriz comparativa real - linhas = features, colunas = planos.
-     "Custom" sempre verde porque tudo eh negociavel.  */
-  type Cell = boolean | string
-  const matrix: Array<{ group: string; rows: Array<{ label: string; Icon: IconComponent | LucideIcon; starter: Cell; pro: Cell; custom: Cell }> }> = [
-    {
-      group: 'Captação',
-      rows: [
-        { label: 'Radar geográfico no mapa', Icon: Map, starter: true, pro: true, custom: true },
-        { label: 'Importação inteligente (IA)', Icon: Sparkles, starter: true, pro: true, custom: true },
-        { label: 'Inteligência de prospecção (IA)', Icon: Target, starter: true, pro: true, custom: true },
-        { label: 'Leads captados/dia', Icon: TrendingUp, starter: '100', pro: '500', custom: 'Ilimitado' },
-        { label: 'Leads captados/mês', Icon: TrendingUp, starter: '3.000', pro: '15.000', custom: 'Ilimitado' },
-      ],
-    },
-    {
-      group: 'CRM & Comercial',
-      rows: [
-        { label: 'CRM com tags e funil', Icon: Layers, starter: true, pro: true, custom: true },
-        { label: 'Brands (multi-operação)', Icon: Building2, starter: '1', pro: '3', custom: 'Ilimitado' },
-        { label: 'Números WhatsApp conectados', Icon: WhatsAppIcon, starter: '1', pro: '3', custom: 'Ilimitado' },
-        { label: 'Campanhas e automações', Icon: Workflow, starter: false, pro: true, custom: true },
-        { label: 'Disparos em massa', Icon: Send, starter: '500/mês', pro: 'Ilimitado', custom: 'Ilimitado' },
-        { label: 'Vendas, catálogo e checkout', Icon: ShoppingCart, starter: false, pro: true, custom: true },
-      ],
-    },
-    {
-      group: 'IA & Presença digital',
-      rows: [
-        { label: 'Criativo IA (posts, anúncios, copy)', Icon: ImageIcon, starter: false, pro: true, custom: true },
-        { label: 'Integração Instagram', Icon: InstagramIcon, starter: false, pro: true, custom: true },
-        { label: 'Integração Facebook', Icon: FacebookIcon, starter: false, pro: true, custom: true },
-        { label: 'Domínio customizado', Icon: Globe, starter: false, pro: true, custom: true },
-        { label: 'Emails corporativos (@seudominio)', Icon: Mail, starter: false, pro: true, custom: true },
-      ],
-    },
-    {
-      group: 'Enterprise',
-      rows: [
-        { label: 'API e webhooks dedicados', Icon: Code, starter: false, pro: false, custom: true },
-        { label: 'Integrações sob demanda (ERP, BI)', Icon: Layers, starter: false, pro: false, custom: true },
-        { label: 'Onboarding dedicado', Icon: Users, starter: false, pro: false, custom: true },
-        { label: 'Gerente de sucesso (CSM)', Icon: Users, starter: false, pro: false, custom: true },
-        { label: 'SLA em contrato', Icon: Shield, starter: false, pro: false, custom: true },
-      ],
-    },
-  ]
+  const [plans, setPlans] = useState<PublicPlan[]>([])
+  const [catalog, setCatalog] = useState<FeatureMeta[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  const renderCell = (cell: Cell) => {
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    fetchPublicPlans()
+      .then(d => {
+        if (cancelled) return
+        setPlans(d.plans)
+        setCatalog(d.feature_catalog || [])
+        setError(null)
+      })
+      .catch(() => {
+        if (!cancelled) setError('Não foi possível carregar a comparação de planos.')
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const matrix = buildComparisonMatrix(plans, catalog)
+  const colCount = Math.max(plans.length, 1)
+  const gridStyle = {
+    gridTemplateColumns: `minmax(8rem,1.6fr) repeat(${colCount}, minmax(4.5rem,1fr))`,
+  } as const
+
+  const renderCell = (cell: MatrixCell) => {
     if (cell === true) return <Check size={16} strokeWidth={2.5} className="text-emerald-400 mx-auto" />
     if (cell === false) return <X size={16} strokeWidth={2.5} className="text-white/15 mx-auto" />
     return <span className="text-[12px] font-bold text-white tabular-nums">{cell}</span>
@@ -905,80 +1373,127 @@ function Differential() {
           <span className="text-shimmer">sem letra miúda.</span>
         </H2>
         <Lead dark className="mt-6">
-          Numero de leads, integrações com Meta, IA criativa, domínio próprio — você vê tudo antes de assinar.
+          Limites e módulos vêm direto da configuração comercial — o que aparece aqui é o que o
+          sistema libera de verdade.
         </Lead>
       </div>
 
       <div className="mt-14 rounded-3xl ring-1 ring-white/10 overflow-hidden bg-[#0d0d0f]">
-        {/* Header */}
-        <div className="grid grid-cols-[1.5fr_repeat(3,1fr)] sm:grid-cols-[2fr_repeat(3,1fr)] gap-3 px-4 sm:px-7 py-5 bg-white/[0.04] border-b border-white/10 sticky top-0 backdrop-blur-xl z-10">
+        {loading && (
+          <div className="px-6 py-16 text-center text-[13px] text-white/50">Carregando planos…</div>
+        )}
+        {error && !loading && (
+          <div className="px-6 py-16 text-center text-[13px] text-red-300">{error}</div>
+        )}
+        {!loading && !error && plans.length === 0 && (
+          <div className="px-6 py-16 text-center text-[13px] text-white/50">
+            Nenhum plano ativo no momento.
+          </div>
+        )}
+        {!loading && !error && plans.length > 0 && (
+          <>
+        {/* Header dinâmico */}
+        <div
+          className="grid gap-3 px-4 sm:px-7 py-5 bg-white/[0.04] border-b border-white/10 sticky top-0 backdrop-blur-xl z-10"
+          style={gridStyle}
+        >
           <div className="text-[11px] font-bold tracking-[0.08em] uppercase text-white/40">
             Recurso
           </div>
-          <div className="text-center">
-            <div className="text-[12px] font-bold text-white">Starter</div>
-            <div className="text-[10px] font-medium text-white/40 mt-0.5">R$ 97/mês</div>
-          </div>
-          <div className="text-center relative">
-            <div className="text-[12px] font-bold text-emerald-300">Pro</div>
-            <div className="text-[10px] font-medium text-emerald-200/60 mt-0.5">R$ 297/mês</div>
-            <span className="absolute -top-1.5 left-1/2 -translate-x-1/2 px-1.5 py-px rounded-full bg-emerald-500 text-[8px] font-bold text-white">
-              Popular
-            </span>
-          </div>
-          <div className="text-center">
-            <div className="text-[12px] font-bold text-white">Custom</div>
-            <div className="text-[10px] font-medium text-white/40 mt-0.5">Sob consulta</div>
-          </div>
+          {plans.map(p => {
+            const { price, period } = planPriceLabel(p)
+            return (
+              <div key={p.id} className="text-center relative">
+                <div
+                  className={`text-[12px] font-bold ${
+                    p.is_featured ? 'text-emerald-300' : 'text-white'
+                  }`}
+                >
+                  {p.name}
+                </div>
+                <div
+                  className={`text-[10px] font-medium mt-0.5 ${
+                    p.is_featured ? 'text-emerald-200/60' : 'text-white/40'
+                  }`}
+                >
+                  {price}
+                  {period}
+                </div>
+                {p.is_featured && (
+                  <span className="absolute -top-1.5 left-1/2 -translate-x-1/2 px-1.5 py-px rounded-full bg-emerald-500 text-[8px] font-bold text-white">
+                    Popular
+                  </span>
+                )}
+              </div>
+            )
+          })}
         </div>
 
         {/* Groups + rows */}
-        {matrix.map((group) => (
+        {matrix.map(group => (
           <div key={group.group}>
             <div className="px-4 sm:px-7 py-3 bg-white/[0.02] border-y border-white/[0.06]">
               <div className="text-[10px] font-bold tracking-[0.1em] uppercase text-white/35">
                 {group.group}
               </div>
             </div>
-            {group.rows.map((row) => (
+            {group.rows.map(row => (
               <div
-                key={row.label}
-                className="grid grid-cols-[1.5fr_repeat(3,1fr)] sm:grid-cols-[2fr_repeat(3,1fr)] gap-3 px-4 sm:px-7 py-3.5 items-center border-b border-white/[0.05] hover:bg-white/[0.015] transition-colors"
+                key={row.key}
+                className="grid gap-3 px-4 sm:px-7 py-3.5 items-center border-b border-white/[0.05] hover:bg-white/[0.015] transition-colors"
+                style={gridStyle}
               >
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <row.Icon size={13} strokeWidth={2} className="text-white/35 shrink-0" />
                   <span className="text-[13px] font-medium text-white/85 truncate">{row.label}</span>
                 </div>
-                <div className="text-center">{renderCell(row.starter)}</div>
-                <div className="text-center bg-emerald-500/[0.04] -my-3.5 py-3.5">{renderCell(row.pro)}</div>
-                <div className="text-center">{renderCell(row.custom)}</div>
+                {row.cells.map((cell, idx) => (
+                  <div
+                    key={`${row.key}-${plans[idx]?.id || idx}`}
+                    className={`text-center ${
+                      plans[idx]?.is_featured ? 'bg-emerald-500/[0.04] -my-3.5 py-3.5' : ''
+                    }`}
+                  >
+                    {renderCell(cell)}
+                  </div>
+                ))}
               </div>
             ))}
           </div>
         ))}
 
         {/* CTA row */}
-        <div className="grid grid-cols-[1.5fr_repeat(3,1fr)] sm:grid-cols-[2fr_repeat(3,1fr)] gap-3 px-4 sm:px-7 py-5 bg-white/[0.02]">
+        <div className="grid gap-3 px-4 sm:px-7 py-5 bg-white/[0.02]" style={gridStyle}>
           <div />
-          <Link
-            to="/cadastro?plano=starter"
-            className="text-center inline-flex items-center justify-center h-9 px-3 rounded-full bg-white/[0.06] hover:bg-white/[0.12] text-white text-[11px] font-bold transition border border-white/10"
-          >
-            Começar
-          </Link>
-          <Link
-            to="/cadastro?plano=starter"
-            className="text-center inline-flex items-center justify-center h-9 px-3 rounded-full bg-emerald-500 hover:bg-emerald-400 text-white text-[11px] font-bold transition"
-          >
-            Pro
-          </Link>
-          <a
-            href="#contato"
-            className="text-center inline-flex items-center justify-center h-9 px-3 rounded-full bg-white/[0.06] hover:bg-white/[0.12] text-white text-[11px] font-bold transition border border-white/10"
-          >
-            Vendas
-          </a>
+          {plans.map((p) => {
+            const freeConsult = !p.price_cents || p.price_cents <= 0 || p.slug === 'custom'
+            if (freeConsult) {
+              return (
+                <a
+                  key={p.id}
+                  href="#faq"
+                  className="text-center inline-flex items-center justify-center h-9 px-3 rounded-full bg-white/[0.06] hover:bg-white/[0.12] text-white text-[11px] font-bold transition border border-white/10"
+                >
+                  {p.name}
+                </a>
+              )
+            }
+            return (
+              <Link
+                key={p.id}
+                to={`/cadastro?plano=${p.slug}`}
+                className={`text-center inline-flex items-center justify-center h-9 px-3 rounded-full text-[11px] font-bold transition ${
+                  p.is_featured
+                    ? 'bg-emerald-500 hover:bg-emerald-400 text-white'
+                    : 'bg-white/[0.06] hover:bg-white/[0.12] text-white border border-white/10'
+                }`}
+              >
+                {p.name}
+              </Link>
+            )
+          })}
         </div>
+          </>
+        )}
       </div>
     </Section>
   )
@@ -989,164 +1504,188 @@ function Differential() {
    ────────────────────────────────────────────────── */
 
 function Pricing() {
-  const plans = [
-    {
-      name: 'Starter',
-      tagline: 'Comece a captar hoje',
-      price: 'R$ 97',
-      period: '/mês',
-      highlight: '3.000 leads/mês',
-      sub: '100 leads captados por dia',
-      features: [
-        '1 brand · 1 número WhatsApp',
-        'Captação no mapa (Radar)',
-        'CRM completo com tags e funil',
-        'Importação inteligente (IA)',
-        'Inteligência de prospecção (IA)',
-        'Suporte por email',
-      ],
-      cta: 'Começar grátis',
-      featured: false,
-      slug: 'starter',
-    },
-    {
-      name: 'Pro',
-      tagline: 'Cresça com IA + presença digital',
-      price: 'R$ 297',
-      period: '/mês',
-      highlight: '15.000 leads/mês',
-      sub: '500 leads captados por dia',
-      features: [
-        'Tudo do Starter, e mais:',
-        '3 brands · 3 números WhatsApp',
-        'Criativo IA (posts, anúncios, copy)',
-        'Integração Instagram + Facebook',
-        'Domínio customizado (seudominio.com.br)',
-        'Emails corporativos (você@seudominio)',
-        'Automação completa de campanhas',
-        'Disparos em massa ilimitados',
-        'Vendas, catálogo e checkout',
-        'Suporte prioritário',
-      ],
-      cta: 'Começar com Pro',
-      featured: true,
-      slug: 'pro',
-    },
-    {
-      name: 'Custom',
-      tagline: 'Sob medida para empresas',
-      price: 'Sob consulta',
-      period: '',
-      highlight: 'Volume ilimitado',
-      sub: 'Modelagem por operação',
-      features: [
-        'Tudo do Pro, e mais:',
-        'Brands e números ilimitados',
-        'API e webhooks dedicados',
-        'Integrações sob demanda (ERP, BI)',
-        'Onboarding e treinamento dedicado',
-        'Gerente de sucesso (CSM) próprio',
-        'SLA garantido em contrato',
-        'Implantação assistida',
-      ],
-      cta: 'Falar com vendas',
-      featured: false,
-      slug: 'custom',
-    },
-  ]
+  const [plans, setPlans] = useState<PublicPlan[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    fetchPublicPlans()
+      .then(d => {
+        if (cancelled) return
+        setPlans(d.plans)
+        setError(null)
+      })
+      .catch(() => {
+        if (!cancelled) setError('Não foi possível carregar os planos.')
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   return (
-    <Section id="planos" className="!py-24 sm:!py-32">
-      <div className="max-w-3xl">
+    <Section className="!py-16 sm:!py-24 lg:!py-28">
+      <Stack className="max-w-3xl w-full">
         <Eyebrow>Planos</Eyebrow>
         <H2>
           Escolha o plano
           <br />
-          <span className="text-gray-400">que cresce com você.</span>
+          <span className="landing-h2-muted">e ative com pagamento.</span>
         </H2>
-      </div>
+        <Lead className="text-pretty">
+          Não há cadastro grátis. Selecione o plano, conclua o pagamento e sua conta é ativada
+          pelo fluxo oficial de checkout.
+        </Lead>
+      </Stack>
 
-      <div className="mt-14 grid grid-cols-1 lg:grid-cols-3 gap-3">
-        {plans.map(p => (
-          <article
-            key={p.name}
-            className={`relative p-7 rounded-3xl flex flex-col ${
-              p.featured
-                ? 'bg-gray-900 text-white ring-1 ring-gray-900'
-                : 'bg-white border border-border-light'
-            }`}
-          >
-            {p.featured && (
-              <span className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 h-6 rounded-full bg-emerald-500 text-white text-[10px] font-bold tracking-[0.06em] uppercase grid place-items-center">
-                Recomendado
-              </span>
-            )}
+      <div
+        id="planos"
+        className="mt-10 sm:mt-12 lg:mt-14 grid grid-cols-1 lg:grid-cols-3 gap-3 scroll-mt-24 sm:scroll-mt-28"
+      >
+        {loading && (
+          <div className="lg:col-span-3 py-16 text-center text-[13px] text-gray-500">
+            Carregando planos…
+          </div>
+        )}
+        {error && !loading && (
+          <div className="lg:col-span-3 py-16 text-center text-[13px] text-red-600">{error}</div>
+        )}
+        {!loading && !error && plans.length === 0 && (
+          <div className="lg:col-span-3 py-16 text-center text-[13px] text-gray-500">
+            Nenhum plano ativo no momento.
+          </div>
+        )}
+        {!loading &&
+          !error &&
+          plans.map(p => {
+            const featured = !!p.is_featured
+            const { price, period } = planPriceLabel(p)
+            const { highlight, sub } = planHighlight(p)
+            const bullets = asFeatureList(p.features)
+            const freeConsult = !p.price_cents || p.price_cents <= 0 || p.slug === 'custom'
+            const cta = freeConsult ? 'Falar com vendas' : `Pagar e ativar ${p.name}`
 
-            <div className="flex items-baseline gap-2">
-              <h3 className={`text-[20px] font-bold tracking-tight ${p.featured ? 'text-white' : 'text-gray-900'}`}>
-                {p.name}
-              </h3>
-              <span
-                className={`text-[12px] font-medium ${
-                  p.featured ? 'text-white/50' : 'text-gray-500'
+            return (
+              <article
+                key={p.id}
+                className={`landing-price-card relative p-6 sm:p-7 rounded-3xl flex flex-col ${
+                  featured
+                    ? 'landing-price-card--featured bg-gray-900 text-white ring-1 ring-gray-900'
+                    : 'bg-white border border-border-light'
                 }`}
               >
-                {p.tagline}
-              </span>
-            </div>
+                {featured && (
+                  <span className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 h-6 rounded-full bg-emerald-500 text-white text-[10px] font-bold tracking-[0.06em] uppercase grid place-items-center">
+                    Recomendado
+                  </span>
+                )}
 
-            <div className="mt-6 flex items-baseline gap-1">
-              <span className={`text-[36px] font-bold tracking-tight tabular-nums ${p.featured ? 'text-white' : 'text-gray-900'}`}>
-                {p.price}
-              </span>
-              {p.period && (
-                <span className={`text-[14px] font-medium ${p.featured ? 'text-white/50' : 'text-gray-500'}`}>
-                  {p.period}
-                </span>
-              )}
-            </div>
+                <div className="flex items-baseline gap-2 flex-wrap">
+                  <h3
+                    className={`text-[18px] sm:text-[20px] font-bold tracking-tight ${
+                      featured ? 'text-white' : 'text-gray-900'
+                    }`}
+                  >
+                    {p.name}
+                  </h3>
+                  {p.tagline && (
+                    <span
+                      className={`text-[11px] font-medium ${
+                        featured ? 'text-white/45' : 'text-gray-500'
+                      }`}
+                    >
+                      {p.tagline}
+                    </span>
+                  )}
+                </div>
 
-            {/* Highlight de volume — chip principal logo abaixo do preço */}
-            <div className={`mt-5 inline-flex items-center gap-2 px-3 h-9 rounded-xl ${
-              p.featured
-                ? 'bg-emerald-500/15 border border-emerald-400/30 text-emerald-300'
-                : 'bg-gray-50 border border-gray-200 text-gray-900'
-            }`}>
-              <TrendingUp size={13} strokeWidth={2.5} />
-              <div className="flex flex-col leading-tight">
-                <span className="text-[13px] font-bold">{(p as any).highlight}</span>
-                <span className={`text-[10px] font-medium ${p.featured ? 'text-emerald-200/70' : 'text-gray-500'}`}>
-                  {(p as any).sub}
-                </span>
-              </div>
-            </div>
+                <div className="mt-5 sm:mt-6 flex items-baseline gap-1">
+                  <span
+                    className={`text-[32px] sm:text-[36px] font-bold tracking-tight tabular-nums ${
+                      featured ? 'text-white' : 'text-gray-900'
+                    }`}
+                  >
+                    {price}
+                  </span>
+                  {period && (
+                    <span
+                      className={`text-[13px] font-medium ${
+                        featured ? 'text-white/45' : 'text-gray-500'
+                      }`}
+                    >
+                      {period}
+                    </span>
+                  )}
+                </div>
 
-            <ul className={`mt-6 space-y-2.5 flex-1 ${p.featured ? 'text-white/85' : 'text-gray-700'}`}>
-              {p.features.map(f => (
-                <li key={f} className="flex items-start gap-2.5 text-[14px]">
-                  <Check
-                    size={14}
-                    strokeWidth={2.5}
-                    className={`mt-0.5 shrink-0 ${p.featured ? 'text-emerald-400' : 'text-emerald-600'}`}
-                  />
-                  {f}
-                </li>
-              ))}
-            </ul>
+                <div
+                  className={`mt-5 inline-flex items-center gap-2 px-3 h-9 rounded-xl ${
+                    featured
+                      ? 'bg-emerald-500/15 border border-emerald-400/30 text-emerald-300'
+                      : 'bg-gray-50 border border-gray-200 text-gray-900'
+                  }`}
+                >
+                  <TrendingUp size={13} strokeWidth={2.5} />
+                  <div className="flex flex-col leading-tight">
+                    <span className="text-[13px] font-bold">{highlight}</span>
+                    <span
+                      className={`text-[10px] font-medium ${
+                        featured ? 'text-emerald-200/70' : 'text-gray-500'
+                      }`}
+                    >
+                      {sub}
+                    </span>
+                  </div>
+                </div>
 
-            <Link
-              to={`/cadastro?plano=${(p as any).slug || p.name.toLowerCase()}`}
-              className={`mt-8 inline-flex items-center justify-center gap-1.5 h-11 px-5 rounded-full text-[14px] font-semibold tracking-tight transition-colors ${
-                p.featured
-                  ? 'bg-white text-gray-900 hover:bg-gray-200'
-                  : 'bg-gray-900 text-white hover:bg-gray-800'
-              }`}
-            >
-              {p.cta}
-              <ArrowRight size={14} strokeWidth={2.25} />
-            </Link>
-          </article>
-        ))}
+                <ul
+                  className={`mt-6 space-y-2.5 flex-1 ${
+                    featured ? 'text-white/85' : 'text-gray-700'
+                  }`}
+                >
+                  {bullets.map(f => (
+                    <li key={f} className="flex items-start gap-2.5 text-[14px]">
+                      <Check
+                        size={14}
+                        strokeWidth={2.5}
+                        className={`mt-0.5 shrink-0 ${
+                          featured ? 'text-emerald-400' : 'text-emerald-600'
+                        }`}
+                      />
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+
+                {freeConsult ? (
+                  <a
+                    href="#faq"
+                    className="mt-8 inline-flex items-center justify-center gap-1.5 h-11 px-5 rounded-full text-[14px] font-semibold tracking-tight transition-colors bg-gray-900 text-white hover:bg-gray-800"
+                  >
+                    {cta}
+                    <ArrowRight size={14} strokeWidth={2.25} />
+                  </a>
+                ) : (
+                  <Link
+                    to={`/cadastro?plano=${p.slug}`}
+                    className={`mt-8 inline-flex items-center justify-center gap-1.5 h-11 px-5 rounded-full text-[14px] font-semibold tracking-tight transition-colors ${
+                      featured
+                        ? 'bg-white text-gray-900 hover:bg-gray-200'
+                        : 'bg-gray-900 text-white hover:bg-gray-800'
+                    }`}
+                  >
+                    {cta}
+                    <ArrowRight size={14} strokeWidth={2.25} />
+                  </Link>
+                )}
+              </article>
+            )
+          })}
       </div>
     </Section>
   )
@@ -1243,8 +1782,8 @@ function FAQ() {
       a: 'Cada empresa única salva no seu CRM (via Radar do mapa ou importação inteligente) conta como 1 lead. O limite reseta todo mês — você não perde os leads já captados, apenas a capacidade de captar novos quando atinge o teto.',
     },
     {
-      q: 'Qual a diferença real entre Starter e Pro?',
-      a: 'O Starter é pra quem quer começar a captar e atender pelo WhatsApp (100 leads/dia, 1 brand, 1 número). O Pro libera o que escala um negócio digital de verdade: Criativo IA pra posts/anúncios, integração Instagram e Facebook, domínio próprio (seudominio.com.br), emails corporativos e disparos em massa sem limite.',
+      q: 'Qual a diferença real entre os planos?',
+      a: 'Os limites (leads/dia, marcas, WhatsApp) e os módulos liberados vêm da configuração de cada plano — a tabela “Compare planos” e os cards em Planos mostram exatamente o que está ativo agora. Não há números fixos na página: tudo é lido do cadastro comercial.',
     },
     {
       q: 'Como funciona o plano Custom?',
@@ -1266,6 +1805,10 @@ function FAQ() {
       q: 'Qual a diferença para um disparador comum?',
       a: 'Um disparador só envia mensagem. O LeadCapture é o sistema operacional: captação geográfica, CRM com IA, criativo, integrações Meta, vendas e BI — tudo conectado num único painel.',
     },
+    {
+      q: 'O que é o mercado de afiliados?',
+      a: 'É a rede de parceiros já presentes na plataforma. O dono da loja publica o programa (comissão, termos, produtos) e afiliados ativos no LeadCapture veem a campanha, se candidatam e vendem com link/cupom. Você não monta a estrutura do zero: onboarding, aprendizado, comissão e PIX já estão no sistema.',
+    },
   ]
 
   return (
@@ -1278,7 +1821,7 @@ function FAQ() {
             <br />
             frequentes.
           </H2>
-          <Lead className="mt-6">
+          <Lead>
             Não encontrou sua resposta? Fale com a gente no WhatsApp.
           </Lead>
         </div>
@@ -1299,36 +1842,34 @@ function FAQ() {
 function FinalCTA() {
   return (
     <section className="relative bg-[#0a0a0a] text-white overflow-hidden py-24 sm:py-32">
-      <div
-        className="absolute inset-0 opacity-50 pointer-events-none"
-        style={{
-          background:
-            'radial-gradient(ellipse at center, rgba(99, 102, 241, 0.18) 0%, transparent 60%)',
-        }}
+      <LandingVideoBackdrop
+        poster={LANDING_MEDIA.hero.poster}
+        video={LANDING_MEDIA.hero.video}
+        opacity={0.38}
       />
 
-      <div className="relative mx-auto max-w-4xl px-5 sm:px-8 text-center">
-        <h2 className="text-[40px] sm:text-[60px] lg:text-[76px] font-bold tracking-[-0.04em] leading-[1.02]">
-          Seu próximo cliente
-          <br />
-          <span className="text-shimmer">já está no mapa.</span>
-        </h2>
-        <p className="mt-7 text-[17px] sm:text-[20px] text-white/60 leading-[1.55] font-medium max-w-xl mx-auto">
-          Só falta você ativar o sistema.
-        </p>
-
-        <div className="mt-10 flex items-center justify-center gap-3 flex-wrap">
-          <PrimaryCTA to="/cadastro?plano=starter" dark>
-            Ativar meu LeadCapture
-          </PrimaryCTA>
-          <GhostCTA to="#planos" dark>
-            Ver planos
-          </GhostCTA>
+      <div className="relative z-[1] mx-auto max-w-4xl px-5 sm:px-8">
+        <div className="landing-stack landing-stack--center-always">
+          <h2 className="landing-h2 text-white" style={{ fontSize: 'clamp(2.25rem, 1.4rem + 4vw, 4.25rem)' }}>
+            Seu próximo cliente
+            <br />
+            <span className="text-shimmer">já está no mapa.</span>
+          </h2>
+          <p className="landing-lead landing-lead--dark">
+            Só falta você ativar o sistema.
+          </p>
+          <div className="landing-cta-row mt-8 sm:mt-10">
+            <PrimaryCTA to="#planos" dark>
+              Escolher plano e ativar
+            </PrimaryCTA>
+            <GhostCTA to="/login" dark>
+              Já tenho conta
+            </GhostCTA>
+          </div>
+          <p className="mt-7 text-[12px] font-medium text-white/40">
+            Ativação com pagamento do plano · Cancele quando quiser
+          </p>
         </div>
-
-        <p className="mt-7 text-[12px] font-medium text-white/40">
-          Sem cartão de crédito · Cancele quando quiser
-        </p>
       </div>
     </section>
   )
@@ -1358,24 +1899,24 @@ function Footer() {
               title: 'Produto',
               links: [
                 ['Captação', '#produto'],
-                ['Automação', '#produto'],
+                ['Mercado de afiliados', '#afiliados'],
                 ['Vendas', '#produto'],
-                ['Demo', '#demo'],
+                ['Planos', '#planos'],
               ],
             },
             {
               title: 'Empresa',
               links: [
                 ['Para quem é', '#para-quem'],
-                ['Planos', '#planos'],
                 ['FAQ', '#faq'],
+                ['Parceiros', '/parceiros'],
               ],
             },
             {
               title: 'Conta',
               links: [
                 ['Entrar', '/login'],
-                ['Começar', '/login'],
+                ['Planos e ativação', '#planos'],
               ],
             },
           ].map(col => (
@@ -1416,6 +1957,15 @@ function Footer() {
    PAGE
    ────────────────────────────────────────────────── */
 
+/** Scroll para âncoras da landing com offset da navbar fixa (h-16). */
+function scrollToLandingHash(hash: string, behavior: ScrollBehavior = 'smooth') {
+  if (!hash || hash === '#') return
+  const id = hash.startsWith('#') ? hash.slice(1) : hash
+  const el = document.getElementById(id)
+  if (!el) return
+  el.scrollIntoView({ behavior, block: 'start' })
+}
+
 export function LandingPage() {
   useEffect(() => {
     document.title = 'LeadCapture — Sistema operacional de crescimento'
@@ -1424,23 +1974,66 @@ export function LandingPage() {
     }
   }, [])
 
+  /* Hash na URL (ex: /inicio#planos vindo do login/cadastro) — scroll após paint */
+  useEffect(() => {
+    const run = () => {
+      const { hash } = window.location
+      if (hash) scrollToLandingHash(hash, 'smooth')
+    }
+    // Duplo rAF: espera layout (planos async / imagens) assentar
+    const t1 = window.setTimeout(run, 50)
+    const t2 = window.setTimeout(run, 350)
+    window.addEventListener('hashchange', run)
+    return () => {
+      window.clearTimeout(t1)
+      window.clearTimeout(t2)
+      window.removeEventListener('hashchange', run)
+    }
+  }, [])
+
   return (
     <div className="bg-white text-gray-900 min-h-screen">
       <Navbar />
       <ChatWidget />
-      <main>
+      <main className="landing-flow">
         <Hero />
         <MapInteractive />
+
+        <SectionBridge from="dark" to="light" />
         <ValueProp />
+
+        <SectionBridge from="light" to="dark" />
         <Problem />
+
+        <SectionBridge from="dark" to="light" />
         <Ecosystem />
+
+        <SectionBridge from="light" to="dark" />
+        <AffiliateMarketplace />
+
+        <SectionBridge from="dark" to="light" />
+        <CommerceVisual />
+
+        <SectionBridge from="light" to="dark" />
         <Panfleteiro />
+
+        <SectionBridge from="dark" to="light" />
         <Automation />
+
+        <SectionBridge from="light" to="dark" />
         <ForWho />
+
+        <SectionBridge from="dark" to="light" />
         <SocialProof />
         <Pricing />
+
+        <SectionBridge from="light" to="dark" />
         <Differential />
+
+        <SectionBridge from="dark" to="light" />
         <FAQ />
+
+        <SectionBridge from="light" to="dark" />
         <FinalCTA />
       </main>
       <Footer />

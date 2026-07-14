@@ -59,8 +59,28 @@ export function EntitlementsProvider({ children }: { children: ReactNode }) {
   const value = useMemo<Ctx>(() => {
     const modules = entitlements?.modules
     const planSlug = entitlements?.subscription?.plan_slug
+    const planName = entitlements?.subscription?.plan_name
     const moduleEnabled = (key: string) => modules?.[key] !== false
     const featureEnabled = (key: string) => entitlements?.features?.[key] !== false
+    const openWithPlan = (
+      kind: 'module' | 'feature',
+      key: string,
+      message?: string,
+    ) => {
+      void import('@/lib/plan-upgrade').then(m => {
+        const payload = m.buildUpgradePayload({
+          code: kind === 'module' ? 'module_disabled' : 'plan_feature_required',
+          message,
+          details: {
+            [kind === 'module' ? 'module' : 'feature']: key,
+            plan: planSlug,
+          },
+        })
+        payload.planName = planName || null
+        payload.planSlug = planSlug || null
+        m.openPlanUpgrade(payload)
+      })
+    }
     return {
       entitlements,
       loading,
@@ -70,16 +90,12 @@ export function EntitlementsProvider({ children }: { children: ReactNode }) {
       featureEnabled,
       requireModule: (key: string, message?: string) => {
         if (moduleEnabled(key)) return true
-        void import('@/lib/plan-upgrade').then(({ openPlanUpgradeForModule }) => {
-          openPlanUpgradeForModule(key, message, planSlug)
-        })
+        openWithPlan('module', key, message)
         return false
       },
       requireFeature: (key: string, message?: string) => {
         if (featureEnabled(key)) return true
-        void import('@/lib/plan-upgrade').then(({ openPlanUpgradeForFeature }) => {
-          openPlanUpgradeForFeature(key, message, planSlug)
-        })
+        openWithPlan('feature', key, message)
         return false
       },
       brandActive: entitlements?.brand?.active !== false,

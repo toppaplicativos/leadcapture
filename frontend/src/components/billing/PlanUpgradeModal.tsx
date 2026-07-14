@@ -1,14 +1,16 @@
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import {
-  ArrowUpRight,
-  Lock,
-  Sparkles,
-  X,
+  ArrowRight,
   Building2,
+  Check,
+  Crown,
+  Lock,
+  ShieldAlert,
   Smartphone,
   Target,
+  X,
   Zap,
 } from 'lucide-react'
 import {
@@ -19,8 +21,8 @@ import {
 import { Button } from '@/components/ui/Button'
 
 /**
- * Global modal: plan wall → explain block → suggest upgrade.
- * Mounted once in admin shell; opened via openPlanUpgrade / API entitlement errors.
+ * Global plan-wall modal — product register (Linear/Stripe density).
+ * Mounted once in admin shell; opened via openPlanUpgrade / API 403.
  */
 export function PlanUpgradeModalHost() {
   const [payload, setPayload] = useState<PlanUpgradePayload | null>(null)
@@ -43,6 +45,12 @@ export function PlanUpgradeModalHost() {
     }
   }, [payload])
 
+  const usagePct = useMemo(() => {
+    if (!payload || payload.limit == null || payload.limit <= 0) return null
+    const used = Number(payload.used ?? 0)
+    return Math.min(100, Math.round((used / payload.limit) * 100))
+  }, [payload])
+
   if (!payload || typeof document === 'undefined') return null
 
   const isLimit =
@@ -58,122 +66,179 @@ export function PlanUpgradeModalHost() {
         ? Smartphone
         : isLimit
           ? Target
-          : Lock
+          : ShieldAlert
 
-  const benefits = [
-    'Desbloqueie módulos e limites alinhados ao que o plano promete',
-    'Sem surpresas: o que está no plano é o que a plataforma libera',
-    'Troca de plano com o mesmo fluxo de checkout oficial',
-  ]
+  const planLabel = payload.planName || payload.planSlug || 'seu plano atual'
+
+  const unlockPoints = isLimit
+    ? [
+        'Mais cotas (leads, WhatsApp, marcas) sem reinventar o fluxo',
+        'Mesmo painel — só sobe o teto do que o plano libera',
+        'Checkout oficial de upgrade na página de planos',
+      ]
+    : [
+        payload.featureLabel
+          ? `Acesso a ${payload.featureLabel} e módulos relacionados`
+          : 'Acesso aos módulos que o plano superior inclui',
+        'Nav e API liberam juntos — sem “tem no marketing e falta no sistema”',
+        'Upgrade no mesmo fluxo de pagamento da plataforma',
+      ]
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center p-0 sm:p-6"
+      className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center p-0 sm:p-5"
       role="presentation"
     >
-      {/* Backdrop */}
       <button
         type="button"
         aria-label="Fechar"
-        className="absolute inset-0 bg-gray-950/55 backdrop-blur-[2px] motion-safe:animate-[fadeIn_160ms_ease-out] motion-reduce:animate-none"
+        className="absolute inset-0 bg-[#0a0a0a]/60 backdrop-blur-[3px] plan-upgrade-fade"
         onClick={() => closePlanUpgrade()}
       />
 
-      {/* Dialog */}
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={descId}
-        className="relative w-full sm:max-w-[440px] max-h-[min(92vh,640px)] overflow-y-auto rounded-t-3xl sm:rounded-3xl bg-white shadow-[0_24px_80px_-24px_rgba(0,0,0,0.45)] ring-1 ring-black/5 motion-safe:animate-[slideUp_200ms_cubic-bezier(0.16,1,0.3,1)] motion-reduce:animate-none"
+        className="relative w-full sm:max-w-[460px] max-h-[min(94vh,680px)] overflow-hidden rounded-t-[1.75rem] sm:rounded-[1.5rem] bg-[#fafafa] shadow-[0_32px_96px_-28px_rgba(0,0,0,0.55)] ring-1 ring-black/10 plan-upgrade-panel"
       >
-        {/* Top accent bar — full width, not side-stripe */}
-        <div className="h-1 w-full bg-gradient-to-r from-gray-900 via-emerald-600 to-gray-900" />
-
-        <div className="p-6 sm:p-7">
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex items-start gap-3 min-w-0">
-              <div className="w-11 h-11 rounded-2xl bg-gray-900 text-white grid place-items-center shrink-0 shadow-sm">
-                <Icon size={20} strokeWidth={2} />
+        {/* Header band */}
+        <div className="relative px-6 sm:px-7 pt-6 pb-5 bg-[#111113] text-white overflow-hidden">
+          <div
+            className="pointer-events-none absolute -right-10 -top-12 w-44 h-44 rounded-full opacity-[0.14]"
+            style={{
+              background:
+                'radial-gradient(circle at center, #34d399 0%, transparent 68%)',
+            }}
+            aria-hidden
+          />
+          <div className="relative flex items-start justify-between gap-3">
+            <div className="flex items-start gap-3.5 min-w-0">
+              <div className="w-12 h-12 rounded-2xl bg-white/[0.08] ring-1 ring-white/15 grid place-items-center shrink-0">
+                <Icon size={22} strokeWidth={1.85} className="text-emerald-400" />
               </div>
               <div className="min-w-0 pt-0.5">
-                <p className="text-[11px] font-semibold tracking-wide text-gray-500 uppercase">
-                  Plano atual
-                  {payload.planName || payload.planSlug
-                    ? ` · ${payload.planName || payload.planSlug}`
-                    : ''}
-                </p>
+                <div className="inline-flex items-center gap-1.5 h-6 px-2 rounded-md bg-white/[0.08] ring-1 ring-white/10">
+                  <Crown size={11} strokeWidth={2.25} className="text-emerald-400" />
+                  <span className="text-[10px] font-semibold tracking-wide text-white/70 uppercase">
+                    Upgrade de plano
+                  </span>
+                </div>
                 <h2
                   id={titleId}
-                  className="text-[18px] sm:text-[20px] font-bold tracking-tight text-gray-900 text-balance mt-0.5"
+                  className="mt-2 text-[19px] sm:text-[21px] font-bold tracking-tight text-white text-balance leading-snug"
                 >
                   {payload.title}
                 </h2>
+                <p className="mt-1 text-[12px] text-white/50 font-medium truncate">
+                  Plano atual: <span className="text-white/80">{planLabel}</span>
+                </p>
               </div>
             </div>
             <button
               type="button"
               onClick={() => closePlanUpgrade()}
-              className="w-9 h-9 grid place-items-center rounded-xl text-gray-500 hover:bg-gray-100 hover:text-gray-900 transition shrink-0"
+              className="w-9 h-9 grid place-items-center rounded-xl text-white/55 hover:text-white hover:bg-white/10 transition shrink-0"
               aria-label="Fechar"
             >
               <X size={18} strokeWidth={2} />
             </button>
           </div>
+        </div>
 
-          <p id={descId} className="mt-4 text-[14px] leading-relaxed text-gray-600 text-pretty">
+        <div className="px-6 sm:px-7 py-5 overflow-y-auto max-h-[min(62vh,420px)]">
+          <p id={descId} className="text-[14px] leading-relaxed text-gray-600 text-pretty">
             {payload.message}
           </p>
 
+          {/* Blocked resource card */}
           {payload.featureLabel && (
-            <div className="mt-4 inline-flex items-center gap-2 px-3 h-9 rounded-xl bg-amber-50 ring-1 ring-amber-200/80 text-amber-900">
-              <Lock size={13} strokeWidth={2.25} className="text-amber-700" />
-              <span className="text-[12px] font-semibold">{payload.featureLabel}</span>
-              <span className="text-[11px] font-medium text-amber-800/70">bloqueado</span>
-            </div>
-          )}
-
-          {payload.limit != null && (
-            <div className="mt-3 flex items-center gap-3 rounded-2xl bg-gray-50 ring-1 ring-gray-200/80 px-4 py-3">
-              <div className="text-center min-w-[4.5rem]">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">Uso</p>
-                <p className="text-[20px] font-bold tabular-nums text-gray-900">
-                  {payload.used ?? '—'}
-                </p>
+            <div className="mt-4 rounded-2xl bg-white ring-1 ring-gray-200/90 shadow-[0_1px_2px_rgba(0,0,0,0.04)] p-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-50 ring-1 ring-amber-200/70 grid place-items-center shrink-0">
+                  <Lock size={16} strokeWidth={2.25} className="text-amber-700" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[11px] font-semibold text-gray-500">Recurso solicitado</p>
+                  <p className="text-[15px] font-bold text-gray-900 truncate">
+                    {payload.featureLabel}
+                  </p>
+                </div>
+                <span className="shrink-0 h-7 px-2.5 rounded-lg bg-gray-900 text-[10px] font-bold uppercase tracking-wide text-white grid place-items-center">
+                  Bloqueado
+                </span>
               </div>
-              <div className="h-8 w-px bg-gray-200" />
-              <div className="text-center min-w-[4.5rem]">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">
-                  Limite
-                </p>
-                <p className="text-[20px] font-bold tabular-nums text-gray-900">
-                  {payload.limit < 0 ? '∞' : payload.limit}
-                </p>
-              </div>
-              <p className="flex-1 text-[12px] text-gray-500 leading-snug">
-                Extrapolou o que o plano entrega. Upgrade libera mais capacidade.
+              <p className="mt-3 text-[12px] text-gray-500 leading-snug">
+                No plano atual este módulo não está liberado. O painel e a API recusam a ação
+                de propósito — o que o plano propõe é o que o sistema entrega.
               </p>
             </div>
           )}
 
-          <ul className="mt-5 space-y-2.5">
-            {benefits.map(b => (
-              <li key={b} className="flex items-start gap-2.5 text-[13px] text-gray-700">
-                <Sparkles
-                  size={14}
-                  strokeWidth={2.25}
-                  className="mt-0.5 text-emerald-600 shrink-0"
-                />
-                <span className="text-pretty">{b}</span>
-              </li>
-            ))}
-          </ul>
+          {/* Usage meter */}
+          {payload.limit != null && (
+            <div className="mt-4 rounded-2xl bg-white ring-1 ring-gray-200/90 p-4 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+              <div className="flex items-end justify-between gap-3 mb-2">
+                <div>
+                  <p className="text-[11px] font-semibold text-gray-500">Consumo do plano</p>
+                  <p className="text-[13px] font-bold text-gray-900 mt-0.5">
+                    {payload.used ?? 0}
+                    <span className="text-gray-400 font-semibold"> / </span>
+                    {payload.limit < 0 ? '∞' : payload.limit}
+                  </p>
+                </div>
+                {usagePct != null && (
+                  <span
+                    className={`text-[12px] font-bold tabular-nums ${
+                      usagePct >= 100 ? 'text-red-600' : 'text-amber-600'
+                    }`}
+                  >
+                    {usagePct}%
+                  </span>
+                )}
+              </div>
+              {usagePct != null && (
+                <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-[width] duration-300 ease-out ${
+                      usagePct >= 100 ? 'bg-red-500' : 'bg-amber-500'
+                    }`}
+                    style={{ width: `${usagePct}%` }}
+                  />
+                </div>
+              )}
+              <p className="mt-2.5 text-[12px] text-gray-500 leading-snug">
+                Você atingiu o teto do plano. Upgrade aumenta a cota sem mudar o fluxo de trabalho.
+              </p>
+            </div>
+          )}
+
+          {/* Unlock list */}
+          <div className="mt-5">
+            <p className="text-[11px] font-semibold text-gray-500 mb-2.5">
+              Com um plano superior
+            </p>
+            <ul className="space-y-2">
+              {unlockPoints.map(line => (
+                <li
+                  key={line}
+                  className="flex items-start gap-2.5 text-[13px] text-gray-700 leading-snug"
+                >
+                  <span className="mt-0.5 w-5 h-5 rounded-md bg-emerald-50 ring-1 ring-emerald-200/80 grid place-items-center shrink-0">
+                    <Check size={12} strokeWidth={2.5} className="text-emerald-700" />
+                  </span>
+                  <span className="text-pretty">{line}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
 
           <div className="mt-6 flex flex-col-reverse sm:flex-row gap-2.5">
             <Button
               type="button"
               variant="secondary"
-              className="sm:flex-1"
+              className="sm:flex-1 !bg-white !ring-1 !ring-gray-200"
               onClick={() => closePlanUpgrade()}
             >
               Continuar no plano atual
@@ -181,10 +246,14 @@ export function PlanUpgradeModalHost() {
             <Link
               to="/inicio#planos"
               onClick={() => closePlanUpgrade()}
-              className="sm:flex-1 inline-flex items-center justify-center gap-2 h-11 px-4 rounded-xl bg-gray-900 text-white text-sm font-semibold tracking-tight hover:bg-gray-800 active:scale-[0.98] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2"
+              className="sm:flex-[1.15] group inline-flex items-center justify-center gap-2 h-11 px-4 rounded-xl bg-gray-900 text-white text-sm font-semibold tracking-tight hover:bg-gray-800 active:scale-[0.98] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2 shadow-[0_1px_2px_rgba(0,0,0,0.12)]"
             >
-              Ver planos e upgrade
-              <ArrowUpRight size={16} strokeWidth={2.25} />
+              Ver planos e fazer upgrade
+              <ArrowRight
+                size={16}
+                strokeWidth={2.25}
+                className="transition-transform group-hover:translate-x-0.5"
+              />
             </Link>
           </div>
 
@@ -197,17 +266,23 @@ export function PlanUpgradeModalHost() {
       </div>
 
       <style>{`
-        @keyframes fadeIn {
+        .plan-upgrade-fade {
+          animation: planUpgradeFade 180ms ease-out both;
+        }
+        .plan-upgrade-panel {
+          animation: planUpgradeSlide 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+        }
+        @keyframes planUpgradeFade {
           from { opacity: 0; }
           to { opacity: 1; }
         }
-        @keyframes slideUp {
-          from { opacity: 0; transform: translateY(12px); }
-          to { opacity: 1; transform: translateY(0); }
+        @keyframes planUpgradeSlide {
+          from { opacity: 0; transform: translateY(16px) scale(0.98); }
+          to { opacity: 1; transform: translateY(0) scale(1); }
         }
         @media (prefers-reduced-motion: reduce) {
-          .motion-safe\\:animate-\\[fadeIn_160ms_ease-out\\],
-          .motion-safe\\:animate-\\[slideUp_200ms_cubic-bezier\\(0\\.16\\,1\\,0\\.3\\,1\\)\\] {
+          .plan-upgrade-fade,
+          .plan-upgrade-panel {
             animation: none !important;
           }
         }
@@ -217,7 +292,6 @@ export function PlanUpgradeModalHost() {
   )
 }
 
-/** Compact CTA used next to locked UI */
 export function PlanUpgradeHint({
   featureKey,
   className = '',

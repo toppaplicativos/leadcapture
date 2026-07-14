@@ -156,12 +156,16 @@ function buildMarketingBullets(limits: PlanLimits, catalog: FeatureMeta[]): stri
   return bullets
 }
 
-/** Dark-theme safe field styles (avoid white bg + white text on selects/options) */
+/**
+ * Dark console fields — visual classes only.
+ * Real dark bg/ink enforced by .master-console input rules in index.css
+ * (global product inputs force white surface otherwise).
+ */
 const fieldClass =
-  'w-full h-10 px-3.5 rounded-xl border border-white/15 bg-zinc-900 text-[13px] text-white placeholder:text-white/35 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500/40 [color-scheme:dark]'
+  'master-plan-field w-full h-10 px-3.5 rounded-xl text-[13px] font-medium focus:outline-none'
 const areaClass =
-  'w-full px-3.5 py-2.5 rounded-xl border border-white/15 bg-zinc-900 text-[13px] text-white placeholder:text-white/35 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500/40 resize-none font-mono [color-scheme:dark]'
-const selectClass = `${fieldClass} appearance-none`
+  'master-plan-field w-full px-3.5 py-2.5 rounded-xl text-[13px] font-mono resize-none focus:outline-none'
+const selectClass = `${fieldClass} appearance-none cursor-pointer`
 
 export function MasterPlanos() {
   const [plans, setPlans] = useState<Plan[]>([])

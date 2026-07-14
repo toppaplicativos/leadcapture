@@ -132,6 +132,29 @@ export const affiliateApi = {
     const q = qs.toString() ? `?${qs}` : ''
     return affiliateFetch<any>(`/api/affiliate-app/materials${q}`)
   },
+  /** Galeria unificada por pastas: posts, produtos, marca, programa, campanhas… */
+  materialsLibrary: (opts?: {
+    region?: string
+    programId?: string
+    folder?: string
+    type?: string
+    q?: string
+  }) => {
+    const qs = new URLSearchParams()
+    if (opts?.region) qs.set('region', opts.region)
+    if (opts?.programId) qs.set('program_id', opts.programId)
+    if (opts?.folder) qs.set('folder', opts.folder)
+    if (opts?.type) qs.set('type', opts.type)
+    if (opts?.q) qs.set('q', opts.q)
+    const q = qs.toString() ? `?${qs}` : ''
+    return affiliateFetch<{
+      success: boolean
+      folders: Array<{ slug: string; label: string; icon: string; count: number }>
+      items: any[]
+      total: number
+      total_all: number
+    }>(`/api/affiliate-app/materials/library${q}`)
+  },
   generateMaterialCaption: (materialId: string, payload: { purpose: string }) =>
     affiliateFetch<{ success: boolean; caption: string; purpose: string }>(
       `/api/affiliate-app/materials/${encodeURIComponent(materialId)}/generate-caption`,
@@ -243,6 +266,12 @@ export const affiliateApi = {
     }),
 
   distributionStatus: () => affiliateFetch<any>('/api/affiliate-app/distribution/status'),
+  /** Registra aceite de termos do programa (elegibilidade Ao Vivo) */
+  acceptDistributionTerms: (accepted = true) =>
+    affiliateFetch<any>('/api/affiliate-app/distribution/accept-terms', {
+      method: 'POST',
+      body: JSON.stringify({ accepted, terms_accepted: accepted }),
+    }),
   assistantControl: () => affiliateFetch<any>('/api/affiliate-app/assistant-control'),
   updateAssistantControl: (enabled: boolean) =>
     affiliateFetch<any>('/api/affiliate-app/assistant-control', {

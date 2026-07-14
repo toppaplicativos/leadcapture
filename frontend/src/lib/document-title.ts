@@ -25,8 +25,8 @@ for (const item of NAV_ITEMS) {
 
 const PUBLIC_TITLES: Record<string, string> = {
   '/login': 'Entrar',
-  '/cadastro': 'Criar conta',
-  '/cadastro/sucesso': 'Cadastro confirmado',
+  '/cadastro': 'Ativar plano',
+  '/cadastro/sucesso': 'Plano ativado',
   '/parceiros': 'Parceiros — Programa de Afiliados',
   '/parceiros/entrar': 'Parceiros — Entrar',
 

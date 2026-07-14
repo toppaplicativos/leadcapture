@@ -1,12 +1,25 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Activity, AlertTriangle, Bot, CheckCircle2, Clock3, Link2, MessageCircle, Pause, Play, Radio, RefreshCw, Send, UserRound, WifiOff, X } from 'lucide-react'
+import { Activity, AlertTriangle, Bot, CheckCircle2, Clock3, FileText, Link2, Loader2, MessageCircle, Pause, Play, Radio, RefreshCw, Send, UserRound, WifiOff, X } from 'lucide-react'
 import { affiliateApi } from '@/lib/api-affiliate'
 import type { AppContext } from '@/pages/affiliate/types'
+
+type ChecklistItem = {
+  key: string
+  label: string
+  ok: boolean
+  action?: string | null
+  cta?: string | null
+  action_path?: string | null
+}
 
 type DistributionStatus = {
   can_receive: boolean
   blockers?: string[]
-  checklist?: Array<{ key: string; label: string; ok: boolean; action?: string | null }>
+  checklist?: ChecklistItem[]
+  enrollment_id?: string | null
+  enrollment_status?: string | null
+  program_name?: string | null
+  terms_html?: string | null
   stats?: { assigned_total?: number; assigned_active?: number; assigned_today?: number; queued_for_brand?: number }
 }
 
@@ -25,7 +38,12 @@ type Assignment = {
 
 type AssistantControl = {
   assistant: { affiliate_enabled: boolean; organization_enabled: boolean; effective_enabled: boolean }
-  connections: { total: number; connected: number; daily_capacity: number }
+  connections: {
+    total: number
+    connected: number
+    daily_capacity: number
+    capacity_per_connection?: number
+  }
   conversations: { total: number; autonomous: number; waiting: number }
   campaigns: { active: number; queued: number; sent_today: number }
 }
@@ -58,7 +76,15 @@ function withTimeout<T>(promise: Promise<T>, ms = 10_000): Promise<T> {
   ])
 }
 
-export function AffiliateLiveDispatchPanel({ ctx, onConnectWhatsApp }: { ctx: AppContext; onConnectWhatsApp: () => void }) {
+export function AffiliateLiveDispatchPanel({
+  ctx,
+  onConnectWhatsApp,
+  onNavigate,
+}: {
+  ctx: AppContext
+  onConnectWhatsApp: () => void
+  onNavigate?: (path: string) => void
+}) {
   const [status, setStatus] = useState<DistributionStatus | null>(null)
   const [assignments, setAssignments] = useState<Assignment[]>([])
   const [loading, setLoading] = useState(true)
@@ -68,6 +94,11 @@ export function AffiliateLiveDispatchPanel({ ctx, onConnectWhatsApp }: { ctx: Ap
   const [control, setControl] = useState<AssistantControl | null>(null)
   const [confirmEnabled, setConfirmEnabled] = useState<boolean | null>(null)
   const [savingControl, setSavingControl] = useState(false)
+  const [termsOpen, setTermsOpen] = useState(false)
+  const [termsChecked, setTermsChecked] = useState(false)
+  const [termsHtml, setTermsHtml] = useState<string | null>(null)
+  const [termsBusy, setTermsBusy] = useState(false)
+  const [termsLoading, setTermsLoading] = useState(false)
 
   const load = useCallback(async (quiet = false) => {
     if (!quiet) setRefreshing(true)
@@ -109,14 +140,97 @@ export function AffiliateLiveDispatchPanel({ ctx, onConnectWhatsApp }: { ctx: Ap
   const active = Number(status?.stats?.assigned_active || 0)
   const total = Number(status?.stats?.assigned_total || assignments.length)
   const converted = useMemo(() => assignments.filter((item) => item.assignment_status === 'converted' || item.conversion_status === 'converted').length, [assignments])
-  const pendingCheck = status?.checklist?.find((item) => !item.ok)
+  const pendingChecks = useMemo(
+    () => (status?.checklist || []).filter((item) => !item.ok),
+    [status?.checklist],
+  )
+  const pendingCheck = pendingChecks[0]
   const blockerText = pendingCheck?.action || pendingCheck?.label || status?.blockers?.[0] || 'Conclua a configuração para participar da distribuição.'
-  const blockerNeedsWhatsApp = pendingCheck?.key === 'whatsapp'
-  const connected = Number(control?.connections.connected || 0)
-  const capacity = Number(control?.connections.daily_capacity || connected * 40)
-  const sentToday = Number(status?.stats?.assigned_today || control?.campaigns.sent_today || 0)
-  const queued = Number(status?.stats?.queued_for_brand || control?.campaigns.queued || 0)
+  // Prefer health/API connections; fallback para snapshot de distribuição
+  const connected = Math.max(
+    Number(control?.connections?.connected || 0),
+    Number((status as any)?.connected_instances || 0),
+  )
+  const capacityPerConn = Number(control?.connections?.capacity_per_connection || 40)
+  const capacity = Number(control?.connections?.daily_capacity || 0) || (connected * capacityPerConn)
+  const sentToday = Number(status?.stats?.assigned_today || control?.campaigns?.sent_today || 0)
+  const queued = Number(status?.stats?.queued_for_brand || control?.campaigns?.queued || 0)
   const capacityPct = capacity > 0 ? Math.min(100, Math.round((sentToday / capacity) * 100)) : 0
+
+  async function openTermsSheet() {
+    setTermsOpen(true)
+    setTermsChecked(false)
+    setTermsBusy(false)
+    if (status?.terms_html) {
+      setTermsHtml(status.terms_html)
+      return
+    }
+    setTermsLoading(true)
+    try {
+      let html = status?.terms_html || null
+      const enrollmentId = status?.enrollment_id
+      if (!html && enrollmentId) {
+        const onboarding = await affiliateApi.onboarding(enrollmentId)
+        html = onboarding?.enrollment?.terms_html || onboarding?.terms_html || null
+      }
+      if (!html) {
+        // tenta listar enrollments ativos e carregar o primeiro
+        const list = await affiliateApi.programEnrollments().catch(() => null)
+        const en = (list?.enrollments || []).find((e: any) =>
+          ['active', 'onboarding'].includes(String(e.status || '')),
+        ) || (list?.enrollments || [])[0]
+        if (en?.id) {
+          const onboarding = await affiliateApi.onboarding(String(en.id))
+          html = onboarding?.enrollment?.terms_html || null
+        }
+      }
+      setTermsHtml(html || '<p>Não encontramos o texto dos termos. Contate a marca ou conclua o onboarding em Aprender.</p>')
+    } catch {
+      setTermsHtml('<p>Não foi possível carregar os termos agora. Tente novamente.</p>')
+    } finally {
+      setTermsLoading(false)
+    }
+  }
+
+  async function submitTermsAccept() {
+    if (!termsChecked) {
+      ctx.showToast('Marque a confirmação para registrar o aceite', 'err')
+      return
+    }
+    setTermsBusy(true)
+    try {
+      const res = await affiliateApi.acceptDistributionTerms(true)
+      setStatus(res)
+      setTermsOpen(false)
+      setTermsChecked(false)
+      ctx.showToast('Termos aceitos. Status atualizado.')
+      void load(true)
+    } catch (e) {
+      ctx.showToast(e instanceof Error ? e.message : 'Não foi possível registrar o aceite', 'err')
+    } finally {
+      setTermsBusy(false)
+    }
+  }
+
+  function handleBlockerAction(item?: ChecklistItem | null) {
+    if (!item || item.ok) return
+    if (item.key === 'terms' || item.action_path === 'accept_terms') {
+      void openTermsSheet()
+      return
+    }
+    if (item.key === 'whatsapp' || item.action_path === '/conexoes') {
+      onConnectWhatsApp()
+      return
+    }
+    const path = item.action_path
+    if (path && onNavigate) {
+      onNavigate(path.startsWith('/') ? path : `/${path}`)
+      return
+    }
+    if (item.key === 'training' && onNavigate) onNavigate('/aprendizado')
+    if (item.key === 'pix' && onNavigate) onNavigate('/pagamentos')
+    if (item.key === 'program_active' && onNavigate) onNavigate('/aprendizado')
+  }
 
   async function applyAssistantControl() {
     if (confirmEnabled === null) return
@@ -163,12 +277,36 @@ export function AffiliateLiveDispatchPanel({ ctx, onConnectWhatsApp }: { ctx: Ap
       <section className="affiliate-ops__capacity affiliate-card">
         <div className="affiliate-ops__capacity-head">
           <div className="affiliate-ops__capacity-icon"><Send size={18} /></div>
-          <div className="min-w-0 flex-1"><h3>Capacidade de alcance</h3><p>{connected} {connected === 1 ? 'conexão ativa' : 'conexões ativas'} · até {capacity} contatos/dia</p></div>
+          <div className="min-w-0 flex-1">
+            <h3>Capacidade de alcance</h3>
+            <p>
+              {connected} {connected === 1 ? 'conexão ativa' : 'conexões ativas'}
+              {connected > 0
+                ? ` · até ${capacity.toLocaleString('pt-BR')} contatos/dia`
+                : ' · conecte um WhatsApp para liberar alcance'}
+            </p>
+          </div>
           <strong>{sentToday}<small> hoje</small></strong>
         </div>
         <div className="affiliate-ops__progress"><span style={{ width: `${capacityPct}%` }} /></div>
-        <div className="affiliate-ops__queue"><span><Radio size={13} /> {control?.campaigns.active || 0} campanhas</span><span><Clock3 size={13} /> {queued} na fila</span></div>
-        <button type="button" onClick={onConnectWhatsApp}><Link2 size={15} /><span><strong>Conecte mais números</strong><small>Cada conexão adiciona capacidade média para 40 contatos por dia.</small></span></button>
+        <div className="affiliate-ops__queue">
+          <span><Radio size={13} /> {control?.campaigns?.active || 0} campanhas</span>
+          <span><Clock3 size={13} /> {queued} na fila</span>
+          {connected > 0 && (
+            <span>{capacityPerConn}/conexão</span>
+          )}
+        </div>
+        <button type="button" onClick={onConnectWhatsApp}>
+          <Link2 size={15} />
+          <span>
+            <strong>{connected > 0 ? 'Conecte mais números' : 'Conectar WhatsApp'}</strong>
+            <small>
+              {connected > 0
+                ? `Cada conexão adiciona cerca de ${capacityPerConn} contatos por dia.`
+                : `Sem conexão ativa a capacidade fica em 0. Cada número libera cerca de ${capacityPerConn} contatos/dia.`}
+            </small>
+          </span>
+        </button>
       </section>
 
       <section className={`affiliate-live__hero ${live ? 'is-live' : 'is-paused'}`}>
@@ -187,9 +325,39 @@ export function AffiliateLiveDispatchPanel({ ctx, onConnectWhatsApp }: { ctx: Ap
         </div>
         {!live && (
           <div className="affiliate-live__blocker">
-            <WifiOff size={16} /><span>{blockerText}</span>
-            {blockerNeedsWhatsApp && <button type="button" onClick={onConnectWhatsApp}>Resolver</button>}
+            <WifiOff size={16} />
+            <div className="affiliate-live__blocker-copy min-w-0 flex-1">
+              <span>{blockerText}</span>
+              {pendingChecks.length > 1 && (
+                <small className="block text-[11px] opacity-80 mt-0.5">
+                  +{pendingChecks.length - 1} pendência{pendingChecks.length > 2 ? 's' : ''}
+                </small>
+              )}
+            </div>
+            {(pendingCheck?.cta || pendingCheck?.key === 'whatsapp' || pendingCheck?.key === 'terms') && (
+              <button type="button" onClick={() => handleBlockerAction(pendingCheck)}>
+                {pendingCheck?.cta
+                  || (pendingCheck?.key === 'terms' ? 'Aceitar termos' : null)
+                  || (pendingCheck?.key === 'whatsapp' ? 'Conectar' : 'Resolver')}
+              </button>
+            )}
           </div>
+        )}
+        {!live && pendingChecks.length > 0 && (
+          <ul className="affiliate-live__checklist" aria-label="Checklist de elegibilidade">
+            {pendingChecks.map((item) => (
+              <li key={item.key}>
+                <span className="affiliate-live__check-label">{item.label}</span>
+                {(item.cta || item.key === 'terms' || item.key === 'whatsapp') && (
+                  <button type="button" className="affiliate-live__check-cta" onClick={() => handleBlockerAction(item)}>
+                    {item.cta
+                      || (item.key === 'terms' ? 'Aceitar termos' : null)
+                      || (item.key === 'whatsapp' ? 'Conectar' : 'Resolver')}
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
         )}
         <div className="affiliate-live__metrics">
           <div><span>Ativos</span><strong>{active}</strong></div>
@@ -239,6 +407,50 @@ export function AffiliateLiveDispatchPanel({ ctx, onConnectWhatsApp }: { ctx: Ap
             <h2 id="assistant-confirm-title">{confirmEnabled ? 'Ativar o assistente?' : 'Pausar o assistente?'}</h2>
             <p>{confirmEnabled ? 'A IA poderá responder novos contatos nas conexões deste programa, respeitando as regras da organização.' : 'A IA deixará de responder automaticamente. Suas conversas e filas continuarão disponíveis para atendimento manual.'}</p>
             <div className="affiliate-ops__confirm-actions"><button type="button" onClick={() => setConfirmEnabled(null)}>Cancelar</button><button type="button" disabled={savingControl} onClick={() => void applyAssistantControl()}>{savingControl ? 'Salvando…' : confirmEnabled ? 'Ativar assistente' : 'Pausar assistente'}</button></div>
+          </div>
+        </div>
+      )}
+
+      {termsOpen && (
+        <div className="affiliate-ops__confirm" role="dialog" aria-modal="true" aria-labelledby="terms-accept-title">
+          <button type="button" className="affiliate-ops__confirm-backdrop" aria-label="Fechar" onClick={() => setTermsOpen(false)} />
+          <div className="affiliate-ops__confirm-sheet affiliate-live__terms-sheet">
+            <div className="affiliate-ops__confirm-icon"><FileText size={22} /></div>
+            <button type="button" className="affiliate-ops__confirm-close" aria-label="Fechar" onClick={() => setTermsOpen(false)}><X size={18} /></button>
+            <h2 id="terms-accept-title">Aceite dos termos</h2>
+            <p>
+              {status?.program_name
+                ? `Leia e confirme o aceite do programa ${status.program_name} para liberar a distribuição ao vivo.`
+                : 'Leia e confirme o aceite dos termos do programa para liberar a distribuição ao vivo.'}
+            </p>
+            <div className="affiliate-live__terms-body">
+              {termsLoading ? (
+                <div className="grid place-items-center py-8"><Loader2 size={22} className="animate-spin text-[#c7c7cc]" /></div>
+              ) : (
+                <div
+                  className="affiliate-live__terms-html prose prose-sm max-w-none"
+                  dangerouslySetInnerHTML={{ __html: termsHtml || '' }}
+                />
+              )}
+            </div>
+            <label className="affiliate-live__terms-check">
+              <input
+                type="checkbox"
+                checked={termsChecked}
+                onChange={(e) => setTermsChecked(e.target.checked)}
+              />
+              <span>Li e aceito os termos e condições deste programa</span>
+            </label>
+            <div className="affiliate-ops__confirm-actions">
+              <button type="button" onClick={() => setTermsOpen(false)}>Cancelar</button>
+              <button
+                type="button"
+                disabled={termsBusy || termsLoading || !termsChecked}
+                onClick={() => void submitTermsAccept()}
+              >
+                {termsBusy ? 'Registrando…' : 'Confirmar aceite'}
+              </button>
+            </div>
           </div>
         </div>
       )}

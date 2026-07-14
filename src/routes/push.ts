@@ -11,7 +11,14 @@ import { logger } from "../utils/logger"
 const router = Router()
 const pushService = getPushNotificationService()
 
-const VALID_CONTEXTS = new Set<PushAppContext>(["master", "admin", "affiliate", "stock", "storefront"])
+const VALID_CONTEXTS = new Set<PushAppContext>([
+  "master",
+  "admin",
+  "affiliate",
+  "stock",
+  "storefront",
+  "mob",
+])
 
 function parseContext(raw: unknown): PushAppContext {
   const ctx = String(raw || "admin").trim().toLowerCase() as PushAppContext

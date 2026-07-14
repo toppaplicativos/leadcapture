@@ -3,12 +3,13 @@ import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, ShoppingBag, Wallet, Megaphone, Banknote, User,
   LogOut, Loader2, Copy, QrCode, Share2, Trophy, MousePointerClick,
-  TrendingUp, Clock, ChevronRight, ChevronLeft, GraduationCap, LayoutGrid, X, Phone, Package, MessageCircle, AlertCircle, Link2, Crown, Store, Bell, Home, Target, Radio,
+  TrendingUp, Clock, ChevronRight, ChevronLeft, GraduationCap, LayoutGrid, X, Phone, Package, MessageCircle, AlertCircle, Link2, Crown, Store, Bell, Home, Target, Radio, Image,
 } from 'lucide-react'
 import { AffiliateOpportunitiesPanel } from '@/pages/affiliate/AffiliateOpportunitiesPanel'
 import { AffiliateCustomersPanel } from '@/pages/affiliate/AffiliateCustomersPanel'
 import { AffiliateProductsPanel } from '@/pages/affiliate/AffiliateProductsPanel'
 import { AffiliatePromotionHub } from '@/pages/affiliate/AffiliatePromotionHub'
+import { AffiliateMaterialsPanel } from '@/pages/affiliate/AffiliateMaterialsPanel'
 import { AffiliatePixSettings } from '@/pages/affiliate/AffiliatePixSettings'
 import { AffiliateLinksHub } from '@/pages/affiliate/AffiliateLinksHub'
 import { AffiliateMarketplace } from '@/pages/affiliate/AffiliateMarketplace'
@@ -45,7 +46,7 @@ const dt = (v?: string) => {
   }
 }
 
-type TabId = 'resumo' | 'ao-vivo' | 'vendas' | 'financeiro' | 'divulgacao' | 'links' | 'contatos' | 'mercado' | 'alertas' | 'clientes' | 'aprendizado' | 'produtos' | 'perfil' | 'conexoes' | 'mensagens'
+type TabId = 'resumo' | 'ao-vivo' | 'vendas' | 'financeiro' | 'divulgacao' | 'materiais' | 'links' | 'contatos' | 'mercado' | 'alertas' | 'clientes' | 'aprendizado' | 'produtos' | 'perfil' | 'conexoes' | 'mensagens'
 type FinanceiroMode = 'comissoes' | 'saques' | 'pagamentos'
 
 const TAB_ROUTES: { key: TabId; path: string; icon: typeof LayoutDashboard; label: string }[] = [
@@ -53,6 +54,7 @@ const TAB_ROUTES: { key: TabId; path: string; icon: typeof LayoutDashboard; labe
   { key: 'ao-vivo', path: 'ao-vivo', icon: Radio, label: 'Ao vivo' },
   { key: 'vendas', path: 'vendas', icon: ShoppingBag, label: 'Pedidos' },
   { key: 'divulgacao', path: 'divulgacao', icon: Megaphone, label: 'Divulgar' },
+  { key: 'materiais', path: 'materiais', icon: Image, label: 'Materiais' },
   { key: 'financeiro', path: 'financeiro', icon: Wallet, label: 'Carteira' },
   { key: 'links', path: 'links', icon: Link2, label: 'Links' },
   { key: 'contatos', path: 'contatos', icon: Target, label: 'Contatos' },
@@ -69,6 +71,7 @@ const TAB_PATHS: Partial<Record<TabId, string>> = {
   'ao-vivo': 'ao-vivo',
   vendas: 'vendas',
   divulgacao: 'divulgacao',
+  materiais: 'materiais',
   links: 'links',
   contatos: 'contatos',
   mercado: 'mercado',
@@ -89,14 +92,15 @@ const BOTTOM_NAV: { key: TabId; path: string; icon: typeof LayoutDashboard; labe
   { key: 'financeiro', path: 'financeiro', icon: Wallet, label: 'Carteira' },
 ]
 
-const MORE_MENU_TABS_BASE: TabId[] = ['divulgacao', 'links', 'contatos', 'mercado', 'clientes', 'aprendizado', 'produtos', 'perfil', 'conexoes', 'mensagens', 'alertas']
+const MORE_MENU_TABS_BASE: TabId[] = ['divulgacao', 'materiais', 'links', 'contatos', 'mercado', 'clientes', 'aprendizado', 'produtos', 'perfil', 'conexoes', 'mensagens', 'alertas']
 
 type MoreMenuItem =
   | { kind: 'tab'; tab: TabId; icon: typeof LayoutDashboard; label: string; desc: string }
   | { kind: 'financeiro'; mode: FinanceiroMode; icon: typeof LayoutDashboard; label: string; desc: string }
 
 const MORE_MENU_BASE: MoreMenuItem[] = [
-  { kind: 'tab', tab: 'divulgacao', icon: Megaphone, label: 'Divulgar', desc: 'Materiais, argumentos e canais para vender' },
+  { kind: 'tab', tab: 'divulgacao', icon: Megaphone, label: 'Divulgar', desc: 'Kits, argumentos e canais para vender' },
+  { kind: 'tab', tab: 'materiais', icon: Image, label: 'Materiais', desc: 'Galeria oficial de artes e mídias do programa' },
   { kind: 'tab', tab: 'contatos', icon: Target, label: 'Contatos', desc: 'Prospects e leads enviados pela marca e pelos seus links' },
   { kind: 'tab', tab: 'clientes', icon: Crown, label: 'Clientes', desc: 'Quem já comprou — faturamento, pós-venda e comissões' },
   { kind: 'tab', tab: 'links', icon: Link2, label: 'Links', desc: 'Compartilhar e rastrear cliques' },
@@ -119,6 +123,7 @@ function tabFromPath(pathname: string, base: string): TabId {
   if (rest === 'conexoes') return 'conexoes'
   if (rest === 'mensagens') return 'mensagens'
   if (rest === 'links') return 'links'
+  if (rest === 'materiais' || rest === 'materials') return 'materiais'
   if (rest === 'alertas') return 'alertas'
   if (rest === 'leads' || rest === 'contatos' || rest === 'oportunidades') return 'contatos'
   if (rest === 'mercado') return 'mercado'
@@ -858,6 +863,7 @@ export function AffiliateAppPage() {
     vendas: 'Pedidos',
     financeiro: financeiroMode === 'saques' ? 'Saques' : financeiroMode === 'pagamentos' ? 'Recebimento Pix' : 'Comissões',
     divulgacao: 'Divulgação',
+    materiais: 'Materiais',
     links: 'Links',
     contatos: 'Contatos',
     mercado: 'Mercado',
@@ -895,7 +901,21 @@ export function AffiliateAppPage() {
           />
         )
       case 'ao-vivo':
-        return <AffiliateLiveDispatchPanel ctx={appCtx} onConnectWhatsApp={() => goTab('conexoes')} />
+        return (
+          <AffiliateLiveDispatchPanel
+            ctx={appCtx}
+            onConnectWhatsApp={() => goTab('conexoes')}
+            onNavigate={(path) => {
+              const clean = path.replace(/^\//, '').split('?')[0]
+              if (clean === 'conexoes') return goTab('conexoes')
+              if (clean === 'aprendizado') return goTab('aprendizado')
+              if (clean === 'pagamentos') return goFinanceiro('pagamentos')
+              if (clean === 'mercado') return goTab('mercado')
+              if (clean === 'links') return goTab('links')
+              goTab(tabFromPath(`/${clean}`, '/'))
+            }}
+          />
+        )
       case 'vendas': return <AffiliateOrdersHub ctx={appCtx} />
       case 'financeiro':
         return (
@@ -935,6 +955,7 @@ export function AffiliateAppPage() {
           </div>
         )
       case 'divulgacao': return <AffiliatePromotionHub ctx={appCtx} />
+      case 'materiais': return <AffiliateMaterialsPanel ctx={appCtx} />
       case 'links': return <AffiliateLinksHub ctx={appCtx} active={activeTab === 'links'} />
       case 'contatos':
         return <AffiliateOpportunitiesPanel ctx={appCtx} />

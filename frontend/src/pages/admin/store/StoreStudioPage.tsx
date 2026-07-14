@@ -15,6 +15,7 @@ import {
   ImageIcon,
   Users,
   Sparkles,
+  ChevronDown,
 } from 'lucide-react'
 import { Button, Input } from '@/components/ui'
 import { WhatsAppIcon } from '@/components/icons'
@@ -137,11 +138,11 @@ function StoreCategoryCoversEditor() {
   }
 
   return (
-    <div className="space-y-2">
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
       {categories.map((cat) => (
         <div
           key={cat.id}
-          className="flex items-center gap-3 p-3 rounded-xl border border-border-light bg-gray-50/60"
+          className="flex items-center gap-3 p-3 rounded-xl border border-border-light bg-white hover:border-gray-300 transition"
         >
           <label className="relative shrink-0 cursor-pointer group">
             <span
@@ -278,59 +279,21 @@ export function StoreStudioPage() {
                 onClick={() => setTab(t.id)}
                 className={`settings-tabs__item ${tab === t.id ? 'is-active' : ''}`}
               >
-                {t.id === 'whatsapp' ? (
-                  <span className="inline-flex items-center gap-1.5">
-                    <WhatsAppIcon size={14} className="brand-icon--wa" />
-                    {t.label}
-                  </span>
-                ) : (
-                  t.label
-                )}
+                {t.label}
               </button>
             ))}
           </nav>
 
           {tab === 'identity' && (
+            <div className="space-y-4">
             <section className="bg-white border border-border-light rounded-2xl p-5 space-y-5">
-              <SectionHeader Icon={Palette} title="Identidade visual" />
-
               <div>
-                <label className="block text-[11px] font-semibold text-gray-600 mb-1.5 tracking-wide">
-                  Logo da loja · 1:1, recomendado 500×500px
-                </label>
-                <div className="flex items-center gap-3">
-                  <div className="w-16 h-16 rounded-2xl border-2 border-dashed border-border bg-gray-50 flex items-center justify-center overflow-hidden shrink-0 relative group">
-                    {studio.logoUrl ? (
-                      <img src={studio.logoUrl} alt="Logo" className="w-full h-full object-cover" />
-                    ) : (
-                      <Upload size={18} strokeWidth={1.5} className="text-gray-400" />
-                    )}
-                    <label className="absolute inset-0 cursor-pointer opacity-0 group-hover:opacity-100 bg-black/40 flex items-center justify-center transition-opacity rounded-2xl">
-                      <Upload size={16} strokeWidth={1.75} className="text-white" />
-                      <input
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={async (e) => {
-                          const file = e.target.files?.[0]
-                          if (!file) return
-                          const url = await studio.uploadFile(file)
-                          if (url) studio.setLogoUrl(url)
-                        }}
-                      />
-                    </label>
-                  </div>
-                  <div className="flex-1">
-                    <Input
-                      type="url"
-                      value={studio.logoUrl}
-                      onChange={(e) => studio.setLogoUrl(e.target.value)}
-                      placeholder="URL ou clique no quadrado para upload"
-                    />
-                  </div>
-                </div>
+                <SectionHeader Icon={Palette} title="Marca e apresentação" />
+                <p className="mt-2 text-[12px] text-gray-500">Defina como sua loja será reconhecida no catálogo e no compartilhamento.</p>
               </div>
 
+              <div>
+                <p className="mb-3 text-[11px] font-semibold text-gray-800">Informações da marca</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Input
                   label="Nome da loja"
@@ -358,79 +321,77 @@ export function StoreStudioPage() {
                   className="w-full px-3.5 py-2.5 rounded-xl border border-border bg-white text-sm text-gray-900 placeholder:text-gray-400 resize-none focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900 transition"
                 />
               </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                {(['primary', 'secondary'] as const).map((kind) => {
-                  const value = kind === 'primary' ? studio.primaryColor : studio.secondaryColor
-                  const set = kind === 'primary' ? studio.setPrimaryColor : studio.setSecondaryColor
-                  const label = kind === 'primary' ? 'Cor primária' : 'Cor secundária'
-                  return (
-                    <div key={kind}>
-                      <label className="block text-[11px] font-semibold text-gray-600 mb-1.5 tracking-wide">
-                        {label}
-                      </label>
-                      <div className="flex items-center gap-3 h-11 px-3 rounded-xl border border-border bg-white">
-                        <input
-                          type="color"
-                          value={value}
-                          onChange={(e) => set(e.target.value)}
-                          aria-label={`Selecionar ${label.toLowerCase()}`}
-                          className="w-7 h-7 rounded-lg cursor-pointer border-0 p-0 bg-transparent"
-                        />
-                        <span className="text-[13px] font-mono text-gray-700 tabular-nums">{value}</span>
-                      </div>
-                    </div>
-                  )
-                })}
               </div>
 
-              <div>
-                <label className="block text-[11px] font-semibold text-gray-600 mb-1.5 tracking-wide">
-                  Imagem de capa · 820×312px
+              <div className="border-t border-border-light pt-5">
+                <p className="text-[11px] font-semibold text-gray-800">Imagens da loja</p>
+                <p className="mt-0.5 text-[10px] text-gray-500">Logo e capa ficam juntas porque formam a assinatura visual da vitrine.</p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-[140px_minmax(0,1fr)] gap-3">
+                <label className="cursor-pointer rounded-2xl border border-border-light bg-gray-50 p-3 hover:border-gray-300 transition">
+                  <span className="mb-2 block text-[10px] font-semibold text-gray-600">Logo · quadrada</span>
+                  <span className="mx-auto flex aspect-square w-full max-w-[104px] items-center justify-center overflow-hidden rounded-2xl border border-dashed border-gray-300 bg-white">
+                    {studio.logoUrl ? <img src={studio.logoUrl} alt="Logo" className="h-full w-full object-cover" /> : <Upload size={20} className="text-gray-400" />}
+                  </span>
+                  <span className="mt-2 block text-center text-[10px] font-semibold text-gray-700">{studio.logoUrl ? 'Trocar logo' : 'Enviar logo'}</span>
+                  <input type="file" accept="image/*" className="hidden" onChange={async (e) => {
+                    const file = e.target.files?.[0]
+                    if (!file) return
+                    const url = await studio.uploadFile(file)
+                    if (url) studio.setLogoUrl(url)
+                    e.target.value = ''
+                  }} />
                 </label>
-                <div
-                  className="relative rounded-2xl overflow-hidden border-2 border-dashed border-border bg-gray-50 group"
-                  style={{ aspectRatio: '820/312' }}
-                >
-                  {studio.coverImage ? (
-                    <img src={studio.coverImage} alt="Capa" className="w-full h-full object-cover" />
-                  ) : (
-                    <div className="w-full h-full flex flex-col items-center justify-center text-gray-400">
-                      <Upload size={24} strokeWidth={1.5} />
-                      <p className="text-[11px] mt-1.5">820 × 312 px</p>
-                    </div>
-                  )}
-                  <label className="absolute inset-0 cursor-pointer opacity-0 group-hover:opacity-100 bg-black/40 flex items-center justify-center transition-opacity">
-                    <span className="bg-white/95 rounded-full px-3.5 py-1.5 text-[12px] font-medium text-gray-800">
-                      Trocar imagem
-                    </span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={async (e) => {
-                        const file = e.target.files?.[0]
-                        if (!file) return
-                        const url = await studio.uploadFile(file)
-                        if (url) studio.setCoverImage(url)
-                      }}
-                    />
-                  </label>
-                </div>
-                <Input
-                  type="url"
-                  value={studio.coverImage}
-                  onChange={(e) => studio.setCoverImage(e.target.value)}
-                  placeholder="Ou cole uma URL"
-                  className="mt-2"
-                />
+
+                <label className="cursor-pointer rounded-2xl border border-border-light bg-gray-50 p-3 hover:border-gray-300 transition">
+                  <span className="mb-2 flex items-center justify-between gap-2">
+                    <span className="text-[10px] font-semibold text-gray-600">Capa da vitrine</span>
+                    <span className="text-[9px] text-gray-400">820 × 312 px</span>
+                  </span>
+                  <span className="flex w-full items-center justify-center overflow-hidden rounded-xl border border-dashed border-gray-300 bg-white" style={{ aspectRatio: '820/312' }}>
+                    {studio.coverImage ? <img src={studio.coverImage} alt="Capa" className="h-full w-full object-cover" /> : <Upload size={22} className="text-gray-400" />}
+                  </span>
+                  <span className="mt-2 block text-center text-[10px] font-semibold text-gray-700">{studio.coverImage ? 'Trocar capa' : 'Enviar capa'}</span>
+                  <input type="file" accept="image/*" className="hidden" onChange={async (e) => {
+                    const file = e.target.files?.[0]
+                    if (!file) return
+                    const url = await studio.uploadFile(file)
+                    if (url) studio.setCoverImage(url)
+                    e.target.value = ''
+                  }} />
+                </label>
               </div>
 
-              <div className="border-t border-border-light pt-5 space-y-4">
-                <SectionHeader Icon={Grid3x3} title="Carrossel de categorias" />
-                <p className="text-[12px] text-gray-500 -mt-2">
+              <div className="border-t border-border-light pt-5">
+                <p className="mb-3 text-[11px] font-semibold text-gray-800">Paleta da marca</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {(['primary', 'secondary'] as const).map((kind) => {
+                    const value = kind === 'primary' ? studio.primaryColor : studio.secondaryColor
+                    const set = kind === 'primary' ? studio.setPrimaryColor : studio.setSecondaryColor
+                    const label = kind === 'primary' ? 'Cor primária' : 'Cor secundária'
+                    return (
+                      <label key={kind} className="rounded-xl border border-border bg-white p-3">
+                        <span className="mb-2 block text-[10px] font-semibold text-gray-600">{label}</span>
+                        <span className="flex items-center gap-3">
+                          <input type="color" value={value} onChange={(e) => set(e.target.value)} aria-label={`Selecionar ${label.toLowerCase()}`} className="w-8 h-8 rounded-lg cursor-pointer border-0 p-0 bg-transparent" />
+                          <span className="text-[12px] font-mono text-gray-700 tabular-nums">{value}</span>
+                        </span>
+                      </label>
+                    )
+                  })}
+                </div>
+              </div>
+
+            </section>
+
+              <section className="bg-white border border-border-light rounded-2xl p-5 space-y-4">
+                <div>
+                  <SectionHeader Icon={Grid3x3} title="Categorias da vitrine" />
+                  <p className="text-[12px] text-gray-500 mt-2">
                   Aparece na loja só quando há categorias cadastradas em Produtos. Defina a capa de cada uma abaixo.
-                </p>
+                  </p>
+                </div>
 
                 <div className="rounded-xl border border-border-light divide-y divide-border-light">
                   <SettingRow
@@ -479,35 +440,18 @@ export function StoreStudioPage() {
                 </div>
 
                 <StoreCategoryCoversEditor />
-              </div>
-            </section>
+              </section>
+            </div>
           )}
 
           {tab === 'whatsapp' && (
-            <section className="bg-white border border-border-light rounded-2xl p-5 space-y-4">
-              <SectionHeader Icon={MessageCircle} title="Contato & WhatsApp" />
-
-              <Input
-                label="WhatsApp da loja (com DDD)"
-                type="tel"
-                inputMode="tel"
-                value={studio.whatsappPhone}
-                onChange={(e) => studio.setWhatsappPhone(e.target.value.replace(/\D/g, ''))}
-                placeholder="11999999999"
-                hint="Apenas números, com DDD. Usado no botão flutuante e no chip do catálogo."
-              />
-
-              {!waDigits && (
-                <p className="text-[12px] text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
-                  Informe o número para ativar os botões de WhatsApp na loja.
-                </p>
-              )}
-
-              <div className="rounded-xl border border-border-light divide-y divide-border-light">
-                <SettingRow
-                  label="Ativar WhatsApp na loja"
-                  sub="Controla o botão flutuante de contato"
-                >
+            <div className="space-y-4">
+              <section className="bg-white border border-border-light rounded-2xl p-4 sm:p-5 space-y-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#25D366]/10"><WhatsAppIcon size={19} className="brand-icon--wa" /></span>
+                    <div><h3 className="text-[15px] font-bold text-gray-900">WhatsApp da loja</h3><p className="text-[11px] text-gray-500">Canal de contato exibido no catálogo</p></div>
+                  </div>
                   <Toggle
                     value={studio.whatsappMarketing.enabled}
                     onChange={(v) =>
@@ -520,26 +464,22 @@ export function StoreStudioPage() {
                       })
                     }
                   />
-                </SettingRow>
-                <SettingRow label="Botão flutuante" sub="Fixo no canto — único CTA de WhatsApp (sem chip no card)">
-                  <Toggle
-                    value={studio.whatsappMarketing.show_fab}
-                    onChange={(v) =>
-                      studio.setWhatsappMarketing({
-                        ...studio.whatsappMarketing,
-                        show_fab: v,
-                        show_in_hero: false,
-                      })
-                    }
-                  />
-                </SettingRow>
-              </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto] gap-2 sm:items-end">
+                  <Input label="Número com DDD" type="tel" inputMode="tel" value={studio.whatsappPhone} onChange={(e) => studio.setWhatsappPhone(e.target.value.replace(/\D/g, ''))} placeholder="11999999999" hint="Somente números, incluindo o DDD." />
+                  {waPreviewUrl && <a href={waPreviewUrl} target="_blank" rel="noreferrer" className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-border px-3 text-[12px] font-semibold text-gray-700 hover:bg-gray-50"><ExternalLink size={13} /> Testar contato</a>}
+                </div>
+                {!waDigits && <p className="text-[12px] text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">Informe o número para ativar o contato na loja.</p>}
+              </section>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-[11px] font-semibold text-gray-600 mb-1.5">
-                    Posição do botão flutuante
-                  </label>
+              {studio.whatsappMarketing.enabled && <>
+              <section className="bg-white border border-border-light rounded-2xl p-4 sm:p-5 space-y-4">
+                <div><h3 className="text-[14px] font-bold text-gray-900">Comportamento do botão</h3><p className="mt-0.5 text-[11px] text-gray-500">Defina onde e como o atalho aparecerá.</p></div>
+                <SettingRow label="Exibir botão flutuante" sub="Fixo acima da navegação inferior da loja">
+                  <Toggle value={studio.whatsappMarketing.show_fab} onChange={(v) => studio.setWhatsappMarketing({ ...studio.whatsappMarketing, show_fab: v, show_in_hero: false })} />
+                </SettingRow>
+                {studio.whatsappMarketing.show_fab && <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <label className="text-[11px] font-semibold text-gray-600">Posição
                   <select
                     value={studio.whatsappMarketing.fab_position}
                     onChange={(e) =>
@@ -553,11 +493,8 @@ export function StoreStudioPage() {
                     <option value="bottom-right">Inferior direito</option>
                     <option value="bottom-left">Inferior esquerdo</option>
                   </select>
-                </div>
-                <div>
-                  <label className="block text-[11px] font-semibold text-gray-600 mb-1.5">
-                    Exibir em
                   </label>
+                  <label className="text-[11px] font-semibold text-gray-600">Páginas
                   <select
                     value={studio.whatsappMarketing.show_on_pages}
                     onChange={(e) =>
@@ -572,13 +509,13 @@ export function StoreStudioPage() {
                     <option value="home_only">Só página inicial</option>
                     <option value="product_only">Só página de produto</option>
                   </select>
-                </div>
-              </div>
+                  </label>
+                </div>}
+              </section>
 
-              <div>
-                <label className="block text-[11px] font-semibold text-gray-600 mb-1.5">
-                  Mensagem pré-preenchida
-                </label>
+              <section className="bg-white border border-border-light rounded-2xl p-4 sm:p-5">
+                <label className="block text-[12px] font-semibold text-gray-800 mb-1.5">Mensagem inicial</label>
+                <p className="mb-2 text-[10px] text-gray-500">Texto que será preenchido ao abrir a conversa.</p>
                 <textarea
                   value={studio.whatsappMarketing.prefilled_message}
                   onChange={(e) =>
@@ -590,10 +527,14 @@ export function StoreStudioPage() {
                   rows={2}
                   className="w-full px-3.5 py-2.5 rounded-xl border border-border bg-white text-sm resize-none focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900 transition"
                 />
-              </div>
+              </section>
 
-              {/* Seção dedicada — estilo do botão flutuante */}
-              <WhatsAppButtonStyleSection
+              <details className="group rounded-2xl border border-border-light bg-white overflow-hidden">
+                <summary className="min-h-14 cursor-pointer list-none px-4 sm:px-5 flex items-center justify-between gap-3">
+                  <span><strong className="block text-[13px] text-gray-900">Aparência do botão</strong><span className="block text-[10px] text-gray-500">Formato, tamanho, cor e efeitos</span></span>
+                  <ChevronDown size={16} className="text-gray-400 transition-transform group-open:rotate-180" />
+                </summary>
+                <div className="border-t border-border-light p-3 sm:p-4"><WhatsAppButtonStyleSection
                 design={studio.whatsappMarketing.button}
                 onChange={(button) =>
                   studio.setWhatsappMarketing({ ...studio.whatsappMarketing, button })
@@ -602,26 +543,12 @@ export function StoreStudioPage() {
                 phoneDigits={waDigits}
                 prefilledMessage={studio.whatsappMarketing.prefilled_message}
                 fabPosition={studio.whatsappMarketing.fab_position}
-              />
+                /></div>
+              </details>
 
-              <p className="text-[11px] text-gray-500 bg-gray-50 border border-border-light rounded-xl px-3 py-2">
-                Com link de afiliado, o número é dinâmico (sessão de atendimento → número ativo do
-                afiliado → fallback da loja). No acesso direto à loja, usa este número do studio.
-              </p>
-
-              {waPreviewUrl && (
-                <a
-                  href={waPreviewUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-2 text-[13px] font-medium text-emerald-700 hover:text-emerald-900"
-                >
-                  <WhatsAppIcon size={16} />
-                  Testar link do WhatsApp
-                  <ExternalLink size={12} />
-                </a>
-              )}
-            </section>
+              <p className="px-1 text-[10px] leading-relaxed text-gray-500">Em links de afiliados, o contato é direcionado automaticamente para a sessão disponível. No acesso direto, utiliza o número configurado acima.</p>
+              </>}
+            </div>
           )}
 
           {tab === 'conversion' && (

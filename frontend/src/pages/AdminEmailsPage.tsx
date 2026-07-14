@@ -214,37 +214,37 @@ export function AdminEmailsPage() {
             <button
               key={t.slug}
               onClick={() => setEditing(t)}
-              className="group text-left p-5 rounded-2xl bg-white ring-1 ring-gray-200 hover:ring-gray-300 hover:shadow-sm transition"
+              className="email-template-card group"
             >
-              <div className="flex items-start justify-between gap-3 mb-4">
-                <span className="w-10 h-10 rounded-xl bg-gray-900 text-white grid place-items-center shrink-0">
+              <div className="email-template-card__head">
+                <span className="email-template-card__icon">
                   <Mail size={16} strokeWidth={1.75} />
                 </span>
+                <span className="email-template-card__identity">
+                  <strong>{SLUG_LABEL[t.slug] || t.slug}</strong>
+                  <span>{t.slug}</span>
+                </span>
                 {t.is_overridden ? (
-                  <span className="inline-flex items-center gap-1 h-5 px-2 rounded-full bg-emerald-50 ring-1 ring-emerald-200 text-[10px] font-semibold text-emerald-700">
+                  <span className="email-template-card__status is-custom">
                     <CheckCircle2 size={9} strokeWidth={2.5} /> Personalizado
                   </span>
                 ) : (
-                  <span className="inline-flex items-center h-5 px-2 rounded-full bg-gray-50 ring-1 ring-gray-200 text-[10px] font-semibold text-gray-500">
+                  <span className="email-template-card__status">
                     Padrão
                   </span>
                 )}
               </div>
-              <h3 className="text-[14px] font-bold tracking-tight text-gray-900 truncate">
-                {SLUG_LABEL[t.slug] || t.slug}
-              </h3>
-              <p className="text-[11px] font-mono text-gray-400 mt-0.5 truncate">{t.slug}</p>
-              {t.description && (
-                <p className="text-[12px] text-gray-600 mt-2 line-clamp-2">{t.description}</p>
-              )}
-              <p className="text-[11px] text-gray-500 mt-3 truncate">
-                <span className="text-gray-400">Assunto: </span>
-                {t.subject_template}
-              </p>
-              <p className="text-[10px] text-gray-400 mt-3">
-                {t.variables?.length || 0} variáveis · atualizado{' '}
-                {new Date(t.updated_at).toLocaleDateString('pt-BR')}
-              </p>
+              <div className="email-template-card__body">
+                {t.description && <p className="email-template-card__description">{t.description}</p>}
+                <div className="email-template-card__subject">
+                  <span>Assunto</span>
+                  <p>{t.subject_template}</p>
+                </div>
+              </div>
+              <footer className="email-template-card__footer">
+                <span>{t.variables?.length || 0} variáveis</span>
+                <span>Atualizado {new Date(t.updated_at).toLocaleDateString('pt-BR')}</span>
+              </footer>
             </button>
           ))}
         </div>

@@ -57,8 +57,8 @@ interface Props {
   theme?: 'dark' | 'light'
   /** Texto/badge de status no topo (ex: "Radar Ativo", "Buscando...") */
   statusBadge?: { label: string; tone: 'idle' | 'searching' | 'done' } | null
-  /** Quando muda de referência, voa pra esse centro (lat/lng/zoom). Usado depois de busca. */
-  flyToCenter?: { lat: number; lng: number; zoom?: number } | null
+  /** Quando muda de referência, voa pra esse centro (lat/lng/zoom). key força re-fly. */
+  flyToCenter?: { lat: number; lng: number; zoom?: number; key?: number } | null
 }
 
 const MAPBOX_TOKEN = (import.meta as any).env?.VITE_MAPBOX_TOKEN || ''
@@ -97,6 +97,10 @@ export function PanfleteiroMapMapbox({
   const markersRef = useRef<Map<string, mapboxgl.Marker>>(new globalThis.Map())
   const moveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [mapReady, setMapReady] = useState(false)
+  /** Só dispara onCenterChanged após interação do usuário (não em load/flyTo/resize). */
+  const userMovedRef = useRef(false)
+  const ignoreMoveEndUntilRef = useRef(0)
+  const lastEmittedCenterRef = useRef<{ lat: number; lng: number } | null>(null)
 
   /* Refs pros callbacks — evita stale closure quando o handler moveend (registrado
      no mount uma unica vez) precisa chamar callback que recebeu props novos. */
@@ -204,12 +208,32 @@ export function PanfleteiroMapMapbox({
       setMapReady(true)
     })
 
+    const markUserMove = () => {
+      userMovedRef.current = true
+    }
+    map.on('dragstart', markUserMove)
+    map.on('zoomstart', (e) => {
+      // zoom por gesto do usuário (não programático)
+      if ((e as any)?.originalEvent) markUserMove()
+    })
+
     map.on('moveend', () => {
+      if (Date.now() < ignoreMoveEndUntilRef.current) return
+      if (!userMovedRef.current) return
       if (moveTimer.current) clearTimeout(moveTimer.current)
       moveTimer.current = setTimeout(() => {
         const c = map.getCenter()
+        const prev = lastEmittedCenterRef.current
+        // ignora micro-movimentos (resize/tiles) — ~120m (reduz stress do radar)
+        if (prev) {
+          const dLat = Math.abs(prev.lat - c.lat)
+          const dLng = Math.abs(prev.lng - c.lng)
+          if (dLat < 0.0011 && dLng < 0.0011) return
+        }
+        lastEmittedCenterRef.current = { lat: c.lat, lng: c.lng }
+        userMovedRef.current = false
         onCenterChangedRef.current?.({ lat: c.lat, lng: c.lng, zoom: map.getZoom() })
-      }, 800)
+      }, 1100)
     })
 
     mapRef.current = map
@@ -233,25 +257,44 @@ export function PanfleteiroMapMapbox({
     const { lat, lng, zoom } = flyToCenter
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return
     if (lat === 0 && lng === 0) return
-    map.flyTo({
-      center: [lng, lat],
-      zoom: Number.isFinite(zoom) ? (zoom as number) : Math.max(map.getZoom(), 13),
-      duration: 1200,
-      essential: true,
-    })
-  }, [flyToCenter, mapReady])
+    // flyTo dispara moveend — não deve re-disparar radar no centro antigo/novo automaticamente
+    ignoreMoveEndUntilRef.current = Date.now() + 1800
+    userMovedRef.current = false
+    lastEmittedCenterRef.current = { lat, lng }
+    /* jumpTo se o delta for grande — mais confiável que flyTo em iPad ao trocar cidade */
+    const cur = map.getCenter()
+    const bigJump = Math.abs(cur.lat - lat) > 0.08 || Math.abs(cur.lng - lng) > 0.08
+    const z = Number.isFinite(zoom) ? (zoom as number) : Math.max(map.getZoom(), 13)
+    if (bigJump) {
+      map.jumpTo({ center: [lng, lat], zoom: z })
+      requestAnimationFrame(() => { try { map.resize() } catch { /* */ } })
+    } else {
+      map.flyTo({
+        center: [lng, lat],
+        zoom: z,
+        duration: 900,
+        essential: true,
+      })
+    }
+  }, [flyToCenter?.lat, flyToCenter?.lng, flyToCenter?.zoom, flyToCenter?.key, mapReady])
 
   /* ─── Resize cascata quando immersive/height mudam — Mapbox precisa
-   *     re-medir o container que mudou de tamanho. 4 chamadas em cascata
-   *     (replica padrao do topp-aplicativos). */
+   *     re-medir o container que mudou de tamanho (crítico no iPad imersivo). */
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
-    const delays = [0, 100, 320, 600]
+    const delays = [0, 50, 150, 350, 700, 1200]
     const timers = delays.map((ms) => setTimeout(() => {
       try { map.resize() } catch { /* ignora */ }
     }, ms))
-    return () => { timers.forEach(clearTimeout) }
+    const onWin = () => { try { map.resize() } catch { /* ignore */ } }
+    window.addEventListener('resize', onWin)
+    window.visualViewport?.addEventListener('resize', onWin)
+    return () => {
+      timers.forEach(clearTimeout)
+      window.removeEventListener('resize', onWin)
+      window.visualViewport?.removeEventListener('resize', onWin)
+    }
   }, [immersive, height])
 
   /* ─── ResizeObserver no container — garante que o canvas do Mapbox acompanha

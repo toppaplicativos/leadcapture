@@ -36,6 +36,7 @@ const loadWhatsApp = () => import('@/pages/admin/whatsapp/WhatsAppManagerView').
 const loadNotifications = () => import('@/pages/admin/notifications/NotificationsView').then(m => ({ default: m.NotificationsView }))
 const loadDomain = () => import('@/pages/admin/domain/DomainView').then(m => ({ default: m.DomainView }))
 const loadFrete = () => import('@/pages/admin/frete/FreteView').then(m => ({ default: m.FreteView }))
+const loadMob = () => import('@/pages/admin/mob/MobLogisticsView').then(m => ({ default: m.MobLogisticsView }))
 const loadEstoque = () => import('@/pages/admin/estoque/EstoqueAccessView').then(m => ({ default: m.EstoqueAccessView }))
 const loadCoupons = () => import('@/pages/admin/coupons/CouponsView').then(m => ({ default: m.CouponsView }))
 const loadReviews = () => import('@/pages/admin/reviews/ReviewsView').then(m => ({ default: m.ReviewsView }))
@@ -69,6 +70,7 @@ const WhatsAppManagerView = lazy(loadWhatsApp)
 const NotificationsView = lazy(loadNotifications)
 const DomainView = lazy(loadDomain)
 const FreteView = lazy(loadFrete)
+const MobLogisticsView = lazy(loadMob)
 const EstoqueAccessView = lazy(loadEstoque)
 const CouponsView = lazy(loadCoupons)
 const ReviewsView = lazy(loadReviews)
@@ -168,6 +170,8 @@ const CANVAS_PAGE_MAP: Record<string, () => ReactNode> = {
   '/notificacoes': () => <NotificationsView showToast={noop} />,
   '/dominio': () => <DomainView showToast={noop} />,
   '/frete': () => <FreteView showToast={noop} />,
+  '/entregas': () => <MobLogisticsView showToast={noop} />,
+  '/mob': () => <MobLogisticsView showToast={noop} />,
   '/estoque': () => <EstoqueAccessView showToast={noop} />,
   '/cupons': () => <CouponsView showToast={noop} />,
   '/avaliacoes': () => <ReviewsView showToast={noop} />,
@@ -229,6 +233,8 @@ const CANVAS_PRELOADERS: Record<string, () => Promise<unknown>> = {
   '/notificacoes': loadNotifications,
   '/cupons': loadCoupons,
   '/frete': loadFrete,
+  '/entregas': loadMob,
+  '/mob': loadMob,
   '/estoque': loadEstoque,
   '/avaliacoes': loadReviews,
   '/pagamentos': loadPayments,

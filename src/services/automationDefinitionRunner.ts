@@ -18,6 +18,7 @@ import {
 } from "./instagramReplyHelpers";
 import { evaluateLimits, extractActorId } from "./automationMatchLogic";
 import { computeSendRealForMode, getBrandDispatchMode, isBrandRepliesPaused } from "./automationDispatchMode";
+import { instagramService } from "./instagram";
 
 export interface AutomationRunContext {
   triggeredBy: "cron" | "manual" | "event";
@@ -42,13 +43,104 @@ async function executeAction(
   const payload = ctx.eventPayload || {};
 
   switch (step.tipo) {
-    case "publicar_conteudo":
-      return {
-        ok: true,
-        message: "Publicação enfileirada (integração com Instagram em desenvolvimento)",
-        data: { action: step.tipo, config },
-        outcome: "stub",
+    case "publicar_conteudo": {
+      const cp = (config.contentPublishing || {}) as Record<string, any>;
+      const format = String(cp.format || "single_image");
+      const mediaType =
+        format === "reel"
+          ? "REELS"
+          : format === "story"
+            ? "STORIES"
+            : format === "carousel"
+              ? "CAROUSEL_ALBUM"
+              : "IMAGE";
+      const caption = String(cp.captionOverride || config.mensagem || "").trim();
+      const mediaUrl = String(cp.mediaUrl || config.midia?.url || "").trim();
+      const userTagList = String(cp.userTags || "")
+        .split(/[,;\s]+/)
+        .map((u) => u.replace(/^@/, "").trim())
+        .filter(Boolean);
+      const collabList = String(cp.collaborators || "")
+        .split(/[,;\s]+/)
+        .map((u) => u.replace(/^@/, "").trim())
+        .filter(Boolean)
+        .slice(0, 3);
+      const coverUrl = String(cp.coverUrl || "").trim();
+      const publish_meta = {
+        location_id: cp.locationId ? String(cp.locationId).trim() : undefined,
+        location_name: cp.locationName ? String(cp.locationName).trim() : undefined,
+        user_tags: userTagList.length
+          ? userTagList.map((username, i) => ({
+              username,
+              x: Math.min(0.9, 0.35 + (i % 3) * 0.15),
+              y: Math.min(0.9, 0.4 + Math.floor(i / 3) * 0.15),
+            }))
+          : undefined,
+        alt_text: cp.altText ? String(cp.altText).trim() : undefined,
+        share_to_feed: format === "reel" ? cp.shareToFeed !== false : undefined,
+        collaborators: collabList.length ? collabList : undefined,
+        cover_url: format === "reel" && coverUrl ? coverUrl : undefined,
       };
+
+      if (!opts.sendReal && ctx.forceSendReal !== true) {
+        return {
+          ok: true,
+          message: `Publicação simulada (${format})`,
+          data: {
+            action: step.tipo,
+            format,
+            caption,
+            publish_meta,
+            mediaUrl: mediaUrl || null,
+            stub: true,
+          },
+          outcome: "stub",
+        };
+      }
+
+      try {
+        const approval = String(cp.approvalMode || "manual_review");
+        const wantsAuto = approval === "auto_publish";
+        const draft = await instagramService.createPost(automation.brand_id, {
+          media_type: mediaType as any,
+          media_url: mediaUrl || undefined,
+          caption: caption || undefined,
+          status: wantsAuto && mediaUrl ? "draft" : "draft",
+          publish_meta,
+        });
+
+        let publishResult: any = null;
+        if (wantsAuto && mediaUrl && mediaType === "IMAGE") {
+          // Só auto-publica imagem simples com URL — carrossel/reels precisam de pipeline de mídia
+          publishResult = await instagramService.publishPost(automation.brand_id, draft.id);
+        }
+
+        return {
+          ok: true,
+          message: publishResult?.ok
+            ? "Post publicado no Instagram"
+            : mediaUrl
+              ? "Rascunho criado na fila do Instagram com marcação (local/usuários)"
+              : "Configuração de publicação salva — adicione mídia e publique na aba Instagram",
+          data: {
+            action: step.tipo,
+            format,
+            draft_post_id: draft.id,
+            publish_meta,
+            published: Boolean(publishResult?.ok),
+            publish_message: publishResult?.message || null,
+          },
+          outcome: publishResult?.ok ? "sent" : "queued",
+        };
+      } catch (err: any) {
+        logger.error(`[automation] publicar_conteudo: ${err?.message || err}`);
+        return {
+          ok: false,
+          message: err?.message || "Falha ao enfileirar publicação IG",
+          outcome: "error",
+        };
+      }
+    }
 
     case "enviar_dm_ig": {
       const msg = resolveMessageFromPipelineConfig(config);

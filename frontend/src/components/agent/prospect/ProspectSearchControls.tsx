@@ -4,10 +4,23 @@ import {
   ChevronDown, ChevronUp, Maximize2,
 } from 'lucide-react'
 import { useProspectBridge } from '@/lib/agent/ProspectBridgeContext'
+import { LocationPlaceSearch, type SelectedPlace } from '@/components/LocationPlaceSearch'
 
 function radiusLabel(radius: string) {
   const n = Number(radius || 3)
   return n < 1 ? `${Math.round(n * 1000)}m` : `${n.toFixed(n < 10 ? 1 : 0)}km`
+}
+
+function placeMatches(place: SelectedPlace | null, loc: string): boolean {
+  if (!place || !loc.trim()) return false
+  if (!Number.isFinite(place.latitude) || !Number.isFinite(place.longitude)) return false
+  const t = loc.trim().toLowerCase()
+  const label = (place.label || '').trim().toLowerCase()
+  const short = (place.shortLabel || '').trim().toLowerCase()
+  if (label && label === t) return true
+  if (short && short === t) return true
+  if (short && t.startsWith(short)) return true
+  return false
 }
 
 export function ProspectSearchControls({ compact, placement = 'chat' }: { compact?: boolean; placement?: 'chat' | 'canvas' | 'sheet' }) {
@@ -17,11 +30,17 @@ export function ProspectSearchControls({ compact, placement = 'chat' }: { compac
   const [location, setLocation] = useState(snap.location)
   const [radius, setRadius] = useState(snap.radius || '3')
   const [advanced, setAdvanced] = useState(false)
+  const [selectedPlace, setSelectedPlace] = useState<SelectedPlace | null>(null)
 
   useEffect(() => {
     setQuery(snap.query)
     setLocation(snap.location)
     setRadius(snap.radius || '3')
+    // Restaura place a partir do snapshot se o label bater
+    if (snap.location && selectedPlace && !placeMatches(selectedPlace, snap.location)) {
+      setSelectedPlace(null)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [snap.query, snap.location, snap.radius])
 
   function submit(e: FormEvent) {
@@ -29,7 +48,25 @@ export function ProspectSearchControls({ compact, placement = 'chat' }: { compac
     const q = query.trim()
     const loc = location.trim()
     if (!q || !loc) return
-    bridge.dispatch({ type: 'search', query: q, location: loc, radius })
+    const ok = placeMatches(selectedPlace, loc)
+    const lat = ok && selectedPlace ? selectedPlace.latitude : undefined
+    const lng = ok && selectedPlace ? selectedPlace.longitude : undefined
+    bridge.dispatch({
+      type: 'apply',
+      query: q,
+      location: loc,
+      radius,
+      latitude: lat,
+      longitude: lng,
+    })
+    bridge.dispatch({
+      type: 'search',
+      query: q,
+      location: loc,
+      radius,
+      latitude: lat,
+      longitude: lng,
+    })
   }
 
   function onRadiusChange(v: string) {
@@ -60,33 +97,52 @@ export function ProspectSearchControls({ compact, placement = 'chat' }: { compac
         </div>
       </div>
 
-      <div className={`prospect-controls__fields ${compact ? 'prospect-controls__fields--compact' : ''}`}>
+      {/* Stack vertical: local ganha largura total pra mostrar nome completo */}
+      <div className={`prospect-controls__fields prospect-controls__fields--stacked ${compact ? 'prospect-controls__fields--compact' : ''}`}>
         <label className="prospect-controls__field">
           <Building2 size={12} className="prospect-controls__field-icon" />
           <input
             type="text"
             value={query}
-            onChange={(e) => {
-              setQuery(e.target.value)
-              bridge.dispatch({ type: 'apply', query: e.target.value })
+            onChange={(e) => setQuery(e.target.value)}
+            onBlur={() => {
+              if (query.trim() !== snap.query) bridge.dispatch({ type: 'apply', query: query.trim() })
             }}
-            placeholder="Segmento"
+            placeholder="Segmento (ex: restaurante)"
             required
+            autoComplete="off"
+            enterKeyHint="next"
           />
         </label>
-        <label className="prospect-controls__field">
+        <div className="prospect-controls__field prospect-controls__field--location">
           <MapPin size={12} className="prospect-controls__field-icon" />
-          <input
-            type="text"
+          <LocationPlaceSearch
+            variant="inline"
             value={location}
-            onChange={(e) => {
-              setLocation(e.target.value)
-              bridge.dispatch({ type: 'apply', location: e.target.value })
+            selected={selectedPlace}
+            onChange={setLocation}
+            onSelect={(place) => {
+              setSelectedPlace(place)
+              setLocation(place.label)
+              bridge.dispatch({
+                type: 'apply',
+                location: place.label,
+                latitude: place.latitude,
+                longitude: place.longitude,
+              })
             }}
-            placeholder="Cidade"
+            onClearPlace={() => setSelectedPlace(null)}
+            placeholder="Buscar cidade ou bairro…"
             required
+            enterKeyHint="search"
           />
-        </label>
+        </div>
+        {selectedPlace?.label && (
+          <p className="prospect-controls__place-hint" title={selectedPlace.label}>
+            <MapPin size={10} />
+            <span>{selectedPlace.label}</span>
+          </p>
+        )}
       </div>
 
       <div className="prospect-controls__radius">

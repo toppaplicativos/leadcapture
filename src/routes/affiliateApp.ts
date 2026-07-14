@@ -15,6 +15,7 @@ import {
 import { affiliateDistributionService } from "../services/affiliateDistribution";
 import { affiliateCrmService } from "../services/affiliateCrm";
 import { CommerceService } from "../services/commerce";
+import { getHealthSnapshot } from "../services/whatsappHealth";
 
 const router = Router();
 const affiliatesService = new AffiliatesService();
@@ -543,6 +544,38 @@ router.get("/materials", async (req: AuthRequest, res: Response) => {
   }
 });
 
+/** Biblioteca unificada: pastas (posts, produtos, marca, programa…) + itens mídia */
+router.get("/materials/library", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = await requireAffiliateCredential(req, res);
+    if (!ctx) return;
+    const affiliate = await getAffiliateProfile(ctx);
+    const region = String(req.query.region || affiliate?.region || "").trim() || undefined;
+    const programId = String(req.query.program_id || "").trim() || undefined;
+    const folder = String(req.query.folder || "all").trim() || "all";
+    const type = String(req.query.type || "").trim() || undefined;
+    const q = String(req.query.q || "").trim() || undefined;
+
+    const library = await affiliatesService.listMaterialsLibrary(ctx.ownerUserId, ctx.brandId, {
+      region,
+      programId,
+      folder,
+      type,
+      q,
+    });
+
+    res.json({
+      success: true,
+      brand_id: ctx.brandId,
+      program_id: programId || null,
+      ...library,
+    });
+  } catch (e: any) {
+    console.error("[affiliate-app/materials/library]", e?.message || e);
+    res.status(500).json({ error: e.message || "Falha ao carregar biblioteca de materiais" });
+  }
+});
+
 router.post("/share/generate", async (req: AuthRequest, res: Response) => {
   try {
     const ctx = await requireAffiliateCredential(req, res);
@@ -1050,11 +1083,47 @@ router.get("/distribution/status", async (req: AuthRequest, res: Response) => {
   }
 });
 
+/** Aceite explícito de termos a partir do Ao Vivo / elegibilidade */
+router.post("/distribution/accept-terms", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = await requireAffiliateCredential(req, res);
+    if (!ctx) return;
+    const affiliate = await getAffiliateProfile(ctx);
+    if (!affiliate) return res.status(404).json({ error: "Perfil de afiliado não encontrado" });
+
+    const accepted = req.body?.accepted === true || req.body?.terms_accepted === true;
+    const snapshot = await affiliateDistributionService.acceptTermsForAffiliate({
+      ownerUserId: ctx.ownerUserId,
+      brandId: ctx.brandId,
+      affiliateId: String(affiliate.id),
+      affiliateUserId: ctx.affiliateUserId,
+      accepted,
+    });
+    res.json({ success: true, accepted: true, ...snapshot });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message || "Falha ao registrar aceite dos termos" });
+  }
+});
+
 router.get("/assistant-control", async (req: AuthRequest, res: Response) => {
   try {
     const ctx = await requireAffiliateCredential(req, res);
     if (!ctx) return;
-    const [control, globalState, instanceStats, conversationStats, campaignStats] = await Promise.all([
+
+    // Sessões do afiliado: owner_actor_id (created_by costuma ser o dono da marca, não o afiliado).
+    const affWhere = `(
+      (owner_type = 'affiliate' AND owner_actor_id = ?)
+      OR (owner_actor_id = ? AND COALESCE(owner_type, '') IN ('affiliate', ''))
+      OR (created_by = ? AND owner_type = 'affiliate')
+    )`;
+    const affJoinWhere = `(
+      (i.owner_type = 'affiliate' AND i.owner_actor_id = ?)
+      OR (i.owner_actor_id = ? AND COALESCE(i.owner_type, '') IN ('affiliate', ''))
+      OR (i.created_by = ? AND i.owner_type = 'affiliate')
+    )`;
+    const affParams = [ctx.affiliateUserId, ctx.affiliateUserId, ctx.affiliateUserId];
+
+    const [control, globalState, instanceStats, conversationStats, campaignStats, health] = await Promise.all([
       queryOne<any>(
         `SELECT assistant_enabled AS enabled, updated_at FROM affiliates
          WHERE affiliate_user_id = ? AND brand_id = ? LIMIT 1`,
@@ -1066,32 +1135,52 @@ router.get("/assistant-control", async (req: AuthRequest, res: Response) => {
       ).catch(() => null),
       queryOne<any>(
         `SELECT COUNT(*) AS total,
-                SUM(CASE WHEN status = 'connected' THEN 1 ELSE 0 END) AS connected
-         FROM whatsapp_instances WHERE created_by = ? AND brand_id = ?`,
-        [ctx.affiliateUserId, ctx.brandId]
-      ),
+                SUM(CASE WHEN LOWER(COALESCE(status, '')) IN ('connected', 'open') THEN 1 ELSE 0 END) AS connected
+         FROM whatsapp_instances
+         WHERE (brand_id = ? OR brand_id IS NULL OR brand_id = '')
+           AND ${affWhere}`,
+        [ctx.brandId, ...affParams]
+      ).catch(() => null),
       queryOne<any>(
         `SELECT COUNT(*) AS total,
                 SUM(CASE WHEN c.ai_mode = 'autonomous' THEN 1 ELSE 0 END) AS autonomous,
                 SUM(CASE WHEN c.unread_count > 0 THEN 1 ELSE 0 END) AS waiting
          FROM whatsapp_conversations c
          JOIN whatsapp_instances i ON i.id = c.instance_id
-         WHERE i.created_by = ? AND i.brand_id = ? AND c.status = 'open'`,
-        [ctx.affiliateUserId, ctx.brandId]
+         WHERE (i.brand_id = ? OR i.brand_id IS NULL OR i.brand_id = '')
+           AND ${affJoinWhere}
+           AND c.status = 'open'`,
+        [ctx.brandId, ...affParams]
       ).catch(() => null),
       queryOne<any>(
         `SELECT COUNT(*) AS campaigns
          FROM campaign_history ch
          JOIN whatsapp_instances i ON i.id = ch.instance_id
-         WHERE i.created_by = ? AND i.brand_id = ?
+         WHERE (i.brand_id = ? OR i.brand_id IS NULL OR i.brand_id = '')
+           AND ${affJoinWhere}
            AND ch.status IN ('active','running','scheduled','paused')`,
-        [ctx.affiliateUserId, ctx.brandId]
+        [ctx.brandId, ...affParams]
       ).catch(() => null),
+      getHealthSnapshot({
+        brandId: ctx.brandId,
+        isAffiliate: true,
+        ownerActorId: ctx.affiliateUserId,
+      }).catch(() => null),
     ]);
 
     const affiliateEnabled = control ? Boolean(control.enabled) : true;
     const organizationEnabled = globalState ? Boolean(globalState.auto_reply_enabled) : false;
-    const connected = Number(instanceStats?.connected || 0);
+
+    // Runtime health > DB status (evita fantasma / subcontagem)
+    const healthConnected = Number(health?.summary?.connected || 0);
+    const healthTotal = Number(health?.summary?.total || 0);
+    const dbConnected = Number(instanceStats?.connected || 0);
+    const dbTotal = Number(instanceStats?.total || 0);
+    const connected = Math.max(healthConnected, dbConnected);
+    const total = Math.max(healthTotal, dbTotal, connected);
+    const perConnection = 40;
+    const dailyCapacity = connected * perConnection;
+
     res.json({
       success: true,
       assistant: {
@@ -1102,9 +1191,10 @@ router.get("/assistant-control", async (req: AuthRequest, res: Response) => {
         updated_at: control?.updated_at || null,
       },
       connections: {
-        total: Number(instanceStats?.total || 0),
+        total,
         connected,
-        daily_capacity: connected * 40,
+        daily_capacity: dailyCapacity,
+        capacity_per_connection: perConnection,
       },
       conversations: {
         total: Number(conversationStats?.total || 0),

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import {
   Plus, Trash2, ChevronDown, ChevronUp, GripVertical,
   MessageCircle, Camera, Mail, Megaphone, Bell,
+  MapPin, Loader2, X, UserPlus, Accessibility, Users,
 } from 'lucide-react'
 import type {
   AcaoPipeline, AcaoConfig, TipoAcao, AutomationTrigger,
@@ -11,6 +12,7 @@ import {
   allowedStepTypesForAction, ensureAcaoSteps, normalizeAcaoConfig, newMensagemStepId,
 } from '@/lib/automations/schema'
 import { MessagePipelineComposer } from './MessagePipelineComposer'
+import { instagramApi } from '@/lib/instagram/pageApi'
 
 type Props = {
   pipeline: AcaoPipeline[]
@@ -335,8 +337,85 @@ function PublishCards({
     { id: 'manual_review' as const, label: 'Revisar antes' },
     { id: 'auto_publish' as const, label: 'Publicar auto' },
   ]
-  const fmt = config.contentPublishing?.format || 'single_image'
-  const appr = config.contentPublishing?.approvalMode || 'manual_review'
+  const cp = config.contentPublishing || {}
+  const fmt = cp.format || 'single_image'
+  const appr = cp.approvalMode || 'manual_review'
+  const isFeedPost = fmt === 'single_image' || fmt === 'carousel'
+  const isStory = fmt === 'story'
+  const isReel = fmt === 'reel'
+
+  const [locQuery, setLocQuery] = useState(cp.locationName || '')
+  const [locHits, setLocHits] = useState<Array<{ id: string; name: string; address?: string }>>([])
+  const [locLoading, setLocLoading] = useState(false)
+  const [userDraft, setUserDraft] = useState('')
+  const [collabDraft, setCollabDraft] = useState('')
+  const locTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    setLocQuery(cp.locationName || '')
+  }, [cp.locationName, cp.locationId])
+
+  useEffect(() => {
+    if (!(isFeedPost || isReel)) return
+    const q = locQuery.trim()
+    if (q.length < 2 || (cp.locationId && q === (cp.locationName || ''))) {
+      setLocHits([])
+      return
+    }
+    if (locTimer.current) clearTimeout(locTimer.current)
+    locTimer.current = setTimeout(async () => {
+      setLocLoading(true)
+      try {
+        const res = await instagramApi(`/location-search?q=${encodeURIComponent(q)}`)
+        setLocHits(Array.isArray(res?.locations) ? res.locations : [])
+      } catch {
+        setLocHits([])
+      } finally {
+        setLocLoading(false)
+      }
+    }, 350)
+    return () => {
+      if (locTimer.current) clearTimeout(locTimer.current)
+    }
+  }, [locQuery, cp.locationId, cp.locationName, isFeedPost, isReel])
+
+  const patchCp = (patch: Partial<NonNullable<AcaoConfig['contentPublishing']>>) =>
+    onChange({
+      ...config,
+      contentPublishing: { ...cp, ...patch },
+    })
+
+  const userTagList = String(cp.userTags || '')
+    .split(/[,;\s]+/)
+    .map((u) => u.replace(/^@/, '').trim())
+    .filter(Boolean)
+
+  const collabList = String(cp.collaborators || '')
+    .split(/[,;\s]+/)
+    .map((u) => u.replace(/^@/, '').trim())
+    .filter(Boolean)
+
+  const addUserTag = () => {
+    const u = userDraft.replace(/^@/, '').trim()
+    if (!u) return
+    if (userTagList.some((x) => x.toLowerCase() === u.toLowerCase())) {
+      setUserDraft('')
+      return
+    }
+    patchCp({ userTags: [...userTagList, u].map((x) => `@${x}`).join(', ') })
+    setUserDraft('')
+  }
+
+  const addCollab = () => {
+    const u = collabDraft.replace(/^@/, '').trim()
+    if (!u || collabList.length >= 3) return
+    if (collabList.some((x) => x.toLowerCase() === u.toLowerCase())) {
+      setCollabDraft('')
+      return
+    }
+    patchCp({ collaborators: [...collabList, u].map((x) => `@${x}`).join(', ') })
+    setCollabDraft('')
+  }
 
   return (
     <div className="space-y-3">
@@ -347,10 +426,7 @@ function PublishCards({
             <button
               key={f.id}
               type="button"
-              onClick={() => onChange({
-                ...config,
-                contentPublishing: { ...config.contentPublishing, format: f.id },
-              })}
+              onClick={() => patchCp({ format: f.id })}
               className={`px-2 py-2.5 rounded-xl border-2 text-[11px] font-semibold ${
                 fmt === f.id ? 'border-gray-900 bg-gray-50' : 'border-gray-100'
               }`}
@@ -367,10 +443,7 @@ function PublishCards({
             <button
               key={a.id}
               type="button"
-              onClick={() => onChange({
-                ...config,
-                contentPublishing: { ...config.contentPublishing, approvalMode: a.id },
-              })}
+              onClick={() => patchCp({ approvalMode: a.id })}
               className={`px-2 py-2.5 rounded-xl border-2 text-[11px] font-semibold ${
                 appr === a.id ? 'border-gray-900 bg-gray-50' : 'border-gray-100'
               }`}
@@ -383,15 +456,252 @@ function PublishCards({
       <label className="block text-[10px] text-gray-500">
         Legenda (opcional)
         <textarea
-          value={config.contentPublishing?.captionOverride || ''}
-          onChange={(e) => onChange({
-            ...config,
-            contentPublishing: { ...config.contentPublishing, captionOverride: e.target.value },
-          })}
+          value={cp.captionOverride || ''}
+          onChange={(e) => patchCp({ captionOverride: e.target.value })}
           rows={2}
           className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none"
         />
       </label>
+      <label className="block text-[10px] text-gray-500">
+        URL da mídia (opcional — enfileira rascunho no Instagram)
+        <input
+          type="url"
+          value={cp.mediaUrl || ''}
+          onChange={(e) => patchCp({ mediaUrl: e.target.value })}
+          placeholder="https://…/imagem.jpg"
+          className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+        />
+      </label>
+
+      {/* Marcação — igual Criar Post, direto nas configs da automação */}
+      <div className="rounded-xl border border-violet-100 bg-violet-50/40 p-3 space-y-3">
+        <div>
+          <p className="text-[10px] font-bold text-violet-800 uppercase tracking-wide">
+            Marcação do post (Instagram)
+          </p>
+          <p className="text-[9px] text-violet-700/80 leading-snug mt-0.5">
+            Local, pessoas, alt text e collab — salvos na automação e enviados na publicação.
+          </p>
+        </div>
+
+        {(isFeedPost || isReel) && (
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-semibold text-gray-600 flex items-center gap-1">
+              <MapPin size={12} className="text-rose-500" /> Localização
+            </label>
+            {cp.locationId ? (
+              <div className="flex items-center gap-2 rounded-lg border border-emerald-100 bg-white px-2.5 py-2">
+                <MapPin size={14} className="text-emerald-600 shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-semibold text-gray-900 truncate">{cp.locationName || cp.locationId}</p>
+                  <p className="text-[10px] text-gray-400 font-mono truncate">id: {cp.locationId}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    patchCp({ locationId: '', locationName: '' })
+                    setLocQuery('')
+                    setLocHits([])
+                  }}
+                  className="p-1 rounded-md text-gray-400 hover:bg-gray-50 hover:text-red-500"
+                  aria-label="Remover local"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            ) : (
+              <div className="relative">
+                <input
+                  type="search"
+                  value={locQuery}
+                  onChange={(e) => setLocQuery(e.target.value)}
+                  placeholder="Buscar cidade ou local no Instagram…"
+                  className="w-full rounded-lg border border-gray-200 bg-white px-2.5 py-2 text-xs outline-none focus:border-gray-900"
+                />
+                {locLoading && (
+                  <Loader2 size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 animate-spin text-gray-400" />
+                )}
+                {locHits.length > 0 && (
+                  <ul className="absolute z-30 mt-1 w-full max-h-40 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+                    {locHits.map((hit) => (
+                      <li key={hit.id}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            patchCp({ locationId: hit.id, locationName: hit.name })
+                            setLocQuery(hit.name)
+                            setLocHits([])
+                          }}
+                          className="w-full text-left px-2.5 py-2 hover:bg-gray-50 border-b border-gray-50 last:border-0"
+                        >
+                          <p className="text-xs font-semibold text-gray-900">{hit.name}</p>
+                          {hit.address && (
+                            <p className="text-[10px] text-gray-400 truncate">{hit.address}</p>
+                          )}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {(isFeedPost || isStory) && (
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-semibold text-gray-600 flex items-center gap-1">
+              <UserPlus size={12} className="text-violet-500" /> Marcar usuários
+            </label>
+            <div className="flex gap-1.5">
+              <input
+                type="text"
+                value={userDraft}
+                onChange={(e) => setUserDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    addUserTag()
+                  }
+                }}
+                placeholder="@usuario"
+                className="flex-1 rounded-lg border border-gray-200 bg-white px-2.5 py-2 text-xs outline-none focus:border-gray-900"
+              />
+              <button
+                type="button"
+                onClick={addUserTag}
+                className="px-2.5 rounded-lg bg-gray-900 text-white text-[11px] font-semibold"
+              >
+                Add
+              </button>
+            </div>
+            {userTagList.length > 0 && (
+              <div className="flex flex-wrap gap-1">
+                {userTagList.map((u) => (
+                  <span
+                    key={u}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white border border-gray-200 text-[10px] font-semibold text-gray-700"
+                  >
+                    @{u}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        patchCp({
+                          userTags: userTagList
+                            .filter((x) => x !== u)
+                            .map((x) => `@${x}`)
+                            .join(', '),
+                        })
+                      }
+                      className="text-gray-400 hover:text-red-500"
+                    >
+                      <X size={10} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {isFeedPost && fmt === 'single_image' && (
+          <label className="block text-[10px] text-gray-600">
+            <span className="inline-flex items-center gap-1 font-semibold">
+              <Accessibility size={12} /> Texto alternativo
+            </span>
+            <input
+              type="text"
+              value={cp.altText || ''}
+              onChange={(e) => patchCp({ altText: e.target.value })}
+              placeholder="Descreva a imagem…"
+              maxLength={1000}
+              className="mt-1 w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs bg-white"
+            />
+          </label>
+        )}
+
+        {(isFeedPost || isReel) && (
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-semibold text-gray-600 flex items-center gap-1">
+              <Users size={12} className="text-sky-500" /> Collab (até 3)
+            </label>
+            <div className="flex gap-1.5">
+              <input
+                type="text"
+                value={collabDraft}
+                onChange={(e) => setCollabDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    addCollab()
+                  }
+                }}
+                placeholder="@marca"
+                disabled={collabList.length >= 3}
+                className="flex-1 rounded-lg border border-gray-200 bg-white px-2.5 py-2 text-xs outline-none focus:border-gray-900 disabled:opacity-50"
+              />
+              <button
+                type="button"
+                onClick={addCollab}
+                disabled={collabList.length >= 3}
+                className="px-2.5 rounded-lg bg-gray-900 text-white text-[11px] font-semibold disabled:opacity-40"
+              >
+                Add
+              </button>
+            </div>
+            {collabList.length > 0 && (
+              <div className="flex flex-wrap gap-1">
+                {collabList.map((u) => (
+                  <span
+                    key={u}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white border border-gray-200 text-[10px] font-semibold text-gray-700"
+                  >
+                    @{u}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        patchCp({
+                          collaborators: collabList
+                            .filter((x) => x !== u)
+                            .map((x) => `@${x}`)
+                            .join(', '),
+                        })
+                      }
+                      className="text-gray-400 hover:text-red-500"
+                    >
+                      <X size={10} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {isReel && (
+          <>
+            <label className="flex items-center justify-between gap-2 text-[11px] text-gray-700 bg-white rounded-lg border border-gray-200 px-2.5 py-2">
+              <span>Reels: também no feed</span>
+              <input
+                type="checkbox"
+                checked={cp.shareToFeed !== false}
+                onChange={(e) => patchCp({ shareToFeed: e.target.checked })}
+                className="w-4 h-4 accent-gray-900"
+              />
+            </label>
+            <label className="block text-[10px] text-gray-600">
+              Cover URL do Reels (opcional)
+              <input
+                type="url"
+                value={cp.coverUrl || ''}
+                onChange={(e) => patchCp({ coverUrl: e.target.value })}
+                placeholder="https://…/cover.jpg"
+                className="mt-1 w-full border border-gray-200 rounded-lg px-2.5 py-2 text-xs bg-white"
+              />
+            </label>
+          </>
+        )}
+      </div>
     </div>
   )
 }

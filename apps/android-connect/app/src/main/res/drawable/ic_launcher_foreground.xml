@@ -1,0 +1,59 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    
+    <!-- Outer concentric ring (radar boundary / target outer ring) -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:pathData="M 54,54 m -32,0 a 32,32 0 1,0 64,0 a 32,32 0 1,0 -64,0" />
+
+    <!-- Middle concentric ring (radar sweep ring) -->
+    <path
+        android:strokeColor="#2563EB"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:pathData="M 54,54 m -18,0 a 18,18 0 1,0 36,0 a 18,18 0 1,0 -36,0" />
+        
+    <!-- Central target point (bullseye) -->
+    <path
+        android:fillColor="#2563EB"
+        android:pathData="M 54,54 m -6,0 a 6,6 0 1,0 12,0 a 6,6 0 1,0 -12,0" />
+
+    <!-- Radar Crosshairs (Precision/Target Lines) -->
+    <!-- Vertical top -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:pathData="M 54 14 L 54 28" />
+    <!-- Vertical bottom -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:pathData="M 54 80 L 54 94" />
+    <!-- Horizontal left -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:pathData="M 14 54 L 28 54" />
+    <!-- Horizontal right -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:pathData="M 80 54 L 94 54" />
+
+    <!-- Extra radar blips/replicated session indicators -->
+    <path
+        android:fillColor="#10B981"
+        android:pathData="M 40,40 m -4,0 a 4,4 0 1,0 8,0 a 4,4 0 1,0 -8,0" />
+    <path
+        android:fillColor="#2563EB"
+        android:pathData="M 72,38 m -3,0 a 3,3 0 1,0 6,0 a 3,3 0 1,0 -6,0" />
+</vector>

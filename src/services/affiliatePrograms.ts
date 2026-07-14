@@ -1022,7 +1022,7 @@ export class AffiliateProgramsService {
       if (affiliate) {
         await this.createEnrollmentFromApplication(app, affiliate);
         const program = await queryOne<any>(
-          `SELECT name FROM affiliate_programs WHERE id = ? LIMIT 1`,
+          `SELECT name, commission_mode, commission_value, default_commission_pct FROM affiliate_programs WHERE id = ? LIMIT 1`,
           [app.program_id]
         );
         void this.emitAffiliateProgramEvent("affiliate.program.application_approved", {
@@ -1030,6 +1030,15 @@ export class AffiliateProgramsService {
           brandId,
           programName: String(program?.name || "programa"),
           programId: String(app.program_id),
+        });
+        void this.sendAffiliateApprovedEmail({
+          ownerUserId,
+          brandId,
+          affiliateUserId: String(app.affiliate_user_id),
+          affiliateName: String(affiliate.display_name || affiliate.code || "Parceiro"),
+          programName: String(program?.name || "Programa de parceiros"),
+          commissionMode: program?.commission_mode,
+          commissionValue: program?.commission_value ?? program?.default_commission_pct,
         });
       }
     }
@@ -1343,6 +1352,15 @@ export class AffiliateProgramsService {
         programName: String(program.name || "programa"),
         programId: input.programId,
       });
+      void this.sendAffiliateApprovedEmail({
+        ownerUserId: input.ownerUserId,
+        brandId: input.brandId,
+        affiliateUserId: input.affiliateUserId,
+        affiliateName: String(affiliate.display_name || affiliate.code || "Parceiro"),
+        programName: String(program.name || "Programa de parceiros"),
+        commissionMode: program.commission_mode,
+        commissionValue: program.commission_value ?? program.default_commission_pct,
+      });
     } else {
       void this.emitAffiliateProgramEvent("admin.affiliate.application_received", {
         ownerUserId: input.ownerUserId,
@@ -1353,6 +1371,49 @@ export class AffiliateProgramsService {
     }
 
     return { application, enrollment, auto_approved: autoApprove };
+  }
+
+  private async sendAffiliateApprovedEmail(ctx: {
+    ownerUserId: string;
+    brandId: string;
+    affiliateUserId: string;
+    affiliateName: string;
+    programName: string;
+    commissionMode?: string | null;
+    commissionValue?: number | string | null;
+  }) {
+    try {
+      const user = await queryOne<any>(
+        `SELECT email, name FROM users WHERE id = ? LIMIT 1`,
+        [ctx.affiliateUserId],
+      );
+      const email = String(user?.email || "").trim();
+      if (!email) return;
+
+      let commissionRate = "conforme programa";
+      const mode = String(ctx.commissionMode || "").toLowerCase();
+      const val = Number(ctx.commissionValue);
+      if (Number.isFinite(val) && val > 0) {
+        if (mode === "fixed" || mode === "fixed_amount" || mode === "per_kg" || mode === "r_per_kg") {
+          commissionRate = `R$ ${val.toFixed(2).replace(".", ",")}${mode.includes("kg") ? "/kg" : ""}`;
+        } else {
+          commissionRate = `${val}%`;
+        }
+      }
+
+      const { emailTriggers } = await import("./emailTriggers");
+      emailTriggers.affiliateApproved({
+        userId: ctx.ownerUserId,
+        brandId: ctx.brandId,
+        affiliate_name: String(user?.name || ctx.affiliateName || "Parceiro"),
+        affiliate_email: email,
+        program_name: ctx.programName,
+        panel_url: "https://parceiros.leadcapture.online",
+        commission_rate: commissionRate,
+      });
+    } catch {
+      /* e-mail não bloqueia aceite */
+    }
   }
 
   private async emitAffiliateProgramEvent(
@@ -1387,7 +1448,7 @@ export class AffiliateProgramsService {
           role: "affiliate",
           entity_type: "affiliate_program",
           entity_id: ctx.programId || ctx.brandId,
-          deep_link: "/contatos",
+          deep_link: eventKey.includes("application_approved") ? "/programas" : "/contatos",
           template_vars: {
             program_name: ctx.programName || "programa",
             brand_id: ctx.brandId,
@@ -1557,6 +1618,18 @@ export class AffiliateProgramsService {
 
     const existing = progressMap.get(`${input.itemType}:${input.itemId}`);
     if (existing?.status === "completed") {
+      // Mesmo se a etapa já estava done, garante timestamp de termos se for o caso
+      if (input.itemType === "step") {
+        const step = (steps || []).find((s) => s.id === input.itemId);
+        if (step?.step_type === "terms_accept" || input.payload?.terms_accepted === true) {
+          await this.recordTermsAcceptance({
+            enrollmentId: input.enrollmentId,
+            affiliateUserId: input.affiliateUserId,
+            brandId: String(enrollment.brand_id),
+            programId: String(enrollment.program_id),
+          });
+        }
+      }
       return this.getEnrollmentOnboarding(input.enrollmentId, input.affiliateUserId);
     }
 
@@ -1585,11 +1658,46 @@ export class AffiliateProgramsService {
       );
     }
 
+    // Aceite de termos: grava accepted_terms_at canônico (membership + application)
+    if (input.itemType === "step") {
+      const step = (steps || []).find((s) => s.id === input.itemId);
+      if (step?.step_type === "terms_accept" || input.payload?.terms_accepted === true) {
+        await this.recordTermsAcceptance({
+          enrollmentId: input.enrollmentId,
+          affiliateUserId: input.affiliateUserId,
+          brandId: String(enrollment.brand_id),
+          programId: String(enrollment.program_id),
+        });
+      }
+    }
+
     await this.advanceEnrollment(enrollment, steps || []);
     return this.getEnrollmentOnboarding(input.enrollmentId, input.affiliateUserId);
   }
 
-  private async advanceEnrollment(enrollment: any, steps: any[]) {
+  /** Persiste aceite de termos de forma legível pela elegibilidade (Ao Vivo / distribuição). */
+  async recordTermsAcceptance(input: {
+    enrollmentId: string;
+    affiliateUserId: string;
+    brandId: string;
+    programId: string;
+  }) {
+    await this.ensureSchema();
+    await query(
+      `UPDATE affiliate_program_applications
+       SET accepted_terms_at = COALESCE(accepted_terms_at, NOW()), updated_at = NOW()
+       WHERE affiliate_user_id = ? AND brand_id = ? AND program_id = ?`,
+      [input.affiliateUserId, input.brandId, input.programId],
+    ).catch(() => undefined);
+    await query(
+      `UPDATE affiliate_program_memberships
+       SET accepted_terms_at = COALESCE(accepted_terms_at, NOW()), updated_at = NOW()
+       WHERE affiliate_user_id = ? AND organization_id = ? AND program_id = ?`,
+      [input.affiliateUserId, input.brandId, input.programId],
+    ).catch(() => undefined);
+  }
+
+  async advanceEnrollment(enrollment: any, steps: any[]) {
     const progress = await query<any[]>(
       `SELECT * FROM affiliate_program_progress WHERE enrollment_id = ?`,
       [enrollment.id]

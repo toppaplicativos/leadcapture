@@ -240,13 +240,20 @@ export function createCampaignRoutes(
         settings,
       } = req.body;
 
-      if (!name || !instanceId) {
-        return res.status(400).json({ error: "name e instanceId sao obrigatorios" });
+      const trimmedName = String(name || "").trim();
+      const resolvedInstanceId = String(instanceId || "").trim();
+      const rotationOn = !!useInstanceRotation;
+
+      if (!trimmedName) {
+        return res.status(400).json({ error: "Nome da campanha e obrigatorio" });
+      }
+      if (!resolvedInstanceId && !rotationOn) {
+        return res.status(400).json({ error: "Selecione uma instancia WhatsApp ou ative a rotacao inteligente" });
       }
 
       const campaign = await engine.createCampaign(userId, {
-        name,
-        instanceId,
+        name: trimmedName,
+        instanceId: resolvedInstanceId || "",
         messageTemplate: messageTemplate || null,
         aiPrompt: aiPrompt || null,
         useAI: !!useAI,
@@ -255,7 +262,7 @@ export function createCampaignRoutes(
         scheduledAt: scheduledAt || null,
         initialStatus: status === "active" || status === "paused" || status === "draft" ? status : "draft",
         campaignMode: campaignMode || "educational",
-        useInstanceRotation: !!useInstanceRotation,
+        useInstanceRotation: rotationOn,
         rotationMode: rotationMode || "balanced",
         settings: settings && typeof settings === "object" ? settings : undefined,
       }, req.brandId);
@@ -290,7 +297,7 @@ export function createCampaignRoutes(
 
       const updateData: any = {};
 
-      if (name !== undefined) updateData.name = name;
+      if (name !== undefined) updateData.name = String(name || "").trim();
       if (instanceId !== undefined) updateData.instanceId = instanceId;
       if (messageTemplate !== undefined) updateData.messageTemplate = messageTemplate;
       if (aiPrompt !== undefined) updateData.aiPrompt = aiPrompt;
@@ -303,6 +310,10 @@ export function createCampaignRoutes(
       if (rotationMode !== undefined) updateData.rotationMode = rotationMode;
       if (settings !== undefined) updateData.settings = settings;
 
+      if (Object.keys(updateData).length === 0) {
+        return res.status(400).json({ error: "Nenhum campo para atualizar" });
+      }
+
       const campaign = await engine.updateCampaign(
         userId,
         String(req.params.id),
@@ -312,6 +323,13 @@ export function createCampaignRoutes(
 
       if (!campaign) {
         return res.status(404).json({ error: "Campanha nao encontrada" });
+      }
+
+      // Confirma persistência do nome no retorno
+      if (updateData.name && String(campaign.name || "").trim() !== String(updateData.name).trim()) {
+        logger.warn(
+          `[Campaign update] name mismatch after save id=${req.params.id} expected=${updateData.name} got=${campaign.name}`
+        );
       }
 
       res.json({ success: true, campaign, message: "Campanha atualizada com sucesso" });

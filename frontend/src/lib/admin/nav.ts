@@ -3,7 +3,7 @@ import {
   Package, Palette, Search, Mail, Truck, Globe, Bot, Zap,
   BarChart3, Receipt, Ticket, Star, Sparkles, Film, Images,
   GitBranch, Brain, Headphones, Bell, Settings, Handshake, Store,
-  MessageSquare, ContactRound, UserRound,
+  MessageSquare, ContactRound, UserRound, CreditCard, UserCog, Bike,
 } from 'lucide-react'
 import { FacebookIcon, InstagramIcon, WhatsAppIcon } from '@/components/icons'
 import type { IconComponent } from '@/components/icons'
@@ -40,6 +40,8 @@ export const ROUTE_MAP: Record<string, string> = {
   '/facebook': 'facebook',
   '/pagamentos': 'pagamentos',
   '/frete': 'frete',
+  '/entregas': 'entregas',
+  '/mob': 'entregas',
   '/dominio': 'dominio',
 
   '/agente': 'agente',
@@ -83,13 +85,14 @@ export const NAV_ITEMS: NavItem[] = [
   { key: 'produtos', path: '/produtos', icon: Package, label: 'Produtos', group: 'loja' },
   { key: 'pedidos', path: '/pedidos', icon: ShoppingCart, label: 'Pedidos', group: 'loja' },
   { key: 'tirar-pedido', path: '/tirar-pedido', icon: Receipt, label: 'Tirar Pedido', group: 'loja' },
-  { key: 'estoque', path: '/estoque', icon: BarChart3, label: 'Estoque', group: 'loja' },
+  { key: 'estoque', path: '/estoque', icon: UserCog, label: 'Gestores de estoque', group: 'loja' },
   { key: 'afiliados', path: '/afiliados', icon: Handshake, label: 'Afiliados', group: 'loja', badge: 'Novo' },
   { key: 'cupons', path: '/cupons', icon: Ticket, label: 'Cupons', group: 'loja' },
   { key: 'avaliacoes', path: '/avaliacoes', icon: Star, label: 'Avaliações', group: 'loja' },
   { key: 'loja', path: '/loja', icon: Store, label: 'Loja', group: 'loja' },
-  { key: 'pagamentos', path: '/pagamentos', icon: ShoppingCart, label: 'Pagamentos', group: 'loja' },
+  { key: 'pagamentos', path: '/pagamentos', icon: CreditCard, label: 'Pagamentos', group: 'loja' },
   { key: 'frete', path: '/frete', icon: Truck, label: 'Frete', group: 'loja' },
+  { key: 'entregas', path: '/entregas', icon: Bike, label: 'Lead Capture Mob', group: 'loja', badge: 'Novo' },
   { key: 'dominio', path: '/dominio', icon: Globe, label: 'Dominio', group: 'loja' },
   { key: 'whatsapp', path: '/whatsapp', icon: WhatsAppIcon, label: 'WhatsApp', group: 'config' },
   { key: 'configuracoes', path: '/configuracoes', icon: Settings, label: 'Configurações', group: 'config' },

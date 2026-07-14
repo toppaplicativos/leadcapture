@@ -627,20 +627,41 @@ export class PushNotificationService {
       const badgeUrl =
         (input.metadata && input.metadata.badge) || `${publicBase}/brand-mark.png`
 
+      const isOffer = input.eventKey === "delivery_offered" || input.metadata?.urgency === "offer"
+      const defaultVibrate = isOffer
+        ? [280, 120, 280, 120, 400]
+        : priority === "critical"
+          ? [300, 100, 300, 100, 300]
+          : [200, 100, 200]
+      const vibratePattern =
+        sub.preferences_json.vibrate_enabled === false
+          ? null
+          : Array.isArray(input.metadata?.vibrate)
+            ? input.metadata.vibrate
+            : defaultVibrate
+
       const payload = JSON.stringify({
         title: input.title,
         body: input.body,
         icon: iconUrl,
         badge: badgeUrl,
         tag: `${input.eventKey}:${input.notificationId || randomUUID().slice(0, 8)}`,
-        requireInteraction: priority === "critical",
+        requireInteraction:
+          priority === "critical" ||
+          isOffer ||
+          input.metadata?.requireInteraction === true,
         data: {
           url: input.url || "/",
           event: input.eventKey,
-          priority,
+          priority: isOffer ? "high" : priority,
           notification_id: input.notificationId,
-          sound: playSound ? soundKey : null,
-          vibrate: sub.preferences_json.vibrate_enabled ? [200, 100, 200] : null,
+          sound: playSound ? (isOffer ? "order" : soundKey) : null,
+          sound_url:
+            playSound && (isOffer || input.metadata?.sound_url)
+              ? input.metadata?.sound_url || "/sounds/mob-offer.wav"
+              : null,
+          play_sound: playSound && (isOffer || !!input.metadata?.play_sound),
+          vibrate: vibratePattern,
           icon: iconUrl,
           badge: badgeUrl,
           ...input.metadata,

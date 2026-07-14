@@ -428,10 +428,23 @@ export function LeadsPage({ embedded = false }: { embedded?: boolean } = {}) {
               })
             }
             if (ev.type === 'start') {
-              setValidateAllProgress(p => p ? { ...p, total: ev.totalLeads } : p)
+              setValidateAllProgress(p => p ? {
+                ...p,
+                total: ev.totalLeads || 0,
+              } : {
+                processed: 0, valid: 0, invalid: 0, errors: 0, skipped: 0, total: ev.totalLeads || 0,
+              })
             }
             if (ev.type === 'done') {
-              toast(`Validacao completa: ${ev.valid} com WhatsApp, ${ev.invalid} sem`)
+              const pending = Number(ev.total || 0)
+              if (pending === 0 && !ev.processed) {
+                toast('Nenhum lead pendente — todos já foram revisados')
+              } else {
+                toast(
+                  `Revisados agora: ${ev.valid || 0} com WhatsApp, ${ev.invalid || 0} sem` +
+                  (ev.errors ? ` · ${ev.errors} erros` : '')
+                )
+              }
               loadLeads()
             }
           } catch {}
@@ -529,7 +542,7 @@ export function LeadsPage({ embedded = false }: { embedded?: boolean } = {}) {
         <div className="flex items-center gap-2">
           <button
             onClick={runValidateAll}
-            title={validateAllRunning ? 'Clique para cancelar' : 'Validar WhatsApp de todos os leads automaticamente'}
+            title={validateAllRunning ? 'Clique para cancelar' : 'Valida só leads nunca revisados. Já revisados não entram na lista.'}
             className={`h-9 flex items-center gap-1.5 px-3.5 rounded-lg text-[12px] font-semibold transition-all ${
               validateAllRunning
                 ? 'bg-red-50 text-red-700 hover:bg-red-100 border border-red-200'
@@ -537,7 +550,7 @@ export function LeadsPage({ embedded = false }: { embedded?: boolean } = {}) {
             }`}
           >
             {validateAllRunning ? <Loader2 size={13} className="animate-spin" /> : <ShieldCheck size={13} strokeWidth={2} />}
-            <span className="hidden sm:inline">{validateAllRunning ? 'Cancelar' : 'Validar Todos'}</span>
+            <span className="hidden sm:inline">{validateAllRunning ? 'Cancelar' : 'Validar novos'}</span>
           </button>
           <button
             onClick={() => setSmartImportOpen(true)}
@@ -558,13 +571,18 @@ export function LeadsPage({ embedded = false }: { embedded?: boolean } = {}) {
               {validateAllRunning && <Loader2 size={14} className="text-purple-600 animate-spin" />}
               {!validateAllRunning && <ShieldCheck size={14} className="text-purple-600" />}
               <span className="text-[12px] font-bold text-purple-800">
-                {validateAllRunning ? 'Validando WhatsApp...' : 'Validacao completa'}
+                {validateAllRunning
+                  ? (validateAllProgress.total > 0
+                      ? `Revisando ${validateAllProgress.total} novos…`
+                      : 'Buscando pendentes…')
+                  : validateAllProgress.total === 0
+                    ? 'Nada pendente'
+                    : 'Revisão concluída'}
               </span>
             </div>
             <div className="flex items-center gap-3 text-[11px] font-semibold">
-              <span className="text-emerald-700">{validateAllProgress.valid} validos</span>
-              <span className="text-red-600">{validateAllProgress.invalid} invalidos</span>
-              <span className="text-gray-500">{validateAllProgress.skipped} pulados</span>
+              <span className="text-emerald-700">{validateAllProgress.valid} com WA</span>
+              <span className="text-red-600">{validateAllProgress.invalid} sem WA</span>
               {validateAllProgress.errors > 0 && <span className="text-orange-600">{validateAllProgress.errors} erros</span>}
             </div>
           </div>
@@ -572,12 +590,14 @@ export function LeadsPage({ embedded = false }: { embedded?: boolean } = {}) {
             <div className="w-full h-1.5 bg-purple-100 rounded-full overflow-hidden">
               <div
                 className="h-full bg-gray-900 rounded-full transition-all duration-300"
-                style={{ width: `${Math.min(100, ((validateAllProgress.processed + validateAllProgress.skipped) / validateAllProgress.total) * 100)}%` }}
+                style={{ width: `${Math.min(100, (validateAllProgress.processed / Math.max(1, validateAllProgress.total)) * 100)}%` }}
               />
             </div>
           )}
-          <div className="text-[10px] text-purple-500 mt-1">
-            {validateAllProgress.processed + validateAllProgress.skipped} de {validateAllProgress.total} leads verificados
+          <div className="text-[10px] text-purple-500 mt-1 tabular-nums">
+            {validateAllProgress.total === 0
+              ? 'Todos os leads com telefone já foram revisados uma vez.'
+              : `${validateAllProgress.processed} de ${validateAllProgress.total} novos revisados nesta rodada`}
           </div>
         </div>
       )}

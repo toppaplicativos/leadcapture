@@ -27,6 +27,9 @@ let imRef: InstanceManager | null = null;
 export function setInstanceManagerRef(im: InstanceManager): void {
   imRef = im;
 }
+export function getInstanceManagerRef(): InstanceManager | null {
+  return imRef;
+}
 
 export type InstanceHealthCriticality = "ok" | "warning" | "critical";
 

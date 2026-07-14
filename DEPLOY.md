@@ -49,6 +49,21 @@ app.leadcapture.online {
 > e rodar `systemctl reload caddy`. Sem o bloco, o Caddy nao obtem
 > certificado SSL e o browser mostra "conexao nao segura".
 
+### Subdomínios oficiais
+
+| Host | App |
+|---|---|
+| `app.leadcapture.online` | Admin + API |
+| `adm.leadcapture.online` | Master |
+| `parceiros.leadcapture.online` | Afiliados global |
+| `mob.leadcapture.online` | Lead Capture Mob (entregadores + rastreio) |
+
+Provisionar Mob (DNS A já apontando para a VPS):
+
+```bash
+node agent-tools/provision-mob-subdomain.mjs
+```
+
 ## Variáveis de ambiente
 
 `.env` na raiz do projeto. Importante:

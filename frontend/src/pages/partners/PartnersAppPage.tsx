@@ -11,6 +11,11 @@ import { PartnersProgramDetail } from '@/pages/partners/PartnersProgramDetail'
 import { PartnersProgramOnboarding } from '@/pages/partners/PartnersProgramOnboarding'
 import { PartnersAlertsPanel } from '@/pages/partners/PartnersAlertsPanel'
 import { PartnersProfilePanel } from '@/pages/partners/PartnersProfilePanel'
+import {
+  AffiliateFirstRunOnboarding,
+  hasCompletedFirstRun,
+  markFirstRunComplete,
+} from '@/pages/affiliate/AffiliateFirstRunOnboarding'
 
 const money = (v: number | string | undefined) =>
   Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -93,6 +98,7 @@ export function PartnersAppPage() {
   const [search, setSearch] = useState('')
   const [entering, setEntering] = useState<string | null>(null)
   const [toast, setToast] = useState<{ text: string; type: 'ok' | 'err' } | null>(null)
+  const [showFirstRun, setShowFirstRun] = useState(false)
 
   const showToast = useCallback((text: string, type: 'ok' | 'err' = 'ok') => {
     setToast({ text, type })
@@ -136,6 +142,21 @@ export function PartnersAppPage() {
       .catch((e: Error) => showToast(e.message, 'err'))
       .finally(() => setLoading(false))
   }, [navigate, refresh, showToast])
+
+  useEffect(() => {
+    const uid = String(user?.id || profile?.user_id || '').trim()
+    if (!uid || loading) return
+    setShowFirstRun(!hasCompletedFirstRun(uid, 'partners'))
+  }, [user?.id, profile?.user_id, loading])
+
+  function completeFirstRun() {
+    const uid = String(user?.id || profile?.user_id || '').trim()
+    if (uid) markFirstRunComplete(uid, 'partners')
+    setShowFirstRun(false)
+    if (location.pathname === base || location.pathname === `${base}/`) {
+      navigate(`${base}/mercado`, { replace: true })
+    }
+  }
 
   useEffect(() => {
     if (inviteHandled.current || !getPartnersToken()) return
@@ -214,6 +235,17 @@ export function PartnersAppPage() {
   }
 
   const totals = dashboard?.totals || {}
+
+  if (showFirstRun) {
+    return (
+      <AffiliateFirstRunOnboarding
+        userName={profile?.display_name || user?.name}
+        brandName="LeadCapture Parceiros"
+        onComplete={completeFirstRun}
+        onSkip={completeFirstRun}
+      />
+    )
+  }
 
   return (
     <div className="affiliate-app" style={{ '--affiliate-accent': GLOBAL_ACCENT } as React.CSSProperties}>

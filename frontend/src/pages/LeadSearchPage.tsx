@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo, FormEvent } from 'react'
+import { createPortal } from 'react-dom'
 
 /* Haversine distance em km — usado pra saber se um pin esta dentro do raio
    atual do radar (pra esmaecer pins fora). */
@@ -26,6 +27,7 @@ import { PanfleteiroMapMapbox, type PanfleteiroPlace } from '@/components/Panfle
 import { IdeaGeneratorModal } from '@/components/IdeaGeneratorModal'
 import { useProspectBridgeOptional } from '@/lib/agent/ProspectBridgeContext'
 import { ProspectSearchControls } from '@/components/agent/prospect/ProspectSearchControls'
+import { LocationPlaceSearch, type SelectedPlace } from '@/components/LocationPlaceSearch'
 
 /* Sugestões de segmento (substituem emojis por lucide icons — regra UI no_emojis_in_ui) */
 const SUGGESTIONS: Array<{ icon: typeof Smile; label: string; query: string }> = [
@@ -76,22 +78,91 @@ interface Lead {
 function getActiveBrandId(): string | null {
   return localStorage.getItem('lead-system:active-brand-id') || null
 }
-async function fetchBrandSearchState(brandId: string): Promise<Record<string, any> | null> {
+const SEARCH_STATE_LS_PREFIX = 'lead-system:search-state:'
+
+function readLocalSearchState(brandId: string): Record<string, any> | null {
   try {
-    const r = await fetch(`/api/brands/${encodeURIComponent(brandId)}/search-state`, { headers: getHeaders() })
-    if (!r.ok) return null
-    const d = await r.json()
-    return d?.state || null
+    const raw = localStorage.getItem(SEARCH_STATE_LS_PREFIX + brandId)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    return parsed && typeof parsed === 'object' ? parsed : null
   } catch { return null }
 }
+
+function writeLocalSearchState(brandId: string, state: Record<string, any>): void {
+  try {
+    localStorage.setItem(SEARCH_STATE_LS_PREFIX + brandId, JSON.stringify(state))
+  } catch { /* quota / private mode */ }
+}
+
+async function fetchBrandSearchState(brandId: string): Promise<Record<string, any> | null> {
+  /* Preferência: local (instantâneo) mergeado com servidor (fonte de verdade). */
+  const local = readLocalSearchState(brandId)
+  try {
+    const r = await fetch(`/api/brands/${encodeURIComponent(brandId)}/search-state`, { headers: getHeaders() })
+    if (!r.ok) return local
+    const d = await r.json()
+    const remote = d?.state && typeof d.state === 'object' ? d.state : null
+    if (!remote) return local
+    if (!local) return remote
+    /* Mais recente ganha (updated_at). */
+    const lt = Date.parse(String(local.updated_at || 0)) || 0
+    const rt = Date.parse(String(remote.updated_at || 0)) || 0
+    return rt >= lt ? { ...local, ...remote } : { ...remote, ...local }
+  } catch { return local }
+}
+
 async function persistBrandSearchState(brandId: string, state: Record<string, any>): Promise<void> {
+  const payload = { ...state, updated_at: new Date().toISOString() }
+  writeLocalSearchState(brandId, payload)
   try {
     await fetch(`/api/brands/${encodeURIComponent(brandId)}/search-state`, {
       method: 'PATCH',
       headers: getHeaders(),
-      body: JSON.stringify({ state }),
+      body: JSON.stringify({ state: payload }),
     })
-  } catch { /* nao bloqueia UX */ }
+  } catch { /* nao bloqueia UX — local já salvou */ }
+}
+
+/** Coord do place bate com o texto do input (label completo ou short). */
+function placeMatchesLocation(place: SelectedPlace | null | undefined, loc: string): boolean {
+  if (!place || !loc.trim()) return false
+  if (!Number.isFinite(place.latitude) || !Number.isFinite(place.longitude)) return false
+  const t = loc.trim().toLowerCase()
+  const label = (place.label || '').trim().toLowerCase()
+  const short = (place.shortLabel || '').trim().toLowerCase()
+  if (label && label === t) return true
+  if (short && short === t) return true
+  if (label && (label.startsWith(t) || t.startsWith(short || label.split(',')[0]))) return true
+  // partial: "Betim" inside "Betim, Minas Gerais, Brasil"
+  if (short && (label.includes(t) || t.includes(short))) return true
+  return false
+}
+
+/** Usa coords do place se o texto ainda se refere a ele; senão coords válidos recentes do place. */
+function resolvePlaceCoords(
+  place: SelectedPlace | null | undefined,
+  loc: string,
+  explicit?: { latitude?: number; longitude?: number } | null
+): { latitude?: number; longitude?: number; label?: string } {
+  if (Number.isFinite(Number(explicit?.latitude)) && Number.isFinite(Number(explicit?.longitude))) {
+    return {
+      latitude: Number(explicit!.latitude),
+      longitude: Number(explicit!.longitude),
+      label: loc,
+    }
+  }
+  if (place && Number.isFinite(place.latitude) && Number.isFinite(place.longitude)) {
+    // Se o input ainda aponta pro place (ou está vazio/igual), usa coords fixas
+    if (!loc.trim() || placeMatchesLocation(place, loc) || place.source === 'search' || place.source === 'restored' || place.source === 'bridge') {
+      return {
+        latitude: place.latitude,
+        longitude: place.longitude,
+        label: place.label || loc,
+      }
+    }
+  }
+  return {}
 }
 
 /* ══════════════════════════════════════════════
@@ -108,6 +179,9 @@ export function LeadSearchPage({ variant = 'page' }: { variant?: 'page' | 'canva
   /* Form */
   const [query, setQuery] = useState('')
   const [location, setLocation] = useState('')
+  /** Local escolhido no place search (coords reais). */
+  const [selectedPlace, setSelectedPlace] = useState<SelectedPlace | null>(null)
+  const selectedPlaceRef = useRef<SelectedPlace | null>(null)
   const [maxResults, setMaxResults] = useState(20)
   const [automate, setAutomate] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
@@ -128,11 +202,13 @@ export function LeadSearchPage({ variant = 'page' }: { variant?: 'page' | 'canva
   const [stats, setStats] = useState<{ total: number; created: number; skipped: number; automationQueued: number } | null>(null)
   const [searched, setSearched] = useState(false)
 
-  /* Filter + View */
+  /* Filter + View — pinVisibility controla pins no mapa (visivel e validável). */
   const [statusFilter, setStatusFilter] = useState<'all' | 'new' | 'captured'>('all')
   const [searchFilter, setSearchFilter] = useState('')
   const [viewMode, setViewMode] = useState<'list' | 'map'>('map')
   const [capturedPoints, setCapturedPoints] = useState<any[]>([])
+  /* Só novos no radar server-side; espelha statusFilter==='new' quando user escolhe. */
+  // onlyUncaptured already declared above
 
   /* Radar (arrastar mapa sempre busca novo centro — sem toggle) */
   const [autoCapture, setAutoCapture] = useState(false)
@@ -156,9 +232,8 @@ export function LeadSearchPage({ variant = 'page' }: { variant?: 'page' | 'canva
      o user move pra area sem leads do segmento atual. */
   const [lastRadarResult, setLastRadarResult] = useState<{ count: number; at: number } | null>(null)
   /* flyToCenter — quando muda, o componente faz map.flyTo(). Distinto de mapCenter
-     (que é o center "vivo" do mapa). Atualizado SOMENTE após uma busca text-based
-     que retorna leads em outra cidade. */
-  const [flyToCenter, setFlyToCenter] = useState<{ lat: number; lng: number; zoom?: number } | null>(null)
+     (que é o center "vivo" do mapa). key força re-fly mesmo com mesmos lat/lng. */
+  const [flyToCenter, setFlyToCenter] = useState<{ lat: number; lng: number; zoom?: number; key?: number } | null>(null)
   const [recentlyCaptured, setRecentlyCaptured] = useState<string[]>([])
   const [immersive, setImmersive] = useState(false)
   const [pulseTimer] = useState<{ id: ReturnType<typeof setTimeout> | null }>({ id: null })
@@ -182,16 +257,36 @@ export function LeadSearchPage({ variant = 'page' }: { variant?: 'page' | 'canva
   /* Ref do autoCapture — usado no radarSearch para SEMPRE ler valor atual, mesmo
      quando o closure foi capturado com valor antigo (restore async). */
   const autoCaptureRef = useRef(false)
+  /** Cancela radar antigo quando o user arrasta de novo (evita fila de N requests). */
+  const radarAbortRef = useRef<AbortController | null>(null)
+  const radarSeqRef = useRef(0)
+  /** Cap de pins em memória — evita UI/DOM monstro após milhares de arrastes. */
+  const MAX_LEADS_ON_MAP = 400
+  const [radarMeta, setRadarMeta] = useState<{
+    cached?: boolean
+    throttled?: boolean
+    ms?: number
+    message?: string
+  } | null>(null)
 
   useEffect(() => { leadsRef.current = leads }, [leads])
 
-  /* ── Detecta troca de brand pela aba/localStorage ── */
+  /* ── Detecta troca de brand (storage event + poll lento) ──
+     Poll de 800ms + remount do canvas gerava loop de restore/radar. */
   useEffect(() => {
-    const i = setInterval(() => {
+    const sync = () => {
       const cur = getActiveBrandId()
-      if (cur !== activeBrandId) setActiveBrandId(cur)
-    }, 800)
-    return () => clearInterval(i)
+      if (cur && cur !== activeBrandId) setActiveBrandId(cur)
+    }
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === 'lead-system:active-brand-id') sync()
+    }
+    window.addEventListener('storage', onStorage)
+    const i = setInterval(sync, 4000)
+    return () => {
+      window.removeEventListener('storage', onStorage)
+      clearInterval(i)
+    }
   }, [activeBrandId])
 
   /* ── Ao mudar brand, carrega state desse brand e RESETA sessao ── */
@@ -208,6 +303,50 @@ export function LeadSearchPage({ variant = 'page' }: { variant?: 'page' | 'canva
       if (state) {
         if (typeof state.query === 'string') setQuery(state.query)
         if (typeof state.location === 'string') setLocation(state.location)
+
+        /* Âncora da busca: searchCenter > placeLat/Lng > mapCenter */
+        const sc = state.searchCenter && Number.isFinite(Number(state.searchCenter.lat))
+          ? {
+              lat: Number(state.searchCenter.lat),
+              lng: Number(state.searchCenter.lng),
+              zoom: Number(state.searchCenter.zoom) || 13,
+              label: String(state.searchCenter.label || state.geocodedLabel || state.location || ''),
+            }
+          : Number.isFinite(Number(state.placeLat)) && Number.isFinite(Number(state.placeLng))
+            ? {
+                lat: Number(state.placeLat),
+                lng: Number(state.placeLng),
+                zoom: 13,
+                label: String(state.geocodedLabel || state.location || ''),
+              }
+            : state.mapCenter && Number.isFinite(Number(state.mapCenter.lat))
+              ? {
+                  lat: Number(state.mapCenter.lat),
+                  lng: Number(state.mapCenter.lng),
+                  zoom: Number(state.mapCenter.zoom) || 13,
+                  label: String(state.geocodedLabel || state.location || ''),
+                }
+              : null
+
+        if (sc) {
+          const restored: SelectedPlace = {
+            label: sc.label || String(state.location || ''),
+            shortLabel: state.placeShort ? String(state.placeShort) : undefined,
+            latitude: sc.lat,
+            longitude: sc.lng,
+            source: 'restored',
+          }
+          selectedPlaceRef.current = restored
+          setSelectedPlace(restored)
+          setInitialCenter(sc)
+          // Âncora da CIDADE: mapa e flyTo usam searchCenter — NÃO o último pan
+          setMapCenter({ lat: sc.lat, lng: sc.lng, zoom: sc.zoom })
+          setFlyToCenter({ lat: sc.lat, lng: sc.lng, zoom: sc.zoom, key: Date.now() } as any)
+        } else {
+          selectedPlaceRef.current = null
+          setSelectedPlace(null)
+        }
+
         if (typeof state.maxResults === 'number') setMaxResults(state.maxResults)
         if (typeof state.automate === 'boolean') setAutomate(state.automate)
         if (state.radius !== undefined && state.radius !== null) setRadius(String(state.radius))
@@ -217,23 +356,32 @@ export function LeadSearchPage({ variant = 'page' }: { variant?: 'page' | 'canva
         if (typeof state.hasPhoneFilter === 'boolean') setHasPhoneFilter(state.hasPhoneFilter)
         if (typeof state.hasWebsiteFilter === 'boolean') setHasWebsiteFilter(state.hasWebsiteFilter)
         if (typeof state.autoCapture === 'boolean') setAutoCapture(state.autoCapture)
-        if (state.mapCenter && typeof state.mapCenter.lat === 'number' && typeof state.mapCenter.lng === 'number') {
-          setMapCenter({ lat: state.mapCenter.lat, lng: state.mapCenter.lng, zoom: state.mapCenter.zoom || 13 })
+        if (state.statusFilter === 'all' || state.statusFilter === 'new' || state.statusFilter === 'captured') {
+          setStatusFilter(state.statusFilter)
+          if (state.statusFilter === 'new') setOnlyUncaptured(true)
         }
-        /* Restaura ultima acao: se tem query+location salvos, auto-disparar busca
-           silenciosa pra repovoar os leads e manter o mapa exatamente como estava.
-           Prefere radar (usa coords exatas salvas) sempre que tiver mapCenter. */
+        /* mapCenter (pan) só restaura se NÃO houver âncora de cidade — evita voltar pro BH/local antigo */
+        if (
+          !sc &&
+          state.mapCenter &&
+          typeof state.mapCenter.lat === 'number' &&
+          typeof state.mapCenter.lng === 'number'
+        ) {
+          const view = { lat: state.mapCenter.lat, lng: state.mapCenter.lng, zoom: state.mapCenter.zoom || 13 }
+          setMapCenter(view)
+          setFlyToCenter({ ...view, key: Date.now() } as any)
+        }
         const q = (state.query || '').toString().trim()
         const loc = (state.location || '').toString().trim()
-        const c = state.mapCenter
+        const radarAt = sc || (state.mapCenter && Number.isFinite(state.mapCenter.lat)
+          ? { lat: state.mapCenter.lat, lng: state.mapCenter.lng }
+          : null)
         if (q && loc) {
           setSearched(true)
-          /* 600ms — tempo seguro pros setStates do restore (incl. autoCapture)
-             refletirem em todos os refs antes da busca rodar. */
-          if (c && Number.isFinite(c.lat) && Number.isFinite(c.lng)) {
-            setTimeout(() => { if (alive) radarSearchRef.current?.(c.lat, c.lng) }, 600)
+          if (radarAt && Number.isFinite(radarAt.lat) && Number.isFinite(radarAt.lng)) {
+            setTimeout(() => { if (alive) radarSearchRef.current?.(radarAt.lat, radarAt.lng) }, 700)
           } else {
-            setTimeout(() => { if (alive) restoreLastSearchRef.current?.() }, 600)
+            setTimeout(() => { if (alive) restoreLastSearchRef.current?.() }, 700)
           }
         }
       }
@@ -272,13 +420,80 @@ export function LeadSearchPage({ variant = 'page' }: { variant?: 'page' | 'canva
       .catch(() => {})
   }, [])
 
-  /* ESC sai do modo imersivo */
+  /* ESC + trava scroll do body no imersivo (iPad Safari precisa de body lock) */
   useEffect(() => {
     if (!immersive) return
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setImmersive(false) }
+    const prevOverflow = document.body.style.overflow
+    const prevTouch = document.body.style.touchAction
+    document.body.style.overflow = 'hidden'
+    document.body.style.touchAction = 'none'
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    /* resize do visualViewport no iPad — força map.resize via evento */
+    const onVv = () => window.dispatchEvent(new Event('resize'))
+    window.visualViewport?.addEventListener('resize', onVv)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.visualViewport?.removeEventListener('resize', onVv)
+      document.body.style.overflow = prevOverflow
+      document.body.style.touchAction = prevTouch
+    }
   }, [immersive])
+
+  /** Snapshot completo do panfleteiro — searchCenter é a CIDADE, mapCenter é o pan. */
+  const buildPersistPayload = useCallback(() => {
+    const place = selectedPlaceRef.current
+    const anchor =
+      initialCenter && Number.isFinite(initialCenter.lat) && Number.isFinite(initialCenter.lng)
+        ? {
+            lat: initialCenter.lat,
+            lng: initialCenter.lng,
+            zoom: initialCenter.zoom || 13,
+            label: initialCenter.label || location,
+          }
+        : place && Number.isFinite(place.latitude) && Number.isFinite(place.longitude)
+          ? {
+              lat: place.latitude,
+              lng: place.longitude,
+              zoom: 13,
+              label: place.label || location,
+            }
+          : null
+    return {
+      query,
+      location: location || anchor?.label || '',
+      maxResults,
+      automate,
+      radius,
+      minRating,
+      minReviews,
+      onlyUncaptured,
+      hasPhoneFilter,
+      hasWebsiteFilter,
+      autoCapture,
+      statusFilter,
+      mapCenter,
+      /* NUNCA preenche searchCenter com mapCenter do pan — isso voltava pro local errado */
+      searchCenter: anchor,
+      geocodedLabel: anchor?.label || place?.label || location,
+      placeLat: place?.latitude ?? anchor?.lat ?? null,
+      placeLng: place?.longitude ?? anchor?.lng ?? null,
+      placeShort: place?.shortLabel || null,
+    }
+  }, [
+    query, location, maxResults, automate, radius, minRating, minReviews,
+    onlyUncaptured, hasPhoneFilter, hasWebsiteFilter, autoCapture, statusFilter,
+    mapCenter, initialCenter,
+  ])
+
+  const persistNow = useCallback((brandId: string | null, extra?: Record<string, any>, opts?: { force?: boolean }) => {
+    if (!brandId) return
+    /* force=true: grava local da busca mesmo se restore ainda não liberou o gate
+       (evita perder cidade escolhida na lista). */
+    if (!opts?.force && stateLoadedForBrand.current !== brandId) return
+    const payload = { ...buildPersistPayload(), ...extra }
+    void persistBrandSearchState(brandId, payload)
+  }, [buildPersistPayload])
 
   /* ── Debounced save por brand ──
      GATE: só salva DEPOIS que o restore terminou pra esse brand. Sem isso, ao
@@ -289,17 +504,21 @@ export function LeadSearchPage({ variant = 'page' }: { variant?: 'page' | 'canva
     if (stateLoadedForBrand.current !== activeBrandId) return // gate
     if (saveTimer.current) clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(() => {
-      persistBrandSearchState(activeBrandId, {
-        query, location, maxResults, automate, radius,
-        minRating, minReviews, onlyUncaptured, hasPhoneFilter, hasWebsiteFilter,
-        mapCenter, autoCapture,
-      })
-    }, 1200)
+      persistNow(activeBrandId)
+    }, 900)
     return () => { if (saveTimer.current) clearTimeout(saveTimer.current) }
-  }, [activeBrandId, query, location, maxResults, automate, radius, minRating, minReviews, onlyUncaptured, hasPhoneFilter, hasWebsiteFilter, mapCenter, autoCapture])
+  }, [
+    activeBrandId, query, location, maxResults, automate, radius, minRating, minReviews,
+    onlyUncaptured, hasPhoneFilter, hasWebsiteFilter, mapCenter, autoCapture, statusFilter,
+    initialCenter, selectedPlace, persistNow,
+  ])
 
   // ── Standard search (também chamado pelo chat via ProspectBridge) ──
-  const runTextSearch = useCallback(async (q: string, loc: string) => {
+  const runTextSearch = useCallback(async (
+    q: string,
+    loc: string,
+    coords?: { latitude?: number; longitude?: number } | null
+  ) => {
     const trimmedQ = q.trim()
     const trimmedLoc = loc.trim()
     if (!trimmedQ || !trimmedLoc) return
@@ -308,41 +527,112 @@ export function LeadSearchPage({ variant = 'page' }: { variant?: 'page' | 'canva
     setLoading(true); setError(''); setSearched(true)
     setRadarCount(0); setCapturedLive(0); setStatusFilter('all')
     setViewMode('map')
+
+    // Prefere coords do place picker (sempre que o local ainda for o selecionado)
+    const place = selectedPlaceRef.current
+    const resolved = resolvePlaceCoords(place, trimmedLoc, coords)
+    const latitude = resolved.latitude
+    const longitude = resolved.longitude
+    const locLabel = (resolved.label || trimmedLoc).trim()
+
     try {
-      const body: Record<string, any> = { query: trimmedQ, location: trimmedLoc, maxResults, executeAutomation: automate }
+      const body: Record<string, any> = {
+        query: trimmedQ,
+        location: locLabel,
+        maxResults,
+        executeAutomation: automate,
+      }
       if (radius && Number(radius) > 0) body.radius = Number(radius) * 1000
+      if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
+        body.latitude = latitude
+        body.longitude = longitude
+      }
       const r = await fetch('/api/leads/search', { method: 'POST', headers: getHeaders(), body: JSON.stringify(body) })
       const d = await r.json()
       if (!r.ok) throw new Error(d.error || `Erro ${r.status}`)
-      const resultLeads = d.leads || []
+      let resultLeads: Lead[] = d.leads || []
+      /* Filtro client imediato se "só novos" */
+      if (onlyUncaptured || statusFilter === 'new') {
+        resultLeads = resultLeads.filter((l) => l.captureStatus !== 'captured')
+      } else if (statusFilter === 'captured') {
+        resultLeads = resultLeads.filter((l) => l.captureStatus === 'captured')
+      }
       const resultStats = { total: d.total || 0, created: d.persisted?.created || 0, skipped: d.persisted?.skipped || 0, automationQueued: d.automation?.queued_jobs || 0 }
       leadsRef.current = resultLeads
       setLeads(resultLeads)
       setCapturedPoints(d.capturedPoints || [])
       setStats(resultStats)
-      /* CENTRALIZA O MAPA na localizacao buscada — usa center do backend OU
-         primeiro lead com location valida. Corrige bug "buscou Fortaleza, mapa
-         continua em BH". */
-      const c = d.center && Number.isFinite(d.center?.latitude) && Number.isFinite(d.center?.longitude)
-        ? { lat: Number(d.center.latitude), lng: Number(d.center.longitude), zoom: 13 }
-        : (() => {
+      /* CENTRALIZA O MAPA no geocode real — prioridade: client place > backend geo > first lead */
+      const geo = d.geocoded || d.center
+      const c = Number.isFinite(latitude) && Number.isFinite(longitude)
+        ? {
+            lat: Number(latitude),
+            lng: Number(longitude),
+            zoom: 13,
+            label: String(place?.label || geo?.label || locLabel || trimmedLoc),
+          }
+        : geo && Number.isFinite(Number(geo?.latitude ?? geo?.lat)) && Number.isFinite(Number(geo?.longitude ?? geo?.lng))
+          ? {
+              lat: Number(geo.latitude ?? geo.lat),
+              lng: Number(geo.longitude ?? geo.lng),
+              zoom: 13,
+              label: String(geo.label || locLabel || trimmedLoc),
+            }
+          : (() => {
             const first = resultLeads.find((l: any) =>
               Number.isFinite(Number(l?.location?.latitude)) &&
               Number.isFinite(Number(l?.location?.longitude)) &&
-              !(Number(l.location.latitude) === 0 && Number(l.location.longitude) === 0)
+              !(Number(l?.location?.latitude) === 0 && Number(l?.location?.longitude) === 0)
             )
-            return first ? { lat: Number(first.location.latitude), lng: Number(first.location.longitude), zoom: 13 } : null
+            return first?.location
+              ? { lat: Number(first.location.latitude), lng: Number(first.location.longitude), zoom: 13, label: locLabel || trimmedLoc }
+              : null
           })()
       if (c) {
-        setFlyToCenter(c)
+        const label = c.label || locLabel || trimmedLoc
+        setFlyToCenter({ lat: c.lat, lng: c.lng, zoom: c.zoom, key: Date.now() })
         setMapCenter({ lat: c.lat, lng: c.lng, zoom: c.zoom ?? 13 })
-        /* Marca este como o ponto INICIAL — usado pra mostrar "Voltar" no card
-           e diferenciar visualmente quando o user arrastou o mapa pra outro lugar. */
-        setInitialCenter({ lat: c.lat, lng: c.lng, zoom: c.zoom ?? 13, label: trimmedLoc })
+        setInitialCenter({ lat: c.lat, lng: c.lng, zoom: c.zoom ?? 13, label })
+        const synced: SelectedPlace = {
+          label,
+          shortLabel: place?.shortLabel || label.split(',')[0],
+          latitude: c.lat,
+          longitude: c.lng,
+          source: 'search',
+        }
+        selectedPlaceRef.current = synced
+        setSelectedPlace(synced)
+        setLocation(label)
+        /* Persistência IMEDIATA da âncora (force — não espera debounce) */
+        if (activeBrandId) {
+          void persistBrandSearchState(activeBrandId, {
+            query: trimmedQ,
+            location: label,
+            maxResults,
+            automate,
+            radius,
+            minRating,
+            minReviews,
+            onlyUncaptured,
+            hasPhoneFilter,
+            hasWebsiteFilter,
+            autoCapture,
+            statusFilter,
+            mapCenter: { lat: c.lat, lng: c.lng, zoom: c.zoom ?? 13 },
+            searchCenter: { lat: c.lat, lng: c.lng, zoom: c.zoom ?? 13, label },
+            geocodedLabel: label,
+            placeLat: c.lat,
+            placeLng: c.lng,
+            placeShort: synced.shortLabel || null,
+            updated_at: new Date().toISOString(),
+          })
+        }
+      } else {
+        setError((prev) => prev || `Não foi possível localizar o endereço "${trimmedLoc}". Escolha um local na lista ou use cidade + UF (ex: Fortaleza, CE).`)
       }
     } catch (err: any) { setError(err.message || 'Erro na busca') }
     finally { setLoading(false) }
-  }, [maxResults, automate, radius])
+  }, [maxResults, automate, radius, activeBrandId, minRating, minReviews, onlyUncaptured, hasPhoneFilter, hasWebsiteFilter, autoCapture, statusFilter])
 
   async function handleSearch(e: FormEvent) {
     e.preventDefault()
@@ -350,10 +640,17 @@ export function LeadSearchPage({ variant = 'page' }: { variant?: 'page' | 'canva
   }
 
   // ── Radar search (panfleteiro — by coordinates) ──
+  // Abort + seq id: só a última busca vale. Cap de pins. Auto-capture via batch.
   const radarSearch = useCallback(async (lat: number, lng: number) => {
     if (!query.trim()) return
+    const seq = ++radarSeqRef.current
+    radarAbortRef.current?.abort()
+    const ac = new AbortController()
+    radarAbortRef.current = ac
+    const t0 = performance.now()
     setRadarLoading(true)
     setProspecting(true)
+    setRadarMeta(null)
     try {
       const searchRadius = Number(radius || 3) * 1000
       const body: Record<string, any> = {
@@ -361,138 +658,205 @@ export function LeadSearchPage({ variant = 'page' }: { variant?: 'page' | 'canva
         latitude: lat,
         longitude: lng,
         radius: searchRadius,
-        maxResults: Math.min(maxResults, 40),
-        /* Filtros server-side (Panfleteiro V2) */
+        maxResults: Math.min(maxResults, 30),
         minRating, minReviews,
         onlyUncaptured, hasPhone: hasPhoneFilter, hasWebsite: hasWebsiteFilter,
       }
-      const r = await fetch('/api/leads/radar-search', { method: 'POST', headers: getHeaders(), body: JSON.stringify(body) })
-      const d = await r.json()
-      if (!r.ok) throw new Error(d.error)
+      const r = await fetch('/api/leads/radar-search', {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify(body),
+        signal: ac.signal,
+      })
+      const d = await r.json().catch(() => ({}))
+      if (seq !== radarSeqRef.current) return // stale
+      if (r.status === 429 || d?.rate_limited) {
+        setRadarMeta({
+          throttled: true,
+          message: d.error || 'Limite do mapa — aguarde ~45s (áreas já buscadas usam cache)',
+        })
+        // Não zera o mapa: mantém pins existentes
+        return
+      }
+      if (!r.ok) {
+        // 502/500: mantém pins e avisa (não quebra a sessão)
+        setRadarMeta({
+          throttled: r.status === 502,
+          message: d.error || `Radar indisponível (${r.status}) — tente de novo em instantes`,
+        })
+        return
+      }
       const radarLeads: Lead[] = d.leads || []
-      /* Marca o ultimo resultado do radar — usado pra feedback "0 aqui" no card */
       setLastRadarResult({ count: radarLeads.length, at: Date.now() })
+      setRadarMeta({
+        cached: !!d.cached || !!d.deduped || !!d.stale,
+        ms: Math.round(performance.now() - t0),
+        message: d.stale
+          ? 'Cache (provedor no limite)'
+          : d.cached
+            ? 'Cache'
+            : d.deduped
+              ? 'Dedup'
+              : 'Ao vivo',
+      })
 
-      // Merge with existing (deduplicate by id)
       const existingIds = new Set(leadsRef.current.map(l => l.id))
       const newOnes = radarLeads.filter(l => !existingIds.has(l.id))
       setLeads(prev => {
         const ids = new Set(prev.map(l => l.id))
-        const nextNewOnes = newOnes.filter(l => !ids.has(l.id))
-        const next = [...prev, ...nextNewOnes]
+        let incoming = newOnes.filter(l => !ids.has(l.id))
+        /* Respeita filtro de pins já no merge — evita acumular captados “invisíveis” */
+        if (onlyUncaptured || statusFilter === 'new') {
+          incoming = incoming.filter(l => l.captureStatus !== 'captured')
+        } else if (statusFilter === 'captured') {
+          incoming = incoming.filter(l => l.captureStatus === 'captured')
+        }
+        let next = [...prev, ...incoming]
+        if (onlyUncaptured || statusFilter === 'new') {
+          next = next.filter(l => l.captureStatus !== 'captured')
+        }
+        // Cap: mantém capturados + os mais próximos do centro atual
+        if (next.length > MAX_LEADS_ON_MAP) {
+          const scored = next.map((l) => {
+            const la = Number(l.location?.latitude)
+            const ln = Number(l.location?.longitude)
+            const dist =
+              Number.isFinite(la) && Number.isFinite(ln)
+                ? haversineKm(lat, lng, la, ln)
+                : 999
+            const priority = l.captureStatus === 'captured' ? 0 : 1
+            return { l, dist, priority }
+          })
+          scored.sort((a, b) => a.priority - b.priority || a.dist - b.dist)
+          next = scored.slice(0, MAX_LEADS_ON_MAP).map((s) => s.l)
+        }
         leadsRef.current = next
         return next
       })
       setRadarCount(c => c + newOnes.length)
-
-      // Update stats in real-time
       setStats(prev => prev ? {
         ...prev,
         total: prev.total + newOnes.length,
       } : { total: radarLeads.length, created: 0, skipped: 0, automationQueued: 0 })
 
-      // Auto-capture: persist each new lead individually via capture-manual.
-      // Usa autoCaptureRef em vez de closure pra evitar stale value no auto-restore.
+      // Auto-capture em BATCH (1 request) — não N× capture-manual de 16s
       const captureCandidates = newOnes.filter(lead => lead.captureStatus !== 'captured')
       if (autoCaptureRef.current && captureCandidates.length > 0) {
-        let capturedThisRound = 0
-        for (const lead of captureCandidates) {
-          try {
-            const captureBody = {
-              lead: {
+        try {
+          const cr = await fetch('/api/leads/capture-batch', {
+            method: 'POST',
+            headers: getHeaders(),
+            body: JSON.stringify({
+              leads: captureCandidates.map((lead) => ({
                 placeId: lead.id, name: lead.name, phone: lead.phone,
                 address: lead.address, rating: lead.rating, reviews: lead.reviews,
                 category: lead.category, website: lead.website,
                 googleMapsUri: lead.googleMapsUri, businessStatus: lead.businessStatus,
                 location: lead.location,
-              },
+              })),
               query: query.trim(),
               location: `${lat.toFixed(4)},${lng.toFixed(4)}`,
               executeAutomation: automate,
-            }
-            const cr = await fetch('/api/leads/capture-manual', { method: 'POST', headers: getHeaders(), body: JSON.stringify(captureBody) })
-            const cd = await cr.json()
-            const created = cd.success && (cd.capture?.status === 'created' || Number(cd.capture?.persisted?.created || 0) > 0)
-            const captured = cd.success && ['created', 'existing', 'captured'].includes(String(cd.capture?.status || ''))
-            if (captured) {
-              setLeads(prev => {
-                const next = prev.map(l => l.id === lead.id ? { ...l, captureStatus: 'captured' as const } : l)
-                leadsRef.current = next
-                return next
-              })
-            }
-            if (created) {
-              capturedThisRound++
-              setCapturedLive(c => c + 1)
-              /* Anima pulse no pin recém-captado */
-              setRecentlyCaptured((prev) => [...new Set([...prev, lead.id])])
-              /* Remove do "recém" depois de 1.6s pra parar a animação */
+            }),
+            signal: ac.signal,
+          })
+          const cd = await cr.json().catch(() => ({}))
+          if (seq !== radarSeqRef.current) return
+          if (cd.success) {
+            const createdIds = new Set<string>([
+              ...(cd.createdPlaceIds || []),
+              ...(cd.existingPlaceIds || []),
+            ].map(String))
+            const createdCount = Number(cd.created || 0)
+            setLeads(prev => {
+              const next = prev.map(l =>
+                createdIds.has(l.id) ? { ...l, captureStatus: 'captured' as const } : l
+              )
+              leadsRef.current = next
+              return next
+            })
+            if (createdCount > 0) {
+              setCapturedLive(c => c + createdCount)
+              const pulseIds = (cd.createdPlaceIds || []).map(String)
+              setRecentlyCaptured((prev) => [...new Set([...prev, ...pulseIds])])
               setTimeout(() => {
-                setRecentlyCaptured((prev) => prev.filter((id) => id !== lead.id))
+                setRecentlyCaptured((prev) => prev.filter((id) => !pulseIds.includes(id)))
               }, 1600)
+              setStats(prev => prev ? { ...prev, created: prev.created + createdCount } : prev)
+              refreshBrandStats()
             }
-            if (Array.isArray(cd.capturedPoints)) setCapturedPoints(cd.capturedPoints)
-          } catch {}
-        }
-        if (capturedThisRound > 0) {
-          setStats(prev => prev ? { ...prev, created: prev.created + capturedThisRound } : prev)
-          /* Refresh autoritativo do BD em vez de incremento otimista */
-          refreshBrandStats()
+          }
+        } catch (e: any) {
+          if (e?.name !== 'AbortError') { /* ignore batch fail */ }
         }
       }
+    } catch (e: any) {
+      if (e?.name === 'AbortError') return
+      setRadarMeta({ message: e?.message || 'Falha no radar' })
+    } finally {
+      if (seq === radarSeqRef.current) {
+        setRadarLoading(false)
+        setTimeout(() => setProspecting(false), 400)
+      }
+    }
+  }, [query, radius, maxResults, automate, minRating, minReviews, onlyUncaptured, hasPhoneFilter, hasWebsiteFilter, refreshBrandStats, statusFilter])
 
-    } catch {}
-    setRadarLoading(false)
-    setTimeout(() => setProspecting(false), 500)
-    /* autoCapture intencionalmente fora das deps — usa autoCaptureRef pra ler valor atual. */
-  }, [query, radius, maxResults, automate, minRating, minReviews, onlyUncaptured, hasPhoneFilter, hasWebsiteFilter, refreshBrandStats])
-
-  /* Captura em lote: pega todos os leads "new" visiveis e dispara captureManual
-     em sequencia. Atualiza state em tempo real (cada captura empurra um pulse). */
+  /* Captura em lote via endpoint batch (rápido) */
   const captureBatch = useCallback(async () => {
     if (batchCapturing) return
     const targets = leadsRef.current.filter(l => l.captureStatus === 'new')
     if (!targets.length) return
     setBatchCapturing(true)
     setProspecting(true)
-    let captured = 0
-    for (const lead of targets) {
-      try {
-        const captureBody = {
-          lead: {
-            placeId: lead.id, name: lead.name, phone: lead.phone,
-            address: lead.address, rating: lead.rating, reviews: lead.reviews,
-            category: lead.category, website: lead.website,
-            googleMapsUri: lead.googleMapsUri, businessStatus: lead.businessStatus,
-            location: lead.location,
-          },
-          query: query.trim(),
-          location: location.trim() || `${mapCenter.lat.toFixed(4)},${mapCenter.lng.toFixed(4)}`,
-          executeAutomation: automate,
+    try {
+      // Processa em chunks de 60 pra não estourar body
+      let captured = 0
+      for (let i = 0; i < targets.length; i += 60) {
+        const chunk = targets.slice(i, i + 60)
+        const cr = await fetch('/api/leads/capture-batch', {
+          method: 'POST',
+          headers: getHeaders(),
+          body: JSON.stringify({
+            leads: chunk.map((lead) => ({
+              placeId: lead.id, name: lead.name, phone: lead.phone,
+              address: lead.address, rating: lead.rating, reviews: lead.reviews,
+              category: lead.category, website: lead.website,
+              googleMapsUri: lead.googleMapsUri, businessStatus: lead.businessStatus,
+              location: lead.location,
+            })),
+            query: query.trim(),
+            location: location.trim() || `${mapCenter.lat.toFixed(4)},${mapCenter.lng.toFixed(4)}`,
+            executeAutomation: automate,
+          }),
+        })
+        const cd = await cr.json().catch(() => ({}))
+        if (!cd.success) continue
+        const doneIds = new Set<string>([
+          ...(cd.createdPlaceIds || []),
+          ...(cd.existingPlaceIds || []),
+        ].map(String))
+        captured += Number(cd.created || 0)
+        setLeads(prev => {
+          const next = prev.map(l =>
+            doneIds.has(l.id) ? { ...l, captureStatus: 'captured' as const } : l
+          )
+          leadsRef.current = next
+          return next
+        })
+        const pulseIds = (cd.createdPlaceIds || []).map(String)
+        if (pulseIds.length) {
+          setRecentlyCaptured(prev => [...new Set([...prev, ...pulseIds])])
+          setTimeout(() => setRecentlyCaptured(prev => prev.filter(id => !pulseIds.includes(id))), 1600)
         }
-        const cr = await fetch('/api/leads/capture-manual', { method: 'POST', headers: getHeaders(), body: JSON.stringify(captureBody) })
-        const cd = await cr.json()
-        const ok = cd.success && ['created', 'existing', 'captured'].includes(String(cd.capture?.status || ''))
-        if (ok) {
-          captured++
-          setLeads(prev => {
-            const next = prev.map(l => l.id === lead.id ? { ...l, captureStatus: 'captured' as const } : l)
-            leadsRef.current = next
-            return next
-          })
-          setCapturedLive(c => c + 1)
-          setRecentlyCaptured(prev => [...new Set([...prev, lead.id])])
-          setTimeout(() => setRecentlyCaptured(prev => prev.filter(id => id !== lead.id)), 1600)
-        }
-        if (Array.isArray(cd.capturedPoints)) setCapturedPoints(cd.capturedPoints)
-      } catch { /* segue */ }
-    }
-    setStats(prev => prev ? { ...prev, created: prev.created + captured } : prev)
+      }
+      if (captured > 0) {
+        setCapturedLive(c => c + captured)
+        setStats(prev => prev ? { ...prev, created: prev.created + captured } : prev)
+        refreshBrandStats()
+      }
+    } catch { /* ignore */ }
     setBatchCapturing(false)
-    setTimeout(() => setProspecting(false), 500)
-    /* Refresh autoritativo do BD — substitui o increment otimista pra garantir
-        o numero exato (BD pode rejeitar duplicates, etc). */
-    if (captured > 0) refreshBrandStats()
+    setTimeout(() => setProspecting(false), 400)
   }, [batchCapturing, query, location, automate, mapCenter, refreshBrandStats])
 
   /* Mantém ref atualizada pra restaurar última ação ao trocar de brand */
@@ -524,7 +888,8 @@ export function LeadSearchPage({ variant = 'page' }: { variant?: 'page' | 'canva
   }, [query, location, runTextSearch])
 
   const filtered = leads.filter(l => {
-    if (statusFilter === 'new' && l.captureStatus !== 'new') return false
+    /* onlyUncaptured e statusFilter 'new' = esconder captados no mapa */
+    if ((onlyUncaptured || statusFilter === 'new') && l.captureStatus === 'captured') return false
     if (statusFilter === 'captured' && l.captureStatus !== 'captured') return false
     if (searchFilter) {
       const q = searchFilter.toLowerCase()
@@ -532,6 +897,30 @@ export function LeadSearchPage({ variant = 'page' }: { variant?: 'page' | 'canva
     }
     return true
   })
+
+  /** Troca filtro de pins de forma validável (client + radar). */
+  function setPinVisibility(mode: 'all' | 'new' | 'captured') {
+    setStatusFilter(mode)
+    setOnlyUncaptured(mode === 'new')
+    /* Ao filtrar, limpa pins que não batem — mapa fica limpo na hora */
+    if (mode === 'new') {
+      setLeads(prev => {
+        const next = prev.filter(l => l.captureStatus !== 'captured')
+        leadsRef.current = next
+        return next
+      })
+    } else if (mode === 'captured') {
+      setLeads(prev => {
+        const next = prev.filter(l => l.captureStatus === 'captured')
+        leadsRef.current = next
+        return next
+      })
+    }
+    /* Re-radar no centro atual pra repor pins do modo escolhido */
+    if (query.trim() && mapCenter) {
+      setTimeout(() => radarSearchRef.current?.(mapCenter.lat, mapCenter.lng), 120)
+    }
+  }
 
   const newCount = leads.filter(l => l.captureStatus === 'new').length
   const capturedCount = leads.filter(l => l.captureStatus === 'captured').length
@@ -561,20 +950,55 @@ export function LeadSearchPage({ variant = 'page' }: { variant?: 'page' | 'canva
   useEffect(() => {
     if (!prospectBridge) return
     return prospectBridge.registerHandlers({
-      search: ({ query: q, location: loc, radius: r }) => {
+      search: ({ query: q, location: loc, radius: r, latitude, longitude }) => {
         if (r) setRadius(String(r))
-        return runTextSearch(q, loc)
+        if (Number.isFinite(latitude) && Number.isFinite(longitude) && loc) {
+          const place: SelectedPlace = {
+            label: loc,
+            latitude: Number(latitude),
+            longitude: Number(longitude),
+            source: 'bridge',
+          }
+          selectedPlaceRef.current = place
+          setSelectedPlace(place)
+        }
+        return runTextSearch(q, loc, { latitude, longitude })
       },
       captureBatch: () => { captureBatch() },
       toggleAutoCapture: () => { setAutoCapture((v) => !v) },
       toggleAutomate: () => { setAutomate((v) => !v) },
       setImmersive: (v) => { setImmersive(v) },
       openIdeas: () => { setIdeasModalOpen(true) },
-      apply: ({ query: q, location: loc, radius: r, automate: auto }) => {
+      apply: ({ query: q, location: loc, radius: r, automate: auto, latitude, longitude }) => {
         if (q !== undefined) setQuery(q)
         if (loc !== undefined) setLocation(loc)
         if (r !== undefined) setRadius(String(r))
         if (auto !== undefined) setAutomate(auto)
+        if (Number.isFinite(latitude) && Number.isFinite(longitude) && loc) {
+          const place: SelectedPlace = {
+            label: loc,
+            shortLabel: String(loc).split(',')[0],
+            latitude: Number(latitude),
+            longitude: Number(longitude),
+            source: 'bridge',
+          }
+          selectedPlaceRef.current = place
+          setSelectedPlace(place)
+          setInitialCenter({
+            lat: place.latitude,
+            lng: place.longitude,
+            zoom: 13,
+            label: place.label,
+          })
+          setMapCenter({ lat: place.latitude, lng: place.longitude, zoom: 13 })
+          setFlyToCenter({ lat: place.latitude, lng: place.longitude, zoom: 13, key: Date.now() })
+        } else if (loc !== undefined) {
+          // texto novo sem coords → limpa seleção antiga se o label mudou
+          if (!selectedPlaceRef.current || selectedPlaceRef.current.label.trim() !== loc.trim()) {
+            selectedPlaceRef.current = null
+            setSelectedPlace(null)
+          }
+        }
       },
     })
   }, [prospectBridge, runTextSearch, captureBatch])
@@ -661,71 +1085,107 @@ export function LeadSearchPage({ variant = 'page' }: { variant?: 'page' | 'canva
       {!mapOnly && (
       <form onSubmit={handleSearch} className="bg-white rounded-2xl border border-border-light overflow-hidden">
         {isCompact ? (
-          /* COMPACTO — uma linha so. Mudar segmento/cidade muda a rota; arrasto do mapa
-             continua a busca dinamica. */
-          <div className="p-3 flex items-end gap-2 flex-wrap">
-            <div className="flex-1 min-w-[140px]">
-              <label className="block text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Segmento</label>
-              <div className="relative">
-                <Building2 size={13} strokeWidth={1.75} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-                <input
-                  type="text"
-                  value={query}
-                  onChange={e => setQuery(e.target.value)}
-                  placeholder="pizzaria…"
-                  required
-                  className="w-full h-9 pl-8 pr-2 rounded-lg border border-border bg-white text-[13px] font-medium text-gray-900 placeholder:text-gray-400 placeholder:font-normal focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-900 transition"
-                />
+          /* COMPACTO — segmento + cidade em largura total (local completo legível) */
+          <div className="p-3 space-y-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_auto] gap-2 items-end">
+              <div className="min-w-0">
+                <label className="block text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Segmento</label>
+                <div className="relative">
+                  <Building2 size={13} strokeWidth={1.75} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={query}
+                    onChange={e => setQuery(e.target.value)}
+                    placeholder="pizzaria…"
+                    required
+                    className="w-full h-10 pl-8 pr-2 rounded-lg border border-border bg-white text-[13px] font-medium text-gray-900 placeholder:text-gray-400 placeholder:font-normal focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-900 transition"
+                  />
+                </div>
+              </div>
+              <div className="min-w-0">
+                <label className="block text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Local da busca</label>
+                <div className="relative rounded-lg border border-border bg-white min-h-10 pl-8 pr-1 flex items-center focus-within:ring-2 focus-within:ring-gray-900/10 focus-within:border-gray-900 transition">
+                  <MapPin size={13} strokeWidth={1.75} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none z-[1]" />
+                  <LocationPlaceSearch
+                    variant="inline"
+                    value={location}
+                    selected={selectedPlace}
+                    onChange={setLocation}
+                    onSelect={(place) => {
+                      selectedPlaceRef.current = place
+                      setSelectedPlace(place)
+                      setLocation(place.label)
+                      setInitialCenter({
+                        lat: place.latitude,
+                        lng: place.longitude,
+                        zoom: 13,
+                        label: place.label,
+                      })
+                      setMapCenter({ lat: place.latitude, lng: place.longitude, zoom: 13 })
+                      setFlyToCenter({ lat: place.latitude, lng: place.longitude, zoom: 13, key: Date.now() })
+                      if (activeBrandId) persistNow(activeBrandId, {
+                        location: place.label,
+                        searchCenter: { lat: place.latitude, lng: place.longitude, zoom: 13, label: place.label },
+                        geocodedLabel: place.label,
+                        placeLat: place.latitude,
+                        placeLng: place.longitude,
+                        placeShort: place.shortLabel || null,
+                        mapCenter: { lat: place.latitude, lng: place.longitude, zoom: 13 },
+                      }, { force: true })
+                    }}
+                    onClearPlace={() => {
+                      selectedPlaceRef.current = null
+                      setSelectedPlace(null)
+                    }}
+                    placeholder="Buscar cidade ou bairro…"
+                    required
+                    inputClassName="w-full min-h-10 py-2 pr-1 text-[12px] sm:text-[13px] font-medium text-gray-900 placeholder:text-gray-400 placeholder:font-normal focus:outline-none bg-transparent"
+                  />
+                </div>
+              </div>
+              <div className="flex items-end gap-2 flex-wrap sm:flex-nowrap">
+                <div className="flex-1 min-w-[120px]">
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Raio</label>
+                    <span className="text-[10px] font-semibold text-gray-700 tabular-nums">
+                      {(() => { const n = Number(radius || 3); return n < 1 ? `${Math.round(n * 1000)}m` : `${n.toFixed(n < 10 ? 1 : 0)}km` })()}
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0.5}
+                    max={30}
+                    step={0.5}
+                    value={Number(radius || 3)}
+                    onChange={e => setRadius(e.target.value)}
+                    className="w-full h-1.5 rounded-full appearance-none cursor-pointer accent-gray-900 mt-2"
+                    style={{
+                      background: `linear-gradient(to right, #111827 0%, #111827 ${((Number(radius || 3) - 0.5) / 29.5) * 100}%, #e5e7eb ${((Number(radius || 3) - 0.5) / 29.5) * 100}%, #e5e7eb 100%)`,
+                    }}
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  title="Mudar de rota / cidade — re-centraliza o mapa"
+                  className="h-10 px-4 inline-flex items-center justify-center gap-1.5 rounded-lg bg-gray-900 text-white font-semibold text-[12px] tracking-tight hover:bg-gray-800 disabled:opacity-40 active:scale-[0.99] transition shrink-0"
+                >
+                  {loading ? <Loader2 size={13} className="animate-spin" /> : <Search size={13} strokeWidth={2.25} />}
+                  {loading ? 'Buscando…' : 'Mudar rota'}
+                </button>
               </div>
             </div>
-            <div className="flex-1 min-w-[140px]">
-              <label className="block text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Cidade</label>
-              <div className="relative">
-                <MapPin size={13} strokeWidth={1.75} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-                <input
-                  type="text"
-                  value={location}
-                  onChange={e => setLocation(e.target.value)}
-                  placeholder="São Paulo…"
-                  required
-                  className="w-full h-9 pl-8 pr-2 rounded-lg border border-border bg-white text-[13px] font-medium text-gray-900 placeholder:text-gray-400 placeholder:font-normal focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-900 transition"
-                />
-              </div>
-            </div>
-            <div className="flex-[1.2] min-w-[180px]">
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Raio</label>
-                <span className="text-[10px] font-semibold text-gray-700 tabular-nums">
-                  {(() => { const n = Number(radius || 3); return n < 1 ? `${Math.round(n * 1000)}m` : `${n.toFixed(n < 10 ? 1 : 0)}km` })()}
-                </span>
-              </div>
-              <input
-                type="range"
-                min={0.5}
-                max={30}
-                step={0.5}
-                value={Number(radius || 3)}
-                onChange={e => setRadius(e.target.value)}
-                className="w-full h-1.5 rounded-full appearance-none cursor-pointer accent-gray-900 mt-2"
-                style={{
-                  background: `linear-gradient(to right, #111827 0%, #111827 ${((Number(radius || 3) - 0.5) / 29.5) * 100}%, #e5e7eb ${((Number(radius || 3) - 0.5) / 29.5) * 100}%, #e5e7eb 100%)`,
-                }}
-              />
-            </div>
-            <button
-              type="submit"
-              disabled={loading}
-              title="Mudar de rota / cidade — re-centraliza o mapa"
-              className="h-9 px-4 inline-flex items-center justify-center gap-1.5 rounded-lg bg-gray-900 text-white font-semibold text-[12px] tracking-tight hover:bg-gray-800 disabled:opacity-40 active:scale-[0.99] transition"
-            >
-              {loading ? <Loader2 size={13} className="animate-spin" /> : <Search size={13} strokeWidth={2.25} />}
-              {loading ? 'Buscando…' : 'Mudar rota'}
-            </button>
+            {selectedPlace?.label && (
+              <p className="text-[11px] text-gray-500 leading-snug pl-0.5 truncate" title={selectedPlace.label}>
+                <span className="font-semibold text-emerald-700">Local fixado:</span>{' '}
+                {selectedPlace.label}
+              </p>
+            )}
           </div>
         ) : (
-          /* EXPANSIVO — primeira busca, conteudo amplo + chips */
+          /* EXPANSIVO — primeira busca, local em linha própria com espaço total */
           <div className="p-4 space-y-3">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3">
               <div>
                 <label className="block text-[12px] font-semibold text-gray-700 mb-1.5">Segmento</label>
                 <div className="relative">
@@ -742,18 +1202,53 @@ export function LeadSearchPage({ variant = 'page' }: { variant?: 'page' | 'canva
                 </div>
               </div>
               <div>
-                <label className="block text-[12px] font-semibold text-gray-700 mb-1.5">Cidade</label>
-                <div className="relative">
-                  <MapPin size={15} strokeWidth={1.75} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-                  <input
-                    type="text"
+                <label className="block text-[12px] font-semibold text-gray-700 mb-1.5">Local da busca</label>
+                <div className="relative rounded-xl border border-border bg-white min-h-11 pl-10 pr-2 flex items-center focus-within:ring-4 focus-within:ring-gray-900/5 focus-within:border-gray-900 transition">
+                  <MapPin size={15} strokeWidth={1.75} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none z-[1]" />
+                  <LocationPlaceSearch
+                    variant="inline"
                     value={location}
-                    onChange={e => setLocation(e.target.value)}
-                    placeholder="São Paulo, BH…"
+                    selected={selectedPlace}
+                    onChange={setLocation}
+                    onSelect={(place) => {
+                      selectedPlaceRef.current = place
+                      setSelectedPlace(place)
+                      setLocation(place.label)
+                      setInitialCenter({
+                        lat: place.latitude,
+                        lng: place.longitude,
+                        zoom: 13,
+                        label: place.label,
+                      })
+                      setMapCenter({ lat: place.latitude, lng: place.longitude, zoom: 13 })
+                      setFlyToCenter({ lat: place.latitude, lng: place.longitude, zoom: 13, key: Date.now() })
+                      if (activeBrandId) persistNow(activeBrandId, {
+                        location: place.label,
+                        searchCenter: { lat: place.latitude, lng: place.longitude, zoom: 13, label: place.label },
+                        geocodedLabel: place.label,
+                        placeLat: place.latitude,
+                        placeLng: place.longitude,
+                        placeShort: place.shortLabel || null,
+                        mapCenter: { lat: place.latitude, lng: place.longitude, zoom: 13 },
+                      }, { force: true })
+                    }}
+                    onClearPlace={() => {
+                      selectedPlaceRef.current = null
+                      setSelectedPlace(null)
+                    }}
+                    placeholder="Digite e escolha a cidade ou bairro na lista…"
                     required
-                    className="w-full h-11 pl-10 pr-3 rounded-xl border border-border bg-white text-sm font-medium text-gray-900 placeholder:text-gray-400 placeholder:font-normal focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900 transition"
+                    inputClassName="w-full min-h-11 py-2.5 pr-1 text-sm font-medium text-gray-900 placeholder:text-gray-400 placeholder:font-normal focus:outline-none bg-transparent"
                   />
                 </div>
+                {selectedPlace?.label && (
+                  <p className="mt-1.5 text-[11px] text-gray-500 leading-snug" title={selectedPlace.label}>
+                    <span className="inline-flex items-center gap-1 font-semibold text-emerald-700">
+                      <MapPin size={11} /> Confirmado
+                    </span>
+                    {' — '}{selectedPlace.label}
+                  </p>
+                )}
               </div>
             </div>
 
@@ -886,9 +1381,13 @@ export function LeadSearchPage({ variant = 'page' }: { variant?: 'page' | 'canva
             </div>
             <div className="flex flex-wrap gap-3 pt-1 border-t border-gray-200/60">
               <label className="inline-flex items-center gap-2 cursor-pointer text-[12px] font-semibold text-gray-700 pt-2">
-                <input type="checkbox" checked={onlyUncaptured} onChange={e => setOnlyUncaptured(e.target.checked)}
-                  className="w-4 h-4 rounded border-gray-300 text-gray-900 focus:ring-gray-400" />
-                Só novos (não captados)
+                <input
+                  type="checkbox"
+                  checked={onlyUncaptured || statusFilter === 'new'}
+                  onChange={e => setPinVisibility(e.target.checked ? 'new' : 'all')}
+                  className="w-4 h-4 rounded border-gray-300 text-gray-900 focus:ring-gray-400"
+                />
+                Só novos no mapa (esconde captados)
               </label>
               <label className="inline-flex items-center gap-2 cursor-pointer text-[12px] font-semibold text-gray-700 pt-2">
                 <input type="checkbox" checked={hasPhoneFilter} onChange={e => setHasPhoneFilter(e.target.checked)}
@@ -964,23 +1463,31 @@ export function LeadSearchPage({ variant = 'page' }: { variant?: 'page' | 'canva
                 </button>
               </div>
 
-              {/* Status filter */}
-              <div className="inline-flex bg-gray-100 p-0.5 rounded-full">
+              {/* Pins no mapa — filtro validável (some + radar) */}
+              <div className="inline-flex bg-gray-100 p-0.5 rounded-full" role="group" aria-label="Pins no mapa">
                 {([
                   ['all', 'Todos', leads.length],
-                  ['new', 'Novos', newCount],
-                  ['captured', 'Existentes', capturedCount],
+                  ['new', 'Só novos', newCount],
+                  ['captured', 'Só captados', capturedCount],
                 ] as const).map(([k, l, c]) => (
                   <button
                     key={k}
-                    onClick={() => setStatusFilter(k)}
+                    type="button"
+                    onClick={() => setPinVisibility(k)}
                     aria-pressed={statusFilter === k}
+                    title={
+                      k === 'new'
+                        ? 'Mostrar só leads ainda não captados'
+                        : k === 'captured'
+                          ? 'Mostrar só pins já captados'
+                          : 'Mostrar todos os pins'
+                    }
                     className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-full text-[11px] font-semibold transition ${
-                      statusFilter === k ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+                      statusFilter === k ? 'bg-white text-gray-900 shadow-sm ring-1 ring-gray-900/10' : 'text-gray-600 hover:text-gray-900'
                     }`}
                   >
                     {l}
-                    <span className={`tabular-nums ${statusFilter === k ? 'text-gray-400' : 'text-gray-400'}`}>{c}</span>
+                    <span className="tabular-nums text-gray-400">{c}</span>
                   </button>
                 ))}
               </div>
@@ -1005,18 +1512,32 @@ export function LeadSearchPage({ variant = 'page' }: { variant?: 'page' | 'canva
               O componente PanfleteiroMapMapbox preenche 100% do outer.
               NOTA: mapa sempre full-width — o painel de detalhes é overlay absolute pra
               nao redimensionar o mapa (Mapbox nao re-render markers em resize de flex). */}
-          {(mapOnly || viewMode === 'map') && (
-            <div
-              className={`${immersive ? 'fixed inset-0 z-[200] bg-black' : mapOnly ? 'relative flex-1 min-h-0 w-full' : 'relative w-full'}`}
-              /* isolation: isolate cria um stacking context proprio — sem isso, os
-                 z-index dos overlays internos (RadarCard, legend, etc) competem com
-                 sidebar (z-30) e bottomnav (z-40) e vazam por cima da UI ao scrollar. */
-              style={immersive ? undefined : {
-                height: mapOnly ? '100%' : '560px',
-                isolation: 'isolate',
-                minHeight: mapOnly ? (isInlineMap ? '200px' : '320px') : undefined,
-              }}
-            >
+          {(mapOnly || viewMode === 'map') && (() => {
+            const mapShell = (
+              <div
+                className={immersive
+                  ? 'prospect-immersive-root fixed inset-0 bg-black'
+                  : mapOnly
+                    ? 'relative flex-1 min-h-0 w-full'
+                    : 'relative w-full'}
+                style={immersive
+                  ? {
+                      zIndex: 10000,
+                      position: 'fixed',
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      width: '100vw',
+                      height: '100dvh',
+                      maxHeight: '-webkit-fill-available',
+                    }
+                  : {
+                      height: mapOnly ? '100%' : '560px',
+                      isolation: 'isolate',
+                      minHeight: mapOnly ? (isInlineMap ? '200px' : '320px') : undefined,
+                    }}
+              >
               {mapOnly && loading && (
                 <div className="absolute inset-0 z-10 grid place-items-center bg-black/30 backdrop-blur-[1px]">
                   <Loader2 size={22} className="animate-spin text-white" />
@@ -1032,7 +1553,6 @@ export function LeadSearchPage({ variant = 'page' }: { variant?: 'page' | 'canva
                   location: l.location || null,
                   captureStatus: l.captureStatus,
                   prospectStatus: l.captureStatus === 'captured' ? 'new' : null,
-                  /* Marca pins fora do raio atual pra esmaecer visualmente */
                   outOfRange: !inRangeIds.has(l.id),
                 }))}
                 recentlyCapturedIds={recentlyCaptured}
@@ -1040,13 +1560,25 @@ export function LeadSearchPage({ variant = 'page' }: { variant?: 'page' | 'canva
                 immersive={immersive}
                 height="100%"
                 statusBadge={{
-                  label: radarLoading ? 'Buscando…' : prospecting ? 'Prospectando' : 'Radar ativo',
-                  /* Radar ativo idle = verde pulsando (done). Searching = amber pulsing. */
-                  tone: radarLoading ? 'searching' : prospecting ? 'searching' : 'done',
+                  label: radarLoading
+                    ? 'Buscando…'
+                    : radarMeta?.throttled
+                      ? 'Ritmo alto'
+                      : radarMeta?.cached
+                        ? `Cache ${radarMeta.ms ? `${radarMeta.ms}ms` : ''}`.trim()
+                        : prospecting
+                          ? 'Prospectando'
+                          : radarMeta?.ms
+                            ? `Radar · ${radarMeta.ms}ms`
+                            : 'Radar ativo',
+                  tone: radarLoading || prospecting
+                    ? 'searching'
+                    : radarMeta?.throttled
+                      ? 'idle'
+                      : 'done',
                 }}
                 onCenterChanged={(c) => {
                   setMapCenter(c)
-                  /* Arrasto do mapa SEMPRE busca novo centro (sem toggle). */
                   if (query.trim()) radarSearch(c.lat, c.lng)
                 }}
                 onPlaceClick={(p) => {
@@ -1054,7 +1586,6 @@ export function LeadSearchPage({ variant = 'page' }: { variant?: 'page' | 'canva
                   if (lead) setSelectedLead(lead)
                 }}
               />
-              {/* Modo imersivo no mapa: pagina standalone. No chat (inline/canvas) fica no dock. */}
               {!immersive && !mapOnly && (
                 <button
                   type="button"
@@ -1066,9 +1597,6 @@ export function LeadSearchPage({ variant = 'page' }: { variant?: 'page' | 'canva
                 </button>
               )}
 
-              {/* Pipeline legend — canto inferior direito, longe da bottom bar imersiva
-                  (que fica em bottom-6 centralizada). Some no imersivo pra evitar
-                  competicao visual. */}
               {!immersive && (
                 <div className="prospect-pipeline-legend absolute bottom-3 right-3 z-20 flex items-center gap-2 sm:gap-3 px-3 py-1.5 rounded-full bg-black/75 backdrop-blur-sm border border-white/10 whitespace-nowrap">
                   {PIPELINE.map(s => (
@@ -1080,7 +1608,6 @@ export function LeadSearchPage({ variant = 'page' }: { variant?: 'page' | 'canva
                 </div>
               )}
 
-              {/* RADAR CARD — canvas desktop ou modo imersivo (metricas ja estao no dock do chat). */}
               {(!isInlineMap || immersive) && (
                 <RadarCard
                   active={true}
@@ -1110,8 +1637,6 @@ export function LeadSearchPage({ variant = 'page' }: { variant?: 'page' | 'canva
                 />
               )}
 
-              {/* Painel de detalhe — overlay flutuante no canto direito, NAO compete pelo
-                  espaco do mapa (preserva markers/centro). Oculto em modo imersivo. */}
               {isCanvas && !immersive && (
                 <>
                   <button
@@ -1148,9 +1673,11 @@ export function LeadSearchPage({ variant = 'page' }: { variant?: 'page' | 'canva
                 </div>
               )}
 
-              {/* Modo imersivo: bottom bar tecnologica com atalhos */}
               {immersive && (
-                <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-[#0a0a14]/95 backdrop-blur-xl border border-white/[0.08] shadow-2xl">
+                <div
+                  className="absolute left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-[#0a0a14]/95 backdrop-blur-xl border border-white/[0.08] shadow-2xl"
+                  style={{ bottom: 'max(1.5rem, env(safe-area-inset-bottom, 0px))' }}
+                >
                   <button
                     type="button"
                     onClick={() => setAutoCapture(v => !v)}
@@ -1175,7 +1702,7 @@ export function LeadSearchPage({ variant = 'page' }: { variant?: 'page' | 'canva
                   </button>
                   <button
                     type="button"
-                    onClick={() => setViewMode('list')}
+                    onClick={() => { setImmersive(false); setViewMode('list') }}
                     className="px-3 py-1.5 rounded-xl text-[11px] font-bold bg-white/[0.05] text-white/60 border border-white/10 hover:text-white transition flex items-center gap-1.5"
                   >
                     <List size={12} strokeWidth={2.5} /> Lista
@@ -1187,11 +1714,15 @@ export function LeadSearchPage({ variant = 'page' }: { variant?: 'page' | 'canva
                   >
                     <Minimize2 size={12} strokeWidth={2.5} /> Sair
                   </button>
-                  <span className="text-[9px] text-white/30 font-mono px-2 border-l border-white/10 ml-1">ESC</span>
                 </div>
               )}
-            </div>
-          )}
+              </div>
+            )
+            /* Portal no body no imersivo — iPad/Safari quebra fixed dentro de overflow/transform do canvas */
+            return immersive && typeof document !== 'undefined'
+              ? createPortal(mapShell, document.body)
+              : mapShell
+          })()}
 
           {/* List */}
           {viewMode === 'list' && (
@@ -1233,6 +1764,9 @@ export function LeadSearchPage({ variant = 'page' }: { variant?: 'page' | 'canva
           setQuery(segment)
           setLocation(city)
           setRadius(String(radiusKm))
+          // IA só devolve texto — limpa coords pra forçar place search/geocode
+          selectedPlaceRef.current = null
+          setSelectedPlace(null)
         }}
       />
     </div>

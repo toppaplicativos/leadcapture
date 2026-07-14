@@ -45,9 +45,14 @@ export function AgentCanvas({ children }: { children?: React.ReactNode }) {
   }
 
   const pathname = pathOnly(location.pathname)
-  // Rota otimista: troca o painel no clique, sem esperar o React Router
-  const displayPath = normalizeCanvasPath(optimisticRoute || pathname)
-  const urlDriven = isOperationalCanvasPath(pathname) || isOperationalCanvasPath(displayPath)
+  // No chat home, NUNCA use optimisticRoute de página operacional — trava o "Voltar ao chat" no mobile
+  const atChatHome = isAgentHomePath(pathname)
+  const displayPath = normalizeCanvasPath(
+    atChatHome ? pathname : (optimisticRoute || pathname),
+  )
+  const urlDriven =
+    !atChatHome &&
+    (isOperationalCanvasPath(pathname) || isOperationalCanvasPath(displayPath))
 
   // ─── URL LOCK + keep-alive ────────────────────────────────────────────────
   if (urlDriven) {

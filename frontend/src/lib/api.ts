@@ -190,10 +190,35 @@ export interface Order {
   status: string
   total: number
   payment_method?: string
+  payment_status?: string | null
+  delivery_status?: string | null
+  delivery_address?: string | null
+  tracking_url?: string | null
+  estimated_delivery?: string | null
+  courier_name?: string | null
   created_at?: string
   customer_phone?: string
   customer_id?: string
   items?: OrderItem[]
+}
+
+export interface OrderLogistics {
+  enabled?: boolean
+  delivery_id?: string | null
+  status?: string | null
+  tracking_url?: string | null
+  eta_minutes?: number | null
+  distance_km?: number | null
+  delivery_fee?: number | null
+  delivery_pin?: string | null
+  payment_status?: string | null
+  payment_confirmed?: boolean
+  show_map?: boolean
+  modality?: string | null
+  courier?: { first_name?: string; vehicle_type?: string | null; photo_url?: string | null } | null
+  location?: { lat: number; lng: number; updated_at?: string | null } | null
+  dropoff?: { lat?: number | null; lng?: number | null; address?: string | null } | null
+  pickup?: { lat?: number | null; lng?: number | null } | null
 }
 
 export interface OrderItem {
@@ -306,7 +331,12 @@ export function validateCoupon(payload: {
 export function trackOrder(
   orderNumber: string,
   phone: string,
-): Promise<{ success: boolean; order: Order; timeline: TimelineEvent[] }> {
+): Promise<{
+  success: boolean
+  order: Order
+  timeline: TimelineEvent[]
+  logistics?: OrderLogistics | null
+}> {
   return apiFetch(
     `${storeApiBase()}/orders/track?order_number=${encodeURIComponent(orderNumber)}&phone=${encodeURIComponent(phone)}`,
   )

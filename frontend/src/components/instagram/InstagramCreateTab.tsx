@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import { InstagramCaptionTemplatesModal } from '@/components/instagram/InstagramCaptionTemplatesModal'
 import { InstagramCreateWhenPanel } from '@/components/instagram/InstagramCreateWhenPanel'
+import { InstagramCreateTagsPanel } from '@/components/instagram/InstagramCreateTagsPanel'
 import {
   InstagramCreateMediaPanel,
   postMediaPreview,
@@ -75,7 +76,10 @@ export function InstagramCreateTab({
   const [savedPostId, setSavedPostId] = useState<string | undefined>()
   const [templatesOpen, setTemplatesOpen] = useState(false)
 
-  const { postType, caption, mediaItems, when, scheduledAt } = form
+  const {
+    postType, caption, mediaItems, when, scheduledAt,
+    locationId, locationName, userTags, altText, shareToFeed, coverUrl, collaborators,
+  } = form
   const isEditing = Boolean(editingId)
 
   useEffect(() => {
@@ -388,6 +392,18 @@ export function InstagramCreateTab({
           onChange={(items: PostMediaItem[]) => patchForm({ mediaItems: items })}
         />
 
+        <InstagramCreateTagsPanel
+          postType={postType}
+          locationId={locationId}
+          locationName={locationName}
+          userTags={userTags}
+          altText={altText}
+          shareToFeed={shareToFeed}
+          coverUrl={coverUrl}
+          collaborators={collaborators}
+          onChange={(patch) => patchForm(patch)}
+        />
+
         <div className="bg-white border border-gray-100 rounded-xl p-4">
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
@@ -485,6 +501,23 @@ export function InstagramCreateTab({
             <p className="px-2 pb-2 text-[10px] text-gray-600 line-clamp-3 whitespace-pre-wrap">
               {caption}
             </p>
+          )}
+          {(locationName || userTags.length > 0 || collaborators.length > 0) && (
+            <div className="px-2 pb-2 space-y-0.5 border-t border-gray-50 pt-1.5">
+              {locationName && (
+                <p className="text-[10px] text-gray-500 truncate">📍 {locationName}</p>
+              )}
+              {userTags.length > 0 && (
+                <p className="text-[10px] text-violet-600 truncate">
+                  👤 {userTags.map((t) => `@${t.username}`).join(' ')}
+                </p>
+              )}
+              {collaborators.length > 0 && (
+                <p className="text-[10px] text-amber-700 truncate">
+                  🤝 collab {collaborators.map((c) => `@${c}`).join(' ')}
+                </p>
+              )}
+            </div>
           )}
         </div>
         {(postType === 'IMAGE' || postType === 'CAROUSEL_ALBUM') && (

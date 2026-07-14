@@ -555,7 +555,7 @@ router.get("/manifest.webmanifest", async (req: Request, res: Response) => {
       : context.app === "affiliate"
         ? `${rootPath}/painel?source=pwa`
         : context.app === "admin"
-          ? "/admin?source=pwa"
+          ? "/assistente?source=pwa"
           : context.app === "stock"
             ? `${rootPath}?source=pwa`
             : rootPath === "/"

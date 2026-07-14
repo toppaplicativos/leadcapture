@@ -150,10 +150,11 @@ export const NOTIFICATION_EVENT_REGISTRY: NotificationEventDefinition[] = [
     }),
   def("affiliate", "onboarding", "affiliate.program.application_approved", "informational",
     "Candidatura aprovada",
-    "Você foi aprovado no programa {{program_name}}.",
+    "Você foi aceito no programa {{program_name}}. Conclua o onboarding e comece a divulgar.",
     {
-      cta_label: "Ver programa",
-      deep_link_template: "/contatos",
+      default_priority: "high",
+      cta_label: "Abrir programa",
+      deep_link_template: "/programas",
     }),
 
   /* ── Admin marca ── */

@@ -59,7 +59,7 @@ export function InstagramStudioShell({
           </div>
           <div className="ig-studio__identity-text">
             <p className="ig-studio__title">
-              <InstagramIcon size={14} className="brand-icon--ig shrink-0 inline-block align-[-2px] mr-1.5" aria-hidden />
+              <InstagramIcon size={14} className="brand-icon--ig shrink-0" aria-hidden />
               Instagram
             </p>
             <p className="ig-studio__handle">

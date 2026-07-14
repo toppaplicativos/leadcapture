@@ -104,7 +104,7 @@ export function CadastroSucessoPage() {
               <h1 className="text-[24px] font-bold tracking-[-0.025em]">Não conseguimos confirmar</h1>
               <p className="text-[14px] text-gray-600 mt-2 leading-relaxed">{status.message}</p>
               <Link
-                to="/cadastro"
+                to="/inicio#planos"
                 className="mt-6 inline-flex items-center justify-center gap-2 h-11 px-5 rounded-full bg-gray-100 text-gray-900 text-[13px] font-semibold hover:bg-gray-200 transition"
               >
                 Voltar ao cadastro

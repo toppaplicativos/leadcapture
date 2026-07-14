@@ -150,6 +150,33 @@ type CampaignComposerSettings = {
   intentText?: string;
   personalizedPerLead?: boolean;
   useAutoVariations?: boolean;
+  actionBlocks?: CampaignActionBlock[];
+};
+
+/** Bloco do compositor de campanha (ordem = sequência de entrega). */
+type CampaignActionBlock = {
+  id?: string;
+  channel?: string;
+  actionType?: string;
+  content?: string;
+  useAi?: boolean;
+  aiInstruction?: string;
+  config?: Record<string, string>;
+};
+
+/** Contexto do afiliado no momento do envio — uma campanha se adapta a cada afiliado. */
+type AffiliateSendContext = {
+  id: string;
+  name: string;
+  city: string;
+  region: string;
+  niche: string;
+  phone: string;
+  code: string;
+  coupon: string;
+  instagram: string;
+  whatsapp: string;
+  infoBlock: string;
 };
 
 type CampaignSendResult = {
@@ -1067,6 +1094,120 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
     return this.getCampaign(userId, id, normalizedBrandId) as Promise<Campaign>;
   }
 
+  /**
+   * Merge settings de campanha preservando nested keys conhecidas quando o cliente
+   * envia partials. Composer/media/campaignCore vindos do editor substituem por completo.
+   */
+  private mergeCampaignSettings(
+    existingSettings: Record<string, unknown> | null | undefined,
+    incoming: Record<string, unknown> | null | undefined
+  ): Record<string, unknown> {
+    const base = existingSettings && typeof existingSettings === "object" ? { ...existingSettings } : {};
+    if (!incoming || typeof incoming !== "object") return base;
+
+    const replaceKeys = new Set([
+      "composer",
+      "media",
+      "campaignCore",
+      "scheduler",
+      "actionWindow",
+      "finalActions",
+      "triggers",
+      "nameEnrichment",
+      "antiBlock",
+      "destination",
+    ]);
+
+    for (const [key, value] of Object.entries(incoming)) {
+      if (value === undefined) continue;
+      if (replaceKeys.has(key)) {
+        base[key] = value;
+        continue;
+      }
+      if (
+        value &&
+        typeof value === "object" &&
+        !Array.isArray(value) &&
+        base[key] &&
+        typeof base[key] === "object" &&
+        !Array.isArray(base[key])
+      ) {
+        base[key] = { ...(base[key] as object), ...(value as object) };
+      } else {
+        base[key] = value;
+      }
+    }
+    return base;
+  }
+
+  private filterSignature(filter: CampaignFilterCriteria | Record<string, unknown> | null | undefined): string {
+    try {
+      return JSON.stringify(normalizeCampaignFilterInput((filter || {}) as CampaignFilterCriteria));
+    } catch {
+      return "";
+    }
+  }
+
+  private destinationSignature(destination: CampaignDestinationSettings): string {
+    const targets = (destination.targets || [])
+      .map((item) => `${item.instance_id}::${item.jid}::${item.target_type}`)
+      .sort();
+    return `${destination.type}|${destination.targetType}|${targets.join("|")}`;
+  }
+
+  /** Rebuild pending targets after core fields were already saved. */
+  private async rebuildCampaignPendingTargets(input: {
+    userId: string;
+    campaignId: string;
+    brandId: string | null;
+    filter: CampaignFilterCriteria;
+    destination: CampaignDestinationSettings;
+  }): Promise<number> {
+    const { userId, campaignId, brandId } = input;
+    const brandClause = brandId ? "brand_id = ?" : "brand_id IS NULL";
+    const brandParams = brandId ? [campaignId, userId, brandId] : [campaignId, userId];
+
+    await query(
+      `DELETE FROM campaign_leads
+       WHERE campaign_id = ?
+         AND user_id = ?
+         AND ${brandClause}
+         AND status IN ('pending','validating','ready')`,
+      brandParams
+    );
+
+    if (input.destination.type !== "lead_list" && input.destination.targets.length > 0) {
+      for (const target of input.destination.targets) {
+        const jid = normalizeJid(target.jid);
+        const compactPhone = normalizePhone(jid).slice(0, 20) || "0000000000";
+        const syntheticLeadId = `dest:${target.target_type}:${jid}`.slice(0, 64);
+
+        await query(
+          `INSERT INTO campaign_leads (id, campaign_id, user_id, brand_id, lead_id, phone, whatsapp_jid, status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
+           ON DUPLICATE KEY UPDATE id = id`,
+          [randomUUID(), campaignId, userId, brandId, syntheticLeadId, compactPhone, jid]
+        );
+      }
+      return input.destination.targets.length;
+    }
+
+    const leads = await this.filterLeadsByBrand(userId, input.filter, brandId);
+    let inserted = 0;
+    for (const lead of leads) {
+      const phone = normalizePhone(lead.phone);
+      if (!phone) continue;
+      await query(
+        `INSERT INTO campaign_leads (id, campaign_id, user_id, brand_id, lead_id, phone, status)
+         VALUES (?, ?, ?, ?, ?, ?, 'pending')
+         ON DUPLICATE KEY UPDATE id = id`,
+        [randomUUID(), campaignId, userId, brandId, String(lead.id), phone]
+      );
+      inserted += 1;
+    }
+    return inserted;
+  }
+
   async updateCampaign(
     userId: string,
     campaignId: string,
@@ -1074,6 +1215,12 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
     brandId?: string | null
   ): Promise<Campaign | null> {
     await this.ensureSchema();
+    // Garante coluna updated_at (usada em todo UPDATE)
+    await this.ensureColumn(
+      "campaign_history",
+      "updated_at",
+      "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+    );
 
     const normalizedBrandId = String(brandId || "").trim() || null;
 
@@ -1086,46 +1233,55 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
     }
 
     const existingDestination = this.normalizeCampaignDestinationSettings(existing.settings || {});
+    const mergedSettings = this.mergeCampaignSettings(
+      (existing.settings || {}) as Record<string, unknown>,
+      input.settings && typeof input.settings === "object"
+        ? (input.settings as Record<string, unknown>)
+        : undefined
+    );
+    const effectiveDestination = this.normalizeCampaignDestinationSettings(mergedSettings);
 
-    const effectiveSettings = {
-      ...(existing.settings || {}),
-      ...((input.settings && typeof input.settings === "object") ? input.settings : {}),
-    } as Record<string, unknown>;
-    const effectiveDestination = this.normalizeCampaignDestinationSettings(effectiveSettings);
+    const destinationChanged =
+      this.destinationSignature(existingDestination) !== this.destinationSignature(effectiveDestination);
 
-    const destinationSignature = (destination: CampaignDestinationSettings): string => {
-      const targets = (destination.targets || [])
-        .map((item) => `${item.instance_id}::${item.jid}::${item.target_type}`)
-        .sort();
-      return `${destination.type}|${destination.targetType}|${targets.join("|")}`;
-    };
+    const nextFilter =
+      input.filter !== undefined
+        ? normalizeCampaignFilterInput(input.filter || {})
+        : normalizeCampaignFilterInput((existing.filter_json || {}) as CampaignFilterCriteria);
+    const filterChanged =
+      input.filter !== undefined &&
+      this.filterSignature(existing.filter_json || {}) !== this.filterSignature(nextFilter);
 
-    const destinationChanged = destinationSignature(existingDestination) !== destinationSignature(effectiveDestination);
+    // Só reconstruir fila se filtro/destino realmente mudaram (não a cada "Salvar")
+    const shouldRebuildPendingTargets =
+      (filterChanged && (effectiveDestination.type === "lead_list" || effectiveDestination.targets.length === 0)) ||
+      destinationChanged;
 
     const sets: string[] = [];
     const params: any[] = [];
 
     if (input.name !== undefined) {
+      const nextName = String(input.name || "").trim();
+      if (!nextName) throw new Error("Nome da campanha e obrigatorio");
       sets.push("name = ?");
-      params.push(input.name);
+      params.push(nextName);
     }
 
     if (input.instanceId !== undefined) {
       const normalizedInstanceId = String(input.instanceId || "").trim();
-      if (normalizedInstanceId) {
-        sets.push("instance_id = ?");
-        params.push(normalizedInstanceId);
-      }
+      // Permite limpar instance_id quando em rotação; grava string vazia/null de forma segura
+      sets.push("instance_id = ?");
+      params.push(normalizedInstanceId || existing.instance_id || "");
     }
 
     if (input.messageTemplate !== undefined) {
       sets.push("message_template = ?");
-      params.push(input.messageTemplate || null);
+      params.push(input.messageTemplate ? String(input.messageTemplate) : null);
     }
 
     if (input.aiPrompt !== undefined) {
       sets.push("ai_prompt = ?");
-      params.push(input.aiPrompt || null);
+      params.push(input.aiPrompt ? String(input.aiPrompt) : null);
     }
 
     if (input.useAI !== undefined) {
@@ -1135,13 +1291,12 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
 
     if (input.campaignMode !== undefined) {
       sets.push("campaign_mode = ?");
-      params.push(input.campaignMode);
+      params.push(String(input.campaignMode || "educational"));
     }
 
     if (input.filter !== undefined && (effectiveDestination.type === "lead_list" || effectiveDestination.targets.length === 0)) {
-      const normalizedFilter = normalizeCampaignFilterInput(input.filter || {});
       sets.push("filter_json = ?");
-      params.push(JSON.stringify(normalizedFilter));
+      params.push(JSON.stringify(nextFilter));
     }
 
     if (input.speedControl !== undefined) {
@@ -1166,75 +1321,75 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
     }
 
     if (input.settings !== undefined) {
-      const existingSettings = existing.settings || {};
-      const mergedSettings = {
-        ...existingSettings,
-        ...input.settings,
-      };
+      // Persistir destination normalizado dentro do settings mergeado
+      mergedSettings.destination = effectiveDestination;
       sets.push("settings = ?");
       params.push(JSON.stringify(mergedSettings));
     }
 
-    const shouldRebuildPendingTargets = input.filter !== undefined || destinationChanged;
+    // 1) SEMPRE grava campos core primeiro (nome, template, settings…).
+    //    Rebuild de leads era antes do UPDATE e, se falhasse, nada era salvo.
+    if (sets.length > 0) {
+      sets.push("updated_at = NOW()");
+      const sql = `UPDATE campaign_history SET ${sets.join(", ")} WHERE id = ? AND user_id = ? AND ${normalizedBrandId ? "brand_id = ?" : "brand_id IS NULL"}`;
+      const updateParams = [...params, campaignId, userId];
+      if (normalizedBrandId) updateParams.push(normalizedBrandId);
+      await update(sql, updateParams);
+    }
 
+    // 2) Rebuild de fila em etapa isolada — falha aqui NÃO desfaz nome/config
     if (shouldRebuildPendingTargets) {
-      const effectiveFilter = normalizeCampaignFilterInput((input.filter || existing.filter_json || {}) as CampaignFilterCriteria);
-
-      await query(
-        `DELETE FROM campaign_leads
-         WHERE campaign_id = ?
-           AND user_id = ?
-           AND ${normalizedBrandId ? "brand_id = ?" : "brand_id IS NULL"}
-           AND status IN ('pending','validating','ready')`,
-        normalizedBrandId ? [campaignId, userId, normalizedBrandId] : [campaignId, userId]
-      );
-
-      if (effectiveDestination.type !== "lead_list" && effectiveDestination.targets.length > 0) {
-        for (const target of effectiveDestination.targets) {
-          const jid = normalizeJid(target.jid);
-          const compactPhone = normalizePhone(jid).slice(0, 20) || "0000000000";
-          const syntheticLeadId = `dest:${target.target_type}:${jid}`.slice(0, 64);
-
-          await query(
-            `INSERT INTO campaign_leads (id, campaign_id, user_id, brand_id, lead_id, phone, whatsapp_jid, status)
-             VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
-             ON DUPLICATE KEY UPDATE id = id`,
-            [randomUUID(), campaignId, userId, normalizedBrandId, syntheticLeadId, compactPhone, jid]
-          );
+      try {
+        const targetCount = await this.rebuildCampaignPendingTargets({
+          userId,
+          campaignId,
+          brandId: normalizedBrandId,
+          filter: nextFilter,
+          destination: effectiveDestination,
+        });
+        await update(
+          `UPDATE campaign_history
+           SET target_count = ?, updated_at = NOW()
+           WHERE id = ? AND user_id = ? AND ${normalizedBrandId ? "brand_id = ?" : "brand_id IS NULL"}`,
+          normalizedBrandId
+            ? [targetCount, campaignId, userId, normalizedBrandId]
+            : [targetCount, campaignId, userId]
+        );
+      } catch (err: any) {
+        logger.error(
+          `[Campaign ${campaignId}] rebuild targets failed after config save: ${err?.message || err}`
+        );
+        // Config já salva; devolve campanha com aviso implícito via target_count antigo
+      }
+    } else if (
+      // Sempre atualiza contagem de segmentação ao salvar (mesmo sem rebuild total)
+      // — usuário espera ver o número correto após editar filtro / auto-alimentar
+      effectiveDestination.type === "lead_list" ||
+      !(effectiveDestination.targets && effectiveDestination.targets.length)
+    ) {
+      try {
+        const matched = await this.filterLeadsByBrand(userId, nextFilter, normalizedBrandId);
+        const targetCount = matched.length;
+        await update(
+          `UPDATE campaign_history
+           SET target_count = ?, updated_at = NOW()
+           WHERE id = ? AND user_id = ? AND ${normalizedBrandId ? "brand_id = ?" : "brand_id IS NULL"}`,
+          normalizedBrandId
+            ? [targetCount, campaignId, userId, normalizedBrandId]
+            : [targetCount, campaignId, userId]
+        );
+        // Se auto-alimentar acabou de ser ligado, sincroniza fila pending sem apagar sent
+        const autoFeedOn = this.isAutoFeedEnabled(mergedSettings);
+        if (autoFeedOn && matched.length) {
+          const ids = matched.map((l) => String(l.id)).slice(0, 500);
+          await this.autoFeedLeadsToCampaigns(userId, normalizedBrandId, ids);
         }
-
-        sets.push("target_count = ?");
-        params.push(effectiveDestination.targets.length);
-      } else {
-        const leads = await this.filterLeadsByBrand(userId, effectiveFilter, normalizedBrandId);
-
-        for (const lead of leads) {
-          const phone = normalizePhone(lead.phone);
-          if (!phone) continue;
-          await query(
-            `INSERT INTO campaign_leads (id, campaign_id, user_id, brand_id, lead_id, phone, status)
-             VALUES (?, ?, ?, ?, ?, ?, 'pending')
-             ON DUPLICATE KEY UPDATE id = id`,
-            [randomUUID(), campaignId, userId, normalizedBrandId, String(lead.id), phone]
-          );
-        }
-
-        sets.push("target_count = ?");
-        params.push(leads.length);
+      } catch (err: any) {
+        logger.warn(
+          `[Campaign ${campaignId}] target_count refresh failed: ${err?.message || err}`
+        );
       }
     }
-
-    if (sets.length === 0) {
-      return existing;
-    }
-
-    sets.push("updated_at = NOW()");
-
-    const sql = `UPDATE campaign_history SET ${sets.join(", ")} WHERE id = ? AND user_id = ? AND ${normalizedBrandId ? "brand_id = ?" : "brand_id IS NULL"}`;
-    params.push(campaignId, userId);
-    if (normalizedBrandId) params.push(normalizedBrandId);
-
-    await update(sql, params);
 
     return this.getCampaign(userId, campaignId, normalizedBrandId);
   }
@@ -2046,10 +2201,40 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
         }
       }
 
-      // Step 2: Generate or use template message
-      let messageText = campaign.message_template || "";
+      // Step 2: resolve instance first (affiliate identity depends on who sends)
+      const poolIds = campaign.use_instance_rotation ? this.resolveCampaignPoolIds(campaign) : [];
+      let sendingInstanceId = campaign.instance_id;
 
-      if (useAI) {
+      if (campaign.use_instance_rotation && this.rotationEngine) {
+        const rotated = await this.rotationEngine.selectInstance(userId, {
+          leadId: String(lead.lead_id || ""),
+          preferredInstanceId: campaign.instance_id,
+          allowedInstanceIds: poolIds.length > 0 ? poolIds : undefined,
+          distributionMode: (campaign.rotation_mode as "balanced" | "conservative" | "aggressive") || "balanced",
+        });
+        if (rotated) sendingInstanceId = rotated;
+      }
+
+      const brandName = await this.resolveBrandName(normalizedBrandId || campaign.brand_id);
+      const affiliateCtx = await this.resolveAffiliateSendContext({
+        instanceId: sendingInstanceId,
+        brandId: normalizedBrandId || campaign.brand_id,
+        leadId: lead.lead_id,
+        phone,
+      });
+      const templateOpts = { affiliate: affiliateCtx, brandName };
+
+      // Step 3: Generate or fill template (tags de lead + afiliado + marca)
+      let messageText = campaign.message_template || "";
+      const actionBlocks = this.getComposerActionBlocks(campaignSettings);
+      const primaryTextBlock = actionBlocks.find((b) => {
+        const t = String(b.actionType || "text").toLowerCase();
+        return ["text", "direct", "buttons", "list", "poll", "button", "deeplink"].includes(t);
+      });
+      // Prefer per-block AI flag when composer has a text block; else campaign.use_ai
+      const effectiveUseAi = primaryTextBlock ? Boolean(primaryTextBlock.useAi) : Boolean(useAI);
+
+      if (effectiveUseAi) {
         try {
           const leadContext = {
             id: lead.lead_id,
@@ -2065,23 +2250,31 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
             createdAt: new Date(),
           };
 
-          const campaignPrompt = this.buildCampaignFirstTouchPrompt(campaign, lead, campaignSettings);
+          const campaignPrompt = this.buildCampaignFirstTouchPrompt(
+            campaign,
+            lead,
+            campaignSettings,
+            templateOpts
+          );
 
           const primaryInstruction = campaignPrompt || campaign.ai_prompt || campaign.message_template || "";
           const contextualBlock = String(contextPayload?.contextBlock || "").trim();
+          const blockInstruction = String(primaryTextBlock?.aiInstruction || "").trim();
 
-          // Build AI prompt with strict precedence to campaign instruction
           const fullPrompt = [
             "HIERARQUIA DE INSTRUCOES (OBRIGATORIA):",
             "1) INSTRUCAO DA CAMPANHA (prioridade maxima, cumprir literalmente)",
-            "2) CONTEXTO COMPLEMENTAR (usar apenas para enriquecer sem contrariar a instrucao da campanha)",
+            "2) IDENTIDADE DO AFILIADO (se presente, moldar apresentacao a ele)",
+            "3) CONTEXTO COMPLEMENTAR (usar apenas para enriquecer sem contrariar a instrucao da campanha)",
             "",
             "REGRAS CRITICAS:",
             "- Nunca invente nome de atendente, empresa, produto, oferta, volume ou condicao comercial.",
-            "- Se a instrucao da campanha definir nome do atendente (ex.: Elenice), use exatamente esse nome.",
+            "- Se houver afiliado no contexto, apresente-se como ele ({{afiliado_nome}}).",
+            "- Se a instrucao da campanha definir nome do atendente (ex.: Elenice), use exatamente esse nome — salvo se o afiliado sobrescrever a identidade.",
             "- Se a campanha indicar foco comercial/industrial/atacado, nao ofereca produto de varejo/menor volume.",
             "",
             `INSTRUCAO DA CAMPANHA:\n${primaryInstruction}`,
+            blockInstruction ? `INSTRUCAO DO BLOCO:\n${this.fillTemplate(blockInstruction, lead, templateOpts)}` : "",
             contextualBlock ? `CONTEXTO COMPLEMENTAR:\n${contextualBlock}` : "",
           ]
             .filter(Boolean)
@@ -2091,13 +2284,17 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
             userId,
             brandId: normalizedBrandId || undefined,
           });
+          // Garante substituição residual de tags se a IA devolver template cru
+          messageText = this.fillTemplate(messageText, lead, templateOpts);
         } catch (err: any) {
           logger.warn(`[Campaign ${campaignId}] AI generation failed for ${lead.lead_name}: ${err.message}`);
-          // Fall back to template
-          messageText = this.fillTemplate(this.buildFallbackTemplate(campaign, campaignSettings), lead);
+          messageText = this.fillTemplate(this.buildFallbackTemplate(campaign, campaignSettings), lead, templateOpts);
         }
       } else {
-        messageText = this.fillTemplate(this.buildFallbackTemplate(campaign, campaignSettings), lead);
+        const baseTpl = primaryTextBlock?.content?.trim()
+          ? String(primaryTextBlock.content)
+          : this.buildFallbackTemplate(campaign, campaignSettings);
+        messageText = this.fillTemplate(baseTpl, lead, templateOpts);
       }
 
       if (!messageText.trim()) {
@@ -2108,13 +2305,12 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
         continue;
       }
 
-      // Step 3: Send message
+      // Step 4: Send message (ordem dos actionBlocks = fluxo de entrega)
       await update(
         `UPDATE campaign_leads SET status = 'sending', message_text = ?, ai_generated = ? WHERE id = ?`,
-        [messageText, useAI ? true : false, lead.id]
+        [messageText, effectiveUseAi ? true : false, lead.id]
       );
 
-      // Extract media + link config from campaign settings
       const mediaConfig = this.extractCampaignMediaConfig(campaignSettings);
       const hasMedia =
         Boolean(mediaConfig.imagePath) ||
@@ -2122,27 +2318,22 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
         Boolean(mediaConfig.audioPath) ||
         Boolean(mediaConfig.documentPath);
       const hasLink = Boolean(mediaConfig.linkUrl);
-
-      // Resolve which instance will actually send this message.
-      // When rotation is ON, pick per-message from the campaign's allowed pool.
-      // When rotation is OFF, always use the campaign's fixed instance.
-      const poolIds = campaign.use_instance_rotation ? this.resolveCampaignPoolIds(campaign) : [];
-      let sendingInstanceId = campaign.instance_id;
-
-      if (campaign.use_instance_rotation && this.rotationEngine) {
-        const rotated = await this.rotationEngine.selectInstance(userId, {
-          leadId: String(lead.lead_id || ""),
-          preferredInstanceId: campaign.instance_id,
-          allowedInstanceIds: poolIds.length > 0 ? poolIds : undefined,
-          distributionMode: (campaign.rotation_mode as "balanced" | "conservative" | "aggressive") || "balanced",
-        });
-        if (rotated) sendingInstanceId = rotated;
-      }
+      const hasOrderedBlocks = actionBlocks.length > 0;
 
       try {
         const sendResult = await withTimeout<CampaignSendResult>(
-          // Path A: media or link present → use rich-message helper with selected instance
-          hasMedia || hasLink
+          hasOrderedBlocks
+            ? this.sendCampaignActionBlocks({
+                instanceId: sendingInstanceId,
+                jid,
+                phone,
+                messageText,
+                blocks: actionBlocks,
+                media: mediaConfig,
+                lead,
+                templateOpts,
+              })
+            : hasMedia || hasLink
             ? this.sendCampaignMessageWithMedia(
                 sendingInstanceId,
                 jid,
@@ -2150,7 +2341,6 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
                 messageText,
                 mediaConfig
               )
-            // Path B: text-only via JID
             : jid
             ? (async () => {
                 const ok = await this.instanceManager.sendMessageByJid(sendingInstanceId, jid, messageText);
@@ -2160,7 +2350,6 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
                   error: ok ? undefined : "Envio falhou",
                 };
               })()
-            // Path C: text-only with rotation + failover (tries multiple instances)
             : campaign.use_instance_rotation && this.rotationEngine
             ? this.rotationEngine.sendTextWithFailover({
                 userId,
@@ -2173,7 +2362,6 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
                 allowedInstanceIds: poolIds.length > 0 ? poolIds : undefined,
                 maxAttempts: 3,
               })
-            // Path D: text-only direct send (rotation off)
             : (async () => {
                 const ok = await this.instanceManager.sendMessage(sendingInstanceId, phone, messageText);
                 return {
@@ -2182,8 +2370,7 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
                   error: ok ? undefined : "Envio falhou",
                 };
               })(),
-          // Media uploads can take longer than text, so allow extra time when media is present
-          hasMedia ? 60000 : 20000,
+          hasMedia || hasOrderedBlocks ? 90000 : 20000,
           "Timeout no envio da mensagem"
         );
 
@@ -2233,7 +2420,7 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
             }
 
             // Log message
-            await this.logMessage(userId, lead.lead_id, campaignId, usedInstanceId, phone, messageText, useAI);
+            await this.logMessage(userId, lead.lead_id, campaignId, usedInstanceId, phone, messageText, effectiveUseAi);
           }
 
           sentThisRun++;
@@ -2295,6 +2482,21 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
       if (remainingQueue > 0) {
         this.activeCampaigns.delete(campaignId);
         logger.info(`[Campaign ${campaignId}] Execution ended with ${remainingQueue} leads still pending/ready`);
+        return;
+      }
+
+      // Auto-alimentar: fica em execução (idle) aguardando novos prospects que casem o filtro
+      const latest = await this.getCampaign(userId, campaignId, normalizedBrandId);
+      if (this.isAutoFeedEnabled(latest?.settings)) {
+        this.activeCampaigns.delete(campaignId);
+        await update(
+          `UPDATE campaign_history SET status = 'running', completed_at = NULL, updated_at = NOW()
+           WHERE id = ? AND user_id = ? AND ${normalizedBrandId ? "brand_id = ?" : "brand_id IS NULL"} AND status = 'running'`,
+          normalizedBrandId ? [campaignId, userId, normalizedBrandId] : [campaignId, userId]
+        );
+        logger.info(
+          `[Campaign ${campaignId}] Fila vazia com auto-alimentar ativo — aguardando novos leads (sent this run: ${sentThisRun})`
+        );
         return;
       }
 
@@ -2999,6 +3201,204 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
   }
 
   /**
+   * Envia blocos na ordem do compositor (fluxo de entrega configurável).
+   * Texto principal já vem gerado/preenchido (messageText); blocos extras usam fillTemplate.
+   * Mídia de settings legados entra se não houver bloco de mídia explícito.
+   */
+  private async sendCampaignActionBlocks(input: {
+    instanceId: string;
+    jid: string | null | undefined;
+    phone: string;
+    messageText: string;
+    blocks: CampaignActionBlock[];
+    media: ReturnType<CampaignEngineService["extractCampaignMediaConfig"]>;
+    lead: any;
+    templateOpts: { affiliate?: AffiliateSendContext | null; brandName?: string };
+  }): Promise<{ ok: boolean; instanceId: string; error?: string }> {
+    const { instanceId, jid, phone, messageText, blocks, media, lead, templateOpts } = input;
+    let anySent = false;
+    let lastError: string | undefined;
+    let primaryTextConsumed = false;
+    let mediaFromSettingsUsed = false;
+
+    const sendText = async (text: string): Promise<boolean> => {
+      const body = String(text || "").trim();
+      if (!body) return false;
+      try {
+        const ok = jid
+          ? await this.instanceManager.sendMessageByJid(instanceId, jid, body)
+          : await this.instanceManager.sendMessage(instanceId, phone, body);
+        if (ok) {
+          anySent = true;
+          return true;
+        }
+        lastError = "text send failed";
+        return false;
+      } catch (err: any) {
+        lastError = `text: ${err.message}`;
+        return false;
+      }
+    };
+
+    const sendMediaFile = async (
+      mediaType: "image" | "video" | "audio" | "document",
+      filePath: string,
+      opts: { voiceNote?: boolean; fileName?: string } = {}
+    ): Promise<boolean> => {
+      try {
+        if (!fs.existsSync(filePath)) {
+          lastError = `${mediaType}: file not found`;
+          return false;
+        }
+        if (fs.statSync(filePath).size === 0) {
+          lastError = `${mediaType}: file empty`;
+          return false;
+        }
+        const ok = jid
+          ? await this.instanceManager.sendMediaByJid(instanceId, jid, {
+              mediaType,
+              filePath,
+              voiceNote: opts.voiceNote,
+              fileName: opts.fileName,
+            })
+          : await this.instanceManager.sendMedia(instanceId, phone, {
+              mediaType,
+              filePath,
+              voiceNote: opts.voiceNote,
+              fileName: opts.fileName,
+            });
+        if (ok) {
+          anySent = true;
+          return true;
+        }
+        lastError = `${mediaType} send failed`;
+        return false;
+      } catch (err: any) {
+        lastError = `${mediaType}: ${err.message}`;
+        return false;
+      }
+    };
+
+    const resolveBlockMediaPath = (block: CampaignActionBlock): string | null => {
+      const cfg = block.config || {};
+      const candidates = [cfg.mediaUrl, cfg.mediaFileName, cfg.galleryUrl, cfg.url, cfg.fileUrl];
+      for (const c of candidates) {
+        const p = this.resolveCampaignMediaPath(c);
+        if (p) return p;
+      }
+      return null;
+    };
+
+    const ordered = blocks.length ? blocks : [{ actionType: "text", content: messageText }];
+
+    for (let i = 0; i < ordered.length; i++) {
+      const block = ordered[i];
+      const actionType = String(block.actionType || "text").toLowerCase();
+
+      if (actionType === "divider") continue;
+
+      if (["image", "post", "story"].includes(actionType)) {
+        const pathFromBlock = resolveBlockMediaPath(block);
+        const path = pathFromBlock || (!mediaFromSettingsUsed ? media.imagePath : null);
+        if (path) {
+          if (!pathFromBlock && media.imagePath) mediaFromSettingsUsed = true;
+          await sendMediaFile("image", path);
+          await new Promise((r) => setTimeout(r, 800));
+        }
+        // legenda opcional no content do bloco
+        const caption = String(block.content || "").trim();
+        if (caption && caption !== messageText) {
+          await sendText(this.fillTemplate(caption, lead, templateOpts));
+          await new Promise((r) => setTimeout(r, 600));
+        }
+        continue;
+      }
+
+      if (["video", "reel"].includes(actionType)) {
+        const pathFromBlock = resolveBlockMediaPath(block);
+        if (pathFromBlock) {
+          await sendMediaFile("video", pathFromBlock);
+          await new Promise((r) => setTimeout(r, 800));
+        } else if (!mediaFromSettingsUsed && media.videoPaths.length) {
+          for (let vi = 0; vi < media.videoPaths.length; vi++) {
+            await sendMediaFile("video", media.videoPaths[vi]);
+            await new Promise((r) => setTimeout(r, vi < media.videoPaths.length - 1 ? 2000 : 800));
+          }
+          mediaFromSettingsUsed = true;
+        }
+        const caption = String(block.content || "").trim();
+        if (caption && caption !== messageText) {
+          await sendText(this.fillTemplate(caption, lead, templateOpts));
+          await new Promise((r) => setTimeout(r, 600));
+        }
+        continue;
+      }
+
+      // text-like blocks (text, direct, buttons, list, poll, button, deeplink, etc.)
+      let textToSend = "";
+      if (!primaryTextConsumed) {
+        // primeiro bloco de texto usa a mensagem já gerada/personalizada (IA + tags)
+        textToSend = messageText;
+        primaryTextConsumed = true;
+      } else {
+        textToSend = this.fillTemplate(String(block.content || ""), lead, templateOpts);
+      }
+
+      // append link only once, on the last text-ish block or first if single
+      const isLastTextLike =
+        ordered.slice(i + 1).every((b) => {
+          const t = String(b.actionType || "").toLowerCase();
+          return !["text", "direct", "buttons", "list", "poll", "button", "deeplink"].includes(t);
+        });
+      if (isLastTextLike && media.linkUrl) {
+        textToSend = this.appendLinkToMessage(textToSend, media.linkUrl);
+      }
+
+      if (textToSend.trim()) {
+        await sendText(textToSend);
+        if (i < ordered.length - 1) await new Promise((r) => setTimeout(r, 1200));
+      }
+    }
+
+    // Legacy media from settings if never emitted via a media block
+    if (!mediaFromSettingsUsed) {
+      const hasMediaBlock = ordered.some((b) =>
+        ["image", "video", "post", "story", "reel"].includes(String(b.actionType || "").toLowerCase())
+      );
+      if (!hasMediaBlock) {
+        if (media.imagePath) {
+          await sendMediaFile("image", media.imagePath);
+          await new Promise((r) => setTimeout(r, 800));
+        }
+        for (let vi = 0; vi < media.videoPaths.length; vi++) {
+          await sendMediaFile("video", media.videoPaths[vi]);
+          await new Promise((r) => setTimeout(r, 800));
+        }
+        if (media.audioPath) {
+          await sendMediaFile("audio", media.audioPath, { voiceNote: media.audioVoiceNote });
+          await new Promise((r) => setTimeout(r, 800));
+        }
+        if (media.documentPath) {
+          await sendMediaFile("document", media.documentPath, {
+            fileName: media.documentName || undefined,
+          });
+        }
+      }
+    }
+
+    // link-only fallback if no text was sent but link exists
+    if (!anySent && media.linkUrl) {
+      await sendText(media.linkUrl);
+    }
+
+    return {
+      ok: anySent,
+      instanceId,
+      error: anySent ? undefined : lastError || "Envio falhou",
+    };
+  }
+
+  /**
    * Send a campaign message to a single lead, including any configured media + link.
    * Returns true if at least the primary message was delivered.
    *
@@ -3134,19 +3534,199 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
     };
   }
 
-  // ─── Template filling ──────────────────────────────────────────
+  // ─── Affiliate + template filling ──────────────────────────────
 
-  private fillTemplate(template: string, lead: any): string {
-    const values: Record<string, string> = {
-      nome: String(lead.lead_name || lead.name || "").trim() || "Prezado(a)",
-      telefone: normalizePhone(lead.phone || lead.lead_phone),
-      cidade: String(lead.lead_city || lead.city || "sua cidade").trim(),
-      estado: String(lead.lead_state || lead.state || "").trim(),
-      segmento: String(lead.lead_category || lead.category || "seu segmento").trim(),
-      categoria: String(lead.lead_category || lead.category || "").trim(),
+  /**
+   * Resolve o afiliado "remetente" a partir da instância WhatsApp (owner affiliate)
+   * ou da atribuição do lead. Permite 1 campanha adaptada a N afiliados.
+   */
+  private async resolveAffiliateSendContext(input: {
+    instanceId?: string | null;
+    brandId?: string | null;
+    leadId?: string | null;
+    phone?: string | null;
+  }): Promise<AffiliateSendContext | null> {
+    try {
+      let affiliateRow: any = null;
+
+      const instanceId = String(input.instanceId || "").trim();
+      if (instanceId) {
+        const inst = await queryOne<any>(
+          `SELECT owner_type, owner_actor_id, brand_id, created_by
+           FROM whatsapp_instances WHERE id = ? LIMIT 1`,
+          [instanceId]
+        );
+        if (inst && String(inst.owner_type || "").toLowerCase() === "affiliate" && inst.owner_actor_id) {
+          const brandId = String(input.brandId || inst.brand_id || "").trim() || null;
+          affiliateRow = brandId
+            ? await queryOne<any>(
+                `SELECT id, display_name, phone, region, code, coupon_code,
+                        social_instagram, social_whatsapp
+                 FROM affiliates
+                 WHERE affiliate_user_id = ? AND brand_id = ? AND status = 'active'
+                 LIMIT 1`,
+                [String(inst.owner_actor_id), brandId]
+              )
+            : await queryOne<any>(
+                `SELECT id, display_name, phone, region, code, coupon_code,
+                        social_instagram, social_whatsapp
+                 FROM affiliates
+                 WHERE affiliate_user_id = ? AND status = 'active'
+                 ORDER BY updated_at DESC LIMIT 1`,
+                [String(inst.owner_actor_id)]
+              );
+        }
+      }
+
+      // Fallback: prospect assignment for this lead/phone
+      if (!affiliateRow && (input.leadId || input.phone)) {
+        const brandId = String(input.brandId || "").trim();
+        const phone = normalizePhone(input.phone);
+        if (input.leadId && brandId) {
+          affiliateRow = await queryOne<any>(
+            `SELECT a.id, a.display_name, a.phone, a.region, a.code, a.coupon_code,
+                    a.social_instagram, a.social_whatsapp
+             FROM prospect_assignments pa
+             JOIN affiliates a ON a.id = pa.affiliate_id
+             WHERE pa.prospect_id = ? AND pa.brand_id = ?
+               AND pa.assignment_status NOT IN ('lost', 'recycled', 'converted')
+             ORDER BY pa.updated_at DESC LIMIT 1`,
+            [String(input.leadId), brandId]
+          ).catch(() => null);
+        }
+        if (!affiliateRow && phone && brandId) {
+          affiliateRow = await queryOne<any>(
+            `SELECT a.id, a.display_name, a.phone, a.region, a.code, a.coupon_code,
+                    a.social_instagram, a.social_whatsapp
+             FROM prospect_assignments pa
+             JOIN affiliates a ON a.id = pa.affiliate_id
+             WHERE pa.brand_id = ?
+               AND REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(pa.prospect_phone,''),'+',''),'-',''),' ',''),'(','') LIKE ?
+               AND pa.assignment_status NOT IN ('lost', 'recycled', 'converted')
+             ORDER BY pa.updated_at DESC LIMIT 1`,
+            [brandId, `%${phone.slice(-9)}`]
+          ).catch(() => null);
+        }
+      }
+
+      if (!affiliateRow) return null;
+
+      const name = String(affiliateRow.display_name || "").trim();
+      const region = String(affiliateRow.region || "").trim();
+      // region costuma carregar cidade/área; usamos como cidade e nicho de base quando não há campo dedicado
+      const city = region;
+      const niche = region;
+      const phone = String(affiliateRow.phone || affiliateRow.social_whatsapp || "").trim();
+      const code = String(affiliateRow.code || "").trim();
+      const coupon = String(affiliateRow.coupon_code || "").trim();
+      const instagram = String(affiliateRow.social_instagram || "").trim();
+      const whatsapp = String(affiliateRow.social_whatsapp || affiliateRow.phone || "").trim();
+
+      const infoLines = [
+        name ? `Nome: ${name}` : "",
+        city ? `Cidade/região: ${city}` : "",
+        niche ? `Nicho/área: ${niche}` : "",
+        phone ? `Telefone: ${phone}` : "",
+        code ? `Código: ${code}` : "",
+        coupon ? `Cupom: ${coupon}` : "",
+        instagram ? `Instagram: ${instagram}` : "",
+        whatsapp && whatsapp !== phone ? `WhatsApp: ${whatsapp}` : "",
+      ].filter(Boolean);
+
+      return {
+        id: String(affiliateRow.id),
+        name,
+        city,
+        region,
+        niche,
+        phone,
+        code,
+        coupon,
+        instagram,
+        whatsapp,
+        infoBlock: infoLines.join("\n") || name,
+      };
+    } catch (err: any) {
+      logger.warn(`[Campaign] resolveAffiliateSendContext failed: ${err?.message || err}`);
+      return null;
+    }
+  }
+
+  private async resolveBrandName(brandId?: string | null): Promise<string> {
+    const id = String(brandId || "").trim();
+    if (!id) return "";
+    try {
+      const row = await queryOne<{ name?: string }>(
+        `SELECT name FROM brand_units WHERE id = ? LIMIT 1`,
+        [id]
+      );
+      return String(row?.name || "").trim();
+    } catch {
+      return "";
+    }
+  }
+
+  private buildTemplateValues(
+    lead: any,
+    opts?: { affiliate?: AffiliateSendContext | null; brandName?: string }
+  ): Record<string, string> {
+    const leadName = String(lead?.lead_name || lead?.name || "").trim() || "Prezado(a)";
+    const leadCity = String(lead?.lead_city || lead?.city || "sua cidade").trim();
+    const leadState = String(lead?.lead_state || lead?.state || "").trim();
+    const leadSegment = String(lead?.lead_category || lead?.category || "seu segmento").trim();
+    const leadCompany = String(lead?.lead_company || lead?.company || lead?.empresa || "").trim();
+    const brand = String(opts?.brandName || "").trim();
+    const aff = opts?.affiliate || null;
+
+    return {
+      // Lead
+      nome: leadName,
+      name: leadName,
+      telefone: normalizePhone(lead?.phone || lead?.lead_phone),
+      phone: normalizePhone(lead?.phone || lead?.lead_phone),
+      cidade: leadCity,
+      estado: leadState,
+      segmento: leadSegment,
+      categoria: leadSegment,
+      nicho: leadSegment,
+      empresa: leadCompany || brand || "",
+      // Marca
+      marca: brand,
+      brand: brand,
+      brand_name: brand,
+      // Afiliado — assistente se molda a ele
+      afiliado_nome: aff?.name || "",
+      afiliado_name: aff?.name || "",
+      affiliate_name: aff?.name || "",
+      afiliado_cidade: aff?.city || "",
+      afiliado_regiao: aff?.region || "",
+      afiliado_nicho: aff?.niche || "",
+      afiliado_telefone: aff?.phone || "",
+      afiliado_codigo: aff?.code || "",
+      afiliado_cupom: aff?.coupon || "",
+      afiliado_instagram: aff?.instagram || "",
+      afiliado_whatsapp: aff?.whatsapp || "",
+      afiliado_info: aff?.infoBlock || "",
+      affiliate_info: aff?.infoBlock || "",
     };
+  }
 
-    return template.replace(/{{\s*([a-zA-Z0-9_]+)\s*}}/g, (_, key) => values[key.toLowerCase()] || "");
+  private fillTemplate(
+    template: string,
+    lead: any,
+    opts?: { affiliate?: AffiliateSendContext | null; brandName?: string }
+  ): string {
+    const values = this.buildTemplateValues(lead, opts);
+    return String(template || "").replace(/{{\s*([a-zA-Z0-9_]+)\s*}}/g, (_, key) => {
+      const v = values[String(key).toLowerCase()];
+      return v != null ? v : "";
+    });
+  }
+
+  private getComposerActionBlocks(campaignSettings: any): CampaignActionBlock[] {
+    const composer = parseJsonSafe(campaignSettings?.composer || {}) as CampaignComposerSettings;
+    const blocks = Array.isArray(composer.actionBlocks) ? composer.actionBlocks : [];
+    return blocks.filter((b) => b && typeof b === "object");
   }
 
   private hashSeed(input: string): number {
@@ -3168,7 +3748,12 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
     return "Tom educativo, util e objetivo, ajudando o lead a entender valor antes da oferta.";
   }
 
-  private buildCampaignFirstTouchPrompt(campaign: Campaign, lead: any, campaignSettings: any): string {
+  private buildCampaignFirstTouchPrompt(
+    campaign: Campaign,
+    lead: any,
+    campaignSettings: any,
+    opts?: { affiliate?: AffiliateSendContext | null; brandName?: string }
+  ): string {
     const composer = parseJsonSafe(campaignSettings?.composer || {}) as CampaignComposerSettings;
     const triggers = parseJsonSafe(campaignSettings?.triggers || {});
 
@@ -3184,17 +3769,47 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
     const leadName = String(lead?.lead_name || lead?.name || "Lead").trim() || "Lead";
     const leadCity = String(lead?.lead_city || lead?.city || "").trim();
     const leadCategory = String(lead?.lead_category || lead?.category || "").trim();
+    const aff = opts?.affiliate || null;
+    const brandName = String(opts?.brandName || "").trim();
 
     const objective = intentText || baseInstruction || "Executar primeiro contato comercial com contexto real da campanha.";
-    const strictContext = [baseInstruction, intentText].filter(Boolean).join("\n\n");
+    // Preenche tags no template base para a IA já ver o texto adaptado ao afiliado/lead
+    const filledBase = this.fillTemplate(baseInstruction, lead, { affiliate: aff, brandName });
+    const filledIntent = this.fillTemplate(intentText, lead, { affiliate: aff, brandName });
+    const strictContext = [filledBase, filledIntent].filter(Boolean).join("\n\n");
 
     const personalizationLine = personalized
-      ? `Personalize para este lead quando houver dado real: nome=${leadName}; cidade=${leadCity || "nao informada"}; segmento=${leadCategory || "nao informado"}.`
+      ? `Personalize para este lead quando houver dado real: nome=${leadName}; cidade=${leadCity || "nao informada"}; segmento/nicho=${leadCategory || "nao informado"}.`
       : "Nao personalize por lead; use mensagem padronizada consistente para toda a campanha.";
 
     const variationLine = autoVariations
       ? `Use variacao numero ${variationIndex} (de 3) para evitar repeticao, mantendo o mesmo objetivo.`
       : "Use versao unica e consistente (sem variacoes entre leads).";
+
+    const affiliateIdentityBlock = aff
+      ? [
+          "IDENTIDADE DO REMETENTE (AFILIADO) — OBRIGATORIO:",
+          `- Voce E o assistente / representante de: ${aff.name || "o afiliado"}.`,
+          `- Apresente-se SEMPRE como ${aff.name || "o afiliado"}, nunca com outro nome.`,
+          aff.city ? `- Cidade/base: ${aff.city}` : "",
+          aff.niche ? `- Nicho/area de atuacao: ${aff.niche}` : "",
+          aff.instagram ? `- Instagram: ${aff.instagram}` : "",
+          aff.coupon ? `- Cupom de indicacao: ${aff.coupon}` : "",
+          aff.code ? `- Codigo do afiliado: ${aff.code}` : "",
+          brandName ? `- Representa a marca: ${brandName}` : "",
+          "- Molde tom, apresentacao e localizacao a esse afiliado. A campanha e unica; a identidade muda por afiliado.",
+          aff.infoBlock ? `DADOS COMPLETOS DO AFILIADO:\n${aff.infoBlock}` : "",
+        ]
+          .filter(Boolean)
+          .join("\n")
+      : [
+          "IDENTIDADE DO REMETENTE:",
+          "- Se o template/contexto definir nome do atendente, use exatamente esse nome.",
+          "- Nao invente nome proprio se nao estiver no contexto.",
+          brandName ? `- Marca: ${brandName}` : "",
+        ]
+          .filter(Boolean)
+          .join("\n");
 
     return [
       `OBJETIVO DA CAMPANHA: ${objective}`,
@@ -3202,13 +3817,14 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
       isInitialTrigger
         ? "CONTEXTO DE DISPARO: Esta e uma mensagem inicial de primeiro contato da campanha."
         : "CONTEXTO DE DISPARO: Respeite o gatilho configurado para este envio.",
+      affiliateIdentityBlock,
       "REGRAS OBRIGATORIAS:",
       "- Nao invente fatos, nomes, produtos, promocoes ou condicoes que nao estejam no contexto.",
-      "- Nao se apresente com nome proprio se o nome do atendente nao estiver explicitamente definido no contexto base.",
-      "- Se o contexto base definir o nome do atendente, use exatamente esse nome, sem trocar.",
+      "- Se houver afiliado no contexto, apresente-se como ele e represente-o fielmente.",
       "- Se o contexto base indicar foco comercial/industrial/atacado, priorize volumes comerciais e evite oferta de menor volume/varejo.",
       "- Nao mude o objetivo definido pela composicao da campanha.",
       "- Mensagem curta, clara e coerente com o contexto, com CTA simples no final.",
+      "- Tags {{...}} ja foram resolvidas no contexto base quando possivel; preserve o sentido personalizado.",
       personalizationLine,
       variationLine,
       strictContext ? `CONTEXTO BASE DA COMPOSICAO:\n${strictContext}` : "",
@@ -3220,6 +3836,14 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
   private buildFallbackTemplate(campaign: Campaign, campaignSettings: any): string {
     const explicitTemplate = String(campaign.message_template || "").trim();
     if (explicitTemplate) return explicitTemplate;
+
+    // Prefer first text-like action block content (respects composer order)
+    const blocks = this.getComposerActionBlocks(campaignSettings);
+    const firstText = blocks.find((b) => {
+      const t = String(b.actionType || "text").toLowerCase();
+      return ["text", "direct", "buttons", "list", "poll", "button", "deeplink"].includes(t) && String(b.content || "").trim();
+    });
+    if (firstText?.content?.trim()) return String(firstText.content).trim();
 
     const composer = parseJsonSafe(campaignSettings?.composer || {}) as CampaignComposerSettings;
     const intentText = String(composer.intentText || "").trim();
@@ -3245,7 +3869,7 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
       name: String(row.name || ""),
       message_template: row.message_template || null,
       ai_prompt: row.ai_prompt || null,
-      use_ai: Number(row.use_ai || 0) === 1,
+      use_ai: row.use_ai === true || row.use_ai === 1 || String(row.use_ai) === "1" || Number(row.use_ai) === 1,
       filter_json: parseJsonSafe(row.filter_json) as CampaignFilterCriteria,
       speed_json: { ...DEFAULT_SPEED, ...parseJsonSafe(row.speed_json) } as CampaignSpeedControl,
       campaign_mode: String(row.campaign_mode || "educational"),
@@ -3440,11 +4064,8 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
       }
     }
 
-    if (filter.segments?.length && cols.has("category")) {
-      const placeholders = filter.segments.map(() => "?").join(",");
-      conditions.push(`category IN (${placeholders})`);
-      params.push(...filter.segments);
-    }
+    // segmentos: match case-insensitive parcial em category (Google types vs labels UI)
+    // feito em JS depois do select pra não perder leads por capitalização
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
@@ -3455,15 +4076,40 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
       cols.has("city") ? "city" : cols.has("address_city") ? "address_city AS city" : "NULL AS city",
       cols.has("state") ? "state" : "NULL AS state",
       cols.has("category") ? "category" : "NULL AS category",
+      cols.has("subcategory") ? "subcategory" : "NULL AS subcategory",
       cols.has("lead_score") ? "lead_score" : "0 AS lead_score",
       cols.has("source") ? "source" : "'manual' AS source",
       cols.has("source_details") ? "source_details" : "NULL AS source_details",
+      cols.has("whatsapp_valid") ? "whatsapp_valid" : "NULL AS whatsapp_valid",
+      cols.has("has_whatsapp") ? "has_whatsapp" : "NULL AS has_whatsapp",
     ].join(", ");
 
     let leads = await query<any[]>(
-      `SELECT ${selectCols} FROM customers ${where} ORDER BY id ASC`,
+      `SELECT ${selectCols} FROM customers ${where} ORDER BY id ASC LIMIT 20000`,
       params
     );
+
+    if (filter.segments?.length) {
+      const segs = filter.segments.map((s) => String(s || "").toLowerCase().trim()).filter(Boolean);
+      leads = leads.filter((lead) => {
+        const cat = String(lead.category || "").toLowerCase();
+        const sub = String(lead.subcategory || "").toLowerCase();
+        const details = parseJsonSafe(lead.source_details);
+        const lastQ = String(details?.last_capture_query || "").toLowerCase();
+        const queries = Array.isArray(details?.capture_queries)
+          ? details.capture_queries.map((x: any) => String(x).toLowerCase())
+          : [];
+        return segs.some(
+          (s) =>
+            cat === s ||
+            cat.includes(s) ||
+            s.includes(cat) ||
+            sub.includes(s) ||
+            lastQ.includes(s) ||
+            queries.some((q: string) => q.includes(s) || s.includes(q))
+        );
+      });
+    }
 
     if (filter.tagsInclude?.length) {
       leads = leads.filter(lead => {
@@ -3485,7 +4131,11 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
       leads = leads.filter(lead => {
         const details = parseJsonSafe(lead.source_details);
         const validation = details?.whatsapp_validation || {};
-        return validation?.has_whatsapp === true || isTruthyFlag(lead.whatsapp_valid);
+        return (
+          validation?.has_whatsapp === true ||
+          isTruthyFlag(lead.whatsapp_valid) ||
+          isTruthyFlag(lead.has_whatsapp)
+        );
       });
     }
 
@@ -3496,5 +4146,256 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
     });
 
     return leads;
+  }
+
+  // ─── Auto-alimentar campanhas com novos prospects ───────────────
+
+  private isAutoFeedEnabled(settings: Record<string, unknown> | null | undefined): boolean {
+    if (!settings || typeof settings !== "object") return false;
+    const raw = (settings as any).autoFeedLeads ?? (settings as any).auto_feed_leads;
+    return raw === true || raw === 1 || raw === "1" || String(raw).toLowerCase() === "true";
+  }
+
+  /** Avalia se um lead único casa com o filtro da campanha (mesma lógica da segmentação). */
+  private leadMatchesCampaignFilter(lead: any, filter: CampaignFilterCriteria): boolean {
+    if (!lead) return false;
+    const phone = normalizePhone(lead.phone);
+    if (!phone) return false;
+
+    const tags = parseJsonArray(lead.tags);
+    const tagsLower = new Set(tags.map((t) => t.toLowerCase()));
+    if (tagsLower.has("opt_out") || tagsLower.has("bloqueado")) return false;
+
+    if (filter.statuses?.length) {
+      const expanded = expandStatusFilterVariants(filter.statuses);
+      const st = String(lead.status || "new").toLowerCase().trim();
+      if (expanded.length && !expanded.includes(st)) return false;
+    }
+
+    if (filter.cities?.length) {
+      const city = String(lead.city || lead.address_city || "").trim();
+      if (!city || !filter.cities.some((c) => c.toLowerCase() === city.toLowerCase())) return false;
+    }
+
+    if (filter.sources?.length) {
+      const src = String(lead.source || "").trim();
+      if (!src || !filter.sources.includes(src)) return false;
+    }
+
+    if (typeof filter.scoreMin === "number") {
+      if (Number(lead.lead_score || 0) < filter.scoreMin) return false;
+    }
+    if (typeof filter.scoreMax === "number") {
+      if (Number(lead.lead_score || 0) > filter.scoreMax) return false;
+    }
+
+    if (filter.segments?.length) {
+      const segs = filter.segments.map((s) => String(s || "").toLowerCase().trim()).filter(Boolean);
+      const cat = String(lead.category || "").toLowerCase();
+      const sub = String(lead.subcategory || "").toLowerCase();
+      const details = parseJsonSafe(lead.source_details);
+      const lastQ = String(details?.last_capture_query || "").toLowerCase();
+      const ok = segs.some(
+        (s) =>
+          cat === s ||
+          cat.includes(s) ||
+          (cat && s.includes(cat)) ||
+          sub.includes(s) ||
+          lastQ.includes(s)
+      );
+      if (!ok) return false;
+    }
+
+    if (filter.tagsInclude?.length) {
+      if (!filter.tagsInclude.some((tag) => tagsLower.has(tag.toLowerCase()))) return false;
+    }
+    if (filter.tagsExclude?.length) {
+      if (filter.tagsExclude.some((tag) => tagsLower.has(tag.toLowerCase()))) return false;
+    }
+
+    if (filter.hasWhatsapp === true) {
+      const details = parseJsonSafe(lead.source_details);
+      const validation = details?.whatsapp_validation || {};
+      if (!(validation?.has_whatsapp === true || isTruthyFlag(lead.whatsapp_valid))) return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * Insere leads novos na fila de campanhas com auto-alimentar ativo e filtro compatível.
+   * Usado no captador (prospects), import e criação manual — sem reabrir segmentação.
+   */
+  async autoFeedLeadsToCampaigns(
+    userId: string,
+    brandId: string | null | undefined,
+    leadIds: Array<string | number>
+  ): Promise<{ campaignsTouched: number; leadsQueued: number }> {
+    const ids = Array.from(
+      new Set(
+        (leadIds || [])
+          .map((id) => String(id || "").trim())
+          .filter(Boolean)
+      )
+    );
+    if (!ids.length || !userId) return { campaignsTouched: 0, leadsQueued: 0 };
+
+    await this.ensureSchema();
+    const normalizedBrandId = String(brandId || "").trim() || null;
+
+    // Campanhas com auto-feed (inclui completed ocioso para reabrir ao chegar prospect)
+    const rows = await query<any[]>(
+      `SELECT id, user_id, brand_id, status, filter_json, settings, target_count
+       FROM campaign_history
+       WHERE user_id = ?
+         AND ${normalizedBrandId ? "brand_id = ?" : "(brand_id IS NULL OR brand_id = '')"}
+         AND status IN ('running', 'scheduled', 'paused', 'draft', 'completed')
+       ORDER BY updated_at DESC
+       LIMIT 80`,
+      normalizedBrandId ? [userId, normalizedBrandId] : [userId]
+    );
+
+    const campaigns = (rows || [])
+      .map((row) => this.mapCampaign(row))
+      .filter((c) => {
+        if (!this.isAutoFeedEnabled(c.settings)) return false;
+        const dest = this.normalizeCampaignDestinationSettings(c.settings || {});
+        // Só lista de leads (segmentação). type ausente = lead_list por padrão.
+        const type = String(dest?.type || "lead_list").trim() || "lead_list";
+        if (type !== "lead_list") return false;
+        // Se tem targets de grupo/contato, não auto-alimenta
+        if (Array.isArray(dest.targets) && dest.targets.length > 0) return false;
+        return true;
+      });
+
+    if (!campaigns.length) return { campaignsTouched: 0, leadsQueued: 0 };
+
+    const cols = await this.getCustomerColumns();
+    const ownerCol = await this.getOwnerColumn();
+    const selectCols = [
+      "id", "name", "phone",
+      cols.has("status") ? "status" : "'new' AS status",
+      cols.has("tags") ? "tags" : "NULL AS tags",
+      cols.has("city") ? "city" : cols.has("address_city") ? "address_city AS city" : "NULL AS city",
+      cols.has("state") ? "state" : "NULL AS state",
+      cols.has("category") ? "category" : "NULL AS category",
+      cols.has("lead_score") ? "lead_score" : "0 AS lead_score",
+      cols.has("source") ? "source" : "'manual' AS source",
+      cols.has("source_details") ? "source_details" : "NULL AS source_details",
+      cols.has("whatsapp_valid") ? "whatsapp_valid" : "NULL AS whatsapp_valid",
+    ].join(", ");
+
+    const ph = ids.map(() => "?").join(",");
+    const leadConditions = [`id IN (${ph})`];
+    const leadParams: any[] = [...ids];
+    if (ownerCol) {
+      leadConditions.push(`${ownerCol} = ?`);
+      leadParams.push(userId);
+    }
+    if (cols.has("brand_id") && normalizedBrandId) {
+      leadConditions.push("brand_id = ?");
+      leadParams.push(normalizedBrandId);
+    }
+
+    const leads = await query<any[]>(
+      `SELECT ${selectCols} FROM customers WHERE ${leadConditions.join(" AND ")}`,
+      leadParams
+    );
+    if (!leads?.length) return { campaignsTouched: 0, leadsQueued: 0 };
+
+    let campaignsTouched = 0;
+    let leadsQueued = 0;
+    const resumeIds = new Set<string>();
+
+    for (const campaign of campaigns) {
+      const filter = normalizeCampaignFilterInput(campaign.filter_json || {});
+      let insertedHere = 0;
+
+      for (const lead of leads) {
+        if (!this.leadMatchesCampaignFilter(lead, filter)) continue;
+        const phone = normalizePhone(lead.phone);
+        if (!phone) continue;
+
+        const already = await queryOne<{ id: string }>(
+          `SELECT id FROM campaign_leads
+           WHERE campaign_id = ? AND lead_id = ? AND user_id = ?
+             AND ${normalizedBrandId ? "brand_id = ?" : "brand_id IS NULL"}
+           LIMIT 1`,
+          normalizedBrandId
+            ? [campaign.id, String(lead.id), userId, normalizedBrandId]
+            : [campaign.id, String(lead.id), userId]
+        );
+        if (already?.id) continue;
+
+        await query(
+          `INSERT INTO campaign_leads (id, campaign_id, user_id, brand_id, lead_id, phone, status)
+           VALUES (?, ?, ?, ?, ?, ?, 'pending')
+           ON DUPLICATE KEY UPDATE id = id`,
+          [randomUUID(), campaign.id, userId, normalizedBrandId, String(lead.id), phone]
+        );
+        insertedHere += 1;
+        leadsQueued += 1;
+      }
+
+      if (insertedHere <= 0) continue;
+      campaignsTouched += 1;
+
+      const totalRow = await queryOne<{ total: number }>(
+        `SELECT COUNT(*) AS total FROM campaign_leads
+         WHERE campaign_id = ? AND user_id = ?
+           AND ${normalizedBrandId ? "brand_id = ?" : "brand_id IS NULL"}`,
+        normalizedBrandId
+          ? [campaign.id, userId, normalizedBrandId]
+          : [campaign.id, userId]
+      );
+      const newTarget = Number(totalRow?.total || campaign.target_count || 0);
+      await update(
+        `UPDATE campaign_history
+         SET target_count = ?, updated_at = NOW(),
+             completed_at = CASE WHEN status = 'completed' THEN NULL ELSE completed_at END,
+             status = CASE
+               WHEN status = 'completed' THEN 'running'
+               ELSE status
+             END
+         WHERE id = ? AND user_id = ? AND ${normalizedBrandId ? "brand_id = ?" : "brand_id IS NULL"}`,
+        normalizedBrandId
+          ? [newTarget, campaign.id, userId, normalizedBrandId]
+          : [newTarget, campaign.id, userId]
+      );
+
+      // Retoma envio se campanha rodando (ou reaberta) e sem worker ativo
+      if (
+        (campaign.status === "running" || campaign.status === "completed")
+        && !this.activeCampaigns.get(campaign.id)
+      ) {
+        resumeIds.add(campaign.id);
+      }
+    }
+
+    for (const campaignId of resumeIds) {
+      this.activeCampaigns.set(campaignId, true);
+      this.executeCampaign(userId, campaignId, normalizedBrandId).catch((err) => {
+        this.activeCampaigns.delete(campaignId);
+        logger.error(`[AutoFeed] resume campaign ${campaignId} failed: ${err?.message || err}`);
+      });
+      logger.info(`[AutoFeed] Retomando campanha ${campaignId} após novos leads`);
+    }
+
+    if (leadsQueued > 0) {
+      logger.info(
+        `[AutoFeed] user=${userId} brand=${normalizedBrandId || "-"} ` +
+          `queued=${leadsQueued} campaigns=${campaignsTouched} leads_in=${ids.length}`
+      );
+    }
+
+    return { campaignsTouched, leadsQueued };
+  }
+
+  async autoFeedLeadToCampaigns(
+    userId: string,
+    brandId: string | null | undefined,
+    leadId: string | number
+  ): Promise<{ campaignsTouched: number; leadsQueued: number }> {
+    return this.autoFeedLeadsToCampaigns(userId, brandId, [leadId]);
   }
 }

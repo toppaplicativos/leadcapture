@@ -55,11 +55,11 @@ export function OrdersView({
   useEffect(() => { load() }, [])
 
   const STATUS_CFG: Record<string, { label: string; cls: string }> = {
-    novo: { label: 'Novo', cls: 'bg-blue-50 text-blue-700 ring-1 ring-blue-200' },
+    novo: { label: 'Novo', cls: 'bg-gray-100 text-gray-700 ring-1 ring-gray-200' },
     aguardando_pagamento: { label: 'Aguardando', cls: 'bg-amber-50 text-amber-800 ring-1 ring-amber-200' },
     pago: { label: 'Pago', cls: 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200' },
     em_preparacao: { label: 'Preparando', cls: 'bg-orange-50 text-orange-700 ring-1 ring-orange-200' },
-    em_entrega: { label: 'Em Entrega', cls: 'bg-blue-50 text-blue-700 ring-1 ring-blue-200' },
+    em_entrega: { label: 'Em Entrega', cls: 'bg-brand-light text-brand ring-1 ring-brand/20' },
     entregue: { label: 'Entregue', cls: 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200' },
     cancelado: { label: 'Cancelado', cls: 'bg-red-50 text-red-700 ring-1 ring-red-200' },
   }
@@ -185,7 +185,7 @@ export function OrdersView({
 
       {/* KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
-        <KpiCard label="Total" value={String(metrics.total)} icon={ShoppingCart} bg="bg-blue-50" color="text-blue-500" accent="text-blue-600" />
+        <KpiCard label="Total" value={String(metrics.total)} icon={ShoppingCart} bg="bg-gray-100" color="text-gray-600" accent="text-gray-900" />
         <KpiCard label="Faturamento" value={money(metrics.totalValue)} icon={BarChart3} bg="bg-emerald-50" color="text-emerald-500" accent="text-emerald-600" />
         <KpiCard label="Pagos" value={String(metrics.paid)} icon={Eye} bg="bg-violet-50" color="text-violet-500" accent="text-gray-700" />
         <KpiCard label="Ticket Medio" value={metrics.total > 0 ? money(metrics.totalValue / metrics.total) : '—'} icon={Zap} bg="bg-amber-50" color="text-amber-500" accent="text-amber-600" />
@@ -195,7 +195,7 @@ export function OrdersView({
       <div className="bg-white rounded-2xl border border-border-light p-4">
         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em] mb-3">Pipeline</p>
         <div className="flex gap-1.5 flex-wrap">
-          <button onClick={() => setStatusFilter('')} className={`px-3 py-2 rounded-xl text-xs font-semibold transition ${!statusFilter ? 'bg-blue-100 text-blue-700 ring-1 ring-blue-300' : 'bg-gray-50 text-gray-500'}`}>Todos ({metrics.total})</button>
+          <button onClick={() => setStatusFilter('')} className={`px-3 py-2 rounded-xl text-xs font-semibold transition ${!statusFilter ? 'bg-brand-light text-brand ring-1 ring-brand/20' : 'bg-gray-50 text-gray-500'}`}>Todos ({metrics.total})</button>
           {Object.entries(STATUS_CFG).map(([k, c]) => { const n = metrics.sc[k] || 0; return n > 0 || k === 'novo' ? (
             <button key={k} onClick={() => setStatusFilter(statusFilter === k ? '' : k)} className={`px-3 py-2 rounded-xl text-xs font-semibold transition ${statusFilter === k ? c.cls + ' shadow-sm' : 'bg-gray-50 text-gray-500'}`}>{c.label} ({n})</button>
           ) : null })}
@@ -215,8 +215,8 @@ export function OrdersView({
             <th className="text-right px-4 py-2.5 text-[10px] font-bold text-gray-400 uppercase hidden md:table-cell">Data</th>
           </tr></thead><tbody>
             {filtered.map((o: any) => { const st = STATUS_CFG[(o.business_status || o.status_pedido || '').toLowerCase()] || { label: '?', cls: 'bg-gray-100 text-gray-600' }; return (
-              <tr key={o.id} onClick={() => openDetail(o)} className="border-b border-gray-100 last:border-0 cursor-pointer hover:bg-blue-50/30 transition group">
-                <td className="px-4 py-3"><p className="font-mono text-xs font-bold text-gray-700 group-hover:text-blue-600">#{orderRef(o)}</p><p className="text-[9px] text-gray-400">{o.channel || o.origem}</p></td>
+              <tr key={o.id} onClick={() => openDetail(o)} className="border-b border-gray-100 last:border-0 cursor-pointer hover:bg-gray-50 transition group">
+                <td className="px-4 py-3"><p className="font-mono text-xs font-bold text-gray-700 group-hover:text-brand">#{orderRef(o)}</p><p className="text-[9px] text-gray-400">{o.channel || o.origem}</p></td>
                 <td className="px-4 py-3"><p className="font-semibold text-gray-900 truncate max-w-[140px]">{o.customer_name || '—'}</p></td>
                 <td className="px-4 py-3 hidden sm:table-cell"><p className="text-xs text-gray-600">{o.seller_name || o.vendedor || '—'}</p></td>
                 <td className="px-4 py-3 text-center"><span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${st.cls}`}>{st.label}</span></td>
@@ -231,21 +231,21 @@ export function OrdersView({
 
       {/* Order Detail Modal */}
       {selectedOrder && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => { setSelectedOrder(null); setOrderDetail(null) }}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
-            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between shrink-0">
-              <div><h3 className="font-bold text-base text-gray-900">Pedido #{orderRef(selectedOrder)}</h3>
-                <p className="text-[11px] text-gray-400">{selectedOrder.customer_name} · {money(selectedOrder.valor_total)}</p></div>
-              <button onClick={() => { setSelectedOrder(null); setOrderDetail(null) }} className="p-2 rounded-lg hover:bg-gray-100 transition"><X size={18} className="text-gray-400" /></button>
+        <div className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm p-0 sm:p-4" onClick={() => { setSelectedOrder(null); setOrderDetail(null) }}>
+          <div className="bg-white rounded-t-[20px] sm:rounded-[20px] shadow-2xl w-full max-w-xl h-[94dvh] sm:h-auto sm:max-h-[88vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="px-4 sm:px-5 py-4 border-b border-gray-100 flex items-center justify-between shrink-0">
+              <div className="min-w-0"><p className="text-[10px] font-semibold text-gray-500">Detalhes do pedido</p><h3 className="font-bold text-base text-gray-900">#{orderRef(selectedOrder)}</h3>
+                <p className="mt-0.5 truncate text-[11px] text-gray-500">{selectedOrder.customer_name || 'Cliente não identificado'} · {money(selectedOrder.valor_total)}</p></div>
+              <button aria-label="Fechar detalhes" onClick={() => { setSelectedOrder(null); setOrderDetail(null) }} className="grid h-10 w-10 place-items-center rounded-xl hover:bg-gray-100 transition"><X size={18} className="text-gray-500" /></button>
             </div>
-            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+            <div className="flex-1 overflow-y-auto px-4 sm:px-5 py-4 space-y-5">
               {loadingDetail ? <Skeleton rows={5} /> : (<>
                 {/* Status change */}
-                <div><p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Alterar Status</p>
-                  <div className="flex flex-wrap gap-1.5">
+                <div><p className="text-[11px] font-semibold text-gray-800 mb-2">Andamento do pedido</p>
+                  <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-hide">
                     {Object.entries(STATUS_CFG).map(([k, c]) => { const cur = (orderDetail?.order?.business_status || selectedOrder.business_status || selectedOrder.status_pedido || '').toLowerCase(); return (
                       <button key={k} onClick={() => cur !== k && changeStatus(selectedOrder.id, k)} disabled={actionLoading || cur === k}
-                        className={`px-3 py-2 rounded-xl text-xs font-semibold transition ${cur === k ? c.cls + ' shadow-sm scale-105' : 'bg-gray-50 text-gray-500 hover:bg-gray-100 disabled:opacity-40'}`}>{c.label}</button>
+                        className={`min-h-10 shrink-0 px-3 rounded-xl border text-[11px] font-semibold transition ${cur === k ? 'border-brand bg-brand-light text-brand' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-40'}`}>{c.label}</button>
                     ) })}
                   </div>
                 </div>
@@ -261,14 +261,14 @@ export function OrdersView({
                 </div>
                 {/* Details grid */}
                 <div className="grid grid-cols-2 gap-2">
-                  <div className="bg-gray-50 rounded-xl p-3"><p className="text-[9px] font-bold text-gray-400 uppercase">Valor</p><p className="text-lg font-extrabold text-gray-900 mt-0.5">{money(selectedOrder.valor_total)}</p></div>
-                  <div className="bg-gray-50 rounded-xl p-3"><p className="text-[9px] font-bold text-gray-400 uppercase">Pagamento</p><p className="text-sm font-bold text-gray-700 mt-0.5">{(selectedOrder.forma_pagamento||'').toUpperCase()}</p></div>
-                  <div className="bg-gray-50 rounded-xl p-3"><p className="text-[9px] font-bold text-gray-400 uppercase">Canal</p><p className="text-xs font-semibold text-gray-700 mt-0.5">{selectedOrder.channel || selectedOrder.origem || '—'}</p></div>
-                  <div className="bg-gray-50 rounded-xl p-3"><p className="text-[9px] font-bold text-gray-400 uppercase">Entrega</p><p className="text-xs font-semibold text-gray-700 mt-0.5">{(selectedOrder.delivery_status || 'nao_iniciado').replace(/_/g, ' ')}</p></div>
+                  <div className="border border-gray-200 bg-white rounded-xl p-3"><p className="text-[9px] font-semibold text-gray-500">Valor</p><p className="text-lg font-bold text-gray-900 mt-0.5 tabular-nums">{money(selectedOrder.valor_total)}</p></div>
+                  <div className="border border-gray-200 bg-white rounded-xl p-3"><p className="text-[9px] font-semibold text-gray-500">Pagamento</p><p className="text-sm font-semibold text-gray-800 mt-0.5">{(selectedOrder.forma_pagamento||'Desconhecido').toUpperCase()}</p></div>
+                  <div className="border border-gray-200 bg-white rounded-xl p-3"><p className="text-[9px] font-semibold text-gray-500">Canal</p><p className="text-xs font-semibold text-gray-800 mt-0.5">{selectedOrder.channel || selectedOrder.origem || '—'}</p></div>
+                  <div className="border border-gray-200 bg-white rounded-xl p-3"><p className="text-[9px] font-semibold text-gray-500">Entrega</p><p className="text-xs font-semibold text-gray-800 mt-0.5">{(selectedOrder.delivery_status || 'nao_iniciado').replace(/_/g, ' ')}</p></div>
                 </div>
                 {/* Items */}
                 {orderDetail?.items?.length > 0 && (<div><p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Itens</p>
-                  <div className="bg-gray-50 rounded-xl divide-y divide-gray-200">
+                  <div className="bg-white border border-gray-200 rounded-xl divide-y divide-gray-100 overflow-hidden">
                     {orderDetail.items.map((it: any, i: number) => (<div key={i} className="flex items-center justify-between px-3 py-2">
                       <div><p className="text-xs font-semibold text-gray-700">{it.product_name || it.name}</p><p className="text-[10px] text-gray-400">{it.quantity}x {money(it.unit_price || it.preco_unitario)}</p></div>
                       <p className="text-xs font-bold text-gray-900">{money((it.quantity||1) * (it.unit_price || it.preco_unitario || 0))}</p>
@@ -278,26 +278,26 @@ export function OrdersView({
                 {/* Timeline */}
                 {orderDetail?.timeline?.length > 0 && (<div><p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Historico</p>
                   <div className="space-y-1.5">{orderDetail.timeline.map((ev: any, i: number) => (
-                    <div key={i} className="flex items-start gap-2.5"><div className="w-2 h-2 rounded-full bg-blue-400 mt-1.5 shrink-0" />
+                    <div key={i} className="flex items-start gap-2.5"><div className="w-2 h-2 rounded-full bg-brand mt-1.5 shrink-0" />
                       <div><p className="text-xs font-semibold text-gray-700">{(ev.status || ev.event_key || '').replace(/_/g, ' ')}</p><p className="text-[9px] text-gray-400">{dtFull(ev.timestamp)}</p></div>
                     </div>
                   ))}</div>
                 </div>)}
                 {/* Customer profile */}
-                {orderDetail?.customer_profile && (<div className="bg-violet-50 rounded-xl p-3">
-                  <p className="text-[9px] font-bold text-violet-500 uppercase mb-1.5">Perfil do Cliente</p>
+                {orderDetail?.customer_profile && (<div className="border border-gray-200 bg-white rounded-xl p-3">
+                  <p className="text-[10px] font-semibold text-gray-700 mb-2">Histórico do cliente</p>
                   <div className="grid grid-cols-3 gap-2 text-center">
-                    <div><p className="text-sm font-extrabold text-violet-700">{orderDetail.customer_profile.total_orders}</p><p className="text-[8px] text-violet-400">Pedidos</p></div>
-                    <div><p className="text-sm font-extrabold text-violet-700">{money(orderDetail.customer_profile.total_spent)}</p><p className="text-[8px] text-violet-400">Total</p></div>
-                    <div><p className="text-sm font-extrabold text-violet-700">{money(orderDetail.customer_profile.average_ticket)}</p><p className="text-[8px] text-violet-400">Ticket</p></div>
+                    <div><p className="text-sm font-bold text-gray-900 tabular-nums">{orderDetail.customer_profile.total_orders}</p><p className="text-[9px] text-gray-500">Pedidos</p></div>
+                    <div><p className="text-sm font-bold text-gray-900 tabular-nums">{money(orderDetail.customer_profile.total_spent)}</p><p className="text-[9px] text-gray-500">Total</p></div>
+                    <div><p className="text-sm font-bold text-gray-900 tabular-nums">{money(orderDetail.customer_profile.average_ticket)}</p><p className="text-[9px] text-gray-500">Ticket</p></div>
                   </div>
-                  {orderDetail.customer_profile.vip && <p className="text-center text-[9px] font-bold text-gray-700 mt-1.5 bg-violet-100 rounded-lg py-1">VIP</p>}
+                  {orderDetail.customer_profile.vip && <p className="text-center text-[9px] font-semibold text-brand mt-2 bg-brand-light rounded-lg py-1">Cliente VIP</p>}
                 </div>)}
                 {/* Actions */}
-                <div className="flex gap-2 flex-wrap pt-1">
-                  <button onClick={() => sendExpedition(selectedOrder.id)} disabled={actionLoading} className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gray-900 text-white text-xs font-semibold hover:bg-gray-800 disabled:opacity-40 transition"><Send size={12} strokeWidth={1.75} /> Enviar expedição</button>
-                  {selectedOrder.payment_link && <a href={selectedOrder.payment_link} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gray-100 text-gray-700 text-xs font-semibold hover:bg-gray-200 transition"><Eye size={12} /> Link Pgto</a>}
-                  <button onClick={() => cancelOrder(selectedOrder.id)} disabled={actionLoading} className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-red-500 text-xs font-semibold hover:bg-red-50 transition ml-auto"><Ban size={12} /> Cancelar</button>
+                <div className="sticky -bottom-4 z-10 -mx-4 sm:-mx-5 px-4 sm:px-5 py-3 flex gap-2 flex-wrap border-t border-gray-100 bg-white/95 backdrop-blur">
+                  <button onClick={() => sendExpedition(selectedOrder.id)} disabled={actionLoading} className="flex min-h-11 items-center justify-center gap-1.5 px-4 rounded-xl bg-gray-900 text-white text-xs font-semibold hover:bg-gray-800 disabled:opacity-40 transition"><Send size={13} strokeWidth={1.75} /> Enviar à expedição</button>
+                  {selectedOrder.payment_link && <a href={selectedOrder.payment_link} target="_blank" rel="noreferrer" className="flex min-h-11 items-center justify-center gap-1.5 px-3 rounded-xl bg-gray-100 text-gray-700 text-xs font-semibold hover:bg-gray-200 transition"><Eye size={13} /> Pagamento</a>}
+                  <button onClick={() => cancelOrder(selectedOrder.id)} disabled={actionLoading} className="flex min-h-11 items-center justify-center gap-1.5 px-3 rounded-xl text-red-600 text-xs font-semibold hover:bg-red-50 transition sm:ml-auto"><Ban size={13} /> Cancelar</button>
                 </div>
               </>)}
             </div>
@@ -315,7 +315,7 @@ export function OrdersView({
 const BOOKING_STATUS_CFG: Record<string, { label: string; cls: string }> = {
   pending_confirmation: { label: 'Aguardando', cls: 'bg-amber-50 text-amber-800 ring-1 ring-amber-200' },
   confirmed: { label: 'Confirmado', cls: 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200' },
-  rescheduled: { label: 'Reagendado', cls: 'bg-blue-50 text-blue-700 ring-1 ring-blue-200' },
+  rescheduled: { label: 'Reagendado', cls: 'bg-amber-50 text-amber-800 ring-1 ring-amber-200' },
   completed: { label: 'Concluído', cls: 'bg-violet-50 text-violet-700 ring-1 ring-violet-200' },
   cancelled: { label: 'Cancelado', cls: 'bg-red-50 text-red-700 ring-1 ring-red-200' },
 }
@@ -417,7 +417,7 @@ function BookingsView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err')
         <div className="flex gap-1.5 flex-wrap">
           <button onClick={() => setStatusFilter('')}
             className={`px-3 py-2 rounded-xl text-xs font-semibold transition ${
-              !statusFilter ? 'bg-blue-100 text-blue-700 ring-1 ring-blue-300' : 'bg-gray-50 text-gray-500'
+              !statusFilter ? 'bg-brand-light text-brand ring-1 ring-brand/20' : 'bg-gray-50 text-gray-500'
             }`}>
             Todos ({bookings.length})
           </button>
@@ -566,13 +566,13 @@ function InventoryOverview({ showToast }: { showToast: (t: string, tp?: 'ok' | '
       <div className="flex items-center justify-between">
         <h2 className="text-[20px] font-bold tracking-tight text-gray-900">Estoque</h2>
         <button onClick={() => navigate('/estoque')}
-          className="flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-700 transition">
+          className="flex items-center gap-1.5 text-xs font-semibold text-brand hover:opacity-80 transition">
           Abrir Painel Completo <ArrowRight size={13} />
         </button>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
-        <KpiCard label="Produtos" value={num(data?.total_products)} icon={Package} bg="bg-blue-50" color="text-blue-600" />
+        <KpiCard label="Produtos" value={num(data?.total_products)} icon={Package} bg="bg-gray-100" color="text-gray-700" />
         <KpiCard label="Total Unidades" value={num(data?.total_units)} icon={BarChart3} bg="bg-indigo-50" color="text-indigo-600" />
         <KpiCard label="Sem Estoque" value={num(data?.out_of_stock)} icon={Zap} bg="bg-red-50" color="text-red-500" />
         <KpiCard label="Estoque Baixo" value={num(data?.low_stock)} icon={Clock} bg="bg-amber-50" color="text-amber-500" />

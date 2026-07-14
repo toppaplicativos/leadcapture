@@ -32,22 +32,22 @@ export type ProspectSnapshot = {
 }
 
 export type ProspectCommand =
-  | { type: 'search'; query: string; location: string; radius?: string }
+  | { type: 'search'; query: string; location: string; radius?: string; latitude?: number; longitude?: number }
   | { type: 'capture_batch' }
   | { type: 'toggle_auto_capture' }
   | { type: 'toggle_automate' }
   | { type: 'set_immersive'; value: boolean }
   | { type: 'open_ideas' }
-  | { type: 'apply'; query?: string; location?: string; radius?: string; automate?: boolean }
+  | { type: 'apply'; query?: string; location?: string; radius?: string; automate?: boolean; latitude?: number; longitude?: number }
 
 export type ProspectHandlers = {
-  search: (params: { query: string; location: string; radius?: string }) => void | Promise<void>
+  search: (params: { query: string; location: string; radius?: string; latitude?: number; longitude?: number }) => void | Promise<void>
   captureBatch: () => void | Promise<void>
   toggleAutoCapture: () => void
   toggleAutomate: () => void
   setImmersive: (value: boolean) => void
   openIdeas: () => void
-  apply: (params: { query?: string; location?: string; radius?: string; automate?: boolean }) => void
+  apply: (params: { query?: string; location?: string; radius?: string; automate?: boolean; latitude?: number; longitude?: number }) => void
 }
 
 const EMPTY_SNAPSHOT: ProspectSnapshot = {
@@ -118,12 +118,20 @@ export function ProspectBridgeProvider({ children }: { children: ReactNode }) {
   }, [flushQueue])
 
   const publishSnapshot = useCallback((partial: Partial<ProspectSnapshot>) => {
+    // Side-effect FORA do updater (setState puro) — evita loop/reload no iPad
+    if (partial.immersive !== undefined) {
+      setImmersiveActive(!!partial.immersive)
+    }
     setSnapshot((prev) => {
-      const next = { ...prev, ...partial }
-      if (partial.immersive !== undefined) {
-        setImmersiveActive(!!partial.immersive)
+      let changed = false
+      const next = { ...prev }
+      for (const [k, v] of Object.entries(partial)) {
+        if ((prev as any)[k] !== v) {
+          ;(next as any)[k] = v
+          changed = true
+        }
       }
-      return next
+      return changed ? next : prev
     })
   }, [])
 
@@ -164,7 +172,13 @@ export function ProspectBridgeProvider({ children }: { children: ReactNode }) {
 function runCommand(cmd: ProspectCommand, handlers: ProspectHandlers) {
   switch (cmd.type) {
     case 'search':
-      handlers.search({ query: cmd.query, location: cmd.location, radius: cmd.radius })
+      handlers.search({
+        query: cmd.query,
+        location: cmd.location,
+        radius: cmd.radius,
+        latitude: cmd.latitude,
+        longitude: cmd.longitude,
+      })
       break
     case 'capture_batch':
       handlers.captureBatch()

@@ -3,7 +3,7 @@
  * Governado pelo App Admin (master); seed idempotente no bootstrap.
  */
 
-export type PushAppContext = "master" | "admin" | "affiliate" | "stock" | "storefront"
+export type PushAppContext = "master" | "admin" | "affiliate" | "stock" | "storefront" | "mob"
 
 export type PushEventCategory =
   | "account_security"
@@ -174,6 +174,16 @@ export const PUSH_EVENT_SEED: PushEventDefinition[] = [
   ev("stock", "orders", "order_delayed", "Pedido atrasado", { default_priority: "critical", sort_order: 23 }),
   ev("stock", "orders", "order_ready_pickup", "Pedido pronto para retirada", { default_priority: "normal", sort_order: 24 }),
   ev("stock", "system", "sync_failure", "Falha de sincronização", { default_priority: "critical", sort_order: 30 }),
+
+  /* ── Lead Capture Mob (entregadores) ── */
+  ev("mob", "orders", "delivery_offered", "Nova entrega disponível", { default_priority: "high", sound_key: "order", sort_order: 1 }),
+  ev("mob", "orders", "delivery_assigned", "Entrega atribuída a você", { default_priority: "high", sound_key: "order", sort_order: 2 }),
+  ev("mob", "orders", "delivery_status_changed", "Status da entrega atualizado", { default_priority: "normal", sort_order: 3 }),
+  ev("mob", "orders", "delivery_cancelled", "Entrega cancelada", { default_priority: "high", sort_order: 4 }),
+  ev("mob", "account_security", "membership_approved", "Vínculo com organização aprovado", { default_priority: "high", sort_order: 10 }),
+  ev("mob", "account_security", "membership_suspended", "Vínculo suspenso", { default_priority: "critical", sort_order: 11 }),
+  ev("admin", "orders", "mob_delivery_created", "Entrega Mob criada a partir do pedido", { default_priority: "normal", sort_order: 80 }),
+  ev("admin", "orders", "mob_delivery_completed", "Entrega Mob concluída", { default_priority: "normal", sort_order: 81 }),
 ]
 
 export function getCategoryLabel(category: PushEventCategory): string {
@@ -186,6 +196,7 @@ export const PUSH_APP_CONTEXT_LABELS: Record<PushAppContext, string> = {
   affiliate: "Parceiros / Afiliados",
   stock: "Estoque",
   storefront: "Loja pública",
+  mob: "Lead Capture Mob (entregadores)",
 }
 
 export const PUSH_SOUND_OPTIONS = [

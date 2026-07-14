@@ -19,7 +19,7 @@ import {
   EMAIL_DS,
 } from "./designSystem"
 
-export const EMAIL_CATALOG_VERSION = "2026-07-10-v5-monochrome-mark"
+export const EMAIL_CATALOG_VERSION = "2026-07-13-v6-affiliate-onboard"
 
 export type CatalogTemplate = {
   slug: string
@@ -99,6 +99,32 @@ export const SYSTEM_TEMPLATES: CatalogTemplate[] = [
       <p style="margin:0">${emailCta("{{login_url}}", "Acessar workspace")}</p>
     `),
     text: "{{user_name}}, você foi adicionado a {{brand_name}} como {{role_name}}. {{login_url}}",
+  },
+  {
+    slug: "welcome-partners",
+    scope: "system",
+    category: "onboarding",
+    audience: "affiliate",
+    description: "Boas-vindas global ao LeadCapture Parceiros após cadastro.",
+    variables: ["user_name", "panel_url"],
+    subject: "Bem-vindo(a) ao LeadCapture Parceiros, {{user_name}}",
+    html: sys(`
+      ${emailIconBadge("mark", "#ecfdf5")}
+      ${emailPill("Parceiros", "success")}
+      <div style="height:12px"></div>
+      ${emailH1("Sua conta de parceiro está no ar")}
+      ${emailP(`Oi <strong>{{user_name}}</strong>, o cadastro no <strong>LeadCapture Parceiros</strong> foi concluído.`)}
+      ${emailP("No app você escolhe programas de marcas, recebe link e cupom, compartilha materiais oficiais e acompanha comissões — tudo em um só lugar.")}
+      ${emailCard(emailKvTable([
+        ["App", "LeadCapture Parceiros"],
+        ["Próximo passo", "Explorar o Mercado"],
+        ["Acesso", "parceiros.leadcapture.online"],
+      ]))}
+      ${emailP("<strong>Como começar:</strong> abra o app → ative notificações → entre em um programa → compartilhe seu link.")}
+      <p style="margin:0 0 8px">${emailCta("{{panel_url}}", "Abrir LeadCapture Parceiros")}</p>
+      ${emailMuted("Se você não criou esta conta, ignore este e-mail com segurança.")}
+    `),
+    text: "Bem-vindo {{user_name}} ao LeadCapture Parceiros. Acesse {{panel_url}}",
   },
   {
     slug: "payment-failed",
@@ -284,36 +310,49 @@ export const TENANT_TEMPLATES: CatalogTemplate[] = [
     audience: "affiliate",
     description: "Boas-vindas ao afiliado da marca.",
     variables: ["affiliate_name", "brand_name", "brand_color", "affiliate_panel_url", "commission_rate", "program_name", "brand_logo_url"],
-    subject: "Você é parceiro(a) da {{brand_name}}!",
+    subject: "Bem-vindo(a) à {{brand_name}}, {{affiliate_name}}",
     html: ten(`
       ${emailIconBadge("mark", "#ecfdf5")}
-      ${emailPill("Programa de afiliados", "success")}
+      ${emailPill("Conta de parceiro", "success")}
       <div style="height:12px"></div>
-      ${emailH1("Bem-vindo ao time de parceiros")}
-      ${emailP(`Oi <strong>{{affiliate_name}}</strong>, sua conta no programa <strong>{{program_name}}</strong> da {{brand_name}} está pronta.`)}
+      ${emailH1("Sua conta de parceiro está pronta")}
+      ${emailP(`Oi <strong>{{affiliate_name}}</strong> — você entrou no programa <strong>{{program_name}}</strong> da <strong>{{brand_name}}</strong>.`)}
+      ${emailP("No app você encontra materiais oficiais, link e cupom com rastreio, leads e a carteira de comissões.")}
       ${emailCard(emailKvTable([
+        ["Programa", "{{program_name}}"],
         ["Comissão", "{{commission_rate}}"],
-        ["Painel", "Central do afiliado"],
+        ["Acesso", "Central do afiliado"],
       ]))}
-      ${emailP("Acesse materiais, links e comissões na central do afiliado.")}
-      <p style="margin:0">${brandCta("{{affiliate_panel_url}}", "Abrir central do afiliado")}</p>
+      ${emailP("<strong>Primeiros passos:</strong> abra o app → copie seu link → compartilhe com materiais da marca → ative as notificações.")}
+      <p style="margin:0 0 8px">${brandCta("{{affiliate_panel_url}}", "Abrir meu app de parceiro")}</p>
+      ${emailMuted("Guarde este e-mail: o link leva direto à sua central.")}
     `),
-    text: "Afiliado {{affiliate_name}} em {{brand_name}}. Painel: {{affiliate_panel_url}}",
+    text: "Bem-vindo {{affiliate_name}}! Programa {{program_name}} · {{brand_name}}. Comissão: {{commission_rate}}. App: {{affiliate_panel_url}}",
   },
   {
     slug: "affiliate-approved",
     scope: "tenant",
     category: "affiliates",
-    description: "Afiliado aprovado no programa.",
-    variables: ["affiliate_name", "brand_name", "brand_color", "affiliate_panel_url", "program_name"],
-    subject: "Aprovado no programa {{program_name}}!",
+    audience: "affiliate",
+    description: "Afiliado aprovado / aceite confirmado no programa.",
+    variables: ["affiliate_name", "brand_name", "brand_color", "affiliate_panel_url", "program_name", "brand_logo_url", "commission_rate"],
+    subject: "Você foi aceito em {{program_name}} · {{brand_name}}",
     html: ten(`
       ${emailIconBadge("mark", "#ecfdf5")}
-      ${emailH1("Você foi aprovado")}
-      ${emailP(`Parabéns, {{affiliate_name}}! Sua inscrição em <strong>{{program_name}}</strong> da {{brand_name}} foi aprovada.`)}
-      <p style="margin:18px 0 0">${brandCta("{{affiliate_panel_url}}", "Começar a divulgar")}</p>
+      ${emailPill("Aprovado", "success")}
+      <div style="height:12px"></div>
+      ${emailH1("Aceite confirmado")}
+      ${emailP(`Parabéns, <strong>{{affiliate_name}}</strong>! Sua entrada no programa <strong>{{program_name}}</strong> da <strong>{{brand_name}}</strong> foi aprovada.`)}
+      ${emailCard(emailKvTable([
+        ["Programa", "{{program_name}}"],
+        ["Status", "Ativo / onboarding"],
+        ["Comissão", "{{commission_rate}}"],
+      ]))}
+      ${emailP("Conclua o onboarding no app (termos e treinamentos, se houver), copie seu link e comece a divulgar com os materiais oficiais.")}
+      <p style="margin:0 0 8px">${brandCta("{{affiliate_panel_url}}", "Continuar no app")}</p>
+      ${emailMuted("Ative as notificações para saber de leads e comissões em tempo real.")}
     `),
-    text: "Aprovado em {{program_name}}. {{affiliate_panel_url}}",
+    text: "Aceito em {{program_name}} ({{brand_name}}). Comissão: {{commission_rate}}. App: {{affiliate_panel_url}}",
   },
   {
     slug: "affiliate-commission",

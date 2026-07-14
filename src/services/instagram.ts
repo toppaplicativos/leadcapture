@@ -34,6 +34,32 @@ export type InstagramMediaItem = {
   gallery_id?: string;
 };
 
+/** Menção de usuário no post (coordenadas 0–1 no frame da imagem). */
+export type InstagramUserTag = {
+  username: string;
+  x?: number;
+  y?: number;
+};
+
+/**
+ * Metadados de publicação suportados pela Content Publishing API (Graph).
+ * - location_id / location_name: local (Page place id)
+ * - user_tags: marcar pessoas
+ * - alt_text: acessibilidade (feed imagem)
+ * - share_to_feed: Reels também no feed
+ * - cover_url: capa do Reels
+ * - collaborators: usernames convidados (collab) — best-effort se a API aceitar
+ */
+export type InstagramPublishMeta = {
+  location_id?: string;
+  location_name?: string;
+  user_tags?: InstagramUserTag[];
+  alt_text?: string;
+  share_to_feed?: boolean;
+  cover_url?: string;
+  collaborators?: string[];
+};
+
 export type InstagramPost = {
   id: string;
   brand_id: string;
@@ -48,6 +74,7 @@ export type InstagramPost = {
   scheduled_at?: string;
   published_at?: string;
   error_message?: string | null;
+  publish_meta?: InstagramPublishMeta | null;
   likes_count?: number;
   comments_count?: number;
   impressions?: number;
@@ -560,11 +587,92 @@ async function publishIgContainer(
   return { ok: false, error: pubData?.error?.message || "Falha ao publicar" };
 }
 
+function parsePublishMeta(raw: unknown): InstagramPublishMeta | null {
+  if (!raw) return null;
+  let obj: any = raw;
+  if (typeof raw === "string") {
+    try {
+      obj = JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+  if (!obj || typeof obj !== "object") return null;
+  const userTags = Array.isArray(obj.user_tags)
+    ? obj.user_tags
+        .map((t: any) => ({
+          username: String(t?.username || t?.user || "")
+            .replace(/^@/, "")
+            .trim(),
+          x: Number.isFinite(Number(t?.x)) ? Number(t.x) : 0.5,
+          y: Number.isFinite(Number(t?.y)) ? Number(t.y) : 0.5,
+        }))
+        .filter((t: InstagramUserTag) => t.username)
+    : undefined;
+  const collaborators = Array.isArray(obj.collaborators)
+    ? obj.collaborators
+        .map((c: any) => String(c || "").replace(/^@/, "").trim())
+        .filter(Boolean)
+    : undefined;
+  const meta: InstagramPublishMeta = {
+    location_id: obj.location_id ? String(obj.location_id).trim() : undefined,
+    location_name: obj.location_name ? String(obj.location_name).trim() : undefined,
+    user_tags: userTags?.length ? userTags : undefined,
+    alt_text: obj.alt_text ? String(obj.alt_text).trim().slice(0, 1000) : undefined,
+    share_to_feed: obj.share_to_feed === undefined ? undefined : Boolean(obj.share_to_feed),
+    cover_url: obj.cover_url ? String(obj.cover_url).trim() : undefined,
+    collaborators: collaborators?.length ? collaborators.slice(0, 3) : undefined,
+  };
+  if (
+    !meta.location_id &&
+    !meta.location_name &&
+    !meta.user_tags &&
+    !meta.alt_text &&
+    meta.share_to_feed === undefined &&
+    !meta.cover_url &&
+    !meta.collaborators
+  ) {
+    return null;
+  }
+  return meta;
+}
+
 function normalizeInstagramPost(row: InstagramPost): InstagramPost {
   return {
     ...row,
     media_items: parseMediaItems((row as any).media_items),
+    publish_meta: parsePublishMeta((row as any).publish_meta),
   };
+}
+
+/** Aplica tags/local/acessibilidade no payload do container Graph. */
+function applyPublishMetaToContainer(
+  payload: Record<string, unknown>,
+  meta: InstagramPublishMeta | null | undefined,
+  opts?: { allowUserTags?: boolean; allowLocation?: boolean; allowAlt?: boolean }
+): void {
+  if (!meta) return;
+  const allowUserTags = opts?.allowUserTags !== false;
+  const allowLocation = opts?.allowLocation !== false;
+  const allowAlt = opts?.allowAlt !== false;
+
+  if (allowLocation && meta.location_id) {
+    payload.location_id = meta.location_id;
+  }
+  if (allowAlt && meta.alt_text) {
+    payload.alt_text = meta.alt_text;
+  }
+  if (allowUserTags && meta.user_tags?.length) {
+    payload.user_tags = meta.user_tags.map((t) => ({
+      username: t.username,
+      x: Math.min(1, Math.max(0, t.x ?? 0.5)),
+      y: Math.min(1, Math.max(0, t.y ?? 0.5)),
+    }));
+  }
+  if (meta.collaborators?.length) {
+    // Best-effort: algumas contas/API usam collaborators como lista de usernames
+    payload.collaborators = meta.collaborators;
+  }
 }
 
 async function ensureTables() {
@@ -619,6 +727,7 @@ async function ensureTables() {
 
   await query(`ALTER TABLE instagram_posts ADD COLUMN media_items JSONB NULL`).catch(() => undefined);
   await query(`ALTER TABLE instagram_posts ADD COLUMN error_message TEXT NULL`).catch(() => undefined);
+  await query(`ALTER TABLE instagram_posts ADD COLUMN publish_meta JSONB NULL`).catch(() => undefined);
 
   await query(`
     CREATE TABLE IF NOT EXISTS instagram_metrics (
@@ -1439,6 +1548,7 @@ class InstagramService {
       media_items: source.media_items,
       thumbnail_url: source.thumbnail_url,
       caption: source.caption,
+      publish_meta: source.publish_meta || null,
       status: "draft",
       scheduled_at: undefined,
       error_message: null,
@@ -1874,6 +1984,7 @@ class InstagramService {
     const id = randomUUID();
     const mediaType = data.media_type || "IMAGE";
     const mediaItems = normalizeMediaItemsInput(mediaType, data.media_items, data.media_url);
+    const publishMeta = parsePublishMeta(data.publish_meta ?? (data as any).publishMeta);
     const post: InstagramPost = {
       id,
       brand_id: brandId,
@@ -1884,11 +1995,12 @@ class InstagramService {
       caption: data.caption,
       status: data.status || "draft",
       scheduled_at: data.scheduled_at,
+      publish_meta: publishMeta,
     };
 
     await insert(
-      `INSERT INTO instagram_posts (id, brand_id, media_type, media_url, thumbnail_url, caption, status, scheduled_at, media_items)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO instagram_posts (id, brand_id, media_type, media_url, thumbnail_url, caption, status, scheduled_at, media_items, publish_meta)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         brandId,
@@ -1899,6 +2011,7 @@ class InstagramService {
         post.status,
         post.scheduled_at || null,
         mediaItems.length ? JSON.stringify(mediaItems) : null,
+        publishMeta ? JSON.stringify(publishMeta) : null,
       ]
     );
     return post;
@@ -1914,6 +2027,12 @@ class InstagramService {
       if (key === "media_items") {
         sets.push(`${key} = ?`);
         params.push(Array.isArray(val) ? JSON.stringify(val) : val ?? null);
+        continue;
+      }
+      if (key === "publish_meta") {
+        const meta = parsePublishMeta(val);
+        sets.push(`publish_meta = ?`);
+        params.push(meta ? JSON.stringify(meta) : null);
         continue;
       }
       sets.push(`${key} = ?`);
@@ -1996,11 +2115,16 @@ class InstagramService {
           childIds.push(child.id);
         }
 
-        const parent = await createIgMediaContainer(conn.access_token, {
+        const carouselPayload: Record<string, unknown> = {
           media_type: "CAROUSEL",
           children: childIds.join(","),
           caption: post.caption || "",
+        };
+        applyPublishMetaToContainer(carouselPayload, post.publish_meta, {
+          allowUserTags: false,
+          allowAlt: false,
         });
+        const parent = await createIgMediaContainer(conn.access_token, carouselPayload);
         containerId = parent.id;
         if (!containerId) {
           return this.failPublish(postId, parent.error || "Falha ao criar carrossel");
@@ -2012,12 +2136,19 @@ class InstagramService {
         }
       } else if (post.media_type === "REELS") {
         const videoUrl = resolveInstagramVideoUrl(mediaItems[0].url);
-        const created = await createIgMediaContainer(conn.access_token, {
+        const meta = post.publish_meta || {};
+        const reelsPayload: Record<string, unknown> = {
           media_type: "REELS",
           video_url: videoUrl,
           caption: post.caption || "",
-          share_to_feed: true,
+          share_to_feed: meta.share_to_feed !== false,
+        };
+        if (meta.cover_url) reelsPayload.cover_url = resolveInstagramImageUrl(meta.cover_url);
+        applyPublishMetaToContainer(reelsPayload, meta, {
+          allowUserTags: false,
+          allowAlt: false,
         });
+        const created = await createIgMediaContainer(conn.access_token, reelsPayload);
         containerId = created.id;
         if (!containerId) {
           return this.failPublish(postId, created.error || "Falha ao criar Reels");
@@ -2028,11 +2159,16 @@ class InstagramService {
         }
       } else if (post.media_type === "VIDEO") {
         const videoUrl = resolveInstagramVideoUrl(mediaItems[0].url);
-        const created = await createIgMediaContainer(conn.access_token, {
+        const videoPayload: Record<string, unknown> = {
           media_type: "VIDEO",
           video_url: videoUrl,
           caption: post.caption || "",
+        };
+        applyPublishMetaToContainer(videoPayload, post.publish_meta, {
+          allowUserTags: false,
+          allowAlt: false,
         });
+        const created = await createIgMediaContainer(conn.access_token, videoPayload);
         containerId = created.id;
         if (!containerId) {
           return this.failPublish(postId, created.error || "Falha ao criar video no feed");
@@ -2043,10 +2179,15 @@ class InstagramService {
         }
       } else if (post.media_type === "STORIES") {
         const imageUrl = resolveInstagramImageUrl(mediaItems[0].url);
-        const created = await createIgMediaContainer(conn.access_token, {
+        const storyPayload: Record<string, unknown> = {
           media_type: "STORIES",
           image_url: imageUrl,
+        };
+        applyPublishMetaToContainer(storyPayload, post.publish_meta, {
+          allowLocation: false,
+          allowAlt: false,
         });
+        const created = await createIgMediaContainer(conn.access_token, storyPayload);
         containerId = created.id;
         if (!containerId) {
           return this.failPublish(postId, created.error || "Falha ao criar Story");
@@ -2058,10 +2199,12 @@ class InstagramService {
       } else {
         const imageUrl = resolveInstagramImageUrl(mediaItems[0].url);
         logger.info(`[Instagram] Publishing image postId=${postId} url=${imageUrl}`);
-        const created = await createIgMediaContainer(conn.access_token, {
+        const imagePayload: Record<string, unknown> = {
           image_url: imageUrl,
           caption: post.caption || "",
-        });
+        };
+        applyPublishMetaToContainer(imagePayload, post.publish_meta);
+        const created = await createIgMediaContainer(conn.access_token, imagePayload);
         containerId = created.id;
         if (!containerId) {
           const hint = created.error?.includes("photo or video")
@@ -2126,12 +2269,17 @@ class InstagramService {
     const isStory = mediaType === "STORIES";
     const resolvedImageUrl = resolveInstagramImageUrl(input.imageUrl);
 
-    // Save as draft first
+    // Save as draft first (inclui meta de local/menções para auditoria e republish)
     const post = await this.createPost(brandId, {
-      media_type: isStory ? "IMAGE" : "IMAGE",
+      media_type: isStory ? "STORIES" : "IMAGE",
       media_url: input.imageUrl,
       caption: isStory ? undefined : input.caption,
       status: "publishing",
+      publish_meta: {
+        location_id: input.locationId,
+        alt_text: input.altText,
+        user_tags: input.userTags,
+      },
     });
 
     try {

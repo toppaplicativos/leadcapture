@@ -134,15 +134,15 @@ export function EstoqueAccessView({ showToast }: { showToast: (t: string, tp?: '
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <h2 className="text-[26px] font-bold text-gray-900 tracking-tight">Acesso ao Estoque</h2>
-          <p className="text-[13px] text-gray-400 mt-0.5">Gerencie usuários e credenciais do app de estoque</p>
+          <h2 className="text-[26px] font-bold text-gray-900 tracking-tight">Gestores de estoque</h2>
+          <p className="text-[13px] text-gray-500 mt-0.5">Crie, acompanhe e gerencie quem pode acessar o app de estoque.</p>
         </div>
         <button onClick={() => setShowForm(!showForm)}
           style={{ backgroundColor: 'var(--brand-secondary)' }}
           className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-white text-xs font-bold hover:opacity-90 transition shadow-md">
-          <Plus size={14} /> Novo Acesso
+          <Plus size={14} /> Adicionar gestor
         </button>
       </div>
 
@@ -150,14 +150,14 @@ export function EstoqueAccessView({ showToast }: { showToast: (t: string, tp?: '
       <div className="bg-gray-900 rounded-2xl p-5 text-white shadow-lg">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-white/50 text-[10px] font-bold uppercase tracking-wider">App de Estoque</p>
-            <p className="text-sm font-bold mt-1">Acesso dos gerentes ao painel de controle de estoque</p>
+            <p className="text-white/60 text-[10px] font-semibold">Aplicativo conectado</p>
+            <p className="text-sm font-semibold mt-1">Operação de estoque e expedição</p>
             <p className="text-xs text-white/40 mt-1.5 font-mono truncate">{window.location.origin}{stockAppUrl}</p>
           </div>
           {brandSlug ? (
             <a href={stockAppUrl} target="_blank" rel="noreferrer"
               className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-bold transition shrink-0">
-              Abrir App →
+              Abrir app de estoque →
             </a>
           ) : (
             <span className="px-4 py-2.5 rounded-xl bg-white/5 text-white/40 text-xs font-bold shrink-0">

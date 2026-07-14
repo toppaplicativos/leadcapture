@@ -3,12 +3,31 @@ import type { PostMediaItem } from '@/components/instagram/InstagramCreateMediaP
 export type PostType = 'IMAGE' | 'CAROUSEL_ALBUM' | 'REELS' | 'VIDEO' | 'STORIES'
 export type WhenMode = 'now' | 'schedule' | 'draft'
 
+export type InstagramUserTagForm = {
+  username: string
+  x: number
+  y: number
+}
+
 export type InstagramCreateFormState = {
   postType: PostType
   caption: string
   mediaItems: PostMediaItem[]
   when: WhenMode
   scheduledAt: string
+  /** Page place id (Graph) */
+  locationId: string
+  locationName: string
+  /** @usernames a marcar no post */
+  userTags: InstagramUserTagForm[]
+  /** Texto alternativo de acessibilidade (feed imagem) */
+  altText: string
+  /** Reels: também publicar no feed */
+  shareToFeed: boolean
+  /** Reels: URL da capa (opcional) */
+  coverUrl: string
+  /** Usernames de collab (até 3, best-effort na API) */
+  collaborators: string[]
 }
 
 export const POST_TYPE_LABELS: Record<PostType, string> = {
@@ -68,7 +87,43 @@ export function createDefaultFormState(): InstagramCreateFormState {
     mediaItems: [],
     when: 'now',
     scheduledAt: defaultScheduleLocalValue(),
+    locationId: '',
+    locationName: '',
+    userTags: [],
+    altText: '',
+    shareToFeed: true,
+    coverUrl: '',
+    collaborators: [],
   }
+}
+
+export function buildPublishMeta(form: InstagramCreateFormState): Record<string, unknown> | null {
+  const user_tags = form.userTags
+    .map((t) => ({
+      username: String(t.username || '').replace(/^@/, '').trim(),
+      x: Number.isFinite(t.x) ? t.x : 0.5,
+      y: Number.isFinite(t.y) ? t.y : 0.5,
+    }))
+    .filter((t) => t.username)
+  const collaborators = form.collaborators
+    .map((c) => String(c || '').replace(/^@/, '').trim())
+    .filter(Boolean)
+    .slice(0, 3)
+
+  const meta: Record<string, unknown> = {}
+  if (form.locationId.trim()) {
+    meta.location_id = form.locationId.trim()
+    if (form.locationName.trim()) meta.location_name = form.locationName.trim()
+  }
+  if (user_tags.length) meta.user_tags = user_tags
+  if (form.altText.trim()) meta.alt_text = form.altText.trim().slice(0, 1000)
+  if (form.postType === 'REELS') {
+    meta.share_to_feed = form.shareToFeed !== false
+    if (form.coverUrl.trim()) meta.cover_url = form.coverUrl.trim()
+  }
+  if (collaborators.length) meta.collaborators = collaborators
+
+  return Object.keys(meta).length ? meta : null
 }
 
 function pad(n: number) {
@@ -157,12 +212,31 @@ export function postToFormState(post: any): InstagramCreateFormState {
     ? toDatetimeLocalValue(new Date(post.scheduled_at))
     : defaultScheduleLocalValue()
 
+  const meta = post.publish_meta && typeof post.publish_meta === 'object' ? post.publish_meta : {}
+  const userTags: InstagramUserTagForm[] = Array.isArray(meta.user_tags)
+    ? meta.user_tags.map((t: any) => ({
+        username: String(t?.username || '').replace(/^@/, ''),
+        x: Number.isFinite(Number(t?.x)) ? Number(t.x) : 0.5,
+        y: Number.isFinite(Number(t?.y)) ? Number(t.y) : 0.5,
+      })).filter((t: InstagramUserTagForm) => t.username)
+    : []
+  const collaborators = Array.isArray(meta.collaborators)
+    ? meta.collaborators.map((c: any) => String(c || '').replace(/^@/, '')).filter(Boolean)
+    : []
+
   return {
     postType: (post.media_type || 'IMAGE') as PostType,
     caption: post.caption || '',
     mediaItems,
     when,
     scheduledAt,
+    locationId: String(meta.location_id || ''),
+    locationName: String(meta.location_name || ''),
+    userTags,
+    altText: String(meta.alt_text || ''),
+    shareToFeed: meta.share_to_feed !== false,
+    coverUrl: String(meta.cover_url || ''),
+    collaborators,
   }
 }
 
@@ -183,6 +257,7 @@ export function buildPostPayload(
     })),
     caption: form.caption,
     status: form.when === 'now' && !editing ? 'publishing' : status,
+    publish_meta: buildPublishMeta(form),
   }
   if (form.when === 'schedule') {
     payload.scheduled_at = scheduleIsoFromLocal(form.scheduledAt)

@@ -1311,6 +1311,234 @@ export class AffiliatesService {
     );
   }
 
+  /**
+   * Biblioteca unificada do afiliado: pastas da galeria da marca
+   * (posts, produtos, logos, campanhas, uploads, IA) + materiais
+   * dedicados do programa de afiliados.
+   */
+  async listMaterialsLibrary(
+    ownerUserId: string,
+    brandId: string,
+    opts?: { region?: string; programId?: string; folder?: string; type?: string; q?: string }
+  ) {
+    await ensureAffiliateSchema();
+    const folderFilter = String(opts?.folder || "all").trim() || "all";
+    const typeFilter = String(opts?.type || "").trim().toLowerCase();
+    const q = String(opts?.q || "").trim().toLowerCase();
+
+    const dedicated = await this.listMaterials(ownerUserId, brandId, {
+      region: opts?.region,
+      publishedOnly: true,
+      programId: opts?.programId,
+    });
+
+    type LibItem = {
+      id: string;
+      title: string;
+      type: "image" | "video";
+      media_url: string;
+      thumbnail_url: string | null;
+      folder: string;
+      folder_label: string;
+      category: string | null;
+      channel: string | null;
+      product_id: string | null;
+      product_name: string | null;
+      source: string;
+      copy_text: string | null;
+      created_at: string | null;
+      /** id real em affiliate_materials (para legenda IA) */
+      material_id: string | null;
+    };
+
+    const FOLDER_META: Record<string, { label: string; icon: string; sort: number }> = {
+      programa: { label: "Programa", icon: "sparkles", sort: 10 },
+      posts: { label: "Posts", icon: "camera", sort: 20 },
+      produtos: { label: "Produtos", icon: "package", sort: 30 },
+      marca: { label: "Marca & logo", icon: "award", sort: 40 },
+      campanhas: { label: "Campanhas", icon: "megaphone", sort: 50 },
+      ia: { label: "Criativos IA", icon: "wand", sort: 60 },
+      uploads: { label: "Uploads", icon: "folder", sort: 70 },
+      publicidade: { label: "Publicidade", icon: "image", sort: 80 },
+      outros: { label: "Outros", icon: "layers", sort: 90 },
+    };
+
+    const items: LibItem[] = [];
+
+    for (const m of dedicated || []) {
+      const url = String(m.media_url || "").trim();
+      if (!url) continue;
+      const t = String(m.type || "image").toLowerCase() === "video" ? "video" : "image";
+      items.push({
+        id: `mat:${m.id}`,
+        title: String(m.title || "Material"),
+        type: t,
+        media_url: url,
+        thumbnail_url: t === "image" ? url : null,
+        folder: "programa",
+        folder_label: FOLDER_META.programa.label,
+        category: m.category ? String(m.category) : null,
+        channel: m.channel ? String(m.channel) : null,
+        product_id: m.product_id ? String(m.product_id) : null,
+        product_name: null,
+        source: "affiliate_material",
+        copy_text: m.copy_text ? String(m.copy_text) : null,
+        created_at: m.created_at ? String(m.created_at) : null,
+        material_id: String(m.id),
+      });
+    }
+
+    // Logo / capa da marca
+    try {
+      const brand = await queryOne<any>(
+        `SELECT name, logo_url, cover_image FROM brand_units WHERE id = ? LIMIT 1`,
+        [brandId],
+      );
+      const logo = String(brand?.logo_url || "").trim();
+      const cover = String(brand?.cover_image || "").trim();
+      if (logo) {
+        items.push({
+          id: `brand:logo:${brandId}`,
+          title: `${brand?.name || "Marca"} · Logo`,
+          type: "image",
+          media_url: logo,
+          thumbnail_url: logo,
+          folder: "marca",
+          folder_label: FOLDER_META.marca.label,
+          category: "logo",
+          channel: "geral",
+          product_id: null,
+          product_name: null,
+          source: "brand",
+          copy_text: null,
+          created_at: null,
+          material_id: null,
+        });
+      }
+      if (cover) {
+        items.push({
+          id: `brand:cover:${brandId}`,
+          title: `${brand?.name || "Marca"} · Capa`,
+          type: "image",
+          media_url: cover,
+          thumbnail_url: cover,
+          folder: "marca",
+          folder_label: FOLDER_META.marca.label,
+          category: "cover",
+          channel: "geral",
+          product_id: null,
+          product_name: null,
+          source: "brand",
+          copy_text: null,
+          created_at: null,
+          material_id: null,
+        });
+      }
+    } catch {
+      /* brand opcional */
+    }
+
+    // Galeria unificada da marca (posts, produtos, campanhas, uploads, IA…)
+    try {
+      const { GalleryService } = await import("./gallery");
+      const gallery = new GalleryService();
+      const { items: galleryItems } = await gallery.listItems(ownerUserId, brandId, {
+        limit: 500,
+        sort: "created_at",
+      });
+      for (const g of galleryItems || []) {
+        const url = String(g.url || "").trim();
+        if (!url) continue;
+        const rawFolder = String(g.folder || "outros").toLowerCase();
+        // pub-* = subpastas de publicidade; brand/logo → marca
+        let folder = "outros";
+        if (
+          rawFolder === "uploads" || rawFolder === "ia" || rawFolder === "campanhas"
+          || rawFolder === "posts" || rawFolder === "produtos" || rawFolder === "publicidade"
+        ) {
+          folder = rawFolder;
+        } else if (rawFolder.startsWith("pub-") || rawFolder === "ads") {
+          folder = "publicidade";
+        } else if (rawFolder === "marca" || rawFolder === "logo" || rawFolder === "brand") {
+          folder = "marca";
+        }
+        const meta = FOLDER_META[folder] || FOLDER_META.outros;
+        items.push({
+          id: `gal:${g.id}`,
+          title: String(g.name || meta.label),
+          type: g.type === "video" ? "video" : "image",
+          media_url: url,
+          thumbnail_url: g.thumbnailUrl || (g.type === "image" ? url : null),
+          folder,
+          folder_label: meta.label,
+          category: g.type || null,
+          channel: g.metadata?.postChannel || null,
+          product_id: g.metadata?.productId ? String(g.metadata.productId) : null,
+          product_name: g.metadata?.productName ? String(g.metadata.productName) : null,
+          source: String(g.source || g.origin || "gallery"),
+          copy_text: null,
+          created_at: g.createdAt || null,
+          material_id: null,
+        });
+      }
+    } catch (err: any) {
+      console.error("[affiliates] materials library gallery:", err?.message || err);
+    }
+
+    // Dedup por URL (mantém o primeiro — prioriza programa)
+    const seenUrl = new Set<string>();
+    const unique: LibItem[] = [];
+    for (const it of items) {
+      const key = it.media_url.split("?")[0];
+      if (seenUrl.has(key)) continue;
+      seenUrl.add(key);
+      unique.push(it);
+    }
+
+    let filtered = unique;
+    if (folderFilter && folderFilter !== "all") {
+      filtered = filtered.filter((i) => i.folder === folderFilter);
+    }
+    if (typeFilter === "image" || typeFilter === "video") {
+      filtered = filtered.filter((i) => i.type === typeFilter);
+    }
+    if (q) {
+      filtered = filtered.filter(
+        (i) =>
+          i.title.toLowerCase().includes(q)
+          || (i.product_name || "").toLowerCase().includes(q)
+          || (i.category || "").toLowerCase().includes(q)
+          || i.folder_label.toLowerCase().includes(q),
+      );
+    }
+
+    const counts: Record<string, number> = { all: unique.length };
+    for (const it of unique) {
+      counts[it.folder] = (counts[it.folder] || 0) + 1;
+    }
+
+    const folders = [
+      { slug: "all", label: "Todos", icon: "layout-grid", count: counts.all || 0, sort: 0 },
+      ...Object.entries(FOLDER_META)
+        .map(([slug, meta]) => ({
+          slug,
+          label: meta.label,
+          icon: meta.icon,
+          count: counts[slug] || 0,
+          sort: meta.sort,
+        }))
+        .filter((f) => f.count > 0 || f.slug === "programa")
+        .sort((a, b) => a.sort - b.sort),
+    ];
+
+    return {
+      folders,
+      items: filtered,
+      total: filtered.length,
+      total_all: unique.length,
+    };
+  }
+
   async createMaterial(
     ownerUserId: string,
     brandId: string,

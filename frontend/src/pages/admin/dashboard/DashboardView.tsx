@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react'
-import { useNavigate, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, Users, MessageSquare, Megaphone, ShoppingCart,
   Package, Palette, Search, RefreshCw, LogOut, Menu, X, Loader2,
@@ -24,9 +23,10 @@ import type { ShowToast } from '@/lib/admin/types'
 import { Skeleton, KpiCard, EmptyState } from '@/components/admin/primitives'
 import { useDashboardBridgeOptional } from '@/lib/agent/DashboardBridgeContext'
 import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
+import { useAgentShell } from '@/lib/agent/AgentShellContext'
 
 export function DashboardView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') => void }) {
-  const navigate = useNavigate()
+  const { send, returnToChat, triggerNav } = useAgentShell()
   const dashboardBridge = useDashboardBridgeOptional()
   const isDesktop = useIsDesktop()
   const [data, setData] = useState<any>(null)
@@ -39,7 +39,11 @@ export function DashboardView({ showToast }: { showToast: (t: string, tp?: 'ok' 
       adminApi.customerStats().catch(() => ({ total: 0 })),
       adminApi.campaigns().catch(() => ({ campaigns: [] })),
       adminApi.orders(1, 1).catch(() => ({ total: 0 })),
-    ]).then(([inv, leadStats, campaigns, orders]) => {
+      adminApi.orderAnalytics().catch(() => null),
+      adminApi.affiliateStats().catch(() => null),
+    ]).then(([inv, leadStats, campaigns, orders, orderAnalytics, affiliateStats]) => {
+      const orderSummary = orderAnalytics?.summary || null
+      const affiliateSummary = affiliateStats?.stats || affiliateStats || null
       setData({
         products: inv?.total_products || 0,
         totalStock: inv?.total_units || 0,
@@ -47,7 +51,11 @@ export function DashboardView({ showToast }: { showToast: (t: string, tp?: 'ok' 
         totalLeads: Number(leadStats?.total ?? 0),
         activeCampaigns: (campaigns?.campaigns || []).filter((c: any) => c.status === 'active' || c.status === 'running').length,
         totalCampaigns: (campaigns?.campaigns || []).length,
-        totalOrders: orders?.total || orders?.orders?.length || 0,
+        totalOrders: orderSummary?.total_orders ?? orders?.total ?? orders?.orders?.length ?? 0,
+        totalRevenue: orderSummary ? Number(orderSummary.total_revenue || 0) : null,
+        deliveredOrders: orderSummary ? Number(orderSummary.delivered_count || 0) : null,
+        affiliatesTotal: affiliateSummary ? Number(affiliateSummary.affiliates_total || 0) : null,
+        affiliatesActive: affiliateSummary ? Number(affiliateSummary.affiliates_active || 0) : null,
       })
       setLoading(false)
     })
@@ -80,21 +88,45 @@ export function DashboardView({ showToast }: { showToast: (t: string, tp?: 'ok' 
 
   if (loading) return <Skeleton rows={6} />
 
+  /** Fecha o painel de forma determinística e segue o fluxo no chat */
+  function startAnalysis(prompt: string) {
+    returnToChat({ replace: true })
+    // Garante que o canvas/URL limparam antes de enfileirar a mensagem
+    queueMicrotask(() => {
+      void send(prompt)
+    })
+  }
+
+  function goOperational(path: string) {
+    // Mesmo pipeline dos atalhos: optimistic + URL (não fica preso no painel)
+    triggerNav(path)
+  }
+
   return (
-    <div className="space-y-6">
-      <header>
-        <h2 className="text-[26px] font-bold tracking-tight text-gray-900">Painel</h2>
-        <p className="text-[13px] text-gray-500 mt-0.5">Visão geral do seu negócio</p>
+    <div className="org-dashboard space-y-5">
+      <header className="org-dashboard__head">
+        <div>
+          <h1>Painel geral</h1>
+          <p>Uma leitura objetiva da operação e do que exige atenção agora.</p>
+        </div>
+        <button type="button" onClick={() => startAnalysis('Analise o desempenho geral da minha organização e priorize as três ações mais importantes para hoje.')}>
+          <Sparkles size={16} /> Analisar com IA
+        </button>
       </header>
 
-      {/* KPIs principais */}
+      <section className="org-dashboard__pulse">
+        <div><span>Operação agora</span><strong>{Number(data?.outOfStock) > 0 ? 'Atenção necessária' : 'Operação estável'}</strong><p>{Number(data?.outOfStock) > 0 ? `${num(data?.outOfStock)} produto(s) sem estoque` : 'Nenhum bloqueio crítico identificado'}</p></div>
+        <div><span><b>{num(data?.activeCampaigns)}</b> campanhas ativas</span><span><b>{num(data?.totalOrders)}</b> pedidos</span><span><b>{num(data?.totalLeads)}</b> leads</span></div>
+      </section>
+
+      {/* Visão comercial principal */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
         {([
-          { label: 'Leads', value: num(data?.totalLeads), Icon: Users },
-          { label: 'Campanhas', value: num(data?.totalCampaigns), Icon: Megaphone },
-          { label: 'Pedidos', value: num(data?.totalOrders), Icon: ShoppingCart },
-          { label: 'Produtos', value: num(data?.products), Icon: Package },
-        ] as { label: string; value: string; Icon: LucideIcon }[]).map(k => (
+          { label: 'Faturamento total', value: data?.totalRevenue == null ? '—' : money(data.totalRevenue), detail: 'Receita dos pedidos', Icon: Banknote },
+          { label: 'Pedidos', value: num(data?.totalOrders), detail: 'Total registrado', Icon: ShoppingCart },
+          { label: 'Entregas concluídas', value: data?.deliveredOrders == null ? '—' : num(data.deliveredOrders), detail: data?.totalOrders > 0 && data?.deliveredOrders != null ? `${Math.round((data.deliveredOrders / data.totalOrders) * 100)}% dos pedidos` : 'Acompanhamento logístico', Icon: Truck },
+          { label: 'Afiliados', value: data?.affiliatesTotal == null ? '—' : num(data.affiliatesTotal), detail: data?.affiliatesActive == null ? 'Módulo indisponível' : `${num(data.affiliatesActive)} ativos`, Icon: BadgeCheck },
+        ] as { label: string; value: string; detail: string; Icon: LucideIcon }[]).map(k => (
           <div key={k.label} className="bg-white border border-border-light rounded-2xl p-4">
             <div className="flex items-center justify-between mb-3">
               <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">{k.label}</span>
@@ -102,10 +134,27 @@ export function DashboardView({ showToast }: { showToast: (t: string, tp?: 'ok' 
                 <k.Icon size={15} strokeWidth={1.75} />
               </span>
             </div>
-            <p className="text-[26px] font-bold tracking-tight tabular-nums text-gray-900 leading-none">{k.value}</p>
+            <p className="text-[20px] sm:text-[24px] font-bold tracking-tight tabular-nums text-gray-900 leading-none break-words">{k.value}</p>
+            <p className="mt-2 text-[11px] text-gray-500">{k.detail}</p>
           </div>
         ))}
       </div>
+
+      <section className="org-dashboard__analyses">
+        <div className="org-dashboard__section-head"><div><h2>Análises guiadas</h2><p>Abra uma conversa já contextualizada com os dados da operação.</p></div><Bot size={18} /></div>
+        <div className="org-dashboard__analysis-grid">
+          {[
+            { title: 'Oportunidades em leads', desc: 'Segmentos, prioridades e próximos contatos.', Icon: Users, prompt: 'Analise meus leads e identifique segmentos, oportunidades e os próximos contatos prioritários.' },
+            { title: 'Desempenho de campanhas', desc: 'Execução e pontos de melhoria.', Icon: Megaphone, prompt: 'Analise minhas campanhas e indique como melhorar conversão e respostas.' },
+            { title: 'Vendas e pedidos', desc: 'Gargalos no fechamento e pedidos em risco.', Icon: ShoppingCart, prompt: 'Analise meus pedidos e vendas, encontre gargalos de fechamento e sugira ações comerciais.' },
+            { title: 'Saúde do estoque', desc: 'Rupturas, cobertura e itens prioritários.', Icon: Boxes, prompt: 'Analise a saúde do estoque, riscos de ruptura e quais produtos precisam de ação primeiro.' },
+          ].map((item) => (
+            <button type="button" key={item.title} onClick={() => startAnalysis(item.prompt)}>
+              <span><item.Icon size={17} /></span><div><strong>{item.title}</strong><p>{item.desc}</p></div><MessageSquare size={15} />
+            </button>
+          ))}
+        </div>
+      </section>
 
       {/* KPIs secundários */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
@@ -138,8 +187,9 @@ export function DashboardView({ showToast }: { showToast: (t: string, tp?: 'ok' 
             { Icon: Package, label: 'Estoque', path: '/estoque' },
           ] as { Icon: LucideIcon; label: string; path: string }[]).map(a => (
             <button
+              type="button"
               key={a.label}
-              onClick={() => navigate(a.path)}
+              onClick={() => goOperational(a.path)}
               className="flex items-center gap-3 p-3 rounded-2xl bg-white border border-border-light hover:border-gray-300 active:scale-[0.98] transition text-left"
             >
               <span className="w-9 h-9 rounded-xl bg-gray-100 grid place-items-center text-gray-700 shrink-0">

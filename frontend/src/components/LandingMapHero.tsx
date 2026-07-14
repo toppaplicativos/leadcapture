@@ -288,14 +288,14 @@ export function LandingMapHero() {
 
           {/* CTA "Crie conta pra ver" */}
           <div className="px-3 pb-3 pt-1.5 bg-gradient-to-b from-transparent to-white/[0.03] border-t border-white/[0.06]">
-            <Link
-              to="/cadastro?plano=starter"
+            <a
+              href="#planos"
               className="w-full inline-flex items-center justify-center gap-1.5 h-9 rounded-xl bg-white text-gray-900 text-[12px] font-bold hover:bg-gray-100 transition group"
             >
               <Sparkles size={12} strokeWidth={2.5} />
-              Crie conta grátis pra ver dados completos
+              Escolha um plano pra ver dados completos
               <ArrowRight size={12} strokeWidth={2.5} className="transition-transform group-hover:translate-x-0.5" />
-            </Link>
+            </a>
           </div>
         </div>
       )}

@@ -116,16 +116,7 @@ export function WhatsAppButtonStyleSection({
   const isCustom = design.color_preset === 'custom'
 
   return (
-    <section className="rounded-2xl border border-border-light bg-white overflow-hidden">
-      <header className="px-4 py-3.5 border-b border-border-light bg-gray-50/80">
-        <h4 className="text-[14px] font-bold text-gray-900 tracking-tight">Estilo do botão</h4>
-        <p className="text-[12px] text-gray-500 mt-0.5 leading-snug">
-          Formato, cores, efeitos e texto do botão flutuante. A prévia abaixo usa o mesmo componente
-          da loja.
-        </p>
-      </header>
-
-      <div className="p-4 space-y-5">
+    <div className="space-y-5">
         {/* Prévia — mesmo componente do catálogo */}
         <div className="rounded-2xl border border-dashed border-border bg-gray-50 relative overflow-hidden">
           <div className="absolute inset-0 opacity-[0.35] pointer-events-none"
@@ -334,7 +325,6 @@ export function WhatsAppButtonStyleSection({
             ))}
           </ChoiceGrid>
         </div>
-      </div>
-    </section>
+    </div>
   )
 }

@@ -74,6 +74,9 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator) {
    *   - /app-estoque/:slug → that brand's stock scope
    *   - /admin, /login, /dashboard, etc → '/' admin scope
    */
+  const hostIsMob = () =>
+    (window.location.hostname || '').toLowerCase() === 'mob.leadcapture.online'
+
   const baseScope = (() => {
     if (isCustomDomain) return '/'
 
@@ -91,6 +94,9 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator) {
     }
     if (first === 'parceiros') {
       return '/parceiros/'
+    }
+    if (first === 'mob' || hostIsMob()) {
+      return first === 'mob' ? '/mob/' : '/'
     }
     // Admin / login / generic admin routes
     return '/'

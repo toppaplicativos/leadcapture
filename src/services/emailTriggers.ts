@@ -230,7 +230,7 @@ export const emailTriggers = {
     const panel =
       params.panel_url ||
       (ctx.brand_id
-        ? `https://app.leadcapture.online/central-afiliado`
+        ? `https://parceiros.leadcapture.online`
         : "https://parceiros.leadcapture.online")
 
     fire(
@@ -252,6 +252,27 @@ export const emailTriggers = {
     )
   },
 
+  /** Boas-vindas global (cadastro em parceiros.leadcapture.online) */
+  async welcomePartners(params: {
+    affiliate_name: string
+    affiliate_email: string
+    panel_url?: string
+  }) {
+    if (!params.affiliate_email) return
+    fire(
+      "welcome-partners",
+      emailService.sendTemplate(
+        "welcome-partners",
+        params.affiliate_email,
+        {
+          user_name: params.affiliate_name,
+          panel_url: params.panel_url || "https://parceiros.leadcapture.online",
+        },
+        { scope: "system" },
+      ),
+    )
+  },
+
   async affiliateApproved(params: {
     userId: string
     brandId?: string | null
@@ -259,6 +280,7 @@ export const emailTriggers = {
     affiliate_email: string
     program_name?: string
     panel_url?: string
+    commission_rate?: string
   }) {
     if (!params.affiliate_email) return
     const ctx = await brandContext(params.userId, params.brandId)
@@ -271,8 +293,10 @@ export const emailTriggers = {
           affiliate_name: params.affiliate_name,
           brand_name: ctx.brand_name,
           brand_color: ctx.brand_color,
+          brand_logo_url: ctx.brand_logo_url,
           program_name: params.program_name || "Programa de parceiros",
-          affiliate_panel_url: params.panel_url || "https://app.leadcapture.online/central-afiliado",
+          affiliate_panel_url: params.panel_url || "https://parceiros.leadcapture.online",
+          commission_rate: params.commission_rate || "conforme programa",
         },
         { scope: "tenant", brandId: ctx.brand_id, actorUserId: params.userId },
       ),

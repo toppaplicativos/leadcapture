@@ -6,6 +6,13 @@ import path from "path";
 import { config } from "./config";
 import { InstanceManager } from "./core/instanceManager";
 import { GooglePlacesService } from "./services/googlePlaces";
+import {
+  radarResponseCache,
+  radiusBucket,
+  geoCell,
+  normalizeSearchKey,
+  placesCacheStats,
+} from "./services/placesPerfCache";
 import { GeminiService } from "./services/gemini";
 import { RateLimiter } from "./core/rateLimiter";
 import { Lead, CampaignConfig } from "./types";
@@ -74,6 +81,10 @@ import storefrontRoutes, { storefrontPublicRoutes, reconcileNginxForVerifiedDoma
 import stockAppRoutes from "./routes/stockApp";
 import affiliateAppRoutes from "./routes/affiliateApp";
 import partnersAppRoutes from "./routes/partnersApp";
+import mobPublicRoutes from "./routes/mobPublic";
+import mobAppRoutes from "./routes/mobApp";
+import mobAdminRoutes from "./routes/mobAdmin";
+import connectRoutes from "./routes/connect";
 import affiliatesRoutes from "./routes/affiliates";
 import affiliateProgramsRoutes from "./routes/affiliatePrograms";
 import inventoryRoutes from "./routes/inventory";
@@ -106,6 +117,13 @@ import { query, queryOne, getPool } from "./config/database";
 import { extractIncomingMessageData } from "./utils/whatsappMessage";
 import { createCampaignRoutes } from "./routes/campaigns";
 import { CampaignEngineService } from "./services/campaignEngine";
+import { setCampaignEngineRef } from "./services/campaignEngineRef";
+import {
+  configureWhatsAppValidationQueue,
+  enqueueWhatsAppValidation,
+  isLeadAlreadyWhatsAppValidated,
+  startWhatsAppValidationQueue,
+} from "./services/whatsappValidationQueue";
 import { processScheduledSocialPosts } from "./services/socialPostScheduler";
 import { memoryEngine } from "./services/memoryEngine";
 import leadsRoutes from "./routes/leads";
@@ -173,6 +191,9 @@ const PRIMARY_DOMAINS = new Set([
   "www.app.leadcapture.online",
   "adm.leadcapture.online",
   "www.adm.leadcapture.online",
+  "parceiros.leadcapture.online",
+  "afiliados.leadcapture.online",
+  "mob.leadcapture.online",
 ]);
 const _domainSlugCache = new Map<string, { slug: string; expires: number }>();
 const DOMAIN_SLUG_CACHE_TTL = 120_000;
@@ -356,8 +377,24 @@ app.use(
     immutable: true,
     etag: true,
     lastModified: true,
+    fallthrough: true,
   })
 );
+/* Placeholder quando o arquivo sumiu do disco (deploy limpo, UUID órfão no BD).
+   Evita cascata de 404 no front e quebra de layout em campanhas/produtos. */
+app.get(/^\/uploads\/.+\.(jpe?g|png|gif|webp|avif|svg)$/i, (_req, res) => {
+  // SVG neutro 1×1 cinza — leve, cacheável
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200" viewBox="0 0 320 200">` +
+    `<rect fill="#e5e7eb" width="320" height="200"/>` +
+    `<text x="160" y="105" text-anchor="middle" fill="#9ca3af" font-family="system-ui,sans-serif" font-size="14">imagem indisponível</text>` +
+    `</svg>`;
+  res.status(200);
+  res.setHeader("Content-Type", "image/svg+xml; charset=utf-8");
+  res.setHeader("Cache-Control", "public, max-age=300");
+  res.setHeader("X-Upload-Fallback", "1");
+  res.send(svg);
+});
 /* Public on-the-fly image resizer (/api/img?src=/uploads/...&w=...&fm=webp) */
 app.use("/api/img", imageProxyRoutes);
 
@@ -518,6 +555,15 @@ app.get("/parceiros/entrar", (_req, res) => { serveCatalogSPA(res, "index.html")
 app.get("/parceiros/painel", (_req, res) => { serveCatalogSPA(res, "index.html"); });
 app.get("/parceiros/painel/*", (_req, res) => { serveCatalogSPA(res, "index.html"); });
 
+// Lead Capture Mob — entregadores + rastreio público
+app.get("/mob", (_req, res) => { serveCatalogSPA(res, "index.html"); });
+app.get("/mob/entrar", (_req, res) => { serveCatalogSPA(res, "index.html"); });
+app.get("/mob/app", (_req, res) => { serveCatalogSPA(res, "index.html"); });
+app.get("/mob/app/*", (_req, res) => { serveCatalogSPA(res, "index.html"); });
+app.get("/entrar", (_req, res) => { serveCatalogSPA(res, "index.html"); });
+app.get("/rastreio", (_req, res) => { serveCatalogSPA(res, "index.html"); });
+app.get("/rastreio/:token", (_req, res) => { serveCatalogSPA(res, "index.html"); });
+
 // Central do Afiliado — PWA standalone (OG meta injetado no servidor para preview WhatsApp)
 app.get("/central-afiliado", (_req, res) => { serveCatalogSPA(res, "index.html"); });
 app.get("/central-afiliado/:brand", async (req, res) => { await serveAffiliateSPA(req, res, String(req.params.brand || "")); });
@@ -527,10 +573,10 @@ app.get("/afiliado/:code", (_req, res) => { serveCatalogSPA(res, "index.html"); 
 
 // Admin panel routes (all serve React SPA)
 const adminPages = [
-  "/login", "/admin", "/dashboard", "/busca", "/leads", "/clientes",
+  "/login", "/admin", "/dashboard", "/assistente", "/busca", "/leads", "/clientes",
   "/mensagens", "/notificacoes", "/campanhas", "/campanha", "/automacoes",
   "/criativos", "/creative", "/agente", "/produtos", "/pedidos",
-  "/whatsapp", "/design", "/pagamentos", "/frete", "/dominio", "/configuracoes",
+  "/whatsapp", "/design", "/pagamentos", "/frete", "/entregas", "/mob", "/dominio", "/configuracoes",
   "/estoque", "/estoque/app", "/inventario", "/afiliados",
 ];
 for (const page of adminPages) {
@@ -631,6 +677,11 @@ app.use("/api/storefront", authMiddleware, storefrontRoutes);
 app.use("/api/stock-app", authMiddleware, stockAppRoutes);
 app.use("/api/affiliate-app", authMiddleware, affiliateAppRoutes);
 app.use("/api/partners-app", authMiddleware, partnersAppRoutes);
+/* Lead Capture Mob — deliveries (public + courier + org admin) */
+app.use("/api/mob", mobPublicRoutes);
+app.use("/api/mob/app", mobAppRoutes);
+app.use("/api/mob/admin", mobAdminRoutes);
+app.use("/api/connect", connectRoutes);
 app.use("/api/affiliates", authMiddleware, requireModuleAndPlan("affiliates"), affiliatesRoutes);
 app.use("/api/affiliate-programs", authMiddleware, requireModuleAndPlan("affiliates"), affiliateProgramsRoutes);
 app.use("/api/inventory", authMiddleware, inventoryRoutes);
@@ -698,6 +749,7 @@ const automationRuntime = new AutomationRuntimeService(instanceManager, instance
 app.set("automationRuntime", automationRuntime);
 export const campaignEngine = new CampaignEngineService(instanceManager, instanceRotation);
 app.set("campaignEngine", campaignEngine);
+setCampaignEngineRef(campaignEngine);
 app.use("/api/campaigns-v2", authMiddleware, requireModuleAndPlan("campaigns"), createCampaignRoutes(instanceManager, instanceRotation, campaignEngine));
 const inboxService = new InboxService();
 inboxService.setMediaDownloader((instanceId, msg) => instanceManager.downloadIncomingMedia(instanceId, msg));
@@ -818,7 +870,11 @@ instanceManager.onGlobalMessage(async (instanceId, msg) => {
 const googlePlaces = new GooglePlacesService();
 const gemini = new GeminiService();
 const rateLimiter = new RateLimiter(3, 200);
-const leadSearchRateLimiter = new RateLimiter(8, 500);
+/* Rate limits do panfleteiro — antes era 8/min (compartilhado) e o radar morria
+   depois de ~8 arrastes. Agora: limites altos por tipo; cache absorve o pico real. */
+const leadSearchRateLimiter = new RateLimiter(40, 10_000); // text search
+const leadRadarRateLimiter = new RateLimiter(120, 30_000); // radar uncached
+const locationSearchRateLimiter = new RateLimiter(90, 15_000);
 const productsService = new ProductsService();
 const customersService = new CustomersService();
 const brandUnitsService = new BrandUnitsService();
@@ -1016,20 +1072,8 @@ function normalizeLeadRecord(raw: any): any {
 
 function isLeadPendingWhatsAppValidation(raw: any): boolean {
   const phone = normalizePhone(raw?.phone);
-  if (!phone) return false;
-
-  const normalized = normalizeLeadRecord(raw);
-  if (normalized.has_whatsapp === true || normalized.has_whatsapp === false) {
-    return false;
-  }
-
-  if (normalized.whatsapp_validated_at) return false;
-
-  const status = String(normalized.whatsapp_validation_status || "")
-    .trim()
-    .toLowerCase();
-  if (status === "valid" || status === "invalid") return false;
-
+  if (!phone || phone.length < 8) return false;
+  if (isLeadAlreadyWhatsAppValidated(raw)) return false;
   return true;
 }
 
@@ -1095,6 +1139,19 @@ async function findLeadByGooglePlaceId(
   return null;
 }
 
+/* Cache do schema customers — SHOW COLUMNS a cada radar era um dos gargalos. */
+let _customersColCache: { names: Set<string>; expires: number } | null = null;
+
+async function getCustomersColumnNames(): Promise<Set<string>> {
+  if (_customersColCache && _customersColCache.expires > Date.now()) {
+    return _customersColCache.names;
+  }
+  const columns = await query<any[]>("SHOW COLUMNS FROM customers");
+  const names = new Set(columns.map((row) => String(row?.Field || "")));
+  _customersColCache = { names, expires: Date.now() + 10 * 60_000 };
+  return names;
+}
+
 async function findCapturedPlaceIds(
   placeIds: string[],
   userId: string,
@@ -1102,8 +1159,7 @@ async function findCapturedPlaceIds(
 ): Promise<string[]> {
   if (placeIds.length === 0) return [];
 
-  const columns = await query<any[]>("SHOW COLUMNS FROM customers");
-  const names = new Set(columns.map((row) => String(row?.Field || "")));
+  const names = await getCustomersColumnNames();
   const ownerColumn = names.has("owner_user_id")
     ? "owner_user_id"
     : names.has("user_id")
@@ -1117,29 +1173,42 @@ async function findCapturedPlaceIds(
   const ownerParams = [userId];
   const brandWhere = names.has("brand_id") && brandId ? " AND brand_id = ?" : "";
   const brandParams = names.has("brand_id") && brandId ? [String(brandId)] : [];
-  const placeholders = placeIds.map(() => "?").join(",");
 
-  if (names.has("google_place_id")) {
-    const rows = await query<any[]>(
-      `SELECT google_place_id AS place_id
-       FROM customers
-       WHERE google_place_id IN (${placeholders})${ownerWhere}${brandWhere}`,
-      [...placeIds, ...ownerParams, ...brandParams]
-    );
-    return rows.map((row) => String(row?.place_id || "")).filter(Boolean);
+  const found: string[] = [];
+  // Chunk IN — evita query monstro e timeouts
+  for (let i = 0; i < placeIds.length; i += 100) {
+    const chunk = placeIds.slice(i, i + 100);
+    const placeholders = chunk.map(() => "?").join(",");
+
+    if (names.has("google_place_id")) {
+      const rows = await query<any[]>(
+        `SELECT google_place_id AS place_id
+         FROM customers
+         WHERE google_place_id IN (${placeholders})${ownerWhere}${brandWhere}`,
+        [...chunk, ...ownerParams, ...brandParams]
+      );
+      for (const row of rows) {
+        const id = String(row?.place_id || "");
+        if (id) found.push(id);
+      }
+      continue;
+    }
+
+    if (names.has("source_details")) {
+      const rows = await query<any[]>(
+        `SELECT source_details::jsonb->>'google_place_id' AS place_id
+         FROM customers
+         WHERE source_details::jsonb->>'google_place_id' IN (${placeholders})${ownerWhere}${brandWhere}`,
+        [...chunk, ...ownerParams, ...brandParams]
+      );
+      for (const row of rows) {
+        const id = String(row?.place_id || "");
+        if (id) found.push(id);
+      }
+    }
   }
 
-  if (names.has("source_details")) {
-    const rows = await query<any[]>(
-      `SELECT source_details::jsonb->>'google_place_id' AS place_id
-       FROM customers
-       WHERE source_details::jsonb->>'google_place_id' IN (${placeholders})${ownerWhere}${brandWhere}`,
-      [...placeIds, ...ownerParams, ...brandParams]
-    );
-    return rows.map((row) => String(row?.place_id || "")).filter(Boolean);
-  }
-
-  return [];
+  return found;
 }
 
 async function resolveTestDestination(
@@ -1639,6 +1708,34 @@ app.get("/api/instances/:id", authMiddleware, async (req: any, res) => {
 
 // ==================== LEADS ROUTES (protected) ====================
 
+// Place/location autocomplete for panfleteiro city field (real coords)
+app.get("/api/leads/location-search", authMiddleware, async (req: any, res) => {
+  try {
+    const userId = req.user?.userId as string | undefined;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const brandId = await brandUnitsService.resolveActiveBrandId(userId, getRequestedBrandId(req));
+    const q = sanitizeLeadSearchText(String(req.query.q || ""), 160);
+    if (!q || q.length < 2) {
+      return res.json({ locations: [] });
+    }
+    const rateKey = `${userId}:location-search`;
+    if (!locationSearchRateLimiter.canSend(rateKey)) {
+      return res.status(429).json({ error: "Location search rate limit. Aguarde um instante.", locations: [] });
+    }
+    locationSearchRateLimiter.recordSend(rateKey);
+    const limit = Math.max(1, Math.min(10, Math.floor(Number(req.query.limit) || 6)));
+    const locations = await googlePlaces.searchLocations(q, {
+      limit,
+      userId,
+      brandId: brandId || undefined,
+    });
+    return res.json({ locations });
+  } catch (err: any) {
+    logger.error(`location-search error: ${err?.message || err}`);
+    return res.status(500).json({ error: err?.message || "Location search failed", locations: [] });
+  }
+});
+
 // Search leads via Google Places V2 and persist to MySQL
 app.post("/api/leads/search", authMiddleware, async (req: any, res) => {
   try {
@@ -1646,7 +1743,7 @@ app.post("/api/leads/search", authMiddleware, async (req: any, res) => {
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
     const brandId = await brandUnitsService.resolveActiveBrandId(userId, getRequestedBrandId(req));
 
-    const { query: rawQuery, location: rawLocation, radius, maxResults, executeAutomation } = req.body;
+    const { query: rawQuery, location: rawLocation, radius, maxResults, executeAutomation, latitude: bodyLat, longitude: bodyLng } = req.body;
     const searchQuery = sanitizeLeadSearchText(rawQuery, 120);
     const searchLocation = sanitizeLeadSearchText(rawLocation, 160);
     const requested = Math.max(1, Math.min(100, Math.floor(Number(maxResults) || 20)));
@@ -1674,18 +1771,61 @@ app.post("/api/leads/search", authMiddleware, async (req: any, res) => {
       `Searching leads: "${searchQuery}" in "${searchLocation}" (target: ${requested}; automation=${shouldExecuteAutomation ? "on" : "off"})`
     );
 
-    // Use new Google Places V2 (RapidAPI) - returns raw place objects
-    const places = await googlePlaces.searchText({
+    // Prefer coords from place picker; otherwise geocode the text
+    let geocoded: { latitude: number; longitude: number; label?: string; source?: string } | null = null;
+    const clientLat = Number(bodyLat);
+    const clientLng = Number(bodyLng);
+    if (
+      Number.isFinite(clientLat) &&
+      Number.isFinite(clientLng) &&
+      Math.abs(clientLat) <= 90 &&
+      Math.abs(clientLng) <= 180
+    ) {
+      geocoded = {
+        latitude: clientLat,
+        longitude: clientLng,
+        label: searchLocation,
+        source: "client-place",
+      };
+      logger.info(
+        `Lead search coords from client place: "${searchLocation}" → ${clientLat.toFixed(5)},${clientLng.toFixed(5)}`
+      );
+    } else {
+      try {
+        geocoded = await googlePlaces.geocodeLocation(searchLocation, { userId, brandId: brandId || undefined });
+        if (geocoded) {
+          logger.info(
+            `Lead search geocode: "${searchLocation}" → ${geocoded.latitude.toFixed(5)},${geocoded.longitude.toFixed(5)} [${geocoded.source}]`
+          );
+        } else {
+          logger.warn(`Lead search geocode FAILED for "${searchLocation}" — buscando só por texto`);
+        }
+      } catch (geoErr: any) {
+        logger.warn(`Lead search geocode error: ${geoErr?.message || geoErr}`);
+      }
+    }
+
+    const searchParams: any = {
       query: searchQuery,
       location: searchLocation,
-      radius: searchRadius,
+      radius: searchRadius || (geocoded ? 15000 : undefined),
       maxResults: requested,
-      providerPreference: "rapid_first",
+      providerPreference: "rapid_first" as const,
       includeDetails: true,
-      fieldProfile: "full",
+      fieldProfile: "full" as const,
       userId,
       brandId: brandId || undefined,
-    });
+      // Se geocodificou, já passa coords e força restriction
+      ...(geocoded
+        ? {
+            latitude: geocoded.latitude,
+            longitude: geocoded.longitude,
+            strictLocation: true,
+            _geocoded: geocoded,
+          }
+        : {}),
+    };
+    const places = await googlePlaces.searchText(searchParams);
 
     // Persist to MySQL customers table (deduplicates by google_place_id + phone)
     const persisted = await customersService.bulkCreateFromPlaces(
@@ -1700,6 +1840,11 @@ app.post("/api/leads/search", authMiddleware, async (req: any, res) => {
     );
     const createdSet = new Set(persisted.createdPlaceIds || []);
     const existingSet = new Set(persisted.existingPlaceIds || []);
+
+    // Validação WA em background (não atrasa a busca)
+    if ((persisted.createdLeadIds || []).length > 0) {
+      enqueueWhatsAppValidation(userId, brandId, persisted.createdLeadIds || []);
+    }
 
     logger.info(
       `Lead search complete: ${places.length} found, ${persisted.created} created, ${persisted.skipped} skipped`
@@ -1753,20 +1898,35 @@ app.post("/api/leads/search", authMiddleware, async (req: any, res) => {
 
     const capturedPoints = await customersService.getCapturedGeoPoints(userId, 600, brandId);
 
-    /* Panfleteiro V2 — calcula center a partir dos leads pra o frontend
-       centralizar o mapa na localizacao correta (corrige bug de mapa
-       em BH quando user buscou em Fortaleza, etc). */
-    let center: { latitude: number; longitude: number } | null = null;
-    let latSum = 0, lngSum = 0, validCount = 0;
-    for (const l of leads) {
-      const la = Number(l?.location?.latitude);
-      const ln = Number(l?.location?.longitude);
-      if (!Number.isFinite(la) || !Number.isFinite(ln)) continue;
-      if (la === 0 && ln === 0) continue;
-      latSum += la; lngSum += ln; validCount++;
-    }
-    if (validCount > 0) {
-      center = { latitude: latSum / validCount, longitude: lngSum / validCount };
+    /* Centro: prioriza geocode do endereço digitado (correto); fallback média dos leads. */
+    let center: { latitude: number; longitude: number; label?: string; source?: string } | null = null;
+    const geoFromSearch = (searchParams._geocoded || geocoded) as
+      | { latitude: number; longitude: number; label?: string; source?: string }
+      | null
+      | undefined;
+    if (
+      geoFromSearch &&
+      Number.isFinite(geoFromSearch.latitude) &&
+      Number.isFinite(geoFromSearch.longitude)
+    ) {
+      center = {
+        latitude: geoFromSearch.latitude,
+        longitude: geoFromSearch.longitude,
+        label: geoFromSearch.label,
+        source: geoFromSearch.source,
+      };
+    } else {
+      let latSum = 0, lngSum = 0, validCount = 0;
+      for (const l of leads) {
+        const la = Number(l?.location?.latitude);
+        const ln = Number(l?.location?.longitude);
+        if (!Number.isFinite(la) || !Number.isFinite(ln)) continue;
+        if (la === 0 && ln === 0) continue;
+        latSum += la; lngSum += ln; validCount++;
+      }
+      if (validCount > 0) {
+        center = { latitude: latSum / validCount, longitude: lngSum / validCount, source: "leads_avg" };
+      }
     }
 
     res.json({
@@ -1789,6 +1949,7 @@ app.post("/api/leads/search", authMiddleware, async (req: any, res) => {
       },
       brand_id: brandId,
       center,
+      geocoded: geoFromSearch || geocoded || null,
       capturedPoints,
     });
   } catch (error: any) {
@@ -1810,6 +1971,10 @@ app.post("/api/leads/capture-manual", authMiddleware, async (req: any, res) => {
     const captureLocation = String(req.body?.location || "mapa").trim();
     const captureRadiusRaw = Number(req.body?.radius);
     const preferredInstanceId = String(req.body?.instanceId || "").trim() || undefined;
+    /* Fast path padrão: panfleteiro NÃO valida WA nem recarrega 600 pontos a cada pin.
+       Validação WA era o gargalo de 5–17s por captura nos logs. Opt-in via body. */
+    const doValidateWhatsApp = req.body?.validateWhatsApp === true;
+    const includeCapturedPoints = req.body?.includeCapturedPoints === true;
     const automationState = await resolvePrimaryOutboundAutomationState(userId, req.body?.executeAutomation);
     const shouldExecuteAutomation = automationState.enabled;
 
@@ -1855,6 +2020,11 @@ app.post("/api/leads/capture-manual", authMiddleware, async (req: any, res) => {
 
     const createdLeadId =
       (persisted.createdLeadIds || []).length > 0 ? String(persisted.createdLeadIds[0]) : null;
+
+    // Fila assíncrona de validação WA (não atrasa captura)
+    if (createdLeadId) {
+      enqueueWhatsAppValidation(userId, brandId, [createdLeadId]);
+    }
 
     let dbLead: any | null = null;
     if (createdLeadId) {
@@ -1916,47 +2086,51 @@ app.post("/api/leads/capture-manual", authMiddleware, async (req: any, res) => {
     let validation: any = null;
     let validationWarning: string | null = null;
 
-    const phone = normalizePhone(dbLead?.phone || leadInput.phone);
-    if (dbLead && phone) {
-      const validationInstanceId = await resolveValidationInstanceId(userId, preferredInstanceId);
-      if (validationInstanceId) {
-        const allowed = await instanceBelongsToUser(validationInstanceId, userId);
-        const runtimeInstance = allowed ? instanceManager.getInstance(validationInstanceId, userId) : null;
+    if (doValidateWhatsApp) {
+      const phone = normalizePhone(dbLead?.phone || leadInput.phone);
+      if (dbLead && phone) {
+        const validationInstanceId = await resolveValidationInstanceId(userId, preferredInstanceId);
+        if (validationInstanceId) {
+          const allowed = await instanceBelongsToUser(validationInstanceId, userId);
+          const runtimeInstance = allowed ? instanceManager.getInstance(validationInstanceId, userId) : null;
 
-        if (allowed && runtimeInstance?.status === "connected") {
-          const check = await instanceManager.checkWhatsAppNumber(validationInstanceId, phone);
-          const checkedAt = new Date().toISOString();
-          const updatedLead = await customersService.updateWhatsAppValidation(
-            dbLead.id,
-            {
-              hasWhatsApp: check.exists,
-              checkedAt,
-              instanceId: validationInstanceId,
-              normalizedPhone: check.normalizedPhone,
-              jid: check.jid,
-              status: check.exists ? "valid" : "invalid",
-            },
-            userId,
-            brandId
-          );
-          if (updatedLead) dbLead = updatedLead;
+          if (allowed && runtimeInstance?.status === "connected") {
+            const check = await instanceManager.checkWhatsAppNumber(validationInstanceId, phone);
+            const checkedAt = new Date().toISOString();
+            const updatedLead = await customersService.updateWhatsAppValidation(
+              dbLead.id,
+              {
+                hasWhatsApp: check.exists,
+                checkedAt,
+                instanceId: validationInstanceId,
+                normalizedPhone: check.normalizedPhone,
+                jid: check.jid,
+                status: check.exists ? "valid" : "invalid",
+              },
+              userId,
+              brandId
+            );
+            if (updatedLead) dbLead = updatedLead;
 
-          validation = {
-            has_whatsapp: check.exists,
-            checked_at: checkedAt,
-            instance_id: validationInstanceId,
-            normalized_phone: check.normalizedPhone,
-            jid: check.jid || null,
-          };
+            validation = {
+              has_whatsapp: check.exists,
+              checked_at: checkedAt,
+              instance_id: validationInstanceId,
+              normalized_phone: check.normalizedPhone,
+              jid: check.jid || null,
+            };
+          } else {
+            validationWarning = "Lead captado, mas sem instancia conectada para validar WhatsApp agora.";
+          }
         } else {
-          validationWarning = "Lead captado, mas sem instancia conectada para validar WhatsApp agora.";
+          validationWarning = "Lead captado, mas nenhuma instancia conectada encontrada para validacao.";
         }
-      } else {
-        validationWarning = "Lead captado, mas nenhuma instancia conectada encontrada para validacao.";
       }
     }
 
-    const capturedPoints = await customersService.getCapturedGeoPoints(userId, 600, brandId);
+    const capturedPoints = includeCapturedPoints
+      ? await customersService.getCapturedGeoPoints(userId, 600, brandId)
+      : [];
 
     return res.json({
       success: true,
@@ -1988,20 +2162,176 @@ app.post("/api/leads/capture-manual", authMiddleware, async (req: any, res) => {
   }
 });
 
+/**
+ * Captura em lote (panfleteiro) — 1 request para N pins.
+ * Substitui N× capture-manual (cada um 5–17s com WA validation).
+ * Sem validação WA síncrona; automação enfileirada só para leads novos.
+ */
+app.post("/api/leads/capture-batch", authMiddleware, async (req: any, res) => {
+  try {
+    const userId = req.user?.userId as string | undefined;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const brandId = await brandUnitsService.resolveActiveBrandId(userId, getRequestedBrandId(req));
+
+    const rawLeads = Array.isArray(req.body?.leads) ? req.body.leads : [];
+    if (rawLeads.length === 0) {
+      return res.status(400).json({ error: "leads array is required" });
+    }
+    if (rawLeads.length > 80) {
+      return res.status(400).json({ error: "Máximo 80 leads por batch" });
+    }
+
+    const captureQuery = String(req.body?.query || "captacao_manual").trim() || "captacao_manual";
+    const captureLocation = String(req.body?.location || "mapa").trim() || "mapa";
+    const captureRadiusRaw = Number(req.body?.radius);
+    const automationState = await resolvePrimaryOutboundAutomationState(userId, req.body?.executeAutomation);
+    const shouldExecuteAutomation = automationState.enabled;
+
+    const mappedPlaces = rawLeads
+      .map((leadInput: any) => {
+        const placeId = String(leadInput?.placeId || leadInput?.id || "").trim();
+        const name = String(leadInput?.name || "").trim();
+        if (!placeId || !name) return null;
+        const category = String(leadInput?.category || "").trim();
+        return {
+          id: placeId,
+          displayName: { text: name },
+          formattedAddress: String(leadInput?.address || "").trim() || undefined,
+          internationalPhoneNumber: String(leadInput?.phone || "").trim() || undefined,
+          nationalPhoneNumber: String(leadInput?.phone || "").trim() || undefined,
+          rating: typeof leadInput?.rating === "number" ? leadInput.rating : undefined,
+          userRatingCount: typeof leadInput?.reviews === "number" ? leadInput.reviews : undefined,
+          types: category ? [category] : [],
+          websiteUri: String(leadInput?.website || "").trim() || undefined,
+          googleMapsUri: String(leadInput?.googleMapsUri || "").trim() || undefined,
+          businessStatus: String(leadInput?.businessStatus || "").trim() || undefined,
+          location: leadInput?.location || null,
+        };
+      })
+      .filter(Boolean);
+
+    if (mappedPlaces.length === 0) {
+      return res.status(400).json({ error: "Nenhum lead válido no batch" });
+    }
+
+    const captureContext = {
+      query: captureQuery,
+      location: captureLocation,
+      radius:
+        Number.isFinite(captureRadiusRaw) && captureRadiusRaw > 0
+          ? Math.floor(captureRadiusRaw)
+          : undefined,
+    };
+
+    const t0 = Date.now();
+    const persisted = await customersService.bulkCreateFromPlaces(
+      mappedPlaces,
+      userId,
+      captureContext,
+      brandId,
+      { skipMetadataUpdate: true }
+    );
+
+    // Distribuição em lote (fire-and-forget por prospect novo)
+    if (brandId && (persisted.createdLeadIds || []).length > 0) {
+      void (async () => {
+        try {
+          const { affiliateDistributionService } = await import("./services/affiliateDistribution");
+          const rules = await affiliateDistributionService.getOrCreateRules(userId, brandId);
+          if (!rules?.auto_enqueue_capture) return;
+          for (const prospectId of persisted.createdLeadIds) {
+            try {
+              await affiliateDistributionService.enqueueProspect({
+                ownerUserId: userId,
+                brandId,
+                prospectId: String(prospectId),
+                source: "panfleteiro_capture_batch",
+                priorityScore: 55,
+                metadata: { query: captureQuery, location: captureLocation },
+              });
+            } catch { /* ignore single */ }
+          }
+        } catch (e: any) {
+          logger.warn(`capture-batch distribution: ${e?.message || e}`);
+        }
+      })();
+    }
+
+    // Automação só em leads novos — async pra não bloquear resposta
+    let automationQueuedJobs = 0;
+    if (shouldExecuteAutomation && (persisted.createdLeadIds || []).length > 0) {
+      void (async () => {
+        for (const leadId of persisted.createdLeadIds) {
+          try {
+            await automationRuntime.triggerLeadCreatedForRule(
+              userId,
+              String(leadId),
+              PANFLETEIRO_AUTOMATION_CODE,
+              {
+                segmento: captureQuery || undefined,
+                cidade: captureLocation || undefined,
+                oferta: captureQuery || undefined,
+              },
+              "panfleteiro_capture_batch"
+            );
+          } catch { /* ignore single */ }
+        }
+      })();
+      automationQueuedJobs = persisted.createdLeadIds.length;
+    }
+
+    const createdSet = new Set(persisted.createdPlaceIds || []);
+    const existingSet = new Set(persisted.existingPlaceIds || []);
+    const results = mappedPlaces.map((p: any) => ({
+      place_id: p.id,
+      status: createdSet.has(p.id) ? "created" : existingSet.has(p.id) ? "existing" : "captured",
+    }));
+
+    // Enfileira validação WA só dos NOVOS (não bloqueia resposta)
+    const validationQueued = enqueueWhatsAppValidation(
+      userId,
+      brandId,
+      persisted.createdLeadIds || []
+    );
+
+    logger.info(
+      `capture-batch: ${mappedPlaces.length} leads in ${Date.now() - t0}ms (created=${persisted.created}, skipped=${persisted.skipped}, waQueue+${validationQueued})`
+    );
+
+    return res.json({
+      success: true,
+      total: mappedPlaces.length,
+      created: persisted.created,
+      skipped: persisted.skipped,
+      createdPlaceIds: persisted.createdPlaceIds,
+      existingPlaceIds: persisted.existingPlaceIds,
+      results,
+      automation: {
+        enabled: shouldExecuteAutomation,
+        queued_jobs: automationQueuedJobs,
+      },
+      validation_queued: validationQueued,
+      ms: Date.now() - t0,
+      toast: `Captados ${persisted.created} novos (${persisted.skipped} já existiam)`,
+    });
+  } catch (error: any) {
+    logger.error(`Batch lead capture error: ${error.message}`);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
 // Radar mode search — coordinate-based, NO auto-persistence (exploration only)
-/* Panfleteiro V2 — cache TTL + dedup em flight (replica padrao do topp-aplicativos)
-   Chave: userId:brandId:lat3:lng3:radius:keyword:filters
-   TTL: 45s — buscas repetidas no mesmo viewport reusam resposta sem chamar Google.
-   In-flight: requisicoes paralelas para mesma chave reusam a Promise. */
-const radarCache = new Map<string, { value: any; expires: number }>();
+/* Panfleteiro V3 — cache em 2 camadas:
+   1) placesApiCache (global, query+geo cell) dentro do googlePlaces.searchText
+   2) radarResponseCache (por user+brand, inclui captureStatus) TTL 45s
+   + dedup in-flight + rate limit alto só em miss. */
 const radarInFlight = new Map<string, Promise<any>>();
-const RADAR_CACHE_TTL_MS = 45_000;
 
 function radarCacheKey(opts: {
   userId: string; brandId: string | null; lat: number; lng: number;
   radius: number; query: string; filters: string;
 }): string {
-  return `${opts.userId}:${opts.brandId || "default"}:${opts.lat.toFixed(3)}:${opts.lng.toFixed(3)}:${opts.radius}:${opts.query.toLowerCase()}:${opts.filters}`;
+  return `${opts.userId}:${opts.brandId || "default"}:${geoCell(opts.lat, opts.lng)}:r${radiusBucket(opts.radius)}:${normalizeSearchKey(opts.query)}:${opts.filters}`;
 }
 
 app.post("/api/leads/radar-search", authMiddleware, async (req: any, res) => {
@@ -2015,7 +2345,7 @@ app.post("/api/leads/radar-search", authMiddleware, async (req: any, res) => {
     const searchQuery = sanitizeLeadSearchText(rawQuery, 120);
     const lat = Number(latitude);
     const lng = Number(longitude);
-    const requested = Math.max(1, Math.min(60, Math.floor(Number(maxResults) || 20)));
+    const requested = Math.max(1, Math.min(40, Math.floor(Number(maxResults) || 20)));
     const numericRadius = Number(radius);
     const searchRadius = Number.isFinite(numericRadius)
       ? Math.max(100, Math.min(50000, Math.floor(numericRadius)))
@@ -2042,11 +2372,16 @@ app.post("/api/leads/radar-search", authMiddleware, async (req: any, res) => {
     const filterHasWebsite = hasWebsite === true || hasWebsite === "true";
     const filterSig = `${filterMinRating}|${filterMinReviews}|${filterOnlyUncaptured ? 1 : 0}|${filterHasPhone ? 1 : 0}|${filterHasWebsite ? 1 : 0}`;
 
-    /* Cache + dedup em flight */
+    /* Cache + dedup em flight (por usuário — captureStatus) */
     const cacheKey = radarCacheKey({ userId, brandId, lat, lng, radius: searchRadius, query: searchQuery, filters: filterSig });
-    const cached = radarCache.get(cacheKey);
-    if (cached && cached.expires > Date.now()) {
-      return res.json({ ...cached.value, cached: true });
+    const cached = radarResponseCache.get(cacheKey);
+    if (cached) {
+      return res.json({ ...cached, cached: true });
+    }
+    // Stale: se RapidAPI está no limite, devolve resultado antigo em vez de 502
+    const staleCached = radarResponseCache.getStale(cacheKey);
+    if (staleCached) {
+      return res.json({ ...staleCached, cached: true, stale: true });
     }
     const flying = radarInFlight.get(cacheKey);
     if (flying) {
@@ -2055,98 +2390,165 @@ app.post("/api/leads/radar-search", authMiddleware, async (req: any, res) => {
     }
 
     const rateKey = `${userId}:${brandId || "default"}:radar-search`;
-    if (!leadSearchRateLimiter.canSend(rateKey)) {
-      return res.status(429).json({ error: "Radar search rate limit exceeded. Try again in a minute." });
+    if (!leadRadarRateLimiter.canSend(rateKey)) {
+      // Tenta devolver qualquer cache da área antes de 429
+      if (staleCached) {
+        return res.json({ ...staleCached, cached: true, stale: true, throttled: true });
+      }
+      return res.status(429).json({
+        error: "Radar em ritmo alto — aguarde alguns segundos (cache ainda serve a mesma área).",
+        retry_after_ms: 3000,
+        success: false,
+        leads: [],
+      });
     }
-    leadSearchRateLimiter.recordSend(rateKey);
+    leadRadarRateLimiter.recordSend(rateKey);
 
     logger.info(`Radar search: "${searchQuery}" at [${lat.toFixed(4)}, ${lng.toFixed(4)}] r=${searchRadius}m (max: ${requested}) filters=${filterSig}`);
 
     const workPromise = (async () => {
-      return await googlePlaces.searchText({
-      query: searchQuery,
-      latitude: lat,
-      longitude: lng,
-      radius: searchRadius,
-      maxResults: requested,
-      providerPreference: "official_first",
-      includeDetails: false,
-      fieldProfile: "radar",
-      /* HARD restrict ao circulo do radar — sem isso o Google retorna os top N da
-         cidade INTEIRA via locationBias e o radar parece "preso" aos mesmos resultados. */
-      strictLocation: true,
-      userId,
-      brandId: brandId || undefined,
-    });
+      const places = await googlePlaces.searchText({
+        query: searchQuery,
+        latitude: lat,
+        longitude: lng,
+        radius: searchRadius,
+        maxResults: requested,
+        providerPreference: "rapid_first",
+        includeDetails: false,
+        fieldProfile: "radar",
+        /* HARD restrict ao circulo do radar — sem isso o Google retorna os top N da
+           cidade INTEIRA via locationBias e o radar parece "preso" aos mesmos resultados. */
+        strictLocation: true,
+        userId,
+        brandId: brandId || undefined,
+      });
+
+      // Check which places are already captured across schema variants.
+      const placeIds = places.map((p: any) => String(p.id || "")).filter(Boolean);
+      const existingPlaceIds = await findCapturedPlaceIds(placeIds, userId, brandId);
+      const existingSet = new Set(existingPlaceIds);
+
+      const resolveAddress = (place: any) => {
+        const formatted = String(place?.formattedAddress || place?.shortFormattedAddress || "").trim();
+        if (formatted) return formatted;
+        const pieces = Array.isArray(place?.addressComponents)
+          ? place.addressComponents
+              .map((part: any) => String(part?.longText || part?.shortText || "").trim())
+              .filter(Boolean)
+          : [];
+        return pieces.join(", ");
+      };
+
+      let leads = places.map((place: any) => ({
+        id: place.id,
+        name: place.displayName?.text || "Unknown",
+        phone: place.internationalPhoneNumber || place.nationalPhoneNumber || "",
+        address: resolveAddress(place) || "",
+        rating: place.rating || 0,
+        reviews: place.userRatingCount || 0,
+        category: place.types?.[0] || "",
+        placeId: place.id,
+        website: place.websiteUri || "",
+        googleMapsUri: place.googleMapsUri || "",
+        businessStatus: place.businessStatus || "",
+        location: place.location || null,
+        captureStatus: existingSet.has(String(place.id)) ? "captured" : "new",
+        captureQuery: searchQuery,
+      }));
+
+      /* Filtros server-side (Panfleteiro V2) — aplicados APOS detectar capturedStatus */
+      const beforeFilter = leads.length;
+      if (filterOnlyUncaptured) leads = leads.filter((l: any) => l.captureStatus !== "captured");
+      if (filterHasPhone) leads = leads.filter((l: any) => String(l.phone || "").trim().length >= 8);
+      if (filterHasWebsite) leads = leads.filter((l: any) => String(l.website || "").trim().length > 0);
+      if (filterMinRating > 0) leads = leads.filter((l: any) => Number(l.rating || 0) >= filterMinRating);
+      if (filterMinReviews > 0) leads = leads.filter((l: any) => Number(l.reviews || 0) >= filterMinReviews);
+
+      const capturedCount = leads.filter((l: any) => l.captureStatus === "captured").length;
+      const newCount = leads.length - capturedCount;
+
+      return {
+        success: true,
+        leads,
+        total: leads.length,
+        capturedCount,
+        newCount,
+        filteredOut: beforeFilter - leads.length,
+        center: { latitude: lat, longitude: lng },
+        radius: searchRadius,
+        brand_id: brandId,
+        cached: false,
+      };
     })();
+
     radarInFlight.set(cacheKey, workPromise);
-    const places = await workPromise.finally(() => radarInFlight.delete(cacheKey));
-
-    // Check which places are already captured across schema variants.
-    const placeIds = places.map((p: any) => String(p.id || "")).filter(Boolean);
-    const existingPlaceIds = await findCapturedPlaceIds(placeIds, userId, brandId);
-    const existingSet = new Set(existingPlaceIds);
-
-    const resolveAddress = (place: any) => {
-      const formatted = String(place?.formattedAddress || place?.shortFormattedAddress || "").trim();
-      if (formatted) return formatted;
-      const pieces = Array.isArray(place?.addressComponents)
-        ? place.addressComponents
-            .map((part: any) => String(part?.longText || part?.shortText || "").trim())
-            .filter(Boolean)
-        : [];
-      return pieces.join(", ");
-    };
-
-    let leads = places.map((place: any) => ({
-      id: place.id,
-      name: place.displayName?.text || "Unknown",
-      phone: place.internationalPhoneNumber || place.nationalPhoneNumber || "",
-      address: resolveAddress(place) || "",
-      rating: place.rating || 0,
-      reviews: place.userRatingCount || 0,
-      category: place.types?.[0] || "",
-      placeId: place.id,
-      website: place.websiteUri || "",
-      googleMapsUri: place.googleMapsUri || "",
-      businessStatus: place.businessStatus || "",
-      location: place.location || null,
-      captureStatus: existingSet.has(String(place.id)) ? "captured" : "new",
-      captureQuery: searchQuery,
-    }));
-
-    /* Filtros server-side (Panfleteiro V2) — aplicados APOS detectar capturedStatus */
-    const beforeFilter = leads.length;
-    if (filterOnlyUncaptured) leads = leads.filter((l: any) => l.captureStatus !== "captured");
-    if (filterHasPhone) leads = leads.filter((l: any) => String(l.phone || "").trim().length >= 8);
-    if (filterHasWebsite) leads = leads.filter((l: any) => String(l.website || "").trim().length > 0);
-    if (filterMinRating > 0) leads = leads.filter((l: any) => Number(l.rating || 0) >= filterMinRating);
-    if (filterMinReviews > 0) leads = leads.filter((l: any) => Number(l.reviews || 0) >= filterMinReviews);
-
-    const capturedCount = leads.filter((l: any) => l.captureStatus === "captured").length;
-    const newCount = leads.length - capturedCount;
-
-    const responseBody = {
-      success: true,
-      leads,
-      total: leads.length,
-      capturedCount,
-      newCount,
-      filteredOut: beforeFilter - leads.length,
-      center: { latitude: lat, longitude: lng },
-      radius: searchRadius,
-      brand_id: brandId,
-      cached: false,
-    };
-
-    /* Grava no cache antes de responder */
-    radarCache.set(cacheKey, { value: responseBody, expires: Date.now() + RADAR_CACHE_TTL_MS });
-
-    res.json(responseBody);
+    try {
+      const responseBody = await workPromise;
+      radarResponseCache.set(cacheKey, responseBody);
+      res.json(responseBody);
+    } finally {
+      radarInFlight.delete(cacheKey);
+    }
   } catch (error: any) {
     logger.error(`Radar search error: ${error.message}`);
+    const isRate =
+      error?.code === "PLACES_RATE_LIMIT" ||
+      error?.code === "RAPID_COOLDOWN" ||
+      /429|rate.?limit|limite do provedor|cooldown/i.test(String(error?.message || ""));
+
+    // Última chance: cache stale da mesma key (pode ter sido populado por outro request)
+    try {
+      const bodyLat = Number(req.body?.latitude);
+      const bodyLng = Number(req.body?.longitude);
+      const bodyQ = sanitizeLeadSearchText(String(req.body?.query || ""), 120);
+      const bodyR = Number(req.body?.radius) || 3000;
+      if (Number.isFinite(bodyLat) && Number.isFinite(bodyLng) && bodyQ) {
+        const userId = req.user?.userId as string | undefined;
+        const brandId = userId
+          ? await brandUnitsService.resolveActiveBrandId(userId, getRequestedBrandId(req)).catch(() => null)
+          : null;
+        const filterSig = "0|0|0|0|0";
+        const ck = radarCacheKey({
+          userId: userId || "anon",
+          brandId,
+          lat: bodyLat,
+          lng: bodyLng,
+          radius: bodyR,
+          query: bodyQ,
+          filters: filterSig,
+        });
+        const stale = radarResponseCache.getStale(ck) || radarResponseCache.get(ck);
+        if (stale) {
+          return res.json({ ...stale, cached: true, stale: true, degraded: true });
+        }
+      }
+    } catch { /* ignore fallback errors */ }
+
+    if (isRate) {
+      return res.status(429).json({
+        error: error.message || "Limite do provedor de mapas. Aguarde e tente de novo.",
+        retry_after_ms: error.retry_after_ms || 45_000,
+        success: false,
+        leads: [],
+        rate_limited: true,
+      });
+    }
     const statusCode = String(error.message || "").includes("Google Places search failed") ? 502 : 500;
-    res.status(statusCode).json({ error: error.message });
+    res.status(statusCode).json({
+      error: error.message,
+      success: false,
+      leads: [],
+    });
+  }
+});
+
+/* Diagnóstico leve de cache (auth) — útil pra validar hit-rate em produção */
+app.get("/api/leads/perf-stats", authMiddleware, async (req: any, res) => {
+  try {
+    if (!req.user?.userId) return res.status(401).json({ error: "Unauthorized" });
+    return res.json({ ok: true, caches: placesCacheStats() });
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message || "stats failed" });
   }
 });
 
@@ -2431,58 +2833,159 @@ app.post("/api/leads/validate-whatsapp-all", authMiddleware, async (req: any, re
     };
 
     let offset = 0;
-    const batchSize = 50;
+    const batchSize = 40;
     let totalProcessed = 0;
     let totalValid = 0;
     let totalInvalid = 0;
     let totalErrors = 0;
-    let totalSkipped = 0;
     let cancelled = false;
 
-    req.on("close", () => { cancelled = true; });
+    req.on("close", () => {
+      cancelled = true;
+    });
 
-    const countResult = await customersService.getAll({ limit: 1, offset: 0, ownerUserId: userId, brandId });
-    const totalLeads = countResult.total || 0;
-    sendEvent({ type: "start", totalLeads });
+    // Contagem SQL: só quem NUNCA foi revisado (não carrega os 2k já ok)
+    const firstPage = await customersService.listPendingWhatsAppValidation({
+      ownerUserId: userId,
+      brandId,
+      limit: 1,
+      offset: 0,
+    });
+    const pendingTotal = Number(firstPage.total || 0);
 
+    sendEvent({
+      type: "start",
+      totalLeads: pendingTotal,
+      pendingOnly: true,
+      message:
+        pendingTotal === 0
+          ? "Nenhum lead pendente — todos já foram revisados"
+          : `Validando ${pendingTotal} lead(s) ainda não revisados`,
+    });
+
+    if (pendingTotal === 0) {
+      sendEvent({
+        type: "done",
+        processed: 0,
+        valid: 0,
+        invalid: 0,
+        errors: 0,
+        skipped: 0,
+        tagged: 0,
+        total: 0,
+        pendingOnly: true,
+        message: "Nada a fazer: zero pendentes",
+      });
+      res.end();
+      return;
+    }
+
+    // Só itera a lista SQL de pendentes — nunca passa de novo nos já revisados
     while (!cancelled) {
-      const batch = await customersService.getAll({ limit: batchSize, offset, ownerUserId: userId, brandId });
+      const batch = await customersService.listPendingWhatsAppValidation({
+        ownerUserId: userId,
+        brandId,
+        limit: batchSize,
+        offset: 0, // sempre offset 0: após validar, o lead SAI da query e o próximo sobe
+      });
       const candidates = batch.customers || [];
       if (candidates.length === 0) break;
-      offset += candidates.length;
 
       for (const lead of candidates) {
         if (cancelled) break;
 
-        const phone = normalizePhone((lead as any)?.phone);
-        if (!phone) { totalSkipped++; continue; }
+        // Defesa em profundidade (não deveria acontecer com o filtro SQL)
+        if (!isLeadPendingWhatsAppValidation(lead)) {
+          continue;
+        }
 
-        if (!isLeadPendingWhatsAppValidation(lead)) { totalSkipped++; continue; }
+        const phone = normalizePhone((lead as any)?.phone);
+        if (!phone) {
+          // Sem telefone válido: marca como revisado para não voltar na fila
+          try {
+            await customersService.updateWhatsAppValidation(
+              (lead as any).id,
+              {
+                hasWhatsApp: false,
+                checkedAt: new Date().toISOString(),
+                instanceId: validationInstanceId,
+                status: "invalid",
+              },
+              userId,
+              brandId
+            );
+          } catch { /* ignore */ }
+          totalProcessed++;
+          totalInvalid++;
+          sendEvent({
+            type: "progress",
+            processed: totalProcessed,
+            valid: totalValid,
+            invalid: totalInvalid,
+            errors: totalErrors,
+            skipped: 0,
+            total: pendingTotal,
+            pendingOnly: true,
+          });
+          continue;
+        }
 
         try {
           const check = await instanceManager.checkWhatsAppNumber(validationInstanceId, phone);
           const checkedAt = new Date().toISOString();
           await customersService.updateWhatsAppValidation(
             (lead as any).id,
-            { hasWhatsApp: check.exists, checkedAt, instanceId: validationInstanceId, normalizedPhone: check.normalizedPhone, jid: check.jid, status: check.exists ? "valid" : "invalid" },
-            userId, brandId,
+            {
+              hasWhatsApp: check.exists,
+              checkedAt,
+              instanceId: validationInstanceId,
+              normalizedPhone: check.normalizedPhone,
+              jid: check.jid,
+              status: check.exists ? "valid" : "invalid",
+            },
+            userId,
+            brandId
           );
           totalProcessed++;
-          if (check.exists) totalValid++; else totalInvalid++;
+          if (check.exists) totalValid++;
+          else totalInvalid++;
         } catch (e: any) {
           totalErrors++;
-          logger.error(`validate-all error: ${e.message}`);
+          logger.error(`validate-pending error: ${e.message}`);
         }
 
-        sendEvent({ type: "progress", processed: totalProcessed, valid: totalValid, invalid: totalInvalid, errors: totalErrors, skipped: totalSkipped, total: totalLeads });
+        sendEvent({
+          type: "progress",
+          processed: totalProcessed,
+          valid: totalValid,
+          invalid: totalInvalid,
+          errors: totalErrors,
+          skipped: 0,
+          total: pendingTotal,
+          pendingOnly: true,
+        });
 
-        await new Promise(r => setTimeout(r, 800 + Math.random() * 700));
+        await new Promise((r) => setTimeout(r, 700 + Math.random() * 500));
       }
 
+      // Segurança: se a query não encolher (edge case), avança offset
       if (candidates.length < batchSize) break;
+      offset += candidates.length;
+      if (offset > pendingTotal + batchSize) break;
     }
 
-    sendEvent({ type: "done", processed: totalProcessed, valid: totalValid, invalid: totalInvalid, errors: totalErrors, skipped: totalSkipped });
+    sendEvent({
+      type: "done",
+      processed: totalProcessed,
+      valid: totalValid,
+      invalid: totalInvalid,
+      errors: totalErrors,
+      skipped: 0,
+      tagged: 0,
+      total: pendingTotal,
+      pendingOnly: true,
+      message: `Concluído: ${totalProcessed} revisados (${totalValid} com WA, ${totalInvalid} sem)`,
+    });
     res.end();
   } catch (error: any) {
     if (!res.headersSent) {
@@ -2998,6 +3501,35 @@ httpServer.listen(config.port, "0.0.0.0", () => {
       .catch(() => undefined)
   }, 60 * 60 * 1000)
 
+  // Lead Capture Mob — expire sequential offers & re-dispatch + push (every 5s)
+  setInterval(() => {
+    import("./services/mobOfferMonitor")
+      .then(({ runMobOfferCycle }) => runMobOfferCycle())
+      .catch(() => undefined);
+  }, 5_000)
+
+  // Lead Capture Mob — LGPD GPS trail + tracking token expiry (hourly)
+  setInterval(() => {
+    import("./services/mobLogistics")
+      .then(({ mobLogisticsService }) => mobLogisticsService.purgeExpiredLocationData())
+      .catch(() => undefined);
+  }, 60 * 60 * 1000)
+  setTimeout(() => {
+    import("./services/mobLogistics")
+      .then(({ mobLogisticsService }) => mobLogisticsService.purgeExpiredLocationData())
+      .catch(() => undefined);
+  }, 45_000)
+
+  // Lead Capture Mob — fleet document expiry + overdue maintenance (hourly)
+  setInterval(() => {
+    import("./services/mobFleet")
+      .then(async ({ mobFleetService }) => {
+        await mobFleetService.refreshDocumentExpiries();
+        await mobFleetService.refreshOverdueMaintenances();
+      })
+      .catch(() => undefined);
+  }, 60 * 60 * 1000)
+
   /* Nginx reconcile: any domain that's already verified in the DB but
    * missing from the live nginx sites-enabled gets provisioned on boot.
    * Runs after a 5s grace period so the HTTP server is fully up. */
@@ -3025,6 +3557,33 @@ httpServer.listen(config.port, "0.0.0.0", () => {
     startActionEscalationMonitor();
   } catch (err: any) {
     logger.error(`ActionEscalation start failed: ${formatError(err)}`);
+  }
+  /* Fila assíncrona de validação WhatsApp pós-captura */
+  try {
+    configureWhatsAppValidationQueue({
+      getLead: (leadId, userId, brandId) => customersService.getById(leadId, userId, brandId),
+      updateValidation: (leadId, payload, userId, brandId) =>
+        customersService.updateWhatsAppValidation(
+          leadId,
+          {
+            hasWhatsApp: payload.hasWhatsApp,
+            checkedAt: payload.checkedAt,
+            instanceId: payload.instanceId,
+            normalizedPhone: payload.normalizedPhone,
+            jid: payload.jid || undefined,
+            status: payload.status,
+          },
+          userId,
+          brandId
+        ),
+      ensureValidatedTag: (leadId, userId, brandId) =>
+        customersService.ensureValidatedTag(leadId, userId, brandId),
+      checkNumber: (instanceId, phone) => instanceManager.checkWhatsAppNumber(instanceId, phone),
+      resolveInstance: (userId) => resolveValidationInstanceId(userId),
+    });
+    startWhatsAppValidationQueue();
+  } catch (err: any) {
+    logger.error(`WhatsApp validation queue start failed: ${formatError(err)}`);
   }
   /* WhatsApp Health Monitor — tick a cada 2min, detecta drift (DB diz connected
      mas socket morreu) e corrige. Tambem alimenta /api/instances/health pra banner UI. */

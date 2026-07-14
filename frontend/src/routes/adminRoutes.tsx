@@ -13,6 +13,7 @@ const AgentView = lazy(() => import('@/pages/admin/agent/AgentView').then(m => (
 const NotificationsView = lazy(() => import('@/pages/admin/notifications/NotificationsView').then(m => ({ default: m.NotificationsView })))
 const DomainView = lazy(() => import('@/pages/admin/domain/DomainView').then(m => ({ default: m.DomainView })))
 const FreteView = lazy(() => import('@/pages/admin/frete/FreteView').then(m => ({ default: m.FreteView })))
+const MobLogisticsView = lazy(() => import('@/pages/admin/mob/MobLogisticsView').then(m => ({ default: m.MobLogisticsView })))
 const EstoqueAccessView = lazy(() => import('@/pages/admin/estoque/EstoqueAccessView').then(m => ({ default: m.EstoqueAccessView })))
 const AffiliatesView = lazy(() => import('@/pages/admin/affiliates/AffiliatesView').then(m => ({ default: m.AffiliatesView })))
 const CouponsView = lazy(() => import('@/pages/admin/coupons/CouponsView').then(m => ({ default: m.CouponsView })))
@@ -87,7 +88,7 @@ export const adminRouteElements = (
   <>
       <Route path="/admin" element={<AdminPage><DashboardInline /></AdminPage>} />
       <Route path="/dashboard" element={<AdminPage><DashboardInline /></AdminPage>} />
-      <Route path="/assistente" element={<Navigate to="/admin" replace />} />
+      <Route path="/assistente" element={<AdminPage><></></AdminPage>} />
       <Route path="/leads" element={<AdminPage><LeadsPage /></AdminPage>} />
       <Route path="/clientes" element={<AdminPage><ClientesPage /></AdminPage>} />
       <Route path="/busca" element={<AdminPage><LeadSearchPage /></AdminPage>} />
@@ -120,6 +121,8 @@ export const adminRouteElements = (
       <Route path="/design" element={<Navigate to="/loja" replace />} />
       <Route path="/pagamentos" element={<AdminPage><PaymentConfigView showToast={noop} /></AdminPage>} />
       <Route path="/frete" element={<AdminPage><FreteView showToast={noop} /></AdminPage>} />
+      <Route path="/entregas" element={<AdminPage><MobLogisticsView showToast={noop} /></AdminPage>} />
+      <Route path="/mob" element={<AdminPage><MobLogisticsView showToast={noop} /></AdminPage>} />
       <Route path="/dominio" element={<AdminPage><DomainView showToast={noop} /></AdminPage>} />
       <Route path="/configuracoes" element={<AdminPage><SettingsRoute /></AdminPage>} />
       <Route path="/provedores-ia" element={<AdminPage><AIProvidersPage /></AdminPage>} />

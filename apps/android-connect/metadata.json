@@ -1,0 +1,6 @@
+{
+  "name": "LeadCapture Connect Space",
+  "description": "Multiplicador e clonador de aplicativos para gerenciar múltiplas contas (como WhatsApp, Telegram e redes sociais) em espaços virtuais 100% isolados.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

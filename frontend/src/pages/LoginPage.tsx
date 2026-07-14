@@ -1,24 +1,73 @@
 import { useState, useEffect, FormEvent } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Eye, EyeOff, Mail, Lock, ArrowRight, User, Building2 } from 'lucide-react'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { Eye, EyeOff, Mail, Lock, ArrowRight, ShieldCheck } from 'lucide-react'
 import { Button, Input } from '@/components/ui'
 import { BrandMark } from '@/components/BrandMark'
 import { isMasterHost, masterAdminBase } from '@/lib/master-host'
 
-type Mode = 'login' | 'register'
+const LOGIN_MEDIA = {
+  poster: '/login/panel.jpg',
+  video: '/login/panel.mp4',
+} as const
+
+function LoginMediaPanel() {
+  const [reduceMotion, setReduceMotion] = useState(false)
+
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
+    const apply = () => setReduceMotion(mq.matches)
+    apply()
+    mq.addEventListener?.('change', apply)
+    return () => mq.removeEventListener?.('change', apply)
+  }, [])
+
+  return (
+    <aside className="org-login__media" aria-hidden>
+      <img
+        src={LOGIN_MEDIA.poster}
+        alt=""
+        className="org-login__media-img"
+        decoding="async"
+      />
+      {!reduceMotion && (
+        <video
+          className="org-login__media-video"
+          autoPlay
+          muted
+          loop
+          playsInline
+          preload="metadata"
+          poster={LOGIN_MEDIA.poster}
+        >
+          <source src={LOGIN_MEDIA.video} type="video/mp4" />
+        </video>
+      )}
+      <div className="org-login__media-veil" />
+      <div className="org-login__media-content">
+        <p className="org-login__media-kicker">Organização</p>
+        <p className="org-login__media-title">
+          O painel da sua
+          <br />
+          operação comercial.
+        </p>
+        <ul className="org-login__media-points">
+          <li>Leads, WhatsApp e campanhas</li>
+          <li>Catálogo, pedidos e afiliados</li>
+          <li>Uma conta, toda a estrutura</li>
+        </ul>
+      </div>
+    </aside>
+  )
+}
 
 export function LoginPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const redirect = searchParams.get('redirect') || ''
   const errorParam = searchParams.get('error') || ''
-  const initialMode = searchParams.get('modo') === 'cadastro' ? 'register' : 'login'
 
-  const [mode, setMode] = useState<Mode>(initialMode)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [name, setName] = useState('')
-  const [brandName, setBrandName] = useState('')
   const [showPw, setShowPw] = useState(false)
   const [error, setError] = useState(
     errorParam === 'not_super_admin'
@@ -26,11 +75,26 @@ export function LoginPage() {
       : '',
   )
   const [loading, setLoading] = useState(false)
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    document.title = 'Entrar · Organização · LeadCapture'
+    const t = requestAnimationFrame(() => setMounted(true))
+    return () => cancelAnimationFrame(t)
+  }, [])
+
+  /* Cadastro grátis removido: só via plano + pagamento */
+  useEffect(() => {
+    if (searchParams.get('modo') === 'cadastro') {
+      navigate('/inicio#planos', { replace: true })
+    }
+  }, [searchParams, navigate])
 
   function postLoginPath(): string {
     if (redirect && redirect.startsWith('/')) return redirect
     if (isMasterHost()) return masterAdminBase()
-    return '/admin'
+    // PWA/mobile: chat com última conversa (ou nova); painel não é home
+    return '/assistente'
   }
 
   /* Master impersonation: /login?impersonate=1#token=JWT */
@@ -44,7 +108,7 @@ export function LoginPage() {
       localStorage.setItem('lead-system-token', tok)
       sessionStorage.setItem('lead-system:impersonation', '1')
       window.history.replaceState(null, '', window.location.pathname)
-      navigate('/admin', { replace: true })
+      navigate('/assistente', { replace: true })
     } catch {
       /* ignore */
     }
@@ -55,30 +119,27 @@ export function LoginPage() {
   useEffect(() => {
     if (!token) return
 
-    let mounted = true
+    let alive = true
     fetch('/api/auth/me', {
-      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     })
-      .then(r => {
+      .then((r) => {
         if (r.ok) {
-          if (mounted) navigate(postLoginPath(), { replace: true })
+          if (alive) navigate(postLoginPath(), { replace: true })
           return
         }
         localStorage.removeItem('lead-system-token')
         localStorage.removeItem('lead-system:active-brand-id')
       })
       .catch(() => {
-        if (mounted) navigate(postLoginPath(), { replace: true })
+        if (alive) navigate(postLoginPath(), { replace: true })
       })
 
-    return () => { mounted = false }
+    return () => {
+      alive = false
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token])
-
-  function switchMode(m: Mode) {
-    setMode(m)
-    setError('')
-  }
 
   async function handleLogin(e: FormEvent) {
     e.preventDefault()
@@ -99,7 +160,7 @@ export function LoginPage() {
       const dest = postLoginPath()
       if (dest === '/admin') {
         const br = await fetch('/api/brands', {
-          headers: { 'Authorization': `Bearer ${d.token}`, 'Content-Type': 'application/json' },
+          headers: { Authorization: `Bearer ${d.token}`, 'Content-Type': 'application/json' },
         })
         const bd = await br.json()
         if (bd.active_brand_id) {
@@ -115,107 +176,36 @@ export function LoginPage() {
     }
   }
 
-  async function handleRegister(e: FormEvent) {
-    e.preventDefault()
-    if (!name.trim() || !email.trim() || !password) return
-    if (password.length < 8) {
-      setError('Senha deve ter ao menos 8 caracteres.')
-      return
-    }
-    setError('')
-    setLoading(true)
-    try {
-      const r = await fetch('/api/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: name.trim(),
-          email: email.trim().toLowerCase(),
-          password,
-          brand_name: brandName.trim() || name.trim(),
-        }),
-      })
-      const d = await r.json()
-      if (!r.ok || !d.token) throw new Error(d.error || 'Erro ao criar conta')
-
-      localStorage.setItem('lead-system-token', d.token)
-
-      const br = await fetch('/api/brands', {
-        headers: { 'Authorization': `Bearer ${d.token}`, 'Content-Type': 'application/json' },
-      })
-      const bd = await br.json()
-      if (bd.active_brand_id) {
-        localStorage.setItem('lead-system:active-brand-id', bd.active_brand_id)
-      }
-
-      navigate('/admin', { replace: true })
-    } catch (err: any) {
-      if (err.message === 'Email already registered') {
-        setError('Este e-mail já está cadastrado. Faça login.')
-      } else {
-        setError(err.message || 'Erro ao criar conta')
-      }
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const isLogin = mode === 'login'
-
   return (
-    <div className="min-h-screen bg-white flex flex-col">
-      <header className="px-6 py-5 flex items-center gap-2.5">
-        <BrandMark size={28} />
-        <span className="text-[15px] font-bold tracking-tight text-gray-900">LeadCapture</span>
-      </header>
+    <div className={`org-login${mounted ? ' is-ready' : ''}`}>
+      <LoginMediaPanel />
 
-      <main className="flex-1 flex items-center justify-center px-6 pb-10">
-        <div className="w-full max-w-[360px]">
-          {/* Tab switcher */}
-          <div className="flex gap-1 p-1 rounded-xl bg-gray-100 mb-8">
-            <button
-              type="button"
-              onClick={() => switchMode('login')}
-              className={`flex-1 h-9 rounded-lg text-[13px] font-semibold transition ${
-                isLogin
-                  ? 'bg-white text-gray-900 shadow-sm'
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              Entrar
-            </button>
-            <button
-              type="button"
-              onClick={() => switchMode('register')}
-              className={`flex-1 h-9 rounded-lg text-[13px] font-semibold transition ${
-                !isLogin
-                  ? 'bg-white text-gray-900 shadow-sm'
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              Criar conta
-            </button>
-          </div>
+      <div className="org-login__panel">
+        <header className="org-login__top">
+          <Link to="/inicio" className="org-login__brand">
+            <BrandMark size={28} />
+            <span>LeadCapture</span>
+          </Link>
+          <Link to="/inicio#planos" className="org-login__plans-link">
+            Ver planos
+          </Link>
+        </header>
 
-          <div className="mb-6">
-            <h1 className="text-[26px] font-semibold text-gray-900 tracking-tight leading-tight">
-              {isLogin ? 'Entrar' : 'Criar conta'}
-            </h1>
-            <p className="text-sm text-gray-500 mt-1.5">
-              {isLogin
-                ? 'Acesse o painel para gerenciar sua operação.'
-                : 'Cadastre-se e comece a usar em minutos.'}
+        <main className="org-login__main">
+          <div className="org-login__card">
+            <p className="org-login__eyebrow">Acesso da organização</p>
+            <h1 className="org-login__title">Entrar no painel</h1>
+            <p className="org-login__subtitle">
+              Use o e-mail e a senha da conta da sua empresa. Novas contas só com plano pago.
             </p>
-          </div>
 
-          {isLogin ? (
-            <form onSubmit={handleLogin} className="space-y-4">
+            <form onSubmit={handleLogin} className="org-login__form" noValidate>
               <Input
                 label="E-mail"
                 type="email"
                 value={email}
-                onChange={e => setEmail(e.target.value)}
-                placeholder="seu@email.com"
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="voce@suaempresa.com"
                 required
                 autoFocus
                 autoComplete="email"
@@ -226,7 +216,7 @@ export function LoginPage() {
                 label="Senha"
                 type={showPw ? 'text' : 'password'}
                 value={password}
-                onChange={e => setPassword(e.target.value)}
+                onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
                 required
                 autoComplete="current-password"
@@ -236,7 +226,7 @@ export function LoginPage() {
                     type="button"
                     onClick={() => setShowPw(!showPw)}
                     aria-label={showPw ? 'Ocultar senha' : 'Mostrar senha'}
-                    className="p-2 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition"
+                    className="org-login__eye"
                   >
                     {showPw ? <EyeOff size={16} strokeWidth={1.75} /> : <Eye size={16} strokeWidth={1.75} />}
                   </button>
@@ -250,95 +240,29 @@ export function LoginPage() {
                 fullWidth
                 loading={loading}
                 disabled={!email.trim() || !password}
-                iconRight={!loading && <ArrowRight size={16} strokeWidth={2} />}
-                className="mt-2"
+                iconRight={!loading ? <ArrowRight size={16} strokeWidth={2} /> : undefined}
+                className="org-login__submit"
               >
-                {loading ? 'Entrando' : 'Entrar'}
+                {loading ? 'Entrando…' : 'Entrar na organização'}
               </Button>
             </form>
-          ) : (
-            <form onSubmit={handleRegister} className="space-y-4">
-              <Input
-                label="Seu nome"
-                type="text"
-                value={name}
-                onChange={e => setName(e.target.value)}
-                placeholder="Nome completo"
-                required
-                autoFocus
-                autoComplete="name"
-                iconLeft={<User size={16} strokeWidth={1.75} />}
-              />
 
-              <Input
-                label="E-mail"
-                type="email"
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                placeholder="seu@email.com"
-                required
-                autoComplete="email"
-                iconLeft={<Mail size={16} strokeWidth={1.75} />}
-              />
+            <div className="org-login__secure">
+              <ShieldCheck size={14} strokeWidth={2} aria-hidden />
+              <span>Sessão segura · Dados da marca isolados por organização</span>
+            </div>
 
-              <Input
-                label="Senha"
-                type={showPw ? 'text' : 'password'}
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                placeholder="Minimo 8 caracteres"
-                required
-                autoComplete="new-password"
-                iconLeft={<Lock size={16} strokeWidth={1.75} />}
-                iconRight={
-                  <button
-                    type="button"
-                    onClick={() => setShowPw(!showPw)}
-                    aria-label={showPw ? 'Ocultar senha' : 'Mostrar senha'}
-                    className="p-2 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition"
-                  >
-                    {showPw ? <EyeOff size={16} strokeWidth={1.75} /> : <Eye size={16} strokeWidth={1.75} />}
-                  </button>
-                }
-              />
+            <p className="org-login__footer-note">
+              Ainda não tem conta?{' '}
+              <Link to="/inicio#planos">Escolha um plano e ative</Link>
+            </p>
+          </div>
+        </main>
 
-              <Input
-                label="Nome do seu negocio"
-                type="text"
-                value={brandName}
-                onChange={e => setBrandName(e.target.value)}
-                placeholder="Ex: Distribuidora Master"
-                autoComplete="organization"
-                iconLeft={<Building2 size={16} strokeWidth={1.75} />}
-              />
-
-              {error && (
-                <div className="px-3.5 py-2.5 rounded-xl bg-red-50 border border-red-100 text-[13px] text-red-700 font-medium">
-                  {error}
-                </div>
-              )}
-
-              <Button
-                type="submit"
-                size="lg"
-                fullWidth
-                loading={loading}
-                disabled={!name.trim() || !email.trim() || !password}
-                iconRight={!loading && <ArrowRight size={16} strokeWidth={2} />}
-                className="mt-2"
-              >
-                {loading ? 'Criando conta' : 'Criar conta'}
-              </Button>
-            </form>
-          )}
-        </div>
-      </main>
-
-      <footer className="px-6 py-5 text-center">
-        <p className="text-[11px] text-gray-400 tracking-wide">
-          Painel administrativo · LeadCapture
-        </p>
-      </footer>
+        <footer className="org-login__bottom">
+          <p>Painel administrativo · LeadCapture</p>
+        </footer>
+      </div>
     </div>
   )
 }

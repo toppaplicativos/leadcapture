@@ -729,6 +729,42 @@ async function transitionManagedStoreOrder(input: {
     });
   }
 
+  /* Lead Capture Mob — prefer public tracking URL when module is enabled */
+  let mobTrackingUrl: string | null = null;
+  try {
+    const { syncMobDeliveryFromOrderStatus } = await import("../services/mobOrderBridge");
+    const mob = await syncMobDeliveryFromOrderStatus({
+      ownerUserId: input.userId,
+      brandId: input.brandId,
+      orderId: input.orderId,
+      businessStatus: input.nextBusinessStatus,
+      customerName: updated.order.customer_name,
+      customerPhone: updated.order.customer_phone,
+      customerEmail: updated.order.customer_email,
+      productsTotal: Number(updated.order.valor_total || 0),
+      paymentMethod: input.paymentMethod || updated.order.forma_pagamento,
+      deliveryAddress: input.delivery?.deliveryAddress || preservedNotes,
+    });
+    mobTrackingUrl = mob.tracking_url;
+    if (mobTrackingUrl && deliveryArtifacts) {
+      deliveryArtifacts = {
+        ...deliveryArtifacts,
+        routeUrl: mobTrackingUrl,
+      };
+    } else if (mobTrackingUrl && !deliveryArtifacts) {
+      deliveryArtifacts = {
+        token: mob.delivery?.tracking_token || "",
+        confirmUrl: mobTrackingUrl,
+        routeUrl: mobTrackingUrl,
+        etaMinutes: mob.delivery?.eta_minutes || 40,
+        courierName: input.delivery?.courierName || null,
+        courierPhone: input.delivery?.courierPhone || null,
+      };
+    }
+  } catch {
+    /* non-blocking */
+  }
+
   await upsertManagedOrderMeta({
     orderId: input.orderId,
     userId: input.userId,
@@ -752,6 +788,9 @@ async function transitionManagedStoreOrder(input: {
     timelinePayload.eta_minutes = deliveryArtifacts.etaMinutes;
     timelinePayload.courier_name = deliveryArtifacts.courierName;
     timelinePayload.courier_phone = deliveryArtifacts.courierPhone;
+  }
+  if (mobTrackingUrl) {
+    timelinePayload.mob_tracking_url = mobTrackingUrl;
   }
 
   await appendManagedTimeline({
@@ -3532,9 +3571,85 @@ publicRouter.get("/stores/:slug/orders/track", async (req, res) => {
         [String(managedOrder.id)]
       );
 
+      const publicOrder = mapManagedOrderForPublic(managedOrder, items || [], managedOrder);
+
+      /* Lead Capture Mob — enrich customer tracking with live logistics */
+      let logistics: any = null;
+      try {
+        const ownerUserId = String(bundle.store.owner_user_id || managedOrder.user_id || "").trim();
+        const brandId = String(bundle.store.brand_id || managedOrder.brand_id || "").trim() || null;
+        if (ownerUserId) {
+          const { getMobTrackingForOrder } = await import("../services/mobOrderBridge");
+          const { mobLogisticsService } = await import("../services/mobLogistics");
+          const track = await getMobTrackingForOrder(ownerUserId, brandId, String(managedOrder.id));
+          if (track.delivery_id) {
+            const full = await mobLogisticsService.getPublicTracking(
+              // resolve token from delivery
+              (
+                await mobLogisticsService.getDeliveryById(track.delivery_id)
+              )?.tracking_token || ""
+            );
+            const delivery = await mobLogisticsService.getDeliveryById(track.delivery_id);
+            logistics = {
+              enabled: true,
+              delivery_id: track.delivery_id,
+              status: track.status || delivery?.status || null,
+              tracking_url: track.tracking_url,
+              eta_minutes: delivery?.eta_minutes ?? null,
+              distance_km: delivery?.distance_km ?? null,
+              delivery_fee: delivery?.delivery_fee ?? null,
+              delivery_pin: full?.delivery?.delivery_pin || null,
+              payment_status: managedOrder.payment_status || publicOrder.payment_status,
+              payment_confirmed: ["paid", "pago"].includes(
+                String(managedOrder.payment_status || managedOrder.status_pedido || "").toLowerCase()
+              ) || ["pago", "em_preparacao", "em_entrega", "entregue"].includes(
+                String(managedOrder.business_status || "").toLowerCase()
+              ),
+              show_map: !!full?.show_map,
+              courier: full?.courier || null,
+              location: full?.location || null,
+              dropoff: delivery
+                ? {
+                    lat: delivery.dropoff_lat,
+                    lng: delivery.dropoff_lng,
+                    address: delivery.dropoff_address,
+                  }
+                : null,
+              pickup: delivery
+                ? {
+                    lat: delivery.pickup_lat,
+                    lng: delivery.pickup_lng,
+                  }
+                : null,
+              modality: delivery?.modality || null,
+            };
+            if (track.tracking_url) {
+              publicOrder.tracking_url = track.tracking_url;
+            }
+          } else {
+            const { mobLogisticsService: mobSvc } = await import("../services/mobLogistics");
+            const settings = brandId
+              ? await mobSvc.getOrCreateSettings(ownerUserId, brandId)
+              : null;
+            logistics = {
+              enabled: !!settings?.enabled,
+              delivery_id: null,
+              status: null,
+              tracking_url: null,
+              payment_confirmed: ["paid", "pago"].includes(
+                String(managedOrder.payment_status || managedOrder.status_pedido || "").toLowerCase()
+              ),
+            };
+          }
+        }
+      } catch {
+        logistics = null;
+      }
+
       return res.json({
         success: true,
-        order: mapManagedOrderForPublic(managedOrder, items || [], managedOrder),
+        order: publicOrder,
+        logistics,
         timeline: (timeline || []).map((entry: any) => ({
           event_type: entry.event_key || entry.status,
           status_before: null,

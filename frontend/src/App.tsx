@@ -31,6 +31,9 @@ const PartnersLoginPage = lazy(() => import('@/pages/partners/PartnersLoginPage'
 const PartnersAppPage = lazy(() => import('@/pages/partners/PartnersAppPage').then(m => ({ default: m.PartnersAppPage })))
 const PartnersProgramWorkspace = lazy(() => import('@/pages/partners/PartnersProgramWorkspace').then(m => ({ default: m.PartnersProgramWorkspace })))
 const AffiliateRedirectPage = lazy(() => import('@/pages/AffiliateRedirectPage').then(m => ({ default: m.AffiliateRedirectPage })))
+const MobLoginPage = lazy(() => import('@/pages/mob/MobLoginPage').then(m => ({ default: m.MobLoginPage })))
+const MobAppPage = lazy(() => import('@/pages/mob/MobAppPage').then(m => ({ default: m.MobAppPage })))
+const MobTrackPage = lazy(() => import('@/pages/mob/MobTrackPage').then(m => ({ default: m.MobTrackPage })))
 const ProductDetailPage = lazy(() => import('@/pages/ProductDetailPage').then(m => ({ default: m.ProductDetailPage })))
 const LandingPage = lazy(() => import('@/pages/LandingPage').then(m => ({ default: m.LandingPage })))
 const CadastroPage = lazy(() => import('@/pages/CadastroPage').then(m => ({ default: m.CadastroPage })))
@@ -129,6 +132,11 @@ const PARTNERS_GLOBAL_HOSTS = new Set([
   'afiliados.leadcapture.online',
 ])
 
+/** Lead Capture Mob — app global do entregador */
+const MOB_HOSTS = new Set([
+  'mob.leadcapture.online',
+])
+
 /** Central do Afiliado por marca (ex.: parceiros.alhopronto.online) */
 const AFFILIATE_BRAND_HOSTS = new Set([
   'parceiros.alhopronto.online',
@@ -149,6 +157,11 @@ function isAffiliateHost() {
   return isPartnersGlobalHost() || isAffiliateBrandHost()
 }
 
+function isMobHost() {
+  if (typeof window === 'undefined') return false
+  return MOB_HOSTS.has(window.location.hostname)
+}
+
 function isLandingHost() {
   if (typeof window === 'undefined') return false
   return LANDING_HOSTS.has(window.location.hostname)
@@ -159,7 +172,7 @@ function isLandingHost() {
  *
  *   1. Marketing root domain (leadcapture.online) → LandingPage
  *   2. Custom-domain catalog slug detected → CatalogShell
- *   3. Admin logged in → /admin
+ *   3. Admin logged in → /assistente (chat home; painel sob demanda)
  *   4. Stock manager logged in → their stock app
  *   5. Otherwise → /login
  */
@@ -178,6 +191,12 @@ function RootIndex() {
     return <Navigate to="/parceiros" replace />
   }
 
+  // mob.leadcapture.online → app do entregador
+  if (isMobHost()) {
+    const token = localStorage.getItem('lead-system-token-entregador')
+    return <Navigate to={token ? '/mob/app' : '/mob/entrar'} replace />
+  }
+
   // parceiros.alhopronto.online → Central do Afiliado da marca
   if (isAffiliateBrandHost()) {
     return <Navigate to="/central-afiliado/alhopronto" replace />
@@ -192,7 +211,8 @@ function RootIndex() {
   useEffect(() => {
     const adminToken = localStorage.getItem('lead-system-token')
     if (adminToken) {
-      navigate('/admin', { replace: true })
+      // Chat-first: restaura conversa; painel só via atalho/nav
+      navigate('/assistente', { replace: true })
       return
     }
     const stockToken = localStorage.getItem('lead-system-token-estoque')
@@ -308,6 +328,14 @@ export default function App() {
               <Route path="/parceiros/entrar" element={<PartnersLoginPage />} />
               <Route path="/parceiros/painel/programa/:slug/*" element={<PartnersProgramWorkspace />} />
               <Route path="/parceiros/painel/*" element={<PartnersAppPage />} />
+
+              {/* Lead Capture Mob — entregadores + rastreio público */}
+              <Route path="/mob" element={<MobLoginPage />} />
+              <Route path="/mob/entrar" element={<MobLoginPage />} />
+              <Route path="/mob/app/*" element={<MobAppPage />} />
+              <Route path="/entrar" element={<MobLoginPage />} />
+              <Route path="/rastreio" element={<MobTrackPage />} />
+              <Route path="/rastreio/:token" element={<MobTrackPage />} />
 
               <Route path="/central-afiliado" element={<AffiliateLoginPage />} />
               <Route path="/central-afiliado/:slug" element={<AffiliateLoginPage />} />

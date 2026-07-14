@@ -1198,6 +1198,17 @@ router.post("/partners-register", async (req: Request, res: Response) => {
       email,
     });
 
+    try {
+      const { emailTriggers } = await import("../services/emailTriggers");
+      emailTriggers.welcomePartners({
+        affiliate_name: name,
+        affiliate_email: email,
+        panel_url: "https://parceiros.leadcapture.online",
+      });
+    } catch {
+      /* e-mail não bloqueia cadastro */
+    }
+
     res.status(201).json({
       success: true,
       token,

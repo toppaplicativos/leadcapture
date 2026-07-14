@@ -11,8 +11,9 @@ import {
   Receipt,
 } from 'lucide-react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { trackOrder, fetchCatalog, type Order, type TimelineEvent } from '@/lib/api'
+import { trackOrder, fetchCatalog, type Order, type TimelineEvent, type OrderLogistics } from '@/lib/api'
 import { money, labelStatus, storeUrl, normalizePhone } from '@/lib/store-context'
+import { OrderLogisticsCard } from '@/components/store/OrderLogisticsCard'
 
 const STATUS_ICONS: Record<string, typeof CheckCircle> = {
   entregue: CheckCircle,
@@ -79,10 +80,12 @@ export function OrderPage() {
   const [searchParams] = useSearchParams()
   const [order, setOrder] = useState<Order | null>(null)
   const [timeline, setTimeline] = useState<TimelineEvent[]>([])
+  const [logistics, setLogistics] = useState<OrderLogistics | null>(null)
   const [info, setInfo] = useState('')
   const [infoKind, setInfoKind] = useState<'idle' | 'loading' | 'error' | 'hint'>('idle')
   const [loading, setLoading] = useState(false)
   const [bootstrapping, setBootstrapping] = useState(true)
+  const [lastQuery, setLastQuery] = useState<{ order: string; phone: string } | null>(null)
 
   const initialOrderNumber = searchParams.get('order_number') || ''
   const initialPhone = searchParams.get('phone') || ''
@@ -109,19 +112,34 @@ export function OrderPage() {
     setInfoKind('loading')
 
     try {
-      const data = await trackOrder(orderNumber, normalizePhone(phone))
+      const phoneNorm = normalizePhone(phone)
+      const data = await trackOrder(orderNumber, phoneNorm)
       setOrder(data.order)
       setTimeline(data.timeline || [])
+      setLogistics(data.logistics || null)
+      setLastQuery({ order: orderNumber, phone: phoneNorm })
       setInfo('')
       setInfoKind('idle')
     } catch (err: any) {
       setOrder(null)
       setTimeline([])
+      setLogistics(null)
       setInfo(err.message || 'Não foi possível consultar o pedido.')
       setInfoKind('error')
     } finally {
       setLoading(false)
     }
+  }
+
+  function refreshLogistics() {
+    if (!lastQuery) return
+    trackOrder(lastQuery.order, lastQuery.phone)
+      .then((data) => {
+        setOrder(data.order)
+        setTimeline(data.timeline || [])
+        setLogistics(data.logistics || null)
+      })
+      .catch(() => undefined)
   }
 
   useEffect(() => {
@@ -289,8 +307,24 @@ export function OrderPage() {
                   <p className="text-[14px] font-semibold text-gray-900 mt-0.5">
                     {paymentLabel(order.payment_method)}
                   </p>
+                  {logistics?.payment_confirmed != null && (
+                    <p
+                      className={`text-[11px] font-semibold mt-1 ${
+                        logistics.payment_confirmed ? 'text-emerald-700' : 'text-amber-700'
+                      }`}
+                    >
+                      {logistics.payment_confirmed ? 'Confirmado' : 'Aguardando confirmação'}
+                    </p>
+                  )}
                 </div>
               </div>
+
+              {order.delivery_address && (
+                <p className="text-[13px] text-gray-600 pt-1">
+                  <span className="font-semibold text-gray-800">Entrega: </span>
+                  {order.delivery_address}
+                </p>
+              )}
 
               {Array.isArray(order.items) && order.items.length > 0 && (
                 <div className="border-t border-gray-100 pt-4 space-y-2">
@@ -309,6 +343,10 @@ export function OrderPage() {
                 </div>
               )}
             </div>
+
+            {logistics && (logistics.delivery_id || logistics.enabled) && (
+              <OrderLogisticsCard logistics={logistics} onRefresh={refreshLogistics} />
+            )}
 
             <div className="store-order-card p-5">
               <h3 className="store-section-title mb-4">Andamento</h3>

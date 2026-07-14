@@ -27,6 +27,29 @@ app.leadcapture.online {
     }
 }
 
+# leadcapture:mob.leadcapture.online — app de entregadores + rastreio
+mob.leadcapture.online {
+    handle /socket.io/* {
+        reverse_proxy 127.0.0.1:3001
+    }
+    handle /api/* {
+        reverse_proxy 127.0.0.1:3001 {
+            transport http {
+                read_timeout 5m
+                write_timeout 5m
+                dial_timeout 30s
+            }
+        }
+    }
+    handle /uploads/* {
+        reverse_proxy 127.0.0.1:3001
+    }
+    handle {
+        reverse_proxy 127.0.0.1:3001
+        header Cache-Control "no-cache, no-store, must-revalidate"
+    }
+}
+
 # leadcapture:parceiros.leadcapture.online — app global de afiliados
 parceiros.leadcapture.online, afiliados.leadcapture.online {
     handle /socket.io/* {

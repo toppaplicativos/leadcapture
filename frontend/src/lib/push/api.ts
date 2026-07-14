@@ -20,12 +20,17 @@ function authHeaders(): Record<string, string> {
     token =
       localStorage.getItem('lead-system-token-estoque') ||
       localStorage.getItem('lead-system-token')
+  } else if (ctx === 'mob') {
+    token =
+      localStorage.getItem('lead-system-token-entregador') ||
+      localStorage.getItem('lead-system-token')
   } else {
     token =
       localStorage.getItem('lead-system-token') ||
       localStorage.getItem('lead-system-token-afiliado') ||
       localStorage.getItem('lead-system-token-parceiro') ||
-      localStorage.getItem('lead-system-token-estoque')
+      localStorage.getItem('lead-system-token-estoque') ||
+      localStorage.getItem('lead-system-token-entregador')
   }
 
   if (token) h.Authorization = `Bearer ${token}`

@@ -24,6 +24,7 @@ import type { ShowToast } from '@/lib/admin/types'
 import { Skeleton, KpiCard, EmptyState } from '@/components/admin/primitives'
 
 export function FreteView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'err') => void }) {
+  const navigate = useNavigate()
   const [storeId, setStoreId] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -96,10 +97,19 @@ export function FreteView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'e
           <h2 className="text-[26px] font-bold text-gray-900 tracking-tight">Frete & Entrega</h2>
           <p className="text-[13px] text-gray-400 mt-0.5">Configure entregas e politicas de frete</p>
         </div>
-        <button onClick={save} disabled={saving}
-          className="px-5 py-2.5 rounded-xl bg-gray-900 text-white text-xs font-semibold hover:bg-gray-800 disabled:opacity-40 transition">
-          {saving ? 'Salvando...' : 'Salvar'}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => navigate('/entregas')}
+            className="px-4 py-2.5 rounded-xl border border-border bg-white text-gray-800 text-xs font-semibold hover:bg-gray-50 transition"
+          >
+            Lead Capture Mob
+          </button>
+          <button onClick={save} disabled={saving}
+            className="px-5 py-2.5 rounded-xl bg-gray-900 text-white text-xs font-semibold hover:bg-gray-800 disabled:opacity-40 transition">
+            {saving ? 'Salvando...' : 'Salvar'}
+          </button>
+        </div>
       </div>
 
       {/* Preview banner — how it looks in the catalog */}

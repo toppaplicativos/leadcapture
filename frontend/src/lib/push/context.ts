@@ -1,4 +1,4 @@
-export type PushAppContext = 'master' | 'admin' | 'affiliate' | 'stock' | 'storefront'
+export type PushAppContext = 'master' | 'admin' | 'affiliate' | 'stock' | 'storefront' | 'mob'
 
 export function resolvePushAppContext(): PushAppContext {
   if (typeof window === 'undefined') return 'admin'
@@ -6,9 +6,11 @@ export function resolvePushAppContext(): PushAppContext {
   const path = window.location.pathname
 
   if (host.startsWith('adm.')) return 'master'
+  if (host.startsWith('mob.') || host === 'mob.leadcapture.online') return 'mob'
   if (host.startsWith('parceiros.') || host.startsWith('afiliados.')) return 'affiliate'
   if (host.startsWith('estoque.')) return 'stock'
 
+  if (path.startsWith('/mob') || path.startsWith('/rastreio')) return 'mob'
   if (path.startsWith('/parceiros') || path.startsWith('/central-afiliado')) return 'affiliate'
   if (path.startsWith('/app-estoque')) return 'stock'
   if (path.startsWith('/catalogo') || path.startsWith('/loja')) return 'storefront'
@@ -23,6 +25,7 @@ export function pushContextLabel(ctx: PushAppContext): string {
     affiliate: 'Central do Afiliado',
     stock: 'App Estoque',
     storefront: 'Loja',
+    mob: 'Lead Capture Mob',
   }
   return map[ctx] || ctx
 }

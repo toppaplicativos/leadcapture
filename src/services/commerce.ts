@@ -967,6 +967,47 @@ export class CommerceService {
       } catch {
         /* non-blocking */
       }
+
+      /* Lead Capture Mob — cria entrega logística se módulo ativo */
+      try {
+        const { syncMobDeliveryFromOrderStatusAsync } = await import("./mobOrderBridge");
+        syncMobDeliveryFromOrderStatusAsync({
+          ownerUserId: userId,
+          brandId: this.normalizeBrandId(brandId),
+          orderId,
+          businessStatus: "pago",
+          customerName: found.order.customer_name,
+          customerPhone: found.order.customer_phone,
+          customerEmail: found.order.customer_email,
+          productsTotal: Number(found.order.valor_total || 0),
+          paymentMethod: paymentMethod,
+        });
+      } catch {
+        /* non-blocking */
+      }
+    }
+
+    /* Lead Capture Mob — cancel/refund → cancela entrega ativa */
+    if (
+      (status === "cancelado" || status === "estornado" || status === "abandonado") &&
+      found.order.status_pedido !== status
+    ) {
+      try {
+        const { syncMobDeliveryFromOrderStatusAsync } = await import("./mobOrderBridge");
+        syncMobDeliveryFromOrderStatusAsync({
+          ownerUserId: userId,
+          brandId: this.normalizeBrandId(brandId),
+          orderId,
+          businessStatus: "cancelado",
+          customerName: found.order.customer_name,
+          customerPhone: found.order.customer_phone,
+          customerEmail: found.order.customer_email,
+          productsTotal: Number(found.order.valor_total || 0),
+          paymentMethod: paymentMethod,
+        });
+      } catch {
+        /* non-blocking */
+      }
     }
 
     /* Fase 12 — release stock when an order goes to cancelado/abandonado/estornado.
@@ -1144,6 +1185,24 @@ export class CommerceService {
         status: "converted",
         tagsToAdd: ["cliente_ativo"],
       });
+    }
+
+    /* Lead Capture Mob — entrega a partir do checkout pago */
+    try {
+      const { syncMobDeliveryFromOrderStatusAsync } = await import("./mobOrderBridge");
+      syncMobDeliveryFromOrderStatusAsync({
+        ownerUserId: order.user_id,
+        brandId: this.normalizeBrandId(order.brand_id),
+        orderId: order.id,
+        businessStatus: "pago",
+        customerName: input.customer_name || order.customer_name,
+        customerPhone: input.customer_phone || order.customer_phone,
+        customerEmail: input.customer_email || order.customer_email,
+        productsTotal: Number(order.valor_total || 0),
+        paymentMethod,
+      });
+    } catch {
+      /* non-blocking */
     }
 
     const refreshed = await this.getCheckoutByToken(checkoutToken);

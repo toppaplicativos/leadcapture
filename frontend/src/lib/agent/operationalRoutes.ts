@@ -32,6 +32,8 @@ const OPERATIONAL_EXACT = new Set([
   '/notificacoes',
   '/dominio',
   '/frete',
+  '/entregas',
+  '/mob',
   '/estoque',
   '/cupons',
   '/avaliacoes',

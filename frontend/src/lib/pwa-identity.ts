@@ -1,4 +1,4 @@
-export type PwaAppKind = 'store' | 'admin' | 'stock' | 'affiliate'
+export type PwaAppKind = 'store' | 'admin' | 'stock' | 'affiliate' | 'mob'
 
 export type PwaIdentity = {
   app: PwaAppKind
@@ -31,6 +31,11 @@ const DEFAULTS: Record<PwaAppKind, Omit<PwaIdentity, 'app' | 'slug' | 'surface'>
     themeColor: '#16a34a',
     iconUrl: '/pwa/icon?app=affiliate&size=192',
   },
+  mob: {
+    name: 'Lead Capture Mob',
+    themeColor: '#171717',
+    iconUrl: '/pwa/icon?app=admin&size=192',
+  },
 }
 
 type BootIdentity = Partial<PwaIdentity> & { app?: PwaAppKind; surface?: string | null }
@@ -56,6 +61,10 @@ function detectFromLocation(): {
     return { app: 'affiliate', slug: null, surface: 'partners' }
   }
 
+  if (host === 'mob.leadcapture.online') {
+    return { app: 'mob', slug: null, surface: null }
+  }
+
   const brandHost = host.match(/^(?:parceiros|afiliados)\.([a-z0-9-]+)\./i)
   if (brandHost?.[1] && brandHost[1] !== 'leadcapture') {
     return { app: 'affiliate', slug: brandHost[1], surface: null }
@@ -63,6 +72,9 @@ function detectFromLocation(): {
 
   if (first === 'parceiros') {
     return { app: 'affiliate', slug: null, surface: 'partners' }
+  }
+  if (first === 'mob' || first === 'rastreio' || first === 'entrar') {
+    return { app: 'mob', slug: null, surface: null }
   }
   if ((first === 'catalogo' || first === 'loja') && parts[1]) {
     return { app: 'store', slug: decodeURIComponent(parts[1]), surface: null }

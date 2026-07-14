@@ -2,12 +2,34 @@ import axios from "axios";
 import { GooglePlaceV2, PlaceSearchRequest } from "../types";
 import { logger } from "../utils/logger";
 import { IntegrationScope, integrationService } from "./integrations";
+import {
+  findNearbyPlacesCache,
+  geocodeCache,
+  isRapidApiCooledDown,
+  locationSearchCache,
+  markRapidApiCooldowned,
+  normalizeSearchKey,
+  placesApiCache,
+  placesApiCacheKey,
+  rapidCooldownRemainingMs,
+} from "./placesPerfCache";
 
 const SEARCH_PAGE_SIZE = 20;
 const MAX_SEARCH_LIMIT = 100;
 const MAX_SEARCH_PAGES = 8;
 const ENRICH_DETAILS_LIMIT = 24;
 const ENRICH_BATCH_SIZE = 4;
+
+function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371;
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
 
 type PlacesPageResult = {
   places: GooglePlaceV2[];
@@ -80,8 +102,17 @@ export class GooglePlacesService {
     rapid: RapidProviderConfig,
     callFn: (key: string) => Promise<T>,
   ): Promise<T> {
+    if (isRapidApiCooledDown()) {
+      const err: any = new Error(
+        `RapidAPI em cooldown (${Math.ceil(rapidCooldownRemainingMs() / 1000)}s). Use cache.`
+      );
+      err.response = { status: 429 };
+      err.code = "RAPID_COOLDOWN";
+      throw err;
+    }
     let lastErr: any = null;
     const tried = new Set<string>();
+    let allRateLimited = true;
     /* Comeca pela key da rotacao atual, depois tenta as outras se 429 */
     for (let i = 0; i < rapid.keys.length; i++) {
       const key = this.pickRapidKey(rapid);
@@ -93,9 +124,18 @@ export class GooglePlacesService {
         lastErr = err;
         const status = err?.response?.status;
         /* 429 = rate limit, 403 = quota exceeded — tenta a proxima key */
-        if (status !== 429 && status !== 403) throw err;
+        if (status !== 429 && status !== 403) {
+          allRateLimited = false;
+          throw err;
+        }
         logger.warn(`RapidAPI key ${key.slice(0, 8)}… returned ${status} — tentando proxima chave`);
       }
+    }
+    if (allRateLimited) {
+      markRapidApiCooldowned(50_000);
+      logger.warn(
+        `RapidAPI ALL keys rate-limited — cooldown ${Math.ceil(rapidCooldownRemainingMs() / 1000)}s`
+      );
     }
     throw lastErr;
   }
@@ -113,6 +153,303 @@ export class GooglePlacesService {
     location?: string;
   }): string {
     return params.location ? `${params.query} em ${params.location}` : params.query;
+  }
+
+  /**
+   * Geocode de endereço/cidade real (lat/lng).
+   * Ordem: Mapbox (se MAPBOX_ACCESS_TOKEN/MAPBOX_TOKEN) → Nominatim (OSM) → null.
+   * Essencial pro panfleteiro: "só o texto do local" não basta pra locationBias.
+   */
+  async geocodeLocation(
+    location: string,
+    scope?: IntegrationScope
+  ): Promise<{ latitude: number; longitude: number; label: string; source: string } | null> {
+    const q = String(location || "").trim();
+    if (q.length < 2) return null;
+
+    // Coordenadas coladas no input ("-3.73,-38.52")
+    const coordMatch = q.match(/^\s*(-?\d{1,3}(?:\.\d+)?)\s*[,;\s]\s*(-?\d{1,3}(?:\.\d+)?)\s*$/);
+    if (coordMatch) {
+      const latitude = Number(coordMatch[1]);
+      const longitude = Number(coordMatch[2]);
+      if (
+        Number.isFinite(latitude) &&
+        Number.isFinite(longitude) &&
+        Math.abs(latitude) <= 90 &&
+        Math.abs(longitude) <= 180
+      ) {
+        return { latitude, longitude, label: q, source: "coords" };
+      }
+    }
+
+    const cacheKey = `geo:${normalizeSearchKey(q)}`;
+    const cached = geocodeCache.get(cacheKey);
+    if (cached !== undefined) {
+      return cached;
+    }
+
+    const result = await this.geocodeLocationUncached(q, scope);
+    geocodeCache.set(cacheKey, result);
+    return result;
+  }
+
+  private async geocodeLocationUncached(
+    q: string,
+    scope?: IntegrationScope
+  ): Promise<{ latitude: number; longitude: number; label: string; source: string } | null> {
+    const mapboxToken = String(
+      process.env.MAPBOX_ACCESS_TOKEN || process.env.MAPBOX_TOKEN || process.env.VITE_MAPBOX_TOKEN || ""
+    ).trim();
+    if (mapboxToken) {
+      try {
+        const url =
+          `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(q)}.json` +
+          `?access_token=${encodeURIComponent(mapboxToken)}&language=pt&country=br&limit=1&types=place,locality,neighborhood,address,poi`;
+        const resp = await axios.get(url, { timeout: 8000 });
+        const feat = resp.data?.features?.[0];
+        const center = feat?.center;
+        if (Array.isArray(center) && center.length >= 2) {
+          const longitude = Number(center[0]);
+          const latitude = Number(center[1]);
+          if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
+            logger.info(`[Geocode] mapbox "${q}" → ${latitude.toFixed(5)},${longitude.toFixed(5)}`);
+            return {
+              latitude,
+              longitude,
+              label: String(feat.place_name || q),
+              source: "mapbox",
+            };
+          }
+        }
+      } catch (err: any) {
+        logger.warn(`[Geocode] mapbox failed for "${q}": ${err?.message || err}`);
+      }
+    }
+
+    // Nominatim (OpenStreetMap) — free, requer User-Agent
+    try {
+      const url =
+        `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=br&q=${encodeURIComponent(q)}`;
+      const resp = await axios.get(url, {
+        timeout: 10000,
+        headers: {
+          "User-Agent": "LeadCapture-Panfleteiro/1.0 (app.leadcapture.online)",
+          Accept: "application/json",
+        },
+      });
+      const hit = Array.isArray(resp.data) ? resp.data[0] : null;
+      const latitude = Number(hit?.lat);
+      const longitude = Number(hit?.lon);
+      if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
+        logger.info(`[Geocode] nominatim "${q}" → ${latitude.toFixed(5)},${longitude.toFixed(5)}`);
+        return {
+          latitude,
+          longitude,
+          label: String(hit.display_name || q),
+          source: "nominatim",
+        };
+      }
+    } catch (err: any) {
+      logger.warn(`[Geocode] nominatim failed for "${q}": ${err?.message || err}`);
+    }
+
+    // Fallback: Places text search só com o local (primeiro resultado)
+    try {
+      const rapid = await this.getRapidProvider(this.toScope(scope));
+      if (rapid) {
+        const page = await this.searchTextRapidApiPage({
+          query: q,
+          maxResults: 1,
+          fieldProfile: "radar",
+          userId: scope?.userId || undefined,
+          brandId: scope?.brandId || undefined,
+        });
+        const place = page.places?.[0];
+        const latitude = Number(place?.location?.latitude);
+        const longitude = Number(place?.location?.longitude);
+        if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
+          logger.info(`[Geocode] places-fallback "${q}" → ${latitude.toFixed(5)},${longitude.toFixed(5)}`);
+          return {
+            latitude,
+            longitude,
+            label: String(place?.displayName?.text || place?.formattedAddress || q),
+            source: "places",
+          };
+        }
+      }
+    } catch (err: any) {
+      logger.warn(`[Geocode] places-fallback failed for "${q}": ${err?.message || err}`);
+    }
+
+    logger.warn(`[Geocode] no result for "${q}"`);
+    return null;
+  }
+
+  /**
+   * Busca multi-result de locais (autocomplete / place search).
+   * Usado no campo "Cidade" do panfleteiro: digita → lista real com lat/lng.
+   * Ordem: Mapbox → Nominatim → Places text search.
+   */
+  async searchLocations(
+    location: string,
+    opts?: { limit?: number; userId?: string; brandId?: string | null }
+  ): Promise<Array<{ id: string; label: string; shortLabel: string; latitude: number; longitude: number; source: string }>> {
+    const q = String(location || "").trim();
+    if (q.length < 2) return [];
+
+    const limit = Math.max(1, Math.min(10, Math.floor(Number(opts?.limit) || 6)));
+    const cacheKey = `loc:${normalizeSearchKey(q)}|${limit}`;
+    const cached = locationSearchCache.get(cacheKey);
+    if (cached) return cached;
+
+    const out: Array<{ id: string; label: string; shortLabel: string; latitude: number; longitude: number; source: string }> = [];
+    const seen = new Set<string>();
+
+    const push = (item: { id?: string; label: string; shortLabel?: string; latitude: number; longitude: number; source: string }) => {
+      if (!Number.isFinite(item.latitude) || !Number.isFinite(item.longitude)) return;
+      if (Math.abs(item.latitude) > 90 || Math.abs(item.longitude) > 180) return;
+      const key = `${item.latitude.toFixed(4)},${item.longitude.toFixed(4)}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      const label = String(item.label || "").trim() || q;
+      const shortLabel = String(item.shortLabel || label.split(",")[0] || label).trim();
+      out.push({
+        id: item.id || `${item.source}:${key}`,
+        label,
+        shortLabel,
+        latitude: item.latitude,
+        longitude: item.longitude,
+        source: item.source,
+      });
+    };
+
+    // Coordenadas coladas
+    const coordMatch = q.match(/^\s*(-?\d{1,3}(?:\.\d+)?)\s*[,;\s]\s*(-?\d{1,3}(?:\.\d+)?)\s*$/);
+    if (coordMatch) {
+      const latitude = Number(coordMatch[1]);
+      const longitude = Number(coordMatch[2]);
+      push({ label: q, shortLabel: q, latitude, longitude, source: "coords" });
+      locationSearchCache.set(cacheKey, out);
+      return out;
+    }
+
+    const mapboxToken = String(
+      process.env.MAPBOX_ACCESS_TOKEN || process.env.MAPBOX_TOKEN || process.env.VITE_MAPBOX_TOKEN || ""
+    ).trim();
+    if (mapboxToken) {
+      try {
+        const url =
+          `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(q)}.json` +
+          `?access_token=${encodeURIComponent(mapboxToken)}&language=pt&country=br&limit=${limit}` +
+          `&types=place,locality,neighborhood,address,poi,district,region`;
+        const resp = await axios.get(url, { timeout: 8000 });
+        const features = Array.isArray(resp.data?.features) ? resp.data.features : [];
+        for (const feat of features) {
+          const center = feat?.center;
+          if (!Array.isArray(center) || center.length < 2) continue;
+          const longitude = Number(center[0]);
+          const latitude = Number(center[1]);
+          const placeName = String(feat?.place_name || feat?.text || q);
+          const short = String(feat?.text || placeName.split(",")[0] || placeName);
+          push({
+            id: String(feat?.id || ""),
+            label: placeName,
+            shortLabel: short,
+            latitude,
+            longitude,
+            source: "mapbox",
+          });
+          if (out.length >= limit) break;
+        }
+        if (out.length > 0) {
+          logger.info(`[LocationSearch] mapbox "${q}" → ${out.length} hits`);
+          locationSearchCache.set(cacheKey, out);
+          return out;
+        }
+      } catch (err: any) {
+        logger.warn(`[LocationSearch] mapbox failed for "${q}": ${err?.message || err}`);
+      }
+    }
+
+    try {
+      const url =
+        `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=${limit}` +
+        `&countrycodes=br&q=${encodeURIComponent(q)}`;
+      const resp = await axios.get(url, {
+        timeout: 10000,
+        headers: {
+          "User-Agent": "LeadCapture-Panfleteiro/1.0 (app.leadcapture.online)",
+          Accept: "application/json",
+        },
+      });
+      const hits = Array.isArray(resp.data) ? resp.data : [];
+      for (const hit of hits) {
+        const latitude = Number(hit?.lat);
+        const longitude = Number(hit?.lon);
+        const display = String(hit?.display_name || q);
+        const addr = hit?.address || {};
+        const short =
+          addr.city ||
+          addr.town ||
+          addr.village ||
+          addr.municipality ||
+          addr.suburb ||
+          addr.state ||
+          display.split(",")[0] ||
+          display;
+        push({
+          id: String(hit?.place_id || hit?.osm_id || ""),
+          label: display,
+          shortLabel: String(short),
+          latitude,
+          longitude,
+          source: "nominatim",
+        });
+        if (out.length >= limit) break;
+      }
+      if (out.length > 0) {
+        logger.info(`[LocationSearch] nominatim "${q}" → ${out.length} hits`);
+        locationSearchCache.set(cacheKey, out);
+        return out;
+      }
+    } catch (err: any) {
+      logger.warn(`[LocationSearch] nominatim failed for "${q}": ${err?.message || err}`);
+    }
+
+    // Fallback: Places text search
+    try {
+      const page = await this.searchTextRapidApiPage({
+        query: q,
+        maxResults: limit,
+        fieldProfile: "radar",
+        userId: opts?.userId || undefined,
+        brandId: opts?.brandId || undefined,
+      });
+      for (const place of page.places || []) {
+        const latitude = Number(place?.location?.latitude);
+        const longitude = Number(place?.location?.longitude);
+        const name = String(place?.displayName?.text || "");
+        const addr = String(place?.formattedAddress || "");
+        const label = name && addr ? `${name} — ${addr}` : name || addr || q;
+        push({
+          id: String(place?.id || ""),
+          label,
+          shortLabel: name || label.split(",")[0] || label,
+          latitude,
+          longitude,
+          source: "places",
+        });
+        if (out.length >= limit) break;
+      }
+      if (out.length > 0) {
+        logger.info(`[LocationSearch] places "${q}" → ${out.length} hits`);
+      }
+    } catch (err: any) {
+      logger.warn(`[LocationSearch] places failed for "${q}": ${err?.message || err}`);
+    }
+
+    locationSearchCache.set(cacheKey, out);
+    return out;
   }
 
   /* Converte um circulo geografico (centro + raio em metros) em bounding box (lat/lng SW + NE).
@@ -412,12 +749,93 @@ export class GooglePlacesService {
       const target = this.sanitizeMaxResults(params.maxResults);
       const placeById = new Map<string, GooglePlaceV2>();
       const scope = this.toScope(params);
+
+      // Geocode do texto do local → lat/lng (sem isso o bias não funciona e o mapa fica errado)
+      let resolvedLat = params.latitude;
+      let resolvedLng = params.longitude;
+      if (
+        params.location &&
+        (typeof resolvedLat !== "number" || typeof resolvedLng !== "number" ||
+          !Number.isFinite(resolvedLat) || !Number.isFinite(resolvedLng))
+      ) {
+        const geo = await this.geocodeLocation(params.location, scope);
+        if (geo) {
+          resolvedLat = geo.latitude;
+          resolvedLng = geo.longitude;
+          // guarda no objeto pra o caller (lead search) devolver center correto
+          (params as any)._geocoded = geo;
+        }
+      }
+
+      // Com geocode: HARD restriction no raio da cidade (senão Places ignora o local
+      // e devolve top-N do país). Radar já manda strictLocation=true.
+      const hasCoords =
+        typeof resolvedLat === "number" &&
+        typeof resolvedLng === "number" &&
+        Number.isFinite(resolvedLat) &&
+        Number.isFinite(resolvedLng);
+      const resolvedRadius =
+        typeof params.radius === "number" && params.radius > 0
+          ? params.radius
+          : hasCoords
+            ? 15000
+            : params.radius;
+      const fieldProfile = params.fieldProfile || "full";
+      const strictLocation =
+        params.strictLocation === true ||
+        (hasCoords && params.strictLocation !== false && Boolean(params.location));
+
+      // Cache compartilhado do resultado Places (não inclui captureStatus do usuário)
+      const apiKey = placesApiCacheKey({
+        query: params.query,
+        lat: typeof resolvedLat === "number" ? resolvedLat : undefined,
+        lng: typeof resolvedLng === "number" ? resolvedLng : undefined,
+        radius: resolvedRadius,
+        maxResults: target,
+        profile: fieldProfile,
+        strict: strictLocation,
+      });
+      const cachedPlaces = placesApiCache.get(apiKey);
+      if (cachedPlaces) {
+        logger.info(
+          `Google Places cache HIT [profile=${fieldProfile}]: ${cachedPlaces.length} places for "${params.query}"`
+        );
+        return cachedPlaces as GooglePlaceV2[];
+      }
+
+      // Em cooldown RapidAPI: tenta stale/vizinho antes de chamar rede
+      if (isRapidApiCooledDown() && hasCoords) {
+        const nearby = findNearbyPlacesCache(
+          params.query,
+          resolvedLat as number,
+          resolvedLng as number,
+          Number(resolvedRadius || 3000),
+          target,
+          fieldProfile,
+          strictLocation
+        );
+        if (nearby?.length) {
+          logger.info(
+            `Google Places STALE/NEARBY during cooldown: ${nearby.length} places for "${params.query}"`
+          );
+          return nearby as GooglePlaceV2[];
+        }
+      }
+
       const providerChain = await this.resolveProviderChain(params.providerPreference || "rapid_first", scope);
       if (providerChain.length === 0) {
         throw new Error("No Google Places provider is configured");
       }
+
+      const searchParams = {
+        ...params,
+        latitude: resolvedLat,
+        longitude: resolvedLng,
+        radius: resolvedRadius,
+        strictLocation,
+      };
+
       const includeDetails = params.includeDetails !== false;
-      const fieldProfile = params.fieldProfile || "full";
       let providerIndex = 0;
       let provider = providerChain[providerIndex];
       let nextPageToken: string | undefined;
@@ -431,14 +849,14 @@ export class GooglePlacesService {
         try {
           if (provider === "rapid") {
             pageResult = await this.searchTextRapidApiPage({
-              ...params,
+              ...searchParams,
               maxResults: pageSize,
               pageToken: nextPageToken,
               fieldProfile,
             });
           } else {
             pageResult = await this.searchTextGoogleOfficialPage({
-              ...params,
+              ...searchParams,
               maxResults: pageSize,
               pageToken: nextPageToken,
               fieldProfile,
@@ -496,6 +914,29 @@ export class GooglePlacesService {
 
       let places = Array.from(placeById.values()).slice(0, target);
 
+      // Filtro final por distância ao centro geocodificado (Places às vezes vaza do retângulo)
+      if (
+        hasCoords &&
+        typeof resolvedRadius === "number" &&
+        resolvedRadius > 0 &&
+        places.length > 0
+      ) {
+        const maxKm = Math.max(0.5, resolvedRadius / 1000) * 1.15; // 15% margem
+        const before = places.length;
+        places = places.filter((p) => {
+          const la = Number(p?.location?.latitude);
+          const ln = Number(p?.location?.longitude);
+          if (!Number.isFinite(la) || !Number.isFinite(ln)) return true;
+          const d = haversineKm(resolvedLat as number, resolvedLng as number, la, ln);
+          return d <= maxKm;
+        });
+        if (places.length < before) {
+          logger.info(
+            `[Places] filtered by geocode radius: ${before} → ${places.length} (max ${maxKm.toFixed(1)}km)`
+          );
+        }
+      }
+
       if (includeDetails) {
         const needsDetailIndexes = places
           .map((place, index) => ({ place, index }))
@@ -524,12 +965,61 @@ export class GooglePlacesService {
           includeDetails ? "on" : "off"
         }]: requested ${target}, returned ${places.length}`
       );
+      // Cache só resultados radar/leve (sem enrich pesado) ou com details já mesclados
+      placesApiCache.set(apiKey, places);
       return places;
     } catch (error: any) {
+      const status = error?.response?.status;
       const details =
         error.response?.data?.error?.message ||
         error.response?.data?.error_message ||
         error.message;
+
+      // Fallback: cache stale / células vizinhas quando RapidAPI estoura
+      if (status === 429 || status === 403 || error?.code === "RAPID_COOLDOWN") {
+        markRapidApiCooldowned(50_000);
+        const lat = Number(params.latitude);
+        const lng = Number(params.longitude);
+        if (Number.isFinite(lat) && Number.isFinite(lng)) {
+          const nearby = findNearbyPlacesCache(
+            params.query,
+            lat,
+            lng,
+            Number(params.radius || 3000),
+            this.sanitizeMaxResults(params.maxResults),
+            params.fieldProfile || "full",
+            params.strictLocation === true
+          );
+          if (nearby?.length) {
+            logger.warn(
+              `Google Places 429 → serving ${nearby.length} cached/nearby places for "${params.query}"`
+            );
+            return nearby as GooglePlaceV2[];
+          }
+        }
+        const apiKeyFallback = placesApiCacheKey({
+          query: params.query,
+          lat: Number.isFinite(lat) ? lat : undefined,
+          lng: Number.isFinite(lng) ? lng : undefined,
+          radius: params.radius,
+          maxResults: params.maxResults,
+          profile: params.fieldProfile || "full",
+          strict: params.strictLocation === true,
+        });
+        const stale = placesApiCache.getStale(apiKeyFallback);
+        if (stale?.length) {
+          logger.warn(`Google Places 429 → stale cache ${stale.length} for "${params.query}"`);
+          return stale as GooglePlaceV2[];
+        }
+        const rateErr: any = new Error(
+          `Limite do provedor de mapas atingido. Aguarde ${Math.ceil(rapidCooldownRemainingMs() / 1000) || 45}s e continue — áreas já buscadas usam cache.`
+        );
+        rateErr.code = "PLACES_RATE_LIMIT";
+        rateErr.retry_after_ms = rapidCooldownRemainingMs() || 45_000;
+        logger.error(`Google Places search error (rate limit): ${details}`);
+        throw rateErr;
+      }
+
       logger.error(`Google Places search error: ${details}`);
       throw new Error(`Google Places search failed: ${details}`);
     }

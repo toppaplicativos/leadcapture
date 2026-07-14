@@ -100,6 +100,21 @@ export interface ContentPublishingConfig {
   approvalMode?: 'auto_publish' | 'manual_review'
   captionOverride?: string
   galleryFolder?: string
+  /** Local (Graph place id) */
+  locationId?: string
+  locationName?: string
+  /** @usernames a marcar (separados por vírgula ou array no save) */
+  userTags?: string
+  /** Texto alternativo (imagem feed) */
+  altText?: string
+  /** Reels: compartilhar no feed */
+  shareToFeed?: boolean
+  /** Usernames collab (vírgula) */
+  collaborators?: string
+  /** URL de capa do Reels */
+  coverUrl?: string
+  /** URL de mídia opcional para enfileirar rascunho */
+  mediaUrl?: string
 }
 
 export interface AcaoConfig {

@@ -57,6 +57,10 @@ export type EligibilityChecklistItem = {
   label: string;
   ok: boolean;
   action?: string | null;
+  /** CTA curta no app (ex.: "Aceitar termos") */
+  cta?: string | null;
+  /** Rota relativa no app afiliado */
+  action_path?: string | null;
 };
 
 export type AffiliateEligibilitySnapshot = {
@@ -67,7 +71,9 @@ export type AffiliateEligibilitySnapshot = {
   checklist: EligibilityChecklistItem[];
   program_id: string | null;
   program_name: string | null;
+  enrollment_id: string | null;
   enrollment_status: string | null;
+  terms_html?: string | null;
   connected_instance_id: string | null;
   connected_instance_name: string | null;
   connected_instances: number;
@@ -734,20 +740,50 @@ export class AffiliateDistributionService {
       enrollment?.onboarding_completed_at || enrollment?.resources_unlocked_at
     );
 
-    // Termos: só timestamps reais de aceite — NUNCA approved_at do enrollment.
-    // Se o programa não tem terms_html, não bloqueia.
+    // Termos: timestamps de aceite + progresso da etapa terms_accept do onboarding.
+    // Se o programa não tem terms_html e não tem etapa de termos, não bloqueia.
+    let programTermsHtml: string | null = null;
     let programRequiresTerms = false;
+    let termsStepCompleted = false;
     if (enrollment?.program_id) {
       const progTerms = await queryOne<{ terms_html?: string | null }>(
         `SELECT terms_html FROM affiliate_programs WHERE id = ? LIMIT 1`,
         [enrollment.program_id]
       );
-      programRequiresTerms = Boolean(String(progTerms?.terms_html || "").trim());
+      programTermsHtml = String(progTerms?.terms_html || "").trim() || null;
+      const termsSteps = await query<any[]>(
+        `SELECT id FROM affiliate_program_steps
+         WHERE program_id = ? AND step_type = 'terms_accept'`,
+        [enrollment.program_id]
+      );
+      programRequiresTerms = Boolean(programTermsHtml) || (termsSteps || []).length > 0;
+      if (enrollment?.id && (termsSteps || []).length) {
+        const completed = await queryOne<any>(
+          `SELECT id FROM affiliate_program_progress
+           WHERE enrollment_id = ?
+             AND item_type = 'step'
+             AND status = 'completed'
+             AND item_id IN (${(termsSteps || []).map(() => "?").join(",")})
+           LIMIT 1`,
+          [enrollment.id, ...(termsSteps || []).map((s) => s.id)]
+        );
+        termsStepCompleted = Boolean(completed);
+      }
     }
-    const termsAccepted = Boolean(
+    let termsAccepted = Boolean(
       membership?.accepted_terms_at
       || application?.accepted_terms_at
+      || termsStepCompleted
     );
+    // Backfill: se o onboarding marcou a etapa mas o timestamp não foi gravado
+    if (termsAccepted && enrollment?.id && !(membership?.accepted_terms_at || application?.accepted_terms_at)) {
+      void this.stampTermsAccepted({
+        affiliateUserId: input.affiliateUserId,
+        brandId: input.brandId,
+        programId: enrollment.program_id ? String(enrollment.program_id) : null,
+        enrollmentId: String(enrollment.id),
+      }).catch(() => undefined);
+    }
     const termsOk = !requireTerms || !programRequiresTerms || termsAccepted;
 
     // Treinamento: progresso real ou onboarding concluído — não atalho por status active
@@ -761,42 +797,75 @@ export class AffiliateDistributionService {
     const hasPix = Boolean(String(affiliate?.pix_key || "").trim());
     const pixOk = !requirePix || hasPix;
 
+    const enrollmentStatus = String(enrollment?.status || "").toLowerCase();
+    // "programa ativo" para checklist: enrollment active. Onboarding incompleto tem ação dedicada.
+    let programAction: string | null = null;
+    let programCta: string | null = null;
+    let programPath: string | null = null;
+    if (enrollmentActive) {
+      programAction = null;
+    } else if (enrollmentStatus === "onboarding") {
+      programAction = "Conclua as etapas do onboarding do programa";
+      programCta = "Abrir onboarding";
+      programPath = enrollment?.id ? `/aprendizado?onboarding=${encodeURIComponent(String(enrollment.id))}` : "/aprendizado";
+    } else if (enrollment) {
+      programAction = "Aguarde a ativação do programa ou conclua o onboarding";
+      programCta = "Ver programa";
+      programPath = "/mercado";
+    } else {
+      programAction = "Entre em um programa no Mercado";
+      programCta = "Abrir Mercado";
+      programPath = "/mercado";
+    }
+
     const checklist: EligibilityChecklistItem[] = [
       {
         key: "affiliate_active",
         label: "Conta de afiliado ativa",
         ok: affiliateActive,
         action: affiliateActive ? null : "Aguarde aprovação da organização",
+        cta: null,
+        action_path: null,
       },
       {
         key: "program_active",
-        label: "Programa aprovado e ativo",
+        label: enrollmentStatus === "onboarding" ? "Onboarding do programa" : "Programa aprovado e ativo",
         ok: enrollmentActive,
-        action: enrollmentActive ? null : "Conclua candidatura em Mercado",
+        action: programAction,
+        cta: programCta,
+        action_path: programPath,
       },
       {
         key: "terms",
         label: "Termos aceitos",
         ok: termsOk,
-        action: termsOk ? null : "Aceite os termos no onboarding",
+        action: termsOk ? null : "Leia e aceite os termos do programa para liberar a distribuição",
+        cta: termsOk ? null : "Aceitar termos",
+        action_path: termsOk ? null : "accept_terms",
       },
       {
         key: "training",
         label: "Treinamento concluído",
         ok: trainingOk,
         action: trainingOk ? null : "Conclua o treinamento em Aprender",
+        cta: trainingOk ? null : "Abrir Aprender",
+        action_path: trainingOk ? null : "/aprendizado",
       },
       {
         key: "whatsapp",
         label: "WhatsApp conectado",
         ok: whatsappOk,
-        action: whatsappOk ? null : "Conectar WhatsApp",
+        action: whatsappOk ? null : "Conecte seu WhatsApp para receber contatos",
+        cta: whatsappOk ? null : "Conectar WhatsApp",
+        action_path: whatsappOk ? null : "/conexoes",
       },
       {
         key: "pix",
         label: "Chave Pix cadastrada",
         ok: pixOk,
         action: pixOk ? null : "Cadastre sua chave Pix em Carteira",
+        cta: pixOk ? null : "Abrir Pix",
+        action_path: pixOk ? null : "/pagamentos",
       },
     ];
 
@@ -904,7 +973,9 @@ export class AffiliateDistributionService {
       checklist,
       program_id: programId,
       program_name: enrollment?.program_name ? String(enrollment.program_name) : null,
+      enrollment_id: enrollment?.id ? String(enrollment.id) : null,
       enrollment_status: enrollment?.status ? String(enrollment.status) : null,
+      terms_html: !termsOk ? programTermsHtml : null,
       connected_instance_id: connectedInstance?.id ? String(connectedInstance.id) : null,
       connected_instance_name: connectedInstance?.name ? String(connectedInstance.name) : null,
       connected_instances: (health.instances || []).filter(
@@ -912,6 +983,139 @@ export class AffiliateDistributionService {
       ).length,
       stats,
     };
+  }
+
+  /**
+   * Registra aceite de termos de forma canônica (membership + application + progresso).
+   * Usado pelo onboarding e pelo CTA do Ao Vivo.
+   */
+  async stampTermsAccepted(input: {
+    affiliateUserId: string;
+    brandId: string;
+    programId?: string | null;
+    enrollmentId?: string | null;
+  }) {
+    const programId = input.programId ? String(input.programId).trim() : "";
+    const enrollmentId = input.enrollmentId ? String(input.enrollmentId).trim() : "";
+
+    if (programId) {
+      await query(
+        `UPDATE affiliate_program_memberships
+         SET accepted_terms_at = COALESCE(accepted_terms_at, NOW()), updated_at = NOW()
+         WHERE affiliate_user_id = ? AND organization_id = ? AND program_id = ?`,
+        [input.affiliateUserId, input.brandId, programId],
+      ).catch(() => undefined);
+      await query(
+        `UPDATE affiliate_program_applications
+         SET accepted_terms_at = COALESCE(accepted_terms_at, NOW()), updated_at = NOW()
+         WHERE affiliate_user_id = ? AND brand_id = ? AND program_id = ?`,
+        [input.affiliateUserId, input.brandId, programId],
+      ).catch(() => undefined);
+    } else {
+      await query(
+        `UPDATE affiliate_program_memberships
+         SET accepted_terms_at = COALESCE(accepted_terms_at, NOW()), updated_at = NOW()
+         WHERE affiliate_user_id = ? AND organization_id = ?`,
+        [input.affiliateUserId, input.brandId],
+      ).catch(() => undefined);
+      await query(
+        `UPDATE affiliate_program_applications
+         SET accepted_terms_at = COALESCE(accepted_terms_at, NOW()), updated_at = NOW()
+         WHERE affiliate_user_id = ? AND brand_id = ?`,
+        [input.affiliateUserId, input.brandId],
+      ).catch(() => undefined);
+    }
+
+    if (enrollmentId && programId) {
+      const termsSteps = await query<any[]>(
+        `SELECT id FROM affiliate_program_steps
+         WHERE program_id = ? AND step_type = 'terms_accept'`,
+        [programId],
+      );
+      for (const step of termsSteps || []) {
+        const existing = await queryOne<any>(
+          `SELECT id, status FROM affiliate_program_progress
+           WHERE enrollment_id = ? AND item_type = 'step' AND item_id = ? LIMIT 1`,
+          [enrollmentId, step.id],
+        );
+        if (existing?.status === "completed") continue;
+        const enrollment = await queryOne<any>(
+          `SELECT affiliate_id FROM affiliate_program_enrollments WHERE id = ? LIMIT 1`,
+          [enrollmentId],
+        );
+        if (existing) {
+          await query(
+            `UPDATE affiliate_program_progress
+             SET status = 'completed',
+                 payload_json = ?,
+                 completed_at = NOW(),
+                 updated_at = NOW()
+             WHERE id = ?`,
+            [JSON.stringify({ terms_accepted: true, source: "stamp" }), existing.id],
+          );
+        } else {
+          await query(
+            `INSERT INTO affiliate_program_progress
+             (id, enrollment_id, program_id, affiliate_id, item_type, item_id, status, payload_json, completed_at)
+             VALUES (?, ?, ?, ?, 'step', ?, 'completed', ?, NOW())`,
+            [
+              randomUUID(),
+              enrollmentId,
+              programId,
+              enrollment?.affiliate_id || null,
+              step.id,
+              JSON.stringify({ terms_accepted: true, source: "stamp" }),
+            ],
+          );
+        }
+      }
+    }
+  }
+
+  /** Aceite explícito de termos a partir do app (Ao Vivo / elegibilidade). */
+  async acceptTermsForAffiliate(input: {
+    ownerUserId: string;
+    brandId: string;
+    affiliateId: string;
+    affiliateUserId: string;
+    accepted: boolean;
+  }) {
+    if (!input.accepted) {
+      throw new Error("Marque a confirmação para aceitar os termos");
+    }
+    const enrollment = await this.resolveActiveEnrollment(
+      input.affiliateId,
+      input.brandId,
+      input.affiliateUserId,
+    );
+    if (!enrollment) {
+      throw new Error("Nenhuma inscrição de programa encontrada para esta marca");
+    }
+
+    await this.stampTermsAccepted({
+      affiliateUserId: input.affiliateUserId,
+      brandId: input.brandId,
+      programId: enrollment.program_id ? String(enrollment.program_id) : null,
+      enrollmentId: String(enrollment.id),
+    });
+
+    // Avança enrollment se todos os steps obrigatórios já estiverem ok
+    try {
+      const steps = await query<any[]>(
+        `SELECT * FROM affiliate_program_steps WHERE program_id = ? ORDER BY sort_order ASC`,
+        [enrollment.program_id],
+      );
+      await affiliateProgramsService.advanceEnrollment(enrollment, steps || []);
+    } catch {
+      /* advance opcional */
+    }
+
+    return this.syncAffiliateDistributionStatus({
+      ownerUserId: input.ownerUserId,
+      brandId: input.brandId,
+      affiliateId: input.affiliateId,
+      affiliateUserId: input.affiliateUserId,
+    });
   }
 
   private async loadAffiliateStats(affiliateId: string, brandId: string, ownerUserId: string) {
@@ -1189,11 +1393,25 @@ export class AffiliateDistributionService {
       return { queued: false, reason: "Distribuição desabilitada para esta marca" };
     }
 
-    const prospect = await queryOne<any>(
-      `SELECT id, name, phone, city, state, address_city, address_state, owner_user_id, brand_id
-       FROM customers WHERE id = ? AND owner_user_id = ? LIMIT 1`,
-      [input.prospectId, input.ownerUserId]
-    );
+    // address_city/address_state podem não existir em schemas antigos — tenta full, fallback mínimo
+    let prospect: any = null;
+    try {
+      prospect = await queryOne<any>(
+        `SELECT id, name, phone, city, state, address_city, address_state, owner_user_id, brand_id
+         FROM customers WHERE id = ? AND owner_user_id = ? LIMIT 1`,
+        [input.prospectId, input.ownerUserId]
+      );
+    } catch (colErr: any) {
+      if (String(colErr?.message || "").includes("does not exist") || String(colErr?.message || "").includes("Unknown column")) {
+        prospect = await queryOne<any>(
+          `SELECT id, name, phone, city, state, owner_user_id, brand_id
+           FROM customers WHERE id = ? AND owner_user_id = ? LIMIT 1`,
+          [input.prospectId, input.ownerUserId]
+        );
+      } else {
+        throw colErr;
+      }
+    }
     if (!prospect) {
       return { queued: false, reason: "Prospect não encontrado" };
     }

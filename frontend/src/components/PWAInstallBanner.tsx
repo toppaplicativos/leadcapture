@@ -1,8 +1,31 @@
 import { useState, useEffect, useMemo } from 'react'
+import { useLocation } from 'react-router-dom'
 import { X, Zap, WifiOff, Bell, Monitor, Share2, Plus, Check } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { Button } from '@/components/ui'
 import { getPwaIdentity } from '@/lib/pwa-identity'
+
+/** Marketing landing: sem card de instalar app — só chat/atendimento. */
+const MARKETING_LANDING_HOSTS = new Set([
+  'leadcapture.online',
+  'www.leadcapture.online',
+  'localhost',
+  '127.0.0.1',
+])
+
+function isMarketingLandingSurface(pathname: string, hostname: string): boolean {
+  const host = (hostname || '').toLowerCase()
+  const path = (pathname || '/').replace(/\/+$/, '') || '/'
+
+  // Domínio de marketing (raiz ou /inicio)
+  if (MARKETING_LANDING_HOSTS.has(host)) {
+    if (path === '/' || path === '/inicio' || path === '/lp') return true
+  }
+  // Landing também acessível em app.* /inicio e /lp
+  if (path === '/inicio' || path === '/lp') return true
+
+  return false
+}
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>
@@ -21,6 +44,7 @@ const APP_HINTS: Record<string, string> = {
 }
 
 export function PWAInstallBanner() {
+  const location = useLocation()
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null)
   const [visible, setVisible] = useState(false)
   const [installing, setInstalling] = useState(false)
@@ -28,7 +52,17 @@ export function PWAInstallBanner() {
   const [showIOSGuide, setShowIOSGuide] = useState(false)
   const identity = useMemo(() => getPwaIdentity(), [])
 
+  const hideOnLanding = useMemo(() => {
+    if (typeof window === 'undefined') return false
+    return isMarketingLandingSurface(location.pathname, window.location.hostname)
+  }, [location.pathname])
+
   useEffect(() => {
+    if (hideOnLanding) {
+      setVisible(false)
+      return
+    }
+
     const isStandalone =
       window.matchMedia('(display-mode: standalone)').matches ||
       (window.navigator as any).standalone === true
@@ -55,7 +89,7 @@ export function PWAInstallBanner() {
     }
 
     return () => window.removeEventListener('beforeinstallprompt', handler)
-  }, [])
+  }, [hideOnLanding])
 
   async function handleInstall() {
     if (isIOS) {
@@ -81,7 +115,7 @@ export function PWAInstallBanner() {
     }
   }
 
-  if (!visible) return null
+  if (hideOnLanding || !visible) return null
 
   const benefits: { Icon: LucideIcon; text: string }[] = [
     { Icon: Zap, text: 'Abre mais rápido que pelo navegador' },

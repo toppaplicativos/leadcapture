@@ -373,36 +373,43 @@ export function AffiliatePromotionHub({ ctx }: Props) {
               <p className="text-xs text-[#8e8e93] mt-1">Use as técnicas acima com seu link e cupom enquanto a marca publica artes</p>
             </div>
           ) : (
-            <div className="affiliate-mat-grid">
-              {filteredMaterials.map((m) => (
-                <button
-                  key={m.id}
-                  type="button"
-                  onClick={() => setActiveMaterial(m)}
-                  className="affiliate-mat-item affiliate-card overflow-hidden text-left w-full"
-                >
-                  {m.media_url && (
-                    m.type === 'video' ? (
-                      <video src={m.media_url} className="affiliate-mat-item__media" muted playsInline />
-                    ) : (
-                      <img src={m.media_url} alt={m.title} className="affiliate-mat-item__media" />
-                    )
-                  )}
-                  <div className="p-3">
-                    <div className="flex items-start justify-between gap-1">
-                      <p className="font-bold text-xs text-[#1c1c1e] leading-tight">{m.title}</p>
-                      <span className="text-[8px] font-bold uppercase px-1.5 py-0.5 rounded-full bg-[#f2f2f7] text-[#8e8e93] shrink-0">
-                        {m.category || m.type}
-                      </span>
+            <>
+              <div className="affiliate-mat-grid">
+                {filteredMaterials.slice(0, 6).map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => setActiveMaterial(m)}
+                    className="affiliate-mat-item affiliate-card overflow-hidden text-left w-full"
+                  >
+                    {m.media_url && (
+                      m.type === 'video' ? (
+                        <video src={m.media_url} className="affiliate-mat-item__media" muted playsInline />
+                      ) : (
+                        <img src={m.media_url} alt={m.title} className="affiliate-mat-item__media" />
+                      )
+                    )}
+                    <div className="p-3">
+                      <div className="flex items-start justify-between gap-1">
+                        <p className="font-bold text-xs text-[#1c1c1e] leading-tight">{m.title}</p>
+                        <span className="text-[8px] font-bold uppercase px-1.5 py-0.5 rounded-full bg-[#f2f2f7] text-[#8e8e93] shrink-0">
+                          {m.category || m.type}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-[#8e8e93] mt-2 flex items-center gap-1">
+                        <Sparkles size={11} style={{ color: ctx.primary }} />
+                        Gerar legenda e compartilhar
+                      </p>
                     </div>
-                    <p className="text-[10px] text-[#8e8e93] mt-2 flex items-center gap-1">
-                      <Sparkles size={11} style={{ color: ctx.primary }} />
-                      Gerar legenda e compartilhar
-                    </p>
-                  </div>
-                </button>
-              ))}
-            </div>
+                  </button>
+                ))}
+              </div>
+              {filteredMaterials.length > 6 && (
+                <p className="text-[11px] text-center text-[#8e8e93] px-2">
+                  +{filteredMaterials.length - 6} na página <strong>Materiais</strong> (menu Mais)
+                </p>
+              )}
+            </>
           )}
         </>
       )}

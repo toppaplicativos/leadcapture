@@ -115,12 +115,118 @@ export class CustomersService {
         await query(`CREATE INDEX idx_customers_owner_user ON customers (owner_user_id)`);
       }
 
+      // Dedupe + unique index (evita corrida de captura paralela gravar o mesmo place 2x)
+      try {
+        await this.ensureGooglePlaceUniqueConstraint();
+      } catch (err: any) {
+        logger.warn(`ensureGooglePlaceUniqueConstraint: ${err?.message || err}`);
+      }
+
       this.schemaEnsured = true;
     })().finally(() => {
       this.schemaEnsurePromise = null;
     });
 
     await this.schemaEnsurePromise;
+  }
+
+  /**
+   * 1) Remove duplicatas (mesmo owner+brand+google_place_id) mantendo o mais antigo
+   * 2) Cria índice UNIQUE parcial — barreira definitiva no banco
+   */
+  private async ensureGooglePlaceUniqueConstraint(): Promise<void> {
+    const columns = await this.getColumnsUncached();
+    if (!this.hasColumn(columns, "google_place_id")) return;
+    const ownerCol = this.resolveOwnerColumn(columns) || "owner_user_id";
+    const hasBrand = this.hasColumn(columns, "brand_id");
+
+    // Limpa duplicatas existentes (mantém created_at mais antigo; se empate, menor id)
+    try {
+      if (hasBrand) {
+        await query(`
+          DELETE FROM customers c
+          USING customers d
+          WHERE c.google_place_id IS NOT NULL
+            AND TRIM(c.google_place_id) <> ''
+            AND c.google_place_id = d.google_place_id
+            AND COALESCE(c.${ownerCol}::text, '') = COALESCE(d.${ownerCol}::text, '')
+            AND COALESCE(c.brand_id::text, '') = COALESCE(d.brand_id::text, '')
+            AND (
+              COALESCE(c.created_at, '1970-01-01'::timestamp) > COALESCE(d.created_at, '1970-01-01'::timestamp)
+              OR (
+                COALESCE(c.created_at, '1970-01-01'::timestamp) = COALESCE(d.created_at, '1970-01-01'::timestamp)
+                AND c.id::text > d.id::text
+              )
+            )
+        `);
+      } else {
+        await query(`
+          DELETE FROM customers c
+          USING customers d
+          WHERE c.google_place_id IS NOT NULL
+            AND TRIM(c.google_place_id) <> ''
+            AND c.google_place_id = d.google_place_id
+            AND COALESCE(c.${ownerCol}::text, '') = COALESCE(d.${ownerCol}::text, '')
+            AND (
+              COALESCE(c.created_at, '1970-01-01'::timestamp) > COALESCE(d.created_at, '1970-01-01'::timestamp)
+              OR (
+                COALESCE(c.created_at, '1970-01-01'::timestamp) = COALESCE(d.created_at, '1970-01-01'::timestamp)
+                AND c.id::text > d.id::text
+              )
+            )
+        `);
+      }
+      logger.info("Customers dedupe by google_place_id completed");
+    } catch (err: any) {
+      logger.warn(`Customers dedupe cleanup skipped: ${err?.message || err}`);
+    }
+
+    // Índice único (owner + brand + place)
+    try {
+      const idxName = "uq_customers_owner_brand_place";
+      const exists = await queryOne<{ total: number }>(
+        `SELECT COUNT(*)::int AS total FROM pg_indexes WHERE tablename = 'customers' AND indexname = ?`,
+        [idxName]
+      );
+      if (Number(exists?.total || 0) === 0) {
+        if (hasBrand) {
+          await query(`
+            CREATE UNIQUE INDEX ${idxName}
+            ON customers (
+              ${ownerCol},
+              (COALESCE(brand_id::text, '')),
+              google_place_id
+            )
+            WHERE google_place_id IS NOT NULL AND btrim(google_place_id) <> ''
+          `);
+        } else {
+          await query(`
+            CREATE UNIQUE INDEX ${idxName}
+            ON customers (${ownerCol}, google_place_id)
+            WHERE google_place_id IS NOT NULL AND btrim(google_place_id) <> ''
+          `);
+        }
+        logger.info(`Created unique index ${idxName}`);
+      }
+    } catch (err: any) {
+      logger.warn(`Unique place index create failed: ${err?.message || err}`);
+    }
+  }
+
+  private async getColumnsUncached(): Promise<Map<string, ColumnMeta>> {
+    const rows = await query<any[]>("SHOW COLUMNS FROM customers");
+    const map = new Map<string, ColumnMeta>();
+    for (const row of rows) {
+      map.set(String(row.Field), {
+        field: String(row.Field),
+        type: String(row.Type || ""),
+        nullable: String(row.Null || "").toUpperCase() === "YES",
+        key: String(row.Key || ""),
+        defaultValue: row.Default,
+        extra: String(row.Extra || ""),
+      });
+    }
+    return map;
   }
 
   private async getColumns(): Promise<Map<string, ColumnMeta>> {
@@ -452,6 +558,100 @@ export class CustomersService {
     return null;
   }
 
+  /**
+   * SQL: lead JÁ revisado (não deve entrar de novo na validação).
+   * Qualquer sinal de review conta: coluna booleana, checked_at, status, tag "validado".
+   */
+  private resolveWhatsAppAlreadyReviewedExpression(columns: Map<string, ColumnMeta>): string | null {
+    const parts: string[] = [];
+
+    if (this.hasColumn(columns, "has_whatsapp")) {
+      parts.push("has_whatsapp IS NOT NULL");
+    }
+    if (this.hasColumn(columns, "whatsapp_valid")) {
+      parts.push("whatsapp_valid IS NOT NULL");
+    }
+    if (this.hasColumn(columns, "whatsapp_validation_status")) {
+      parts.push(
+        "LOWER(TRIM(COALESCE(whatsapp_validation_status, ''))) IN ('valid', 'invalid', 'error', 'checked')"
+      );
+    }
+    const tsCol = ["whatsapp_verified_at", "whatsapp_validated_at", "whatsapp_checked_at"].find((c) =>
+      this.hasColumn(columns, c)
+    );
+    if (tsCol) {
+      parts.push(`${tsCol} IS NOT NULL`);
+    }
+    if (this.hasColumn(columns, "source_details")) {
+      parts.push(
+        "(source_details::jsonb->'whatsapp_validation'->>'checked_at') IS NOT NULL"
+      );
+      parts.push(
+        "LOWER(COALESCE(source_details::jsonb->'whatsapp_validation'->>'has_whatsapp', '')) IN ('true','false','1','0')"
+      );
+      parts.push(
+        "LOWER(COALESCE(source_details::jsonb->'whatsapp_validation'->>'status', '')) IN ('valid','invalid','error','checked')"
+      );
+    }
+    if (this.hasColumn(columns, "tags")) {
+      parts.push("LOWER(COALESCE(tags::text, '')) LIKE '%\"validado\"%'");
+      parts.push("LOWER(COALESCE(tags::text, '')) LIKE '%validado%'");
+    }
+
+    if (!parts.length) return null;
+    return `(${parts.join(" OR ")})`;
+  }
+
+  /**
+   * Lista SOMENTE leads nunca revisados (tem telefone + nunca validados).
+   * Usado em "Validar pendentes" — NÃO carrega os 2k já ok.
+   */
+  async listPendingWhatsAppValidation(opts: {
+    ownerUserId: string;
+    brandId?: string | null;
+    limit?: number;
+    offset?: number;
+  }): Promise<{ customers: Customer[]; total: number }> {
+    const columns = await this.getColumns();
+    const ownerColumn = this.requireOwnerColumn(columns);
+    const brandColumn = this.resolveBrandColumn(columns);
+
+    let where = `WHERE ${ownerColumn} = ?`;
+    const params: any[] = [opts.ownerUserId];
+
+    if (brandColumn && opts.brandId) {
+      where += ` AND ${brandColumn} = ?`;
+      params.push(String(opts.brandId));
+    }
+
+    if (this.hasColumn(columns, "phone")) {
+      where += ` AND phone IS NOT NULL AND TRIM(phone::text) != '' AND LENGTH(REGEXP_REPLACE(phone::text, '\\D', '', 'g')) >= 8`;
+    } else {
+      return { customers: [], total: 0 };
+    }
+
+    const already = this.resolveWhatsAppAlreadyReviewedExpression(columns);
+    if (already) {
+      where += ` AND NOT ${already}`;
+    }
+
+    const countRow = await queryOne<{ total: number }>(
+      `SELECT COUNT(*) AS total FROM customers ${where}`,
+      params
+    );
+    const total = Number(countRow?.total || 0);
+
+    const limit = Math.max(1, Math.min(200, Math.floor(Number(opts.limit) || 50)));
+    const offset = Math.max(0, Math.floor(Number(opts.offset) || 0));
+
+    const customers = await query<Customer[]>(
+      `SELECT * FROM customers ${where} ORDER BY created_at DESC NULLS LAST, id DESC LIMIT ${limit} OFFSET ${offset}`,
+      params
+    );
+
+    return { customers: customers || [], total };
+  }
+
   private async updateCaptureMetadata(
     customerId: string | number,
     ownerUserId: string | undefined,
@@ -667,14 +867,82 @@ export class CustomersService {
 
     const id = await this.insertDynamicCustomer(record);
     logger.info(`Customer created: ${dto.name} (ID: ${id})`);
+    void this.notifyCampaignAutoFeed(ownerUserId, brandId, id);
     return (await this.getById(id, ownerUserId, brandId))!;
+  }
+
+  /** Alimenta campanhas com auto-feed quando um prospect/lead novo é criado. */
+  private async notifyCampaignAutoFeed(
+    ownerUserId: string,
+    brandId: string | null | undefined,
+    leadIds: string | number | Array<string | number>
+  ): Promise<void> {
+    try {
+      const ids = Array.isArray(leadIds) ? leadIds : [leadIds];
+      if (!ids.length) return;
+      // Ref fraca — evita import circular customers ↔ index (que quebrava auto-feed)
+      const { getCampaignEngineRef } = await import("./campaignEngineRef");
+      const engine = getCampaignEngineRef();
+      if (!engine?.autoFeedLeadsToCampaigns) {
+        logger.warn("Campaign auto-feed skipped: engine ref not ready");
+        return;
+      }
+      const result = await engine.autoFeedLeadsToCampaigns(ownerUserId, brandId, ids);
+      if (result?.leadsQueued) {
+        logger.info(
+          `Campaign auto-feed: queued=${result.leadsQueued} campaigns=${result.campaignsTouched}`
+        );
+      }
+    } catch (err: any) {
+      logger.warn(`Campaign auto-feed skipped: ${err?.message || err}`);
+    }
+  }
+
+  /** Garante tag "validado" em lead já checado (sem revalidar WA). */
+  async ensureValidatedTag(
+    id: string | number,
+    ownerUserId?: string,
+    brandId?: string | null
+  ): Promise<void> {
+    if (!ownerUserId) return;
+    const columns = await this.getColumns();
+    if (!this.hasColumn(columns, "tags")) return;
+    const ownerColumn = this.requireOwnerColumn(columns);
+    const brandColumn = this.resolveBrandColumn(columns);
+    const brandWhere = brandColumn && brandId ? ` AND ${brandColumn} = ?` : "";
+    const brandParams = brandColumn && brandId ? [String(brandId)] : [];
+    const row = await queryOne<{ tags: any }>(
+      `SELECT tags FROM customers WHERE id = ? AND ${ownerColumn} = ?${brandWhere} LIMIT 1`,
+      [id, ownerUserId, ...brandParams]
+    );
+    if (!row) return;
+    let tags: string[] = [];
+    try {
+      if (Array.isArray(row.tags)) tags = row.tags.map(String);
+      else if (typeof row.tags === "string" && row.tags.trim()) tags = JSON.parse(row.tags);
+    } catch {
+      tags = [];
+    }
+    const has = tags.some((t) => String(t).toLowerCase() === "validado");
+    if (has) return;
+    tags.push("validado");
+    await update(
+      `UPDATE customers SET tags = ? WHERE id = ? AND ${ownerColumn} = ?${brandWhere}`,
+      [
+        this.normalizeColumnValue(columns.get("tags"), tags),
+        id,
+        ownerUserId,
+        ...brandParams,
+      ]
+    );
   }
 
   async bulkCreateFromPlaces(
     places: any[],
     ownerUserId?: string,
     captureContext?: LeadCaptureContext,
-    brandId?: string | null
+    brandId?: string | null,
+    options?: { skipMetadataUpdate?: boolean }
   ): Promise<{
     created: number;
     skipped: number;
@@ -695,20 +963,82 @@ export class CustomersService {
     const ownerColumn = this.requireOwnerColumn(columns);
     const brandColumn = this.resolveBrandColumn(columns);
     const queryLabel = this.normalizeQueryLabel(captureContext?.query);
+    const skipMeta = options?.skipMetadataUpdate === true;
+
+    // Pré-carrega existentes em 1 query (em vez de N findExisting) — crítico pro capture-batch
+    const placeIds = places.map((p) => String(p?.id || "")).filter(Boolean);
+    const existingByPlaceId = new Map<string, Customer>();
+    const existingByPhone = new Map<string, Customer>();
+    const ownerWhere = ` AND ${ownerColumn} = ?`;
+    const brandWhere = brandColumn && brandId ? ` AND ${brandColumn} = ?` : "";
+    const brandParams = brandColumn && brandId ? [String(brandId)] : [];
+
+    if (placeIds.length > 0 && this.hasColumn(columns, "google_place_id")) {
+      // chunk IN queries (evita SQL gigante)
+      for (let i = 0; i < placeIds.length; i += 80) {
+        const chunk = placeIds.slice(i, i + 80);
+        const placeholders = chunk.map(() => "?").join(",");
+        try {
+          const rows = await query<Customer[]>(
+            `SELECT id, google_place_id, phone, source_details, tags FROM customers
+             WHERE google_place_id IN (${placeholders})${ownerWhere}${brandWhere}`,
+            [...chunk, ownerUserId, ...brandParams]
+          );
+          for (const row of rows || []) {
+            const pid = String((row as any).google_place_id || "");
+            if (pid) existingByPlaceId.set(pid, row);
+            const ph = this.normalizePhone((row as any).phone || "");
+            if (ph) existingByPhone.set(ph, row);
+          }
+        } catch (err: any) {
+          logger.warn(`bulkCreate preload existing failed: ${err?.message || err}`);
+        }
+      }
+    }
+
+    // Dedupe o payload de entrada (mesmo place_id 2x na lista do Google)
+    const seenInBatch = new Set<string>();
 
     for (const place of places) {
       try {
-        const existing = await this.findExistingByPlaceOrPhone(place, ownerUserId, brandId);
+        const placeIdStr = place?.id ? String(place.id) : "";
+        if (placeIdStr && seenInBatch.has(placeIdStr)) {
+          skipped++;
+          existingPlaceIds.push(placeIdStr);
+          continue;
+        }
+        if (placeIdStr) seenInBatch.add(placeIdStr);
+
+        const phone = this.normalizePhone(
+          place.internationalPhoneNumber || place.nationalPhoneNumber || ""
+        );
+
+        let existing: Customer | null =
+          placeIdStr && existingByPlaceId.has(placeIdStr)
+            ? existingByPlaceId.get(placeIdStr) || null
+            : null;
+        if (!existing && phone && existingByPhone.has(phone)) {
+          existing = existingByPhone.get(phone) || null;
+        }
+        if (!existing) {
+          existing = await this.findExistingByPlaceOrPhone(place, ownerUserId, brandId);
+        }
         if (existing) {
           skipped++;
-          if (place?.id) existingPlaceIds.push(String(place.id));
-          await this.updateCaptureMetadata(
-            (existing as any).id,
-            ownerUserId,
-            captureContext,
-            (existing as any).source_details,
-            (existing as any).tags
-          );
+          if (placeIdStr) {
+            existingPlaceIds.push(placeIdStr);
+            existingByPlaceId.set(placeIdStr, existing);
+          }
+          if (phone) existingByPhone.set(phone, existing);
+          if (!skipMeta) {
+            await this.updateCaptureMetadata(
+              (existing as any).id,
+              ownerUserId,
+              captureContext,
+              (existing as any).source_details,
+              (existing as any).tags
+            );
+          }
           continue;
         }
 
@@ -716,7 +1046,6 @@ export class CustomersService {
         const types = Array.isArray(place.types) ? place.types : [];
         const category = types[0] || null;
         const subcategory = types[1] || null;
-        const phone = this.normalizePhone(place.internationalPhoneNumber || place.nationalPhoneNumber || "");
         const address = this.extractAddress(place);
         const { city, state, neighborhood } = this.extractCityState(address || undefined);
 
@@ -775,10 +1104,38 @@ export class CustomersService {
           record[brandColumn] = String(brandId);
         }
 
-        const insertedId = await this.insertDynamicCustomer(record);
+        let insertedId: string | number;
+        try {
+          insertedId = await this.insertDynamicCustomer(record);
+        } catch (insErr: any) {
+          // Corrida: outro request inseriu o mesmo place no mesmo instante (unique index)
+          const msg = String(insErr?.message || insErr || "");
+          const isDup =
+            /unique|duplicate|23505/i.test(msg) ||
+            Number(insErr?.code) === 23505 ||
+            String(insErr?.code) === "23505";
+          if (isDup && placeIdStr) {
+            const again = await this.findExistingByPlaceOrPhone(place, ownerUserId, brandId);
+            if (again) {
+              skipped++;
+              existingPlaceIds.push(placeIdStr);
+              existingByPlaceId.set(placeIdStr, again);
+              if (phone) existingByPhone.set(phone, again);
+              continue;
+            }
+          }
+          throw insErr;
+        }
+
         created++;
         createdLeadIds.push(String(insertedId));
-        if (place?.id) createdPlaceIds.push(String(place.id));
+        if (placeIdStr) {
+          createdPlaceIds.push(placeIdStr);
+          // Marca como existente no batch/processo — evita 2º insert do mesmo place
+          const stub = { id: insertedId, google_place_id: placeIdStr, phone, source_details: sourceDetails, tags: record.tags } as any;
+          existingByPlaceId.set(placeIdStr, stub);
+          if (phone) existingByPhone.set(phone, stub);
+        }
       } catch (err: any) {
         logger.error(`Error creating customer from place: ${err.message}`);
         skipped++;
@@ -786,11 +1143,15 @@ export class CustomersService {
     }
 
     logger.info(`Bulk import: ${created} created, ${skipped} skipped`);
+    const uniqueCreated = Array.from(new Set(createdLeadIds));
+    if (uniqueCreated.length) {
+      void this.notifyCampaignAutoFeed(ownerUserId, brandId, uniqueCreated);
+    }
     return {
       created,
       skipped,
       createdPlaceIds: Array.from(new Set(createdPlaceIds)),
-      createdLeadIds: Array.from(new Set(createdLeadIds)),
+      createdLeadIds: uniqueCreated,
       existingPlaceIds: Array.from(new Set(existingPlaceIds)),
     };
   }
@@ -1344,6 +1705,7 @@ export class CustomersService {
     const selectFields = ["id"];
     if (this.hasColumn(columns, "source_details")) selectFields.push("source_details");
     if (this.hasColumn(columns, "phone")) selectFields.push("phone");
+    if (this.hasColumn(columns, "tags")) selectFields.push("tags");
 
     const existing = await queryOne<any>(
       `SELECT ${selectFields.join(", ")} FROM customers WHERE id = ?${ownerWhere}${brandWhere} LIMIT 1`,
@@ -1370,6 +1732,23 @@ export class CustomersService {
 
       fields.push("source_details = ?");
       values.push(this.normalizeColumnValue(columns.get("source_details"), details));
+    }
+
+    // Tag "validado" — UI e "Validar todos" usam pra pular recheck
+    if (this.hasColumn(columns, "tags")) {
+      let tags: string[] = [];
+      try {
+        const rawTags = (existing as any).tags;
+        if (Array.isArray(rawTags)) tags = rawTags.map(String);
+        else if (typeof rawTags === "string" && rawTags.trim()) tags = JSON.parse(rawTags);
+      } catch {
+        tags = [];
+      }
+      if (!tags.some((t) => String(t).toLowerCase() === "validado")) {
+        tags.push("validado");
+        fields.push("tags = ?");
+        values.push(this.normalizeColumnValue(columns.get("tags"), tags));
+      }
     }
 
     if (this.hasColumn(columns, "has_whatsapp")) {

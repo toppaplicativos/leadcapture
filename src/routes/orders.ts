@@ -906,6 +906,23 @@ router.patch("/bulk-status", async (req: AuthRequest, res: Response) => {
       } else if (status === "cancelado") {
         await inventoryService.handleOrderCancelled(userId, brandId, orderId, statusItems).catch(() => {});
       }
+
+      try {
+        const { syncMobDeliveryFromOrderStatusAsync } = await import("../services/mobOrderBridge");
+        syncMobDeliveryFromOrderStatusAsync({
+          ownerUserId: userId,
+          brandId,
+          orderId,
+          businessStatus: status,
+          customerName: updated.order.customer_name,
+          customerPhone: updated.order.customer_phone,
+          customerEmail: updated.order.customer_email,
+          productsTotal: Number(updated.order.valor_total || 0),
+          paymentMethod: updated.order.forma_pagamento,
+        });
+      } catch {
+        /* non-blocking */
+      }
     }
 
     await fireOrderEvents(userId, "order.status_changed", {
@@ -998,7 +1015,39 @@ router.patch("/:id/status", async (req: AuthRequest, res: Response) => {
       inventoryService.handleOrderCancelled(userId, brandId, orderId, statusItems).catch(() => {});
     }
 
-    res.json({ success: true, order: updated.order, items: updated.items, business_status: status });
+    /* Lead Capture Mob — sync entrega + tracking */
+    let mobTracking: { tracking_url: string | null; delivery_id?: string | null; status?: string | null } = {
+      tracking_url: null,
+    };
+    try {
+      const { syncMobDeliveryFromOrderStatus } = await import("../services/mobOrderBridge");
+      const mob = await syncMobDeliveryFromOrderStatus({
+        ownerUserId: userId,
+        brandId,
+        orderId,
+        businessStatus: status,
+        customerName: updated.order.customer_name,
+        customerPhone: updated.order.customer_phone,
+        customerEmail: updated.order.customer_email,
+        productsTotal: Number(updated.order.valor_total || 0),
+        paymentMethod: updated.order.forma_pagamento,
+      });
+      mobTracking = {
+        tracking_url: mob.tracking_url,
+        delivery_id: mob.delivery?.id || null,
+        status: mob.delivery?.status || null,
+      };
+    } catch {
+      /* non-blocking */
+    }
+
+    res.json({
+      success: true,
+      order: updated.order,
+      items: updated.items,
+      business_status: status,
+      mob: mobTracking.tracking_url ? mobTracking : undefined,
+    });
   } catch (error: any) {
     const statusCode = String(error.message || "").startsWith("Invalid status transition") ? 400 : 500;
     res.status(statusCode).json({ error: error.message || "Failed to update managed order status" });

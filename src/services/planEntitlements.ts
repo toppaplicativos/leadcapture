@@ -242,8 +242,119 @@ export async function isSuperAdminUser(userId: string): Promise<boolean> {
   return !!row?.is_super_admin
 }
 
+/**
+ * Production may have a legacy subscriptions table:
+ *   (id, account_id, plan_id, billing_cycle, status, next_billing_date, brand_id, …)
+ * while the product code expects:
+ *   (id, user_id, brand_id, plan_id, status, gateway, trial_ends_at, period_*, metadata, …)
+ * Bring the table forward and keep dual-read for account_id ↔ user_id.
+ */
+let subsSchemaReady = false
+let subsSchemaPromise: Promise<void> | null = null
+let subsColsCache: Set<string> | null = null
+
+async function getSubscriptionColumns(): Promise<Set<string>> {
+  if (subsColsCache) return subsColsCache
+  const rows = await query<{ column_name: string }>(
+    `SELECT column_name
+       FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'subscriptions'`,
+  ).catch(() => [])
+  subsColsCache = new Set(
+    (Array.isArray(rows) ? rows : []).map((r: any) => String(r.column_name || r.COLUMN_NAME || "")),
+  )
+  return subsColsCache
+}
+
+export async function ensureSubscriptionsSchema(): Promise<void> {
+  if (subsSchemaReady) return
+  if (subsSchemaPromise) return subsSchemaPromise
+  subsSchemaPromise = (async () => {
+    // Base table if nothing exists yet
+    await query(`
+      CREATE TABLE IF NOT EXISTS subscriptions (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) NULL,
+        account_id VARCHAR(36) NULL,
+        brand_id VARCHAR(36) NULL,
+        plan_id VARCHAR(36) NOT NULL,
+        status VARCHAR(24) NOT NULL DEFAULT 'trialing',
+        billing_cycle VARCHAR(24) NULL,
+        gateway VARCHAR(24) NULL,
+        gateway_customer_id VARCHAR(120) NULL,
+        gateway_subscription_id VARCHAR(120) NULL,
+        trial_ends_at TIMESTAMPTZ NULL,
+        current_period_start TIMESTAMPTZ NULL,
+        current_period_end TIMESTAMPTZ NULL,
+        next_billing_date TIMESTAMPTZ NULL,
+        canceled_at TIMESTAMPTZ NULL,
+        metadata JSONB NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `).catch(() => undefined)
+
+    const alters = [
+      `ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS user_id VARCHAR(36)`,
+      `ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS account_id VARCHAR(36)`,
+      `ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS brand_id VARCHAR(36)`,
+      `ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS billing_cycle VARCHAR(24)`,
+      `ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS gateway VARCHAR(24)`,
+      `ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS gateway_customer_id VARCHAR(120)`,
+      `ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS gateway_subscription_id VARCHAR(120)`,
+      `ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS trial_ends_at TIMESTAMPTZ`,
+      `ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS current_period_start TIMESTAMPTZ`,
+      `ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS current_period_end TIMESTAMPTZ`,
+      `ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS next_billing_date TIMESTAMPTZ`,
+      `ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS canceled_at TIMESTAMPTZ`,
+      `ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS metadata JSONB`,
+      `ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()`,
+      `ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`,
+    ]
+    for (const sql of alters) {
+      await query(sql).catch(() => undefined)
+    }
+
+    // Bridge legacy account_id ↔ user_id
+    await query(
+      `UPDATE subscriptions SET user_id = account_id
+        WHERE (user_id IS NULL OR user_id = '') AND account_id IS NOT NULL AND account_id <> ''`,
+    ).catch(() => undefined)
+    await query(
+      `UPDATE subscriptions SET account_id = user_id
+        WHERE (account_id IS NULL OR account_id = '') AND user_id IS NOT NULL AND user_id <> ''`,
+    ).catch(() => undefined)
+
+    // Soften NOT NULL on billing_cycle if present (legacy required it)
+    await query(
+      `ALTER TABLE subscriptions ALTER COLUMN billing_cycle DROP NOT NULL`,
+    ).catch(() => undefined)
+    await query(
+      `ALTER TABLE subscriptions ALTER COLUMN account_id DROP NOT NULL`,
+    ).catch(() => undefined)
+
+    try {
+      await query(`CREATE INDEX IF NOT EXISTS idx_subscriptions_user ON subscriptions (user_id)`)
+      await query(`CREATE INDEX IF NOT EXISTS idx_subscriptions_account ON subscriptions (account_id)`)
+      await query(`CREATE INDEX IF NOT EXISTS idx_subscriptions_status ON subscriptions (status)`)
+      await query(`CREATE INDEX IF NOT EXISTS idx_subscriptions_brand ON subscriptions (brand_id)`)
+    } catch {
+      /* ignore */
+    }
+
+    subsColsCache = null
+    subsSchemaReady = true
+  })().finally(() => {
+    subsSchemaPromise = null
+  })
+  return subsSchemaPromise
+}
+
 export async function resolveSubscription(userId: string, brandId?: string | null) {
+  await ensureSubscriptionsSchema()
   const bid = String(brandId || "").trim()
+  const uid = String(userId || "").trim()
+
   if (bid) {
     const byBrand = await queryOne<any>(
       `SELECT s.*, p.slug AS plan_slug, p.name AS plan_name, p.limits AS plan_limits
@@ -251,22 +362,23 @@ export async function resolveSubscription(userId: string, brandId?: string | nul
          LEFT JOIN plans p ON p.id = s.plan_id
         WHERE s.brand_id = ?
           AND s.status IN ('active', 'trialing', 'past_due')
-        ORDER BY s.updated_at DESC
+        ORDER BY s.updated_at DESC NULLS LAST
         LIMIT 1`,
       [bid],
     ).catch(() => null)
     if (byBrand) return byBrand
   }
 
+  // Dual owner column: user_id (new) or account_id (legacy)
   return await queryOne<any>(
     `SELECT s.*, p.slug AS plan_slug, p.name AS plan_name, p.limits AS plan_limits
        FROM subscriptions s
        LEFT JOIN plans p ON p.id = s.plan_id
-      WHERE s.user_id = ?
+      WHERE (s.user_id = ? OR s.account_id = ?)
         AND s.status IN ('active', 'trialing', 'past_due')
-      ORDER BY s.updated_at DESC
+      ORDER BY s.updated_at DESC NULLS LAST
       LIMIT 1`,
-    [userId],
+    [uid, uid],
   ).catch(() => null)
 }
 
@@ -592,8 +704,19 @@ export async function assignPlanToUser(params: {
   status?: string
   trialDays?: number
 }): Promise<any> {
+  await ensureSubscriptionsSchema()
+
   const plan = await queryOne<any>(`SELECT * FROM plans WHERE id = ?`, [params.planId])
   if (!plan) throw new EntitlementError("plan_not_found", "Plano não encontrado", 404)
+
+  const userId = String(params.userId || "").trim()
+  if (!userId) {
+    throw new EntitlementError(
+      "org_missing_owner",
+      "Organização sem dono (user_id). Associe um usuário dono antes de atribuir plano.",
+      400,
+    )
+  }
 
   const status = params.status || "active"
   const trialEnds =
@@ -601,43 +724,157 @@ export async function assignPlanToUser(params: {
       ? new Date(Date.now() + params.trialDays * 86400000)
       : null
 
-  /* Deactivate previous active subs for this user (optional brand scope) */
-  if (params.brandId) {
+  const brandId = params.brandId ? String(params.brandId).trim() : null
+  const cols = await getSubscriptionColumns()
+  const hasUserId = cols.has("user_id")
+  const hasAccountId = cols.has("account_id")
+  const hasCanceledAt = cols.has("canceled_at")
+  const hasBillingCycle = cols.has("billing_cycle")
+  const hasGateway = cols.has("gateway")
+  const hasTrial = cols.has("trial_ends_at")
+  const hasPeriodStart = cols.has("current_period_start")
+  const hasPeriodEnd = cols.has("current_period_end")
+  const hasNextBilling = cols.has("next_billing_date")
+  const hasMetadata = cols.has("metadata")
+  const hasUpdatedAt = cols.has("updated_at")
+
+  /* Deactivate previous active subs (brand-scoped preferred) */
+  const cancelSet = [
+    `status = 'canceled'`,
+    hasCanceledAt ? `canceled_at = NOW()` : null,
+    hasUpdatedAt ? `updated_at = NOW()` : null,
+  ]
+    .filter(Boolean)
+    .join(", ")
+
+  if (brandId) {
+    const ownerClause = [
+      hasUserId ? `user_id = ?` : null,
+      hasAccountId ? `account_id = ?` : null,
+    ]
+      .filter(Boolean)
+      .join(" OR ")
+    const ownerParams: any[] = []
+    if (hasUserId) ownerParams.push(userId)
+    if (hasAccountId) ownerParams.push(userId)
     await query(
-      `UPDATE subscriptions SET status = 'canceled', canceled_at = NOW(), updated_at = NOW()
-        WHERE user_id = ? AND brand_id = ? AND status IN ('active', 'trialing')`,
-      [params.userId, params.brandId],
-    )
+      `UPDATE subscriptions SET ${cancelSet}
+        WHERE brand_id = ?
+          AND status IN ('active', 'trialing')
+          ${ownerClause ? `AND (${ownerClause})` : ""}`,
+      [brandId, ...ownerParams],
+    ).catch(async () => {
+      // Minimal cancel if canceled_at missing etc.
+      await query(
+        `UPDATE subscriptions SET status = 'canceled'
+          WHERE brand_id = ? AND status IN ('active', 'trialing')`,
+        [brandId],
+      )
+    })
   } else {
-    await query(
-      `UPDATE subscriptions SET status = 'canceled', canceled_at = NOW(), updated_at = NOW()
-        WHERE user_id = ? AND brand_id IS NULL AND status IN ('active', 'trialing')`,
-      [params.userId],
-    )
+    const whereOwner = [
+      hasUserId ? `user_id = ?` : null,
+      hasAccountId ? `account_id = ?` : null,
+    ]
+      .filter(Boolean)
+      .join(" OR ")
+    const ownerParams: any[] = []
+    if (hasUserId) ownerParams.push(userId)
+    if (hasAccountId) ownerParams.push(userId)
+    if (whereOwner) {
+      await query(
+        `UPDATE subscriptions SET ${cancelSet}
+          WHERE (${whereOwner})
+            AND (brand_id IS NULL OR brand_id = '')
+            AND status IN ('active', 'trialing')`,
+        ownerParams,
+      ).catch(() => undefined)
+    }
   }
 
   const { v4: uuidv4 } = await import("uuid")
   const id = uuidv4()
   const periodStart = new Date()
   const periodEnd = new Date(Date.now() + 30 * 86400000)
+  const billingCycle =
+    String(plan.interval || plan.billing_cycle || "monthly").toLowerCase() || "monthly"
 
-  await query(
-    `INSERT INTO subscriptions
-      (id, user_id, brand_id, plan_id, status, gateway, trial_ends_at,
-       current_period_start, current_period_end, metadata, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, 'manual', ?, ?, ?, ?, NOW(), NOW())`,
-    [
-      id,
-      params.userId,
-      params.brandId || null,
-      params.planId,
-      status,
-      trialEnds,
-      periodStart,
-      periodEnd,
-      JSON.stringify({ source: "master_assign" }),
-    ],
+  // Build column-safe INSERT for legacy + modern schemas
+  const insertCols: string[] = ["id", "plan_id", "status"]
+  const insertVals: any[] = [id, params.planId, status]
+  if (hasUserId) {
+    insertCols.push("user_id")
+    insertVals.push(userId)
+  }
+  if (hasAccountId) {
+    insertCols.push("account_id")
+    insertVals.push(userId)
+  }
+  if (cols.has("brand_id")) {
+    insertCols.push("brand_id")
+    insertVals.push(brandId)
+  }
+  if (hasBillingCycle) {
+    insertCols.push("billing_cycle")
+    insertVals.push(billingCycle)
+  }
+  if (hasGateway) {
+    insertCols.push("gateway")
+    insertVals.push("manual")
+  }
+  if (hasTrial) {
+    insertCols.push("trial_ends_at")
+    insertVals.push(trialEnds)
+  }
+  if (hasPeriodStart) {
+    insertCols.push("current_period_start")
+    insertVals.push(periodStart)
+  }
+  if (hasPeriodEnd) {
+    insertCols.push("current_period_end")
+    insertVals.push(periodEnd)
+  }
+  if (hasNextBilling) {
+    insertCols.push("next_billing_date")
+    insertVals.push(periodEnd)
+  }
+  if (hasMetadata) {
+    insertCols.push("metadata")
+    insertVals.push(JSON.stringify({ source: "master_assign" }))
+  }
+  if (cols.has("created_at")) insertCols.push("created_at")
+  if (hasUpdatedAt) insertCols.push("updated_at")
+
+  const placeholders = insertCols
+    .map((c) => {
+      if (c === "created_at" || c === "updated_at") return "NOW()"
+      return "?"
+    })
+    .join(", ")
+
+  // Values only for non-NOW columns
+  const valueParams = insertVals
+
+  try {
+    await query(
+      `INSERT INTO subscriptions (${insertCols.join(", ")})
+       VALUES (${placeholders})`,
+      valueParams,
+    )
+  } catch (err: any) {
+    throw new EntitlementError(
+      "assign_failed",
+      err?.message || "Falha ao gravar assinatura",
+      400,
+      { detail: String(err?.message || err) },
+    )
+  }
+
+  return queryOne(
+    `SELECT s.*, p.name AS plan_name, p.slug AS plan_slug
+       FROM subscriptions s
+       LEFT JOIN plans p ON p.id = s.plan_id
+      WHERE s.id = ?`,
+    [id],
   )
-
-  return queryOne(`SELECT s.*, p.name AS plan_name, p.slug AS plan_slug FROM subscriptions s LEFT JOIN plans p ON p.id = s.plan_id WHERE s.id = ?`, [id])
 }

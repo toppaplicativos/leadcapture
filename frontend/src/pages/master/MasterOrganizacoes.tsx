@@ -167,7 +167,13 @@ export function MasterOrganizacoes() {
       if (selectedId === orgId) await openDetail(orgId)
       setFlash('Plano da organização atualizado.')
     } catch (err: any) {
-      setError(err?.message || 'Falha ao atribuir plano')
+      const msg =
+        err?.message ||
+        err?.raw?.message ||
+        err?.raw?.error ||
+        err?.code ||
+        'Falha ao atribuir plano'
+      setError(typeof msg === 'string' ? msg : 'Falha ao atribuir plano')
     } finally {
       setBusyId(null)
       setTimeout(() => setFlash(null), 3000)

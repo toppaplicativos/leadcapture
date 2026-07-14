@@ -522,12 +522,14 @@ router.get("/organizations", async (req: AuthRequest, res: Response) => {
   })
 
   /**
-   * Subscriptions may be linked by brand_id (preferred) or user_id (legacy).
+   * Subscriptions may be linked by brand_id (preferred) or user_id/account_id (legacy).
    * Scalar subqueries avoid LATERAL + missing-column failures.
-   * brand_id column is ensured on master schema boot.
+   * ensureSubscriptionsSchema bridges account_id ↔ user_id on boot.
    */
   let rows: any[] = []
   try {
+    const { ensureSubscriptionsSchema } = await import("../services/planEntitlements")
+    await ensureSubscriptionsSchema()
     rows = await query(
       `SELECT
          b.id,
@@ -550,7 +552,7 @@ router.get("/organizations", async (req: AuthRequest, res: Response) => {
          (
            SELECT s.status FROM subscriptions s
             WHERE (s.brand_id IS NOT NULL AND s.brand_id = b.id)
-               OR (s.brand_id IS NULL AND s.user_id = b.user_id)
+               OR (s.brand_id IS NULL AND (s.user_id = b.user_id OR s.account_id = b.user_id))
             ORDER BY
               CASE WHEN s.brand_id = b.id THEN 0 ELSE 1 END,
               s.updated_at DESC NULLS LAST
@@ -560,7 +562,7 @@ router.get("/organizations", async (req: AuthRequest, res: Response) => {
            SELECT p.name FROM subscriptions s
            LEFT JOIN plans p ON p.id = s.plan_id
             WHERE (s.brand_id IS NOT NULL AND s.brand_id = b.id)
-               OR (s.brand_id IS NULL AND s.user_id = b.user_id)
+               OR (s.brand_id IS NULL AND (s.user_id = b.user_id OR s.account_id = b.user_id))
             ORDER BY
               CASE WHEN s.brand_id = b.id THEN 0 ELSE 1 END,
               s.updated_at DESC NULLS LAST
@@ -570,7 +572,7 @@ router.get("/organizations", async (req: AuthRequest, res: Response) => {
            SELECT p.slug FROM subscriptions s
            LEFT JOIN plans p ON p.id = s.plan_id
             WHERE (s.brand_id IS NOT NULL AND s.brand_id = b.id)
-               OR (s.brand_id IS NULL AND s.user_id = b.user_id)
+               OR (s.brand_id IS NULL AND (s.user_id = b.user_id OR s.account_id = b.user_id))
             ORDER BY
               CASE WHEN s.brand_id = b.id THEN 0 ELSE 1 END,
               s.updated_at DESC NULLS LAST
@@ -579,7 +581,7 @@ router.get("/organizations", async (req: AuthRequest, res: Response) => {
          (
            SELECT s.plan_id FROM subscriptions s
             WHERE (s.brand_id IS NOT NULL AND s.brand_id = b.id)
-               OR (s.brand_id IS NULL AND s.user_id = b.user_id)
+               OR (s.brand_id IS NULL AND (s.user_id = b.user_id OR s.account_id = b.user_id))
             ORDER BY
               CASE WHEN s.brand_id = b.id THEN 0 ELSE 1 END,
               s.updated_at DESC NULLS LAST
@@ -655,27 +657,29 @@ router.get("/organizations/:id", async (req: AuthRequest, res: Response) => {
 
   let subscription: any = null
   try {
+    const { ensureSubscriptionsSchema } = await import("../services/planEntitlements")
+    await ensureSubscriptionsSchema()
     subscription = await queryOne(
       `SELECT s.*, p.name AS plan_name, p.slug AS plan_slug, p.limits AS plan_limits
          FROM subscriptions s
          LEFT JOIN plans p ON p.id = s.plan_id
         WHERE (s.brand_id IS NOT NULL AND s.brand_id = ?)
-           OR (s.brand_id IS NULL AND s.user_id = ?)
+           OR (s.brand_id IS NULL AND (s.user_id = ? OR s.account_id = ?))
         ORDER BY
           CASE WHEN s.brand_id = ? THEN 0 ELSE 1 END,
           s.updated_at DESC NULLS LAST
         LIMIT 1`,
-      [id, brand.user_id, id],
+      [id, brand.user_id, brand.user_id, id],
     )
   } catch {
     subscription = await queryOne(
       `SELECT s.*, p.name AS plan_name, p.slug AS plan_slug, p.limits AS plan_limits
          FROM subscriptions s
          LEFT JOIN plans p ON p.id = s.plan_id
-        WHERE s.user_id = ?
+        WHERE s.user_id = ? OR s.account_id = ?
         ORDER BY s.updated_at DESC NULLS LAST
         LIMIT 1`,
-      [brand.user_id],
+      [brand.user_id, brand.user_id],
     ).catch(() => null)
   }
 
@@ -1183,7 +1187,7 @@ router.post("/organizations/:id/assign-plan", async (req: AuthRequest, res: Resp
   const trialDays = req.body?.trial_days != null ? Number(req.body.trial_days) : undefined
 
   if (!brandId || !planId) {
-    return res.status(400).json({ error: "missing_plan_or_org" })
+    return res.status(400).json({ error: "missing_plan_or_org", message: "Informe organização e plano." })
   }
 
   const brand = await queryOne<{ id: string; user_id: string; name: string }>(
@@ -1191,6 +1195,12 @@ router.post("/organizations/:id/assign-plan", async (req: AuthRequest, res: Resp
     [brandId],
   )
   if (!brand) return res.status(404).json({ error: "organization_not_found" })
+  if (!brand.user_id) {
+    return res.status(400).json({
+      error: "org_missing_owner",
+      message: "Organização sem dono (user_id). Associe um usuário dono antes de atribuir plano.",
+    })
+  }
 
   try {
     const sub = await assignPlanToUser({
@@ -1210,7 +1220,15 @@ router.post("/organizations/:id/assign-plan", async (req: AuthRequest, res: Resp
     })
     return res.json({ subscription: sub, organization: brand })
   } catch (err: any) {
-    return res.status(err?.status || 400).json({ error: err?.code || err?.message || "assign_failed" })
+    logger.error(
+      { err: err?.message, code: err?.code, brandId, planId },
+      "organization assign-plan failed",
+    )
+    return res.status(err?.status || 400).json({
+      error: err?.code || "assign_failed",
+      message: err?.message || "Falha ao atribuir plano",
+      details: err?.details || undefined,
+    })
   }
 })
 

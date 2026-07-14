@@ -198,6 +198,9 @@ export const inventoryApi = {
   expedition: (page = 1, limit = 50) =>
     inventoryFetch<any>(`/api/inventory/expedition?page=${page}&limit=${limit}`),
 
+  expeditionPending: (limit = 50) =>
+    inventoryFetch<any>(`/api/inventory/expedition/pending?limit=${limit}`),
+
   createExpedition: (orderId: string) =>
     inventoryFetch<any>('/api/inventory/expedition', {
       method: 'POST',
@@ -216,6 +219,19 @@ export const inventoryApi = {
   analytics: () => inventoryFetch<any>('/api/inventory/analytics'),
 
   sync: () => inventoryFetch<any>('/api/inventory/sync', { method: 'POST' }),
+
+  /** Download stock CSV (admin or stock-app rewrite). Returns blob via raw fetch. */
+  exportCsv: async () => {
+    const url = rewriteInventoryUrl('/api/inventory/export')
+    const headers = getInventoryHeaders()
+    // CSV response is not JSON
+    const res = await fetch(url, { headers: { Authorization: headers.Authorization || '', 'x-brand-id': headers['x-brand-id'] || '' } })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      throw new Error((data as any)?.error || `Erro ${res.status} ao exportar`)
+    }
+    return res.blob()
+  },
 
   categories: () => inventoryFetch<any>('/api/categories'),
 
@@ -581,6 +597,12 @@ export const adminApi = {
       total: data.total || data.orders?.length || 0,
     }
   },
+
+  orderAnalytics: () =>
+    authFetch<any>('/api/orders/oms/analytics', getAdminHeaders()),
+
+  affiliateStats: () =>
+    authFetch<any>('/api/affiliates/stats', getAdminHeaders()),
 
   updateAutomationRule: (ruleCode: string, body: Record<string, unknown>) =>
     authFetch<any>(`/api/automations/${ruleCode}`, getAdminHeaders(), {

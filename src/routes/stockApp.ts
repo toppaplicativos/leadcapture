@@ -3,7 +3,7 @@ import { AuthRequest } from "../middleware/auth";
 import { CommerceService } from "../services/commerce";
 import { InventoryService } from "../services/inventory";
 import { ClientsService } from "../services/clients";
-import { queryOne } from "../config/database";
+import { query, queryOne } from "../config/database";
 
 const router = Router();
 const commerceService = new CommerceService();
@@ -34,7 +34,7 @@ router.get("/me", async (req: AuthRequest, res: Response) => {
   if (!context) return;
 
   const brand = await queryOne<any>(
-    `SELECT id, slug, name, logo_url
+    `SELECT id, slug, name, logo_url, primary_color, secondary_color
      FROM brand_units
      WHERE id = ?
      LIMIT 1`,
@@ -60,6 +60,8 @@ router.get("/me", async (req: AuthRequest, res: Response) => {
       slug: String(brand.slug || "").trim() || null,
       name: String(brand.name || "").trim() || null,
       logo_url: String(brand.logo_url || "").trim() || null,
+      primary_color: String(brand.primary_color || "").trim() || null,
+      secondary_color: String(brand.secondary_color || "").trim() || null,
     },
   });
 });
@@ -250,8 +252,8 @@ router.post("/inventory/sync", async (req: AuthRequest, res: Response) => {
   try {
     const ctx = requireStockCredential(req, res);
     if (!ctx) return;
-    await inventoryService.syncFromCommerceProducts(ctx.ownerUserId, ctx.brandId);
-    res.json({ success: true });
+    const result = await inventoryService.syncFromCommerceProducts(ctx.ownerUserId, ctx.brandId);
+    res.json({ success: true, ...result });
   } catch (e: any) {
     res.status(500).json({ error: e.message || "Falha ao sincronizar" });
   }
@@ -376,6 +378,62 @@ router.get("/inventory/expedition", async (req: AuthRequest, res: Response) => {
   }
 });
 
+/**
+ * Pedidos pagos ainda não expedidos — fila operacional do gestor de estoque.
+ * Also available for admin via rewrite of /api/inventory/expedition/pending.
+ */
+router.get("/inventory/expedition/pending", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = requireStockCredential(req, res);
+    if (!ctx) return;
+
+    const limit = Math.min(Number(req.query.limit) || 50, 100);
+    const brandId = ctx.brandId;
+
+    const rows = await query<any[]>(
+      `SELECT o.id,
+              o.customer_name,
+              o.customer_phone,
+              o.status_pedido,
+              o.valor_total AS total,
+              o.created_at,
+              (SELECT COUNT(*) FROM commerce_order_items i WHERE i.order_id = o.id) AS items_count,
+              EXISTS(
+                SELECT 1 FROM inventory_movements m
+                WHERE m.user_id = o.user_id
+                  AND m.brand_id = o.brand_id
+                  AND m.type = 'expedicao'
+                  AND m.reference_id = o.id
+                LIMIT 1
+              ) AS already_expedited
+       FROM commerce_orders o
+       WHERE o.user_id = ?
+         AND o.brand_id = ?
+         AND o.status_pedido = 'pago'
+       ORDER BY o.created_at DESC
+       LIMIT ?`,
+      [ctx.ownerUserId, brandId, limit]
+    );
+
+    const pending = (rows || [])
+      .filter((r) => !Number(r.already_expedited))
+      .map((r) => ({
+        id: String(r.id),
+        customer_name: r.customer_name || null,
+        customer_phone: r.customer_phone || null,
+        status_pedido: r.status_pedido || "pago",
+        total: Number(r.total || 0),
+        created_at: r.created_at,
+        items_count: Number(r.items_count || 0),
+        already_expedited: false,
+      }));
+
+    res.json({ success: true, orders: pending, total: pending.length });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Falha ao listar pedidos pendentes" });
+  }
+});
+
 router.post("/inventory/expedition", async (req: AuthRequest, res: Response) => {
   try {
     const ctx = requireStockCredential(req, res);
@@ -399,6 +457,32 @@ router.get("/inventory/reports", async (req: AuthRequest, res: Response) => {
     res.json({ success: true, ...reports });
   } catch (e: any) {
     res.status(500).json({ error: e.message || "Falha ao gerar relatórios" });
+  }
+});
+
+router.get("/inventory/export", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = requireStockCredential(req, res);
+    if (!ctx) return;
+
+    const { items } = await inventoryService.listStock(ctx.ownerUserId, ctx.brandId, { limit: 1000 });
+
+    const header = "Produto,SKU,Disponível,Reservado,Total,Estoque Mínimo,Preço Custo,Status\n";
+    const rows = (items || [])
+      .map(
+        (i: any) =>
+          `"${String(i.product_name || "").replace(/"/g, '""')}","${i.product_sku || ""}",${i.stock_available},${i.stock_reserved},${i.stock_current},${i.stock_min},${i.cost_price},"${i.status || ""}"`
+      )
+      .join("\n");
+
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="estoque_${new Date().toISOString().split("T")[0]}.csv"`
+    );
+    res.send("\uFEFF" + header + rows);
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Falha ao exportar" });
   }
 });
 

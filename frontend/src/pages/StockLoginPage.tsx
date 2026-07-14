@@ -1,19 +1,14 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { Loader2, LogIn, Eye, EyeOff, Package, Boxes } from 'lucide-react'
+import { Loader2, LogIn, Eye, EyeOff, Package } from 'lucide-react'
 import { stockApi, setStockAuth, getStockToken, getStockBrandRef } from '@/lib/api-admin'
+import { Button, Input } from '@/components/ui'
 
 /**
- * Branded login page for stock managers.
+ * Branded login for stock managers — product register (ops tool), not landing theater.
  *
  * URL: /app-estoque/{brand-slug}
- *   - The slug is read from the URL params (preferred) or ?brand= query (legacy)
- *   - Brand info (name, logo, colors) is fetched from /api/auth/stock-brand
- *   - The whole page is themed with the brand's primary color
- *   - On success, navigates to /app-estoque/{slug}/painel
- *
- * This is a SEPARATE auth scope from the admin login (/login). Stock managers
- * never access /admin or /dashboard — only the inventory/clients app for their brand.
+ * Auth scope is separate from admin (/login).
  */
 type BrandInfo = {
   id?: string
@@ -29,10 +24,8 @@ export function StockLoginPage() {
   const navigate = useNavigate()
   const params = useParams<{ slug?: string }>()
   const [searchParams] = useSearchParams()
-  // Slug priority: URL param > ?brand= query > localStorage (last logged in)
   const brandRef = params.slug || searchParams.get('brand') || getStockBrandRef() || ''
 
-  // Canonical URL: /app-estoque/{slug} (legacy ?brand= still accepted)
   useEffect(() => {
     const queryBrand = String(searchParams.get('brand') || '').trim()
     if (!params.slug && queryBrand) {
@@ -50,14 +43,12 @@ export function StockLoginPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  // If already logged in, go straight to the panel
   useEffect(() => {
     if (getStockToken() && brandRef) {
       navigate(`/app-estoque/${brandRef}/painel`, { replace: true })
     }
   }, [navigate, brandRef])
 
-  // Resolve brand info for theming
   useEffect(() => {
     if (!brandRef) {
       setBootstrapping(false)
@@ -65,20 +56,22 @@ export function StockLoginPage() {
       return
     }
     setBootstrapping(true)
-    stockApi.validateBrand(brandRef)
+    stockApi
+      .validateBrand(brandRef)
       .then((data) => {
         setBrand(data.brand || null)
         document.title = `${data.brand?.name || 'Estoque'} — Acesso`
+        const primary = data.brand?.primary_color
+        if (primary) {
+          document.documentElement.style.setProperty('--brand-primary', primary)
+          document.documentElement.style.setProperty('--brand-secondary', data.brand?.secondary_color || primary)
+        }
       })
       .catch((err: any) => {
         setBootstrapError(err.message || 'Loja não encontrada.')
       })
       .finally(() => setBootstrapping(false))
   }, [brandRef])
-
-  // Brand colors (with safe fallbacks)
-  const primary = brand?.primary_color || '#0f82ff'
-  const secondary = brand?.secondary_color || '#38bdf8'
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -105,170 +98,102 @@ export function StockLoginPage() {
 
   if (bootstrapping) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-950">
-        <Loader2 size={28} className="text-white/40 animate-spin" />
+      <div className="min-h-screen flex items-center justify-center bg-canvas">
+        <Loader2 size={24} className="text-gray-400 animate-spin" />
       </div>
     )
   }
 
   if (bootstrapError && !brand) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-950 p-6">
-        <div className="max-w-sm w-full bg-gray-900/60 border border-white/10 rounded-3xl p-8 text-center backdrop-blur">
-          <div className="w-14 h-14 mx-auto rounded-2xl bg-red-500/20 grid place-items-center mb-3">
-            <Package size={24} className="text-red-400" />
+      <div className="min-h-screen flex items-center justify-center bg-canvas p-6">
+        <div className="max-w-sm w-full bg-white border border-border-light rounded-2xl p-8 text-center">
+          <div className="w-12 h-12 mx-auto rounded-2xl bg-red-50 grid place-items-center mb-3">
+            <Package size={22} className="text-red-600" />
           </div>
-          <h1 className="text-white text-base font-bold mb-1">Loja não encontrada</h1>
-          <p className="text-white/50 text-xs leading-relaxed">{bootstrapError}</p>
+          <h1 className="text-gray-900 text-base font-bold mb-1">Loja não encontrada</h1>
+          <p className="text-gray-500 text-sm leading-relaxed">{bootstrapError}</p>
         </div>
       </div>
     )
   }
 
   return (
-    <div
-      className="min-h-screen flex items-center justify-center p-4 sm:p-6 relative overflow-hidden"
-      style={{
-        background: `radial-gradient(circle at 20% 10%, ${primary}22, transparent 50%), radial-gradient(circle at 80% 90%, ${secondary}22, transparent 50%), #0a0e1a`,
-      }}
-    >
-      {/* Decorative blurs */}
-      <div
-        className="absolute -top-32 -left-32 w-96 h-96 rounded-full blur-3xl opacity-30 pointer-events-none"
-        style={{ background: primary }}
-      />
-      <div
-        className="absolute -bottom-32 -right-32 w-96 h-96 rounded-full blur-3xl opacity-20 pointer-events-none"
-        style={{ background: secondary }}
-      />
-
-      <div className="relative w-full max-w-md">
-        {/* Card */}
-        <div className="bg-white/95 backdrop-blur-xl rounded-3xl shadow-2xl border border-white/20 p-7 sm:p-9">
-          {/* Brand header */}
+    <div className="min-h-screen flex items-center justify-center bg-canvas p-4 sm:p-6">
+      <div className="w-full max-w-md">
+        <div className="bg-white border border-border-light rounded-2xl p-7 sm:p-8 shadow-[0_1px_3px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.02)]">
           <div className="text-center space-y-3 mb-7">
             {brand?.logo_url ? (
-              <div className="relative inline-block">
-                <div
-                  className="absolute inset-0 rounded-2xl blur-xl opacity-50"
-                  style={{ background: primary }}
-                />
-                <img
-                  src={brand.logo_url}
-                  alt={brand?.name || 'Logo'}
-                  className="relative w-20 h-20 rounded-2xl object-cover ring-2 ring-white shadow-xl mx-auto"
-                />
-              </div>
+              <img
+                src={brand.logo_url}
+                alt={brand?.name || 'Logo'}
+                className="w-16 h-16 rounded-2xl object-cover mx-auto border border-border-light"
+              />
             ) : (
-              <div
-                className="w-20 h-20 mx-auto rounded-2xl grid place-items-center text-white text-3xl font-extrabold shadow-xl"
-                style={{ background: `linear-gradient(135deg, ${primary}, ${secondary})` }}
-              >
+              <div className="w-16 h-16 mx-auto rounded-2xl bg-gray-900 text-white grid place-items-center text-xl font-bold">
                 {(brand?.name || 'E')[0].toUpperCase()}
               </div>
             )}
             <div>
-              <h1 className="text-xl font-extrabold text-gray-900 tracking-tight">
+              <h1 className="text-lg font-bold text-gray-900 tracking-tight">
                 {brand?.name || 'App Estoque'}
               </h1>
-              <p className="text-[11px] uppercase tracking-[0.18em] font-bold mt-1.5"
-                 style={{ color: primary }}>
-                Painel de Estoque
-              </p>
+              <p className="text-[13px] text-gray-500 mt-1">Acesso do gestor de estoque</p>
               {brand?.slogan && (
-                <p className="text-xs text-gray-500 mt-2 italic">{brand.slogan}</p>
+                <p className="text-xs text-gray-400 mt-2">{brand.slogan}</p>
               )}
             </div>
           </div>
 
           {error && (
-            <div className="bg-red-50 border border-red-100 text-red-700 text-xs font-medium px-3.5 py-2.5 rounded-xl mb-4">
+            <div
+              role="alert"
+              className="bg-red-50 border border-red-100 text-red-700 text-xs font-medium px-3.5 py-2.5 rounded-xl mb-4"
+            >
               {error}
             </div>
           )}
 
           <form onSubmit={handleSubmit} className="space-y-3.5">
-            <div className="space-y-1.5">
-              <label htmlFor="email" className="text-[11px] font-bold text-gray-600 uppercase tracking-wide">
-                E-mail do gerente
-              </label>
-              <input
-                id="email"
-                type="email"
-                placeholder="seu@email.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+            <Input
+              id="email"
+              label="E-mail"
+              type="email"
+              placeholder="seu@email.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              autoComplete="email"
+            />
+            <div className="relative">
+              <Input
+                id="password"
+                label="Senha"
+                type={showPw ? 'text' : 'password'}
+                placeholder="Sua senha"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
                 required
-                autoComplete="email"
-                className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:bg-white focus:border-gray-300 focus:ring-2 transition"
-                style={{
-                  // @ts-expect-error CSS custom prop
-                  '--tw-ring-color': `${primary}30`,
-                }}
+                autoComplete="current-password"
+                className="pr-11"
               />
-            </div>
-            <div className="space-y-1.5">
-              <label htmlFor="password" className="text-[11px] font-bold text-gray-600 uppercase tracking-wide">
-                Senha
-              </label>
-              <div className="relative">
-                <input
-                  id="password"
-                  type={showPw ? 'text' : 'password'}
-                  placeholder="Sua senha"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  autoComplete="current-password"
-                  className="w-full px-4 py-3 pr-11 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:bg-white focus:border-gray-300 focus:ring-2 transition"
-                  style={{
-                    // @ts-expect-error CSS custom prop
-                    '--tw-ring-color': `${primary}30`,
-                  }}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPw((v) => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition"
-                  tabIndex={-1}
-                >
-                  {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={() => setShowPw((v) => !v)}
+                className="absolute right-3 top-[34px] w-8 h-8 grid place-items-center text-gray-400 hover:text-gray-700 rounded-lg"
+                aria-label={showPw ? 'Ocultar senha' : 'Mostrar senha'}
+              >
+                {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
             </div>
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full text-white font-bold py-3.5 rounded-xl shadow-lg active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
-              style={{
-                background: `linear-gradient(135deg, ${primary}, ${secondary})`,
-                boxShadow: `0 10px 30px -8px ${primary}66`,
-              }}
-            >
-              {loading ? (
-                <>
-                  <Loader2 size={16} className="animate-spin" />
-                  Entrando...
-                </>
-              ) : (
-                <>
-                  <LogIn size={16} />
-                  Acessar Estoque
-                </>
-              )}
-            </button>
+            <Button type="submit" fullWidth loading={loading} iconLeft={!loading ? <LogIn size={16} /> : undefined}>
+              {loading ? 'Entrando…' : 'Entrar no estoque'}
+            </Button>
           </form>
-
-          <div className="mt-6 pt-5 border-t border-gray-100 flex items-center justify-center gap-2 text-[11px] text-gray-400">
-            <Boxes size={12} />
-            <span>Acesso restrito a gerentes da loja</span>
-          </div>
         </div>
-
-        {/* Footer signature */}
-        <p className="text-center text-[10px] text-white/30 mt-5 font-medium tracking-wide">
-          Powered by <span className="text-white/50 font-bold">leadcapture</span>
+        <p className="text-center text-[11px] text-gray-400 mt-5">
+          Use o link da sua loja. Sessão separada do painel admin.
         </p>
       </div>
     </div>

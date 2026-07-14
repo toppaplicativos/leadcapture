@@ -27,8 +27,8 @@ if (IS_LOCAL_DEV) {
     );
   });
 } else {
-const SHELL_CACHE_NAME = "lead-system-shell-v164-20260712-route-page";
-const RUNTIME_CACHE_NAME = "lead-system-runtime-v155-20260712-route-page";
+const SHELL_CACHE_NAME = "lead-system-shell-v192-20260713-stock-ops";
+const RUNTIME_CACHE_NAME = "lead-system-runtime-v183-20260713-stock-ops";
 
 function getBasePath() {
   try {
@@ -89,6 +89,7 @@ self.addEventListener("install", (event) => {
           toScopedPath("brand-mark.svg"),
           toScopedPath("brand-mark-dark.png"),
           toScopedPath("brand-mark-dark.svg"),
+          "/sounds/mob-offer.wav",
         ];
         await Promise.all(
           shellUrls.map(async (url) => {
@@ -269,6 +270,10 @@ self.addEventListener("push", (event) => {
   const meta = data.data || {};
   const priority = meta.priority || "normal";
   const hasSound = !!meta.sound;
+  const isOffer =
+    meta.event === "delivery_offered" ||
+    meta.urgency === "offer" ||
+    meta.event === "delivery_assigned";
 
   /* Official monochrome BrandMark — never legacy colorful logo.png */
   const officialIcon =
@@ -280,19 +285,35 @@ self.addEventListener("push", (event) => {
     meta.badge ||
     `${self.location.origin}/brand-mark.png`;
 
+  const defaultVibrate = isOffer
+    ? [280, 120, 280, 120, 400]
+    : priority === "critical"
+      ? [300, 100, 300, 100, 300]
+      : [200, 100, 200];
+
   const options = {
     body: data.body || "Nova notificacao",
     icon: officialIcon,
     badge: officialBadge,
     image: data.image || meta.image || undefined,
-    tag: data.tag || "lead-system",
-    requireInteraction: data.requireInteraction || priority === "critical",
+    tag: data.tag || (isOffer ? "mob-offer" : "lead-system"),
+    renotify: !!isOffer,
+    requireInteraction:
+      data.requireInteraction ||
+      priority === "critical" ||
+      isOffer ||
+      meta.requireInteraction === true,
     silent: !hasSound,
-    vibrate: meta.vibrate || (priority === "critical" ? [300, 100, 300] : undefined),
-    actions: data.actions || [
-      { action: "open", title: "Abrir" },
-      { action: "close", title: "Fechar" }
-    ],
+    vibrate: meta.vibrate || defaultVibrate,
+    actions: data.actions || (isOffer
+      ? [
+          { action: "open", title: "Ver oferta" },
+          { action: "close", title: "Depois" },
+        ]
+      : [
+          { action: "open", title: "Abrir" },
+          { action: "close", title: "Fechar" },
+        ]),
     data: meta
   };
 
@@ -305,9 +326,48 @@ self.addEventListener("push", (event) => {
         event_key: meta.event,
         url: meta.url,
       }),
+      playOfferSound(meta),
     ])
   );
 });
+
+/** Play custom offer tone via open clients (SW has limited audio APIs). */
+function playOfferSound(meta) {
+  const shouldPlay =
+    meta.play_sound === true ||
+    meta.event === "delivery_offered" ||
+    meta.urgency === "offer";
+  if (!shouldPlay) return Promise.resolve();
+  const soundUrl = meta.sound_url || "/sounds/mob-offer.wav";
+  return self.clients
+    .matchAll({ type: "window", includeUncontrolled: true })
+    .then((clients) => {
+      if (clients && clients.length) {
+        clients.forEach((client) => {
+          try {
+            client.postMessage({
+              type: "MOB_PLAY_SOUND",
+              url: soundUrl,
+              event: meta.event || "delivery_offered",
+            });
+          } catch {
+            /* ignore */
+          }
+        });
+        return;
+      }
+      // No open client — try cache warm only (browser will use vibrate)
+      return caches.open(SHELL_CACHE_NAME).then((cache) =>
+        cache.match(soundUrl).then((hit) => {
+          if (hit) return;
+          return fetch(soundUrl)
+            .then((res) => (res && res.ok ? cache.put(soundUrl, res) : undefined))
+            .catch(() => undefined);
+        })
+      );
+    })
+    .catch(() => Promise.resolve());
+}
 
 function trackPushInteraction(payload) {
   return fetch("/api/push/track", {

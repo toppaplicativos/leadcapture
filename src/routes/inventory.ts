@@ -2,6 +2,7 @@ import { Router, Response } from "express";
 import { AuthRequest } from "../middleware/auth";
 import { BrandUnitsService } from "../services/brandUnits";
 import { InventoryService } from "../services/inventory";
+import { query } from "../config/database";
 
 const router = Router();
 const inventoryService = new InventoryService();
@@ -254,6 +255,62 @@ router.get("/expedition", async (req: AuthRequest, res: Response) => {
     res.json({ success: true, ...result });
   } catch (error: any) {
     res.status(500).json({ error: error.message || "Falha ao listar expedições" });
+  }
+});
+
+router.get("/expedition/pending", async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId as string;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    const brandId = await resolveBrandId(req);
+    const limit = Math.min(Number(req.query.limit) || 50, 100);
+
+    const brandClause = brandId
+      ? "o.brand_id = ?"
+      : "(o.brand_id IS NULL OR o.brand_id = '')";
+    const params = brandId ? [userId, brandId, limit] : [userId, limit];
+
+    const rows = await query<any[]>(
+      `SELECT o.id,
+              o.customer_name,
+              o.customer_phone,
+              o.status_pedido,
+              o.valor_total AS total,
+              o.created_at,
+              (SELECT COUNT(*) FROM commerce_order_items i WHERE i.order_id = o.id) AS items_count,
+              EXISTS(
+                SELECT 1 FROM inventory_movements m
+                WHERE m.user_id = o.user_id
+                  AND ${brandId ? "m.brand_id = o.brand_id" : "(m.brand_id IS NULL OR m.brand_id = '')"}
+                  AND m.type = 'expedicao'
+                  AND m.reference_id = o.id
+                LIMIT 1
+              ) AS already_expedited
+       FROM commerce_orders o
+       WHERE o.user_id = ?
+         AND ${brandClause}
+         AND o.status_pedido = 'pago'
+       ORDER BY o.created_at DESC
+       LIMIT ?`,
+      params
+    );
+
+    const pending = (rows || [])
+      .filter((r) => !Number(r.already_expedited))
+      .map((r) => ({
+        id: String(r.id),
+        customer_name: r.customer_name || null,
+        customer_phone: r.customer_phone || null,
+        status_pedido: r.status_pedido || "pago",
+        total: Number(r.total || 0),
+        created_at: r.created_at,
+        items_count: Number(r.items_count || 0),
+        already_expedited: false,
+      }));
+
+    res.json({ success: true, orders: pending, total: pending.length });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || "Falha ao listar pedidos pendentes" });
   }
 });
 

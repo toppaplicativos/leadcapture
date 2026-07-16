@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import { query, queryOne, update } from "../config/database";
 import { InstanceManager } from "../core/instanceManager";
 import { logger } from "../utils/logger";
+import { runWithWaSendContext } from "./whatsappSendEligibility";
 
 export type RotationMode = "balanced" | "conservative" | "aggressive";
 
@@ -171,13 +172,14 @@ export class InstanceRotationService {
     per_minute_limit: number;
     min_interval_seconds: number;
   } {
+    // "aggressive" rebaixado — não usamos mais tetos altos (risco de ban).
     if (mode === "aggressive") {
-      return { daily_limit: 350, hourly_limit: 90, per_minute_limit: 6, min_interval_seconds: 6 };
+      return { daily_limit: 80, hourly_limit: 25, per_minute_limit: 2, min_interval_seconds: 45 };
     }
     if (mode === "conservative") {
-      return { daily_limit: 120, hourly_limit: 24, per_minute_limit: 2, min_interval_seconds: 20 };
+      return { daily_limit: 60, hourly_limit: 15, per_minute_limit: 1, min_interval_seconds: 60 };
     }
-    return { daily_limit: 220, hourly_limit: 48, per_minute_limit: 3, min_interval_seconds: 12 };
+    return { daily_limit: 100, hourly_limit: 30, per_minute_limit: 2, min_interval_seconds: 40 };
   }
 
   private async ensureSettings(userId: string): Promise<void> {
@@ -623,6 +625,30 @@ export class InstanceRotationService {
       return { ok: false, error: "invalid_phone" };
     }
 
+    const purpose =
+      input.campaignId ? "campaign" :
+      input.automationCode ? "automation" :
+      "marketing";
+
+    return runWithWaSendContext(
+      {
+        purpose,
+        source: input.campaignId ? "campaign" : input.automationCode ? "automation" : "rotation",
+        userId: input.userId,
+        campaignId: input.campaignId || null,
+        content: input.message,
+      },
+      () => this.sendTextWithFailoverInner(input, maxAttempts, excluded, phoneCandidates, lastError)
+    );
+  }
+
+  private async sendTextWithFailoverInner(
+    input: SendOptions,
+    maxAttempts: number,
+    excluded: string[],
+    phoneCandidates: string[],
+    lastError: string
+  ): Promise<SendResult> {
     for (let i = 0; i < maxAttempts; i += 1) {
       const instanceId = await this.selectInstance(input.userId, {
         leadId: input.leadId,

@@ -21,6 +21,12 @@ import { config } from "../config";
 import { logger } from "../utils/logger";
 import { getPool } from "../config/database";
 import pino from "pino";
+import {
+  getWaSendContext,
+  phoneFromJid,
+  whatsappSendEligibility,
+  type WaSendPurpose,
+} from "../services/whatsappSendEligibility";
 
 export type PollDeliveryMode = "auto" | "native_only" | "text_only";
 export type InteractiveDeliveryMode = PollDeliveryMode;
@@ -1882,6 +1888,46 @@ export class InstanceManager {
     return resolved.exists && resolved.jid ? resolved.jid : null;
   }
 
+  /**
+   * Gate Saúde/Elegibilidade — obrigatório antes de qualquer envio 1:1.
+   * Retorna false se negado; pode reescrever o texto (rodapé 1ª mensagem).
+   */
+  private async applySendEligibility(
+    instanceId: string,
+    target: { phone?: string; jid?: string },
+    message?: string,
+    purposeHint?: WaSendPurpose
+  ): Promise<{ allowed: boolean; message?: string; phone: string }> {
+    const ctx = getWaSendContext();
+    const ownerUserId = this.instanceOwners.get(instanceId) || ctx.userId || null;
+    const brandId = this.instanceBrands.get(instanceId) || ctx.brandId || null;
+    const decision = await whatsappSendEligibility.assertCanSend({
+      phone: target.phone,
+      jid: target.jid,
+      instanceId,
+      userId: ownerUserId,
+      brandId,
+      purpose: purposeHint || ctx.purpose,
+      source: ctx.source,
+      content: message ?? ctx.content,
+      brandName: ctx.brandName,
+      contactOrigin: ctx.contactOrigin,
+      skipIdentifyFooter: ctx.skipIdentifyFooter,
+      skipRateLimits: ctx.skipRateLimits,
+    });
+    if (!decision.ok) {
+      logger.warn(
+        `[wa_eligibility] deny instance=${instanceId} code=${decision.code} purpose=${decision.purpose}: ${decision.reason}`
+      );
+      return { allowed: false, phone: decision.phone };
+    }
+    return {
+      allowed: true,
+      phone: decision.phone,
+      message: "messageOut" in decision ? decision.messageOut : message,
+    };
+  }
+
   async sendMessage(instanceId: string, phone: string, message: string): Promise<boolean> {
     const sock = this.sockets.get(instanceId);
     const instance = this.instances.get(instanceId);
@@ -1894,12 +1940,16 @@ export class InstanceManager {
         logger.warn(`Empty phone digits for ${phone}`);
         return false;
       }
+      const gate = await this.applySendEligibility(instanceId, { phone: digits }, message);
+      if (!gate.allowed) return false;
+      const textOut = gate.message ?? message;
+
       const resolved = await this.resolveWhatsAppTarget(sock, digits);
       if (!resolved.exists || !resolved.jid) {
         logger.warn(`Number ${phone} not on WhatsApp (tried: ${resolved.triedVariants.join(", ")})`);
         return false;
       }
-      const result: any = await sock.sendMessage(resolved.jid, { text: message });
+      const result: any = await sock.sendMessage(resolved.jid, { text: textOut });
       const messageId: string | undefined = result?.key?.id;
 
       /* HONESTIDADE: so retorna true se o WhatsApp confirmar SERVER_ACK em ate 5s.
@@ -1910,6 +1960,11 @@ export class InstanceManager {
         ackOk = await this.waitForAck(messageId, instanceId);
         if (!ackOk) {
           logger.warn(`Message to ${phone} sent locally but NO WhatsApp ack in ${InstanceManager.DEFAULT_ACK_TIMEOUT_MS}ms (instance=${instance.name}, mid=${messageId})`);
+          await whatsappSendEligibility.markFailed({
+            phone: digits,
+            instanceId,
+            code: "no_ack",
+          });
           return false;
         }
       } else {
@@ -1918,10 +1973,20 @@ export class InstanceManager {
 
       instance.messagessSent++;
       this.instances.set(instanceId, instance);
+      await whatsappSendEligibility.markSent({
+        phone: digits,
+        instanceId,
+        content: textOut,
+      });
       logger.info(`Message sent from ${instance.name} to ${phone} (jid=${resolved.jid})${messageId ? ` mid=${messageId}` : ''}`);
       return true;
     } catch (error: any) {
       logger.error(`Error sending message: ${error.message}`);
+      await whatsappSendEligibility.markFailed({
+        phone: phone.replace(/\D/g, ""),
+        instanceId,
+        code: "exception",
+      });
       return false;
     }
   }
@@ -1962,7 +2027,18 @@ export class InstanceManager {
     }
     try {
       const targetJid = await this.resolveSendTargetJid(sock, jid);
-      const result: any = await sock.sendMessage(targetJid, { text: message });
+      const phoneHint = phoneFromJid(targetJid) || phoneFromJid(jid);
+      const isGroup = targetJid.endsWith("@g.us");
+      const gate = await this.applySendEligibility(
+        instanceId,
+        { phone: phoneHint || undefined, jid: targetJid },
+        message,
+        isGroup ? "service" : getWaSendContext().purpose || "human_reply"
+      );
+      if (!gate.allowed) return false;
+      const textOut = gate.message ?? message;
+
+      const result: any = await sock.sendMessage(targetJid, { text: textOut });
       const messageId: string | undefined = result?.key?.id;
 
       let ackOk = true;
@@ -1970,6 +2046,9 @@ export class InstanceManager {
         ackOk = await this.waitForAck(messageId, instanceId);
         if (!ackOk) {
           logger.warn(`Message to ${targetJid} sent locally but NO WhatsApp ack in ${InstanceManager.DEFAULT_ACK_TIMEOUT_MS}ms (instance=${instance.name}, mid=${messageId})`);
+          if (phoneHint) {
+            await whatsappSendEligibility.markFailed({ phone: phoneHint, instanceId, code: "no_ack" });
+          }
           return false;
         }
       } else {
@@ -1978,6 +2057,9 @@ export class InstanceManager {
 
       instance.messagessSent++;
       this.instances.set(instanceId, instance);
+      if (phoneHint) {
+        await whatsappSendEligibility.markSent({ phone: phoneHint, instanceId, content: textOut });
+      }
       logger.info(`Message sent from ${instance.name} to ${targetJid}${messageId ? ` mid=${messageId}` : ''}`);
       return true;
     } catch (error: any) {
@@ -2051,6 +2133,13 @@ export class InstanceManager {
 
     try {
       const targetJid = await this.resolveSendTargetJid(sock, jid);
+      const phoneHint = phoneFromJid(targetJid) || phoneFromJid(jid);
+      const gate = await this.applySendEligibility(
+        instanceId,
+        { phone: phoneHint || undefined, jid: targetJid },
+        input.caption || "[media]"
+      );
+      if (!gate.allowed) return false;
       const fileBuffer = fs.readFileSync(input.filePath);
       const payload: Record<string, unknown> = {};
 
@@ -2357,6 +2446,17 @@ export class InstanceManager {
     }
   ): Promise<InteractiveSendResult> {
     const deliveryMode: InteractiveDeliveryMode = input.deliveryMode || "auto";
+    const phoneHint = phoneFromJid(jid);
+    const gate = await this.applySendEligibility(
+      instanceId,
+      { phone: phoneHint || undefined, jid },
+      String(input.body || "")
+    );
+    if (!gate.allowed) {
+      return { ok: false, mode: "native", error: "eligibility_denied" };
+    }
+    if (gate.message) input = { ...input, body: gate.message };
+
     const normalizedButtons = (input.buttons || [])
       .map((button, index) => ({
         id: String(button.id || `btn_${index + 1}`).trim(),
@@ -2414,6 +2514,13 @@ export class InstanceManager {
           throw new Error("native_send_failed_no_ack");
         }
         logger.info(`Native-flow buttons sent from instance ${instanceId} to ${jid}`);
+        if (phoneHint) {
+          await whatsappSendEligibility.markSent({
+            phone: phoneHint,
+            instanceId,
+            content: String(input.body || ""),
+          });
+        }
         return { ok: true, mode: "native_flow" };
       }
     } catch (error: any) {
@@ -2468,6 +2575,17 @@ export class InstanceManager {
     }
   ): Promise<InteractiveSendResult> {
     const deliveryMode: InteractiveDeliveryMode = input.deliveryMode || "auto";
+    const phoneHint = phoneFromJid(jid);
+    const gate = await this.applySendEligibility(
+      instanceId,
+      { phone: phoneHint || undefined, jid },
+      String(input.description || input.title || "")
+    );
+    if (!gate.allowed) {
+      return { ok: false, mode: "native", error: "eligibility_denied" };
+    }
+    if (gate.message) input = { ...input, description: gate.message };
+
     const normalizedSections = (input.sections || [])
       .map((section) => ({
         title: section.title ? String(section.title).trim() : undefined,

@@ -4,7 +4,7 @@ export class RateLimiter {
   private maxPerDay: number;
   private dailyCounts: Map<string, { count: number; date: string }> = new Map();
 
-  constructor(maxPerMinute: number = 3, maxPerDay: number = 200) {
+  constructor(maxPerMinute: number = 2, maxPerDay: number = 80) {
     this.maxPerMinute = maxPerMinute;
     this.maxPerDay = maxPerDay;
   }

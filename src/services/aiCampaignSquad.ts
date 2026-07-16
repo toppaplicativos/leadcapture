@@ -522,12 +522,12 @@ function skillCalibrateSpeed(count: number, urgency: SkillBrief['urgency']): Cal
     minInterval = 300; maxInterval = 600; dailyLimit = 120; useRotation = true; rotation = 'round_robin';
   }
 
-  /* Urgencia: alta = -20%, baixa = +30% (mais conservador) */
+  /* Urgencia: alta só acelera levemente (ainda conservador); nunca "aggressive". */
   if (urgency === 'alta') {
-    minInterval = Math.max(30, Math.floor(minInterval * 0.8));
-    maxInterval = Math.max(60, Math.floor(maxInterval * 0.8));
-    dailyLimit = Math.floor(dailyLimit * 1.2);
-    mode = 'aggressive';
+    minInterval = Math.max(45, Math.floor(minInterval * 0.9));
+    maxInterval = Math.max(90, Math.floor(maxInterval * 0.9));
+    dailyLimit = Math.min(100, Math.floor(dailyLimit * 1.1));
+    mode = 'educational';
   } else if (urgency === 'baixa') {
     minInterval = Math.floor(minInterval * 1.3);
     maxInterval = Math.floor(maxInterval * 1.3);

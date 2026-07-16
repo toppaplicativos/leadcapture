@@ -1,10 +1,11 @@
 import { lazy, Suspense, useState, type ComponentType } from 'react'
 import {
   Bot, Cable, ChevronRight, LayoutDashboard, Megaphone, MessageSquare,
-  Plus, RefreshCw, Settings2, Sparkles, Zap,
+  Plus, RefreshCw, Settings2, Shield, Sparkles, Zap,
 } from 'lucide-react'
 import { WhatsAppIcon } from '@/components/icons'
 import { WhatsAppInstancesPanel } from '@/components/whatsapp/WhatsAppInstancesPanel'
+import { WhatsAppEligibilityPanel } from '@/components/whatsapp/WhatsAppEligibilityPanel'
 import { ChannelAttendancePanel } from '@/components/attendance/ChannelAttendancePanel'
 import { useWhatsAppConnectOptional } from '@/lib/whatsapp/WhatsAppConnectContext'
 import { useToast } from '@/components/Toast'
@@ -14,7 +15,7 @@ const MessagesPage = lazy(() => import('@/pages/MessagesPage').then((m) => ({ de
 const AutomationsPage = lazy(() => import('@/pages/AutomationsPage').then((m) => ({ default: m.AutomationsPage })))
 const CampaignsView = lazy(() => import('@/pages/admin/campaigns/CampaignsView').then((m) => ({ default: m.CampaignsView })))
 
-type Section = 'overview' | 'messages' | 'connections' | 'attendance' | 'automations' | 'campaigns' | 'settings'
+type Section = 'overview' | 'messages' | 'connections' | 'attendance' | 'automations' | 'campaigns' | 'health' | 'settings'
 
 const sections: Array<{ id: Section; label: string; Icon: ComponentType<{ size?: number; className?: string; strokeWidth?: number }> }> = [
   { id: 'overview', label: 'Visão geral', Icon: LayoutDashboard },
@@ -23,6 +24,7 @@ const sections: Array<{ id: Section; label: string; Icon: ComponentType<{ size?:
   { id: 'attendance', label: 'Atendimento', Icon: Bot },
   { id: 'automations', label: 'Automações', Icon: Zap },
   { id: 'campaigns', label: 'Campanhas', Icon: Megaphone },
+  { id: 'health', label: 'Saúde', Icon: Shield },
   { id: 'settings', label: 'Configurações', Icon: Settings2 },
 ]
 
@@ -33,6 +35,7 @@ const sectionCopy: Record<Section, { title: string; description: string }> = {
   attendance: { title: 'Atendimento', description: 'Defina como o agente de IA responde e quando a equipe assume a conversa.' },
   automations: { title: 'Automações', description: 'Organize fluxos reativos e proativos usados na operação do WhatsApp.' },
   campaigns: { title: 'Campanhas', description: 'Crie, revise e acompanhe os disparos enviados pelo WhatsApp.' },
+  health: { title: 'Saúde e elegibilidade', description: 'Consentimento, bloqueios, limites e qualidade por seção — gate antes de qualquer disparo.' },
   settings: { title: 'Configurações', description: 'Centralize as regras e preferências que afetam o canal.' },
 }
 
@@ -64,10 +67,12 @@ export function WhatsAppManagerView() {
     if (section === 'attendance') return <ChannelAttendancePanel channel="whatsapp" />
     if (section === 'automations') return <Suspense fallback={<PageSplash variant="panel" label="Automações" />}><AutomationsPage embedded channel="whatsapp" /></Suspense>
     if (section === 'campaigns') return <Suspense fallback={<PageSplash variant="panel" label="Campanhas" />}><CampaignsView embedded channel="whatsapp" showToast={toast} /></Suspense>
+    if (section === 'health') return <WhatsAppEligibilityPanel />
     if (section === 'settings') return (
       <div className="grid gap-3 md:grid-cols-2">
         {[
           { title: 'Números e sessões', text: 'Conectar, testar ou remover números usados pela organização.', target: 'connections' as Section, Icon: Cable },
+          { title: 'Saúde e elegibilidade', text: 'Opt-out, bloqueios, limites e pausa por qualidade da seção.', target: 'health' as Section, Icon: Shield },
           { title: 'Comportamento do atendente', text: 'Tom de voz, limites, catálogo, base de conhecimento e modo de vendas.', target: 'attendance' as Section, Icon: Bot },
           { title: 'Fluxos automáticos', text: 'Gatilhos, respostas e ações executadas a partir das conversas.', target: 'automations' as Section, Icon: Zap },
           { title: 'Envios em massa', text: 'Regras e campanhas de comunicação para a base de contatos.', target: 'campaigns' as Section, Icon: Megaphone },

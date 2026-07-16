@@ -9,6 +9,7 @@ import { InstanceRotationService, RotationMode } from "./instanceRotation";
 import { aiRouter } from "./aiRouter";
 import { logger } from "../utils/logger";
 import { parseInteractiveInbound } from "./flowTypes";
+import { runWithWaSendContext, whatsappSendEligibility } from "./whatsappSendEligibility";
 
 // ─── Name enrichment helpers ────────────────────────────────────
 
@@ -130,7 +131,8 @@ export type CampaignCreateInput = {
   speedControl: CampaignSpeedControl;
   scheduledAt?: string;
   initialStatus?: "draft" | "paused" | "active";
-  campaignMode?: "aggressive" | "educational" | "relationship";
+  /** @deprecated "aggressive" é normalizado para "educational". */
+  campaignMode?: "educational" | "relationship" | "aggressive";
   useInstanceRotation?: boolean;
   rotationMode?: RotationMode;
   settings?: Record<string, unknown>;
@@ -271,12 +273,13 @@ export type CampaignMetrics = {
 
 // ─── Default speed settings ──────────────────────────────────────
 
+/** Defaults conservadores — consentimento/qualidade > velocidade. */
 const DEFAULT_SPEED: CampaignSpeedControl = {
-  maxPerMinute: 3,
-  minIntervalSeconds: 10,
-  maxIntervalSeconds: 30,
-  dailyLimit: 200,
-  autoPauseOnBlockRate: 15,
+  maxPerMinute: 2,
+  minIntervalSeconds: 45,
+  maxIntervalSeconds: 120,
+  dailyLimit: 80,
+  autoPauseOnBlockRate: 10,
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────
@@ -1009,7 +1012,13 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
     const id = randomUUID();
     const speed = { ...DEFAULT_SPEED, ...input.speedControl };
     const filter = normalizeCampaignFilterInput(input.filter || {});
-    const mode = input.campaignMode || "educational";
+    const rawMode = String(input.campaignMode || "educational").toLowerCase();
+    const mode =
+      rawMode === "aggressive"
+        ? "educational"
+        : rawMode === "relationship"
+          ? "relationship"
+          : "educational";
 
     const sourceSettings = input.settings && typeof input.settings === "object" ? input.settings : {};
     const destinationSettings = this.normalizeCampaignDestinationSettings(sourceSettings);
@@ -2435,57 +2444,105 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
       const hasOrderedBlocks = actionBlocks.length > 0;
 
       try {
-        const sendResult = await withTimeout<CampaignSendResult>(
-          hasOrderedBlocks
-            ? this.sendCampaignActionBlocks({
-                instanceId: sendingInstanceId,
-                jid,
-                phone,
-                messageText,
-                blocks: actionBlocks,
-                media: mediaConfig,
-                lead,
-                templateOpts,
-              })
-            : hasMedia || hasLink
-            ? this.sendCampaignMessageWithMedia(
-                sendingInstanceId,
-                jid,
-                phone,
-                messageText,
-                mediaConfig
-              )
-            : jid
-            ? (async () => {
-                const ok = await this.instanceManager.sendMessageByJid(sendingInstanceId, jid, messageText);
-                return {
-                  ok,
-                  instanceId: sendingInstanceId,
-                  error: ok ? undefined : "Envio falhou",
-                };
-              })()
-            : campaign.use_instance_rotation && this.rotationEngine
-            ? this.rotationEngine.sendTextWithFailover({
-                userId,
-                phone,
-                message: messageText,
-                leadId: String(lead.lead_id || ""),
-                campaignId,
-                automationCode: "campaign_v2",
-                preferredInstanceId: sendingInstanceId,
-                allowedInstanceIds: poolIds.length > 0 ? poolIds : undefined,
-                maxAttempts: 3,
-              })
-            : (async () => {
-                const ok = await this.instanceManager.sendMessage(sendingInstanceId, phone, messageText);
-                return {
-                  ok,
-                  instanceId: sendingInstanceId,
-                  error: ok ? undefined : "Envio falhou",
-                };
-              })(),
-          hasMedia || hasOrderedBlocks ? 90000 : 20000,
-          "Timeout no envio da mensagem"
+        // Pre-check elegibilidade (status legível na fila se negar)
+        const preGate = await whatsappSendEligibility.assertCanSend({
+          phone,
+          jid: jid || undefined,
+          instanceId: sendingInstanceId,
+          userId,
+          brandId: normalizedBrandId || campaign.brand_id,
+          purpose: "campaign",
+          source: "campaign",
+          content: messageText,
+          brandName,
+          contactOrigin: "campanha autorizada / base de contatos da marca",
+        });
+        if (!preGate.ok) {
+          const isOpt =
+            preGate.code === "opted_out" ||
+            preGate.code === "blocked" ||
+            preGate.code === "consent_required";
+          await update(
+            `UPDATE campaign_leads SET status = ?, error_message = ?, attempt_count = attempt_count + 1 WHERE id = ?`,
+            [isOpt ? "opted_out" : "skipped", preGate.reason, lead.id]
+          );
+          continue;
+        }
+        if (preGate.messageOut) messageText = preGate.messageOut;
+
+        const sendResult = await runWithWaSendContext(
+          {
+            purpose: "campaign",
+            source: "campaign",
+            userId,
+            brandId: normalizedBrandId || campaign.brand_id,
+            campaignId,
+            brandName,
+            contactOrigin: "campanha autorizada / base de contatos da marca",
+            content: messageText,
+            skipIdentifyFooter: true, // já aplicado no preGate
+          },
+          () =>
+            withTimeout<CampaignSendResult>(
+              hasOrderedBlocks
+                ? this.sendCampaignActionBlocks({
+                    instanceId: sendingInstanceId,
+                    jid,
+                    phone,
+                    messageText,
+                    blocks: actionBlocks,
+                    media: mediaConfig,
+                    lead,
+                    templateOpts,
+                  })
+                : hasMedia || hasLink
+                ? this.sendCampaignMessageWithMedia(
+                    sendingInstanceId,
+                    jid,
+                    phone,
+                    messageText,
+                    mediaConfig
+                  )
+                : jid
+                ? (async () => {
+                    const ok = await this.instanceManager.sendMessageByJid(
+                      sendingInstanceId,
+                      jid,
+                      messageText
+                    );
+                    return {
+                      ok,
+                      instanceId: sendingInstanceId,
+                      error: ok ? undefined : "Envio falhou",
+                    };
+                  })()
+                : campaign.use_instance_rotation && this.rotationEngine
+                ? this.rotationEngine.sendTextWithFailover({
+                    userId,
+                    phone,
+                    message: messageText,
+                    leadId: String(lead.lead_id || ""),
+                    campaignId,
+                    automationCode: "campaign_v2",
+                    preferredInstanceId: sendingInstanceId,
+                    allowedInstanceIds: poolIds.length > 0 ? poolIds : undefined,
+                    maxAttempts: 3,
+                  })
+                : (async () => {
+                    const ok = await this.instanceManager.sendMessage(
+                      sendingInstanceId,
+                      phone,
+                      messageText
+                    );
+                    return {
+                      ok,
+                      instanceId: sendingInstanceId,
+                      error: ok ? undefined : "Envio falhou",
+                    };
+                  })(),
+              hasMedia || hasOrderedBlocks ? 90000 : 20000,
+              "Timeout no envio da mensagem"
+            )
         );
 
         const sent = sendResult.ok;
@@ -4160,13 +4217,11 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
 
   private resolveCampaignModeDirective(mode: string): string {
     const normalized = String(mode || "educational").trim().toLowerCase();
-    if (normalized === "aggressive") {
-      return "Tom comercial direto, objetivo e orientado a conversao, sem ser rude.";
-    }
+    // Perfil "aggressive" removido — sempre educa/relaciona, nunca pressão.
     if (normalized === "relationship") {
-      return "Tom consultivo, humano e de relacionamento, priorizando dialogo e confianca.";
+      return "Tom consultivo, humano e de relacionamento, priorizando dialogo e confianca. Nunca pressione nem insista apos recusa.";
     }
-    return "Tom educativo, util e objetivo, ajudando o lead a entender valor antes da oferta.";
+    return "Tom educativo, util e objetivo, ajudando o lead a entender valor antes da oferta. Identifique a empresa, a origem do contato e ofereca PARAR para opt-out.";
   }
 
   private buildCampaignFirstTouchPrompt(

@@ -41,6 +41,11 @@ import { startAutomationScheduler } from "./services/automationScheduler";
 import { startActionEscalationMonitor } from "./services/actionEscalation";
 import { startWhatsAppHealthMonitor, getHealthSnapshot, setInstanceManagerRef } from "./services/whatsappHealth";
 import {
+  isWhatsAppOptOutText,
+  whatsappSendEligibility,
+} from "./services/whatsappSendEligibility";
+import whatsappEligibilityRoutes from "./routes/whatsappEligibility";
+import {
   affiliateDistributionService,
   setDistributionInstanceManagerRef,
   startDistributionFollowupMonitor,
@@ -776,6 +781,7 @@ app.post("/api/whatsapp/composer-test", authMiddleware, async (req: any, res) =>
   }
 });
 app.use("/api/campaigns-v2", authMiddleware, requireModuleAndPlan("campaigns"), createCampaignRoutes(instanceManager, instanceRotation, campaignEngine));
+app.use("/api/whatsapp/eligibility", authMiddleware, whatsappEligibilityRoutes);
 const inboxService = new InboxService();
 inboxService.setMediaDownloader((instanceId, msg) => instanceManager.downloadIncomingMedia(instanceId, msg));
 inboxService.setMessageSender((instanceId, jid, message) => instanceManager.sendMessageByJid(instanceId, jid, message));
@@ -841,6 +847,32 @@ instanceManager.onGlobalMessage(async (instanceId, msg) => {
       logger.warn(
         `[CampaignReply] @lid sem PN alternativo. instance=${instanceId} jid=${rawRemoteJid} key.remoteJidAlt=${remoteJidAlt || "(empty)"} key.participantAlt=${participantAlt || "(empty)"} key.senderPn=${senderPn || "(empty)"} key.participantPn=${participantPn || "(empty)"} key.senderLid=${senderLid || "(empty)"} key.participantLid=${participantLid || "(empty)"} key.participant=${participantField || "(empty)"} keys=${Object.keys(keyAny).join(",")}`
       );
+    }
+
+    if (phone && parsed.body && isWhatsAppOptOutText(parsed.body) && !msg?.key?.fromMe) {
+      try {
+        const ownerForOpt = await queryOne<{ created_by?: string; brand_id?: string | null }>(
+          "SELECT created_by, brand_id FROM whatsapp_instances WHERE id = ? LIMIT 1",
+          [instanceId]
+        );
+        // Confirma antes do bloqueio (senão o gate bloqueia o próprio ACK).
+        await instanceManager.sendMessageByJid(
+          instanceId,
+          rawRemoteJid,
+          "Pronto. Você não receberá mais mensagens automáticas deste número. Se foi engano, fale com nosso atendimento."
+        ).catch(() => {});
+        await whatsappSendEligibility.registerOptOutAndPurge({
+          phone,
+          reason: `WhatsApp command: ${String(parsed.body).slice(0, 80)}`,
+          source: "whatsapp_command",
+          userId: ownerForOpt?.created_by || null,
+          brandId: ownerForOpt?.brand_id || null,
+          instanceId,
+        });
+        logger.info(`[wa_eligibility] opt-out processado phone=***${phone.slice(-4)} instance=${instanceId}`);
+      } catch (optErr: any) {
+        logger.warn(`[wa_eligibility] opt-out falhou: ${optErr?.message || optErr}`);
+      }
     }
 
     if (phone && parsed.body) {

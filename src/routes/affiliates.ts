@@ -535,6 +535,11 @@ router.put("/distribution/rules", requireRole(["admin", "operator"]), async (req
     const rules = await affiliateDistributionService.updateRules(ownerUserId, brandId, {
       is_enabled: req.body?.is_enabled,
       max_daily_per_affiliate: req.body?.max_daily_per_affiliate,
+      per_instance_daily_limit: req.body?.per_instance_daily_limit,
+      per_instance_hourly_limit: req.body?.per_instance_hourly_limit,
+      per_instance_minute_limit: req.body?.per_instance_minute_limit,
+      per_instance_min_interval_seconds: req.body?.per_instance_min_interval_seconds,
+      per_instance_jitter_seconds: req.body?.per_instance_jitter_seconds,
       auto_enqueue_capture: req.body?.auto_enqueue_capture,
       auto_send_initial_message: req.body?.auto_send_initial_message,
       initial_message_template: req.body?.initial_message_template,
@@ -546,6 +551,7 @@ router.put("/distribution/rules", requireRole(["admin", "operator"]), async (req
       require_terms_accepted: req.body?.require_terms_accepted,
       require_pix_key: req.body?.require_pix_key,
       allowed_regions_json: req.body?.allowed_regions_json,
+      allowed_niches_json: req.body?.allowed_niches_json,
       program_id: String(req.body?.program_id || "").trim() || null,
     });
     res.json({ success: true, rules });

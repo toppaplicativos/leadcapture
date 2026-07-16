@@ -49,6 +49,45 @@ function parseFollowupDelays(raw?: string | null): number[] {
   }
 }
 
+function parseStringList(raw?: unknown): string[] {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw.map((item) => String(item || "").trim()).filter(Boolean);
+  try {
+    const parsed = JSON.parse(String(raw));
+    return Array.isArray(parsed)
+      ? parsed.map((item) => String(item || "").trim()).filter(Boolean)
+      : [];
+  } catch {
+    return String(raw).split(/[\n,;]+/).map((item) => item.trim()).filter(Boolean);
+  }
+}
+
+function normalizeAudienceValue(value?: unknown): string {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function audienceValueMatches(value: string, filters: string[]): boolean {
+  const normalized = normalizeAudienceValue(value);
+  if (!normalized) return false;
+  return filters.some((filter) => {
+    const expected = normalizeAudienceValue(filter);
+    const aliases: Record<string, string[]> = {
+      restaurant: ["restaurant", "restaurante", "food service"],
+      supermarket: ["supermarket", "supermercado", "super mercado"],
+      "discount supermarket": ["discount supermarket", "supermercado", "atacado", "atacarejo"],
+    };
+    return (aliases[expected] || [expected]).some(
+      (candidate) => normalized.includes(candidate) || candidate.includes(normalized)
+    );
+  });
+}
+
 export type DistributionStatusValue = "available" | "paused" | "blocked" | "ineligible";
 export type WhatsappStatusValue = "connected" | "disconnected" | "unstable" | "none";
 
@@ -81,6 +120,8 @@ export type AffiliateEligibilitySnapshot = {
     assigned_total: number;
     assigned_active: number;
     assigned_today: number;
+    messages_sent_today: number;
+    messages_failed_today: number;
     alerts_unread: number;
     queued_for_brand: number;
   };
@@ -141,6 +182,9 @@ async function initializeDistributionSchema(): Promise<void> {
       converted_order_id VARCHAR(36) NULL,
       notes TEXT NULL,
       metadata_json TEXT NULL,
+      initial_message_status VARCHAR(30) NOT NULL DEFAULT 'unknown',
+      initial_message_at TIMESTAMP NULL,
+      initial_message_error VARCHAR(160) NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       KEY idx_pa_affiliate (affiliate_id, assignment_status, assigned_at DESC),
@@ -181,6 +225,11 @@ async function initializeDistributionSchema(): Promise<void> {
       program_id VARCHAR(36) NULL,
       is_enabled BOOLEAN NOT NULL DEFAULT TRUE,
       max_daily_per_affiliate INT NOT NULL DEFAULT 20,
+      per_instance_daily_limit INT NOT NULL DEFAULT 40,
+      per_instance_hourly_limit INT NOT NULL DEFAULT 10,
+      per_instance_minute_limit INT NOT NULL DEFAULT 1,
+      per_instance_min_interval_seconds INT NOT NULL DEFAULT 60,
+      per_instance_jitter_seconds INT NOT NULL DEFAULT 15,
       rotation_mode VARCHAR(30) NOT NULL DEFAULT 'round_robin',
       require_whatsapp_connected BOOLEAN NOT NULL DEFAULT TRUE,
       require_training_complete BOOLEAN NOT NULL DEFAULT TRUE,
@@ -189,8 +238,31 @@ async function initializeDistributionSchema(): Promise<void> {
       auto_send_initial_message BOOLEAN NOT NULL DEFAULT TRUE,
       initial_message_template TEXT NULL,
       allowed_regions_json TEXT NULL,
+      allowed_niches_json TEXT NULL,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       UNIQUE KEY uq_ldr_brand_program (brand_id, program_id)
+    )
+  `);
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS affiliate_distribution_instance_state (
+      instance_id VARCHAR(36) PRIMARY KEY,
+      owner_user_id VARCHAR(36) NOT NULL,
+      brand_id VARCHAR(36) NOT NULL,
+      affiliate_id VARCHAR(36) NOT NULL,
+      affiliate_user_id VARCHAR(36) NOT NULL,
+      sent_today INT NOT NULL DEFAULT 0,
+      sent_today_on DATE NULL,
+      sent_last_hour INT NOT NULL DEFAULT 0,
+      sent_last_minute INT NOT NULL DEFAULT 0,
+      last_sent_at TIMESTAMP NULL,
+      next_send_at TIMESTAMP NULL,
+      consecutive_failures INT NOT NULL DEFAULT 0,
+      health_status VARCHAR(20) NOT NULL DEFAULT 'healthy',
+      last_error VARCHAR(160) NULL,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      KEY idx_aff_dist_instance_ready (brand_id, health_status, next_send_at),
+      KEY idx_aff_dist_instance_affiliate (affiliate_id, brand_id)
     )
   `);
 
@@ -201,8 +273,17 @@ async function initializeDistributionSchema(): Promise<void> {
     `ALTER TABLE lead_distribution_rules ADD COLUMN followup_delays_hours_json TEXT NULL`,
     `ALTER TABLE lead_distribution_rules ADD COLUMN followup_message_template TEXT NULL`,
     `ALTER TABLE lead_distribution_rules ADD COLUMN require_pix_key BOOLEAN NOT NULL DEFAULT FALSE`,
+    `ALTER TABLE lead_distribution_rules ADD COLUMN allowed_niches_json TEXT NULL`,
+    `ALTER TABLE lead_distribution_rules ADD COLUMN per_instance_daily_limit INT NOT NULL DEFAULT 40`,
+    `ALTER TABLE lead_distribution_rules ADD COLUMN per_instance_hourly_limit INT NOT NULL DEFAULT 10`,
+    `ALTER TABLE lead_distribution_rules ADD COLUMN per_instance_minute_limit INT NOT NULL DEFAULT 1`,
+    `ALTER TABLE lead_distribution_rules ADD COLUMN per_instance_min_interval_seconds INT NOT NULL DEFAULT 60`,
+    `ALTER TABLE lead_distribution_rules ADD COLUMN per_instance_jitter_seconds INT NOT NULL DEFAULT 15`,
     `ALTER TABLE prospect_assignments ADD COLUMN followup_count INT NOT NULL DEFAULT 0`,
     `ALTER TABLE prospect_assignments ADD COLUMN last_followup_at TIMESTAMP NULL`,
+    `ALTER TABLE prospect_assignments ADD COLUMN initial_message_status VARCHAR(30) NOT NULL DEFAULT 'unknown'`,
+    `ALTER TABLE prospect_assignments ADD COLUMN initial_message_at TIMESTAMP NULL`,
+    `ALTER TABLE prospect_assignments ADD COLUMN initial_message_error VARCHAR(160) NULL`,
   ]) {
     try {
       await query(ddl);
@@ -324,15 +405,35 @@ export class AffiliateDistributionService {
   }): Promise<{ sent: boolean; reason?: string; stage?: string }> {
     const rules = input.rules || await this.getOrCreateRules(input.ownerUserId, input.brandId, input.programId);
     if (!rules?.auto_send_initial_message) {
+      await query(
+        `UPDATE prospect_assignments SET initial_message_status = 'disabled', initial_message_error = NULL WHERE id = ?`,
+        [input.assignmentId]
+      );
       return { sent: false, reason: "auto_send_disabled" };
     }
 
     const phone = String(input.prospectPhone || "").replace(/\D/g, "");
     const instanceId = String(input.instanceId || "").trim();
-    if (!phone) return { sent: false, reason: "no_phone" };
-    if (!instanceId) return { sent: false, reason: "no_instance" };
+    if (!phone) {
+      await query(
+        `UPDATE prospect_assignments SET initial_message_status = 'not_sent', initial_message_error = 'no_phone' WHERE id = ?`,
+        [input.assignmentId]
+      );
+      return { sent: false, reason: "no_phone" };
+    }
+    if (!instanceId) {
+      await query(
+        `UPDATE prospect_assignments SET initial_message_status = 'not_sent', initial_message_error = 'no_instance' WHERE id = ?`,
+        [input.assignmentId]
+      );
+      return { sent: false, reason: "no_instance" };
+    }
     if (!imRef || typeof imRef.sendMessage !== "function") {
       logger.warn("[affiliateDistribution] instanceManager not wired — initial message skipped");
+      await query(
+        `UPDATE prospect_assignments SET initial_message_status = 'not_sent', initial_message_error = 'no_sender' WHERE id = ?`,
+        [input.assignmentId]
+      );
       return { sent: false, reason: "no_sender" };
     }
 
@@ -359,6 +460,10 @@ export class AffiliateDistributionService {
     });
 
     if (!sent) {
+      await query(
+        `UPDATE prospect_assignments SET initial_message_status = 'failed', initial_message_error = 'send_failed' WHERE id = ?`,
+        [input.assignmentId]
+      );
       await this.ensureAlert({
         ownerUserId: input.ownerUserId,
         brandId: input.brandId,
@@ -380,7 +485,8 @@ export class AffiliateDistributionService {
     const stage = "awaiting_response";
     await query(
       `UPDATE prospect_assignments
-       SET current_stage = ?, assignment_status = 'active', last_interaction_at = NOW()
+       SET current_stage = ?, assignment_status = 'active', last_interaction_at = NOW(),
+           initial_message_status = 'sent', initial_message_at = NOW(), initial_message_error = NULL
        WHERE id = ?`,
       [stage, input.assignmentId]
     );
@@ -416,6 +522,11 @@ export class AffiliateDistributionService {
     patch: {
       is_enabled?: boolean;
       max_daily_per_affiliate?: number;
+      per_instance_daily_limit?: number;
+      per_instance_hourly_limit?: number;
+      per_instance_minute_limit?: number;
+      per_instance_min_interval_seconds?: number;
+      per_instance_jitter_seconds?: number;
       auto_enqueue_capture?: boolean;
       auto_send_initial_message?: boolean;
       initial_message_template?: string | null;
@@ -427,6 +538,7 @@ export class AffiliateDistributionService {
       require_terms_accepted?: boolean;
       require_pix_key?: boolean;
       allowed_regions_json?: string | null;
+      allowed_niches_json?: string | null;
       program_id?: string | null;
     }
   ) {
@@ -442,6 +554,26 @@ export class AffiliateDistributionService {
     if (patch.max_daily_per_affiliate !== undefined) {
       fields.push("max_daily_per_affiliate = ?");
       values.push(Math.max(1, Math.min(500, Number(patch.max_daily_per_affiliate) || 20)));
+    }
+    if (patch.per_instance_daily_limit !== undefined) {
+      fields.push("per_instance_daily_limit = ?");
+      values.push(Math.max(1, Math.min(500, Number(patch.per_instance_daily_limit) || 40)));
+    }
+    if (patch.per_instance_hourly_limit !== undefined) {
+      fields.push("per_instance_hourly_limit = ?");
+      values.push(Math.max(1, Math.min(120, Number(patch.per_instance_hourly_limit) || 10)));
+    }
+    if (patch.per_instance_minute_limit !== undefined) {
+      fields.push("per_instance_minute_limit = ?");
+      values.push(Math.max(1, Math.min(10, Number(patch.per_instance_minute_limit) || 1)));
+    }
+    if (patch.per_instance_min_interval_seconds !== undefined) {
+      fields.push("per_instance_min_interval_seconds = ?");
+      values.push(Math.max(10, Math.min(3600, Number(patch.per_instance_min_interval_seconds) || 60)));
+    }
+    if (patch.per_instance_jitter_seconds !== undefined) {
+      fields.push("per_instance_jitter_seconds = ?");
+      values.push(Math.max(0, Math.min(300, Number(patch.per_instance_jitter_seconds) || 15)));
     }
     if (patch.auto_enqueue_capture !== undefined) {
       fields.push("auto_enqueue_capture = ?");
@@ -486,6 +618,11 @@ export class AffiliateDistributionService {
     if (patch.allowed_regions_json !== undefined) {
       fields.push("allowed_regions_json = ?");
       values.push(patch.allowed_regions_json ? String(patch.allowed_regions_json).trim() : null);
+    }
+    if (patch.allowed_niches_json !== undefined) {
+      fields.push("allowed_niches_json = ?");
+      const niches = parseStringList(patch.allowed_niches_json);
+      values.push(niches.length ? JSON.stringify(niches) : null);
     }
 
     if (!fields.length) return rules;
@@ -562,6 +699,18 @@ export class AffiliateDistributionService {
        WHERE owner_user_id = ? AND brand_id = ? AND is_read = FALSE`,
       [ownerUserId, brandId]
     );
+    const sectionState = await query<any[]>(
+      `SELECT s.instance_id, wi.name AS instance_name, wi.phone AS instance_phone,
+              a.display_name AS affiliate_name, s.sent_today, s.sent_today_on,
+              s.last_sent_at, s.next_send_at, s.consecutive_failures,
+              s.health_status, s.last_error
+       FROM affiliate_distribution_instance_state s
+       LEFT JOIN whatsapp_instances wi ON wi.id = s.instance_id
+       LEFT JOIN affiliates a ON a.id = s.affiliate_id
+       WHERE s.owner_user_id = ? AND s.brand_id = ?
+       ORDER BY a.display_name ASC, wi.name ASC`,
+      [ownerUserId, brandId]
+    );
 
     const pending = Number(counts?.pending || 0);
     const stuck = Number(counts?.stuck || 0);
@@ -590,6 +739,12 @@ export class AffiliateDistributionService {
         wa_connected: Number(distStatus?.wa_connected || 0),
         total_tracked: Number(distStatus?.total_tracked || 0),
       },
+      sections: (sectionState || []).map((section) => ({
+        ...section,
+        sent_today: String(section.sent_today_on || "").slice(0, 10) === todayDateOnly()
+          ? Number(section.sent_today || 0)
+          : 0,
+      })),
       health: {
         ok: !(pending > 0 && eligibleCount === 0),
         stuck_queue: stuck > 0 || (pending > 0 && eligibleCount === 0),
@@ -1119,11 +1274,13 @@ export class AffiliateDistributionService {
   }
 
   private async loadAffiliateStats(affiliateId: string, brandId: string, ownerUserId: string) {
-    const assigned = await queryOne<{ total: number; active: number; today: number }>(
+    const assigned = await queryOne<{ total: number; active: number; today: number; sent_today: number; failed_today: number }>(
       `SELECT
          COUNT(*) AS total,
          SUM(CASE WHEN assignment_status NOT IN ('lost', 'converted', 'recycled') THEN 1 ELSE 0 END) AS active,
-         SUM(CASE WHEN DATE(assigned_at) = CURRENT_DATE THEN 1 ELSE 0 END) AS today
+         SUM(CASE WHEN DATE(assigned_at) = CURRENT_DATE THEN 1 ELSE 0 END) AS today,
+         SUM(CASE WHEN initial_message_status = 'sent' AND DATE(initial_message_at) = CURRENT_DATE THEN 1 ELSE 0 END) AS sent_today,
+         SUM(CASE WHEN initial_message_status = 'failed' AND DATE(assigned_at) = CURRENT_DATE THEN 1 ELSE 0 END) AS failed_today
        FROM prospect_assignments
        WHERE affiliate_id = ? AND brand_id = ?`,
       [affiliateId, brandId]
@@ -1142,17 +1299,23 @@ export class AffiliateDistributionService {
       assigned_total: Number(assigned?.total || 0),
       assigned_active: Number(assigned?.active || 0),
       assigned_today: Number(assigned?.today || 0),
+      messages_sent_today: Number(assigned?.sent_today || 0),
+      messages_failed_today: Number(assigned?.failed_today || 0),
       alerts_unread: Number(alerts?.unread || 0),
       queued_for_brand: Number(queued?.total || 0),
     };
   }
 
-  async listAssignmentsForAffiliate(affiliateId: string, brandId: string, limit = 50) {
+  async listSentActivityForAffiliate(affiliateId: string, brandId: string, limit = 50) {
     await this.ensureSchema();
     const rows = await query<any[]>(
-      `SELECT * FROM prospect_assignments
-       WHERE affiliate_id = ? AND brand_id = ?
-       ORDER BY assigned_at DESC
+      `SELECT pa.*, wi.name AS instance_name, wi.phone AS instance_phone
+       FROM prospect_assignments pa
+       LEFT JOIN whatsapp_instances wi ON wi.id = pa.instance_id
+       WHERE pa.affiliate_id = ? AND pa.brand_id = ?
+         AND pa.initial_message_status = 'sent'
+         AND pa.initial_message_at IS NOT NULL
+       ORDER BY pa.initial_message_at DESC
        LIMIT ?`,
       [affiliateId, brandId, Math.min(limit, 100)]
     );
@@ -1164,7 +1327,7 @@ export class AffiliateDistributionService {
     try { metadata = typeof r.metadata_json === "string" ? JSON.parse(r.metadata_json || "{}") : (r.metadata_json || {}); } catch { metadata = {}; }
     const niche = String(
       metadata.niche || metadata.keyword || metadata.palavra_chave || metadata.segment
-      || metadata.category || metadata.categoria || ""
+      || metadata.category || metadata.categoria || metadata.query || ""
     ).trim() || null;
     return {
       id: String(r.id),
@@ -1180,6 +1343,12 @@ export class AffiliateDistributionService {
       last_interaction_at: r.last_interaction_at ? String(r.last_interaction_at) : null,
       next_followup_at: r.next_followup_at ? String(r.next_followup_at) : null,
       conversion_status: String(r.conversion_status || "open"),
+      initial_message_status: String(r.initial_message_status || "unknown"),
+      initial_message_at: r.initial_message_at ? String(r.initial_message_at) : null,
+      initial_message_error: r.initial_message_error ? String(r.initial_message_error) : null,
+      instance_id: r.instance_id ? String(r.instance_id) : null,
+      instance_name: r.instance_name ? String(r.instance_name) : null,
+      instance_phone: r.instance_phone ? String(r.instance_phone) : null,
       niche,
     };
   }
@@ -1377,6 +1546,58 @@ export class AffiliateDistributionService {
     }
   }
 
+  private async resolveDistributionAudience(ownerUserId: string, brandId: string, rules?: any) {
+    const configuredNiches = parseStringList(rules?.allowed_niches_json);
+    const running = await query<any[]>(
+      `SELECT id, name, filter_json, settings
+       FROM campaign_history
+       WHERE user_id = ? AND brand_id = ? AND status IN ('running', 'active')
+       ORDER BY updated_at DESC`,
+      [ownerUserId, brandId]
+    );
+    const campaignAudiences = (running || []).map((campaign) => {
+      let filter: any = {};
+      let settings: any = {};
+      try { filter = typeof campaign.filter_json === "string" ? JSON.parse(campaign.filter_json || "{}") : (campaign.filter_json || {}); } catch { filter = {}; }
+      try { settings = typeof campaign.settings === "string" ? JSON.parse(campaign.settings || "{}") : (campaign.settings || {}); } catch { settings = {}; }
+      return {
+        campaign_id: String(campaign.id),
+        campaign_name: String(campaign.name || "Campanha ativa"),
+        segments: parseStringList(filter.segments),
+        cities: parseStringList(filter.cities),
+        auto_feed: settings?.autoFeedLeads === true,
+      };
+    }).filter((item) => item.auto_feed && (item.segments.length || item.cities.length));
+    return { configuredNiches, campaignAudiences };
+  }
+
+  private queueItemMatchesAudience(
+    item: any,
+    audience: Awaited<ReturnType<AffiliateDistributionService["resolveDistributionAudience"]>>
+  ) {
+    let metadata: Record<string, any> = {};
+    try { metadata = typeof item.metadata_json === "string" ? JSON.parse(item.metadata_json || "{}") : (item.metadata_json || {}); } catch { metadata = {}; }
+    const niche = String(
+      metadata.niche || metadata.keyword || metadata.palavra_chave || metadata.segment
+      || metadata.category || metadata.categoria || metadata.query || ""
+    ).trim();
+    const city = String(item.prospect_city || metadata.city || metadata.cidade || metadata.location || "").trim();
+
+    if (audience.campaignAudiences.length) {
+      const campaign = audience.campaignAudiences.find((candidate) => {
+        const nicheOk = !candidate.segments.length || audienceValueMatches(niche, candidate.segments);
+        const cityOk = !candidate.cities.length || audienceValueMatches(city, candidate.cities);
+        return nicheOk && cityOk;
+      });
+      return { matches: !!campaign, niche, campaign: campaign || null };
+    }
+    return {
+      matches: !audience.configuredNiches.length || audienceValueMatches(niche, audience.configuredNiches),
+      niche,
+      campaign: null,
+    };
+  }
+
   async enqueueProspect(input: {
     ownerUserId: string;
     brandId: string;
@@ -1397,14 +1618,14 @@ export class AffiliateDistributionService {
     let prospect: any = null;
     try {
       prospect = await queryOne<any>(
-        `SELECT id, name, phone, city, state, address_city, address_state, owner_user_id, brand_id
+        `SELECT id, name, phone, city, state, address_city, address_state, category, subcategory, owner_user_id, brand_id
          FROM customers WHERE id = ? AND owner_user_id = ? LIMIT 1`,
         [input.prospectId, input.ownerUserId]
       );
     } catch (colErr: any) {
       if (String(colErr?.message || "").includes("does not exist") || String(colErr?.message || "").includes("Unknown column")) {
         prospect = await queryOne<any>(
-          `SELECT id, name, phone, city, state, owner_user_id, brand_id
+          `SELECT id, name, phone, city, state, category, subcategory, owner_user_id, brand_id
            FROM customers WHERE id = ? AND owner_user_id = ? LIMIT 1`,
           [input.prospectId, input.ownerUserId]
         );
@@ -1441,6 +1662,16 @@ export class AffiliateDistributionService {
     const region =
       String(prospect.address_state || prospect.state || prospect.address_city || prospect.city || "").trim()
       || null;
+    const metadata = {
+      ...(input.metadata || {}),
+      niche: String(
+        input.metadata?.niche || input.metadata?.keyword || input.metadata?.palavra_chave
+        || input.metadata?.segment || input.metadata?.category || input.metadata?.query
+        || prospect.category || prospect.subcategory || ""
+      ).trim() || null,
+      category: prospect.category || null,
+      subcategory: prospect.subcategory || null,
+    };
     await query(
       `INSERT INTO lead_distribution_queue
        (id, owner_user_id, brand_id, program_id, prospect_id, prospect_ref_table,
@@ -1459,7 +1690,7 @@ export class AffiliateDistributionService {
         region,
         input.source || "panfleteiro_capture",
         input.priorityScore ?? 50,
-        input.metadata ? JSON.stringify(input.metadata) : null,
+        JSON.stringify(metadata),
       ]
     );
 
@@ -1545,6 +1776,121 @@ export class AffiliateDistributionService {
     });
   }
 
+  private async listReadyDistributionSections(
+    ownerUserId: string,
+    brandId: string,
+    programId: string | null,
+    region: string | null,
+    rules: any
+  ) {
+    const affiliates = await this.listEligibleAffiliates(ownerUserId, brandId, programId, region, rules);
+    const dailyLimit = Math.max(1, Number(rules?.per_instance_daily_limit || 40));
+    const hourlyLimit = Math.max(1, Number(rules?.per_instance_hourly_limit || 10));
+    const minuteLimit = Math.max(1, Number(rules?.per_instance_minute_limit || 1));
+
+    const groups = await Promise.all((affiliates || []).map(async (affiliate) => {
+      const health = await getHealthSnapshot({
+        userId: ownerUserId,
+        brandId,
+        isAffiliate: true,
+        ownerActorId: affiliate.affiliate_user_id,
+      });
+      return (health.instances || [])
+        .filter((instance) =>
+          !instance.drift
+          && (instance.status_runtime === "connected"
+            || (instance.status_runtime === "unknown" && instance.status_db === "connected"))
+        )
+        .map((instance) => ({ affiliate, instance }));
+    }));
+
+    const sections = groups.flat();
+    const checked = await Promise.all(sections.map(async ({ affiliate, instance }) => {
+      await query(
+        `INSERT INTO affiliate_distribution_instance_state
+         (instance_id, owner_user_id, brand_id, affiliate_id, affiliate_user_id)
+         VALUES (?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+           affiliate_id = VALUES(affiliate_id),
+           affiliate_user_id = VALUES(affiliate_user_id),
+           brand_id = VALUES(brand_id)`,
+        [instance.id, ownerUserId, brandId, affiliate.id, affiliate.affiliate_user_id]
+      );
+      const [state, usage] = await Promise.all([
+        queryOne<any>(
+          `SELECT * FROM affiliate_distribution_instance_state WHERE instance_id = ? LIMIT 1`,
+          [instance.id]
+        ),
+        queryOne<any>(
+          `SELECT
+             SUM(CASE WHEN initial_message_status = 'sent' AND initial_message_at >= CURRENT_DATE THEN 1 ELSE 0 END) AS sent_today,
+             SUM(CASE WHEN initial_message_status = 'sent' AND initial_message_at >= DATE_SUB(NOW(), INTERVAL 1 HOUR) THEN 1 ELSE 0 END) AS sent_hour,
+             SUM(CASE WHEN initial_message_status = 'sent' AND initial_message_at >= DATE_SUB(NOW(), INTERVAL 1 MINUTE) THEN 1 ELSE 0 END) AS sent_minute,
+             MAX(CASE WHEN initial_message_status = 'sent' THEN initial_message_at ELSE NULL END) AS last_sent_at
+           FROM prospect_assignments
+           WHERE instance_id = ? AND brand_id = ?`,
+          [instance.id, brandId]
+        ),
+      ]);
+      const nextAt = state?.next_send_at ? new Date(state.next_send_at).getTime() : 0;
+      const ready =
+        String(state?.health_status || "healthy") !== "paused"
+        && (!nextAt || nextAt <= Date.now())
+        && Number(usage?.sent_today || 0) < dailyLimit
+        && Number(usage?.sent_hour || 0) < hourlyLimit
+        && Number(usage?.sent_minute || 0) < minuteLimit;
+      return {
+        affiliate,
+        instance,
+        state,
+        usage,
+        ready,
+        next_send_at: state?.next_send_at ? String(state.next_send_at) : null,
+      };
+    }));
+
+    return checked
+      .filter((section) => section.ready)
+      .sort((a, b) => {
+        const aLast = a.usage?.last_sent_at ? new Date(a.usage.last_sent_at).getTime() : 0;
+        const bLast = b.usage?.last_sent_at ? new Date(b.usage.last_sent_at).getTime() : 0;
+        return aLast - bLast;
+      });
+  }
+
+  private async recordSectionDispatch(
+    instanceId: string,
+    rules: any,
+    result: { sent: boolean; reason?: string }
+  ) {
+    if (result.sent) {
+      const base = Math.max(10, Number(rules?.per_instance_min_interval_seconds || 60));
+      const jitterMax = Math.max(0, Number(rules?.per_instance_jitter_seconds || 15));
+      const jitter = jitterMax > 0 ? Math.floor(Math.random() * (jitterMax + 1)) : 0;
+      const nextAt = new Date(Date.now() + (base + jitter) * 1000).toISOString();
+      await query(
+        `UPDATE affiliate_distribution_instance_state
+         SET sent_today = CASE WHEN sent_today_on = CURRENT_DATE THEN sent_today + 1 ELSE 1 END,
+             sent_today_on = CURRENT_DATE, last_sent_at = NOW(), next_send_at = ?,
+             consecutive_failures = 0, health_status = 'healthy', last_error = NULL
+         WHERE instance_id = ?`,
+        [nextAt, instanceId]
+      );
+      return;
+    }
+
+    const cooldownSeconds = ["no_instance", "no_sender"].includes(String(result.reason || "")) ? 300 : 90;
+    const nextAt = new Date(Date.now() + cooldownSeconds * 1000).toISOString();
+    await query(
+      `UPDATE affiliate_distribution_instance_state
+       SET consecutive_failures = consecutive_failures + 1,
+           health_status = CASE WHEN consecutive_failures + 1 >= 3 THEN 'paused' ELSE 'degraded' END,
+           next_send_at = ?, last_error = ?
+       WHERE instance_id = ?`,
+      [nextAt, String(result.reason || "send_failed").slice(0, 160), instanceId]
+    );
+  }
+
   async processQueue(ownerUserId: string, brandId: string, maxItems = 5) {
     await this.ensureSchema();
     await this.refreshAllDistributionStatuses(ownerUserId, brandId);
@@ -1560,9 +1906,36 @@ export class AffiliateDistributionService {
     const results: any[] = [];
     for (const item of pending || []) {
       const rules = await this.getOrCreateRules(ownerUserId, brandId, item.program_id);
-      await query(`UPDATE lead_distribution_queue SET queue_status = 'processing' WHERE id = ?`, [item.id]);
+      const claimed = await query<any>(
+        `UPDATE lead_distribution_queue
+         SET queue_status = 'processing', error_message = NULL
+         WHERE id = ? AND queue_status = 'pending'`,
+        [item.id]
+      );
+      if (Number(claimed?.affectedRows || claimed?.rowCount || 0) === 0) continue;
 
-      const eligible = await this.listEligibleAffiliates(
+      const audience = await this.resolveDistributionAudience(ownerUserId, brandId, rules);
+      const audienceMatch = this.queueItemMatchesAudience(item, audience);
+      if (!audienceMatch.matches) {
+        const reason = audience.campaignAudiences.length
+          ? `Fora do público das campanhas ativas: ${audience.campaignAudiences.map((c) => c.campaign_name).join(", ")}`
+          : `Nicho fora do filtro de distribuição: ${audience.configuredNiches.join(", ")}`;
+        await query(
+          `UPDATE lead_distribution_queue
+           SET queue_status = 'filtered_out', error_message = ?
+           WHERE id = ? AND queue_status = 'processing'`,
+          [reason.slice(0, 255), item.id]
+        );
+        results.push({
+          queue_id: item.id,
+          assigned: false,
+          reason: "audience_mismatch",
+          niche: audienceMatch.niche,
+        });
+        continue;
+      }
+
+      const readySections = await this.listReadyDistributionSections(
         ownerUserId,
         brandId,
         item.program_id,
@@ -1570,30 +1943,20 @@ export class AffiliateDistributionService {
         rules
       );
 
-      if (!eligible.length) {
+      if (!readySections.length) {
         await query(
           `UPDATE lead_distribution_queue
            SET queue_status = 'pending', error_message = ?
            WHERE id = ?`,
           ["Nenhum afiliado elegível no momento", item.id]
         );
-        results.push({ queue_id: item.id, assigned: false, reason: "no_eligible_affiliate" });
-        void this.emitNoEligibleAffiliateAlert(ownerUserId, brandId);
+        results.push({ queue_id: item.id, assigned: false, reason: "no_ready_section" });
         continue;
       }
 
-      const pick = eligible[0];
-      const health = await getHealthSnapshot({
-        userId: ownerUserId,
-        brandId,
-        isAffiliate: true,
-        ownerActorId: pick.affiliate_user_id,
-      });
-      const instance = (health.instances || []).find(
-        (i) => i.status_runtime === "connected" && !i.drift,
-      ) || (health.instances || []).find(
-        (i) => !i.drift && i.status_runtime === "unknown" && i.status_db === "connected",
-      ) || (health.instances || []).find((i) => i.status_runtime === "connected");
+      const selectedSection = readySections[0];
+      const pick = selectedSection.affiliate;
+      const instance = selectedSection.instance;
 
       const assignmentId = randomUUID();
       const today = todayDateOnly();
@@ -1653,6 +2016,7 @@ export class AffiliateDistributionService {
         instanceId: instance?.id || null,
         rules,
       });
+      await this.recordSectionDispatch(String(instance.id), rules, initialSend);
 
       await this.ensureAlert({
         ownerUserId,
@@ -2022,6 +2386,7 @@ export const affiliateDistributionService = new AffiliateDistributionService();
 
 let followupTimer: NodeJS.Timeout | null = null;
 let queueTimer: NodeJS.Timeout | null = null;
+let queueTickRunning = false;
 
 export function startDistributionFollowupMonitor(): void {
   if (followupTimer) return;
@@ -2041,10 +2406,14 @@ export function startDistributionFollowupMonitor(): void {
 export function startDistributionQueueMonitor(): void {
   if (queueTimer) return;
   const tick = () => {
-    void affiliateDistributionService.processAllPendingQueues(15, 10).catch((e: any) => {
-      logger.warn(`[affiliateDistribution] queue tick failed: ${e?.message || e}`);
-    });
+    if (queueTickRunning) return;
+    queueTickRunning = true;
+    void affiliateDistributionService.processAllPendingQueues(15, 25)
+      .catch((e: any) => {
+        logger.warn(`[affiliateDistribution] queue tick failed: ${e?.message || e}`);
+      })
+      .finally(() => { queueTickRunning = false; });
   };
-  setTimeout(tick, 90_000);
-  queueTimer = setInterval(tick, 3 * 60_000);
+  setTimeout(tick, 15_000);
+  queueTimer = setInterval(tick, 15_000);
 }

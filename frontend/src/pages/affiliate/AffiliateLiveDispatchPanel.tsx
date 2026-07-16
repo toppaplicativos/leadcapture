@@ -20,7 +20,14 @@ type DistributionStatus = {
   enrollment_status?: string | null
   program_name?: string | null
   terms_html?: string | null
-  stats?: { assigned_total?: number; assigned_active?: number; assigned_today?: number; queued_for_brand?: number }
+  stats?: {
+    assigned_total?: number
+    assigned_active?: number
+    assigned_today?: number
+    messages_sent_today?: number
+    messages_failed_today?: number
+    queued_for_brand?: number
+  }
 }
 
 type Assignment = {
@@ -34,6 +41,12 @@ type Assignment = {
   last_interaction_at?: string | null
   conversion_status?: string
   niche?: string | null
+  initial_message_status?: string
+  initial_message_at?: string | null
+  initial_message_error?: string | null
+  instance_id?: string | null
+  instance_name?: string | null
+  instance_phone?: string | null
 }
 
 type AssistantControl = {
@@ -48,13 +61,13 @@ type AssistantControl = {
   campaigns: { active: number; queued: number; sent_today: number }
 }
 
-const STATUS_TEXT: Record<string, string> = {
-  assigned: 'Recebido', active: 'Em atendimento', converted: 'Convertido',
-  lost: 'Encerrado', recycled: 'Redistribuído',
-}
-const STAGE_TEXT: Record<string, string> = {
-  assigned_to_affiliate: 'Novo contato', engaged: 'Contato respondeu',
-  needs_human_attention: 'Precisa de atenção', converted: 'Venda registrada',
+const DELIVERY_TEXT: Record<string, string> = {
+  sent: 'Enviado pelo WhatsApp',
+  failed: 'Falha no envio',
+  not_sent: 'Ainda não enviado',
+  disabled: 'Envio automático pausado',
+  pending: 'Preparando envio',
+  unknown: 'Entrega não confirmada',
 }
 
 function relativeTime(value?: string | null) {
@@ -137,8 +150,11 @@ export function AffiliateLiveDispatchPanel({
   }, [load, ctx.cacheVersion])
 
   const live = Boolean(status?.can_receive)
-  const active = Number(status?.stats?.assigned_active || 0)
-  const total = Number(status?.stats?.assigned_total || assignments.length)
+  const sentTotal = assignments.length
+  const engaged = useMemo(
+    () => assignments.filter((item) => item.current_stage === 'engaged').length,
+    [assignments],
+  )
   const converted = useMemo(() => assignments.filter((item) => item.assignment_status === 'converted' || item.conversion_status === 'converted').length, [assignments])
   const pendingChecks = useMemo(
     () => (status?.checklist || []).filter((item) => !item.ok),
@@ -153,7 +169,8 @@ export function AffiliateLiveDispatchPanel({
   )
   const capacityPerConn = Number(control?.connections?.capacity_per_connection || 40)
   const capacity = Number(control?.connections?.daily_capacity || 0) || (connected * capacityPerConn)
-  const sentToday = Number(status?.stats?.assigned_today || control?.campaigns?.sent_today || 0)
+  const sentToday = Number(status?.stats?.messages_sent_today || 0)
+  const failedToday = Number(status?.stats?.messages_failed_today || 0)
   const queued = Number(status?.stats?.queued_for_brand || control?.campaigns?.queued || 0)
   const capacityPct = capacity > 0 ? Math.min(100, Math.round((sentToday / capacity) * 100)) : 0
 
@@ -286,12 +303,13 @@ export function AffiliateLiveDispatchPanel({
                 : ' · conecte um WhatsApp para liberar alcance'}
             </p>
           </div>
-          <strong>{sentToday}<small> hoje</small></strong>
+          <strong>{sentToday}<small> enviados hoje</small></strong>
         </div>
         <div className="affiliate-ops__progress"><span style={{ width: `${capacityPct}%` }} /></div>
         <div className="affiliate-ops__queue">
           <span><Radio size={13} /> {control?.campaigns?.active || 0} campanhas</span>
           <span><Clock3 size={13} /> {queued} na fila</span>
+          {failedToday > 0 && <span><AlertTriangle size={13} /> {failedToday} com falha</span>}
           {connected > 0 && (
             <span>{capacityPerConn}/conexão</span>
           )}
@@ -360,14 +378,14 @@ export function AffiliateLiveDispatchPanel({
           </ul>
         )}
         <div className="affiliate-live__metrics">
-          <div><span>Ativos</span><strong>{active}</strong></div>
-          <div><span>Recebidos</span><strong>{total}</strong></div>
+          <div><span>Enviados</span><strong>{sentTotal}</strong></div>
+          <div><span>Responderam</span><strong>{engaged}</strong></div>
           <div><span>Convertidos</span><strong>{converted}</strong></div>
         </div>
       </section>
 
       <div className="affiliate-live__section-head">
-        <div><h3>Atividade recente</h3><p>{updatedAt ? `Atualizado ${relativeTime(updatedAt.toISOString()).toLowerCase()}` : 'Sincronizando dados reais'}</p></div>
+        <div><h3>Envios confirmados</h3><p>{updatedAt ? `Atualizado ${relativeTime(updatedAt.toISOString()).toLowerCase()}` : 'Sincronizando dados reais'}</p></div>
         <span>{assignments.length}</span>
       </div>
       {error && <div className="affiliate-live__error"><AlertTriangle size={17} /><span>{error}</span><button type="button" onClick={() => void load()}>Tentar novamente</button></div>}
@@ -375,23 +393,27 @@ export function AffiliateLiveDispatchPanel({
         <div className="space-y-2"><div className="affiliate-skel h-24" /><div className="affiliate-skel h-24" /><div className="affiliate-skel h-24" /></div>
       ) : !assignments.length ? (
         <div className="affiliate-live__empty">
-          <Activity size={25} /><p>Nenhum contato recebido ainda</p>
-          <span>{live ? 'Esta tela será atualizada automaticamente quando a marca iniciar uma distribuição.' : 'Resolva o bloqueio acima para começar a receber.'}</span>
+          <Activity size={25} /><p>Nenhum envio confirmado ainda</p>
+          <span>{live ? 'Somente mensagens realmente enviadas pela sua seção do WhatsApp aparecerão aqui.' : 'Resolva o bloqueio acima para começar a enviar.'}</span>
         </div>
       ) : (
         <div className="affiliate-live__feed">
           {assignments.map((item) => {
             const convertedItem = item.assignment_status === 'converted' || item.conversion_status === 'converted'
-            const needsAttention = item.current_stage === 'needs_human_attention'
+            const deliveryFailed = item.initial_message_status === 'failed' || item.initial_message_status === 'not_sent'
+            const needsAttention = item.current_stage === 'needs_human_attention' || deliveryFailed
             const Icon = convertedItem ? CheckCircle2 : needsAttention ? AlertTriangle : UserRound
             return (
               <article key={item.id} className="affiliate-live__item">
                 <div className={`affiliate-live__item-icon ${convertedItem ? 'is-success' : needsAttention ? 'is-warning' : ''}`}><Icon size={18} /></div>
                 <div className="min-w-0 flex-1">
-                  <div className="affiliate-live__item-top"><p>{item.prospect_name || 'Novo contato'}</p><time>{relativeTime(item.last_interaction_at || item.assigned_at)}</time></div>
+                  <div className="affiliate-live__item-top"><p>{item.prospect_name || 'Novo contato'}</p><time>{relativeTime(item.initial_message_at)}</time></div>
                   <span className="affiliate-live__place">{[item.prospect_city, item.prospect_region].filter(Boolean).join(' · ') || 'Região não informada'}</span>
-                  <span className="affiliate-live__niche">{item.niche || 'Nicho ainda não identificado'}</span>
-                  <div className="affiliate-live__item-status"><span>{STATUS_TEXT[item.assignment_status] || 'Em acompanhamento'}</span><small><Clock3 size={11} /> {STAGE_TEXT[item.current_stage] || 'Fluxo iniciado'}</small></div>
+                  <span className="affiliate-live__niche">{item.niche || 'Nicho não informado na origem'}</span>
+                  <div className="affiliate-live__item-status">
+                    <span>{DELIVERY_TEXT[item.initial_message_status || 'sent'] || 'Enviado pelo WhatsApp'}</span>
+                    <small><Send size={11} /> {item.instance_name || item.instance_phone || 'Seção do afiliado'}</small>
+                  </div>
                 </div>
               </article>
             )

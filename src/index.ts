@@ -1454,23 +1454,43 @@ app.post("/api/instances/:id/reconnect", authMiddleware, async (req: any, res) =
     if (!allowed) return res.status(404).json({ error: "Instance not found" });
 
     const id = req.params.id;
-
-    // Desconecta o socket atual para forçar novo QR
-    await instanceManager.disconnectInstance(id).catch(() => {});
-
-    // Inicia reconexão — aguarda QR por até 18s
-    const qrPromise = instanceManager.connectInstance(id);
-    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 18000));
-    const qrCode = await Promise.race([qrPromise, timeoutPromise]);
-
-    if (qrCode) {
-      return res.json({ success: true, qr: qrCode, qrCode, status: "qr_ready" });
+    const runtimeStatus = instanceManager.getRuntimeStatus(id);
+    if (runtimeStatus === "connected") {
+      return res.json({
+        success: true,
+        qr: null,
+        status: "connected",
+        preserved: true,
+        message: "Sessão já está online e foi preservada.",
+      });
+    }
+    if (runtimeStatus === "connecting" || runtimeStatus === "pairing") {
+      return res.json({
+        success: true,
+        qr: null,
+        status: runtimeStatus,
+        preserved: true,
+        message: runtimeStatus === "pairing"
+          ? "Pareamento já está em andamento."
+          : "Reconexão já está em andamento.",
+      });
     }
 
-    // Sem QR → provavelmente reconectou com sessão salva
+    /* Reconexão de manutenção nunca faz logout. connectInstance reutiliza as
+       credenciais salvas e só abre QR se realmente não houver sessão válida. */
+    const qrPromise = instanceManager.ensureStableConnection(id);
+    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 18000));
+    await Promise.race([qrPromise, timeoutPromise]);
+
     const liveInst = instanceManager.getAllInstances(scope.ownerUserId).find((i: any) => i.id === id);
-    const status = liveInst?.status || "connecting";
-    res.json({ success: true, qr: null, status, message: status === "connected" ? "Reconectado com sessao salva!" : "Conectando..." });
+    const status = instanceManager.getRuntimeStatus(id) || liveInst?.status || "connecting";
+    res.json({
+      success: true,
+      qr: null,
+      status,
+      preserved: true,
+      message: status === "connected" ? "Reconectado com sessão salva!" : "Conectando com a sessão salva...",
+    });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }

@@ -1,4 +1,4 @@
-import { query, queryOne } from "../config/database";
+import { getPool, query, queryOne } from "../config/database";
 
 export type InstanceOwnerType = "admin" | "affiliate";
 
@@ -74,39 +74,59 @@ export async function allocateAffiliateSessionCode(input: {
   const brandSlug = slugifyBrandCode(brand?.slug || brand?.name || "org");
   const brandName = brand?.name ? String(brand.name) : null;
 
-  const existing = await query<{ name: string }[]>(
-    `SELECT name FROM whatsapp_instances
-     WHERE created_by = ?
-       AND brand_id = ?
-       AND owner_type = 'affiliate'
-       AND owner_actor_id = ?
-     ORDER BY created_at ASC`,
-    [input.ownerUserId, input.brandId, input.actorUserId],
-  );
+  await ensureWhatsAppInstanceOwnerSchema();
 
-  const used = new Set<number>();
-  const prefix = `${brandSlug}-WA-`;
-  for (const row of existing || []) {
-    const n = String(row.name || "");
-    const m = n.match(new RegExp(`^${brandSlug}-WA-(\\d+)`, "i"));
-    if (m) used.add(Number(m[1]));
+  /* Reserva o próximo número sob lock de linha. Antes, dois requests
+     simultâneos podiam ler a mesma lista e gerar o mesmo código. */
+  const connection = await getPool().getConnection();
+  try {
+    await connection.query("BEGIN");
+    await connection.execute(
+      `INSERT IGNORE INTO affiliate_whatsapp_session_sequences
+         (owner_user_id, brand_id, actor_user_id, next_seq)
+       VALUES (?, ?, ?, 1)`,
+      [input.ownerUserId, input.brandId, input.actorUserId],
+    );
+    const [counterRows] = await connection.execute<any[]>(
+      `SELECT next_seq
+       FROM affiliate_whatsapp_session_sequences
+       WHERE owner_user_id = ? AND brand_id = ? AND actor_user_id = ?
+       FOR UPDATE`,
+      [input.ownerUserId, input.brandId, input.actorUserId],
+    );
+    const [existingRows] = await connection.execute<any[]>(
+      `SELECT name FROM whatsapp_instances
+       WHERE created_by = ? AND brand_id = ?
+         AND owner_type = 'affiliate' AND owner_actor_id = ?`,
+      [input.ownerUserId, input.brandId, input.actorUserId],
+    );
+
+    const used = new Set<number>();
+    for (const row of existingRows || []) {
+      const match = String(row.name || "").match(new RegExp(`^${brandSlug}-WA-(\\d+)`, "i"));
+      if (match) used.add(Number(match[1]));
+    }
+    let seq = Math.max(1, Number(counterRows?.[0]?.next_seq || 1));
+    while (used.has(seq)) seq += 1;
+    if (seq > 50) {
+      throw new Error("Limite de 50 sessões WhatsApp por organização atingido para este afiliado");
+    }
+
+    await connection.execute(
+      `UPDATE affiliate_whatsapp_session_sequences
+       SET next_seq = ?, updated_at = NOW()
+       WHERE owner_user_id = ? AND brand_id = ? AND actor_user_id = ?`,
+      [seq + 1, input.ownerUserId, input.brandId, input.actorUserId],
+    );
+    await connection.query("COMMIT");
+    const trackingCode = `${brandSlug}-WA-${String(seq).padStart(3, "0")}`;
+    return { name: trackingCode, trackingCode, seq, brandSlug, brandName };
+  } catch (error) {
+    await connection.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally {
+    connection.release();
   }
-
-  let seq = 1;
-  while (used.has(seq)) seq += 1;
-  // Soft-cap por afiliado/marca (muitas sessões possíveis, sem estourar plano admin)
-  if (seq > 50) {
-    throw new Error("Limite de 50 sessões WhatsApp por organização atingido para este afiliado");
-  }
-
-  const trackingCode = `${prefix}${String(seq).padStart(3, "0")}`;
-  return {
-    name: trackingCode,
-    trackingCode,
-    seq,
-    brandSlug,
-    brandName,
-  };
 }
 
 async function columnExists(tableName: string, columnName: string): Promise<boolean> {
@@ -156,6 +176,16 @@ export async function ensureWhatsAppInstanceOwnerSchema(): Promise<void> {
     } catch {
       // index may already exist
     }
+    await query(
+      `CREATE TABLE IF NOT EXISTS affiliate_whatsapp_session_sequences (
+         owner_user_id VARCHAR(36) NOT NULL,
+         brand_id VARCHAR(36) NOT NULL,
+         actor_user_id VARCHAR(36) NOT NULL,
+         next_seq INT NOT NULL DEFAULT 1,
+         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+         PRIMARY KEY (owner_user_id, brand_id, actor_user_id)
+       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    );
 
     schemaReady = true;
   })();

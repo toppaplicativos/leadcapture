@@ -1237,12 +1237,12 @@ router.get("/distribution/assignments", async (req: AuthRequest, res: Response) 
     if (!affiliate) return res.status(404).json({ error: "Perfil de afiliado não encontrado" });
 
     const limit = Math.min(Number(req.query.limit) || 50, 100);
-    const assignments = await affiliateDistributionService.listAssignmentsForAffiliate(
+    const activity = await affiliateDistributionService.listSentActivityForAffiliate(
       String(affiliate.id),
       ctx.brandId,
       limit
     );
-    res.json({ success: true, assignments });
+    res.json({ success: true, assignments: activity, activity });
   } catch (e: any) {
     res.status(500).json({ error: e.message || "Falha ao listar oportunidades" });
   }

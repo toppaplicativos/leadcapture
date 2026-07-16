@@ -595,7 +595,7 @@ export class InstanceManager {
     this.clearPairingSessionGuard(id);
     this.pairingErrors.delete(id);
     this.pairingSessions.add(id);
-    this.pauseAllReconnectsForPairing();
+    this.pauseReconnectForPairing(id);
     const timer = setTimeout(() => {
       if (!this.pairingSessions.has(id)) return;
       logger.warn(`Pairing session TTL expired for ${id} — releasing guard and cleaning socket.`);
@@ -1031,12 +1031,14 @@ export class InstanceManager {
     });
   }
 
-  private pauseAllReconnectsForPairing(): void {
-    for (const [instId, timer] of this.reconnectTimers) {
-      clearTimeout(timer);
-      this.reconnectTimers.delete(instId);
-      logger.info(`Reconnect pausado (${instId}) — pairing em andamento.`);
-    }
+  private pauseReconnectForPairing(id: string): void {
+    /* Parear uma nova sessão não pode interferir nas demais. Antes, qualquer
+       pairing cancelava todos os timers de reconnect do processo. */
+    const timer = this.reconnectTimers.get(id);
+    if (!timer) return;
+    clearTimeout(timer);
+    this.reconnectTimers.delete(id);
+    logger.info(`Reconnect pausado apenas para ${id} — pairing desta sessão em andamento.`);
   }
 
   /** Escolhe o E.164 que o WhatsApp reconhece antes de gerar o código. */

@@ -8,6 +8,7 @@ const QUEUE_STATUS: Record<string, string> = {
   pending: 'Aguardando',
   processing: 'Processando',
   assigned: 'Atribuído',
+  filtered_out: 'Fora do filtro',
 }
 
 const TEMPLATE_HINT =
@@ -41,6 +42,11 @@ export function AffiliateDistributionSection({ showToast, saving, setSaving }: P
     auto_enqueue_capture: true,
     auto_send_initial_message: true,
     max_daily_per_affiliate: 20,
+    per_instance_daily_limit: 40,
+    per_instance_hourly_limit: 10,
+    per_instance_minute_limit: 1,
+    per_instance_min_interval_seconds: 60,
+    per_instance_jitter_seconds: 15,
     initial_message_template: '',
     followup_enabled: true,
     followup_delays_hours_json: '[24,48,72]',
@@ -50,6 +56,7 @@ export function AffiliateDistributionSection({ showToast, saving, setSaving }: P
     require_terms_accepted: true,
     require_pix_key: false,
     allowed_regions_json: '',
+    allowed_niches_json: '',
   })
 
   const load = useCallback(async () => {
@@ -74,6 +81,11 @@ export function AffiliateDistributionSection({ showToast, saving, setSaving }: P
         auto_enqueue_capture: r.auto_enqueue_capture !== false && r.auto_enqueue_capture !== 0,
         auto_send_initial_message: r.auto_send_initial_message !== false && r.auto_send_initial_message !== 0,
         max_daily_per_affiliate: Number(r.max_daily_per_affiliate || 20),
+        per_instance_daily_limit: Number(r.per_instance_daily_limit || 40),
+        per_instance_hourly_limit: Number(r.per_instance_hourly_limit || 10),
+        per_instance_minute_limit: Number(r.per_instance_minute_limit || 1),
+        per_instance_min_interval_seconds: Number(r.per_instance_min_interval_seconds || 60),
+        per_instance_jitter_seconds: Number(r.per_instance_jitter_seconds || 15),
         initial_message_template: String(r.initial_message_template || ''),
         followup_enabled: r.followup_enabled !== false && r.followup_enabled !== 0,
         followup_delays_hours_json: String(r.followup_delays_hours_json || '[24,48,72]'),
@@ -83,6 +95,12 @@ export function AffiliateDistributionSection({ showToast, saving, setSaving }: P
         require_terms_accepted: r.require_terms_accepted !== false && r.require_terms_accepted !== 0,
         require_pix_key: r.require_pix_key === true || r.require_pix_key === 1,
         allowed_regions_json: String(r.allowed_regions_json || ''),
+        allowed_niches_json: (() => {
+          try {
+            const parsed = JSON.parse(String(r.allowed_niches_json || '[]'))
+            return Array.isArray(parsed) ? parsed.join(', ') : ''
+          } catch { return String(r.allowed_niches_json || '') }
+        })(),
       })
     } catch (e: unknown) {
       showToastRef.current(e instanceof Error ? e.message : 'Erro', 'err')
@@ -270,7 +288,7 @@ export function AffiliateDistributionSection({ showToast, saving, setSaving }: P
               : <ToggleLeft size={22} className="text-gray-400" />}
           </button>
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-gray-600">Limite diário por afiliado</span>
+            <span className="text-gray-600">Limite de atribuições por afiliado</span>
             <input
               type="number"
               min={1}
@@ -280,6 +298,33 @@ export function AffiliateDistributionSection({ showToast, saving, setSaving }: P
               className="rounded-lg border border-gray-200 px-3 py-2"
             />
           </label>
+          <div className="sm:col-span-2 rounded-[18px] border border-gray-200 bg-gray-50 p-4">
+            <h4 className="text-sm font-semibold text-gray-900">Ritmo individual de cada seção</h4>
+            <p className="mb-3 mt-0.5 text-xs text-gray-500">
+              Cada WhatsApp possui contadores e próximo horário próprios. Cinco seções disponíveis podem enviar no mesmo ciclo.
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+              {[
+                ['per_instance_daily_limit', 'Por dia', 1, 500],
+                ['per_instance_hourly_limit', 'Por hora', 1, 120],
+                ['per_instance_minute_limit', 'Por minuto', 1, 10],
+                ['per_instance_min_interval_seconds', 'Intervalo mínimo (s)', 10, 3600],
+                ['per_instance_jitter_seconds', 'Variação saudável (s)', 0, 300],
+              ].map(([key, label, min, max]) => (
+                <label key={String(key)} className="flex flex-col gap-1 text-xs">
+                  <span className="font-medium text-gray-600">{String(label)}</span>
+                  <input
+                    type="number"
+                    min={Number(min)}
+                    max={Number(max)}
+                    value={Number(rulesForm[key as keyof typeof rulesForm])}
+                    onChange={(e) => setRulesForm((form) => ({ ...form, [key]: Number(e.target.value) }))}
+                    className="h-11 rounded-[16px] border border-gray-200 bg-white px-3 tabular-nums"
+                  />
+                </label>
+              ))}
+            </div>
+          </div>
           <button
             type="button"
             className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm"
@@ -320,6 +365,18 @@ export function AffiliateDistributionSection({ showToast, saving, setSaving }: P
               ? <ToggleRight size={22} className="text-emerald-600" />
               : <ToggleLeft size={22} className="text-gray-400" />}
           </button>
+          <label className="flex flex-col gap-1 text-sm sm:col-span-2">
+            <span className="text-gray-600">Nichos permitidos (opcional)</span>
+            <input
+              value={rulesForm.allowed_niches_json}
+              onChange={(e) => setRulesForm((f) => ({ ...f, allowed_niches_json: e.target.value }))}
+              className="rounded-lg border border-gray-200 px-3 py-2"
+              placeholder="Ex.: restaurante, buffet, hotel"
+            />
+            <span className="text-xs text-gray-400">
+              Quando existe campanha ativa com alimentação automática, o público da campanha tem prioridade.
+            </span>
+          </label>
           <label className="flex flex-col gap-1 text-sm sm:col-span-2">
             <span className="text-gray-600">Regiões permitidas (JSON, opcional)</span>
             <input
@@ -383,6 +440,42 @@ export function AffiliateDistributionSection({ showToast, saving, setSaving }: P
           {saving ? 'Salvando…' : 'Salvar regras'}
         </button>
       </div>
+
+      {Array.isArray(overview?.sections) && overview.sections.length > 0 && (
+        <div className="rounded-[20px] border border-gray-200 bg-white p-4">
+          <div className="mb-3">
+            <h3 className="text-sm font-semibold text-gray-900">Seções em operação</h3>
+            <p className="text-xs text-gray-500">Capacidade, saúde e próximo disparo são calculados separadamente.</p>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {overview.sections.map((section: any) => (
+              <article key={section.instance_id} className="rounded-[18px] border border-gray-200 p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-gray-900">{section.instance_name || 'Seção WhatsApp'}</p>
+                    <p className="truncate text-xs text-gray-500">{section.affiliate_name || 'Afiliado'} · {section.instance_phone || 'número protegido'}</p>
+                  </div>
+                  <span className={`rounded-full px-2 py-1 text-[10px] font-semibold ${
+                    section.health_status === 'healthy' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
+                  }`}>
+                    {section.health_status === 'healthy' ? 'Saudável' : section.health_status === 'paused' ? 'Pausada' : 'Atenção'}
+                  </span>
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                  <div className="rounded-xl bg-gray-50 p-2">
+                    <span className="text-gray-500">Enviados hoje</span>
+                    <strong className="block text-base tabular-nums text-gray-900">{section.sent_today || 0}</strong>
+                  </div>
+                  <div className="rounded-xl bg-gray-50 p-2">
+                    <span className="text-gray-500">Próximo envio</span>
+                    <strong className="block truncate text-xs text-gray-900">{section.next_send_at ? dt(section.next_send_at) : 'Disponível'}</strong>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="rounded-xl border border-gray-200 overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">

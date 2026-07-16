@@ -9,6 +9,7 @@ import {
   CreditCard, QrCode, Banknote, User, BadgeCheck, Headphones, Brain,
   Boxes, Store, Laptop, CheckCircle2, Copy, Info, AlertTriangle, Star,
   Camera, Ticket, Percent, MessageSquareQuote, ThumbsUp, ThumbsDown, Film, ShoppingBag,
+  SearchCheck, PlugZap, ShieldCheck, CircleDollarSign,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { adminApi, inventoryApi } from '@/lib/api-admin'
@@ -32,6 +33,14 @@ export function DomainView({ showToast }: { showToast: (t: string, tp?: 'ok' | '
   const [instructions, setInstructions] = useState<any>(null)
   const [verifying, setVerifying] = useState<string | null>(null)
   const [verifyResult, setVerifyResult] = useState<any>(null)
+  const [accessMode, setAccessMode] = useState<'buy' | 'connect'>('buy')
+  const [registrar, setRegistrar] = useState<any>(null)
+  const [domainQuery, setDomainQuery] = useState('')
+  const [searchingDomain, setSearchingDomain] = useState(false)
+  const [domainResults, setDomainResults] = useState<any[]>([])
+  const [selectedDomain, setSelectedDomain] = useState<any>(null)
+  const [domainConfirmation, setDomainConfirmation] = useState('')
+  const [registeringDomain, setRegisteringDomain] = useState(false)
 
   function load() {
     setLoading(true)
@@ -48,6 +57,58 @@ export function DomainView({ showToast }: { showToast: (t: string, tp?: 'ok' | '
       }).catch(() => setLoading(false))
   }
   useEffect(() => { load() }, [])
+  useEffect(() => {
+    fetch('/api/storefront/domain-commerce/status', { headers: getHeaders() })
+      .then((r) => r.json())
+      .then((data) => setRegistrar(data))
+      .catch(() => setRegistrar({ mode: 'setup_required', search_enabled: false, purchase_enabled: false }))
+  }, [])
+
+  async function searchDomains() {
+    const query = domainQuery.trim().toLowerCase()
+    if (!query) return
+    setSearchingDomain(true)
+    setDomainResults([])
+    try {
+      const r = await fetch('/api/storefront/domain-commerce/search', {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({ query }),
+      })
+      const data = await r.json()
+      if (!r.ok) throw new Error(data.error || 'Não foi possível pesquisar')
+      setDomainResults(data.results || [])
+    } catch (e: any) {
+      showToast(e.message || 'Não foi possível pesquisar', 'err')
+    } finally {
+      setSearchingDomain(false)
+    }
+  }
+
+  async function registerDomain() {
+    if (!store?.id || !selectedDomain?.domain) return
+    setRegisteringDomain(true)
+    try {
+      const r = await fetch(`/api/storefront/stores/${store.id}/domains/register`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({
+          domain: selectedDomain.domain,
+          confirmation: domainConfirmation,
+        }),
+      })
+      const data = await r.json()
+      if (!r.ok) throw new Error(data.error || 'Não foi possível registrar o domínio')
+      showToast(data.message || 'Registro iniciado')
+      setSelectedDomain(null)
+      setDomainConfirmation('')
+      load()
+    } catch (e: any) {
+      showToast(e.message || 'Não foi possível registrar o domínio', 'err')
+    } finally {
+      setRegisteringDomain(false)
+    }
+  }
 
   async function addDomain() {
     if (!newDomain.trim() || !store?.id) return
@@ -123,78 +184,311 @@ export function DomainView({ showToast }: { showToast: (t: string, tp?: 'ok' | '
   if (loading) return <Skeleton rows={5} />
 
   const hasDomains = domains.length > 0
+  const primaryDomain = String(
+    domains.find((d: any) => d.is_primary && d.verification_status === 'verified')?.domain || '',
+  ).trim()
+  const platformOrigin = window.location.origin.replace(/\/+$/, '')
+  const publicBase = primaryDomain ? `https://${primaryDomain}` : `${platformOrigin}/catalogo/${store?.slug || ''}`
+  const linkExamples = [
+    { label: 'Loja', value: publicBase, icon: Store },
+    {
+      label: 'Produtos',
+      value: primaryDomain ? `${publicBase}/produto/nome-do-produto` : `${publicBase}/produto/nome-do-produto`,
+      icon: ShoppingBag,
+    },
+    {
+      label: 'Afiliados',
+      value: primaryDomain ? `${publicBase}/afiliado/codigo` : `${platformOrigin}/afiliado/codigo`,
+      icon: Users,
+    },
+  ]
 
   return (
     <div className="space-y-5">
-      <div>
-        <h2 className="text-[26px] font-bold text-gray-900 tracking-tight">Dominio Personalizado</h2>
-        <p className="text-[13px] text-gray-400 mt-0.5">Conecte seu dominio ao catalogo</p>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="text-[11px] font-semibold text-gray-500">Presença digital</p>
+          <h2 className="mt-1 text-[22px] font-bold text-gray-900 tracking-tight">Domínios e links</h2>
+          <p className="mt-1 max-w-2xl text-[13px] leading-relaxed text-gray-500">
+            Um endereço principal para a loja, produtos e links dos afiliados. O white-label é aplicado automaticamente.
+          </p>
+        </div>
+        <span className={`inline-flex h-8 w-fit items-center gap-1.5 rounded-full px-3 text-[11px] font-semibold ${
+          primaryDomain ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-600'
+        }`}>
+          {primaryDomain ? <CheckCircle2 size={13} /> : <Globe size={13} />}
+          {primaryDomain ? 'White-label ativo' : 'Usando domínio da plataforma'}
+        </span>
       </div>
 
-      {/* Current catalog URL */}
       {store?.slug && (
-        <div className="bg-white rounded-2xl border border-border-light p-4 flex items-center justify-between">
-          <div>
-            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em]">URL gratuita do catalogo</p>
-            <a href={`/catalogo/${store.slug}`} target="_blank" rel="noreferrer" className="text-sm font-semibold text-blue-600 hover:underline mt-1 block">
-              {window.location.origin}/catalogo/{store.slug}
-            </a>
+        <section className="rounded-[20px] border border-gray-200 bg-white p-4 sm:p-5">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-bold text-gray-900">Como seus links aparecem</h3>
+              <p className="mt-1 text-xs text-gray-500">
+                {primaryDomain
+                  ? 'O domínio da marca é usado por padrão em toda comunicação pública.'
+                  : 'Estes links migram automaticamente quando um domínio próprio for conectado.'}
+              </p>
+            </div>
+            {primaryDomain && (
+              <a
+                href={publicBase}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex h-9 items-center rounded-xl bg-gray-900 px-3 text-[11px] font-semibold text-white hover:bg-gray-800"
+              >
+                Abrir site
+              </a>
+            )}
           </div>
-          <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full">Sempre ativo</span>
-        </div>
+          <div className="mt-4 grid gap-2 lg:grid-cols-3">
+            {linkExamples.map(({ label, value, icon: Icon }) => (
+              <div key={label} className="min-w-0 rounded-2xl border border-gray-200 bg-gray-50 p-3">
+                <div className="flex items-center gap-2 text-[11px] font-semibold text-gray-600">
+                  <Icon size={14} />
+                  {label}
+                </div>
+                <p className="mt-2 truncate font-mono text-[11px] text-gray-800">{value}</p>
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 text-[11px] leading-relaxed text-gray-500">
+            Links antigos permanecem válidos e redirecionam para o endereço principal sem perder cupom ou rastreamento.
+          </p>
+        </section>
       )}
 
-      {/* No domains — onboarding */}
-      {!hasDomains && (
-        <div className="bg-gray-50 rounded-2xl border border-gray-200 p-6 text-center">
-          <div className="w-16 h-16 bg-white rounded-2xl grid place-items-center mx-auto mb-4 shadow-sm">
-            <Globe size={28} className="text-blue-500" />
-          </div>
-          <h3 className="text-base font-bold text-gray-900 mb-2">Conecte seu dominio</h3>
-          <p className="text-xs text-gray-500 max-w-md mx-auto leading-relaxed mb-4">
-            Tenha seu catalogo em um endereco profissional como <strong>www.suaempresa.com.br</strong>.
-            E simples: registre um dominio, adicione aqui e siga as instrucoes de DNS.
-          </p>
+      <section className="rounded-[20px] border border-gray-200 bg-white p-4 sm:p-5">
+        <div>
+          <h3 className="text-sm font-bold text-gray-900">Adicionar um domínio</h3>
+          <p className="mt-1 text-xs text-gray-500">Escolha como deseja colocar sua marca no ar.</p>
+        </div>
 
-          <div className="bg-white rounded-xl p-4 max-w-md mx-auto text-left space-y-3">
-            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Como funciona</p>
-            <div className="space-y-2.5">
-              {[
-                { step: '1', title: 'Registre um dominio', desc: 'Em registradores como Registro.br, GoDaddy, Hostinger, Namecheap' },
-                { step: '2', title: 'Adicione aqui', desc: 'Digite o dominio no campo abaixo e clique Adicionar' },
-                { step: '3', title: 'Configure o DNS', desc: 'Siga as instrucoes de DNS que aparecerao automaticamente' },
-                { step: '4', title: 'Verifique', desc: 'Clique em Verificar para confirmar que o DNS esta correto' },
-              ].map(s => (
-                <div key={s.step} className="flex items-start gap-3">
-                  <span className="w-6 h-6 rounded-lg bg-blue-500 text-white text-[10px] font-bold grid place-items-center shrink-0">{s.step}</span>
-                  <div>
-                    <p className="text-xs font-bold text-gray-800">{s.title}</p>
-                    <p className="text-[10px] text-gray-400">{s.desc}</p>
+        <div className="mt-4 grid gap-2 sm:grid-cols-2">
+          <button
+            type="button"
+            onClick={() => setAccessMode('buy')}
+            className={`min-h-[76px] rounded-2xl border p-3 text-left transition ${
+              accessMode === 'buy' ? 'border-gray-900 bg-gray-50' : 'border-gray-200 hover:bg-gray-50'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <CircleDollarSign size={17} className="text-gray-700" />
+              <span className="text-xs font-bold text-gray-900">Comprar um domínio</span>
+            </div>
+            <p className="mt-1.5 text-[11px] leading-relaxed text-gray-500">
+              Pesquise, registre e instale sem sair do LeadCapture.
+            </p>
+          </button>
+          <button
+            type="button"
+            onClick={() => setAccessMode('connect')}
+            className={`min-h-[76px] rounded-2xl border p-3 text-left transition ${
+              accessMode === 'connect' ? 'border-gray-900 bg-gray-50' : 'border-gray-200 hover:bg-gray-50'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <PlugZap size={17} className="text-gray-700" />
+              <span className="text-xs font-bold text-gray-900">Conectar um domínio existente</span>
+            </div>
+            <p className="mt-1.5 text-[11px] leading-relaxed text-gray-500">
+              Use um endereço que você já comprou em qualquer empresa.
+            </p>
+          </button>
+        </div>
+
+        {accessMode === 'buy' ? (
+          <div className="mt-4 rounded-2xl border border-gray-200 bg-gray-50 p-3 sm:p-4">
+            <label htmlFor="domain-search" className="text-[11px] font-semibold text-gray-700">
+              Qual endereço você deseja?
+            </label>
+            <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+              <div className="relative min-w-0 flex-1">
+                <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  id="domain-search"
+                  value={domainQuery}
+                  onChange={(e) => setDomainQuery(e.target.value.toLowerCase().replace(/\s+/g, ''))}
+                  onKeyDown={(e) => e.key === 'Enter' && searchDomains()}
+                  placeholder="nomedaminhamarca.com"
+                  className="h-11 w-full rounded-xl border border-gray-200 bg-white pl-9 pr-3 text-sm outline-none focus:border-gray-900 focus:ring-4 focus:ring-gray-900/5"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={searchDomains}
+                disabled={searchingDomain || !domainQuery.trim() || registrar?.search_enabled === false}
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-gray-900 px-5 text-xs font-semibold text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {searchingDomain ? <Loader2 size={15} className="animate-spin" /> : <SearchCheck size={15} />}
+                Pesquisar
+              </button>
+            </div>
+
+            {registrar?.search_enabled === false && (
+              <div className="mt-3 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5">
+                <Info size={15} className="mt-0.5 shrink-0 text-amber-700" />
+                <div>
+                  <p className="text-[11px] font-semibold text-amber-900">Integração comercial aguardando ativação</p>
+                  <p className="mt-0.5 text-[10px] leading-relaxed text-amber-800">
+                    A experiência já está preparada. A pesquisa e a compra serão liberadas após configurar a conta do registrador.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {domainResults.length > 0 && (
+              <div className="mt-3 space-y-2">
+                {domainResults.map((result) => (
+                  <div key={result.domain} className="flex items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white p-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-xs font-bold text-gray-900">{result.domain}</p>
+                      <p className={`mt-0.5 text-[10px] font-semibold ${result.registrable ? 'text-emerald-700' : 'text-gray-500'}`}>
+                        {result.registrable ? 'Disponível para registro' : 'Indisponível'}
+                      </p>
+                    </div>
+                    {result.registrable && (
+                      <button
+                        type="button"
+                        disabled={!registrar?.purchase_enabled}
+                        onClick={() => {
+                          setSelectedDomain(result)
+                          setDomainConfirmation('')
+                        }}
+                        title={registrar?.purchase_enabled ? 'Continuar para confirmação' : 'Compra ainda não habilitada'}
+                        className="h-9 rounded-xl bg-gray-900 px-3 text-[11px] font-semibold text-white disabled:bg-gray-200 disabled:text-gray-500"
+                      >
+                        Escolher
+                      </button>
+                    )}
                   </div>
+                ))}
+              </div>
+            )}
+
+            <div className="mt-3 grid gap-2 sm:grid-cols-3">
+              {[
+                { icon: ShieldCheck, text: 'Privacidade do titular' },
+                { icon: Globe, text: 'DNS configurado' },
+                { icon: CheckCircle2, text: 'HTTPS automático' },
+              ].map(({ icon: Icon, text }) => (
+                <div key={text} className="flex items-center gap-2 text-[10px] font-medium text-gray-600">
+                  <Icon size={13} className="text-emerald-600" />
+                  {text}
                 </div>
               ))}
             </div>
           </div>
+        ) : (
+          <div className="mt-4 rounded-2xl border border-gray-200 bg-gray-50 p-3 sm:p-4">
+            <p className="text-[11px] font-semibold text-gray-700">
+              Informe o domínio que já pertence à sua empresa
+            </p>
+            <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+              <div className="relative min-w-0 flex-1">
+                <Globe size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  value={newDomain}
+                  onChange={(e) => setNewDomain(e.target.value)}
+                  placeholder="minhaempresa.com.br"
+                  onKeyDown={(e) => e.key === 'Enter' && addDomain()}
+                  className="h-11 w-full rounded-xl border border-gray-200 bg-white pl-9 pr-3 text-sm outline-none focus:border-gray-900 focus:ring-4 focus:ring-gray-900/5"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={addDomain}
+                disabled={adding || !newDomain.trim()}
+                className="h-11 rounded-xl bg-gray-900 px-5 text-xs font-semibold text-white hover:bg-gray-800 disabled:opacity-40"
+              >
+                {adding ? 'Preparando…' : 'Conectar domínio'}
+              </button>
+            </div>
+            <p className="mt-2 text-[10px] leading-relaxed text-gray-500">
+              Depois de adicionar, mostraremos exatamente os registros necessários e acompanharemos a ativação.
+            </p>
+          </div>
+        )}
+      </section>
+
+      {selectedDomain && (
+        <div className="fixed inset-0 z-[1000] grid place-items-center bg-black/45 p-4" role="presentation">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="domain-confirm-title"
+            className="w-full max-w-md rounded-[20px] border border-gray-200 bg-white p-5 shadow-2xl"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-semibold text-gray-500">Confirmação de compra</p>
+                <h3 id="domain-confirm-title" className="mt-1 text-base font-bold text-gray-900">
+                  Registrar {selectedDomain.domain}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedDomain(null)}
+                className="grid h-10 w-10 place-items-center rounded-xl text-gray-500 hover:bg-gray-100"
+                aria-label="Fechar"
+              >
+                <X size={17} />
+              </button>
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-gray-200 bg-gray-50 p-3">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-xs font-semibold text-gray-700">Domínio</span>
+                <strong className="text-xs text-gray-950">{selectedDomain.domain}</strong>
+              </div>
+              {selectedDomain.price != null && (
+                <div className="mt-2 flex items-center justify-between gap-3">
+                  <span className="text-xs font-semibold text-gray-700">Registro</span>
+                  <strong className="text-xs tabular-nums text-gray-950">
+                    {selectedDomain.currency || ''} {Number(selectedDomain.price).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                  </strong>
+                </div>
+              )}
+              <p className="mt-3 text-[10px] leading-relaxed text-gray-500">
+                A operação é cobrada pelo registrador e não pode ser desfeita depois de concluída.
+                Renovação automática e privacidade serão ativadas.
+              </p>
+            </div>
+
+            <label className="mt-4 block text-[11px] font-semibold text-gray-700" htmlFor="domain-confirmation">
+              Digite <strong>{selectedDomain.domain}</strong> para confirmar
+            </label>
+            <input
+              id="domain-confirmation"
+              value={domainConfirmation}
+              onChange={(e) => setDomainConfirmation(e.target.value.toLowerCase().trim())}
+              className="mt-2 h-11 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none focus:border-gray-900 focus:ring-4 focus:ring-gray-900/5"
+            />
+
+            <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={() => setSelectedDomain(null)}
+                className="h-11 rounded-xl bg-gray-100 px-4 text-xs font-semibold text-gray-700 hover:bg-gray-200"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={registerDomain}
+                disabled={registeringDomain || domainConfirmation !== selectedDomain.domain}
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-gray-900 px-5 text-xs font-semibold text-white hover:bg-gray-800 disabled:opacity-40"
+              >
+                {registeringDomain && <Loader2 size={15} className="animate-spin" />}
+                Confirmar registro
+              </button>
+            </div>
+          </div>
         </div>
       )}
-
-      {/* Add domain */}
-      <div className="bg-white rounded-2xl border border-border-light p-4 space-y-3">
-        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.1em]">{hasDomains ? 'Adicionar outro dominio' : 'Adicionar dominio'}</p>
-        <div className="flex gap-2">
-          <div className="relative flex-1">
-            <Globe size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input type="text" value={newDomain} onChange={e => setNewDomain(e.target.value)}
-              placeholder="meusite.com.br"
-              onKeyDown={e => e.key === 'Enter' && addDomain()}
-              className="w-full pl-9 pr-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900 placeholder:text-gray-300" />
-          </div>
-          <button onClick={addDomain} disabled={adding || !newDomain.trim()}
-            className="px-5 py-2.5 rounded-xl bg-gray-900 text-white text-xs font-semibold hover:bg-gray-800 disabled:opacity-40 transition">
-            {adding ? 'Adicionando...' : 'Adicionar'}
-          </button>
-        </div>
-      </div>
 
       {/* Domain list */}
       {hasDomains && (
@@ -458,4 +752,3 @@ function DnsCheckRow({ ok, label, hint }: { ok: boolean; label: string; hint?: s
     </div>
   )
 }
-

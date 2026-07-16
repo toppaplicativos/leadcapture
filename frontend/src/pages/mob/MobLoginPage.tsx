@@ -193,8 +193,13 @@ export function MobLoginPage() {
         </form>
 
         <p className="text-center text-[11px] text-gray-500 mt-8 m-0 leading-relaxed">
-          Ao continuar, você aceita os termos do Lead Capture.
-          <br />
+          <Link
+            to="/login"
+            className="text-gray-700 font-semibold underline-offset-2 hover:underline"
+          >
+            Outros tipos de acesso
+          </Link>
+          <span aria-hidden> · </span>
           <Link
             to="/rastreio"
             className="text-gray-700 font-semibold underline-offset-2 hover:underline"

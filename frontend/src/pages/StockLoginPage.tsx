@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { Loader2, LogIn, Eye, EyeOff, Package } from 'lucide-react'
 import { stockApi, setStockAuth, getStockToken, getStockBrandRef } from '@/lib/api-admin'
 import { Button, Input } from '@/components/ui'
@@ -113,6 +113,12 @@ export function StockLoginPage() {
           </div>
           <h1 className="text-gray-900 text-base font-bold mb-1">Loja não encontrada</h1>
           <p className="text-gray-500 text-sm leading-relaxed">{bootstrapError}</p>
+          <Link
+            to="/login"
+            className="inline-flex mt-5 text-xs font-semibold text-gray-700 hover:text-gray-950"
+          >
+            Ver outros acessos
+          </Link>
         </div>
       </div>
     )
@@ -193,7 +199,10 @@ export function StockLoginPage() {
           </form>
         </div>
         <p className="text-center text-[11px] text-gray-400 mt-5">
-          Use o link da sua loja. Sessão separada do painel admin.
+          Acesso vinculado à sua loja.{' '}
+          <Link to="/login" className="font-semibold text-gray-600 hover:text-gray-900">
+            Outros acessos
+          </Link>
         </p>
       </div>
     </div>

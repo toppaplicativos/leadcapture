@@ -28,6 +28,7 @@ import { logger } from "../utils/logger";
 import { exec } from "child_process";
 import { writeFileSync } from "fs";
 import path from "path";
+import { domainRegistrar } from "../services/domainRegistrar";
 
 const router = Router();
 const publicRouter = Router();
@@ -1213,6 +1214,57 @@ router.get("/stores/:storeId/domains", async (req: BrandRequest, res) => {
     res.json({ success: true, domains });
   } catch (error: any) {
     res.status(error.message === "Store not found" ? 404 : 500).json({ error: error.message || "Failed to list domains" });
+  }
+});
+
+router.get("/domain-commerce/status", (_req: BrandRequest, res) => {
+  res.json({ success: true, ...domainRegistrar.status() });
+});
+
+router.post("/domain-commerce/search", async (req: BrandRequest, res) => {
+  try {
+    const queryText = String(req.body?.query || "").trim().toLowerCase();
+    if (!queryText) return res.status(400).json({ error: "Digite um nome para pesquisar" });
+    const hasExtension = queryText.includes(".");
+    const domains = hasExtension
+      ? [queryText]
+      : [".com", ".online", ".shop", ".store", ".site"].map((extension) => `${queryText}${extension}`);
+    const results = await domainRegistrar.check(domains);
+    res.json({ success: true, results });
+  } catch (e: any) {
+    const status = domainRegistrar.status();
+    res.status(status.search_enabled ? 502 : 503).json({
+      error: e?.message || "Não foi possível pesquisar agora",
+      code: status.search_enabled ? "REGISTRAR_ERROR" : "REGISTRAR_SETUP_REQUIRED",
+      registrar: status,
+    });
+  }
+});
+
+router.post("/stores/:storeId/domains/register", async (req: BrandRequest, res) => {
+  try {
+    const userId = String(req.userId || "");
+    const domain = String(req.body?.domain || "").trim().toLowerCase();
+    const confirmation = String(req.body?.confirmation || "").trim().toLowerCase();
+    if (!domain || confirmation !== domain) {
+      return res.status(400).json({ error: "Confirme digitando exatamente o domínio escolhido" });
+    }
+    const registered = await domainRegistrar.register(domain);
+    const saved = await storefront.upsertDomain(
+      userId,
+      String(req.params.storeId),
+      registered.domain,
+      true,
+      req.brandId,
+    );
+    res.status(202).json({
+      success: true,
+      domain: saved,
+      registration: registered.registration,
+      message: "Registro iniciado. A instalação será acompanhada automaticamente.",
+    });
+  } catch (e: any) {
+    res.status(400).json({ error: e?.message || "Não foi possível registrar o domínio" });
   }
 });
 

@@ -14,10 +14,12 @@ router.post("/:code", async (req: Request, res: Response) => {
     await affiliatesService.ensureSchema();
 
     const affiliate = await queryOne<any>(
-      `SELECT a.*, b.slug AS brand_slug, s.slug AS store_slug
+      `SELECT a.*, b.slug AS brand_slug, s.slug AS store_slug, d.domain AS primary_domain
        FROM affiliates a
        INNER JOIN brand_units b ON b.id = a.brand_id
        LEFT JOIN storefront_stores s ON s.brand_id = a.brand_id AND s.status = 'active'
+       LEFT JOIN storefront_domains d
+         ON d.store_id = s.id AND d.is_primary = TRUE AND d.verification_status = 'verified'
        WHERE LOWER(a.code) = LOWER(?) AND a.status = 'active'
        ORDER BY s.updated_at DESC
        LIMIT 1`,
@@ -69,7 +71,12 @@ router.post("/:code", async (req: Request, res: Response) => {
     });
 
     const storeSlug = String(affiliate.store_slug || affiliate.brand_slug || "alhopronto").trim();
+    const primaryDomain = String(affiliate.primary_domain || "").trim();
     const coupon = String(affiliate.coupon_code || "").trim();
+    const affiliateQuery = `ref=${encodeURIComponent(code)}${coupon ? `&cupom=${encodeURIComponent(coupon)}` : ""}`;
+    const redirectUrl = primaryDomain
+      ? `https://${primaryDomain}/?${affiliateQuery}`
+      : `/catalogo/${encodeURIComponent(storeSlug)}?${affiliateQuery}`;
 
     const contact = await affiliatesService.resolvePublicWhatsAppContact({
       id: String(affiliate.id),
@@ -108,10 +115,11 @@ router.post("/:code", async (req: Request, res: Response) => {
       coupon_code: coupon,
       cookie_days: config.cookie_days,
       store_slug: storeSlug,
+      primary_domain: primaryDomain || null,
       whatsapp_phone: whatsappPhone,
       whatsapp_source: whatsappSource,
       whatsapp_instance_id: contact.instance_id || null,
-      redirect_url: `/catalogo/${encodeURIComponent(storeSlug)}?ref=${encodeURIComponent(code)}${coupon ? `&cupom=${encodeURIComponent(coupon)}` : ""}`,
+      redirect_url: redirectUrl,
     });
   } catch (e: any) {
     res.status(500).json({ error: e.message || "Falha ao processar link" });

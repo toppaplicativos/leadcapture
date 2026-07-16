@@ -62,15 +62,17 @@ function buildShareContext(
 ) {
   const code = String(ctx.affiliate?.code || '').trim()
   const coupon = String(ctx.affiliate?.coupon_code || '').trim()
+  const primaryDomain = String(ctx.brand?.primary_domain || '').trim() || null
   const brandRef = storeSlug || getAffiliateBrandRef() || ''
   const catalogUrl = code
-    ? buildAffiliateCatalogUrl({ origin: storeOrigin, storeSlug, code, couponCode: coupon })
+    ? buildAffiliateCatalogUrl({ origin: storeOrigin, primaryDomain, storeSlug, code, couponCode: coupon })
     : ''
-  const shortUrl = code ? buildAffiliateShortUrl({ origin: storeOrigin, code }) : ''
+  const shortUrl = code ? buildAffiliateShortUrl({ origin: storeOrigin, primaryDomain, code }) : ''
   const programUrl = brandRef ? `${storeOrigin}/central-afiliado/${encodeURIComponent(brandRef)}` : ''
   const productUrl = product && code
     ? buildAffiliateProductUrl({
       origin: storeOrigin,
+      primaryDomain,
       storeSlug,
       code,
       productSlug: String(product.slug || product.id),

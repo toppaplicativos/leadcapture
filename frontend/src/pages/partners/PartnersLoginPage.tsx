@@ -153,10 +153,10 @@ export function PartnersLoginPage() {
       <header className="relative px-6 py-5 flex items-center justify-end min-h-[52px]">
         {!inviteCode && (
           <Link
-            to="/parceiros"
+            to="/login"
             className="text-[12px] font-semibold text-gray-500 hover:text-gray-900 transition"
           >
-            Voltar
+            Outros acessos
           </Link>
         )}
       </header>

@@ -83,18 +83,23 @@ export function buildAffiliateCatalogUrl(input: {
   code: string
   couponCode?: string | null
   origin?: string
+  primaryDomain?: string | null
 }): string {
-  const origin = (input.origin || (typeof window !== 'undefined' ? window.location.origin : '')).replace(/\/$/, '')
+  const origin = resolveAffiliatePublicOrigin(input)
   const slug = String(input.storeSlug || '').trim()
   const qs = affiliateQueryParams(input.code, input.couponCode).toString()
-  return `${origin}/catalogo/${encodeURIComponent(slug)}${qs ? `?${qs}` : ''}`
+  const path = normalizeDomain(input.primaryDomain)
+    ? '/'
+    : `/catalogo/${encodeURIComponent(slug)}`
+  return `${origin}${path}${qs ? `?${qs}` : ''}`
 }
 
 export function buildAffiliateShortUrl(input: {
   code: string
   origin?: string
+  primaryDomain?: string | null
 }): string {
-  const origin = (input.origin || (typeof window !== 'undefined' ? window.location.origin : '')).replace(/\/$/, '')
+  const origin = resolveAffiliatePublicOrigin(input)
   const code = String(input.code || '').trim()
   return `${origin}/afiliado/${encodeURIComponent(code)}`
 }
@@ -105,12 +110,36 @@ export function buildAffiliateProductUrl(input: {
   productSlug: string
   couponCode?: string | null
   origin?: string
+  primaryDomain?: string | null
 }): string {
-  const origin = (input.origin || (typeof window !== 'undefined' ? window.location.origin : '')).replace(/\/$/, '')
+  const origin = resolveAffiliatePublicOrigin(input)
   const slug = String(input.storeSlug || '').trim()
   const productSlug = String(input.productSlug || '').trim()
   const qs = affiliateQueryParams(input.code, input.couponCode).toString()
-  return `${origin}/catalogo/${encodeURIComponent(slug)}/produto/${encodeURIComponent(productSlug)}${qs ? `?${qs}` : ''}`
+  const path = normalizeDomain(input.primaryDomain)
+    ? `/produto/${encodeURIComponent(productSlug)}`
+    : `/catalogo/${encodeURIComponent(slug)}/produto/${encodeURIComponent(productSlug)}`
+  return `${origin}${path}${qs ? `?${qs}` : ''}`
+}
+
+function normalizeDomain(value?: string | null): string {
+  return String(value || '')
+    .trim()
+    .replace(/^https?:\/\//i, '')
+    .replace(/\/.*$/, '')
+    .replace(/:\d+$/, '')
+    .toLowerCase()
+}
+
+function resolveAffiliatePublicOrigin(input: {
+  origin?: string
+  primaryDomain?: string | null
+}): string {
+  const domain = normalizeDomain(input.primaryDomain)
+  if (domain && domain !== 'localhost' && domain !== '127.0.0.1') {
+    return `https://${domain}`
+  }
+  return (input.origin || (typeof window !== 'undefined' ? window.location.origin : '')).replace(/\/$/, '')
 }
 
 function detectAffiliateLandingMeta(): {

@@ -40,16 +40,17 @@ export function AffiliateLinksHub({ ctx, active = true }: Props) {
   const storeSlug = String(hub?.store_slug || ctx.brand?.slug || getAffiliateBrandRef() || '').trim()
   const code = String(hub?.code || ctx.affiliate?.code || '').trim()
   const coupon = String(hub?.coupon_code || ctx.affiliate?.coupon_code || '').trim()
+  const primaryDomain = String(hub?.primary_domain || ctx.brand?.primary_domain || '').trim() || null
 
   const copyCtx = useMemo(() => ({
     nome_afiliado: ctx.affiliate?.display_name || '',
     cupom: coupon,
     codigo: code,
     marca: ctx.brand?.name || '',
-    link_catalogo: code ? buildAffiliateCatalogUrl({ origin: storeOrigin, storeSlug, code, couponCode: coupon }) : '',
-  }), [ctx, storeOrigin, storeSlug, code, coupon])
+    link_catalogo: code ? buildAffiliateCatalogUrl({ origin: storeOrigin, primaryDomain, storeSlug, code, couponCode: coupon }) : '',
+  }), [ctx, storeOrigin, primaryDomain, storeSlug, code, coupon])
 
-  const shortUrl = code ? buildAffiliateShortUrl({ origin: storeOrigin, code }) : ''
+  const shortUrl = code ? buildAffiliateShortUrl({ origin: storeOrigin, primaryDomain, code }) : ''
   const catalogUrl = copyCtx.link_catalogo
 
   useEffect(() => {
@@ -101,7 +102,7 @@ export function AffiliateLinksHub({ ctx, active = true }: Props) {
 
   function productUrl(p: AffiliateProductCatalogItem) {
     const slug = resolveProductSlug({ slug: (p as any).slug, name: p.name, id: p.id })
-    return buildAffiliateProductUrl({ origin: storeOrigin, storeSlug, code, productSlug: slug, couponCode: coupon })
+    return buildAffiliateProductUrl({ origin: storeOrigin, primaryDomain, storeSlug, code, productSlug: slug, couponCode: coupon })
   }
 
   function shareWhatsApp(text: string) {

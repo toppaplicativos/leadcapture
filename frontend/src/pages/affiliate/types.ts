@@ -7,6 +7,7 @@ export type AppContext = {
     primary_color?: string
     secondary_color?: string
     slogan?: string
+    primary_domain?: string | null
   }
   affiliate: {
     id?: string

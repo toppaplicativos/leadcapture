@@ -6,7 +6,7 @@ import {
   Crosshair, Zap, Workflow, Users, Building2, TrendingUp,
   Sparkles, Target, Layers, Send, Image as ImageIcon, Globe, Mail,
   Shield, Infinity as InfinityIcon, Phone, Code, Handshake, HandCoins, Network,
-  Bell,
+  Bell, Palette, Link2, BadgeCheck,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { FacebookIcon, InstagramIcon, WhatsAppIcon, type IconComponent } from '@/components/icons'
@@ -830,6 +830,121 @@ function Ecosystem() {
             <p className="landing-mod-card__desc">{desc}</p>
           </article>
         ))}
+      </div>
+    </Section>
+  )
+}
+
+/* ──────────────────────────────────────────────────
+   4.2 WHITE-LABEL — tecnologia que representa a marca
+   ────────────────────────────────────────────────── */
+
+function BrandIdentity() {
+  const capabilities = [
+    {
+      Icon: Palette,
+      title: 'Identidade da sua marca',
+      desc: 'Cores, logo, linguagem e experiência aplicadas em cada ponto de contato.',
+    },
+    {
+      Icon: Globe,
+      title: 'Domínio próprio',
+      desc: 'Loja, produtos e links de afiliados apresentados no endereço da sua empresa.',
+    },
+    {
+      Icon: Brain,
+      title: 'IA com seu contexto',
+      desc: 'Atendimento e automações orientados pela oferta, pelo público e pelo jeito da marca.',
+    },
+    {
+      Icon: Link2,
+      title: 'Operação conectada',
+      desc: 'Canais, vendas, pedidos, equipe e parceiros trabalhando como uma única estrutura.',
+    },
+  ]
+
+  return (
+    <Section className="!pt-4 sm:!pt-8 !pb-16 sm:!pb-24 lg:!pb-28">
+      <div className="overflow-hidden rounded-[28px] border border-black/[0.08] bg-[#0d0d0d] text-white shadow-[0_28px_80px_-46px_rgba(0,0,0,0.7)]">
+        <div className="grid lg:grid-cols-[1.02fr_0.98fr]">
+          <div className="p-6 sm:p-9 lg:p-12">
+            <p className="landing-section-kicker landing-section-kicker--emerald">
+              Tecnologia white-label
+            </p>
+            <h2 className="mt-4 max-w-xl text-[30px] sm:text-[40px] lg:text-[46px] font-semibold leading-[1.06] tracking-[-0.045em] text-white">
+              A tecnologia se veste
+              <br />
+              <span className="text-white/48">com a sua marca.</span>
+            </h2>
+            <p className="mt-5 max-w-xl text-[14px] sm:text-[16px] leading-relaxed text-white/62 text-pretty">
+              O LeadCapture não aparece como uma ferramenta externa entre você e o cliente.
+              Ele representa sua empresa, aprende sua operação e coloca IA e tecnologias de ponta
+              para trabalhar sob a identidade da sua marca.
+            </p>
+
+            <div className="mt-7 flex flex-wrap gap-2">
+              {[
+                'Experiência própria',
+                'Domínio da empresa',
+                'IA contextual',
+                'Links white-label',
+              ].map((label) => (
+                <span
+                  key={label}
+                  className="inline-flex min-h-8 items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.06] px-3 text-[11px] font-semibold text-white/75"
+                >
+                  <BadgeCheck size={13} className="text-emerald-400" />
+                  {label}
+                </span>
+              ))}
+            </div>
+
+            <div className="landing-cta-row mt-8">
+              <PrimaryCTA to="#planos" dark>
+                Levar para minha operação
+              </PrimaryCTA>
+            </div>
+          </div>
+
+          <div className="border-t border-white/[0.08] bg-white/[0.035] p-4 sm:p-6 lg:border-l lg:border-t-0 lg:p-8">
+            <div className="rounded-[22px] border border-white/10 bg-[#151515] p-4 sm:p-5">
+              <div className="flex items-center justify-between gap-3 border-b border-white/[0.08] pb-4">
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-white text-[#171717]">
+                    <Building2 size={19} strokeWidth={2} />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="truncate text-[13px] font-bold text-white">Sua empresa</p>
+                    <p className="truncate text-[10px] text-white/40">operacao.suamarca.com.br</p>
+                  </div>
+                </div>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-400/10 px-2.5 py-1 text-[9px] font-bold text-emerald-300">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                  Integrado
+                </span>
+              </div>
+
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                {capabilities.map(({ Icon, title, desc }) => (
+                  <article key={title} className="rounded-2xl border border-white/[0.08] bg-white/[0.04] p-3.5">
+                    <span className="grid h-8 w-8 place-items-center rounded-[10px] bg-white/[0.08] text-white/75">
+                      <Icon size={15} strokeWidth={1.8} />
+                    </span>
+                    <h3 className="mt-3 text-[12px] font-bold text-white">{title}</h3>
+                    <p className="mt-1 text-[10px] leading-relaxed text-white/42">{desc}</p>
+                  </article>
+                ))}
+              </div>
+
+              <div className="mt-3 flex items-center gap-2 rounded-2xl border border-emerald-400/15 bg-emerald-400/[0.06] p-3">
+                <Shield size={15} className="shrink-0 text-emerald-400" />
+                <p className="text-[10px] leading-relaxed text-white/58">
+                  Para o seu público, tudo pertence à sua marca. Por trás, a inteligência do LeadCapture mantém a operação conectada.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </Section>
   )
@@ -2007,6 +2122,7 @@ export function LandingPage() {
 
         <SectionBridge from="dark" to="light" />
         <Ecosystem />
+        <BrandIdentity />
 
         <SectionBridge from="light" to="dark" />
         <AffiliateMarketplace />

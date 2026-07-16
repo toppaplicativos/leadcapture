@@ -151,8 +151,15 @@ router.get("/me", async (req: AuthRequest, res: Response) => {
   if (!ctx) return;
 
   const brand = await queryOne<any>(
-    `SELECT id, slug, name, logo_url, primary_color, secondary_color, slogan, voice_json
-     FROM brand_units WHERE id = ? LIMIT 1`,
+    `SELECT b.id, b.slug, b.name, b.logo_url, b.primary_color, b.secondary_color, b.slogan, b.voice_json,
+            d.domain AS primary_domain
+     FROM brand_units b
+     LEFT JOIN storefront_stores s ON s.brand_id = b.id AND s.status = 'active'
+     LEFT JOIN storefront_domains d
+       ON d.store_id = s.id AND d.is_primary = TRUE AND d.verification_status = 'verified'
+     WHERE b.id = ?
+     ORDER BY s.updated_at DESC
+     LIMIT 1`,
     [ctx.brandId]
   );
   if (!brand) return res.status(403).json({ error: "Marca não encontrada" });
@@ -178,6 +185,7 @@ router.get("/me", async (req: AuthRequest, res: Response) => {
       primary_color: String(brand.primary_color || "").trim() || null,
       secondary_color: String(brand.secondary_color || "").trim() || null,
       slogan: String(brand.slogan || "").trim() || null,
+      primary_domain: String(brand.primary_domain || "").trim() || null,
     },
     affiliate,
     program: config,
@@ -250,12 +258,20 @@ router.get("/links", async (req: AuthRequest, res: Response) => {
       [ctx.brandId]
     );
     let storeSlug = String(brand?.slug || "").trim();
+    let primaryDomain = "";
     try {
       const store = await queryOne<any>(
-        `SELECT slug FROM storefront_stores WHERE brand_id = ? AND status = 'active' ORDER BY updated_at DESC LIMIT 1`,
+        `SELECT s.slug, d.domain AS primary_domain
+         FROM storefront_stores s
+         LEFT JOIN storefront_domains d
+           ON d.store_id = s.id AND d.is_primary = TRUE AND d.verification_status = 'verified'
+         WHERE s.brand_id = ? AND s.status = 'active'
+         ORDER BY s.updated_at DESC
+         LIMIT 1`,
         [ctx.brandId]
       );
       if (store?.slug) storeSlug = String(store.slug).trim();
+      if (store?.primary_domain) primaryDomain = String(store.primary_domain).trim();
     } catch {
       /* storefront opcional */
     }
@@ -330,6 +346,7 @@ router.get("/links", async (req: AuthRequest, res: Response) => {
       code,
       coupon_code: coupon,
       store_slug: storeSlug,
+      primary_domain: primaryDomain || null,
       brand_name: brand?.name ? String(brand.name) : null,
       program_id: activeProgramId || null,
       program_name: enrollment?.program_name || null,

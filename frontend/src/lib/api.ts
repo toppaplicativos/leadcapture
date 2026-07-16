@@ -23,6 +23,7 @@ export interface Product {
   slug?: string
   subtitle?: string
   description?: string
+  features?: string[]
   price: number
   compare_at_price?: number
   image?: string

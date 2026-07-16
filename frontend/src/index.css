@@ -2756,6 +2756,118 @@ body:has(.product-detail-bar--sticky) .store-wa-btn--fab {
   }
 }
 
+.product-editorial {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.product-editorial__eyebrow {
+  margin: 0 0 .25rem;
+  color: var(--brand-secondary, #525252);
+  font-size: .6875rem;
+  font-weight: 750;
+  letter-spacing: .04em;
+}
+
+.product-editorial__benefits {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .625rem;
+}
+
+.product-editorial__benefit {
+  display: flex;
+  align-items: flex-start;
+  gap: .625rem;
+  min-height: 4rem;
+  padding: .875rem;
+  border: 1px solid #e5e5e5;
+  border-radius: 1rem;
+  background: #fff;
+}
+
+.product-editorial__benefit span {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 1.35rem;
+  height: 1.35rem;
+  border-radius: 999px;
+  background: var(--brand-secondary-light, #f3f3f3);
+  color: var(--brand-secondary, #171717);
+  font-size: .6875rem;
+  font-weight: 800;
+}
+
+.product-editorial__benefit p {
+  margin: 0;
+  color: #404040;
+  font-size: .8125rem;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
+.product-editorial__sections {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.product-editorial__section {
+  max-width: 45rem;
+}
+
+.product-editorial__section h3 {
+  margin: 0 0 .625rem;
+  color: #171717;
+  font-size: 1rem;
+  font-weight: 750;
+  letter-spacing: -.02em;
+}
+
+.product-editorial__section p {
+  margin: 0;
+  color: #525252;
+  font-size: .9375rem;
+  line-height: 1.75;
+}
+
+.product-editorial__section p + p {
+  margin-top: .75rem;
+}
+
+.product-editorial__section ul {
+  display: grid;
+  gap: .625rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.product-editorial__section li {
+  position: relative;
+  padding-left: 1.25rem;
+  color: #525252;
+  font-size: .875rem;
+  line-height: 1.6;
+}
+
+.product-editorial__section li::before {
+  content: "";
+  position: absolute;
+  top: .62rem;
+  left: .15rem;
+  width: .35rem;
+  height: .35rem;
+  border-radius: 999px;
+  background: var(--brand-secondary, #171717);
+}
+
+@media (max-width: 639px) {
+  .product-editorial__benefits {
+    grid-template-columns: 1fr;
+  }
+}
+
 .product-review-card {
   padding: 1rem 1.125rem;
   border-radius: 1rem;

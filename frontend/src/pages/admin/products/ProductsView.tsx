@@ -1051,7 +1051,17 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
       const r = await fetch('/api/products/ai-assist', {
         method: 'POST',
         headers: getHeaders(),
-        body: JSON.stringify({ name, category, description, command: aiCommand }),
+        body: JSON.stringify({
+          name,
+          category,
+          description,
+          command: aiCommand,
+          price,
+          offerType,
+          unit: `${unitQty}${baseUnit}`,
+          benefits: String(features).split(',').map((item: string) => item.trim()).filter(Boolean),
+          attributes: attrValues,
+        }),
       })
       const d = await r.json().catch(() => ({}))
       if (!r.ok) throw new Error(d.error || 'Não foi possível refinar o produto')

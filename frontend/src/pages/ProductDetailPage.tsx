@@ -18,6 +18,70 @@ import { ProductReviewsSection } from '@/components/product/ProductReviewsSectio
 import type { StoreData } from '@/lib/api'
 import { normalizeConversionSettings } from '@/lib/store-conversion'
 
+const PRODUCT_CONTENT_HEADINGS = new Set([
+  'Visão geral',
+  'Por que escolher',
+  'Detalhes que fazem diferença',
+  'Para quem é',
+  'Como aproveitar melhor',
+])
+
+function ProductEditorialContent({ description, features }: { description?: string; features?: string[] }) {
+  const lines = String(description || '').split(/\r?\n/).map(line => line.trim())
+  const blocks: Array<{ title?: string; paragraphs: string[]; bullets: string[] }> = []
+  let current: { title?: string; paragraphs: string[]; bullets: string[] } = { paragraphs: [], bullets: [] }
+  const flush = () => {
+    if (current.title || current.paragraphs.length || current.bullets.length) blocks.push(current)
+    current = { paragraphs: [], bullets: [] }
+  }
+  for (const line of lines) {
+    if (!line) continue
+    if (PRODUCT_CONTENT_HEADINGS.has(line.replace(/:$/, ''))) {
+      flush()
+      current.title = line.replace(/:$/, '')
+    } else if (/^[•*-]\s+/.test(line)) {
+      current.bullets.push(line.replace(/^[•*-]\s+/, ''))
+    } else {
+      current.paragraphs.push(line)
+    }
+  }
+  flush()
+  const safeFeatures = (features || []).map(item => String(item).trim()).filter(Boolean)
+  if (!blocks.length && !safeFeatures.length) return null
+
+  return (
+    <section className="product-editorial">
+      <div className="product-editorial__head">
+        <p className="product-editorial__eyebrow">Conheça melhor</p>
+        <h2 className="product-section-title">Tudo sobre o produto</h2>
+      </div>
+      {safeFeatures.length > 0 && (
+        <div className="product-editorial__benefits">
+          {safeFeatures.slice(0, 6).map((feature, index) => (
+            <div key={`${feature}-${index}`} className="product-editorial__benefit">
+              <span aria-hidden="true">✓</span>
+              <p>{feature}</p>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="product-editorial__sections">
+        {blocks.map((block, index) => (
+          <article key={`${block.title || 'texto'}-${index}`} className="product-editorial__section">
+            {block.title && <h3>{block.title}</h3>}
+            {block.paragraphs.map((paragraph, paragraphIndex) => <p key={paragraphIndex}>{paragraph}</p>)}
+            {block.bullets.length > 0 && (
+              <ul>
+                {block.bullets.map((bullet, bulletIndex) => <li key={bulletIndex}>{bullet}</li>)}
+              </ul>
+            )}
+          </article>
+        ))}
+      </div>
+    </section>
+  )
+}
+
 function applyStoreBrand(store: {
   brand?: { primary_color?: string; secondary_color?: string }
   theme?: { primary_color?: string; secondary_color?: string }
@@ -325,14 +389,7 @@ export function ProductDetailPage() {
 
         {/* Seções full-width abaixo do grid */}
         <div className="mt-10 lg:mt-14 space-y-10 max-w-3xl">
-          {product.description && (
-            <section>
-              <h2 className="product-section-title">Sobre o produto</h2>
-              <p className="text-[15px] text-gray-600 leading-relaxed whitespace-pre-line mt-3 max-w-prose">
-                {product.description}
-              </p>
-            </section>
-          )}
+          <ProductEditorialContent description={product.description} features={product.features} />
 
           {(product.sku || product.weight || product.unit) && (
             <section className="product-specs">

@@ -479,27 +479,62 @@ router.post("/ai-assist", async (req: BrandRequest, res: Response) => {
     const category = normalizeText(req.body?.category) || "geral";
     const description = normalizeText(req.body?.description);
     const command = normalizeText(req.body?.command) || "Organize e valorize este produto";
+    const price = Number(req.body?.price || 0);
+    const offerType = normalizeText(req.body?.offerType) || "physical_product";
+    const unit = normalizeText(req.body?.unit) || "un";
+    const currentBenefits = Array.isArray(req.body?.benefits)
+      ? req.body.benefits.map((item: unknown) => normalizeText(item)).filter(Boolean)
+      : [];
+    const attributes =
+      req.body?.attributes && typeof req.body.attributes === "object"
+        ? req.body.attributes
+        : {};
 
     const result = await aiRouter.generateJson<{
       name?: string;
       subtitle?: string;
       description?: string;
       benefits?: string[];
+      highlights?: string[];
+      ideal_for?: string[];
+      usage_notes?: string[];
       suggested_category?: string;
       seo_title?: string;
       seo_description?: string;
     }>(
       [
-        "Você é um especialista em cadastro e apresentação de produtos para e-commerce.",
-        "Transforme as informações simples em conteúdo claro, confiável e comercialmente forte.",
-        "Não invente especificações, certificações, garantias, resultados ou depoimentos.",
-        "A descrição deve ter: abertura de valor, vantagens, detalhes de uso e fechamento curto.",
-        "Use português do Brasil e retorne somente JSON válido.",
-        'Formato: {"name":"string","subtitle":"string","description":"string","benefits":["string"],"suggested_category":"string","seo_title":"string","seo_description":"string"}',
+        "Você é um diretor de conteúdo de e-commerce especializado em transformar cadastros simples em fichas comerciais completas.",
+        "O texto precisa ajudar o cliente a entender rapidamente o produto, perceber valor e decidir com segurança.",
+        "Não produza frases vazias como 'alta qualidade', 'produto incrível' ou 'ideal para você' sem explicar o benefício.",
+        "Não invente composição, origem, medidas, certificações, garantias, resultados, avaliações ou propriedades não informadas.",
+        "Quando faltar um dado técnico, trabalhe somente com contexto de uso e benefícios seguros.",
+        "A descrição deve ter entre 900 e 1.600 caracteres e seguir EXATAMENTE esta estrutura textual:",
+        "Visão geral",
+        "2 parágrafos curtos apresentando o produto, o problema que ajuda a resolver e o valor percebido.",
+        "",
+        "Por que escolher",
+        "• 4 a 6 benefícios concretos, cada um explicando benefício + impacto prático.",
+        "",
+        "Detalhes que fazem diferença",
+        "• 3 a 5 pontos baseados apenas nas informações fornecidas.",
+        "",
+        "Para quem é",
+        "1 parágrafo com situações ou perfis de uso adequados.",
+        "",
+        "Como aproveitar melhor",
+        "1 parágrafo curto com orientação de uso, escolha ou conservação somente quando for seguro inferir.",
+        "Retorne português do Brasil natural, específico, escaneável e sem clichês.",
+        "Retorne somente JSON válido.",
+        'Formato: {"name":"string","subtitle":"string","description":"string","benefits":["string"],"highlights":["string"],"ideal_for":["string"],"usage_notes":["string"],"suggested_category":"string","seo_title":"string","seo_description":"string"}',
         `Comando do usuário: ${command}`,
         `Nome atual: ${name}`,
         `Categoria atual: ${category}`,
         `Descrição simples: ${description || "não informada"}`,
+        `Tipo de oferta: ${offerType}`,
+        `Unidade: ${unit}`,
+        price > 0 ? `Preço: R$ ${price.toFixed(2)}` : "",
+        currentBenefits.length ? `Vantagens já informadas: ${currentBenefits.join("; ")}` : "",
+        Object.keys(attributes).length ? `Atributos confirmados: ${JSON.stringify(attributes)}` : "",
       ].join("\n"),
       { userId, brandId: req.brandId || undefined },
       { functionKey: "text.product.description" },

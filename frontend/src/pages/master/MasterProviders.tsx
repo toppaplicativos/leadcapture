@@ -13,6 +13,7 @@ import {
   Video,
   Film,
   Plug,
+  Cpu,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { masterApi } from '@/lib/master-api'
@@ -22,6 +23,7 @@ const PROVIDER_META: Record<string, { label: string; Icon: LucideIcon; color: st
   openai: { label: 'OpenAI', Icon: Bot, color: 'from-gray-700 to-gray-900' },
   gemini: { label: 'Google Gemini', Icon: Sparkles, color: 'from-blue-600 to-cyan-600' },
   grok: { label: 'xAI Grok', Icon: Zap, color: 'from-gray-600 to-gray-800' },
+  atlas: { label: 'Atlas Cloud', Icon: Cpu, color: 'from-emerald-700 to-teal-800' },
   veo: { label: 'Google Veo', Icon: Film, color: 'from-purple-600 to-indigo-600' },
   kling: { label: 'Kling AI', Icon: Video, color: 'from-pink-600 to-rose-600' },
   rapidapi: { label: 'RapidAPI', Icon: Plug, color: 'from-orange-600 to-amber-600' },
@@ -29,7 +31,7 @@ const PROVIDER_META: Record<string, { label: string; Icon: LucideIcon; color: st
   runway: { label: 'Runway', Icon: Film, color: 'from-violet-600 to-purple-600' },
 }
 
-const VISIBLE_PROVIDERS = ['openai', 'gemini', 'grok', 'veo', 'kling', 'rapidapi', 'google_places']
+const VISIBLE_PROVIDERS = ['atlas', 'openai', 'gemini', 'grok', 'veo', 'kling', 'rapidapi', 'google_places']
 
 export function MasterProviders() {
   const [providers, setProviders] = useState<any[]>([])

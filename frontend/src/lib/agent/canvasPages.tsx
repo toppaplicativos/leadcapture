@@ -14,6 +14,7 @@ const loadDashboard = () => import('@/pages/admin/dashboard/DashboardView').then
 const loadCampaigns = () => import('@/pages/admin/campaigns/CampaignsView').then(m => ({ default: m.CampaignsView }))
 const loadFlowBuilder = () => import('@/pages/FlowBuilderPage').then(m => ({ default: m.FlowBuilderPage }))
 const loadCriativos = () => import('@/pages/CriativosPage').then(m => ({ default: m.CriativosPage }))
+const loadCriativosAvancado = () => import('@/pages/BrandImageGeneratorPage').then(m => ({ default: m.BrandImageGeneratorPage }))
 const loadGaleria = () => import('@/pages/GaleriaPage').then(m => ({ default: m.GaleriaPage }))
 const loadVideoStudio = () => import('@/pages/VideoStudioPage').then(m => ({ default: m.VideoStudioPage }))
 const loadAgentView = () => import('@/pages/admin/agent/AgentView').then(m => ({ default: m.AgentView }))
@@ -48,6 +49,7 @@ const DashboardView = lazy(loadDashboard)
 const CampaignsView = lazy(loadCampaigns)
 const FlowBuilderPage = lazy(loadFlowBuilder)
 const CriativosPage = lazy(loadCriativos)
+const CriativosAvancadoPage = lazy(loadCriativosAvancado)
 const GaleriaPage = lazy(loadGaleria)
 const VideoStudioPage = lazy(loadVideoStudio)
 const AgentView = lazy(loadAgentView)
@@ -143,6 +145,7 @@ const CANVAS_PAGE_MAP: Record<string, () => ReactNode> = {
   '/admin': () => <DashboardView showToast={noop} />,
   '/fluxos': () => <FlowBuilderPage />,
   '/criativos': () => <CriativosPage />,
+  '/criativos/avancado': () => <CriativosAvancadoPage />,
   '/galeria': () => <GaleriaPage />,
   '/video-studio': () => <VideoStudioPage />,
   '/agente': () => <AgentView showToast={noop} />,

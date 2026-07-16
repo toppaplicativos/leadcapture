@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import {
   Plus, Trash2, ChevronDown, ChevronUp, GripVertical,
   MessageCircle, Camera, Mail, Megaphone, Bell,
-  MapPin, Loader2, X, UserPlus, Accessibility, Users,
+  MapPin, Loader2, X, UserPlus, Accessibility, Users, BrainCircuit, CheckCircle2,
 } from 'lucide-react'
 import type {
   AcaoPipeline, AcaoConfig, TipoAcao, AutomationTrigger,
@@ -13,6 +13,7 @@ import {
 } from '@/lib/automations/schema'
 import { MessagePipelineComposer } from './MessagePipelineComposer'
 import { instagramApi } from '@/lib/instagram/pageApi'
+import { getCachedActiveBrand } from '@/lib/brand-splash'
 
 type Props = {
   pipeline: AcaoPipeline[]
@@ -78,6 +79,7 @@ export function ActionPipelineEditor({ pipeline, trigger, onChange }: Props) {
   }, [focusIndex, pipeline.length])
 
   const available = actionsForTrigger(trigger)
+  const activeBrand = getCachedActiveBrand()
 
   const addAction = (tipo?: TipoAcao) => {
     const t = tipo || defaultActionForTrigger(trigger)
@@ -117,6 +119,17 @@ export function ActionPipelineEditor({ pipeline, trigger, onChange }: Props) {
 
   return (
     <div className="space-y-3">
+      <div className="rounded-[18px] border border-gray-200 bg-gray-50 p-4">
+        <p className="text-[11px] font-semibold text-gray-500">Destino desta automação</p>
+        <p className="mt-1 text-sm font-semibold text-gray-900">
+          {trigger.tipo === 'evento' ? 'A pessoa que disparou o evento' : 'Definido em cada ação abaixo'}
+        </p>
+        <p className="mt-0.5 text-xs text-gray-500">
+          {trigger.tipo === 'evento'
+            ? 'As ações usam automaticamente o contato associado ao gatilho.'
+            : 'Como não existe um evento com contato, escolha o público ou destinatário em cada ação de envio.'}
+        </p>
+      </div>
       <div className="flex items-center justify-between gap-2">
         <div>
           <p className="text-sm font-semibold text-gray-800">Pipeline de ações</p>
@@ -207,6 +220,25 @@ export function ActionPipelineEditor({ pipeline, trigger, onChange }: Props) {
 
             {isOpen && (
               <div className="p-3 space-y-3 border-t border-gray-100">
+                {trigger.tipo === 'agendamento' && ['enviar_dm_wa', 'enviar_dm_ig', 'enviar_email'].includes(acao.tipo) && (
+                  <div className="grid grid-cols-1 sm:grid-cols-[180px_1fr] gap-2 rounded-xl border border-gray-200 bg-gray-50 p-3">
+                    <label className="text-[10px] font-semibold text-gray-600">
+                      Enviar para
+                      <select value={config.destinoTipo || 'todos_leads'} onChange={(e) => updateConfig(index, { ...config, destinoTipo: e.target.value as AcaoConfig['destinoTipo'], destinoValor: '' })} className="mt-1 h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm">
+                        <option value="todos_leads">Todos os leads elegíveis</option>
+                        <option value="segmento">Segmento ou tag</option>
+                        <option value="contato">Contato específico</option>
+                        <option value="equipe">Equipe interna</option>
+                      </select>
+                    </label>
+                    {config.destinoTipo && !['todos_leads', 'equipe'].includes(config.destinoTipo) && (
+                      <label className="text-[10px] font-semibold text-gray-600">
+                        {config.destinoTipo === 'segmento' ? 'Nome da tag ou segmento' : 'Telefone, @usuário ou e-mail'}
+                        <input value={config.destinoValor || ''} onChange={(e) => updateConfig(index, { ...config, destinoValor: e.target.value })} className="mt-1 h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm" placeholder={config.destinoTipo === 'segmento' ? 'Ex.: clientes ativos' : 'Identificação do contato'} />
+                      </label>
+                    )}
+                  </div>
+                )}
                 <label className="block text-[10px] text-gray-500">
                   Atraso antes desta ação (segundos)
                   <input
@@ -221,21 +253,29 @@ export function ActionPipelineEditor({ pipeline, trigger, onChange }: Props) {
 
                 {usesBlocks && (
                   <>
-                    <label className="flex items-center gap-2 text-xs text-gray-600">
-                      <input
-                        type="checkbox"
-                        checked={!!config.iaGenerated}
-                        onChange={(e) => updateConfig(index, { ...config, iaGenerated: e.target.checked })}
-                      />
-                      Gerar mensagem com IA (ação inteira)
-                    </label>
+                    <div className="rounded-xl border border-gray-200 bg-gray-50/70 overflow-hidden">
+                      <label className="min-h-12 px-3 flex items-center gap-2 text-xs font-semibold text-gray-800 cursor-pointer">
+                        <input type="checkbox" checked={!!config.iaGenerated} onChange={(e) => updateConfig(index, { ...config, iaGenerated: e.target.checked, iaContextSources: e.target.checked ? (config.iaContextSources?.length ? config.iaContextSources : ['marca', 'lead', 'produto']) : config.iaContextSources })} />
+                        <BrainCircuit size={15} className="text-brand" /> Adaptar esta ação com IA
+                        {config.iaGenerated && <span className="ml-auto inline-flex items-center gap-1 text-[10px] text-emerald-700"><CheckCircle2 size={11} /> Contexto ativo</span>}
+                      </label>
+                      {config.iaGenerated && <div className="border-t border-gray-200 p-3 space-y-3">
+                        <div><p className="text-[11px] font-semibold text-gray-800">Fontes de contexto</p><p className="text-[10px] text-gray-500">A IA combina somente as fontes selecionadas antes de montar cada mensagem.</p></div>
+                        <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5">
+                          {([['marca', activeBrand.name || 'Marca ativa'], ['lead', 'Lead'], ['afiliado', 'Afiliado'], ['produto', 'Produto'], ['historico', 'Histórico']] as const).map(([source, label]) => {
+                            const selected = (config.iaContextSources || []).includes(source)
+                            return <button key={source} type="button" aria-pressed={selected} onClick={() => { const cur = config.iaContextSources || []; updateConfig(index, { ...config, iaContextSources: selected ? cur.filter(v => v !== source) : [...cur, source] }) }} className={`min-h-10 rounded-xl border px-2 text-[10px] font-semibold ${selected ? 'border-brand bg-brand-light text-brand' : 'border-gray-200 bg-white text-gray-600'}`}>{label}</button>
+                          })}
+                        </div>
+                      </div>}
+                    </div>
                     {config.iaGenerated && (
                       <textarea
                         value={config.iaPrompt || ''}
                         onChange={(e) => updateConfig(index, { ...config, iaPrompt: e.target.value })}
                         rows={2}
-                        placeholder="Prompt global da ação…"
-                        className="w-full border border-violet-100 bg-violet-50/40 rounded-lg px-3 py-2 text-xs resize-none"
+                        placeholder="Instrução complementar — ex.: priorize a objeção do lead e a proposta de valor da marca…"
+                        className="w-full border border-gray-200 bg-white rounded-xl px-3 py-2.5 text-xs resize-none"
                       />
                     )}
                     <div>
@@ -244,7 +284,7 @@ export function ActionPipelineEditor({ pipeline, trigger, onChange }: Props) {
                         steps={ensureAcaoSteps(config)}
                         onChange={(mensagemSteps) => updateConfig(index, { ...config, mensagemSteps })}
                         allowedTipos={allowedStepTypesForAction(acao.tipo)}
-                        variableHints="{nome}, {username}, {telefone}"
+                        variableHints="Clique em uma tag dentro de cada bloco para inserir."
                       />
                     </div>
                   </>

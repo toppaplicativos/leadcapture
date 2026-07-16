@@ -14,6 +14,7 @@
  */
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import { GalleryPreview as SharedGalleryPreview } from '@/components/gallery/GalleryPreview'
 import type { GalleryItem } from '@/lib/gallery/types'
@@ -22,7 +23,7 @@ import {
   ImageIcon, ChevronLeft, Wrench, Tag, Star, Zap, Send, CheckCircle2,
   Images, LayoutGrid, Eye, Type as TypeIcon, Palette as PaletteIcon, Megaphone,
   ChevronDown, Wand2, Rocket, Quote, BookOpen, Gift, Heart, Award,
-  ThumbsUp, ThumbsDown, Shuffle,
+  ThumbsUp, ThumbsDown, Shuffle, Upload, Plus, Trash2, Layers3, BadgePercent, MousePointerClick,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -170,10 +171,19 @@ interface PreviewPayload {
   layoutOptions?: Array<{ id: string; label: string; description: string; recommended: boolean }>
   includeBrandLogoDefault?: boolean
   imageProvider?: {
-    provider: 'openai' | 'gemini' | 'grok'
+    provider: 'openai' | 'gemini' | 'grok' | 'atlas'
     model: string
     keyConfigured: boolean
   }
+  imageModelOptions?: Array<{
+    provider: string
+    id: string
+    label: string
+    tier: string
+    cost_label?: string
+    description?: string
+    supports_references: boolean
+  }>
 }
 
 /** State of the configuration modal — what the user has edited. */
@@ -196,7 +206,29 @@ interface CreativeConfig {
   layoutId: string
   /** Inject the brand logo as a reference image. Default true. */
   includeBrandLogo: boolean
+  /** Image engine for this run (org compositor selector). */
+  imageProvider: 'openai' | 'gemini' | 'grok' | 'atlas'
+  imageModel: string
+  referenceAssetIds: string[]
+  additionalComponents: string[]
 }
+
+interface CreativeReference {
+  id: string
+  file: File
+  previewUrl: string
+  assetId?: string
+  uploading?: boolean
+  error?: string
+}
+
+const ADDITIONAL_COMPONENTS: Array<{ id: string; label: string; description: string; icon: LucideIcon }> = [
+  { id: 'price', label: 'Preço em destaque', description: 'Valor e condição comercial', icon: BadgePercent },
+  { id: 'benefits', label: 'Lista de benefícios', description: 'Até três argumentos curtos', icon: Layers3 },
+  { id: 'badge', label: 'Selo promocional', description: 'Desconto, novidade ou urgência', icon: Award },
+  { id: 'social-proof', label: 'Prova social', description: 'Avaliação ou frase de confiança', icon: Star },
+  { id: 'secondary-cta', label: 'CTA complementar', description: 'Reforço visual da ação', icon: MousePointerClick },
+]
 
 const OBJECTIVE_OPTIONS = [
   'Vender agora',
@@ -279,7 +311,8 @@ export function CriativosPage() {
 
   /* User clicked a section card OR accepted a suggestion. */
   function startFromSection(sectionId: string) {
-    setPickerOpen({ sectionId })
+    const section = sections.find((item) => item.id === sectionId)
+    openConfigure(sectionId, section?.label || '', '', '')
   }
   function startFromSuggestion(s: Suggestion) {
     /* Suggestions also go through the modal — keeps a single flow and lets
@@ -293,6 +326,12 @@ export function CriativosPage() {
     const section = sections.find((s) => s.id === pickerOpen.sectionId)
     setPickerOpen(null)
     openConfigure(pickerOpen.sectionId, section?.label || '', p.id, p.name)
+  }
+
+  function changeConfiguredProduct() {
+    if (!configuring) return
+    setPickerOpen({ sectionId: configuring.sectionId })
+    setConfiguring(null)
   }
 
   /* Open modal: kick off preview fetch + render the form skeleton instantly. */
@@ -331,7 +370,11 @@ export function CriativosPage() {
         body: JSON.stringify({
           productId,
           sectionId,
-          overrides: config,
+          overrides: {
+            ...config,
+            provider: config.imageProvider,
+            imageModel: config.imageModel,
+          },
         }),
       })
       const data = await r.json()
@@ -454,10 +497,12 @@ export function CriativosPage() {
         <ConfigureCreativeModal
           sectionLabel={configuring.sectionLabel}
           productName={configuring.productName}
+          hasProduct={Boolean(configuring.productId)}
           preview={configuring.preview}
           loading={configuring.loadingPreview}
           error={configuring.error}
           onClose={closeConfigure}
+          onChangeProduct={changeConfiguredProduct}
           onGenerate={runConfiguredGenerate}
         />
       )}
@@ -579,13 +624,13 @@ function ProductPickerModal({
     })
   }, [products, search, filter])
 
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm grid place-items-end sm:place-items-center p-0 sm:p-4"
+      className="fixed inset-0 z-[10000] isolate bg-black/55 backdrop-blur-sm grid place-items-end sm:place-items-center p-0 sm:p-4"
       onClick={onClose}
     >
       <div
-        className="bg-white w-full sm:max-w-3xl max-h-[92vh] sm:rounded-3xl rounded-t-3xl shadow-2xl flex flex-col"
+        className="bg-white w-full sm:max-w-4xl h-[100dvh] sm:h-auto sm:max-h-[92vh] sm:rounded-[24px] shadow-[0_12px_40px_rgba(0,0,0,0.12)] flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         <header className="flex items-start justify-between gap-3 px-5 py-4 border-b border-gray-100">
@@ -593,7 +638,8 @@ function ProductPickerModal({
             <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-gray-400">
               {sectionLabel}
             </p>
-            <h2 className="text-[18px] font-bold text-gray-900 mt-0.5">Escolha o produto</h2>
+            <h2 className="text-[18px] font-semibold tracking-[-0.02em] text-gray-900 mt-0.5">Configure seu criativo</h2>
+            <p className="text-[12px] text-gray-500 mt-1">O produto é uma parte da configuração e poderá ser trocado antes de gerar.</p>
           </div>
           <button
             onClick={onClose}
@@ -604,7 +650,11 @@ function ProductPickerModal({
           </button>
         </header>
 
-        <div className="px-5 py-3 border-b border-gray-100 space-y-2">
+        <div className="px-5 py-4 border-b border-gray-100 space-y-3">
+          <div>
+            <p className="text-[13px] font-semibold text-gray-900">Produto do criativo</p>
+            <p className="text-[11px] text-gray-500 mt-0.5">Vincule um item do catálogo para usar foto, nome, preço e informações reais.</p>
+          </div>
           <div className="relative">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
@@ -658,7 +708,8 @@ function ProductPickerModal({
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
@@ -867,14 +918,16 @@ function GeneratingState() {
  * ══════════════════════════════════════════════════════════════════ */
 
 function ConfigureCreativeModal({
-  sectionLabel, productName, preview, loading, error, onClose, onGenerate,
+  sectionLabel, productName, hasProduct, preview, loading, error, onClose, onChangeProduct, onGenerate,
 }: {
   sectionLabel: string
   productName: string
+  hasProduct: boolean
   preview: PreviewPayload | null
   loading: boolean
   error: string | null
   onClose: () => void
+  onChangeProduct: () => void
   onGenerate: (config: CreativeConfig) => void
 }) {
   /* Form state. Initialised from `preview.defaults` once it arrives.
@@ -882,6 +935,7 @@ function ConfigureCreativeModal({
    * so cancelling the modal doesn't mutate the cached preview. */
   const [config, setConfig] = useState<CreativeConfig | null>(null)
   const [showAdvanced, setShowAdvanced] = useState(false)
+  const [references, setReferences] = useState<CreativeReference[]>([])
 
   /* Hydrate form when preview lands. */
   useEffect(() => {
@@ -889,6 +943,8 @@ function ConfigureCreativeModal({
     const d = preview.defaults
     /* Pick the recommended layout (first entry, marked recommended=true). */
     const recommendedLayout = preview.layoutOptions?.find((l) => l.recommended) || preview.layoutOptions?.[0]
+    const defaultProv = (preview.imageProvider?.provider || 'gemini') as CreativeConfig['imageProvider']
+    const defaultModel = preview.imageProvider?.model || 'gemini-3.1-flash-image'
     setConfig({
       objective: '',
       formats: d.formats?.length ? d.formats : [d.aspectRatio],
@@ -905,8 +961,44 @@ function ConfigureCreativeModal({
       embedTextInImage: false,
       layoutId: recommendedLayout?.id || '',
       includeBrandLogo: preview.includeBrandLogoDefault !== false,
+      imageProvider: defaultProv,
+      imageModel: defaultModel,
+      referenceAssetIds: [],
+      additionalComponents: [],
     })
   }, [preview, config])
+
+  async function addReferences(files: FileList | null) {
+    if (!files?.length) return
+    const picked = Array.from(files).slice(0, Math.max(0, 4 - references.length))
+    const pending = picked.map((file) => ({ id: `${Date.now()}-${file.name}`, file, previewUrl: URL.createObjectURL(file), uploading: true }))
+    setReferences((current) => [...current, ...pending])
+    const fd = new FormData()
+    picked.forEach((file) => fd.append('images', file))
+    fd.append('imageTypes', JSON.stringify(picked.map(() => 'reference')))
+    fd.append('captions', JSON.stringify(picked.map((file) => `Referência visual: ${file.name}`)))
+    fd.append('tags', JSON.stringify(['auto-compose', 'user-reference']))
+    try {
+      const response = await fetch('/api/ai/creatives/studio/upload', { method: 'POST', headers: getHeaders(false), body: fd })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.error || 'Não foi possível enviar as referências')
+      const assets = data.assets || []
+      setReferences((current) => current.map((item) => {
+        const index = pending.findIndex((pendingItem) => pendingItem.id === item.id)
+        return index >= 0 ? { ...item, uploading: false, assetId: assets[index]?.id } : item
+      }))
+      setConfig((current) => current ? { ...current, referenceAssetIds: [...current.referenceAssetIds, ...assets.map((asset: any) => asset.id).filter(Boolean)] } : current)
+    } catch (uploadError: any) {
+      setReferences((current) => current.map((item) => pending.some((pendingItem) => pendingItem.id === item.id) ? { ...item, uploading: false, error: uploadError?.message || 'Falha no envio' } : item))
+    }
+  }
+
+  function removeReference(id: string) {
+    const target = references.find((item) => item.id === id)
+    if (target) URL.revokeObjectURL(target.previewUrl)
+    setReferences((current) => current.filter((item) => item.id !== id))
+    if (target?.assetId) setConfig((current) => current ? { ...current, referenceAssetIds: current.referenceAssetIds.filter((assetId) => assetId !== target.assetId) } : current)
+  }
 
   /* Compute the cost estimate live as user toggles formats / variations. */
   const estimate = useMemo(() => {
@@ -934,17 +1026,17 @@ function ConfigureCreativeModal({
   }
 
   function submit() {
-    if (!config || !preview) return
+    if (!config || !preview || !hasProduct || references.some((item) => item.uploading)) return
     onGenerate(config)
   }
 
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm grid place-items-end sm:place-items-center p-0 sm:p-4"
+      className="fixed inset-0 z-[10000] isolate bg-black/60 backdrop-blur-sm grid place-items-end sm:place-items-center p-0 sm:p-4"
       onClick={onClose}
     >
       <div
-        className="bg-white w-full sm:max-w-2xl max-h-[95vh] sm:rounded-3xl rounded-t-3xl shadow-2xl flex flex-col"
+        className="bg-white w-full sm:max-w-4xl h-[100dvh] sm:h-auto sm:max-h-[92vh] sm:rounded-[24px] shadow-[0_12px_40px_rgba(0,0,0,0.12)] flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -957,7 +1049,8 @@ function ConfigureCreativeModal({
               <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-gray-400">
                 Configurar · {sectionLabel}
               </p>
-              <h2 className="text-[16px] font-bold text-gray-900 truncate">{productName}</h2>
+              <h2 className="text-[16px] font-bold text-gray-900 truncate">{hasProduct ? productName : 'Novo criativo'}</h2>
+              <button type="button" onClick={onChangeProduct} className="mt-1 text-[11px] font-semibold text-neutral-600 underline underline-offset-2 hover:text-neutral-900">{hasProduct ? 'Trocar produto' : 'Adicionar produto'}</button>
             </div>
           </div>
           <button
@@ -984,44 +1077,69 @@ function ConfigureCreativeModal({
               </div>
             </div>
           ) : config && preview ? (
-            <div className="p-5 space-y-5">
-              {/* Active provider banner — read-only feedback so the user
-               *  knows which engine will run the generation. To change it,
-               *  go to Provedores IA. */}
-              {preview.imageProvider && (
-                <div className={`flex items-start gap-3 p-3 rounded-2xl ${
-                  preview.imageProvider.keyConfigured
-                    ? 'bg-gray-50 border border-gray-200'
-                    : 'bg-amber-50 border border-amber-200'
-                }`}>
-                  <div className={`w-8 h-8 rounded-xl grid place-items-center shrink-0 ${
-                    preview.imageProvider.keyConfigured ? 'bg-gray-900 text-white' : 'bg-amber-500 text-white'
-                  }`}>
-                    <Sparkles size={14} strokeWidth={2} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-gray-500">Provedor de imagem</p>
-                    <p className="text-[13px] font-semibold text-gray-900 mt-0.5">
-                      {preview.imageProvider.provider === 'openai' && 'OpenAI'}
-                      {preview.imageProvider.provider === 'gemini' && 'Google Gemini'}
-                      {preview.imageProvider.provider === 'grok' && 'xAI Grok'}
-                      <span className="ml-1.5 text-[11px] font-mono font-normal text-gray-500">
-                        {preview.imageProvider.model}
-                      </span>
-                    </p>
-                    {!preview.imageProvider.keyConfigured && (
-                      <p className="text-[11px] text-amber-700 mt-1">
-                        Chave não configurada. <Link to="/provedores-ia" className="underline font-semibold">Configurar agora</Link>.
-                      </p>
-                    )}
-                    {preview.imageProvider.keyConfigured && (
-                      <p className="text-[11px] text-gray-500 mt-0.5">
-                        Pra trocar o provedor padrão, vá em <Link to="/provedores-ia" className="underline">Provedores IA</Link>.
-                      </p>
-                    )}
-                  </div>
-                </div>
-              )}
+            <div className="p-4 sm:p-6 space-y-4 bg-neutral-50/70">
+              {/* Image model selector — org can pick per generation.
+               *  Prefer models with product/logo references for brand consistency. */}
+              <Field
+                label="Modelo de imagem"
+                hint="Default: Gemini 3.1 Flash Image. Use GPT Image 2 ou Atlas para alternativas com referência de marca."
+                icon={Sparkles}
+              >
+                <select
+                  value={`${config.imageProvider}::${config.imageModel}`}
+                  onChange={(e) => {
+                    const [provider, ...rest] = e.target.value.split('::')
+                    const model = rest.join('::')
+                    setConfig((c) =>
+                      c
+                        ? {
+                            ...c,
+                            imageProvider: provider as CreativeConfig['imageProvider'],
+                            imageModel: model,
+                          }
+                        : c,
+                    )
+                  }}
+                  className="w-full h-11 px-3.5 rounded-xl border border-gray-200 bg-white text-[13px] text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900/10"
+                >
+                  {(preview.imageModelOptions && preview.imageModelOptions.length > 0
+                    ? preview.imageModelOptions
+                    : [
+                        {
+                          provider: config.imageProvider,
+                          id: config.imageModel,
+                          label: config.imageModel,
+                          tier: 'cheap',
+                          supports_references: true,
+                        },
+                      ]
+                  ).map((m) => (
+                    <option key={`${m.provider}::${m.id}`} value={`${m.provider}::${m.id}`}>
+                      {m.label}
+                      {m.supports_references ? ' · com refs' : ''}
+                      {m.cost_label ? ` · ${m.cost_label}` : ''}
+                      {m.tier === 'expensive' ? ' · premium' : m.tier === 'cheap' ? ' · econômico' : ''}
+                    </option>
+                  ))}
+                </select>
+                {(() => {
+                  const sel = preview.imageModelOptions?.find(
+                    (m) => m.provider === config.imageProvider && m.id === config.imageModel,
+                  )
+                  return sel?.description ? (
+                    <p className="text-[11px] text-gray-500 mt-1.5 leading-relaxed">{sel.description}</p>
+                  ) : null
+                })()}
+                {preview.imageProvider && !preview.imageProvider.keyConfigured && (
+                  <p className="text-[11px] text-amber-700 mt-2">
+                    Chave do motor padrão pode estar ausente.{' '}
+                    <Link to="/provedores-ia" className="underline font-semibold">
+                      Provedores IA
+                    </Link>{' '}
+                    ou peça ao Master para cadastrar Atlas Cloud.
+                  </p>
+                )}
+              </Field>
 
               {/* Objective */}
               <Field
@@ -1063,8 +1181,11 @@ function ConfigureCreativeModal({
                           active ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 bg-white text-gray-700 hover:border-gray-400'
                         }`}
                       >
-                        <p className="text-[10px] font-mono font-bold tracking-wider opacity-70">{f.id}</p>
-                        <p className="text-[13px] font-bold mt-0.5">{f.label}</p>
+                        <div className="flex items-center justify-between gap-2">
+                          <FormatGlyph format={f.id} active={active} />
+                          <span className="text-[10px] font-mono font-bold tracking-wider opacity-70">{f.id}</span>
+                        </div>
+                        <p className="text-[13px] font-bold mt-2">{f.label}</p>
                         <p className={`text-[10px] mt-1 leading-tight ${active ? 'text-white/70' : 'text-gray-500'}`}>
                           {f.description}
                         </p>
@@ -1100,6 +1221,49 @@ function ConfigureCreativeModal({
                   })()}
                 </Field>
               )}
+
+              <section className="rounded-[20px] border border-neutral-200 bg-white p-4 sm:p-5 shadow-[0_1px_2px_rgba(0,0,0,0.03)] space-y-4">
+                <div>
+                  <p className="text-[14px] font-semibold text-neutral-900">Referências visuais</p>
+                  <p className="text-[12px] text-neutral-500 mt-0.5">Envie até 4 imagens para orientar estilo, composição ou cenário.</p>
+                </div>
+                <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                  {references.map((item) => (
+                    <div key={item.id} className="relative aspect-square overflow-hidden rounded-2xl border border-neutral-200 bg-neutral-100">
+                      <img src={item.previewUrl} alt="Referência visual" className="h-full w-full object-cover" />
+                      {item.uploading && <div className="absolute inset-0 grid place-items-center bg-black/35"><Loader2 size={18} className="animate-spin text-white" /></div>}
+                      <button type="button" onClick={() => removeReference(item.id)} aria-label="Remover referência" className="absolute right-1.5 top-1.5 grid h-7 w-7 place-items-center rounded-full bg-white/95 text-neutral-700 shadow"><Trash2 size={13} /></button>
+                      {item.error && <span className="absolute inset-x-1.5 bottom-1.5 rounded-lg bg-red-600 px-1.5 py-1 text-[9px] text-white">Falha no envio</span>}
+                    </div>
+                  ))}
+                  {references.length < 4 && (
+                    <label className="aspect-square cursor-pointer rounded-2xl border border-dashed border-neutral-300 bg-neutral-50 grid place-items-center text-center hover:border-neutral-500 hover:bg-neutral-100 transition">
+                      <input type="file" accept="image/png,image/jpeg,image/webp" multiple className="sr-only" onChange={(event) => { void addReferences(event.target.files); event.target.value = '' }} />
+                      <span className="flex flex-col items-center gap-1 text-[10px] font-semibold text-neutral-600"><Upload size={17} />Enviar imagem</span>
+                    </label>
+                  )}
+                </div>
+                <p className="text-[11px] text-neutral-500">PNG, JPG ou WebP. A referência complementa a foto principal do produto.</p>
+              </section>
+
+              <section className="rounded-[20px] border border-neutral-200 bg-white p-4 sm:p-5 shadow-[0_1px_2px_rgba(0,0,0,0.03)] space-y-4">
+                <div>
+                  <p className="text-[14px] font-semibold text-neutral-900">Componentes adicionais</p>
+                  <p className="text-[12px] text-neutral-500 mt-0.5">Inclua somente os elementos que fortalecem a mensagem.</p>
+                </div>
+                <div className="grid sm:grid-cols-2 gap-2">
+                  {ADDITIONAL_COMPONENTS.map(({ id, label, description, icon: Icon }) => {
+                    const active = config.additionalComponents.includes(id)
+                    return (
+                      <button key={id} type="button" aria-pressed={active} onClick={() => update('additionalComponents', active ? config.additionalComponents.filter((item) => item !== id) : [...config.additionalComponents, id])} className={`flex min-h-14 items-center gap-3 rounded-2xl border px-3 py-2.5 text-left transition ${active ? 'border-neutral-900 bg-neutral-900 text-white' : 'border-neutral-200 bg-white text-neutral-800 hover:border-neutral-400'}`}>
+                        <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${active ? 'bg-white/10' : 'bg-neutral-100'}`}><Icon size={16} /></span>
+                        <span className="min-w-0 flex-1"><span className="block text-[12px] font-semibold">{label}</span><span className={`block text-[10px] mt-0.5 ${active ? 'text-white/65' : 'text-neutral-500'}`}>{description}</span></span>
+                        {active ? <CheckCircle2 size={16} /> : <Plus size={16} />}
+                      </button>
+                    )
+                  })}
+                </div>
+              </section>
 
               {/* Brand logo toggle */}
               <Field
@@ -1350,15 +1514,30 @@ function ConfigureCreativeModal({
           </button>
           <button
             onClick={submit}
-            disabled={!config || loading}
+            disabled={!config || !hasProduct || loading || references.some((item) => item.uploading)}
             className="inline-flex items-center gap-1.5 h-10 px-4 rounded-xl bg-gray-900 text-white text-[13px] font-semibold hover:bg-gray-800 active:scale-[0.98] transition disabled:opacity-40"
           >
             <Wand2 size={14} strokeWidth={2} />
-            Gerar criativos
+            {hasProduct ? 'Gerar criativos' : 'Adicione um produto'}
           </button>
         </footer>
       </div>
-    </div>
+    </div>,
+    document.body,
+  )
+}
+
+function FormatGlyph({ format, active }: { format: '1:1' | '9:16' | '4:5' | '16:9'; active: boolean }) {
+  const dimensions: Record<typeof format, string> = {
+    '1:1': 'h-7 w-7',
+    '9:16': 'h-8 w-[18px]',
+    '4:5': 'h-8 w-[26px]',
+    '16:9': 'h-[18px] w-8',
+  }
+  return (
+    <span className={`grid h-10 w-10 place-items-center rounded-xl ${active ? 'bg-white/10' : 'bg-neutral-100'}`} aria-hidden="true">
+      <span className={`block rounded-[3px] border-2 ${dimensions[format]} ${active ? 'border-white' : 'border-neutral-500'}`} />
+    </span>
   )
 }
 

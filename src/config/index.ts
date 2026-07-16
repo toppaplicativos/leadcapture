@@ -49,8 +49,8 @@ export const config = {
   },
 
   creatives: {
-    textModel: process.env.GEMINI_TEXT_MODEL || "gemini-2.5-flash",
-    imageModel: process.env.GEMINI_IMAGE_MODEL || "gemini-2.5-flash-image",
+    textModel: process.env.GEMINI_TEXT_MODEL || "gemini-2.5-flash-lite",
+    imageModel: process.env.GEMINI_IMAGE_MODEL || "gemini-3.1-flash-image",
     videoModel: process.env.VEO_VIDEO_MODEL || "veo-3.1-generate-preview",
   },
 

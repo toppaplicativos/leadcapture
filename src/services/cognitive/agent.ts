@@ -16,6 +16,14 @@ import { decideResponse, SuggestedTone } from "./skills/responseGate";
 import { silenceLogService } from "./silenceLog";
 import { CognitiveInput, CognitiveOutput, EMPTY_MEMORY } from "./types";
 import { formatSalesModeBlock, detectFunnelStageLight } from "../salesChannelHelpers";
+import {
+  extractSlotsFromHistory,
+  formatObjectiveAttendanceBlock,
+  slotsToFacts,
+  slotsToPreferences,
+  upsertCommunicationContact,
+  type HistoryMessage,
+} from "../attendanceMemory";
 
 /**
  * Top-level orchestrator for the cognitive pipeline.
@@ -135,7 +143,37 @@ export class CognitiveAgent {
        posicionado no fim do prompt do Composer (maior peso de atenção do LLM)
        com instrução imperativa de execução — não passivo como contexto. */
     const knowledgeBlock = knowledgeBlockBase;
-    const memoryBlock = conversationMemoryService.toPromptBlock(memory);
+
+    /* Shared objective attendance: slots from transcript + current message.
+     * Prevents re-asking use-case / intent already stated (same pattern as IG). */
+    const historyAsMsgs: HistoryMessage[] = history.map((line) => {
+      const t = String(line || "");
+      if (/^Atendente:\s*/i.test(t)) {
+        return { direction: "outgoing" as const, text: t.replace(/^Atendente:\s*/i, "") };
+      }
+      return { direction: "incoming" as const, text: t.replace(/^Lead:\s*/i, "") };
+    });
+    const attendanceSlots = extractSlotsFromHistory(historyAsMsgs, incomingMessage);
+    const objectiveBlock = formatObjectiveAttendanceBlock(attendanceSlots, {
+      turnCount: memory?.turn_count || 0,
+      historyDepth: history.length,
+    });
+    const memoryBlock = [conversationMemoryService.toPromptBlock(memory), objectiveBlock]
+      .filter(Boolean)
+      .join("\n\n");
+
+    /* Register WA contact when conversation id looks like a phone/JID */
+    if (conversationId && brandId) {
+      const externalId = conversationId.replace(/@.*/, "").replace(/\D/g, "") || conversationId;
+      upsertCommunicationContact({
+        brandId,
+        channel: "whatsapp",
+        externalId: externalId.slice(0, 64),
+        conversationId,
+        slots: attendanceSlots,
+        bumpMessage: true,
+      }).catch(() => undefined);
+    }
 
     const brandGuard: BrandGuardConfig = {
       agentName: profile.agent_name,
@@ -176,9 +214,33 @@ export class CognitiveAgent {
     });
     const reasonerMs = Date.now() - tReasoner;
 
+    /* Enrich must_avoid with known slots so composer never re-asks */
+    if (attendanceSlots.use_case) {
+      trace.must_avoid = [
+        ...trace.must_avoid,
+        `reperguntar uso (já é ${attendanceSlots.use_case})`,
+      ];
+      if (!trace.must_acknowledge.includes(`uso=${attendanceSlots.use_case}`)) {
+        trace.must_acknowledge = [...trace.must_acknowledge, `uso=${attendanceSlots.use_case}`];
+      }
+    }
+    if (attendanceSlots.purchase_intent) {
+      trace.must_avoid = [...trace.must_avoid, "reiniciar segmentação casa/negócio/revenda"];
+      if (trace.funnel_stage === "awareness" || trace.funnel_stage === "noise") {
+        trace.funnel_stage = "decision";
+      }
+    }
+    // Merge deterministic facts into trace when reasoner left them empty
+    const slotFacts = slotsToFacts(attendanceSlots);
+    if (slotFacts.length) {
+      trace.facts_learned_this_turn = Array.from(
+        new Set([...(trace.facts_learned_this_turn || []), ...slotFacts]),
+      );
+    }
+
     /* Early escalation if reasoner flagged it */
     if (trace.should_escalate) {
-      this.persistMemoryAsync(conversationId, memory, trace);
+      this.persistMemoryAsync(conversationId, memory, trace, attendanceSlots);
       return {
         text: "",
         reasoning: trace,
@@ -245,7 +307,7 @@ export class CognitiveAgent {
     const composerMs = Date.now() - tComposer;
 
     /* PASS 3: persist memory (fire-and-forget) */
-    this.persistMemoryAsync(conversationId, memory, trace);
+    this.persistMemoryAsync(conversationId, memory, trace, attendanceSlots);
 
     const totalMs = Date.now() - t0;
     logger.info(
@@ -303,12 +365,24 @@ export class CognitiveAgent {
     return products;
   }
 
-  private persistMemoryAsync(conversationId: string, current: ReturnType<typeof EMPTY_MEMORY> | null, trace: Awaited<ReturnType<Reasoner["analyze"]>>): void {
+  private persistMemoryAsync(
+    conversationId: string,
+    current: ReturnType<typeof EMPTY_MEMORY> | null,
+    trace: Awaited<ReturnType<Reasoner["analyze"]>>,
+    slots?: ReturnType<typeof extractSlotsFromHistory> | null,
+  ): void {
     if (!conversationId) return;
     const baseline = current || EMPTY_MEMORY(conversationId);
+    const extras = slots
+      ? {
+          preferences: slotsToPreferences(slots),
+          customer_name: slots.name || null,
+          extra_facts: slotsToFacts(slots),
+        }
+      : undefined;
     /* fire-and-forget: don't block reply */
     conversationMemoryService
-      .merge(conversationId, baseline, trace)
+      .merge(conversationId, baseline, trace, extras)
       .then((merged) => conversationMemoryService.save(merged))
       .catch((e) => logger.warn(`memory persist failed: ${e?.message || e}`));
   }

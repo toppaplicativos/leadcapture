@@ -71,6 +71,7 @@ export class AdminAgentOrchestrator {
         skill: directSkill,
         components,
         actions,
+        context: ctx.skillContext ? { ...ctx.skillContext } : undefined,
       };
       if (directSkill === "campaigns.create") turn.nextSkill = "campaigns.confirm";
       if (directSkill === "skills.train") turn.nextSkill = "skills.confirm";
@@ -94,6 +95,7 @@ export class AdminAgentOrchestrator {
         components,
         actions,
         nextSkill: continuation.nextSkill,
+        context: continuation.context,
       });
     }
 
@@ -144,6 +146,7 @@ export class AdminAgentOrchestrator {
       components,
       actions,
       nextSkill: selection.nextSkill,
+      context: selection.context,
     };
 
     if (selection.skill === "campaigns.create") {
@@ -296,16 +299,20 @@ MENSAGEM DO USUÁRIO:
 ${message}
 
 TAREFA:
-1. Identifique a intenção do usuário.
-2. Escolha o squad e a skill mais adequados do catálogo acima.
-3. Escreva uma resposta curta, amigável e em português brasileiro.
+1. Entenda a mensagem como continuação do histórico, da memória e da página atual. Resolva "isso", "lá", "ele" e "continue" pelo contexto recente.
+2. Diferencie pedido de informação, execução e navegação. Uma menção a uma área não é automaticamente uma ordem para abrir uma página.
+3. Escolha a skill mais específica para o resultado desejado, não a primeira palavra coincidente.
+4. Extraia em context os parâmetros já informados: busca, local, canal, produto, cliente, objetivo e brief. Não pergunte novamente o que já está no histórico.
+5. Se houver continuação em múltiplos turnos, informe nextSkill. Responda de forma curta e concreta dizendo o que será entregue.
 
 Responda APENAS com JSON válido neste formato:
 {
   "squad": "id_do_squad",
   "skill": "id.da.skill",
   "message": "resposta natural ao usuário",
-  "reasoning": "breve justificativa interna"
+  "reasoning": "breve justificativa interna",
+  "context": { "parametro": "valor extraído da conversa" },
+  "nextSkill": "skill seguinte, apenas quando houver continuação"
 }`;
 
     const result = await aiRouter.generateJson<SkillSelection>(prompt, {
@@ -325,6 +332,8 @@ Responda APENAS com JSON válido neste formato:
       skill: result.skill,
       message: String(result.message || "").trim() || SKILLS[result.skill].name,
       reasoning: result.reasoning,
+      context: result.context && typeof result.context === "object" ? result.context : undefined,
+      nextSkill: result.nextSkill && SKILLS[result.nextSkill] ? result.nextSkill : undefined,
     };
   }
 
@@ -644,15 +653,6 @@ Responda APENAS com JSON válido neste formato:
       };
     }
 
-    for (const skill of Object.values(SKILLS)) {
-      if (skill.intents.some((i) => lower.includes(i))) {
-        return {
-          squad: skill.squad,
-          skill: skill.id,
-          message: `Vou te ajudar com: ${skill.name.toLowerCase()}.`,
-        };
-      }
-    }
     if (/agente|whatsapp|bot/i.test(lower)) {
       return { squad: "workspace", skill: "workspace.overview", message: "Aqui está o status do seu agente IA." };
     }

@@ -64,16 +64,50 @@ export class ConversationMemoryService {
     }
   }
 
-  /** Merge a reasoning trace into the persistent memory. */
-  async merge(conversationId: string, current: ConversationMemory, trace: ReasoningTrace): Promise<ConversationMemory> {
+  /**
+   * Merge a reasoning trace into the persistent memory.
+   * Optional extras: preferences/name/facts from attendance slot extractor (IG/WA shared).
+   */
+  async merge(
+    conversationId: string,
+    current: ConversationMemory,
+    trace: ReasoningTrace,
+    extras?: {
+      preferences?: Record<string, string>;
+      customer_name?: string | null;
+      extra_facts?: string[];
+    },
+  ): Promise<ConversationMemory> {
+    // Pull preference-like facts from "chave=valor" traces
+    const prefsFromFacts: Record<string, string> = { ...current.preferences };
+    for (const fact of [...(trace.facts_learned_this_turn || []), ...(extras?.extra_facts || [])]) {
+      const m = String(fact).match(/^([a-zA-Z_À-ÿ][\wÀ-ÿ]*)\s*=\s*(.+)$/);
+      if (m) prefsFromFacts[m[1].toLowerCase()] = m[2].trim();
+    }
+    if (extras?.preferences) {
+      Object.assign(prefsFromFacts, extras.preferences);
+    }
+
+    const nameFromFacts =
+      extras?.customer_name ||
+      prefsFromFacts.nome ||
+      prefsFromFacts.name ||
+      current.customer_name ||
+      null;
+
     const merged: ConversationMemory = {
       ...current,
       conversation_id: conversationId,
       turn_count: current.turn_count + 1,
+      customer_name: nameFromFacts,
       mentioned_products: this.dedupe([...current.mentioned_products, ...trace.mentioned_products]),
-      preferences: { ...current.preferences },
+      preferences: prefsFromFacts,
       objections_history: this.dedupe([...current.objections_history, ...trace.objections_detected]),
-      facts_learned: this.dedupe([...current.facts_learned, ...trace.facts_learned_this_turn]).slice(-40),
+      facts_learned: this.dedupe([
+        ...current.facts_learned,
+        ...trace.facts_learned_this_turn,
+        ...(extras?.extra_facts || []),
+      ]).slice(-40),
       funnel_stage: trace.funnel_stage,
       last_emotional_state: trace.emotional_state,
       frustration_score: Math.min(
@@ -131,12 +165,20 @@ export class ConversationMemoryService {
 
   /** Format memory for inclusion in a prompt. Empty string when memory has no useful signal. */
   toPromptBlock(memory: ConversationMemory | null): string {
-    if (!memory || memory.turn_count === 0) return "";
+    if (!memory) return "";
+    const prefEntries = Object.entries(memory.preferences || {});
+    const hasSignal =
+      memory.turn_count > 0 ||
+      Boolean(memory.customer_name) ||
+      memory.facts_learned.length > 0 ||
+      prefEntries.length > 0 ||
+      memory.mentioned_products.length > 0;
+    if (!hasSignal) return "";
+
     const lines: string[] = ["MEMÓRIA ACUMULADA DESTA CONVERSA (informações já reveladas — NÃO pergunte de novo):"];
     if (memory.customer_name) lines.push(`- nome do cliente: ${memory.customer_name}`);
     if (memory.mentioned_products.length) lines.push(`- produtos já discutidos: ${memory.mentioned_products.slice(-8).join(", ")}`);
     if (memory.objections_history.length) lines.push(`- objeções já levantadas: ${memory.objections_history.slice(-5).join(" | ")}`);
-    const prefEntries = Object.entries(memory.preferences);
     if (prefEntries.length) {
       lines.push(`- preferências reveladas: ${prefEntries.map(([k, v]) => `${k}=${v}`).join(", ")}`);
     }

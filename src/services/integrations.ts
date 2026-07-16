@@ -8,6 +8,7 @@ export const INTEGRATION_PROVIDERS = [
   "openai",
   "gemini",
   "grok",
+  "atlas",
   "rapidapi",
   "google_places",
   "runway",
@@ -255,6 +256,11 @@ export class IntegrationService {
         return {
           model: process.env.GROK_MODEL || process.env.XAI_MODEL || "grok-3-mini",
         };
+      case "atlas":
+        return {
+          model: process.env.ATLAS_MODEL || "google/gemini-2.5-flash",
+          base_url: process.env.ATLAS_BASE_URL || "https://api.atlascloud.ai",
+        };
       case "rapidapi":
         return {
           host: process.env.RAPIDAPI_HOST || config.rapidApi.host || "google-map-places-new-v2.p.rapidapi.com",
@@ -296,6 +302,11 @@ export class IntegrationService {
       case "grok":
         return {
           model: cleanString(incoming.model) || defaults.model,
+        };
+      case "atlas":
+        return {
+          model: cleanString(incoming.model) || defaults.model,
+          base_url: cleanString(incoming.base_url) || defaults.base_url,
         };
       case "rapidapi":
         return {
@@ -349,6 +360,16 @@ export class IntegrationService {
         return {
           provider,
           key: cleanString(process.env.GROK_API_KEY || process.env.XAI_API_KEY),
+          config: this.normalizeConfig(provider, defaults),
+          is_active: true,
+          priority: 999,
+          source: "env",
+          account_id: GLOBAL_ACCOUNT_ID,
+        };
+      case "atlas":
+        return {
+          provider,
+          key: cleanString(process.env.ATLAS_API_KEY || process.env.ATLASCLOUD_API_KEY),
           config: this.normalizeConfig(provider, defaults),
           is_active: true,
           priority: 999,
@@ -786,6 +807,18 @@ export class IntegrationService {
         }
         case "grok": {
           const response = await axios.get("https://api.x.ai/v1/models", {
+            timeout: 10_000,
+            headers: { Authorization: `Bearer ${key}` },
+          });
+          responseStatus = response.status;
+          break;
+        }
+        case "atlas": {
+          const atlasBase = String(configJson.base_url || process.env.ATLAS_BASE_URL || "https://api.atlascloud.ai").replace(
+            /\/+$/,
+            "",
+          );
+          const response = await axios.get(`${atlasBase}/v1/models`, {
             timeout: 10_000,
             headers: { Authorization: `Bearer ${key}` },
           });

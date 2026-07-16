@@ -38,7 +38,7 @@ import { useConfirm } from '@/components/ConfirmModal'
 const COLLAPSED_CHAT_GROUPS = [
   { label: 'Principal', keys: ['dashboard', 'busca', 'clientes', 'leads'] },
   { label: 'Canais', keys: ['mensagens', 'whatsapp', 'instagram', 'facebook', 'emails'] },
-  { label: 'Vendas', keys: ['campanhas', 'loja', 'produtos', 'pedidos', 'pagamentos', 'afiliados', 'galeria'] },
+  { label: 'Vendas', keys: ['campanhas', 'loja', 'produtos', 'pedidos', 'estoque', 'pagamentos', 'afiliados', 'galeria'] },
   { label: 'Inteligência', keys: ['automacoes', 'notificacoes', 'habilidades', 'agente', 'atendente', 'provedores-ia'] },
   { label: 'Sistema', keys: ['configuracoes'] },
 ] as const

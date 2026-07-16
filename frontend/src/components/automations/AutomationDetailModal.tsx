@@ -259,7 +259,20 @@ export function AutomationDetailModal({
           )}
 
           {tab === 'limites' && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-xl">
+            <div className="space-y-5 max-w-2xl">
+              <div>
+                <h3 className="text-sm font-semibold text-gray-900">Quem pode entrar nesta automação?</h3>
+                <p className="text-xs text-gray-500 mt-0.5">Filtros opcionais. Deixe em branco para considerar todos os contatos do destino.</p>
+                <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3 rounded-[18px] border border-gray-200 bg-gray-50 p-4">
+                  <label className="block"><span className={labelCls}>Status do lead</span><select value={draft.limites.elegibilidade?.statusLead || ''} onChange={(e) => patch({ limites: { ...draft.limites, elegibilidade: { ...draft.limites.elegibilidade, statusLead: e.target.value } } })} className={inputCls}><option value="">Qualquer status</option><option value="novo">Novo</option><option value="qualificado">Qualificado</option><option value="cliente">Cliente</option></select></label>
+                  <label className="block"><span className={labelCls}>Tag ou segmento</span><input value={(draft.limites.elegibilidade?.tags || []).join(', ')} onChange={(e) => patch({ limites: { ...draft.limites, elegibilidade: { ...draft.limites.elegibilidade, tags: e.target.value.split(',').map(v => v.trim()).filter(Boolean) } } })} placeholder="Ex.: vip, varejo" className={inputCls} /></label>
+                  <label className="block"><span className={labelCls}>Origem</span><input value={draft.limites.elegibilidade?.origem || ''} onChange={(e) => patch({ limites: { ...draft.limites, elegibilidade: { ...draft.limites.elegibilidade, origem: e.target.value } } })} placeholder="Ex.: Instagram" className={inputCls} /></label>
+                </div>
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-gray-900">Controle de frequência</h3>
+                <p className="text-xs text-gray-500 mt-0.5 mb-3">Evite repetição e excesso de envios para o mesmo contato.</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {([
                 ['maxPorUsuario', 'Máx. por usuário (0 = ilimitado)'],
                 ['cooldownSegundos', 'Cooldown entre disparos (segundos)'],
@@ -336,6 +349,8 @@ export function AutomationDetailModal({
                     </label>
                   </div>
                 )}
+              </div>
+                </div>
               </div>
             </div>
           )}

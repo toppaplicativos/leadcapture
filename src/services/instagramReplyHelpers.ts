@@ -1,6 +1,7 @@
 /**
  * Shared Instagram reply composition + send helpers.
- * Uses brandContextPack (global training + channel + catalog/KB/skills)
+ * Uses brandContextPack (global training + channel + catalog/KB/skills),
+ * conversation history, communication contact registry, structured slots,
  * and multi-bubble split so long replies are not mid-cut.
  */
 
@@ -21,6 +22,20 @@ import {
 } from "./salesChannelHelpers";
 import { conversationMemoryService } from "./cognitive/conversationMemory";
 import { EMPTY_MEMORY, type ReasoningTrace } from "./cognitive/types";
+import {
+  advanceFunnelFromSlots,
+  extractSlotsFromHistory,
+  formatHistoryLines,
+  formatObjectiveAttendanceBlock,
+  lastOutgoingFromHistory,
+  mergeSlots,
+  slotsToFacts,
+  slotsToPreferences,
+  stripMidConversationGreeting,
+  upsertCommunicationContact,
+  type HistoryMessage,
+} from "./attendanceMemory";
+import { logger } from "../utils/logger";
 
 export interface ComposeReplyInput {
   brandId: string;
@@ -33,7 +48,7 @@ export interface ComposeReplyInput {
   maxChars?: number;
   extraPromptLines?: string[];
   username?: string;
-  /** Instagram-scoped sender id — enables conversation memory */
+  /** Instagram-scoped sender id — enables conversation memory + history */
   senderId?: string;
 }
 
@@ -104,7 +119,6 @@ export async function composeInstagramReply(input: ComposeReplyInput): Promise<C
 
   // FAQ: channel + pack
   const settings = await instagramService.getAiSettings(input.brandId);
-  // Merge pack FAQ into settings-like object for matcher
   const faqSettings = {
     ...settings,
     faq: [...(Array.isArray(settings.faq) ? (settings.faq as any[]) : []), ...pack.faq],
@@ -115,6 +129,8 @@ export async function composeInstagramReply(input: ComposeReplyInput): Promise<C
       brand_name: brandName,
       username: input.username,
     });
+    // Still register contact / memory lightly so next AI turn has context
+    void persistAttendanceContext(input, pack.sales_mode, null, null, "faq");
     return {
       reply,
       bubbles: toBubbles(reply, maxChars, maxBubbles, split),
@@ -126,57 +142,145 @@ export async function composeInstagramReply(input: ComposeReplyInput): Promise<C
   let reply = applyBrandPlaceholders(
     input.fallbackMessage ||
       input.mensagem ||
-      `Oi! Recebemos sua mensagem na {brand} 💚 Em breve retornamos. Digite *menu* para opções.`,
+      `Oi! Recebemos sua mensagem na {brand} 💚 Em breve retornamos.`,
     { brand_name: brandName, username: input.username },
   );
   let source: ComposeReplyResult["source"] = "fallback";
 
-  // Conversation memory + sales funnel (IG)
-  const convId =
-    input.senderId && pack.sales_mode !== "off"
-      ? igConversationId(input.brandId, input.senderId)
-      : "";
+  // ── Conversation context (history + memory + slots) ──────────────────────
+  // Always key by sender when available (not only when sales_mode is on)
+  const convId = input.senderId ? igConversationId(input.brandId, input.senderId) : "";
+
+  let historyMessages: HistoryMessage[] = [];
+  let historyLines: string[] = [];
+  let lastOutgoing: string[] = [];
   let memoryBlock = "";
-  if (convId) {
+  let mem = convId ? EMPTY_MEMORY(convId) : null;
+  let slots = extractSlotsFromHistory([], input.inboundText);
+
+  if (convId && input.senderId) {
     try {
-      const mem = await conversationMemoryService.load(convId);
+      const rows = await instagramService.listMessagesForSender(
+        input.brandId,
+        input.senderId,
+        25,
+      );
+      historyMessages = rows.map((r) => ({
+        direction: r.direction,
+        text: r.text,
+        created_at: r.created_at,
+      }));
+      // Exclude the very latest inbound if it is a duplicate of current (already stored)
+      const last = historyMessages[historyMessages.length - 1];
+      const inboundNorm = String(input.inboundText || "").trim();
+      if (
+        last?.direction === "incoming" &&
+        String(last.text || "").trim() === inboundNorm
+      ) {
+        // keep it — extractor needs full history including current
+      }
+      historyLines = formatHistoryLines(historyMessages, 20);
+      lastOutgoing = lastOutgoingFromHistory(historyMessages, 3);
+      slots = extractSlotsFromHistory(historyMessages, input.inboundText);
+
+      mem = (await conversationMemoryService.load(convId)) || EMPTY_MEMORY(convId);
+      // Prefer slots already stored in memory preferences
+      if (mem.preferences?.uso && !slots.use_case) {
+        slots = mergeSlots(slots, {
+          use_case: mem.preferences.uso as any,
+          confirmed_facts: [`uso=${mem.preferences.uso}`],
+        });
+      }
+      if (mem.preferences?.intencao === "comprar") {
+        slots = mergeSlots(slots, { purchase_intent: true });
+      }
       memoryBlock = conversationMemoryService.toPromptBlock(mem);
+    } catch (e: any) {
+      logger.warn(`[composeIG] history/memory load failed: ${e?.message || e}`);
+    }
+
+    // Register / update communication contact (fire-and-forget after compose too)
+    try {
+      await upsertCommunicationContact({
+        brandId: input.brandId,
+        channel: "instagram",
+        externalId: input.senderId,
+        username: input.username || null,
+        conversationId: convId,
+        slots,
+        bumpMessage: true,
+      });
     } catch {
       /* ignore */
     }
   }
-  const stage = detectFunnelStageLight(input.inboundText);
-  const salesBlock = formatSalesModeBlock(pack.sales_mode, stage, pack.objections || []);
+
+  const lightStage = detectFunnelStageLight(input.inboundText);
+  const stage = advanceFunnelFromSlots(slots, lightStage);
+  const salesBlock =
+    pack.sales_mode !== "off"
+      ? formatSalesModeBlock(pack.sales_mode, stage, pack.objections || [])
+      : "";
   const hitObjections = matchConfiguredObjections(input.inboundText, pack.objections || []);
+  const objectiveBlock = formatObjectiveAttendanceBlock(slots, {
+    turnCount: mem?.turn_count || 0,
+    historyDepth: historyLines.length,
+  });
 
   if (input.iaGenerated !== false) {
     try {
+      const historyBlock = historyLines.length
+        ? `HISTÓRICO DESTA CONVERSA (mais antigo → mais novo — use para NÃO repetir perguntas nem reiniciar atendimento):\n${historyLines.join("\n")}`
+        : "HISTÓRICO: (primeira mensagem ou histórico indisponível)";
+
+      const lastOutBlock = lastOutgoing.length
+        ? `SUAS ÚLTIMAS RESPOSTAS NESTA CONVERSA (não repetir abertura/estrutura):\n${lastOutgoing
+            .map((m, i) => `R${i + 1}: ${m}`)
+            .join("\n")}`
+        : "";
+
+      const antiLoop =
+        historyLines.length >= 2
+          ? [
+              "ANTI-LOOP:",
+              "- Não cumprimente de novo se já houve troca de mensagens.",
+              "- Não pergunte casa/negócio/revenda se o uso já aparece no histórico ou na memória.",
+              "- Se o cliente disse 'quero comprar', avance para produto+preço+quantidade — não reabra segmentação.",
+            ].join("\n")
+          : "";
+
       const lines = [
         formatPackForPrompt(pack, input.inboundText),
         salesBlock,
         memoryBlock,
+        objectiveBlock,
+        historyBlock,
+        lastOutBlock,
+        antiLoop,
         hitObjections.length
           ? `Objeção detectada no texto — priorize: ${hitObjections.map((o) => o.response).join(" | ")}`
           : "",
         ...(input.extraPromptLines || []),
       ];
       if (input.username) lines.push(`Usuario Instagram: @${input.username}`);
+      if (slots.name) lines.push(`Nome do cliente (registrado): ${slots.name}`);
+
       const aiResp = await aiRouter.generateText(
         lines.filter(Boolean).join("\n\n"),
         { userId: input.userId, brandId: input.brandId },
-        { functionKey: "text.instagram.reply", temperature: 0.65 },
+        { functionKey: "text.instagram.reply", temperature: 0.55 },
       );
       const generated = String(aiResp?.text || "").trim();
       if (generated) {
-        reply = generated;
+        reply = stripMidConversationGreeting(generated, historyLines.length);
         source = "ai";
       }
-    } catch {
-      /* keep brand fallback template; catalog path below may still fill price */
+    } catch (e: any) {
+      logger.warn(`[composeIG] AI generate failed: ${e?.message || e}`);
     }
   }
 
-  // Deterministic catalog fallback: if AI failed/empty but we have a product+price match
+  // Deterministic catalog fallback
   if (source === "fallback" && pack.catalog_items?.length) {
     const catalogReply = buildCatalogAwareFallback(
       pack.catalog_items,
@@ -186,40 +290,19 @@ export async function composeInstagramReply(input: ComposeReplyInput): Promise<C
     );
     if (catalogReply) {
       reply = catalogReply;
-      // Keep source as "fallback" so memory doesn't treat as full AI turn,
-      // but consumers can detect price-bearing reply via content.
       source = "fallback";
     }
   }
 
-  // Persist light memory for next IG turns (fire-and-forget)
-  if (convId && source === "ai") {
-    const lightTrace = {
-      emotional_state: "neutral",
-      frustration_signals: [],
-      bot_interaction_detected: false,
-      bot_signals: [],
-      surface_intent: input.inboundText.slice(0, 120),
-      real_intent: input.inboundText.slice(0, 120),
-      funnel_stage: stage,
-      mentioned_products: [],
-      objections_detected: hitObjections.map((o) => o.signal),
-      pending_facts_to_address: [],
-      facts_learned_this_turn: [],
-      response_strategy: salesBlock.slice(0, 200),
-      tone_adjustment: pack.tone,
-      must_acknowledge: [],
-      must_avoid: [],
-      risks: [],
-      should_escalate: false,
-      escalation_reason: null,
-      confidence: 0.55,
-    } as ReasoningTrace;
-    conversationMemoryService
-      .load(convId)
-      .then((mem) => conversationMemoryService.merge(convId, mem || EMPTY_MEMORY(convId), lightTrace))
-      .then((merged) => conversationMemoryService.save(merged))
-      .catch(() => undefined);
+  // Persist real memory (facts + preferences + contact slots)
+  if (convId) {
+    void persistAttendanceContext(input, pack.sales_mode, mem, slots, source, {
+      stage,
+      hitObjections: hitObjections.map((o) => o.signal),
+      salesBlock,
+      tone: pack.tone,
+      historyDepth: historyLines.length,
+    });
   }
 
   return {
@@ -228,6 +311,83 @@ export async function composeInstagramReply(input: ComposeReplyInput): Promise<C
     source,
     max_chars: maxChars,
   };
+}
+
+async function persistAttendanceContext(
+  input: ComposeReplyInput,
+  _salesMode: string,
+  mem: ReturnType<typeof EMPTY_MEMORY> | null,
+  slots: ReturnType<typeof extractSlotsFromHistory> | null,
+  source: string,
+  meta?: {
+    stage?: any;
+    hitObjections?: string[];
+    salesBlock?: string;
+    tone?: string;
+    historyDepth?: number;
+  },
+): Promise<void> {
+  if (!input.senderId) return;
+  const convId = igConversationId(input.brandId, input.senderId);
+  try {
+    const currentSlots =
+      slots || extractSlotsFromHistory([], input.inboundText);
+    await upsertCommunicationContact({
+      brandId: input.brandId,
+      channel: "instagram",
+      externalId: input.senderId,
+      username: input.username || null,
+      conversationId: convId,
+      slots: currentSlots,
+      bumpMessage: source === "faq" || source === "fallback",
+    });
+
+    // Save structured conversation memory on AI (and also when we learned slots on any path)
+    const facts = slotsToFacts(currentSlots);
+    const prefs = slotsToPreferences(currentSlots);
+    if (!facts.length && source !== "ai") return;
+
+    const base = mem || (await conversationMemoryService.load(convId)) || EMPTY_MEMORY(convId);
+    const stage = meta?.stage || advanceFunnelFromSlots(currentSlots, detectFunnelStageLight(input.inboundText));
+
+    const lightTrace = {
+      emotional_state: "neutral",
+      frustration_signals: [],
+      bot_interaction_detected: false,
+      bot_signals: [],
+      surface_intent: input.inboundText.slice(0, 120),
+      real_intent: currentSlots.purchase_intent
+        ? "quer comprar"
+        : input.inboundText.slice(0, 120),
+      funnel_stage: stage,
+      mentioned_products: currentSlots.product_hint ? [currentSlots.product_hint] : [],
+      objections_detected: meta?.hitObjections || [],
+      pending_facts_to_address: currentSlots.missing_slots.slice(0, 3),
+      facts_learned_this_turn: facts,
+      response_strategy:
+        currentSlots.next_action || String(meta?.salesBlock || "").slice(0, 200),
+      tone_adjustment: meta?.tone || "natural",
+      must_acknowledge: currentSlots.use_case ? [`uso=${currentSlots.use_case}`] : [],
+      must_avoid: [
+        "reperguntar uso já informado",
+        "reiniciar com Olá se conversa avançada",
+        "menu genérico de segmentação com intenção clara",
+      ],
+      risks: [],
+      should_escalate: false,
+      escalation_reason: null,
+      confidence: source === "ai" ? 0.7 : 0.5,
+    } as ReasoningTrace;
+
+    const merged = await conversationMemoryService.merge(convId, base, lightTrace, {
+      preferences: prefs,
+      customer_name: currentSlots.name || null,
+      extra_facts: facts,
+    });
+    await conversationMemoryService.save(merged);
+  } catch (e: any) {
+    logger.warn(`[composeIG] persistAttendanceContext failed: ${e?.message || e}`);
+  }
 }
 
 /**

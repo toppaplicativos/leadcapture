@@ -2222,7 +2222,18 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
         leadId: lead.lead_id,
         phone,
       });
-      const templateOpts = { affiliate: affiliateCtx, brandName };
+      const {
+        collectProductIdsFromCampaignSettings,
+        loadProductsForMessaging,
+        buildProductTemplateValues,
+      } = await import("./productMessageTags");
+      const productIds = collectProductIdsFromCampaignSettings(campaignSettings);
+      const productCtx = await loadProductsForMessaging(productIds, {
+        brandId: normalizedBrandId || campaign.brand_id,
+        userId,
+      });
+      const productValues = buildProductTemplateValues(productCtx);
+      const templateOpts = { affiliate: affiliateCtx, brandName, productValues, products: productCtx };
 
       // Step 3: Generate or fill template (tags de lead + afiliado + marca)
       let messageText = campaign.message_template || "";
@@ -3213,9 +3224,17 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
     blocks: CampaignActionBlock[];
     media: ReturnType<CampaignEngineService["extractCampaignMediaConfig"]>;
     lead: any;
-    templateOpts: { affiliate?: AffiliateSendContext | null; brandName?: string };
+    templateOpts: {
+      affiliate?: AffiliateSendContext | null;
+      brandName?: string;
+      productValues?: Record<string, string>;
+      products?: Array<{ id: string; name: string; link: string; price: number; promoPrice?: number | null; description?: string }>;
+    };
   }): Promise<{ ok: boolean; instanceId: string; error?: string }> {
     const { instanceId, jid, phone, messageText, blocks, media, lead, templateOpts } = input;
+    const productsById = new Map(
+      (templateOpts.products || []).map((p) => [String(p.id), p] as const),
+    );
     let anySent = false;
     let lastError: string | undefined;
     let primaryTextConsumed = false;
@@ -3334,7 +3353,123 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
         continue;
       }
 
-      // text-like blocks (text, direct, buttons, list, poll, button, deeplink, etc.)
+      // Native WhatsApp buttons / list (with optional product binding)
+      if ((actionType === "buttons" || actionType === "button") && jid) {
+        const cfg = block.config || {};
+        let optionItems: Array<{ label: string; productId?: string; id?: string }> = [];
+        if (Array.isArray(cfg.optionItems) && cfg.optionItems.length) {
+          optionItems = cfg.optionItems.map((it: any, idx: number) => ({
+            id: String(it.id || `btn_${idx + 1}`),
+            label: String(it.label || it.title || "").trim(),
+            productId: it.productId ? String(it.productId) : undefined,
+          }));
+        } else {
+          const lines = String(cfg.options || "")
+            .split(/\r?\n/)
+            .map((s: string) => s.trim())
+            .filter(Boolean);
+          optionItems = lines.map((label: string, idx: number) => ({
+            id: `btn_${idx + 1}`,
+            label,
+          }));
+        }
+        const { hydrateInteractiveWithProducts } = await import("./productMessageTags");
+        const hydrated = hydrateInteractiveWithProducts(optionItems as any, productsById as any);
+        const body =
+          (!primaryTextConsumed ? messageText : this.fillTemplate(String(block.content || ""), lead, templateOpts)) ||
+          "Escolha uma opção:";
+        primaryTextConsumed = true;
+        try {
+          const result = await this.instanceManager.sendButtonsByJid(instanceId, jid, {
+            body: String(body).trim().slice(0, 1024),
+            buttons: hydrated.slice(0, 3).map((b: any, idx: number) => ({
+              id: String(b.productId ? `PRODUCT_${b.productId}` : b.id || `btn_${idx + 1}`),
+              text: String(b.label || b.title || `Opção ${idx + 1}`).slice(0, 20),
+            })),
+          });
+          if (result.ok) anySent = true;
+          else lastError = result.error || "buttons_failed";
+        } catch (err: any) {
+          lastError = `buttons: ${err.message}`;
+        }
+        // Also append product links as text if any button has URL/product
+        const linkLines = hydrated
+          .map((b: any) => {
+            const p = b.productId ? productsById.get(String(b.productId)) : null;
+            const url = b.url || p?.link;
+            return url ? `${b.label || p?.name}: ${url}` : "";
+          })
+          .filter(Boolean);
+        if (linkLines.length) {
+          await sendText(linkLines.join("\n"));
+        }
+        if (i < ordered.length - 1) await new Promise((r) => setTimeout(r, 1200));
+        continue;
+      }
+
+      if (actionType === "list" && jid) {
+        const cfg = block.config || {};
+        let optionItems: Array<{ title: string; description?: string; productId?: string; id?: string }> = [];
+        if (Array.isArray(cfg.optionItems) && cfg.optionItems.length) {
+          optionItems = cfg.optionItems.map((it: any, idx: number) => ({
+            id: String(it.id || `row_${idx + 1}`),
+            title: String(it.label || it.title || "").trim(),
+            description: it.description ? String(it.description) : undefined,
+            productId: it.productId ? String(it.productId) : undefined,
+          }));
+        } else {
+          const lines = String(cfg.options || "")
+            .split(/\r?\n/)
+            .map((s: string) => s.trim())
+            .filter(Boolean);
+          optionItems = lines.map((title: string, idx: number) => ({
+            id: `row_${idx + 1}`,
+            title,
+          }));
+        }
+        const { hydrateInteractiveWithProducts, formatProductPriceLine } = await import("./productMessageTags");
+        const hydrated = hydrateInteractiveWithProducts(optionItems as any, productsById as any).map((row: any) => {
+          const p = row.productId ? productsById.get(String(row.productId)) : null;
+          return {
+            id: String(row.productId ? `PRODUCT_${row.productId}` : row.id || row.title),
+            title: String(row.title || p?.name || "Item").slice(0, 24),
+            description: String(
+              row.description ||
+                (p ? formatProductPriceLine(p as any) : "") ||
+                "",
+            ).slice(0, 72),
+          };
+        });
+        const body =
+          (!primaryTextConsumed ? messageText : this.fillTemplate(String(block.content || ""), lead, templateOpts)) ||
+          "Selecione um item:";
+        primaryTextConsumed = true;
+        try {
+          const result = await this.instanceManager.sendListByJid(instanceId, jid, {
+            title: String(cfg.listTitle || templateOpts.brandName || "Opções").slice(0, 60),
+            description: String(body).trim().slice(0, 1024),
+            buttonText: String(cfg.listButtonText || "Ver opções").slice(0, 20),
+            sections: [{ title: String(cfg.sectionTitle || "Produtos").slice(0, 24), rows: hydrated.slice(0, 10) }],
+          });
+          if (result.ok) anySent = true;
+          else lastError = result.error || "list_failed";
+        } catch (err: any) {
+          lastError = `list: ${err.message}`;
+        }
+        const linkLines = (optionItems || [])
+          .map((it) => {
+            const p = it.productId ? productsById.get(String(it.productId)) : null;
+            return p?.link ? `${p.name}: ${p.link}` : "";
+          })
+          .filter(Boolean);
+        if (linkLines.length) {
+          await sendText(["Links dos produtos:", ...linkLines].join("\n"));
+        }
+        if (i < ordered.length - 1) await new Promise((r) => setTimeout(r, 1200));
+        continue;
+      }
+
+      // text-like blocks (text, direct, poll, deeplink, etc.)
       let textToSend = "";
       if (!primaryTextConsumed) {
         // primeiro bloco de texto usa a mensagem já gerada/personalizada (IA + tags)
@@ -3352,6 +3487,10 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
         });
       if (isLastTextLike && media.linkUrl) {
         textToSend = this.appendLinkToMessage(textToSend, media.linkUrl);
+      }
+      // If campaign has product link and text tags didn't include it, append primary product link
+      if (isLastTextLike && templateOpts.productValues?.produto_link) {
+        textToSend = this.appendLinkToMessage(textToSend, templateOpts.productValues.produto_link);
       }
 
       if (textToSend.trim()) {
@@ -3668,7 +3807,11 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
 
   private buildTemplateValues(
     lead: any,
-    opts?: { affiliate?: AffiliateSendContext | null; brandName?: string }
+    opts?: {
+      affiliate?: AffiliateSendContext | null;
+      brandName?: string;
+      productValues?: Record<string, string>;
+    }
   ): Record<string, string> {
     const leadName = String(lead?.lead_name || lead?.name || "").trim() || "Prezado(a)";
     const leadCity = String(lead?.lead_city || lead?.city || "sua cidade").trim();
@@ -3677,6 +3820,7 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
     const leadCompany = String(lead?.lead_company || lead?.company || lead?.empresa || "").trim();
     const brand = String(opts?.brandName || "").trim();
     const aff = opts?.affiliate || null;
+    const productValues = opts?.productValues || {};
 
     return {
       // Lead
@@ -3694,6 +3838,8 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
       marca: brand,
       brand: brand,
       brand_name: brand,
+      // Produto(s) — tags {{produto_nome}}, {{produto_link}}, {{produtos_lista}}, ...
+      ...productValues,
       // Afiliado — assistente se molda a ele
       afiliado_nome: aff?.name || "",
       afiliado_name: aff?.name || "",
@@ -3714,7 +3860,11 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
   private fillTemplate(
     template: string,
     lead: any,
-    opts?: { affiliate?: AffiliateSendContext | null; brandName?: string }
+    opts?: {
+      affiliate?: AffiliateSendContext | null;
+      brandName?: string;
+      productValues?: Record<string, string>;
+    }
   ): string {
     const values = this.buildTemplateValues(lead, opts);
     return String(template || "").replace(/{{\s*([a-zA-Z0-9_]+)\s*}}/g, (_, key) => {

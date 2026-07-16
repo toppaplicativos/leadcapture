@@ -81,7 +81,7 @@ export type ProductStudioTextOverlay = {
   style?: "modern" | "elegant" | "bold" | "clean" | "minimal";
 };
 
-export type StudioProvider = "gemini" | "grok" | "openai";
+export type StudioProvider = "gemini" | "grok" | "openai" | "atlas";
 
 /** Brand identity bundle injected into the prompt so the model can match
  *  the brand's name/slogan/palette/voice consistently. Comes from the
@@ -117,8 +117,11 @@ export type ProductStudioGenerateInput = {
   /** Image generation backend. "gemini" (default) supports a product
    *  reference image — best when fidelity matters. "grok" is text-to-image
    *  only but renders typography natively, so the headline/CTA come out
-   *  integrated to the design instead of overlayed. */
+   *  integrated to the design instead of overlayed. "openai"/"atlas" also
+   *  accept multi-reference when the model supports it. */
   provider?: StudioProvider;
+  /** Explicit model id (overrides algorithm default for this run). */
+  imageModel?: string;
   /** Free-form description of the product look — used when provider="grok"
    *  since it can't see the reference image. */
   productDescription?: string;
@@ -576,6 +579,80 @@ export class CreativeStudioService {
     return {
       imageUrl: `/uploads/creatives/images/${safeUserId}/${fileName}`,
       caption: result.revisedPrompt || "",
+      model: result.model,
+    };
+  }
+
+  /**
+   * Image generation via Atlas Cloud (unified multimodal gateway).
+   * Downloads the remote URL and stores a local creative asset.
+   */
+  private async requestImageFromAtlas(
+    userId: string,
+    prompt: string,
+    aspectRatio: StudioAspectRatio,
+    brandId?: string | null,
+    model?: string,
+    references?: Array<{ assetId?: string; mimeType: string; data: string; fileUrl?: string }>,
+  ): Promise<{ imageUrl: string; caption: string; model: string }> {
+    let apiKey = "";
+    try {
+      const provider = await integrationService.getProvider("atlas", {
+        userId,
+        brandId: String(brandId || "").trim() || undefined,
+      });
+      apiKey = String(provider.key || "").trim();
+    } catch {
+      /* fall through */
+    }
+    if (!apiKey) {
+      apiKey = String(process.env.ATLAS_API_KEY || process.env.ATLASCLOUD_API_KEY || "").trim();
+    }
+    if (!apiKey) {
+      throw new Error(
+        "Chave do Atlas Cloud não configurada. Vá em Master · Providers IA e cadastre a chave atlas.",
+      );
+    }
+
+    const { AtlasProvider } = await import("./providers/atlas-provider");
+    const chosen = model || "google/gemini-3.1-flash-image";
+    const atlas = new AtlasProvider(apiKey, chosen);
+
+    /* Brand consistency: pass product + logo refs as data URLs / image list.
+     * Models like Gemini Flash Image, GPT Image 2, Nano Banana, Seedream i2i
+     * and Flux Kontext accept image / images on the generateImage payload. */
+    const refPayload: Record<string, unknown> = { aspect_ratio: aspectRatio };
+    const refs = (references || []).filter((r) => r.data || r.fileUrl).slice(0, 8);
+    if (refs.length > 0) {
+      const dataUrls = refs.map((r) => {
+        if (r.data) return `data:${r.mimeType || "image/png"};base64,${r.data}`;
+        return r.fileUrl as string;
+      });
+      refPayload.image = dataUrls[0];
+      refPayload.images = dataUrls;
+      refPayload.image_urls = dataUrls;
+    }
+
+    const result = await atlas.generateImageAndWait(prompt, {
+      model: chosen,
+      params: refPayload,
+      timeoutMs: 180_000,
+    });
+
+    const dl = await axios.get(result.url, { responseType: "arraybuffer", timeout: 60_000 });
+    const rawBuffer = Buffer.from(dl.data);
+    const cropped = await cropToAspectRatio(rawBuffer, aspectRatio);
+
+    const safeUserId = this.sanitizePathPart(userId);
+    const fileName = `${Date.now()}-${randomUUID()}-studio-atlas.png`;
+    const absoluteDir = path.resolve(process.cwd(), "uploads", "creatives", "images", safeUserId);
+    await this.ensureDir(absoluteDir);
+    const filePath = path.join(absoluteDir, fileName);
+    await fs.writeFile(filePath, cropped);
+
+    return {
+      imageUrl: `/uploads/creatives/images/${safeUserId}/${fileName}`,
+      caption: "",
       model: result.model,
     };
   }
@@ -1100,19 +1177,11 @@ export class CreativeStudioService {
     input: GenerateImageInput,
     brandId?: string | null
   ): Promise<{ imageUrl: string; caption: string; model: string; asset: CreativeAsset }> {
-    /* Prefer Master · Algoritmos image.creative.simple; keep Gemini REST path for image gen */
+    /* Prefer Master · Algoritmos image.creative.simple */
     const resolved = await aiRouter.getImageProvider(
       { userId, brandId: brandId || undefined },
       { functionKey: "image.creative.simple" },
     );
-    const model =
-      resolved.provider === "gemini"
-        ? resolved.model || config.creatives.imageModel
-        : config.creatives.imageModel;
-    const apiKey =
-      resolved.provider === "gemini" && resolved.key
-        ? resolved.key
-        : await this.getApiKey(userId, brandId);
 
     const formatHint =
       input.format === "portrait"
@@ -1124,6 +1193,45 @@ export class CreativeStudioService {
     const prompt = [input.prompt, input.style ? `Estilo visual: ${input.style}.` : "", formatHint, "Nao incluir marcas d'agua."]
       .filter(Boolean)
       .join("\n");
+
+    /* Atlas Cloud path when algorithm/provider is atlas */
+    if (resolved.provider === "atlas") {
+      const aspect: StudioAspectRatio =
+        input.format === "portrait" ? "9:16" : input.format === "landscape" ? "16:9" : "1:1";
+      const r = await this.requestImageFromAtlas(
+        userId,
+        prompt,
+        aspect,
+        brandId,
+        resolved.model,
+      );
+      const asset = await this.saveAsset({
+        userId,
+        brandId,
+        type: "image",
+        prompt: input.prompt,
+        model: r.model,
+        status: "completed",
+        fileUrl: r.imageUrl,
+        metadata: {
+          caption: r.caption,
+          style: input.style || null,
+          format: input.format || "square",
+          provider: "atlas",
+          algorithm: "image.creative.simple",
+        },
+      });
+      return { imageUrl: r.imageUrl, caption: r.caption, model: r.model, asset };
+    }
+
+    const model =
+      resolved.provider === "gemini"
+        ? resolved.model || config.creatives.imageModel
+        : config.creatives.imageModel;
+    const apiKey =
+      resolved.provider === "gemini" && resolved.key
+        ? resolved.key
+        : await this.getApiKey(userId, brandId);
 
     let response;
     try {
@@ -1324,13 +1432,14 @@ export class CreativeStudioService {
     let chosenImageModel: string | undefined;
     if (input.provider) {
       provider = input.provider;
+      chosenImageModel = input.imageModel;
     } else {
       const resolved = await aiRouter.getImageProvider({
         userId,
         brandId: String(brandId || "").trim() || undefined,
       }, { functionKey: "image.product.studio" });
       provider = resolved.provider;
-      chosenImageModel = resolved.model;
+      chosenImageModel = input.imageModel || resolved.model;
     }
 
     /* Pre-build OpenAI references (Buffer with name+mime) when chosen. */
@@ -1370,6 +1479,23 @@ export class CreativeStudioService {
             modelUsed = r.model;
           } else if (provider === "openai") {
             const r = await this.requestImageFromOpenAI(userId, prompt, format, openaiRefs, brandId, chosenImageModel);
+            result = { imageUrl: r.imageUrl, caption: r.caption };
+            modelUsed = r.model;
+          } else if (provider === "atlas") {
+            const atlasRefs = uniqueSourceIds.map((id, idx) => ({
+              assetId: id,
+              mimeType: inlineRefs[idx]?.mimeType || "image/png",
+              data: inlineRefs[idx]?.data || "",
+              fileUrl: inlineRefs[idx]?.fileUrl || "",
+            })).filter((r) => r.data || r.fileUrl);
+            const r = await this.requestImageFromAtlas(
+              userId,
+              prompt,
+              format,
+              brandId,
+              chosenImageModel,
+              atlasRefs,
+            );
             result = { imageUrl: r.imageUrl, caption: r.caption };
             modelUsed = r.model;
           } else {
@@ -1550,15 +1676,62 @@ export class CreativeStudioService {
   async startVideoGeneration(userId: string, input: GenerateVideoInput, brandId?: string | null): Promise<VideoJob> {
     let model = config.creatives.videoModel;
     let apiKey = await this.getApiKey(userId, brandId);
+    let videoProvider = "veo";
     try {
+      /* Modality default: video.generate.veo — master may set provider=atlas + model */
       const algo = await aiRouter.resolveAlgorithm("video.generate.veo", {
         userId,
         brandId: brandId || undefined,
       });
       if (algo.model) model = algo.model;
       if (algo.key) apiKey = algo.key;
+      if (algo.provider) videoProvider = algo.provider;
     } catch {
       /* keep env defaults */
+    }
+
+    /* Atlas Cloud async video (when Master · Algoritmos sets provider=atlas) */
+    if (videoProvider === "atlas") {
+      if (!apiKey) {
+        throw new Error(
+          "Chave do Atlas Cloud não configurada. Cadastre em Master · Providers IA (atlas).",
+        );
+      }
+      const { AtlasProvider } = await import("./providers/atlas-provider");
+      const atlas = new AtlasProvider(apiKey, model);
+      const submitted = await atlas.generateVideo(input.prompt, {
+        model,
+        params: input.aspectRatio ? { aspect_ratio: input.aspectRatio } : undefined,
+      });
+      const operationName = submitted.predictionId || submitted.urls[0] || `atlas-${randomUUID()}`;
+
+      const asset = await this.saveAsset({
+        userId,
+        brandId,
+        type: "video",
+        prompt: input.prompt,
+        model,
+        status: "processing",
+        operationName,
+        metadata: {
+          aspectRatio: input.aspectRatio || "16:9",
+          provider: "atlas",
+          predictionId: submitted.predictionId,
+          urls: submitted.urls,
+        },
+      });
+
+      const job: VideoJob = {
+        id: asset.id,
+        userId,
+        prompt: input.prompt,
+        operationName,
+        status: "processing",
+        model,
+        createdAt: asset.createdAt,
+      };
+      this.videoJobs.set(job.id, job);
+      return job;
     }
 
     const body: Record<string, unknown> = { instances: [{ prompt: input.prompt }] };
@@ -1580,7 +1753,7 @@ export class CreativeStudioService {
       model,
       status: "processing",
       operationName,
-      metadata: { aspectRatio: input.aspectRatio || "16:9" },
+      metadata: { aspectRatio: input.aspectRatio || "16:9", provider: videoProvider || "veo" },
     });
 
     const job: VideoJob = {

@@ -14,8 +14,8 @@ import {
 import type { AttendanceChannel } from "../services/channelLimits";
 import { platformHardCap } from "../services/channelLimits";
 import { composeInstagramReply } from "../services/instagramReplyHelpers";
-import { buildBrandContextPack, formatPackForPrompt } from "../services/brandContextPack";
-import { splitMessageIntoBubbles } from "../services/messageSplit";
+import { buildBrandContextPack } from "../services/brandContextPack";
+import { cognitiveAgent } from "../services/cognitive";
 
 const router = Router();
 router.use(attachBrandContext);
@@ -96,9 +96,20 @@ router.post("/:channel/test", async (req: BrandRequest, res: Response) => {
   try {
     const channel = parseChannel(String(req.params.channel || ""));
     if (!channel) return res.status(400).json({ error: "channel deve ser instagram|whatsapp" });
-    const brandId = String(req.brandId || "");
-    const userId = String(req.userId || (req as any).user?.userId || "");
-    if (!brandId || !userId) return res.status(400).json({ error: "brand_id e user obrigatorios" });
+    const brandId = String(req.brandId || "").trim();
+    const userId = String(
+      req.userId ||
+        (req as any).user?.userId ||
+        (req as any).user?.sub ||
+        (req as any).user?.id ||
+        "",
+    ).trim();
+    if (!brandId || !userId) {
+      return res.status(400).json({
+        error: "brand_id e user obrigatorios",
+        detail: { brandId: brandId || null, hasUser: !!userId },
+      });
+    }
 
     const text = String(req.body?.text || "ola, quanto custa?").trim();
     const pack = await buildBrandContextPack({
@@ -109,12 +120,16 @@ router.post("/:channel/test", async (req: BrandRequest, res: Response) => {
     });
 
     if (channel === "instagram") {
+      // Stable test sender so multi-turn memory can be exercised from the panel
+      const testSender = String(req.body?.sender_id || `test-user-${userId}`).slice(0, 64);
       const composed = await composeInstagramReply({
         brandId,
         userId,
         inboundText: text,
         fallbackMessage: "Obrigado pela mensagem! Em breve retornamos.",
         iaGenerated: true,
+        senderId: testSender,
+        username: String(req.body?.username || "teste").slice(0, 64),
       });
       return res.json({
         success: true,
@@ -134,24 +149,44 @@ router.post("/:channel/test", async (req: BrandRequest, res: Response) => {
       });
     }
 
-    // WhatsApp: preview pack + split only (full cognitive path stays on live inbox)
-    const previewHint = formatPackForPrompt(pack, text).slice(0, 400);
-    const sample =
-      pack.first_contact_script?.trim() ||
-      `Oi! Aqui é o atendimento da ${pack.brand_name}. Como posso ajudar?`;
-    const bubbles = pack.split_long_replies
-      ? splitMessageIntoBubbles(sample, pack.max_chars, pack.max_bubbles)
-      : [sample.slice(0, pack.max_chars)];
+    // WhatsApp: full cognitive pipeline (reasoner + composer) — same as live inbox
+    const cognitive = await cognitiveAgent.respond({
+      userId,
+      brandId,
+      conversationId: `attendance-test-wa-${userId}-${Date.now()}`,
+      incomingMessage: text,
+      conversationHistory: [],
+      lastOutgoingMessages: [],
+    });
+    const replyText = String(cognitive?.text || "").trim();
+    const maxChars = pack.max_chars || 900;
+    const maxBubbles = pack.max_bubbles || 3;
+    let bubbles: string[] = [];
+    if (replyText) {
+      if (pack.split_long_replies !== false && replyText.length > maxChars) {
+        const { splitMessageIntoBubbles } = await import("../services/messageSplit");
+        bubbles = splitMessageIntoBubbles(replyText, maxChars, maxBubbles);
+      } else {
+        bubbles = [replyText.length > maxChars ? replyText.slice(0, maxChars) : replyText];
+      }
+    }
 
     res.json({
       success: true,
       channel,
       bubbles,
-      source: "preview",
-      max_chars: pack.max_chars,
+      source: replyText ? "cognitive" : "empty",
+      max_chars: maxChars,
       platform_hard_cap: pack.platform_hard_cap,
       sales_mode: pack.sales_mode,
-      pack_preview: previewHint,
+      cognitive: {
+        shouldEscalate: !!cognitive?.shouldEscalate,
+        escalationReason: cognitive?.escalationReason || null,
+        catalogApplied: !!cognitive?.catalogApplied,
+        knowledgeApplied: !!cognitive?.knowledgeApplied,
+        stage: cognitive?.reasoning?.funnel_stage || null,
+        emotion: cognitive?.reasoning?.emotional_state || null,
+      },
       used: {
         catalog: Boolean(pack.catalog_block),
         knowledge: Boolean(pack.knowledge_block),
@@ -159,7 +194,7 @@ router.post("/:channel/test", async (req: BrandRequest, res: Response) => {
         training_channel: Boolean(pack.training_channel),
         training_global: Boolean(pack.training_global),
       },
-      note: "Preview WA usa pack unificado; resposta live usa o cognitive agent no inbox.",
+      note: "Preview WA usa o mesmo cognitive agent do inbox (reasoner + composer).",
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

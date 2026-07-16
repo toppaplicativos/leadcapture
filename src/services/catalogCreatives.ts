@@ -19,6 +19,7 @@ import { CreativeStudioService } from "./creativeStudio";
 import { query, queryOne } from "../config/database";
 import { logger } from "../utils/logger";
 import { generateCompositionDirections } from "./compositionDirector";
+import { listStudioImageModels } from "../config/ai-models";
 
 export type SectionId =
   | "promo"
@@ -440,6 +441,12 @@ export interface ComposeOverrides {
   /** Whether to inject the brand logo as a reference image AND mention it
    *  in the prompt anatomy. Default true — uncheck for unbranded compositions. */
   includeBrandLogo?: boolean;
+  /** Override image provider for this generation (composer selector). */
+  provider?: "openai" | "gemini" | "grok" | "atlas";
+  /** Override image model id for this generation. */
+  imageModel?: string;
+  referenceAssetIds?: string[];
+  additionalComponents?: string[];
 }
 
 /**
@@ -887,16 +894,24 @@ export interface PreviewResult {
   }>;
   /** Default flag — true means "include brand logo as reference image". */
   includeBrandLogoDefault: boolean;
-  /** Current image provider preference resolved from "Provedores IA".
-   *  The modal shows this as read-only — to change it, the user goes to
-   *  /provedores-ia. */
+  /** Current default image provider (Master · Algoritmos / prefs). */
   imageProvider: {
-    provider: "openai" | "gemini" | "grok";
+    provider: "openai" | "gemini" | "grok" | "atlas";
     model: string;
     /** Whether the chosen provider has an API key configured. When false,
      *  the modal shows a warning and a link to Provedores IA. */
     keyConfigured: boolean;
   };
+  /** Models selectable in the org creative composer (refs-capable preferred). */
+  imageModelOptions: Array<{
+    provider: string;
+    id: string;
+    label: string;
+    tier: string;
+    cost_label?: string;
+    description?: string;
+    supports_references: boolean;
+  }>;
 }
 
 const STYLE_OPTIONS = [
@@ -929,7 +944,11 @@ export async function previewComposition(
   const section = SECTION_INDEX[input.sectionId];
   if (!section) throw new Error(`Unknown section: ${input.sectionId}`);
 
-  const product = await loadProduct(input.productId, input.brandId);
+  const loadedProduct = input.productId ? await loadProduct(input.productId, input.brandId) : null;
+  const product = loadedProduct || ({
+    id: "", name: "Seu produto", description: "Produto a definir no configurador",
+    category: "", price: null, promo_price: null, unit: "", image_url: null,
+  } as any);
   if (!product) throw new Error("Produto não encontrado");
 
   const brand = input.brandId ? await loadBrand(input.brandId) : null;
@@ -996,6 +1015,15 @@ export async function previewComposition(
       model: imagePref.model,
       keyConfigured: !!imagePref.key,
     },
+    imageModelOptions: listStudioImageModels().map((m) => ({
+      provider: m.provider,
+      id: m.id,
+      label: m.label,
+      tier: m.tier,
+      cost_label: m.cost_label,
+      description: m.description,
+      supports_references: !!m.supports_references,
+    })),
   };
 }
 
@@ -1026,6 +1054,17 @@ export async function autoComposeAndGenerate(
   const brand = input.brandId ? await loadBrand(input.brandId) : null;
 
   const studioParams = composeStudioParams(product, section, brand, input.overrides || {});
+  if (input.overrides?.referenceAssetIds?.length) {
+    (studioParams as any).referenceAssetIds = [...input.overrides.referenceAssetIds];
+  }
+  if (input.overrides?.additionalComponents?.length) {
+    const labels: Record<string, string> = {
+      price: "preço em destaque", benefits: "lista curta de benefícios", badge: "selo promocional",
+      "social-proof": "prova social", "secondary-cta": "chamada para ação complementar",
+    };
+    const requested = input.overrides.additionalComponents.map((id) => labels[id] || id).join(", ");
+    (studioParams as any).scene = `${(studioParams as any).scene || ""}. Inclua na composição: ${requested}.`.trim();
+  }
 
   /* Dynamic composition: replace static rotation hints with LLM-generated
    * directions so every generation has a unique layout. Falls back to the
@@ -1103,7 +1142,17 @@ export async function autoComposeAndGenerate(
     }
   }
 
-  logger.info(`auto-compose: invoking generateProductStudioImages userId=${userId} brandId=${input.brandId || 'none'} productAssetId=${productAssetId || 'none'} layout=${(studioParams as any).layoutLabel || '-'}`);
+  /* Image provider/model override from composer selector (org UI). */
+  if (input.overrides?.provider) {
+    (studioParams as any).provider = input.overrides.provider;
+  }
+  if (input.overrides?.imageModel) {
+    (studioParams as any).imageModel = input.overrides.imageModel;
+  }
+
+  logger.info(
+    `auto-compose: invoking generateProductStudioImages userId=${userId} brandId=${input.brandId || "none"} productAssetId=${productAssetId || "none"} layout=${(studioParams as any).layoutLabel || "-"} provider=${(studioParams as any).provider || "auto"} model=${(studioParams as any).imageModel || "auto"}`,
+  );
 
   const result = await studio.generateProductStudioImages(
     userId,

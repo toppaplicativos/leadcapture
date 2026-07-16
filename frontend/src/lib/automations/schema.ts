@@ -61,12 +61,18 @@ export interface MensagemStepButton {
   payload?: string
   /** If set, sends as web_url button on Instagram button template */
   url?: string
+  /** Linked catalog product — runtime fills label/url when empty */
+  productId?: string
+  productName?: string
 }
 
 export interface MensagemStepListRow {
   id: string
   title: string
   description?: string
+  /** Linked catalog product — runtime fills title/description/link */
+  productId?: string
+  productName?: string
 }
 
 export interface MensagemStepListSection {
@@ -93,6 +99,11 @@ export interface MensagemStep {
   pollOptions?: string[]
   pollMultiple?: boolean
   pollSelectableCount?: number
+  /** Optional primary product for this block (CTA / link / texto tags) */
+  productId?: string
+  productName?: string
+  /** Multiple products — list blocks can bulk-fill rows from these */
+  productIds?: string[]
 }
 
 export interface ContentPublishingConfig {
@@ -121,6 +132,7 @@ export interface AcaoConfig {
   mensagem?: string
   iaGenerated?: boolean
   iaPrompt?: string
+  iaContextSources?: Array<'marca' | 'lead' | 'afiliado' | 'produto' | 'historico'>
   delaySegundos?: number
   mensagemSteps?: MensagemStep[]
   emailDestino?: string
@@ -128,6 +140,8 @@ export interface AcaoConfig {
   emailBody?: string
   contentPublishing?: ContentPublishingConfig
   midia?: { tipo: 'imagem' | 'video'; url: string }
+  destinoTipo?: 'ator_do_gatilho' | 'todos_leads' | 'segmento' | 'contato' | 'equipe'
+  destinoValor?: string
 }
 
 export interface AcaoPipeline {
@@ -246,6 +260,11 @@ export interface Limites {
     inicioHora: number
     fimHora: number
     timezone?: string
+  }
+  elegibilidade?: {
+    statusLead?: string
+    tags?: string[]
+    origem?: string
   }
 }
 

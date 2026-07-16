@@ -766,6 +766,14 @@ router.post("/creatives/studio/generate", async (req: AuthRequest, res: Response
       withAndWithoutText: parseBoolean(body.withAndWithoutText),
       transparentBackground: parseBoolean(body.transparentBackground),
       tags,
+      provider:
+        body.provider === "openai" ||
+        body.provider === "gemini" ||
+        body.provider === "grok" ||
+        body.provider === "atlas"
+          ? body.provider
+          : undefined,
+      imageModel: body.imageModel ? String(body.imageModel) : undefined,
     }, resolveBrandCompanyId(req as BrandRequest));
 
     res.json({ success: true, ...result });
@@ -1174,7 +1182,6 @@ router.post("/creatives/auto-compose/preview", async (req: AuthRequest, res: Res
     const body = req.body || {};
     const productId = body.productId ? String(body.productId) : "";
     const sectionId = body.sectionId ? String(body.sectionId) as SectionId : "" as SectionId;
-    if (!productId) return res.status(400).json({ error: "productId required" });
     if (!sectionId || !SECTION_INDEX[sectionId]) {
       return res.status(400).json({ error: "valid sectionId required" });
     }
@@ -1282,6 +1289,16 @@ router.post("/creatives/auto-compose", async (req: AuthRequest, res: Response) =
       /* Default true — only false when the user explicitly unchecked the
        * "Incluir logo da marca" toggle in the modal. */
       includeBrandLogo: raw.includeBrandLogo === false ? false : true,
+      provider:
+        raw.provider === "openai" ||
+        raw.provider === "gemini" ||
+        raw.provider === "grok" ||
+        raw.provider === "atlas"
+          ? raw.provider
+          : undefined,
+      imageModel: raw.imageModel ? String(raw.imageModel) : undefined,
+      referenceAssetIds: parseStringArray(raw.referenceAssetIds),
+      additionalComponents: parseStringArray(raw.additionalComponents),
     };
 
     const result = await autoComposeAndGenerate(creativeStudio, userId, {

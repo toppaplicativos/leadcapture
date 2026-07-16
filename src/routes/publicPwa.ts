@@ -21,7 +21,7 @@ const brandMarkPath = existsSync(path.join(frontendPublicDir, "brand-mark.svg"))
   : path.join(publicDir, "brand-mark.svg");
 
 /** Superfícies instaláveis: cada uma com cor de fundo de ícone distinta */
-export type PwaAppKind = "store" | "affiliate" | "admin" | "stock";
+export type PwaAppKind = "store" | "affiliate" | "admin" | "stock" | "mob";
 
 type PwaContext = {
   app: PwaAppKind;
@@ -29,7 +29,7 @@ type PwaContext = {
   channel?: "catalogo" | "loja";
   host?: string | null;
   /** partners = LeadCapture Parceiros global (parceiros.leadcapture.online / /parceiros) */
-  surface?: "partners" | null;
+  surface?: "partners" | "mob" | null;
 };
 
 type AppTheme = {
@@ -80,6 +80,15 @@ const APP_THEMES: Record<PwaAppKind, AppTheme> = {
     backgroundColor: "#ecfdf5",
     categories: ["business", "finance"],
   },
+  mob: {
+    name: "Lead Capture Mob",
+    shortName: "Mob",
+    description: "App do entregador: ofertas, rotas, status e comprovantes.",
+    iconBg: "#171717",
+    themeColor: "#171717",
+    backgroundColor: "#f5f5f5",
+    categories: ["business", "productivity"],
+  },
 };
 
 const PARTNERS_THEME: AppTheme = {
@@ -104,6 +113,9 @@ function normalizeHost(req: Request): string | null {
 function inferFromHost(host: string | null | undefined): Partial<PwaContext> {
   const h = String(host || "").toLowerCase().trim();
   if (!h) return {};
+  if (h === "mob.leadcapture.online") {
+    return { app: "mob", surface: "mob" };
+  }
   if (h === "parceiros.leadcapture.online" || h === "afiliados.leadcapture.online") {
     return { app: "affiliate", surface: "partners" };
   }
@@ -122,6 +134,9 @@ function inferFromPath(input: string): Partial<PwaContext> {
 
     if (first === "parceiros") {
       return { app: "affiliate", surface: "partners" };
+    }
+    if (first === "mob" || first === "rastreio") {
+      return { app: "mob", surface: "mob" };
     }
     if ((first === "catalogo" || first === "loja") && parts[1]) {
       return {
@@ -168,7 +183,13 @@ function resolvePwaContext(req: Request): PwaContext {
   const inferred = inferFromPath(referer);
 
   let app: PwaAppKind = "store";
-  if (explicitApp === "affiliate" || explicitApp === "admin" || explicitApp === "stock" || explicitApp === "store") {
+  if (
+    explicitApp === "affiliate"
+    || explicitApp === "admin"
+    || explicitApp === "stock"
+    || explicitApp === "store"
+    || explicitApp === "mob"
+  ) {
     app = explicitApp;
   } else if (fromHost.app) {
     app = fromHost.app;
@@ -176,12 +197,16 @@ function resolvePwaContext(req: Request): PwaContext {
     app = inferred.app;
   }
 
-  const surface: "partners" | null =
+  const surface: "partners" | "mob" | null =
     explicitSurface === "partners"
     || fromHost.surface === "partners"
     || inferred.surface === "partners"
       ? "partners"
-      : null;
+      : explicitSurface === "mob"
+        || fromHost.surface === "mob"
+        || inferred.surface === "mob"
+          ? "mob"
+          : null;
 
   return {
     app,
@@ -196,6 +221,11 @@ function resolvePwaContext(req: Request): PwaContext {
 }
 
 function buildRootPath(context: PwaContext): string {
+  if (context.app === "mob") {
+    // Host dedicado mob.leadcapture.online usa /; em app.* usa /mob
+    if (context.host === "mob.leadcapture.online") return "/";
+    return "/mob";
+  }
   if (context.app === "affiliate") {
     // App global LeadCapture Parceiros (sem slug de marca)
     if (context.surface === "partners" || !context.slug) {
@@ -534,14 +564,17 @@ router.get("/manifest.webmanifest", async (req: Request, res: Response) => {
     context.host === "parceiros.leadcapture.online"
     || context.host === "afiliados.leadcapture.online"
     || /^(?:parceiros|afiliados)\./i.test(String(context.host || ""));
+  const hostIsMob = context.host === "mob.leadcapture.online";
   const scope =
     context.app === "admin"
       ? "/"
-      : context.app === "affiliate" && (context.surface === "partners" || hostIsPartners)
-        ? (hostIsPartners ? "/" : "/parceiros/")
-        : rootPath === "/"
-          ? "/"
-          : `${rootPath}/`;
+      : context.app === "mob"
+        ? (hostIsMob ? "/" : "/mob/")
+        : context.app === "affiliate" && (context.surface === "partners" || hostIsPartners)
+          ? (hostIsPartners ? "/" : "/parceiros/")
+          : rootPath === "/"
+            ? "/"
+            : `${rootPath}/`;
   const iconQuery = buildIconQuery(context);
   const base =
     context.app === "affiliate" && (context.surface === "partners" || !context.slug)
@@ -550,17 +583,19 @@ router.get("/manifest.webmanifest", async (req: Request, res: Response) => {
   const theme = await resolveThemeOverrides(context);
 
   const startUrl =
-    context.app === "affiliate" && (context.surface === "partners" || !context.slug)
-      ? `/parceiros/painel?source=pwa`
-      : context.app === "affiliate"
-        ? `${rootPath}/painel?source=pwa`
-        : context.app === "admin"
-          ? "/assistente?source=pwa"
-          : context.app === "stock"
-            ? `${rootPath}?source=pwa`
-            : rootPath === "/"
-              ? "/?source=pwa"
-              : `${rootPath}?source=pwa`;
+    context.app === "mob"
+      ? (hostIsMob ? "/?source=pwa" : "/mob/app?source=pwa")
+      : context.app === "affiliate" && (context.surface === "partners" || !context.slug)
+        ? `/parceiros/painel?source=pwa`
+        : context.app === "affiliate"
+          ? `${rootPath}/painel?source=pwa`
+          : context.app === "admin"
+            ? "/assistente?source=pwa"
+            : context.app === "stock"
+              ? `${rootPath}?source=pwa`
+              : rootPath === "/"
+                ? "/?source=pwa"
+                : `${rootPath}?source=pwa`;
 
   const icon192 = `/pwa/icon${iconQuery}&size=192`;
   const icon512 = `/pwa/icon${iconQuery}&size=512`;
@@ -572,94 +607,111 @@ router.get("/manifest.webmanifest", async (req: Request, res: Response) => {
       : `${rootPath}/painel`;
 
   const shortcuts =
-    context.app === "affiliate"
+    context.app === "mob"
       ? [
           {
-            name: "Programas",
-            short_name: "Programas",
-            url: context.surface === "partners" || !context.slug
-              ? "/parceiros/painel"
-              : `${rootPath}/painel`,
+            name: "App do entregador",
+            short_name: "App",
+            url: hostIsMob ? "/" : "/mob/app",
             icons: [{ src: icon192, sizes: "192x192" }],
           },
           {
-            name: "Divulgar",
-            short_name: "Divulgar",
-            url: `${affiliateBase}/divulgacao`,
-            icons: [{ src: icon192, sizes: "192x192" }],
-          },
-          {
-            name: "Links",
-            short_name: "Links",
-            url: `${affiliateBase}/links`,
+            name: "Rastreio",
+            short_name: "Rastreio",
+            url: "/rastreio",
             icons: [{ src: icon192, sizes: "192x192" }],
           },
         ]
-      : context.app === "admin"
+      : context.app === "affiliate"
         ? [
             {
-              name: "Painel",
-              short_name: "Painel",
-              url: "/admin",
+              name: "Programas",
+              short_name: "Programas",
+              url: context.surface === "partners" || !context.slug
+                ? "/parceiros/painel"
+                : `${rootPath}/painel`,
               icons: [{ src: icon192, sizes: "192x192" }],
             },
             {
-              name: "Leads",
-              short_name: "Leads",
-              url: "/leads",
+              name: "Divulgar",
+              short_name: "Divulgar",
+              url: `${affiliateBase}/divulgacao`,
               icons: [{ src: icon192, sizes: "192x192" }],
             },
             {
-              name: "Mensagens",
-              short_name: "Mensagens",
-              url: "/mensagens",
+              name: "Links",
+              short_name: "Links",
+              url: `${affiliateBase}/links`,
               icons: [{ src: icon192, sizes: "192x192" }],
             },
           ]
-        : context.app === "stock"
+        : context.app === "admin"
           ? [
               {
-                name: "Inventário",
-                short_name: "Inventário",
-                url: rootPath,
+                name: "Painel",
+                short_name: "Painel",
+                url: "/admin",
+                icons: [{ src: icon192, sizes: "192x192" }],
+              },
+              {
+                name: "Leads",
+                short_name: "Leads",
+                url: "/leads",
+                icons: [{ src: icon192, sizes: "192x192" }],
+              },
+              {
+                name: "Mensagens",
+                short_name: "Mensagens",
+                url: "/mensagens",
                 icons: [{ src: icon192, sizes: "192x192" }],
               },
             ]
-          : [
-              {
-                name: "Catálogo",
-                short_name: "Catálogo",
-                url: rootPath,
-                icons: [{ src: icon192, sizes: "192x192" }],
-              },
-              {
-                name: "Acompanhar pedido",
-                short_name: "Pedido",
-                url: rootPath === "/" ? "/pedido" : `${rootPath}/pedido`,
-                icons: [{ src: icon192, sizes: "192x192" }],
-              },
-              {
-                name: "Histórico",
-                short_name: "Histórico",
-                url: rootPath === "/" ? "/historico" : `${rootPath}/historico`,
-                icons: [{ src: icon192, sizes: "192x192" }],
-              },
-            ];
+          : context.app === "stock"
+            ? [
+                {
+                  name: "Inventário",
+                  short_name: "Inventário",
+                  url: rootPath,
+                  icons: [{ src: icon192, sizes: "192x192" }],
+                },
+              ]
+            : [
+                {
+                  name: "Catálogo",
+                  short_name: "Catálogo",
+                  url: rootPath,
+                  icons: [{ src: icon192, sizes: "192x192" }],
+                },
+                {
+                  name: "Acompanhar pedido",
+                  short_name: "Pedido",
+                  url: rootPath === "/" ? "/pedido" : `${rootPath}/pedido`,
+                  icons: [{ src: icon192, sizes: "192x192" }],
+                },
+                {
+                  name: "Histórico",
+                  short_name: "Histórico",
+                  url: rootPath === "/" ? "/historico" : `${rootPath}/historico`,
+                  icons: [{ src: icon192, sizes: "192x192" }],
+                },
+              ];
 
   // `id` precisa ser same-origin (path ou URL absoluta). Valores tipo "admin:/admin" são ignorados pelo browser.
   // Separar PWA de parceiros do PWA admin (ids distintos).
   const manifestId =
     context.app === "admin"
       ? "/admin?app=admin"
-      : context.app === "stock"
-        ? `${rootPath}?app=stock`
-        : context.app === "affiliate" && (context.surface === "partners" || !context.slug)
-          ? "/parceiros?app=affiliate&surface=partners"
-          : context.app === "affiliate"
-            ? `${rootPath}?app=affiliate`
-            : rootPath === "/"
-              ? "/?app=store"
-              : `${rootPath}?app=store`;
+      : context.app === "mob"
+        ? (hostIsMob ? "/?app=mob" : "/mob?app=mob")
+        : context.app === "stock"
+          ? `${rootPath}?app=stock`
+          : context.app === "affiliate" && (context.surface === "partners" || !context.slug)
+            ? "/parceiros?app=affiliate&surface=partners"
+            : context.app === "affiliate"
+              ? `${rootPath}?app=affiliate`
+              : rootPath === "/"
+                ? "/?app=store"
+                : `${rootPath}?app=store`;
 
   const manifest = {
     id: manifestId,

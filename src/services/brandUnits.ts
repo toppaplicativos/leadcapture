@@ -636,6 +636,25 @@ export class BrandUnitsService {
         await this.setActiveBrand(userId, candidate);
         return candidate;
       }
+      /* Super-admin / master: pode atuar em qualquer brand existente (probe, suporte). */
+      try {
+        const { isSuperAdminUser } = await import("./planEntitlements");
+        if (await isSuperAdminUser(userId)) {
+          const exists = await queryOne<{ id: string }>(
+            `SELECT id FROM brand_units WHERE id = ? LIMIT 1`,
+            [candidate],
+          ).catch(() => null);
+          if (exists?.id) return candidate;
+          /* fallback: organizations table used as brand_id in some tenants */
+          const org = await queryOne<{ id: string }>(
+            `SELECT id FROM organizations WHERE id = ? LIMIT 1`,
+            [candidate],
+          ).catch(() => null);
+          if (org?.id) return candidate;
+        }
+      } catch {
+        /* ignore */
+      }
       // Marca alheia ou inválida — não lança 500; caller trata null (lista vazia / 400).
       return null;
     }

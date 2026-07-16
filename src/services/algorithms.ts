@@ -12,9 +12,21 @@ import {
   type AlgorithmDef,
   type AlgorithmModality,
 } from "../config/ai-algorithms"
-import { AI_MODELS, DEFAULT_PREFERENCES, type AICategory } from "../config/ai-models"
+import {
+  AI_MODELS,
+  DEFAULT_PREFERENCES,
+  resolveLiveModelId,
+  isRetiredModelId,
+  type AICategory,
+} from "../config/ai-models"
+import {
+  estimateAlgorithmCost,
+  pickBestAtlasModel,
+  type CostEstimate,
+} from "../config/ai-cost"
 import { integrationService } from "./integrations"
 import { getPlatformTools } from "./platformTools"
+import { AtlasProvider } from "./providers/atlas-provider"
 
 export type AlgorithmRow = {
   function_key: string
@@ -109,8 +121,44 @@ export class AlgorithmsService {
       /* ignore */
     }
     await this.seedMissing()
+    await this.sanitizeRetiredModels().catch((err: any) => {
+      logger.warn(`[algorithms] sanitizeRetiredModels: ${err?.message}`)
+    })
     _ready = true
     logger.info("[algorithms] schema ready")
+  }
+
+  /**
+   * Reescreve na DB qualquer algoritmo apontando para model IDs descontinuados
+   * (ex.: gemini-2.0-flash-lite, shutdown Google 2026-06-01).
+   */
+  /** Called only from _boot after schema exists — do not call ensureSchema (recursion). */
+  async sanitizeRetiredModels(): Promise<number> {
+    const rows = await query<AlgorithmRow[]>(`SELECT * FROM ai_algorithms`)
+    const list = Array.isArray(rows) ? rows : []
+    let n = 0
+    for (const row of list) {
+      const liveModel = resolveLiveModelId(row.model)
+      const liveFallback = row.fallback_model
+        ? resolveLiveModelId(String(row.fallback_model))
+        : null
+      const sameModel = liveModel === row.model
+      const sameFallback =
+        (liveFallback || null) === (row.fallback_model || null)
+      if (sameModel && sameFallback) continue
+      await query(
+        `UPDATE ai_algorithms SET model = ?, fallback_model = ?, updated_at = NOW()
+         WHERE function_key = ?`,
+        [liveModel, liveFallback, row.function_key],
+      )
+      this.invalidate(row.function_key)
+      n++
+      logger.info(
+        `[algorithms] retired model remapped ${row.function_key}: ${row.model} → ${liveModel}`,
+      )
+    }
+    if (n > 0) logger.info(`[algorithms] sanitizeRetiredModels updated=${n}`)
+    return n
   }
 
   /** Insert registry rows only when missing — never overwrite master edits */
@@ -219,14 +267,21 @@ export class AlgorithmsService {
     }
 
     const provider = patch.provider !== undefined ? String(patch.provider).trim() : before.provider
-    const model = patch.model !== undefined ? String(patch.model).trim() : before.model
+    let model = patch.model !== undefined ? String(patch.model).trim() : before.model
+    if (isRetiredModelId(model)) {
+      model = resolveLiveModelId(model)
+    }
     this.assertModelInCatalog(before.modality, provider, model)
 
-    if (patch.fallback_provider && patch.fallback_model) {
+    let fallbackModel =
+      patch.fallback_model !== undefined ? patch.fallback_model : before.fallback_model
+    if (fallbackModel) fallbackModel = resolveLiveModelId(String(fallbackModel))
+
+    if (patch.fallback_provider && fallbackModel) {
       this.assertModelInCatalog(
         before.modality,
         String(patch.fallback_provider),
-        String(patch.fallback_model),
+        String(fallbackModel),
       )
     }
 
@@ -250,7 +305,7 @@ export class AlgorithmsService {
         patch.fallback_provider !== undefined
           ? patch.fallback_provider
           : before.fallback_provider,
-        patch.fallback_model !== undefined ? patch.fallback_model : before.fallback_model,
+        fallbackModel,
         patch.temperature !== undefined ? patch.temperature : before.temperature,
         patch.max_tokens !== undefined ? patch.max_tokens : before.max_tokens,
         patch.is_enabled !== undefined ? !!patch.is_enabled : before.is_enabled,
@@ -294,12 +349,13 @@ export class AlgorithmsService {
         code: "invalid_provider",
       })
     }
-    if (!list.some((m) => m.id === model)) {
-      throw Object.assign(new Error(`invalid_model:${model}`), {
-        status: 400,
-        code: "invalid_model",
-      })
-    }
+    if (list.some((m) => m.id === model)) return
+    // Atlas: permite modelos live da API (ainda não no catálogo curado estático)
+    if (provider === "atlas" && String(model).trim().length > 2) return
+    throw Object.assign(new Error(`invalid_model:${model}`), {
+      status: 400,
+      code: "invalid_model",
+    })
   }
 
   /**
@@ -366,7 +422,7 @@ export class AlgorithmsService {
     }
 
     let provider = row.provider
-    let model = row.model
+    let model = resolveLiveModelId(row.model)
     let usedFallback = false
     let key = await this.resolveKey(provider, scope)
 
@@ -400,11 +456,13 @@ export class AlgorithmsService {
     text: { provider: string; model: string }
     image: { provider: string; model: string }
     video: { provider: string; model: string }
+    audio: { provider: string; model: string }
   }> {
     await this.ensureSchema()
     const text = await this.get(MODALITY_DEFAULT_KEYS.text)
     const image = await this.get(MODALITY_DEFAULT_KEYS.image)
     const video = await this.get(MODALITY_DEFAULT_KEYS.video)
+    const audio = await this.get(MODALITY_DEFAULT_KEYS.audio)
     return {
       text: {
         provider: text?.provider || DEFAULT_PREFERENCES.text.provider,
@@ -417,6 +475,10 @@ export class AlgorithmsService {
       video: {
         provider: video?.provider || DEFAULT_PREFERENCES.video.provider,
         model: video?.model || DEFAULT_PREFERENCES.video.model,
+      },
+      audio: {
+        provider: audio?.provider || DEFAULT_PREFERENCES.audio.provider,
+        model: audio?.model || DEFAULT_PREFERENCES.audio.model,
       },
     }
   }
@@ -463,6 +525,158 @@ export class AlgorithmsService {
       [Math.min(200, Math.max(1, limit))],
     )
     return Array.isArray(rows) ? rows : []
+  }
+
+  /**
+   * Migra todos os algoritmos ativos para Atlas, escolhendo o melhor modelo
+   * por função (custo + adequação). Não toca coming_soon desnecessariamente.
+   */
+  async migrateAllToAtlas(actor?: { userId?: string; email?: string }): Promise<{
+    updated: number
+    skipped: number
+    results: Array<{ function_key: string; model: string; fit_score: number; usd_per_1k: number }>
+  }> {
+    await this.ensureSchema()
+    const rows = await this.list()
+    let updated = 0
+    let skipped = 0
+    const results: Array<{ function_key: string; model: string; fit_score: number; usd_per_1k: number }> = []
+
+    for (const row of rows) {
+      if (!row.is_enabled) {
+        skipped++
+        continue
+      }
+      const pick = pickBestAtlasModel(row.function_key, String(row.modality))
+      if (row.provider === "atlas" && row.model === pick.model) {
+        skipped++
+        continue
+      }
+      try {
+        const after = await this.update(
+          row.function_key,
+          {
+            provider: pick.provider,
+            model: pick.model,
+            // fallback barato no mesmo provider
+            fallback_provider: "atlas",
+            fallback_model:
+              String(row.modality) === "image"
+                ? "google/gemini-2.5-flash-image"
+                : String(row.modality) === "video"
+                  ? "bytedance/seedance-2.0-mini"
+                  : String(row.modality) === "audio"
+                    ? "minimax/speech-02-turbo"
+                    : "google/gemini-2.5-flash-lite",
+          },
+          actor,
+        )
+        const est = estimateAlgorithmCost({
+          function_key: after.function_key,
+          modality: String(after.modality),
+          provider: after.provider,
+          model: after.model,
+        })
+        results.push({
+          function_key: after.function_key,
+          model: after.model,
+          fit_score: est.fit.score,
+          usd_per_1k: est.usd_per_1k_calls,
+        })
+        updated++
+      } catch (err: any) {
+        logger.warn(`[algorithms] migrate ${row.function_key}: ${err?.message}`)
+        skipped++
+      }
+    }
+
+    this.invalidate()
+    logger.info(`[algorithms] migrateAllToAtlas updated=${updated} skipped=${skipped}`)
+    return { updated, skipped, results }
+  }
+
+  estimate(functionKey: string, provider: string, model: string, modality?: string): CostEstimate {
+    const mod =
+      modality ||
+      ALGORITHM_REGISTRY.find((d) => d.function_key === functionKey)?.modality ||
+      "text"
+    return estimateAlgorithmCost({
+      function_key: functionKey,
+      modality: String(mod),
+      provider,
+      model,
+    })
+  }
+
+  /**
+   * Catálogo unificado: estático + modelos Atlas live (se chave global).
+   * Live models não sobrescrevem labels do catálogo curado; só expandem a lista.
+   */
+  async getMergedCatalog(opts?: { refreshAtlas?: boolean }): Promise<{
+    models: typeof AI_MODELS
+    defaults: typeof DEFAULT_PREFERENCES
+    atlas_live: { count: number; source: string; fetched_at: string | null }
+  }> {
+    const models = JSON.parse(JSON.stringify(AI_MODELS)) as typeof AI_MODELS
+    let liveCount = 0
+    let source = "static"
+    let fetchedAt: string | null = null
+
+    if (opts?.refreshAtlas !== false) {
+      try {
+        const key = await this.resolveKey("atlas", {})
+        if (key) {
+          const atlas = new AtlasProvider(key)
+          const live = await atlas.listModels()
+          liveCount = live.length
+          source = "atlas_api+static"
+          fetchedAt = new Date().toISOString()
+
+          const ensure = (mod: AICategory) => {
+            if (!models[mod]) (models as any)[mod] = {}
+            if (!(models as any)[mod].atlas) (models as any)[mod].atlas = []
+          }
+          ensure("text")
+          ensure("image")
+          ensure("video")
+          ensure("audio")
+
+          const existing = new Set(
+            Object.values(models)
+              .flatMap((byProv) => Object.values(byProv as any))
+              .flat()
+              .map((m: any) => String(m.id)),
+          )
+
+          for (const m of live) {
+            if (!m.id || existing.has(m.id)) continue
+            const cat = m.category || "text"
+            if (!["text", "image", "video", "audio"].includes(cat)) continue
+            ensure(cat as AICategory)
+            ;(models as any)[cat].atlas.push({
+              id: m.id,
+              label: m.label || `Atlas · ${m.id}`,
+              tier: m.tier || "medium",
+              cost_label: m.cost_label || "via Atlas (live)",
+              description: "Descoberto via GET /v1/models — validar fit no app",
+              functions: m.functions || ["chat"],
+              supports_references: !!m.supports_references,
+              studio_selectable: cat === "image" ? !!m.supports_references : undefined,
+            })
+            existing.add(m.id)
+          }
+        }
+      } catch (err: any) {
+        logger.warn(`[algorithms] atlas live catalog: ${err?.message}`)
+        source = "static_only"
+      }
+    }
+
+    return {
+      models,
+      defaults: DEFAULT_PREFERENCES,
+      atlas_live: { count: liveCount, source, fetched_at: fetchedAt },
+    }
   }
 }
 

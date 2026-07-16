@@ -8,6 +8,7 @@ import { cn } from '@/lib/cn'
 import { PublishModal } from '@/components/PublishModal'
 
 type ImageRole = 'product' | 'reference' | 'background'
+type StudioStep = 'sources' | 'direction' | 'copy' | 'brand' | 'generate'
 
 type UploadedAsset = {
   id: string
@@ -209,6 +210,7 @@ function layerPresetToPosition(preset: LayerPreset) {
 }
 
 export function BrandImageGeneratorPage() {
+  const [studioStep, setStudioStep] = useState<StudioStep>('sources')
   const [sourceImages, setSourceImages] = useState<SourceImage[]>([])
   const [logoFile, setLogoFile] = useState<File | null>(null)
   const [logoPreview, setLogoPreview] = useState('')
@@ -679,27 +681,24 @@ export function BrandImageGeneratorPage() {
   }
 
   return (
-    <div className="space-y-6 pb-10">
+    <div className="space-y-5 pb-10 font-sans">
       <a ref={downloadRef} className="hidden" />
 
-      <header className="flex flex-wrap items-start justify-between gap-3">
+      <header className="flex flex-wrap items-center justify-between gap-4 rounded-[20px] border border-neutral-200 bg-white px-5 py-4 shadow-[0_1px_2px_rgba(0,0,0,0.03)]">
         <div>
-          <div className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-full bg-brand-soft text-brand text-[11px] font-bold mb-2">
+          <div className="inline-flex items-center gap-1.5 text-[12px] font-medium text-neutral-500 mb-1">
             <Sparkles size={13} />
-            IA para brand
+            Estúdio de criação
           </div>
-          <h2 className="text-[26px] font-bold tracking-tight text-gray-900">Gerador de imagens publicitarias</h2>
-          <p className="text-[13px] text-gray-500 mt-0.5">Gere uma imagem nova com IA e finalize logo/textos por camadas editaveis.</p>
+          <h2 className="text-[22px] font-semibold tracking-[-0.025em] text-neutral-900">Criativo avançado</h2>
+          <p className="text-[13px] text-neutral-500 mt-0.5">Componha referências, direção de arte e camadas em um único fluxo.</p>
         </div>
         <div className="flex items-center gap-2">
           {credits && (
             <span className="h-10 inline-flex items-center px-3 rounded-xl border border-border bg-white text-[12px] font-semibold text-gray-600">
-              {credits.creditsRemaining ?? 0}/{credits.monthlyLimit ?? 0} creditos
+              <span className="tabular-nums">{credits.creditsRemaining ?? 0}/{credits.monthlyLimit ?? 0}</span>&nbsp;créditos
             </span>
           )}
-          <Button onClick={generateImage} loading={loading} iconLeft={<Wand2 size={16} />}>
-            {loading ? 'Gerando' : 'Gerar imagem nova'}
-          </Button>
         </div>
       </header>
 
@@ -717,9 +716,24 @@ export function BrandImageGeneratorPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,0.95fr)_minmax(430px,1.05fr)] gap-5 items-start">
-        <div className="space-y-5">
-          <section className="bg-white border border-border-light rounded-2xl p-5 space-y-4">
+      <nav aria-label="Etapas do estúdio" className="flex gap-2 overflow-x-auto rounded-[20px] border border-neutral-200 bg-white p-2 shadow-[0_1px_2px_rgba(0,0,0,0.03)]">
+        {([
+          ['sources', '1', 'Fontes', 'Produto e referências'],
+          ['direction', '2', 'Direção', 'Formato e estilo'],
+          ['copy', '3', 'Texto', 'Mensagem e logo'],
+          ['brand', '4', 'Marca', 'Identidade persistente'],
+          ['generate', '5', 'Gerar', 'Revisão e criação'],
+        ] as const).map(([id, number, label, description]) => (
+          <button key={id} type="button" onClick={() => setStudioStep(id)} aria-pressed={studioStep === id} className={cn('min-w-[150px] flex-1 rounded-2xl px-3 py-2.5 text-left transition', studioStep === id ? 'bg-neutral-900 text-white' : 'text-neutral-600 hover:bg-neutral-100')}>
+            <span className="flex items-center gap-2"><span className={cn('grid h-6 w-6 place-items-center rounded-lg text-[11px] font-bold', studioStep === id ? 'bg-white/12' : 'bg-neutral-100 text-neutral-700')}>{number}</span><span className="text-[13px] font-semibold">{label}</span></span>
+            <span className={cn('mt-1 block pl-8 text-[10px]', studioStep === id ? 'text-white/60' : 'text-neutral-400')}>{description}</span>
+          </button>
+        ))}
+      </nav>
+
+      <div className={cn('grid grid-cols-1 gap-5 items-start', generatedImageUrl && 'xl:grid-cols-[minmax(0,0.92fr)_minmax(430px,1.08fr)]')}>
+        <div className={cn('space-y-5 order-2 xl:order-1', studioStep === 'generate' && !generatedImageUrl ? 'hidden' : !generatedImageUrl && 'mx-auto w-full max-w-4xl')}>
+          {studioStep === 'brand' && (<section className="bg-white border border-neutral-200 rounded-[20px] p-5 space-y-4 shadow-[0_1px_2px_rgba(0,0,0,0.03)]">
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-xl grid place-items-center bg-gray-100 text-gray-700"><BadgeCheck size={16} /></div>
@@ -748,13 +762,14 @@ export function BrandImageGeneratorPage() {
               <Input label="Cor primaria" type="color" value={primaryColor} onChange={event => setPrimaryColor(event.target.value)} />
               <Input label="Cor secundaria" type="color" value={secondaryColor} onChange={event => setSecondaryColor(event.target.value)} />
             </div>
-          </section>
+            <div className="flex justify-end border-t border-neutral-100 pt-4"><Button onClick={() => setStudioStep('generate')}>Revisar e gerar</Button></div>
+          </section>)}
 
-          <section className="bg-white border border-border-light rounded-2xl p-5 space-y-4">
+          {studioStep === 'sources' && (<section className="bg-white border border-neutral-200 rounded-[20px] p-5 space-y-4 shadow-[0_1px_2px_rgba(0,0,0,0.03)]">
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-xl grid place-items-center bg-gray-100 text-gray-700"><Upload size={16} /></div>
               <div>
-                <h3 className="text-[15px] font-bold tracking-tight text-gray-900">1. Imagens fonte</h3>
+                <h3 className="text-[15px] font-semibold tracking-tight text-gray-900">Imagens fonte</h3>
                 <p className="text-[11px] text-gray-500">Envie ate 8 imagens e defina o papel de cada uma.</p>
               </div>
             </div>
@@ -804,12 +819,13 @@ export function BrandImageGeneratorPage() {
                 ))}
               </div>
             )}
-          </section>
+            <div className="flex justify-end border-t border-neutral-100 pt-4"><Button onClick={() => setStudioStep('direction')} disabled={!productImages.length}>Continuar para direção</Button></div>
+          </section>)}
 
-          <section className="bg-white border border-border-light rounded-2xl p-5 space-y-4">
+          {studioStep === 'direction' && (<section className="bg-white border border-neutral-200 rounded-[20px] p-5 space-y-4 shadow-[0_1px_2px_rgba(0,0,0,0.03)]">
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-xl grid place-items-center bg-gray-100 text-gray-700"><Megaphone size={16} /></div>
-              <h3 className="text-[15px] font-bold tracking-tight text-gray-900">2. Direcao criativa</h3>
+              <h3 className="text-[15px] font-semibold tracking-tight text-gray-900">Direção criativa</h3>
             </div>
 
             <div className="grid grid-cols-2 gap-2">
@@ -818,10 +834,14 @@ export function BrandImageGeneratorPage() {
                   key={item.id}
                   type="button"
                   onClick={() => setFormatId(item.id)}
-                  className={cn('h-14 rounded-xl border text-left px-3 transition', formatId === item.id ? 'border-gray-900 bg-gray-900 text-white' : 'border-border bg-white text-gray-700 hover:bg-gray-50')}
+                  className={cn('min-h-16 rounded-2xl border text-left px-3 py-2 transition', formatId === item.id ? 'border-gray-900 bg-gray-900 text-white' : 'border-neutral-200 bg-white text-gray-700 hover:border-neutral-400')}
                 >
-                  <span className="block text-[13px] font-bold">{item.label}</span>
-                  <span className={cn('block text-[11px]', formatId === item.id ? 'text-white/70' : 'text-gray-400')}>{item.detail}</span>
+                  <span className="flex items-center gap-3">
+                    <span className={cn('grid h-10 w-10 place-items-center rounded-xl', formatId === item.id ? 'bg-white/10' : 'bg-neutral-100')}>
+                      <span className={cn('block rounded-[3px] border-2', item.aspectRatio === '1:1' ? 'h-6 w-6' : item.aspectRatio === '9:16' ? 'h-8 w-[18px]' : item.aspectRatio === '4:5' ? 'h-8 w-6' : 'h-[18px] w-8', formatId === item.id ? 'border-white' : 'border-neutral-500')} />
+                    </span>
+                    <span><span className="block text-[13px] font-bold">{item.label}</span><span className={cn('block text-[11px]', formatId === item.id ? 'text-white/70' : 'text-gray-400')}>{item.detail}</span></span>
+                  </span>
                 </button>
               ))}
             </div>
@@ -890,12 +910,13 @@ export function BrandImageGeneratorPage() {
                 </select>
               </label>
             </div>
-          </section>
+            <div className="flex justify-between border-t border-neutral-100 pt-4"><Button variant="secondary" onClick={() => setStudioStep('sources')}>Voltar</Button><Button onClick={() => setStudioStep('copy')}>Continuar para texto</Button></div>
+          </section>)}
 
-          <section className="bg-white border border-border-light rounded-2xl p-5 space-y-4">
+          {studioStep === 'copy' && (<section className="bg-white border border-neutral-200 rounded-[20px] p-5 space-y-4 shadow-[0_1px_2px_rgba(0,0,0,0.03)]">
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-xl grid place-items-center bg-gray-100 text-gray-700"><Type size={16} /></div>
-              <h3 className="text-[15px] font-bold tracking-tight text-gray-900">3. Texto e logo editaveis</h3>
+              <h3 className="text-[15px] font-semibold tracking-tight text-gray-900">Texto e logo editáveis</h3>
             </div>
 
             <div className="grid sm:grid-cols-[96px_1fr] gap-3 items-center">
@@ -938,15 +959,17 @@ export function BrandImageGeneratorPage() {
                 Aplicar textos editaveis por cima
               </label>
             </div>
-          </section>
+            <div className="flex justify-between border-t border-neutral-100 pt-4"><Button variant="secondary" onClick={() => setStudioStep('direction')}>Voltar</Button><Button onClick={() => setStudioStep('brand')}>Continuar para marca</Button></div>
+          </section>)}
         </div>
 
-        <div className="space-y-5 xl:sticky xl:top-5">
-          <section className="bg-white border border-border-light rounded-2xl p-5 space-y-4">
+        <div className={cn('space-y-5 xl:sticky xl:top-5 order-1 xl:order-2', !generatedImageUrl && studioStep !== 'generate' && 'hidden', studioStep === 'generate' && !generatedImageUrl && 'mx-auto w-full max-w-2xl')}>
+          {generatedImageUrl ? (
+          <section className="bg-white border border-neutral-200 rounded-[20px] p-4 sm:p-5 space-y-4 shadow-[0_1px_2px_rgba(0,0,0,0.03)]">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <h3 className="text-[15px] font-bold tracking-tight text-gray-900">Imagem final</h3>
-                <p className="text-[11px] text-gray-500 mt-0.5">{generatedImageUrl ? 'Base gerada pela IA + camadas editaveis.' : 'Gere uma imagem nova para substituir o preview.'}</p>
+                <h3 className="text-[15px] font-semibold tracking-tight text-gray-900">Resultado gerado</h3>
+                <p className="text-[11px] text-gray-500 mt-0.5">Imagem criada pela IA com as orientações configuradas.</p>
               </div>
               <div className="flex gap-2">
                 {generatedImageUrl && (
@@ -961,16 +984,8 @@ export function BrandImageGeneratorPage() {
                 className="relative mx-auto max-h-[72vh] overflow-hidden rounded-xl shadow-sm bg-gray-900"
                 style={{ aspectRatio: previewRatio, maxWidth: selectedFormat.id === 'story' ? 360 : 680 }}
               >
-                {generatedImageUrl ? (
-                  <img src={generatedImageUrl} alt="" className="absolute inset-0 w-full h-full object-cover" />
-                ) : (
-                  <div className="absolute inset-0" style={{ background: `linear-gradient(135deg, ${primaryColor}, #111827 52%, ${secondaryColor})` }} />
-                )}
+                <img src={generatedImageUrl} alt="Criativo gerado pela IA" className="absolute inset-0 w-full h-full object-cover" />
                 <div className="absolute inset-0 bg-gradient-to-b from-black/25 via-transparent to-black/60" />
-
-                {!generatedImageUrl && productImages[0] && (
-                  <img src={productImages[0].preview} alt="" className="absolute left-[14%] right-[14%] top-[24%] w-[72%] h-[38%] object-contain drop-shadow-2xl" />
-                )}
 
                 {logoPreview && (
                   <div
@@ -1003,14 +1018,45 @@ export function BrandImageGeneratorPage() {
               </div>
             </div>
           </section>
+          ) : (
+            <section className="bg-white border border-neutral-200 rounded-[20px] p-5 space-y-5 shadow-[0_1px_2px_rgba(0,0,0,0.03)]">
+              <div className="flex items-start justify-between gap-3">
+                <div><h3 className="text-[15px] font-semibold tracking-tight text-neutral-900">{studioStep === 'generate' ? 'Pronto para gerar' : 'Progresso do criativo'}</h3><p className="mt-1 text-[11px] leading-relaxed text-neutral-500">{studioStep === 'generate' ? 'Revise as escolhas antes de solicitar a criação à IA.' : 'Avance pelas etapas. A geração só será liberada na fase final.'}</p></div>
+                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-neutral-100 text-neutral-700"><Wand2 size={17} /></span>
+              </div>
+              {loading ? (
+                <div className="rounded-[18px] border border-neutral-200 bg-neutral-50 px-4 py-8 text-center">
+                  <Loader2 size={22} className="mx-auto animate-spin text-neutral-700" />
+                  <p className="mt-3 text-[13px] font-semibold text-neutral-900">A IA está criando seu criativo</p>
+                  <p className="mt-1 text-[11px] text-neutral-500">Aplicando referências, formato, estilo e contexto da marca.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    ['Formato', `${selectedFormat.label} · ${selectedFormat.detail}`],
+                    ['Referências', `${sourceImages.length} ${sourceImages.length === 1 ? 'imagem' : 'imagens'}`],
+                    ['Objetivo', objective],
+                    ['Estilo', STYLE_OPTIONS.find(item => item.id === style)?.label || style],
+                    ['Variações', String(variations)],
+                    ['Qualidade', quality === 'high' ? 'Alta' : 'Rápida'],
+                  ].map(([label, value]) => <div key={label} className="rounded-2xl border border-neutral-200 bg-neutral-50 p-3"><span className="block text-[10px] font-medium text-neutral-500">{label}</span><span className="mt-1 block text-[12px] font-semibold text-neutral-900 line-clamp-2">{value}</span></div>)}
+                </div>
+              )}
+              {!loading && <div className="rounded-2xl border border-neutral-200 px-3 py-3"><div className="flex items-center justify-between gap-3"><span className="text-[12px] font-medium text-neutral-600">Produto principal</span><span className={cn('text-[11px] font-semibold', productImages.length ? 'text-emerald-700' : 'text-amber-700')}>{productImages.length ? 'Pronto' : 'Adicione em Fontes'}</span></div></div>}
+              {studioStep === 'generate' && <div className="space-y-2 border-t border-neutral-100 pt-4"><Button className="w-full" onClick={generateImage} loading={loading} disabled={!productImages.length} iconLeft={<Wand2 size={16} />}>{loading ? 'Gerando com IA' : 'Gerar criativo com IA'}</Button><Button variant="secondary" className="w-full" onClick={() => setStudioStep('brand')}>Voltar para marca</Button></div>}
+            </section>
+          )}
 
-          <section className="bg-white border border-border-light rounded-2xl p-5 space-y-4">
+          {generatedImageUrl && (<details className="group bg-white border border-neutral-200 rounded-[20px] p-5 shadow-[0_1px_2px_rgba(0,0,0,0.03)]">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-xl grid place-items-center bg-gray-100 text-gray-700"><Move size={16} /></div>
-              <h3 className="text-[15px] font-bold tracking-tight text-gray-900">Editor de camadas</h3>
+              <div><h3 className="text-[15px] font-semibold tracking-tight text-gray-900">Editor de camadas</h3><p className="text-[11px] text-neutral-500">Posição, tamanho e opacidade</p></div>
             </div>
+            <SlidersHorizontal size={16} className="text-neutral-400" />
+            </summary>
 
-            <div className="space-y-3">
+            <div className="space-y-3 mt-5 pt-5 border-t border-neutral-100">
               <div>
                 <p className="text-[12px] font-bold text-gray-700 mb-2">Posicao do texto</p>
                 <div className="grid grid-cols-5 gap-1.5">
@@ -1047,10 +1093,10 @@ export function BrandImageGeneratorPage() {
                 </label>
               </div>
             </div>
-          </section>
+          </details>)}
 
           {gallery.length > 0 && (
-            <section className="bg-white border border-border-light rounded-2xl p-5 space-y-3">
+            <section className="bg-white border border-neutral-200 rounded-[20px] p-5 space-y-3 shadow-[0_1px_2px_rgba(0,0,0,0.03)]">
               <div className="flex items-center justify-between">
                 <h3 className="text-[15px] font-bold tracking-tight text-gray-900">Galeria recente</h3>
                 <button

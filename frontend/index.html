@@ -80,6 +80,11 @@
         --splash-fg: #14532d;
         --splash-tile: #14532d;
       }
+      #app-splash[data-view='mob'] {
+        --splash-bg: #f5f5f5;
+        --splash-fg: #171717;
+        --splash-tile: #171717;
+      }
 
       #app-splash[data-state='closing'] {
         opacity: 0;
@@ -154,6 +159,7 @@
         var isPartnersGlobalHost =
           host === 'parceiros.leadcapture.online'
           || host === 'afiliados.leadcapture.online'
+        var isMobHost = host === 'mob.leadcapture.online'
         // parceiros.{marca}.online (ex.: parceiros.alhopronto.online)
         var partnersBrandMatch = host.match(/^(?:parceiros|afiliados)\.([a-z0-9-]+)\./i)
         var partnersBrandSlug =
@@ -179,7 +185,12 @@
         var appKind = 'store'
         var surface = '' // partners = app global LeadCapture Parceiros
 
-        if (isPartnersGlobalHost || firstPath === 'parceiros') {
+        if (isMobHost || firstPath === 'mob' || firstPath === 'rastreio') {
+          // App do entregador (Lead Capture Mob)
+          appKind = 'mob'
+          splashView = 'mob'
+          surface = 'mob'
+        } else if (isPartnersGlobalHost || firstPath === 'parceiros') {
           // App de afiliados global — NUNCA painel admin
           appKind = 'affiliate'
           splashView = 'affiliate'
@@ -232,18 +243,21 @@
           admin: 'LeadCapture',
           stock: 'Estoque',
           affiliate: surface === 'partners' ? 'LeadCapture Parceiros' : 'Afiliados',
+          mob: 'Lead Capture Mob',
         }
         var themeColors = {
           store: '#0f82ff',
           admin: '#0a0a0a',
           stock: '#d97706',
           affiliate: '#16a34a',
+          mob: '#171717',
         }
         var bootBgs = {
           store: '#f1f5f9',
           admin: '#f3f3f3',
           stock: '#fffbeb',
           affiliate: '#ecfdf5',
+          mob: '#f5f5f5',
         }
 
         function appendLink(id, rel, href, sizes, type) {

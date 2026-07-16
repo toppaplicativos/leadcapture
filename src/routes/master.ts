@@ -893,6 +893,48 @@ router.post("/algorithms/seed", async (req: AuthRequest, res: Response) => {
   }
 })
 
+/** Força política Atlas em todos os algoritmos (com scoring custo/fit) */
+router.post("/algorithms/migrate-atlas", async (req: AuthRequest, res: Response) => {
+  try {
+    const { algorithmsService } = await import("../services/algorithms")
+    await algorithmsService.ensureSchema()
+    const result = await algorithmsService.migrateAllToAtlas({
+      userId: req.userId!,
+      email: (req.user as any)?.email,
+    })
+    await masterService.log({
+      actor_user_id: req.userId!,
+      actor_email: (req.user as any)?.email || "",
+      action: "algorithms.migrate_atlas",
+      resource: "ai_algorithms",
+      payload: { updated: result.updated, skipped: result.skipped },
+      ip: ipOf(req),
+    })
+    return res.json({ ok: true, ...result })
+  } catch (err: any) {
+    logger.error({ err: err?.message }, "algorithms migrate atlas error")
+    return res.status(500).json({ error: err?.message || "migrate_failed" })
+  }
+})
+
+/** Estimativa de custo + fit na escolha de modelo */
+router.get("/algorithms/estimate", async (req: AuthRequest, res: Response) => {
+  try {
+    const { algorithmsService } = await import("../services/algorithms")
+    const functionKey = String(req.query?.function_key || "").trim()
+    const provider = String(req.query?.provider || "").trim()
+    const model = String(req.query?.model || "").trim()
+    const modality = String(req.query?.modality || "").trim() || undefined
+    if (!functionKey || !provider || !model) {
+      return res.status(400).json({ error: "function_key, provider e model são obrigatórios" })
+    }
+    const estimate = algorithmsService.estimate(functionKey, provider, model, modality)
+    return res.json({ estimate })
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message || "estimate_failed" })
+  }
+})
+
 router.get("/algorithms/:functionKey", async (req: AuthRequest, res: Response) => {
   try {
     const { algorithmsService } = await import("../services/algorithms")
@@ -945,8 +987,24 @@ router.put("/algorithms/:functionKey", async (req: AuthRequest, res: Response) =
 
 /* ──────────────────────────── global AI providers ──────────────────────────── */
 
-router.get("/providers/catalog", async (_req: AuthRequest, res: Response) => {
-  return res.json({ models: AI_MODELS, defaults: DEFAULT_PREFERENCES })
+router.get("/providers/catalog", async (req: AuthRequest, res: Response) => {
+  try {
+    const refresh = String(req.query?.refresh || "1") !== "0"
+    const { algorithmsService } = await import("../services/algorithms")
+    const merged = await algorithmsService.getMergedCatalog({ refreshAtlas: refresh })
+    return res.json({
+      models: merged.models,
+      defaults: merged.defaults,
+      atlas_live: merged.atlas_live,
+    })
+  } catch (err: any) {
+    // fallback estático
+    return res.json({
+      models: AI_MODELS,
+      defaults: DEFAULT_PREFERENCES,
+      atlas_live: { count: 0, source: "static_fallback", fetched_at: null },
+    })
+  }
 })
 
 router.get("/providers", async (_req: AuthRequest, res: Response) => {

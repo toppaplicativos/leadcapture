@@ -266,8 +266,12 @@ export const masterApi = {
     req<{ user: any }>('PATCH', `/users/${id}`, patch),
 
   /* global providers */
-  providersCatalog: () =>
-    req<{ models: Record<string, any>; defaults: Record<string, any> }>('GET', '/providers/catalog'),
+  providersCatalog: (opts?: { refresh?: boolean }) =>
+    req<{
+      models: Record<string, any>
+      defaults: Record<string, any>
+      atlas_live?: { count: number; source: string; fetched_at: string | null }
+    }>('GET', `/providers/catalog?refresh=${opts?.refresh === false ? '0' : '1'}`),
   listProviders: () =>
     req<{ providers: Array<any> }>('GET', '/providers'),
   updateProvider: (provider: string, patch: Record<string, any>) =>
@@ -292,6 +296,27 @@ export const masterApi = {
   updateAlgorithm: (functionKey: string, patch: Record<string, any>) =>
     req<{ algorithm: any }>('PUT', `/algorithms/${encodeURIComponent(functionKey)}`, patch),
   seedAlgorithms: () => req<{ ok: boolean; inserted: number }>('POST', '/algorithms/seed', {}),
+  migrateAlgorithmsToAtlas: () =>
+    req<{
+      ok: boolean
+      updated: number
+      skipped: number
+      results: Array<{ function_key: string; model: string; fit_score: number; usd_per_1k: number }>
+    }>('POST', '/algorithms/migrate-atlas', {}),
+  estimateAlgorithm: (params: {
+    function_key: string
+    provider: string
+    model: string
+    modality?: string
+  }) => {
+    const q = new URLSearchParams({
+      function_key: params.function_key,
+      provider: params.provider,
+      model: params.model,
+    })
+    if (params.modality) q.set('modality', params.modality)
+    return req<{ estimate: any }>('GET', `/algorithms/estimate?${q}`)
+  },
   algorithmsAudit: (limit = 50) =>
     req<{ entries: Array<any> }>('GET', `/algorithms/audit?limit=${limit}`),
 

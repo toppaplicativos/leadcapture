@@ -75,7 +75,8 @@ export function stopWhatsAppHealthMonitor(): void {
 /* Reconcilia: pra cada instance no DB, verifica se o InstanceManager realmente
    tem socket ativo. Se DB diz connected mas socket nao existe -> marca disconnected.
    (O caminho oposto - socket vivo, DB disconnected - eh raro porque o connect
-   atualiza o DB; mas tambem corrigimos.) */
+   atualiza o DB; mas tambem corrigimos.)
+   BLINDAGEM: se offline com creds multi-device, chama ensureStableConnection. */
 async function tick(): Promise<void> {
   try {
     const rows = (await query<any[]>(
@@ -84,6 +85,7 @@ async function tick(): Promise<void> {
     if (!Array.isArray(rows)) return;
 
     let driftFixed = 0;
+    let autoReconnects = 0;
     const deadInstanceIds: string[] = [];
     const now = Date.now();
     const DEAD_THRESHOLD_MS = 30 * 60_000; // 30min disconnected = "dead"
@@ -92,8 +94,32 @@ async function tick(): Promise<void> {
       const id = String(r.id);
       const runtime = detectRuntimeStatusFallback(id);
 
-      /* Drift: DB diz connected mas runtime nao tem socket */
-      if (r.status === "connected" && runtime !== "connected") {
+      /* Runtime connected é fonte da verdade: nunca marcar offline se socket autenticado. */
+      if (runtime === "connected") {
+        if (r.status !== "connected") {
+          try {
+            await query(
+              `UPDATE whatsapp_instances SET status = 'connected', last_connected_at = NOW(), updated_at = NOW() WHERE id = ?`,
+              [id],
+            );
+            r.status = "connected";
+            driftFixed++;
+            logger.info(`WhatsAppHealth: drift reverso corrigido em "${r.name}" — runtime=connected.`);
+          } catch (e: any) {
+            logger.warn(`WhatsAppHealth: falha ao corrigir drift reverso de ${id}: ${e.message}`);
+          }
+        }
+        /* Garante memória/DB alinhados sem reconectar (pairing preservado). */
+        if (imRef && typeof (imRef as any).ensureStableConnection === "function") {
+          try {
+            await (imRef as any).ensureStableConnection(id);
+          } catch { /* ignore */ }
+        }
+      } else if (
+        r.status === "connected"
+        && (runtime === "disconnected" || runtime === "unknown")
+      ) {
+        /* Drift clássico: DB connected mas socket morto */
         try {
           await query(
             `UPDATE whatsapp_instances SET status = 'disconnected' WHERE id = ?`,
@@ -107,28 +133,29 @@ async function tick(): Promise<void> {
         }
       }
 
-      /* Drift reverso: DB diz disconnected mas runtime tem socket ativo.
-         Acontece quando reconnect bem-sucedido mas syncInstanceToDB falhou,
-         ou quando o health tick rodou entre disconnect e reconnect.
-         Also update last_connected_at so deadInstance check sees fresh time. */
-      if (r.status !== "connected" && runtime === "connected") {
-        try {
-          await query(
-            `UPDATE whatsapp_instances SET status = 'connected', last_connected_at = NOW(), updated_at = NOW() WHERE id = ?`,
-            [id],
-          );
-          r.status = "connected";
-          driftFixed++;
-          logger.info(`WhatsAppHealth: drift reverso corrigido em "${r.name}" — DB=disconnected mas runtime=connected. Atualizado pra connected.`);
-        } catch (e: any) {
-          logger.warn(`WhatsAppHealth: falha ao corrigir drift reverso de ${id}: ${e.message}`);
+      /* Auto-reconnect: offline no runtime mas com sessão salva no disco. */
+      if (runtime === "disconnected" || runtime === "unknown") {
+        if (imRef && typeof (imRef as any).ensureStableConnection === "function") {
+          try {
+            const result = await (imRef as any).ensureStableConnection(id);
+            if (result === "connected" || result === "connecting") {
+              autoReconnects++;
+              logger.info(`WhatsAppHealth: ensureStable ${result} para "${r.name}"`);
+              if (result === "connected") {
+                r.status = "connected";
+              }
+            }
+          } catch (e: any) {
+            logger.warn(`WhatsAppHealth: ensureStable falhou para ${id}: ${e?.message || e}`);
+          }
         }
       }
 
       /* Identifica instances "mortas" — disconnected ha > 30min sem reconectar.
          Campanhas amarradas a elas vao ser pausadas pra parar o loop infinito.
          IMPORTANT: use the corrected r.status (after drift fix), not original DB value. */
-      if (r.status !== "connected") {
+      const runtimeAfter = detectRuntimeStatusFallback(id);
+      if (r.status !== "connected" && runtimeAfter !== "connected" && runtimeAfter !== "connecting" && runtimeAfter !== "pairing") {
         const isDead = r.last_connected_at &&
           (now - new Date(r.last_connected_at).getTime()) > DEAD_THRESHOLD_MS;
         if (isDead || !r.last_connected_at) {
@@ -137,8 +164,8 @@ async function tick(): Promise<void> {
       }
     }
 
-    if (driftFixed > 0) {
-      logger.info(`WhatsAppHealth tick: ${driftFixed} drift(s) corrigido(s)`);
+    if (driftFixed > 0 || autoReconnects > 0) {
+      logger.info(`WhatsAppHealth tick: ${driftFixed} drift(s), ${autoReconnects} auto-reconnect(s)`);
     }
 
     /* Auto-pause campanhas amarradas a instances mortas — evita scheduler ficar
@@ -266,11 +293,13 @@ async function autoPauseOrphanedCampaigns(): Promise<void> {
   }
 }
 
-/* Fallback que verifica se o instanceManager.sockets tem entry pra esse id.
-   Usado quando o IM nao expoe getRuntimeStatus. */
+/* Prefere getRuntimeStatus do IM (valida WebSocket aberto). Fallback legado. */
 function detectRuntimeStatusFallback(id: string): "connected" | "disconnected" | "connecting" | "pairing" | "unknown" {
   if (!imRef) return "unknown";
   try {
+    if (typeof (imRef as any).getRuntimeStatus === "function") {
+      return (imRef as any).getRuntimeStatus(id);
+    }
     const sockets = (imRef as any).sockets as Map<string, any> | undefined;
     const instances = (imRef as any).instances as Map<string, any> | undefined;
     const pairingSessions = (imRef as any).pairingSessions as Set<string> | undefined;
@@ -279,13 +308,13 @@ function detectRuntimeStatusFallback(id: string): "connected" | "disconnected" |
     const sock = sockets.get(id);
     const inst = instances.get(id);
     const st = String(inst?.status || "").toLowerCase();
-    // Socket vivo + status de sessão autenticada = conectado
-    if (sock && inst && (st === "connected" || st === "authenticated" || st === "open")) {
+    const ws = sock?.ws;
+    const alive = Boolean(ws?.isOpen === true || ws?.readyState === 1 || sock?.user);
+    if (alive && inst && (st === "connected" || st === "authenticated" || st === "open")) {
       return "connected";
     }
     if (sock && inst && (st === "connecting" || st === "qr_ready")) return "connecting";
-    // Sem socket mas DB/memória ainda diz connected: se o sock sumiu, é disconnected
-    if (!sock && inst && (st === "connected" || st === "authenticated")) return "disconnected";
+    if (!alive && inst && (st === "connected" || st === "authenticated")) return "disconnected";
     return "disconnected";
   } catch {
     return "unknown";

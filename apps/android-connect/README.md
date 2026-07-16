@@ -2,11 +2,21 @@
 
 App **nativo** multi-slot: HOST / SIDECAR / WORK_PROFILE / VIRTUAL + disparo de conexões Baileys.
 
+## IA = Atlas (não Gemini no app)
+
+O app **não** usa `GEMINI_API_KEY`.  
+Qualquer IA passa pelo **backend LeadCapture** com provider **Atlas Cloud** (mesmo do painel Admin → Provedores / Algoritmos).
+
+Config em `gradle.properties`:
+
+```properties
+API_BASE_URL=https://app.leadcapture.online/
+AI_PROVIDER=atlas
+```
+
 ## Abrir
 
-Android Studio → `apps/android-connect`  
-`.env` → `API_BASE_URL=https://app.leadcapture.online/`
-
+Android Studio → `apps/android-connect`
 ## Uso rápido
 
 1. Login com conta do painel  

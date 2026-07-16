@@ -1274,7 +1274,7 @@ export function AgentShellProvider({
     }
     if (raw.startsWith('/') && (
       raw === '/atendente' || raw === '/agente' || raw === '/dashboard' || raw === '/admin'
-      || raw === '/busca' || raw === '/habilidades' || raw === '/criativos'
+      || raw === '/busca' || raw === '/habilidades' || raw === '/criativos' || raw === '/criativos/avancado'
       || raw === '/notificacoes' || raw === '/cupons' || raw === '/frete'
       || raw === '/entregas' || raw === '/mob'
       || raw === '/estoque' || raw === '/avaliacoes' || raw === '/pagamentos'

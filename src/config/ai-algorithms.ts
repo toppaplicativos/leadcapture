@@ -6,7 +6,7 @@
 
 import { DEFAULT_PREFERENCES, type AICategory } from "./ai-models"
 
-export type AlgorithmModality = "text" | "image" | "video" | "vision"
+export type AlgorithmModality = "text" | "image" | "video" | "vision" | "audio"
 
 export type AlgorithmDef = {
   function_key: string
@@ -381,12 +381,43 @@ export const ALGORITHM_REGISTRY: AlgorithmDef[] = [
     model: "v2.1-standard/image-to-video",
     coming_soon: true,
   },
+  {
+    function_key: "video.generate.atlas",
+    modality: "video",
+    label: "Atlas Cloud · vídeo",
+    description: "Geração de vídeo unificada via Atlas Cloud (Kling e outros)",
+    group_name: "Vídeo",
+    provider: "atlas",
+    model: "kling-v2.0",
+  },
+
+  // ── Audio ─────────────────────────────────────────────────────────────
+  {
+    function_key: "audio.tts",
+    modality: "audio",
+    label: "Áudio · text-to-speech",
+    description: "TTS unificado via Atlas Cloud (configurável no Master · Algoritmos)",
+    group_name: "Áudio",
+    provider: "atlas",
+    model: "minimax/speech-02-hd",
+  },
+  {
+    function_key: "audio.stt",
+    modality: "audio",
+    label: "Áudio · speech-to-text",
+    description: "STT / transcrição — adapter em evolução",
+    group_name: "Áudio",
+    provider: "atlas",
+    model: "openai/tts-1",
+    coming_soon: true,
+  },
 ]
 
 export const MODALITY_DEFAULT_KEYS: Record<AICategory, string> = {
   text: "text.router.default",
   image: "image.product.studio",
   video: "video.generate.veo",
+  audio: "audio.tts",
 }
 
 export function getAlgorithmDef(functionKey: string): AlgorithmDef | undefined {

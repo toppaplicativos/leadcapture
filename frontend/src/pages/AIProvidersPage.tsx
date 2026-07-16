@@ -10,6 +10,7 @@ const TIER_BADGE: Record<string, { label: string; cls: string }> = {
 }
 
 const PROVIDER_META: Record<string, { label: string; color: string; Icon: LucideIcon }> = {
+  atlas: { label: 'Atlas Cloud', color: 'from-emerald-600 to-teal-700', Icon: Plug },
   openai: { label: 'OpenAI', color: 'from-gray-800 to-gray-900', Icon: Bot },
   gemini: { label: 'Google Gemini', color: 'from-blue-500 to-cyan-500', Icon: Sparkles },
   grok: { label: 'xAI Grok Imagine', color: 'from-gray-700 to-gray-800', Icon: Zap },
@@ -23,7 +24,7 @@ const TAB_CFG = [
   { key: 'video' as const, label: 'Video', icon: Video, desc: 'Geracao de videos' },
 ]
 
-type Category = 'text' | 'image' | 'video'
+type Category = 'text' | 'image' | 'video' | 'audio'
 
 interface ModelDef { id: string; label: string; tier: string; description?: string }
 type Catalog = Record<Category, Record<string, ModelDef[]>>

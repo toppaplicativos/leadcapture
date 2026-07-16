@@ -456,9 +456,14 @@ async function instagramWebhookDmReply(config: Record<string, any>, ctx: TaskCon
       config.ia_generated === false || config.iaGenerated === false
         ? String(config.fallback_message || config.mensagem || "")
         : undefined,
+    // Critical: enable conversation history + memory + contact registry
+    senderId,
+    username: String(payload.username || payload.from_username || "") || undefined,
   });
 
-  const sent = await sendInstagramDm(ctx.brandId, senderId, composed.reply);
+  const sent = await sendInstagramDm(ctx.brandId, senderId, composed.reply, {
+    bubbles: composed.bubbles,
+  });
   return {
     ok: sent.ok,
     action: "send_dm",
@@ -490,6 +495,7 @@ async function instagramWebhookCommentReply(config: Record<string, any>, ctx: Ta
   }
 
   const replyMode = String(config.reply_mode || "dm");
+  const senderIdEarly = String(payload.sender_id || payload.from_id || "");
   const composed = await composeInstagramReply({
     brandId: ctx.brandId,
     userId: ctx.userId,
@@ -497,6 +503,7 @@ async function instagramWebhookCommentReply(config: Record<string, any>, ctx: Ta
     fallbackMessage: String(config.fallback_message || "Obrigado pelo comentario! Te chamamos no direct."),
     iaGenerated: config.ia_generated !== false,
     username,
+    senderId: senderIdEarly || undefined,
     extraPromptLines: [
       `Modo: ${replyMode === "comment" ? "resposta publica no comentario" : "mensagem privada (DM)"}`,
     ],
@@ -516,11 +523,13 @@ async function instagramWebhookCommentReply(config: Record<string, any>, ctx: Ta
     };
   }
 
-  const senderId = String(payload.sender_id || payload.from_id || "");
+  const senderId = senderIdEarly;
   if (!senderId) {
     return { ok: false, error: "sender_id ausente para DM de comentario" };
   }
-  const sent = await sendInstagramDm(ctx.brandId, senderId, composed.reply);
+  const sent = await sendInstagramDm(ctx.brandId, senderId, composed.reply, {
+    bubbles: composed.bubbles,
+  });
   return {
     ok: sent.ok,
     action: "send_dm_from_comment",
@@ -550,13 +559,16 @@ async function instagramWebhookMentionThanks(config: Record<string, any>, ctx: T
     fallbackMessage: String(config.fallback_message || "Muito obrigado pela mencao! 💚"),
     iaGenerated: config.ia_generated !== false,
     username,
+    senderId,
     maxChars: 500,
     extraPromptLines: [
       `Agradeça pela menção no story do Instagram. Tom: ${tone}. Retorne somente o texto do DM.`,
     ],
   });
 
-  const sent = await sendInstagramDm(ctx.brandId, senderId, composed.reply);
+  const sent = await sendInstagramDm(ctx.brandId, senderId, composed.reply, {
+    bubbles: composed.bubbles,
+  });
   return {
     ok: sent.ok,
     action: "mention_thanks_dm",

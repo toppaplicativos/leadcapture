@@ -1,6 +1,6 @@
 {
-  "name": "LeadCapture Connect Space",
-  "description": "Multiplicador e clonador de aplicativos para gerenciar múltiplas contas (como WhatsApp, Telegram e redes sociais) em espaços virtuais 100% isolados.",
+  "name": "LeadCapture Connect",
+  "description": "App nativo companion do LeadCapture: slots multi-isolamento, disparo de conexões WhatsApp (Baileys) e sync com o painel. IA via Atlas Cloud no backend (mesmo provider do admin).",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": []
 }

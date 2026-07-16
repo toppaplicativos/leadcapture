@@ -188,7 +188,21 @@ async function executeAction(
           username: payload.username || payload.from_username,
           senderId: recipientId,
         });
-        // Expand {brand} in all text/caption fields
+        // Expand brand placeholders + hydrate product links on buttons/CTA
+        const {
+          collectProductIdsFromMensagemSteps,
+          loadProductsForMessaging,
+          buildProductTemplateValues,
+          applyTemplateTags,
+          hydrateInteractiveWithProducts,
+        } = await import("./productMessageTags");
+        const productIds = collectProductIdsFromMensagemSteps(steps);
+        const productCtx = await loadProductsForMessaging(productIds, {
+          brandId: automation.brand_id,
+          userId: automation.user_id,
+        });
+        const productValues = buildProductTemplateValues(productCtx);
+        const productsById = new Map(productCtx.map((p) => [p.id, p]));
         const expand = (s: any) => {
           if (!s || typeof s !== "object") return s;
           const next = { ...s };
@@ -197,6 +211,16 @@ async function executeAction(
               brand_name: brandName || undefined,
               username: payload.username || payload.from_username,
             });
+            next.caption = applyTemplateTags(next.caption, productValues);
+          }
+          if (next.url) next.url = applyTemplateTags(String(next.url), productValues);
+          if (Array.isArray(next.buttons)) {
+            next.buttons = hydrateInteractiveWithProducts(next.buttons, productsById);
+          }
+          if (next.productId && productsById.has(String(next.productId))) {
+            const p = productsById.get(String(next.productId))!;
+            if (!next.url) next.url = p.link;
+            if (next.tipo === "cta" && !next.ctaLabel) next.ctaLabel = "Ver produto";
           }
           return next;
         };

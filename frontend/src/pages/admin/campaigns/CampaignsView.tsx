@@ -44,7 +44,7 @@ type CampaignActionBlock = {
   content: string
   useAi: boolean
   aiInstruction: string
-  config: Record<string, string>
+  config: Record<string, any>
 }
 
 type CampaignIcon = ComponentType<{ size?: number; className?: string }>
@@ -197,6 +197,18 @@ const MESSAGE_TEMPLATE_TAG_GROUPS: Array<{
     tags: [
       { token: '{{marca}}', label: 'Marca', description: 'Nome da marca/brand' },
       { token: '{{brand}}', label: 'Brand', description: 'Alias de {{marca}}' },
+    ],
+  },
+  {
+    key: 'produto',
+    label: 'Produto',
+    hint: 'Produto anexado à campanha ou itens da lista/botões com produto marcado',
+    tags: [
+      { token: '{{produto_nome}}', label: 'Nome', description: 'Nome do produto principal' },
+      { token: '{{produto_preco}}', label: 'Preço', description: 'Preço formatado (com promo se houver)' },
+      { token: '{{produto_link}}', label: 'Link', description: 'URL pública do produto no catálogo' },
+      { token: '{{produto_descricao}}', label: 'Descrição', description: 'Descrição curta do produto' },
+      { token: '{{produtos_lista}}', label: 'Lista de produtos', description: 'Todos os produtos vinculados com preço e link' },
     ],
   },
 ]
@@ -824,33 +836,75 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
     }))
   }
 
+  type OptionItem = { label: string; productId?: string; productName?: string }
+
   /** Opções editáveis no UI (mantém campos vazios enquanto digita). */
   function getEditableOptions(block: CampaignActionBlock): string[] {
+    return getEditableOptionItems(block).map((it) => it.label)
+  }
+
+  function getEditableOptionItems(block: CampaignActionBlock): OptionItem[] {
     const meta = optionBuilderMeta(block.actionType)
+    const rawItems = Array.isArray((block.config as any)?.optionItems)
+      ? ((block.config as any).optionItems as OptionItem[])
+      : null
+    if (rawItems && rawItems.length) {
+      const list: OptionItem[] = rawItems.map((it: any) => ({
+        label: String(it?.label || it?.title || ''),
+        productId: it?.productId ? String(it.productId) : undefined,
+        productName: it?.productName ? String(it.productName) : undefined,
+      }))
+      const targetLen = Math.min(meta.max, Math.max(meta.min, list.length, 1))
+      while (list.length < targetLen) list.push({ label: '' })
+      return list.slice(0, meta.max)
+    }
     const raw = String(block.config?.options ?? '')
     const hasKey = block.config != null && Object.prototype.hasOwnProperty.call(block.config, 'options')
-    const lines = hasKey || raw
-      ? raw.split(/\r?\n/)
-      : []
+    const lines = hasKey || raw ? raw.split(/\r?\n/) : []
     const slotHint = Math.max(0, Number(block.config?._optionSlots || 0) || 0)
     const targetLen = Math.min(meta.max, Math.max(meta.min, lines.length, slotHint, 1))
-    const list = lines.slice(0, meta.max)
-    while (list.length < targetLen) list.push('')
+    const list: OptionItem[] = lines.slice(0, meta.max).map((label) => ({ label }))
+    while (list.length < targetLen) list.push({ label: '' })
     return list
+  }
+
+  function persistOptionItems(block: CampaignActionBlock, items: OptionItem[]) {
+    const labels = items.map((it) => it.label)
+    return {
+      ...block.config,
+      options: labels.join('\n'),
+      optionItems: items,
+      _optionSlots: String(items.length),
+    }
   }
 
   function updateEditableOption(blockId: string, index: number, value: string) {
     setActionBlocks((blocks) => blocks.map((block) => {
       if (block.id !== blockId) return block
-      const list = getEditableOptions(block)
-      list[index] = value
+      const list = getEditableOptionItems(block)
+      list[index] = { ...list[index], label: value }
       return {
         ...block,
-        config: {
-          ...block.config,
-          options: list.join('\n'),
-          _optionSlots: String(list.length),
-        },
+        config: persistOptionItems(block, list),
+      }
+    }))
+  }
+
+  function updateOptionProduct(blockId: string, index: number, product: { id: string; name: string } | null) {
+    setActionBlocks((blocks) => blocks.map((block) => {
+      if (block.id !== blockId) return block
+      const list = getEditableOptionItems(block)
+      list[index] = product
+        ? {
+            ...list[index],
+            productId: product.id,
+            productName: product.name,
+            label: list[index].label?.trim() ? list[index].label : product.name.slice(0, 24),
+          }
+        : { label: list[index].label, productId: undefined, productName: undefined }
+      return {
+        ...block,
+        config: persistOptionItems(block, list),
       }
     }))
   }
@@ -859,16 +913,12 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
     setActionBlocks((blocks) => blocks.map((block) => {
       if (block.id !== blockId) return block
       const meta = optionBuilderMeta(block.actionType)
-      const list = getEditableOptions(block)
+      const list = getEditableOptionItems(block)
       if (list.length >= meta.max) return block
-      list.push('')
+      list.push({ label: '' })
       return {
         ...block,
-        config: {
-          ...block.config,
-          options: list.join('\n'),
-          _optionSlots: String(list.length),
-        },
+        config: persistOptionItems(block, list),
       }
     }))
   }
@@ -877,19 +927,15 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
     setActionBlocks((blocks) => blocks.map((block) => {
       if (block.id !== blockId) return block
       const meta = optionBuilderMeta(block.actionType)
-      const list = getEditableOptions(block)
+      const list = getEditableOptionItems(block)
       if (list.length <= meta.min) {
-        list[index] = ''
+        list[index] = { label: '' }
       } else {
         list.splice(index, 1)
       }
       return {
         ...block,
-        config: {
-          ...block.config,
-          options: list.join('\n'),
-          _optionSlots: String(Math.max(list.length, meta.min)),
-        },
+        config: persistOptionItems(block, list),
       }
     }))
   }
@@ -1949,29 +1995,68 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
                             </div>
 
                             <div className="space-y-2">
-                              {editableOptions.map((opt, optIndex) => (
-                                <div key={`${block.id}-opt-${optIndex}`} className="flex items-center gap-2">
-                                  <span className="w-6 h-9 rounded-lg bg-gray-100 text-gray-500 grid place-items-center text-[10px] font-black tabular-nums shrink-0">
-                                    {optIndex + 1}
-                                  </span>
-                                  <input
-                                    type="text"
-                                    value={opt}
-                                    onChange={(e) => updateEditableOption(block.id, optIndex, e.target.value)}
-                                    placeholder={optionMeta.placeholders[optIndex] || `${optionMeta.itemLabel} ${optIndex + 1}`}
-                                    maxLength={block.actionType === 'buttons' ? 20 : 80}
-                                    className={inputCls + ' !text-xs !py-2 flex-1'}
-                                  />
-                                  <button
-                                    type="button"
-                                    onClick={() => removeEditableOption(block.id, optIndex)}
-                                    disabled={editableOptions.length <= optionMeta.min && !opt.trim()}
-                                    className="min-h-9 min-w-9 rounded-lg text-red-500 hover:bg-red-50 disabled:opacity-25 grid place-items-center shrink-0"
-                                    title={`Remover ${optionMeta.itemLabel.toLowerCase()}`}
-                                    aria-label={`Remover ${optionMeta.itemLabel.toLowerCase()} ${optIndex + 1}`}
-                                  >
-                                    <X size={14} />
-                                  </button>
+                              {getEditableOptionItems(block).map((optItem, optIndex) => (
+                                <div key={`${block.id}-opt-${optIndex}`} className="space-y-1">
+                                  <div className="flex items-center gap-2">
+                                    <span className="w-6 h-9 rounded-lg bg-gray-100 text-gray-500 grid place-items-center text-[10px] font-black tabular-nums shrink-0">
+                                      {optIndex + 1}
+                                    </span>
+                                    <input
+                                      type="text"
+                                      value={optItem.label}
+                                      onChange={(e) => updateEditableOption(block.id, optIndex, e.target.value)}
+                                      placeholder={optionMeta.placeholders[optIndex] || `${optionMeta.itemLabel} ${optIndex + 1}`}
+                                      maxLength={block.actionType === 'buttons' ? 20 : 80}
+                                      className={inputCls + ' !text-xs !py-2 flex-1'}
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => removeEditableOption(block.id, optIndex)}
+                                      disabled={getEditableOptionItems(block).length <= optionMeta.min && !optItem.label.trim()}
+                                      className="min-h-9 min-w-9 rounded-lg text-red-500 hover:bg-red-50 disabled:opacity-25 grid place-items-center shrink-0"
+                                      title={`Remover ${optionMeta.itemLabel.toLowerCase()}`}
+                                      aria-label={`Remover ${optionMeta.itemLabel.toLowerCase()} ${optIndex + 1}`}
+                                    >
+                                      <X size={14} />
+                                    </button>
+                                  </div>
+                                  {(block.actionType === 'buttons' || block.actionType === 'list') && (
+                                    <div className="pl-8 flex items-center gap-2">
+                                      <span className="text-[9px] font-semibold text-gray-500 uppercase tracking-wide">Produto</span>
+                                      <select
+                                        value={optItem.productId || ''}
+                                        onChange={(e) => {
+                                          const pid = e.target.value
+                                          if (!pid) {
+                                            updateOptionProduct(block.id, optIndex, null)
+                                            return
+                                          }
+                                          const p = pickerProducts.find((x) => String(x.id) === pid) ||
+                                            (attachedProduct && String(attachedProduct.id) === pid ? attachedProduct : null)
+                                          updateOptionProduct(block.id, optIndex, p ? { id: String(p.id), name: String(p.name || 'Produto') } : { id: pid, name: optItem.label || 'Produto' })
+                                        }}
+                                        onFocus={() => {
+                                          if (!pickerProducts.length) {
+                                            setPickerLoading(true)
+                                            fetch('/api/products', { headers: getHeaders() })
+                                              .then((r) => r.json())
+                                              .then((d) => setPickerProducts(d.products || []))
+                                              .catch(() => setPickerProducts([]))
+                                              .finally(() => setPickerLoading(false))
+                                          }
+                                        }}
+                                        className="flex-1 h-8 px-2 rounded-lg border border-gray-200 bg-white text-[11px] text-gray-800"
+                                      >
+                                        <option value="">— sem produto —</option>
+                                        {(pickerProducts.length ? pickerProducts : attachedProduct ? [attachedProduct] : []).map((p: any) => (
+                                          <option key={p.id} value={String(p.id)}>{p.name}</option>
+                                        ))}
+                                      </select>
+                                      {optItem.productName && (
+                                        <span className="text-[9px] text-emerald-700 truncate max-w-[100px]">{optItem.productName}</span>
+                                      )}
+                                    </div>
+                                  )}
                                 </div>
                               ))}
                             </div>

@@ -2,7 +2,8 @@ import { integrationService } from "./integrations";
 import { GeminiService } from "./gemini";
 import { OpenAIProvider, type TextGenerationResult } from "./providers/openai-provider";
 import { GrokProvider } from "./providers/grok-provider";
-import { DEFAULT_PREFERENCES, type AICategory } from "../config/ai-models";
+import { AtlasProvider } from "./providers/atlas-provider";
+import { DEFAULT_PREFERENCES, resolveLiveModelId, type AICategory } from "../config/ai-models";
 import { MODALITY_DEFAULT_KEYS } from "../config/ai-algorithms";
 import { algorithmsService } from "./algorithms";
 import { logger } from "../utils/logger";
@@ -16,6 +17,7 @@ interface ProviderPreferences {
   text: { provider: string; model: string };
   image: { provider: string; model: string };
   video: { provider: string; model: string };
+  audio?: { provider: string; model: string };
 }
 
 export type GenerateOptions = {
@@ -184,20 +186,20 @@ export class AIRouter {
     scope: AIRouterScope,
     opts?: { functionKey?: string },
   ): Promise<{
-    provider: "openai" | "gemini" | "grok";
+    provider: "openai" | "gemini" | "grok" | "atlas";
     model: string;
     key: string | null;
   }> {
     const functionKey = opts?.functionKey || MODALITY_DEFAULT_KEYS.image;
     try {
       const r = await this.resolveAlgorithm(functionKey, scope);
-      const provider = (r.provider as "openai" | "gemini" | "grok") || "gemini";
-      return { provider, model: r.model, key: r.key };
+      const provider = (r.provider as "openai" | "gemini" | "grok" | "atlas") || "gemini";
+      return { provider, model: resolveLiveModelId(r.model), key: r.key };
     } catch {
       const prefs = await this.getPreferences(scope);
       const pref = prefs.image || DEFAULT_PREFERENCES.image;
-      const provider = (pref.provider as "openai" | "gemini" | "grok") || "gemini";
-      const model = pref.model || DEFAULT_PREFERENCES.image.model;
+      const provider = (pref.provider as "openai" | "gemini" | "grok" | "atlas") || "gemini";
+      const model = resolveLiveModelId(pref.model || DEFAULT_PREFERENCES.image.model);
       const key = await this.resolveProviderKey(provider, scope);
       return { provider, model, key };
     }
@@ -224,14 +226,14 @@ export class AIRouter {
     if (useGlobal && !options?.model) {
       const algo = await this.resolveAlgorithm(functionKey, scope);
       providerName = algo.provider;
-      model = algo.model;
+      model = resolveLiveModelId(algo.model);
       if (temperature === undefined && algo.temperature != null) temperature = algo.temperature;
     } else {
       const prefs = await this.getPreferences(scope);
       const category = options?.category || "text";
       const pref = prefs[category] || prefs.text;
       providerName = pref.provider;
-      model = options?.model || pref.model;
+      model = resolveLiveModelId(options?.model || pref.model);
     }
 
     const callPrimary = async (): Promise<TextGenerationResult> => {
@@ -246,6 +248,13 @@ export class AIRouter {
         const key = await this.resolveProviderKey("grok", scope);
         if (!key) throw new Error("API Key Grok nao configurada. Configure em Master · Providers ou Provedores IA.");
         const provider = new GrokProvider(key, model);
+        return provider.generateText(prompt, { model, temperature });
+      }
+
+      if (providerName === "atlas") {
+        const key = await this.resolveProviderKey("atlas", scope);
+        if (!key) throw new Error("API Key Atlas Cloud nao configurada. Configure em Master · Providers (atlas).");
+        const provider = new AtlasProvider(key, model);
         return provider.generateText(prompt, { model, temperature });
       }
 
@@ -268,10 +277,16 @@ export class AIRouter {
         /429|quota|rate.?limit|too many requests|resource.?exhausted/i.test(msg);
       if (!isQuota) throw err;
 
-      const chain: Array<"openai" | "grok" | "gemini"> = ["openai", "grok", "gemini"];
+      const chain: Array<"atlas" | "openai" | "grok" | "gemini"> = ["atlas", "openai", "grok", "gemini"];
       for (const alt of chain) {
         if (alt === providerName) continue;
         try {
+          if (alt === "atlas") {
+            const key = await this.resolveProviderKey("atlas", scope);
+            if (!key) continue;
+            logger.warn(`[aiRouter] primary ${providerName} quota — falling back to atlas`);
+            return new AtlasProvider(key).generateText(prompt, { temperature });
+          }
           if (alt === "openai") {
             const key = await this.resolveProviderKey("openai", scope);
             if (!key) continue;
@@ -316,12 +331,12 @@ export class AIRouter {
     if (useGlobal && !options?.model) {
       const algo = await this.resolveAlgorithm(functionKey, scope);
       providerName = algo.provider;
-      model = algo.model;
+      model = resolveLiveModelId(algo.model);
       if (temperature === undefined && algo.temperature != null) temperature = algo.temperature;
     } else {
       const prefs = await this.getPreferences(scope);
       providerName = prefs.text.provider;
-      model = options?.model || prefs.text.model;
+      model = resolveLiveModelId(options?.model || prefs.text.model);
     }
 
     if (providerName === "openai") {
@@ -334,6 +349,12 @@ export class AIRouter {
       const key = await this.resolveProviderKey("grok", scope);
       if (!key) throw new Error("API Key Grok nao configurada.");
       return new GrokProvider(key, model).generateJson<T>(prompt, { model, temperature });
+    }
+
+    if (providerName === "atlas") {
+      const key = await this.resolveProviderKey("atlas", scope);
+      if (!key) throw new Error("API Key Atlas Cloud nao configurada.");
+      return new AtlasProvider(key, model).generateJson<T>(prompt, { model, temperature });
     }
 
     return this.gemini.generateJson<T>(prompt, {

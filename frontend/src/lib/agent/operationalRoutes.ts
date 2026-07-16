@@ -12,6 +12,7 @@ const OPERATIONAL_EXACT = new Set([
   '/skills',
   '/busca',
   '/criativos',
+  '/criativos/avancado',
   '/galeria',
   '/video-studio',
   '/automacoes',

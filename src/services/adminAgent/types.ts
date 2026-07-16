@@ -53,6 +53,7 @@ export interface AgentTurn {
   components?: ComponentSpec[];
   actions?: AgentAction[];
   nextSkill?: string;
+  context?: Record<string, unknown>;
   presentation?: PresentationMode;
   canvasRoute?: string;
 }

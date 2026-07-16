@@ -165,7 +165,9 @@ export function useAdminAgentChat(currentPath: string, brandId = '') {
   }, [])
 
   useEffect(() => {
-    const key = `${brandId}|${currentPath}`
+    // A conversa pertence à marca, não à página. Navegar no canvas não pode
+    // apagar mensagens, contexto pendente ou trocar silenciosamente de sessão.
+    const key = brandId
     if (hydrateKeyRef.current === key) return
     hydrateKeyRef.current = key
     setMessages([])
@@ -469,7 +471,7 @@ export function useAdminAgentChat(currentPath: string, brandId = '') {
             : m,
         ),
       )
-      setPendingContext(turn.nextSkill ? { nextSkill: turn.nextSkill } : undefined)
+      setPendingContext(turn.nextSkill ? { ...(turn.context || {}), nextSkill: turn.nextSkill } : undefined)
       if (!sessionTitle && displayText) {
         const nextTitle = displayText.slice(0, 80)
         setSessionTitle(nextTitle)

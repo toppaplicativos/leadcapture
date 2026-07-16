@@ -2409,6 +2409,40 @@ class InstagramService {
     }
   }
 
+  /**
+   * Load recent DM turns for one IG sender (oldest → newest).
+   * Used by composeInstagramReply for multi-turn memory / objective attendance.
+   */
+  async listMessagesForSender(
+    brandId: string,
+    senderId: string,
+    limit = 25,
+  ): Promise<Array<{ direction: "incoming" | "outgoing"; text: string; created_at: string }>> {
+    await init();
+    const sid = String(senderId || "").trim();
+    const bid = String(brandId || "").trim();
+    if (!sid || !bid) return [];
+    try {
+      const rows = await query<InstagramMessageRow[]>(
+        `SELECT direction, message_text, created_at FROM instagram_messages
+         WHERE brand_id = ? AND sender_id = ?
+         ORDER BY created_at DESC
+         LIMIT ?`,
+        [bid, sid, Math.max(1, Math.min(limit, 50))],
+      );
+      return (rows || [])
+        .map((r) => ({
+          direction: (r.direction === "outgoing" ? "outgoing" : "incoming") as "incoming" | "outgoing",
+          text: String(r.message_text || "").trim(),
+          created_at: String(r.created_at || ""),
+        }))
+        .filter((r) => r.text)
+        .reverse();
+    } catch {
+      return [];
+    }
+  }
+
   async listLocalMessageThreads(brandId: string, limit = 50): Promise<InstagramConversationThread[]> {
     await init();
     const rows = await query<InstagramMessageRow[]>(

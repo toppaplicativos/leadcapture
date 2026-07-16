@@ -73,12 +73,16 @@ export class InstanceManager {
      confirmou recebimento — fim do "painel mente sent". */
   private pendingAcks: Map<string, { resolve: (ok: boolean) => void; timer: NodeJS.Timeout; instanceId: string; sentAt: number }> = new Map();
   private consecutiveAckTimeouts: Map<string, number> = new Map();
-  /* Default 15s pra esperar ack. Configurável via env. 5s era muito curto em redes lentas
-     (SERVER_ACK pode demorar 8-12s em alta carga do WA), causando drops silenciosos. */
-  private static readonly DEFAULT_ACK_TIMEOUT_MS = Math.max(1000, Math.min(60000, Number(process.env.WHATSAPP_ACK_TIMEOUT_MS) || 15000));
-  private static readonly MAX_CONSECUTIVE_ACK_TIMEOUTS = 4;
+  /** Último zombie recovery por instância — evita flapping que gera 401. */
+  private zombieRecoveryAt: Map<string, number> = new Map();
+  /* Default 20s pra esperar ack. Configurável via env. Valores baixos geram
+     ZOMBIE falso e reconnect agressivo (principal causa de logout 401 em carga). */
+  private static readonly DEFAULT_ACK_TIMEOUT_MS = Math.max(1000, Math.min(60000, Number(process.env.WHATSAPP_ACK_TIMEOUT_MS) || 20000));
+  private static readonly MAX_CONSECUTIVE_ACK_TIMEOUTS = 8;
+  private static readonly ZOMBIE_COOLDOWN_MS = 10 * 60 * 1000;
+  private static readonly ZOMBIE_MIN_UPTIME_MS = 90_000;
   private intentionalDisconnects: Set<string> = new Set();
-  /* Sessoes aguardando usuario digitar o codigo no celular — bloqueia reconnect/QR paralelo. */
+  /* Sessoes aguardando usuario digitar o codigo no celular — bloqueia reconnect/QR dessa sessão. */
   private pairingSessions: Set<string> = new Set();
   private pairingSessionTimers: Map<string, NodeJS.Timeout> = new Map();
   private pairingLocks: Map<string, Promise<PairingCodeResult>> = new Map();
@@ -89,13 +93,13 @@ export class InstanceManager {
   private pairingErrors: Map<string, string> = new Map();
   private static readonly PAIRING_SESSION_TTL_MS = 10 * 60 * 1000;
   private mediaLogger = pino({ level: "silent" }) as any;
-  private static MAX_RETRIES = 5;
+  private static MAX_RETRIES = 8;
   private static BASE_DELAY = 5000; // 5s base, exponential backoff
-  private static MAX_DELAY = 120000;
-  private static COOLDOWN_DELAY = 180000;
-  private static MAX_RETRIES_BEFORE_COOLDOWN = 8;
+  private static MAX_DELAY = 180000;
+  private static COOLDOWN_DELAY = 240000;
+  private static MAX_RETRIES_BEFORE_COOLDOWN = 10;
   private static STABLE_CONNECTION_MS = 30000;
-  private static MAX_428_CLOSES = 3;
+  private static MAX_428_CLOSES = 5;
 
   private async ensureInstanceLoaded(id: string): Promise<WhatsAppInstance | null> {
     const existing = this.instances.get(id);
@@ -270,14 +274,117 @@ export class InstanceManager {
 
   // Safe connect wrapper with error handling
   private async safeConnect(id: string): Promise<void> {
-    if (this.pairingSessions.size > 0) {
-      logger.info(`Skipping safeConnect for ${id} — pairing em andamento no servidor.`);
+    if (this.pairingSessions.has(id)) {
+      logger.info(`Skipping safeConnect for ${id} — pairing desta sessão em andamento.`);
       return;
     }
     try {
       await this.connectInstance(id);
     } catch (err: any) {
       logger.error(`Failed to restore instance ${id}: ${err.message}`);
+    }
+  }
+
+  /** Socket WebSocket ainda aberto (não só referência residual no Map). */
+  private isSocketAlive(sock: WASocket | undefined | null): boolean {
+    if (!sock) return false;
+    try {
+      const ws = (sock as any).ws;
+      if (ws?.isOpen === true) return true;
+      if (ws?.readyState === 1) return true;
+      if (sock.user) return true;
+      return false;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Health / restore: reconecta se tiver credenciais multi-device e não estiver online.
+   * Público para o monitor whatsappHealth.
+   */
+  async ensureStableConnection(id: string): Promise<"connected" | "connecting" | "skipped" | "no_creds"> {
+    if (this.pairingSessions.has(id)) return "skipped";
+    const instance = (await this.ensureInstanceLoaded(id)) || this.instances.get(id);
+    if (!instance) return "skipped";
+
+    const live = this.sockets.get(id);
+    /* Socket vivo com user = online de verdade (mesmo se status em memória driftou). */
+    if (this.isSocketAlive(live) && (live as any)?.user) {
+      if (instance.status !== "connected") {
+        await this.markInstanceConnected(id, instance, live);
+      }
+      return "connected";
+    }
+    if (instance.status === "connected" && this.isSocketAlive(live)) {
+      return "connected";
+    }
+
+    const authPath = path.join(config.authDir, id);
+    const credsPath = path.join(authPath, "creds.json");
+    if (!fs.existsSync(credsPath)) return "no_creds";
+    try {
+      const creds = JSON.parse(fs.readFileSync(credsPath, "utf8"));
+      if (!this.isPairingAuthReady(creds) && !creds.registered) return "no_creds";
+    } catch {
+      return "no_creds";
+    }
+
+    logger.info(`ensureStableConnection: reconectando ${instance.name} (${id})`);
+    await this.safeConnect(id);
+    const after = this.instances.get(id);
+    if (after?.status === "connected" && this.isSocketAlive(this.sockets.get(id))) return "connected";
+    return "connecting";
+  }
+
+  getRuntimeStatus(id: string): "connected" | "disconnected" | "connecting" | "pairing" {
+    if (this.pairingSessions.has(id)) return "pairing";
+    const inst = this.instances.get(id);
+    const sock = this.sockets.get(id);
+    const st = String(inst?.status || "").toLowerCase();
+    /* Socket autenticado (user presente) = connected, mesmo se status em memória driftou. */
+    if (this.isSocketAlive(sock) && (sock as any)?.user) {
+      return "connected";
+    }
+    if (this.isSocketAlive(sock) && (st === "connected" || st === "authenticated" || st === "open")) {
+      return "connected";
+    }
+    if (sock && (st === "connecting" || st === "qr_ready")) return "connecting";
+    return "disconnected";
+  }
+
+  /** Marca connected em memória + DB de forma idempotente (evita drift reverso). */
+  private async markInstanceConnected(
+    id: string,
+    instance: WhatsAppInstance,
+    sock?: WASocket | null,
+  ): Promise<void> {
+    const user = sock?.user;
+    instance.status = "connected";
+    if (user) {
+      instance.phone = user.id?.split(":")[0] || user.id?.split("@")[0] || instance.phone;
+    }
+    instance.qrCode = undefined;
+    this.instances.set(id, instance);
+    this.connectedSince.set(id, Date.now());
+    this.retryCount.delete(id);
+    this.preconditionCloseCount.delete(id);
+    this.consecutiveAckTimeouts.delete(id);
+    await this.syncInstanceToDB(instance);
+    /* Write-through extra no DB caso sync silencioso falhe parcialmente. */
+    try {
+      const pool = getPool();
+      await pool.execute(
+        `UPDATE whatsapp_instances
+         SET status = 'connected',
+             phone = COALESCE(?, phone),
+             last_connected_at = NOW(),
+             updated_at = NOW()
+         WHERE id = ?`,
+        [instance.phone || null, id],
+      );
+    } catch (e: any) {
+      logger.warn(`markInstanceConnected DB write-through failed for ${id}: ${e?.message || e}`);
     }
   }
 
@@ -457,6 +564,31 @@ export class InstanceManager {
       clearTimeout(timer);
       this.pairingSessionTimers.delete(id);
     }
+    /* Pairing pausa reconnects globais — retoma offline com creds. */
+    if (this.pairingSessions.size === 0) {
+      setTimeout(() => this.resumeOfflineSessionsAfterPairing(), 2500);
+    }
+  }
+
+  /** Após pairing, reativa sessões que ficaram offline sem timer de reconnect. */
+  private resumeOfflineSessionsAfterPairing(): void {
+    if (this.pairingSessions.size > 0) return;
+    let n = 0;
+    for (const [instId, inst] of this.instances) {
+      if (this.pairingSessions.has(instId)) continue;
+      if (inst.status === "connected" && this.isSocketAlive(this.sockets.get(instId))) continue;
+      if (this.reconnectTimers.has(instId) || this.connectPromises.has(instId)) continue;
+      const credsPath = path.join(config.authDir, instId, "creds.json");
+      if (!fs.existsSync(credsPath)) continue;
+      n += 1;
+      const delay = 1500 + n * 2000;
+      setTimeout(() => {
+        void this.ensureStableConnection(instId).catch(() => {});
+      }, delay);
+    }
+    if (n > 0) {
+      logger.info(`Retomando ${n} sessão(ões) offline após fim do pairing.`);
+    }
   }
 
   private armPairingSessionGuard(id: string): void {
@@ -556,13 +688,13 @@ export class InstanceManager {
     }
 
     const existingSock = this.sockets.get(id);
-    if (instance.status === "connected" && existingSock) {
+    if (instance.status === "connected" && this.isSocketAlive(existingSock)) {
       logger.info(`Instance ${instance.name} is already connected. Skipping reconnect.`);
       return null;
     }
 
     // Avoid replacing a live connect flow unless we lost the socket reference
-    if (instance.status === "connecting" && existingSock) {
+    if (instance.status === "connecting" && this.isSocketAlive(existingSock)) {
       logger.info(`Instance ${instance.name} is already connecting. Reusing current flow.`);
       return instance.qrCode || null;
     }
@@ -585,21 +717,9 @@ export class InstanceManager {
     return new Promise((resolve, reject) => {
       let resolved = false;
 
-      const sock = makeWASocket({
-        version,
-        auth: state,
-        printQRInTerminal: false,
-        logger: pino({ level: "silent" }) as any,
-        browser: ["Lead System", "Chrome", "1.0.0"],
-        connectTimeoutMs: 60000,
-        defaultQueryTimeoutMs: 0,
-        keepAliveIntervalMs: 30000,
-        emitOwnEvents: true,
-        retryRequestDelayMs: 500,
-        qrTimeout: 40000,
-        markOnlineOnConnect: false,
-      });
-
+      /* Mesmo fingerprint do pairing (Ubuntu/Chrome). "Lead System"/Desktop
+         gerava 428 e sessões instáveis após pair. */
+      const sock = this.makeStableSocket(version, state);
       this.sockets.set(id, sock);
       sock.ev.on("creds.update", saveCreds);
 
@@ -668,10 +788,8 @@ export class InstanceManager {
               if (!resolved) { resolved = true; resolve(null); }
               return;
             }
-            /* WhatsApp invalidou a sessao (401). Auth files nao valem mais.
-               TIER 2: limpar auth + auto-restart pra gerar NOVO QR + notificar admin.
-               Antes: so limpava e desistia. Agora QR aparece pronto no painel. */
-            logger.warn(`Instance ${instance.name} logged out (401). Cleaning auth + auto-restart pra novo QR.`);
+            /* WhatsApp invalidou a sessao (401). Auth files nao valem mais. */
+            logger.warn(`Instance ${instance.name} logged out (401). Cleaning auth + auto-restart pra novo pareamento.`);
             this.retryCount.delete(id);
             this.preconditionCloseCount.delete(id);
             const authPath = path.join(config.authDir, id);
@@ -681,19 +799,12 @@ export class InstanceManager {
               }
             }
 
-            /* Dispara notificacao pro admin (sininho + push se inscrito) */
             this.notifySessionInvalidated(id, instance).catch((e: any) => {
               logger.warn(`Failed to send session-invalidated notification: ${e.message}`);
             });
 
-            /* Auto-restart pra gerar novo QR — sem await pra nao bloquear o handler.
-               Pequeno delay (3s) pra Baileys terminar de limpar listeners. */
-            setTimeout(() => {
-              this.connectInstance(id).catch((err: any) => {
-                logger.error(`Auto-reconnect after loggedOut failed for ${instance.name}: ${err.message}`);
-              });
-            }, 3000);
-
+            /* NÃO auto-start QR/connect após 401 — evita loop 428 e spam.
+               Usuário reconecta pelo painel (código). */
             if (!resolved) { resolved = true; resolve(null); }
             return;
           }
@@ -721,6 +832,23 @@ export class InstanceManager {
             return;
           }
 
+          /* 515 restartRequired — reconectar rápido sem penalidade alta. */
+          if (statusCode === DisconnectReason.restartRequired) {
+            logger.info(`Instance ${instance.name} restartRequired (515) — reconnect imediato.`);
+            const existingTimer515 = this.reconnectTimers.get(id);
+            if (existingTimer515) clearTimeout(existingTimer515);
+            const t515 = setTimeout(async () => {
+              this.reconnectTimers.delete(id);
+              if (this.pairingSessions.has(id)) return;
+              try { await this.connectInstance(id); } catch (err: any) {
+                logger.error(`Reconnect 515 failed for ${instance.name}: ${err.message}`);
+              }
+            }, 1500);
+            this.reconnectTimers.set(id, t515);
+            if (!resolved) { resolved = true; resolve(null); }
+            return;
+          }
+
           if (statusCode === 428) {
             const closeCount = (this.preconditionCloseCount.get(id) || 0) + 1;
             this.preconditionCloseCount.set(id, closeCount);
@@ -741,6 +869,13 @@ export class InstanceManager {
             InstanceManager.BASE_DELAY * Math.pow(2, Math.min(retries, 6)),
             InstanceManager.MAX_DELAY
           );
+          /* 503 = WA temporariamente indisponível — backoff maior. */
+          if (statusCode === 503 || statusCode === DisconnectReason.timedOut) {
+            delay = Math.max(delay, 20_000);
+          }
+          if (statusCode === 428) {
+            delay = Math.max(delay, 15_000);
+          }
           const nextRetry = retries + 1;
           this.retryCount.set(id, nextRetry);
 
@@ -750,7 +885,7 @@ export class InstanceManager {
               `Instance ${instance.name} still offline after ${nextRetry} attempts. Entering cooldown (${delay / 1000}s) and continuing retries.`
             );
           } else {
-            logger.info(`Scheduling reconnect for ${instance.name} in ${delay / 1000}s (attempt ${nextRetry})`);
+            logger.info(`Scheduling reconnect for ${instance.name} in ${delay / 1000}s (attempt ${nextRetry}, status=${statusCode})`);
           }
 
           // Clear any existing timer
@@ -759,8 +894,8 @@ export class InstanceManager {
 
           const timer = setTimeout(async () => {
             this.reconnectTimers.delete(id);
-            if (this.pairingSessions.size > 0) {
-              logger.info(`Reconnect adiado para ${instance.name} — pairing em andamento.`);
+            if (this.pairingSessions.has(id)) {
+              logger.info(`Reconnect adiado para ${instance.name} — pairing desta sessão.`);
               return;
             }
             try {
@@ -775,15 +910,7 @@ export class InstanceManager {
         }
 
         if (connection === "open") {
-          const user = sock.user;
-          instance.status = "connected";
-          instance.phone = user?.id?.split(":")[0] || user?.id?.split("@")[0];
-          instance.qrCode = undefined;
-          this.instances.set(id, instance);
-          await this.syncInstanceToDB(instance);
-
-          this.connectedSince.set(id, Date.now());
-
+          await this.markInstanceConnected(id, instance, sock);
           logger.info(`Instance connected: ${instance.name} (${instance.phone})`);
           if (!resolved) { resolved = true; resolve(null); }
         }
@@ -859,6 +986,29 @@ export class InstanceManager {
     return task;
   }
 
+  /**
+   * Socket de sessão já autenticada (reconnect / restore).
+   * NÃO usar no fluxo de geração de código — ver makePairingSocket (intocado).
+   */
+  private makeStableSocket(version: any, state: any) {
+    return makeWASocket({
+      version,
+      auth: state,
+      printQRInTerminal: false,
+      logger: pino({ level: "silent" }) as any,
+      browser: Browsers.ubuntu("Chrome"),
+      connectTimeoutMs: 60000,
+      defaultQueryTimeoutMs: 0,
+      keepAliveIntervalMs: 25000,
+      emitOwnEvents: true,
+      retryRequestDelayMs: 500,
+      markOnlineOnConnect: false,
+      qrTimeout: 60000,
+      syncFullHistory: false,
+    });
+  }
+
+  /** Socket exclusivo do pareamento por código — NÃO alterar sem teste manual. */
   private makePairingSocket(version: any, state: any) {
     /* Ubuntu/Chrome = default Baileys e plataforma WEB_BROWSER.
        macOS("Desktop") gera companion_platform Desktop/DARWIN e o WhatsApp
@@ -1034,6 +1184,7 @@ export class InstanceManager {
         return;
       }
 
+      /* Fluxo de pairing validado em produção — NÃO trocar por connectInstance/handoff. */
       logger.info(`Pairing creds complete for ${instance.name} — reconnecting with saved multi-device auth.`);
       await this.cleanupSocket(id);
       await new Promise((r) => setTimeout(r, 1200));
@@ -1059,26 +1210,32 @@ export class InstanceManager {
           settled = true;
           this.clearPairingSessionGuard(id);
           this.pairingErrors.delete(id);
-          const user = sock.user;
-          instance.status = "connected";
-          instance.phone = user?.id?.split(":")[0] || user?.id?.split("@")[0];
-          instance.qrCode = undefined;
-          this.instances.set(id, instance);
-          await this.syncInstanceToDB(instance);
-          this.connectedSince.set(id, Date.now());
-          this.retryCount.delete(id);
-          this.preconditionCloseCount.delete(id);
+          await this.markInstanceConnected(id, instance, sock);
           logger.info(`Instance connected after pairing reconnect: ${instance.name} (${instance.phone})`);
-          /* Anexa handlers de mensagem do fluxo normal de pairing. */
           this.bindPostPairingRuntimeHandlers(id, instance, sock);
         }
         if (connection === "close") {
           const statusCode = (lastDisconnect?.error as Boom | undefined)?.output?.statusCode;
           if (instance.status === "connected") {
+            /* Sessão já vinculada: reconecta pelo caminho estável (não mexer no pair). */
             logger.warn(`Post-pairing session closed for ${instance.name}: status=${statusCode}`);
             instance.status = "disconnected";
             this.instances.set(id, instance);
             await this.syncInstanceToDB(instance);
+            if (
+              statusCode !== DisconnectReason.loggedOut
+              && statusCode !== 401
+              && statusCode !== DisconnectReason.connectionReplaced
+            ) {
+              const delay = statusCode === 503 ? 20_000 : 5_000;
+              const existing = this.reconnectTimers.get(id);
+              if (existing) clearTimeout(existing);
+              const t = setTimeout(() => {
+                this.reconnectTimers.delete(id);
+                void this.ensureStableConnection(id).catch(() => {});
+              }, delay);
+              this.reconnectTimers.set(id, t);
+            }
             return;
           }
           if (statusCode === DisconnectReason.restartRequired && !settled) {
@@ -1112,7 +1269,6 @@ export class InstanceManager {
         }
       });
 
-      /* Timeout de segurança se nunca abrir. */
       setTimeout(() => {
         if (settled || instance.status === "connected") return;
         logger.warn(`Post-pairing reconnect timeout for ${instance.name}`);
@@ -1132,7 +1288,7 @@ export class InstanceManager {
     }
   }
 
-  /** Handlers mínimos de runtime após pairing (mensagens + acks). */
+  /** Handlers de mensagem/ack após vínculo por código (não altera o handshake de pair). */
   private bindPostPairingRuntimeHandlers(id: string, instance: WhatsAppInstance, sock: WASocket): void {
     sock.ev.on("messages.upsert", async ({ messages, type }) => {
       if (type !== "notify") return;
@@ -1392,15 +1548,7 @@ export class InstanceManager {
         }
         this.clearPairingSessionGuard(id);
         this.pairingErrors.delete(id);
-        const user = sock.user;
-        instance.status = "connected";
-        instance.phone = user?.id?.split(":")[0] || user?.id?.split("@")[0];
-        instance.qrCode = undefined;
-        this.instances.set(id, instance);
-        await this.syncInstanceToDB(instance);
-        this.connectedSince.set(id, Date.now());
-        this.retryCount.delete(id);
-        this.preconditionCloseCount.delete(id);
+        await this.markInstanceConnected(id, instance, sock);
         logger.info(`Instance connected via pairing code: ${instance.name} (${instance.phone})`);
       }
 
@@ -1540,15 +1688,47 @@ export class InstanceManager {
   private async triggerZombieRecovery(instanceId: string): Promise<void> {
     const instance = this.instances.get(instanceId);
     if (!instance) return;
+    if (this.pairingSessions.has(instanceId)) return;
+
+    const now = Date.now();
+    const last = this.zombieRecoveryAt.get(instanceId) || 0;
+    if (now - last < InstanceManager.ZOMBIE_COOLDOWN_MS) {
+      logger.warn(
+        `ZOMBIE skipped for ${instance.name} — cooldown ${Math.ceil((InstanceManager.ZOMBIE_COOLDOWN_MS - (now - last)) / 1000)}s restantes.`,
+      );
+      this.consecutiveAckTimeouts.delete(instanceId);
+      return;
+    }
+
+    const upSince = this.connectedSince.get(instanceId);
+    if (upSince && now - upSince < InstanceManager.ZOMBIE_MIN_UPTIME_MS) {
+      logger.warn(`ZOMBIE skipped for ${instance.name} — sessão subiu há pouco (<${InstanceManager.ZOMBIE_MIN_UPTIME_MS / 1000}s).`);
+      this.consecutiveAckTimeouts.delete(instanceId);
+      return;
+    }
+
     const sock = this.sockets.get(instanceId);
     if (!sock) return;
+
+    /* Se o socket ainda responde (user presente / ws open), NÃO derruba a sessão.
+       ACK timeout em massa costuma ser carga/WA lento, não socket morto. */
+    if (this.isSocketAlive(sock) && instance.status === "connected") {
+      logger.warn(
+        `ZOMBIE soft-reset counters for ${instance.name} — socket ainda vivo; evita reconnect agressivo (401).`,
+      );
+      this.consecutiveAckTimeouts.delete(instanceId);
+      this.zombieRecoveryAt.set(instanceId, now);
+      return;
+    }
+
+    this.zombieRecoveryAt.set(instanceId, now);
     logger.warn(`ZOMBIE RECOVERY: Forcing reconnect for ${instance.name} (${instanceId})`);
     this.rejectPendingAcksForInstance(instanceId, "zombie_recovery");
     await this.cleanupSocket(instanceId);
     instance.status = "disconnected";
     this.instances.set(instanceId, instance);
     await this.syncInstanceToDB(instance);
-    setTimeout(() => this.safeConnect(instanceId), 3000);
+    setTimeout(() => this.safeConnect(instanceId), 5000);
   }
 
   /* Notifica admin (dono da instance) que a sessao WhatsApp foi invalidada e

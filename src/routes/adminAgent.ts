@@ -301,7 +301,7 @@ router.post("/chat", async (req: BrandRequest, res: Response) => {
           : ""
     );
 
-    const pendingContext = turn.nextSkill ? { nextSkill: turn.nextSkill } : undefined;
+    const pendingContext = turn.nextSkill ? { ...(turn.context || {}), nextSkill: turn.nextSkill } : undefined;
     sessionId = await adminAgentSessionStore.appendExchange(sessionId, userId, req.brandId, {
       userContent: userContent || undefined,
       turn,

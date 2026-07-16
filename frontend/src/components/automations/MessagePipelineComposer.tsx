@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Plus, Trash2, GripVertical, Type, Image as ImageIcon, Film, Mic, FileText,
   Link2, MousePointerClick, LayoutList, ChevronDown, ChevronUp, Sparkles, Images,
-  BarChart2,
+  BarChart2, Package, Tags, Building2,
 } from 'lucide-react'
 import type { MensagemStep, MensagemStepTipo } from '@/lib/automations/schema'
 import {
@@ -10,6 +10,24 @@ import {
 } from '@/lib/automations/schema'
 import { MediaPickerModal } from '@/components/gallery/MediaPickerModal'
 import type { GalleryItem } from '@/lib/gallery/types'
+
+type CatalogProduct = { id: string; name: string; price?: number; promoPrice?: number; description?: string }
+
+const TEMPLATE_TAG_GROUPS = [
+  { label: 'Lead', tags: [['{{nome}}', 'Nome'], ['{{telefone}}', 'Telefone'], ['{{cidade}}', 'Cidade'], ['{{estado}}', 'Estado'], ['{{segmento}}', 'Nicho'], ['{{empresa}}', 'Empresa']] },
+  { label: 'Afiliado', tags: [['{{afiliado_nome}}', 'Nome'], ['{{afiliado_cidade}}', 'Cidade'], ['{{afiliado_regiao}}', 'Região'], ['{{afiliado_nicho}}', 'Nicho'], ['{{afiliado_telefone}}', 'Telefone'], ['{{afiliado_cupom}}', 'Cupom']] },
+  { label: 'Marca', tags: [['{{marca}}', 'Nome da marca'], ['{{brand}}', 'Brand']] },
+  { label: 'Produto', tags: [['{{produto_nome}}', 'Nome'], ['{{produto_preco}}', 'Preço'], ['{{produto_link}}', 'Link'], ['{{produto_descricao}}', 'Descrição'], ['{{produtos_lista}}', 'Lista']] },
+] as const
+
+function getAuthHeaders(): Record<string, string> {
+  const h: Record<string, string> = { Accept: 'application/json' }
+  const t = localStorage.getItem('lead-system-token')
+  if (t) h.Authorization = `Bearer ${t}`
+  const b = localStorage.getItem('lead-system:active-brand-id')
+  if (b) h['x-brand-id'] = b
+  return h
+}
 
 const STEP_ICONS: Record<MensagemStepTipo, typeof Type> = {
   texto: Type,
@@ -59,8 +77,30 @@ export function MessagePipelineComposer({ steps, onChange, allowedTipos, variabl
   const [pickerOpen, setPickerOpen] = useState(true)
   const [galleryFor, setGalleryFor] = useState<string | null>(null)
   const [focusId, setFocusId] = useState<string | null>(null)
+  const [products, setProducts] = useState<CatalogProduct[]>([])
   const stepRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const bottomRef = useRef<HTMLDivElement | null>(null)
+
+  const loadProducts = useCallback(async () => {
+    try {
+      const r = await fetch('/api/products', { headers: getAuthHeaders() })
+      const d = await r.json()
+      const list = (d.products || []).map((p: any) => ({
+        id: String(p.id),
+        name: String(p.name || 'Produto'),
+        price: p.price != null ? Number(p.price) : undefined,
+        promoPrice: p.promoPrice != null ? Number(p.promoPrice) : undefined,
+        description: p.description || '',
+      }))
+      setProducts(list)
+    } catch {
+      setProducts([])
+    }
+  }, [])
+
+  useEffect(() => {
+    loadProducts()
+  }, [loadProducts])
 
   useEffect(() => {
     if (!focusId) return
@@ -74,6 +114,11 @@ export function MessagePipelineComposer({ steps, onChange, allowedTipos, variabl
 
   const updateStep = (id: string, patch: Partial<MensagemStep>) => {
     onChange(steps.map((s) => (s.id === id ? { ...s, ...patch } : s)))
+  }
+
+  const insertTag = (step: MensagemStep, token: string) => {
+    const current = step.caption || ''
+    updateStep(step.id, { caption: `${current}${current && !current.endsWith(' ') ? ' ' : ''}${token}` })
   }
 
   const removeStep = (id: string) => onChange(steps.filter((s) => s.id !== id))
@@ -116,9 +161,10 @@ export function MessagePipelineComposer({ steps, onChange, allowedTipos, variabl
 
   return (
     <div className={`space-y-3 ${compact ? '' : 'p-3 bg-gray-50 rounded-xl border border-gray-100'}`}>
-      {variableHints && (
-        <p className="text-[10px] text-gray-400">Variáveis: {variableHints}</p>
-      )}
+      <div className="rounded-xl border border-gray-200 bg-white px-3 py-2.5 flex items-start gap-2">
+        <Building2 size={14} className="mt-0.5 text-brand shrink-0" />
+        <div><p className="text-[11px] font-semibold text-gray-800">Personalização vinculada à marca ativa</p><p className="text-[10px] text-gray-500">As tags são resolvidas no envio com dados da marca, contato, afiliado e produto. {variableHints || ''}</p></div>
+      </div>
 
       {steps.length === 0 && (
         <p className="text-xs text-gray-400 text-center py-4">
@@ -176,7 +222,7 @@ export function MessagePipelineComposer({ steps, onChange, allowedTipos, variabl
             {isOpen && (
               <div className="px-3 pb-3 space-y-2.5 border-t border-gray-50 pt-2.5">
                 {(step.tipo === 'texto' || step.tipo === 'botoes' || step.tipo === 'lista' || step.tipo === 'enquete') && (
-                  <textarea
+                  <><textarea
                     value={step.caption || ''}
                     onChange={(e) => updateStep(step.id, { caption: e.target.value })}
                     rows={step.tipo === 'enquete' ? 2 : 3}
@@ -187,6 +233,19 @@ export function MessagePipelineComposer({ steps, onChange, allowedTipos, variabl
                     }
                     className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-gray-900/10"
                   />
+                  <details className="group rounded-xl border border-gray-200 bg-gray-50/70">
+                    <summary className="min-h-11 px-3 flex items-center gap-2 cursor-pointer list-none text-[11px] font-semibold text-gray-700">
+                      <Tags size={13} className="text-brand" /> Inserir tag dinâmica
+                      <span className="ml-auto hidden sm:inline text-[10px] text-gray-400 font-normal">Lead · afiliado · marca · produto</span>
+                      <ChevronDown size={13} className="transition group-open:rotate-180" />
+                    </summary>
+                    <div className="border-t border-gray-200 p-3 space-y-3">
+                      {TEMPLATE_TAG_GROUPS.map((group) => <div key={group.label}>
+                        <p className="mb-1.5 text-[10px] font-bold text-gray-500 uppercase tracking-wide">{group.label}</p>
+                        <div className="flex flex-wrap gap-1.5">{group.tags.map(([token, label]) => <button key={token} type="button" onClick={() => insertTag(step, token)} title={token} className="min-h-8 px-2.5 rounded-lg border border-gray-200 bg-white text-[10px] font-semibold text-gray-700 hover:border-brand hover:text-brand">{label} <code className="ml-1 text-[9px] text-gray-400">{token}</code></button>)}</div>
+                      </div>)}
+                    </div>
+                  </details></>
                 )}
 
                 {(step.tipo === 'imagem' || step.tipo === 'video' || step.tipo === 'audio' || step.tipo === 'documento') && (
@@ -258,8 +317,8 @@ export function MessagePipelineComposer({ steps, onChange, allowedTipos, variabl
                 {step.tipo === 'botoes' && (
                   <div className="space-y-2">
                     <p className="text-[10px] text-violet-700 font-medium leading-snug">
-                      Instagram: Quick Replies (até 13, título ≤20) ou Button Template se houver URL.
-                      WhatsApp: respostas rápidas.
+                      Instagram: Quick Replies ou Button Template (com URL). WhatsApp: botões nativos.
+                      Vincule um produto para preencher rótulo + link automaticamente.
                     </p>
                     {(step.buttons || []).map((btn, bi) => (
                       <div key={btn.id} className="space-y-1 p-2 rounded-lg border border-gray-100 bg-gray-50/80">
@@ -284,6 +343,32 @@ export function MessagePipelineComposer({ steps, onChange, allowedTipos, variabl
                             <Trash2 size={12} />
                           </button>
                         </div>
+                        <label className="flex items-center gap-1.5 text-[10px] text-gray-600">
+                          <Package size={11} className="text-violet-500" />
+                          Produto
+                          <select
+                            value={btn.productId || ''}
+                            onChange={(e) => {
+                              const pid = e.target.value
+                              const prod = products.find((p) => p.id === pid)
+                              const buttons = [...(step.buttons || [])]
+                              buttons[bi] = {
+                                ...btn,
+                                productId: pid || undefined,
+                                productName: prod?.name,
+                                label: prod ? prod.name.slice(0, 20) : btn.label,
+                                payload: prod ? `PRODUCT_${prod.id}` : btn.payload,
+                              }
+                              updateStep(step.id, { buttons })
+                            }}
+                            className="flex-1 border border-gray-200 rounded-lg px-2 py-1 text-[11px] bg-white"
+                          >
+                            <option value="">— sem produto —</option>
+                            {products.map((p) => (
+                              <option key={p.id} value={p.id}>{p.name}</option>
+                            ))}
+                          </select>
+                        </label>
                         <input
                           type="text"
                           value={btn.payload || ''}
@@ -292,7 +377,7 @@ export function MessagePipelineComposer({ steps, onChange, allowedTipos, variabl
                             buttons[bi] = { ...btn, payload: e.target.value }
                             updateStep(step.id, { buttons })
                           }}
-                          placeholder="Payload (ex: NAV_CATALOGO) — volta no webhook"
+                          placeholder="Payload (ex: PRODUCT_id ou NAV_CATALOGO)"
                           className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-[11px] bg-white font-mono"
                         />
                         <input
@@ -303,7 +388,7 @@ export function MessagePipelineComposer({ steps, onChange, allowedTipos, variabl
                             buttons[bi] = { ...btn, url: e.target.value }
                             updateStep(step.id, { buttons })
                           }}
-                          placeholder="URL opcional (vira botão web_url no template IG)"
+                          placeholder="URL (link do produto ou página) — vira web_url no IG"
                           className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-[11px] bg-white"
                         />
                       </div>
@@ -328,7 +413,9 @@ export function MessagePipelineComposer({ steps, onChange, allowedTipos, variabl
 
                 {step.tipo === 'lista' && (
                   <div className="space-y-2">
-                    <p className="text-[10px] text-emerald-700 font-medium">Lista interativa (WhatsApp)</p>
+                    <p className="text-[10px] text-emerald-700 font-medium">
+                      Lista interativa (WhatsApp) — marque produtos do catálogo para listar com preço e link.
+                    </p>
                     <input
                       type="text"
                       value={step.listButtonText || ''}
@@ -336,21 +423,100 @@ export function MessagePipelineComposer({ steps, onChange, allowedTipos, variabl
                       placeholder="Texto do botão da lista"
                       className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-xs"
                     />
+                    {products.length > 0 && (
+                      <div className="rounded-lg border border-emerald-100 bg-emerald-50/50 p-2 space-y-1.5 max-h-40 overflow-y-auto">
+                        <p className="text-[10px] font-semibold text-emerald-800 flex items-center gap-1">
+                          <Package size={11} /> Produtos do catálogo
+                        </p>
+                        {products.slice(0, 40).map((p) => {
+                          const rows = step.listSections?.[0]?.rows || []
+                          const checked = rows.some((r) => r.productId === p.id)
+                          return (
+                            <label key={p.id} className="flex items-center gap-2 text-[11px] text-gray-700 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={(e) => {
+                                  const sections = [...(step.listSections || [{ title: 'Produtos', rows: [] }])]
+                                  let nextRows = [...(sections[0].rows || [])]
+                                  if (e.target.checked) {
+                                    if (!nextRows.some((r) => r.productId === p.id)) {
+                                      nextRows.push({
+                                        id: `product_${p.id}`,
+                                        title: p.name.slice(0, 24),
+                                        description: p.promoPrice
+                                          ? `R$ ${Number(p.promoPrice).toFixed(2)}`
+                                          : p.price != null
+                                            ? `R$ ${Number(p.price).toFixed(2)}`
+                                            : undefined,
+                                        productId: p.id,
+                                        productName: p.name,
+                                      })
+                                    }
+                                  } else {
+                                    nextRows = nextRows.filter((r) => r.productId !== p.id)
+                                  }
+                                  sections[0] = { title: sections[0].title || 'Produtos', rows: nextRows }
+                                  updateStep(step.id, {
+                                    listSections: sections,
+                                    productIds: nextRows.map((r) => r.productId).filter(Boolean) as string[],
+                                  })
+                                }}
+                              />
+                              <span className="truncate">{p.name}</span>
+                            </label>
+                          )
+                        })}
+                      </div>
+                    )}
                     {(step.listSections?.[0]?.rows || []).map((row, ri) => (
-                      <div key={row.id} className="flex gap-2">
+                      <div key={row.id} className="space-y-1 p-2 rounded-lg border border-gray-100 bg-white">
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            value={row.title}
+                            onChange={(e) => {
+                              const sections = [...(step.listSections || [{ title: 'Opções', rows: [] }])]
+                              const rows = [...(sections[0].rows || [])]
+                              rows[ri] = { ...row, title: e.target.value }
+                              sections[0] = { ...sections[0], rows }
+                              updateStep(step.id, { listSections: sections })
+                            }}
+                            placeholder={`Item ${ri + 1}`}
+                            className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-xs"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const sections = [...(step.listSections || [{ title: 'Opções', rows: [] }])]
+                              const rows = (sections[0].rows || []).filter((_, i) => i !== ri)
+                              sections[0] = { ...sections[0], rows }
+                              updateStep(step.id, {
+                                listSections: sections,
+                                productIds: rows.map((r) => r.productId).filter(Boolean) as string[],
+                              })
+                            }}
+                            className="p-1.5 text-red-400"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
                         <input
                           type="text"
-                          value={row.title}
+                          value={row.description || ''}
                           onChange={(e) => {
                             const sections = [...(step.listSections || [{ title: 'Opções', rows: [] }])]
                             const rows = [...(sections[0].rows || [])]
-                            rows[ri] = { ...row, title: e.target.value }
+                            rows[ri] = { ...row, description: e.target.value }
                             sections[0] = { ...sections[0], rows }
                             updateStep(step.id, { listSections: sections })
                           }}
-                          placeholder={`Item ${ri + 1}`}
-                          className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-xs"
+                          placeholder="Descrição / preço (opcional)"
+                          className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-[11px]"
                         />
+                        {row.productName && (
+                          <p className="text-[10px] text-emerald-700">Produto: {row.productName}</p>
+                        )}
                       </div>
                     ))}
                     <button
@@ -363,9 +529,39 @@ export function MessagePipelineComposer({ steps, onChange, allowedTipos, variabl
                       }}
                       className="text-[10px] font-semibold text-violet-600"
                     >
-                      + Item da lista
+                      + Item manual
                     </button>
                   </div>
+                )}
+
+                {(step.tipo === 'link' || step.tipo === 'cta' || step.tipo === 'texto') && products.length > 0 && (
+                  <label className="flex flex-wrap items-center gap-2 text-[10px] text-gray-600">
+                    <Package size={11} className="text-violet-500" />
+                    Produto p/ tags / link
+                    <select
+                      value={step.productId || ''}
+                      onChange={(e) => {
+                        const pid = e.target.value
+                        const prod = products.find((p) => p.id === pid)
+                        const patch: Partial<MensagemStep> = {
+                          productId: pid || undefined,
+                          productName: prod?.name,
+                        }
+                        if (prod && (step.tipo === 'link' || step.tipo === 'cta')) {
+                          /* URL preenchida no runtime; caption pode citar o nome */
+                          if (!step.caption) patch.caption = prod.name
+                          if (step.tipo === 'cta' && !step.ctaLabel) patch.ctaLabel = 'Ver produto'
+                        }
+                        updateStep(step.id, patch)
+                      }}
+                      className="flex-1 min-w-[140px] border border-gray-200 rounded-lg px-2 py-1 text-[11px] bg-white"
+                    >
+                      <option value="">— nenhum —</option>
+                      {products.map((p) => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                    </select>
+                  </label>
                 )}
 
                 {step.tipo === 'enquete' && (

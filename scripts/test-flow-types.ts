@@ -22,8 +22,11 @@ assert(normalizeHandle("sim") === "yes", "sim → yes");
 assert(normalizeHandle("nao") === "no", "nao → no");
 
 const conn: FlowConnection = { id: "c1", from: "a", fromHandle: "default", to: "b" };
-assert(connectionMatches(conn, "a", "main"), "default handle matches main result");
+// default normalizes to main on both sides when comparing via normalize in match
+assert(connectionMatches({ ...conn, fromHandle: "main" }, "a", "main"), "main matches main");
 assert(!connectionMatches(conn, "a", null), "null handle does not match");
+// fromHandle "default" normalizes to main
+assert(connectionMatches(conn, "a", "main"), "default fromHandle matches main result");
 
 const waitNode: FlowNode = { id: "w1", type: "wait", subtype: "wait_reply", label: "Wait", data: {} };
 const collectNode: FlowNode = {

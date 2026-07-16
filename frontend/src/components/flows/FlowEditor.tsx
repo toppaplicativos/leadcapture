@@ -199,6 +199,16 @@ export function FlowEditor({ flow, onClose, onUpdated }: Props) {
     if (item.subtype === 'send_message') {
       data.message = ''
       data.mensagemSteps = []
+      data.wait_for_reply = true
+    }
+    if (item.subtype === 'wait_button') {
+      data.prompt = 'Escolha uma opção:'
+      data.variable_name = 'choice'
+      data.options = [
+        { id: 'opt_1', label: 'Opção 1' },
+        { id: 'opt_2', label: 'Opção 2' },
+      ]
+      data.max_attempts = 3
     }
     if (item.subtype === 'handoff_agent') {
       data.user_message = 'Em instantes um atendente vai continuar seu atendimento.'
@@ -225,18 +235,34 @@ export function FlowEditor({ flow, onClose, onUpdated }: Props) {
       if (incoming) {
         setConnections((prev) => {
           const rest = prev.filter((c) => c.id !== incoming.id)
+          const ts = Date.now()
           rest.push({
-            id: `conn-${Date.now()}-a`,
+            id: `conn-${ts}-a`,
             from: incoming.from,
             fromHandle: incoming.fromHandle || 'main',
             to: id,
           })
-          rest.push({
-            id: `conn-${Date.now()}-b`,
-            from: id,
-            fromHandle: item.type === 'condition' ? 'yes' : 'main',
-            to: endNode.id,
-          })
+          if (item.type === 'condition' || item.subtype === 'collect_confirm') {
+            rest.push({
+              id: `conn-${ts}-yes`,
+              from: id,
+              fromHandle: 'yes',
+              to: endNode.id,
+            })
+            rest.push({
+              id: `conn-${ts}-no`,
+              from: id,
+              fromHandle: 'no',
+              to: endNode.id,
+            })
+          } else {
+            rest.push({
+              id: `conn-${ts}-b`,
+              from: id,
+              fromHandle: 'main',
+              to: endNode.id,
+            })
+          }
           return rest
         })
       }

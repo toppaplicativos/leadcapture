@@ -195,4 +195,6 @@ Nó wait_reply / collect_input
 - [x] Integração Campanha (`replyStartFlowId`) + Automação (`iniciar_fluxo`)  
 - [x] Anti double-reply: sessão de fluxo bloqueia IA cognitiva no inbox  
 - [x] Métricas por status/fase + teste manual `POST /api/flows/:id/start`  
-- [ ] Matriz completa de testes §24  
+- [x] Espera interativa (botões/lista), ramos yes/no, validação de grafo/loop  
+- [x] Smoke tests flowTypes + runtime (`scripts/test-flow-runtime.ts`)  
+- [ ] Matriz completa de testes E2E §24  

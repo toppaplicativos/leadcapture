@@ -42,7 +42,8 @@ function FlowBlockNode({ data, selected }: NodeProps) {
   const flowNode = (data as unknown as FlowCanvasNodeData).flowNode
   const tone = toneForNode(flowNode.type, flowNode.subtype)
   const Icon = NODE_ICON[flowNode.type] || NODE_ICON.action
-  const isCondition = flowNode.type === 'condition'
+  const isCondition =
+    flowNode.type === 'condition' || flowNode.subtype === 'collect_confirm'
 
   return (
     <div
@@ -110,10 +111,13 @@ function FlowBlockNode({ data, selected }: NodeProps) {
 
 const nodeTypes = { flowBlock: FlowBlockNode }
 
-function sourceHandleFromFromHandle(fromHandle: string, isCondition: boolean): string {
+function sourceHandleFromFromHandle(fromHandle: string, branched: boolean): string {
   const h = String(fromHandle || 'main').toLowerCase()
-  if (isCondition) {
+  if (branched) {
     if (h === 'no' || h === 'false' || h === 'nao' || h === 'não') return 'source-no'
+    if (h === 'yes' || h === 'true' || h === 'sim') return 'source-yes'
+    // custom option ids still use main source; labels on edges show branch
+    if (h === 'main' || h === 'default') return 'source-main'
     return 'source-yes'
   }
   return 'source-main'
@@ -146,17 +150,29 @@ export function flowToRf(
   const byId = new Map(flowNodes.map((n) => [n.id, n]))
   const edges: Edge[] = connections.map((c) => {
     const from = byId.get(c.from)
-    const isCondition = from?.type === 'condition'
+    const branched =
+      from?.type === 'condition' || from?.subtype === 'collect_confirm'
+    const handle = String(c.fromHandle || 'main').toLowerCase()
     return {
       id: c.id,
       source: c.from,
       target: c.to,
-      sourceHandle: sourceHandleFromFromHandle(c.fromHandle, !!isCondition),
+      sourceHandle: sourceHandleFromFromHandle(c.fromHandle, !!branched),
       targetHandle: 'target-main',
       type: 'smoothstep',
       markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16, color: '#a3a3a3' },
       style: { stroke: '#a3a3a3', strokeWidth: 1.5 },
-      label: from?.type === 'condition' ? (c.fromHandle === 'no' ? 'não' : 'sim') : undefined,
+      label: branched
+        ? handle === 'no'
+          ? 'não'
+          : handle === 'yes'
+            ? 'sim'
+            : handle !== 'main'
+              ? handle
+              : undefined
+        : handle !== 'main'
+          ? handle
+          : undefined,
       labelStyle: { fontSize: 10, fontWeight: 600, fill: '#737373' },
       labelBgStyle: { fill: '#fafafa', fillOpacity: 0.9 },
       labelBgPadding: [4, 6] as [number, number],

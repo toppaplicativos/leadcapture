@@ -142,6 +142,69 @@ export function FlowNodeConfigPanel({ node, onChange, onData, onRemove }: Props)
               compact
             />
           </div>
+          <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={node.data.wait_for_reply !== false}
+              onChange={(e) => onData(node.id, 'wait_for_reply', e.target.checked)}
+              className="rounded border-gray-300"
+            />
+            Aguardar resposta do cliente (obrigatório se houver botões/lista)
+          </label>
+        </div>
+      )}
+
+      {(node.subtype === 'wait_button' || node.subtype === 'wait_choice') && (
+        <div className="space-y-3">
+          <div>
+            <Label>Pergunta</Label>
+            <Textarea
+              value={String(node.data.prompt || '')}
+              onChange={(e) => onData(node.id, 'prompt', e.target.value)}
+              rows={2}
+            />
+          </div>
+          <div>
+            <Label>Opções (uma por linha: id|rótulo ou só rótulo)</Label>
+            <Textarea
+              value={
+                Array.isArray(node.data.options)
+                  ? node.data.options
+                      .map((o: any) =>
+                        typeof o === 'string' ? o : `${o.id || ''}|${o.label || o.text || ''}`,
+                      )
+                      .join('\n')
+                  : ''
+              }
+              onChange={(e) => {
+                const options = e.target.value
+                  .split('\n')
+                  .map((line) => line.trim())
+                  .filter(Boolean)
+                  .map((line, i) => {
+                    const [a, b] = line.split('|').map((s) => s.trim())
+                    if (b) return { id: a || `opt_${i + 1}`, label: b }
+                    return {
+                      id: a.toLowerCase().replace(/\s+/g, '_').slice(0, 24) || `opt_${i + 1}`,
+                      label: a,
+                    }
+                  })
+                onData(node.id, 'options', options)
+              }}
+              rows={4}
+              placeholder={'sim|Sim, quero\nnao|Não, obrigado'}
+            />
+            <p className="mt-1.5 text-xs text-gray-500">
+              No canvas, conecte cada handle (id da opção) a um caminho diferente.
+            </p>
+          </div>
+          <div>
+            <Label>Variável</Label>
+            <Input
+              value={String(node.data.variable_name || 'choice')}
+              onChange={(e) => onData(node.id, 'variable_name', e.target.value)}
+            />
+          </div>
         </div>
       )}
 

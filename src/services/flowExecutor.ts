@@ -5,11 +5,13 @@ import { logger } from "../utils/logger";
 import { getNotificationService } from "./notifications";
 import { ensureFlowSchema } from "./flowSchema";
 import {
-  connectionMatches,
+  extractInteractiveOptions,
   isCollectNode,
   isHandoffNode,
   isWaitNode,
-  normalizeHandle,
+  matchInteractiveOption,
+  parseInteractiveInbound,
+  resolveNextConnections,
   type FlowConnection as FConn,
   type FlowExecutionStatus as ExecutionStatus,
   type FlowNode as FNode,
@@ -565,9 +567,7 @@ export class FlowExecutorService {
 
     if (result.handle === null) return;
 
-    const next = ctx.connections.filter((c) =>
-      connectionMatches(c, node.id, result.handle)
-    );
+    const next = resolveNextConnections(ctx.connections, node.id, result.handle);
     for (const conn of next) {
       await this.runFrom(conn.to, ctx);
     }
@@ -577,14 +577,23 @@ export class FlowExecutorService {
     const node = ctx.nodes.find((n) => n.id === nodeId);
     if (!node) return;
 
+    // Loop guard
+    const path = (ctx.execution.context.__path as string[]) || [];
+    if (path.filter((id) => id === nodeId).length >= 3) {
+      ctx.execution.debug_log.push(
+        `[${new Date().toISOString()}] Loop guard stopped at ${nodeId}`
+      );
+      ctx.execution.status = "failed";
+      throw new Error(`Loop detectado no nó ${nodeId}`);
+    }
+    ctx.execution.context.__path = [...path, nodeId];
+
     const result = await this.processNode(node, ctx);
     this.registerNodeOutput(node, result.output, result.handle, ctx);
 
     if (result.handle === null) return;
 
-    const next = ctx.connections.filter((c) =>
-      connectionMatches(c, nodeId, result.handle)
-    );
+    const next = resolveNextConnections(ctx.connections, nodeId, result.handle);
     for (const conn of next) {
       await this.runFrom(conn.to, ctx);
     }
@@ -614,6 +623,21 @@ export class FlowExecutorService {
 
       case "action": {
         const output = await this.handleAction(node, ctx);
+        // Mensagem com botões/lista: pausa para resposta interativa
+        if (
+          (node.subtype === "send_message" || node.subtype === "send_template") &&
+          this.shouldWaitAfterMessage(node.data || {})
+        ) {
+          await this.parkSession(node, ctx);
+          ctx.execution.status = "waiting_user";
+          ctx.execution.debug_log.push(
+            `[${new Date().toISOString()}] Waiting interactive reply after ${node.id}`
+          );
+          return {
+            handle: null,
+            output: { ...output, waiting_interactive: true },
+          };
+        }
         return { handle: "main", output };
       }
 
@@ -626,13 +650,18 @@ export class FlowExecutorService {
         return { handle: null, output: { ended: true, reason: node.subtype || "end" } };
 
       default:
-        // subtypes on action-like nodes without type
         if (node.subtype === "send_message" || node.subtype === "ai_message") {
           const output = await this.handleAction(node, ctx);
           return { handle: "main", output };
         }
         return { handle: "main", output: { ok: true } };
     }
+  }
+
+  private shouldWaitAfterMessage(data: Record<string, any>): boolean {
+    if (data.wait_for_reply === false || data.waitForReply === false) return false;
+    if (data.wait_for_reply === true || data.waitForReply === true) return true;
+    return extractInteractiveOptions(data).length > 0;
   }
 
   private async processWaitOrCollect(
@@ -643,11 +672,20 @@ export class FlowExecutorService {
     const prompt = String(
       node.data?.prompt || node.data?.message || node.data?.pergunta || ""
     ).trim();
+    const options = extractInteractiveOptions(node.data || {});
+    const isButtonWait =
+      String(node.subtype || "").includes("button") ||
+      String(node.subtype || "").includes("choice") ||
+      String(node.subtype || "").includes("botao") ||
+      (node.type === "action" && options.length > 0);
 
     if (!hasInbound) {
-      // Envia prompt opcional e pausa
-      if (prompt) {
-        await this.sendWhatsApp(ctx, this.interpolate(prompt, ctx), node.data || {});
+      if (prompt || options.length) {
+        await this.sendWhatsApp(ctx, this.interpolate(prompt || "Escolha uma opção:", ctx), {
+          ...(node.data || {}),
+          // force options onto data for send path
+          options: options.length ? options : node.data?.options,
+        });
       }
       await this.parkSession(node, ctx);
       ctx.execution.status = "waiting_user";
@@ -656,7 +694,7 @@ export class FlowExecutorService {
       );
       return {
         handle: null,
-        output: { waiting: true, node_id: node.id, subtype: node.subtype },
+        output: { waiting: true, node_id: node.id, subtype: node.subtype, options },
       };
     }
 
@@ -665,6 +703,44 @@ export class FlowExecutorService {
       node.data?.variable_name || node.data?.field || node.data?.campo || "user_reply"
     ).trim();
     const fieldType = String(node.data?.field_type || node.subtype || "text");
+    const inbound = parseInteractiveInbound(raw);
+
+    // Interactive / button path
+    if (isButtonWait || options.length > 0 || inbound.kind !== "text") {
+      const match = matchInteractiveOption(inbound, options);
+      if (!match.matched && options.length > 0) {
+        const attempts = Number(ctx.execution.context.__attempts?.[node.id] || 0) + 1;
+        ctx.execution.context.__attempts = {
+          ...(ctx.execution.context.__attempts || {}),
+          [node.id]: attempts,
+        };
+        const maxAttempts = Number(node.data?.max_attempts ?? 3);
+        await this.sendWhatsApp(
+          ctx,
+          String(node.data?.error_message || "Opção inválida. Escolha uma das opções."),
+          node.data || {}
+        );
+        if (attempts >= maxAttempts) {
+          return {
+            handle: "invalid",
+            output: { valid: false, value: raw, attempts, exhausted: true },
+          };
+        }
+        await this.parkSession(node, ctx);
+        ctx.execution.status = "waiting_user";
+        return { handle: null, output: { valid: false, value: raw, attempts, re_waiting: true } };
+      }
+
+      const value = match.matched
+        ? { id: match.matched.id, label: match.matched.label }
+        : { id: inbound.id, label: inbound.label, raw };
+      ctx.execution.context[variableName] = value;
+      ctx.execution.context.last_choice = value;
+      return {
+        handle: match.handle === "invalid" ? "main" : match.handle,
+        output: { valid: true, variable: variableName, value, interactive: inbound },
+      };
+    }
 
     const validation = this.validateCollectedValue(raw, fieldType, node.data || {});
     if (!validation.ok) {
@@ -701,6 +777,15 @@ export class FlowExecutorService {
     }
     if (ctx.execution.system_vars?.customer && variableName === "email") {
       (ctx.execution.system_vars.customer as any).email = String(validation.value);
+    }
+
+    // collect_confirm → yes/no branches
+    if (String(fieldType).includes("confirm") || node.subtype === "collect_confirm") {
+      const yes = validation.value === true || validation.value === "yes" || validation.value === "sim";
+      return {
+        handle: yes ? "yes" : "no",
+        output: { valid: true, variable: variableName, value: validation.value, branch: yes ? "yes" : "no" },
+      };
     }
 
     return {
@@ -1183,13 +1268,35 @@ export class FlowExecutorService {
     template: string,
     data: Record<string, any>
   ): Promise<{ sent: boolean; destination: string; transport: string }> {
-    const message = this.interpolate(template, ctx);
-    if (!message.trim()) return { sent: false, destination: "", transport: "empty" };
+    let message = this.interpolate(template, ctx);
+    const options = extractInteractiveOptions(data);
+    // Body for buttons: prefer plain text without "label1 | label2" dump when options exist
+    if (options.length && !String(template || "").trim()) {
+      message = "Escolha uma opção:";
+    }
+    if (!message.trim() && !options.length) {
+      return { sent: false, destination: "", transport: "empty" };
+    }
 
     const destType: string = String(data.wa_destino || "lead");
     if (destType === "grupo_especifico" && data.wa_grupo_jid) {
       if (!ctx.instanceId) return { sent: false, destination: "", transport: "missing_instance" };
       try {
+        if (options.length && typeof (this.instanceManager as any).sendButtonsByJid === "function") {
+          const r = await this.instanceManager.sendButtonsByJid(
+            ctx.instanceId,
+            String(data.wa_grupo_jid),
+            {
+              body: message || "Escolha:",
+              buttons: options.slice(0, 3).map((o) => ({ id: o.id, text: o.label })),
+            }
+          );
+          return {
+            sent: !!r?.ok,
+            destination: String(data.wa_grupo_jid),
+            transport: r?.mode || "group_buttons",
+          };
+        }
         await this.instanceManager.sendMessageByJid(ctx.instanceId, String(data.wa_grupo_jid), message);
         return { sent: true, destination: String(data.wa_grupo_jid), transport: "group_jid" };
       } catch (err: any) {
@@ -1204,6 +1311,25 @@ export class FlowExecutorService {
     }
 
     try {
+      if (options.length && typeof (this.instanceManager as any).sendButtonsByJid === "function") {
+        const jid = phone.includes("@") ? phone : `${phone.replace(/\D/g, "")}@s.whatsapp.net`;
+        // Prefer caption-only body for buttons (avoid appending option labels twice)
+        const bodyOnly = this.interpolate(
+          String(
+            data.prompt ||
+              (Array.isArray(data.mensagemSteps)
+                ? data.mensagemSteps.find((s: any) => s?.tipo === "botoes" || s?.tipo === "texto")?.caption
+                : "") ||
+              message
+          ),
+          ctx
+        );
+        const r = await this.instanceManager.sendButtonsByJid(ctx.instanceId, jid, {
+          body: (bodyOnly || message || "Escolha:").split("\n")[0] || "Escolha:",
+          buttons: options.slice(0, 3).map((o) => ({ id: o.id, text: o.label.slice(0, 20) })),
+        });
+        return { sent: !!r?.ok, destination: phone, transport: r?.mode || "buttons" };
+      }
       const sent = await this.instanceManager.sendMessage(ctx.instanceId, phone, message);
       return { sent: !!sent, destination: phone, transport: "lead_phone" };
     } catch (err: any) {

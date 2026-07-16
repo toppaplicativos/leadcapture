@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from "uuid";
 import { authMiddleware, AuthRequest } from "../middleware/auth";
 import { getPool } from "../config/database";
 import { ensureFlowSchema } from "../services/flowSchema";
-import { normalizeHandle } from "../services/flowTypes";
+import { normalizeHandle, validateFlowGraph } from "../services/flowTypes";
 import { FlowExecutorService } from "../services/flowExecutor";
 
 const router = Router();
@@ -466,13 +466,12 @@ router.post("/:id/publish", async (req: AuthRequest, res: Response) => {
 
     const nodes = parseJsonSafe(rows[0].nodes_json, []);
     const connections = normalizeConnections(parseJsonSafe(rows[0].connections_json, []));
-    const hasTrigger = nodes.some((n: any) => n.type === "trigger");
-    const hasEnd = nodes.some((n: any) => n.type === "end");
-    if (!hasTrigger) {
-      return res.status(400).json({ error: "Fluxo precisa de um bloco de início (trigger)" });
-    }
-    if (!hasEnd) {
-      return res.status(400).json({ error: "Fluxo precisa de um bloco de encerramento (end)" });
+    const validation = validateFlowGraph(nodes, connections);
+    if (!validation.ok) {
+      return res.status(400).json({
+        error: validation.errors[0] || "Fluxo inválido",
+        errors: validation.errors,
+      });
     }
 
     const nextVersion = Number(rows[0].published_version || 0) + 1;

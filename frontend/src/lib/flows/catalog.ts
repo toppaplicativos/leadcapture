@@ -97,11 +97,12 @@ export const MESSAGE_CATALOG: CatalogItem[] = [
 
 export const COLLECT_CATALOG: CatalogItem[] = [
   { type: 'wait', subtype: 'wait_reply', label: 'Aguardar resposta', desc: 'Pausa até a próxima mensagem', icon: Pause, group: 'collect' },
+  { type: 'wait', subtype: 'wait_button', label: 'Aguardar botão/escolha', desc: 'Casa payload/número com opções', icon: CheckCircle2, group: 'collect' },
   { type: 'collect', subtype: 'collect_name', label: 'Coletar nome', desc: 'Salva em {{context.name}}', icon: UserRound, group: 'collect' },
   { type: 'collect', subtype: 'collect_email', label: 'Coletar e-mail', desc: 'Valida formato', icon: Mail, group: 'collect' },
   { type: 'collect', subtype: 'collect_phone', label: 'Coletar telefone', desc: 'Valida DDD', icon: Phone, group: 'collect' },
   { type: 'collect', subtype: 'collect_text', label: 'Coletar texto', desc: 'Campo livre em variável', icon: MessageSquare, group: 'collect' },
-  { type: 'collect', subtype: 'collect_confirm', label: 'Confirmar sim/não', desc: 'Validação binária', icon: CheckCircle2, group: 'collect' },
+  { type: 'collect', subtype: 'collect_confirm', label: 'Confirmar sim/não', desc: 'Ramos yes/no no canvas', icon: CheckCircle2, group: 'collect' },
 ]
 
 export const LOGIC_CATALOG: CatalogItem[] = [

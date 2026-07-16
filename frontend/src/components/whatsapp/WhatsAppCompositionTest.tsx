@@ -127,13 +127,34 @@ export function WhatsAppCompositionTest({ blocks, sourceLabel, className = '' }:
     () => usefulBlocks.map((block) => {
       const actionType = String(block.actionType || '').toLowerCase()
       if (!['buttons', 'button', 'list'].includes(actionType)) return block
+      // Garante texto de corpo visível acima dos botões (WA exige body no nativeFlow).
+      const content = String(block.content || '').trim() || 'Escolha uma opção:'
       return {
         ...block,
+        content,
         config: { ...(block.config || {}), deliveryMode: 'native_only' },
       }
     }),
     [usefulBlocks],
   )
+
+  const selectedInstance = useMemo(
+    () => instances.find((item) => item.id === instanceId) || null,
+    [instances, instanceId],
+  )
+
+  /** Compara destinos BR/internacionais pelo sufixo (10–13 dígitos). */
+  function phonesMatch(a?: string | null, b?: string | null): boolean {
+    const da = String(a || '').replace(/\D/g, '')
+    const db = String(b || '').replace(/\D/g, '')
+    if (!da || !db) return false
+    if (da === db) return true
+    const min = Math.min(da.length, db.length, 13)
+    if (min < 10) return false
+    return da.slice(-min) === db.slice(-min) || da.endsWith(db) || db.endsWith(da)
+  }
+
+  const testingOwnNumber = phonesMatch(phone, selectedInstance?.phone)
 
   async function sendTest() {
     const normalizedPhone = phone.replace(/\D/g, '')
@@ -148,6 +169,20 @@ export function WhatsAppCompositionTest({ blocks, sourceLabel, className = '' }:
     if (!usefulBlocks.length) {
       setFeedback({ ok: false, text: 'Adicione conteúdo à composição antes do teste.' })
       return
+    }
+    if (testingOwnNumber) {
+      const still = await confirm({
+        title: 'Testando no próprio número da seção?',
+        message:
+          'O WhatsApp mostra botões de resposta (quick reply) CINZA e DESATIVADOS quando a mensagem é enviada para o mesmo número que está conectado na seção. ' +
+          'O título do botão aparece, mas não dá para clicar — isso é limitação do app, não falha do envio.\n\n' +
+          'Para validar de verdade, use outro celular (outro WhatsApp) como destino.',
+        confirmLabel: 'Enviar mesmo assim',
+        cancelLabel: 'Trocar número',
+        variant: 'info',
+        icon: FlaskConical,
+      })
+      if (!still) return
     }
     const approved = await confirm({
       title: 'Enviar composição real de teste?',
@@ -177,7 +212,13 @@ export function WhatsAppCompositionTest({ blocks, sourceLabel, className = '' }:
       if (!response.ok) throw new Error(data?.error || 'Não foi possível enviar o teste')
       localStorage.setItem(storageKey(), normalizedPhone)
       setPhone(normalizedPhone)
-      setFeedback({ ok: true, text: `${data.blockCount} bloco(s) interativos confirmados para +${data.sentTo}.` })
+      const ownHint = data?.sameAsInstancePhone || testingOwnNumber
+        ? ' Atenção: no próprio número os botões ficam cinza/desativados — teste em outro WhatsApp para clicar.'
+        : ' Confira no celular de DESTINO se os botões estão clicáveis.'
+      setFeedback({
+        ok: true,
+        text: `${data.blockCount} bloco(s) interativos confirmados para +${data.sentTo}.${ownHint}`,
+      })
     } catch (error: any) {
       setFeedback({ ok: false, text: error?.message || 'Falha no envio de teste.' })
     } finally {
@@ -195,9 +236,18 @@ export function WhatsAppCompositionTest({ blocks, sourceLabel, className = '' }:
           <p className="text-sm font-semibold text-gray-900">Testar composição no WhatsApp</p>
           <p className="mt-0.5 text-[11px] leading-relaxed text-gray-600">
             Executa a sequência completa sem salvar ou ativar {sourceLabel.toLowerCase()}.
+            Use um número diferente da seção conectada para validar botões clicáveis.
           </p>
         </div>
       </div>
+
+      {testingOwnNumber && (
+        <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-relaxed text-amber-900">
+          <strong className="font-semibold">Próprio número da seção:</strong> o WhatsApp desenha o título do botão,
+          mas deixa a ação <strong>cinza e desativada</strong> (mensagem “sua”). Isso não é falha de envio —
+          teste com outro celular para poder clicar e disparar o ID no Fluxo.
+        </div>
+      )}
 
       <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
         <label className="relative">
@@ -211,8 +261,12 @@ export function WhatsAppCompositionTest({ blocks, sourceLabel, className = '' }:
               const normalized = phone.replace(/\D/g, '')
               if (normalized.length >= 10) localStorage.setItem(storageKey(), normalized)
             }}
-            placeholder="55 + DDD + número"
-            className="h-11 w-full rounded-xl border border-gray-200 bg-white pl-9 pr-3 text-sm outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+            placeholder="55 + DDD + número (outro WhatsApp)"
+            className={`h-11 w-full rounded-xl border bg-white pl-9 pr-3 text-sm outline-none transition focus:ring-2 ${
+              testingOwnNumber
+                ? 'border-amber-300 focus:border-amber-500 focus:ring-amber-100'
+                : 'border-gray-200 focus:border-emerald-500 focus:ring-emerald-100'
+            }`}
           />
         </label>
         <select

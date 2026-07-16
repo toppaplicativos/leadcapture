@@ -1984,6 +1984,8 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
     sentTo: string;
     instanceId: string;
     blockCount: number;
+    sameAsInstancePhone?: boolean;
+    warning?: string;
   }> {
     const instanceId = String(input.instanceId || "").trim();
     const sentTo = normalizePhone(input.testPhone);
@@ -1993,8 +1995,8 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
     if (!blocks.length) throw new Error("Add at least one message block");
 
     const brandId = String(input.brandId || "").trim() || null;
-    const instance = await queryOne<{ id: string; status: string }>(
-      `SELECT id, status FROM whatsapp_instances
+    const instance = await queryOne<{ id: string; status: string; phone?: string | null }>(
+      `SELECT id, status, phone FROM whatsapp_instances
        WHERE id = ? AND created_by = ?
        ${brandId ? "AND (brand_id = ? OR brand_id IS NULL)" : ""}
        LIMIT 1`,
@@ -2010,6 +2012,14 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
     const jid = await this.instanceManager.resolvePhoneJid(instanceId, sentTo);
     if (!jid) throw new Error("Test number is not available on WhatsApp");
 
+    const instancePhone = normalizePhone(instance.phone || runtimeInstance.phone || "");
+    const sameAsInstancePhone = Boolean(
+      instancePhone &&
+        (instancePhone === sentTo ||
+          instancePhone.endsWith(sentTo.slice(-11)) ||
+          sentTo.endsWith(instancePhone.slice(-11)))
+    );
+
     const testLead = {
       id: "composer-test",
       name: "Contato de Teste",
@@ -2022,7 +2032,7 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
     };
     const primary =
       blocks.find((block) => String(block.content || "").trim())?.content ||
-      "[TESTE] Composição sem texto principal";
+      "Escolha uma opção:";
     const result = await this.sendCampaignActionBlocks({
       instanceId,
       jid,
@@ -2053,6 +2063,13 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
       sentTo,
       instanceId,
       blockCount: blocks.length,
+      sameAsInstancePhone,
+      ...(sameAsInstancePhone
+        ? {
+            warning:
+              "Destino é o mesmo número da seção WhatsApp. Botões de resposta (quick reply) ficam cinza/desativados no próprio chat — teste em outro número para clicar.",
+          }
+        : {}),
     };
   }
 

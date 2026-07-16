@@ -11,6 +11,7 @@ type Props = {
   busyId: string | null
   onFilter: (f: FlowStatusFilter) => void
   onCreate: () => void
+  onCreateOrder?: () => void
   onOpen: (f: Flow) => void
   onToggle: (f: Flow) => void
   onDuplicate: (f: Flow) => void
@@ -32,6 +33,7 @@ export function FlowListView({
   busyId,
   onFilter,
   onCreate,
+  onCreateOrder,
   onOpen,
   onToggle,
   onDuplicate,
@@ -59,15 +61,10 @@ export function FlowListView({
             </p>
           )}
         </div>
-        <Button
-          variant="primary"
-          size="md"
-          iconLeft={<Plus size={16} strokeWidth={2} />}
-          onClick={onCreate}
-          className="shrink-0 self-start"
-        >
-          Novo fluxo
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          {onCreateOrder && <Button variant="secondary" size="md" onClick={onCreateOrder}>Fluxo de pedido</Button>}
+          <Button variant="primary" size="md" iconLeft={<Plus size={16} strokeWidth={2} />} onClick={onCreate}>Novo fluxo</Button>
+        </div>
       </header>
 
       {error && (

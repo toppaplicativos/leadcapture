@@ -265,3 +265,38 @@ export function defaultSupportFlow() {
 }
 
 export const defaultJourneyNodes = defaultSupportFlow
+
+/** Jornada replicável para respostas positivas de campanhas de restaurante. */
+export function defaultRestaurantOrderFlow() {
+  const nodes = [
+    { id: 'campaign-trigger', type: 'trigger', subtype: 'message_received', label: 'Quero saber mais', phaseId: 'interesse', data: { campaignSourceMode: 'campaign', campaignIds: [], campaignChoices: [], keywords: 'quero saber mais, saber mais, quero pedir, fazer pedido', phaseId: 'interesse' } },
+    { id: 'welcome', type: 'action', subtype: 'send_message', label: 'Receber interesse', phaseId: 'interesse', data: { message: 'Ótimo! Vou te ajudar a montar seu pedido. Para sair a qualquer momento, responda PARAR.', wait_for_reply: false, phaseId: 'interesse' } },
+    { id: 'name', type: 'collect', subtype: 'collect_name', label: 'Nome do cliente', phaseId: 'triagem', data: { prompt: 'Como posso te chamar?', variable_name: 'name', required: true, phaseId: 'triagem' } },
+    { id: 'product', type: 'collect', subtype: 'collect_text', label: 'Escolher produto', phaseId: 'pedido', data: { prompt: 'Qual item do nosso cardápio você deseja pedir?', variable_name: 'product', required: true, phaseId: 'pedido' } },
+    { id: 'quantity', type: 'collect', subtype: 'collect_number', label: 'Definir quantidade', phaseId: 'pedido', data: { prompt: 'Quantas unidades você deseja?', variable_name: 'quantity', required: true, min: 1, phaseId: 'pedido' } },
+    { id: 'delivery', type: 'collect', subtype: 'collect_text', label: 'Dados de entrega', phaseId: 'entrega', data: { prompt: 'Informe endereço completo, número e referência para entrega.', variable_name: 'delivery_address', required: true, phaseId: 'entrega' } },
+    { id: 'payment', type: 'wait', subtype: 'wait_button', label: 'Forma de pagamento', phaseId: 'pagamento', data: { prompt: 'Como prefere pagar?', variable_name: 'payment_method', options: [{ id: 'pix', label: 'Pix' }, { id: 'cartao', label: 'Cartão' }, { id: 'dinheiro', label: 'Dinheiro' }], phaseId: 'pagamento' } },
+    { id: 'confirm', type: 'collect', subtype: 'collect_confirm', label: 'Confirmar pedido', phaseId: 'confirmacao', data: { prompt: 'Confirma o pedido de {{context.quantity}}x {{context.product}} para {{context.delivery_address}}?', variable_name: 'confirmed', phaseId: 'confirmacao' } },
+    { id: 'create-order', type: 'action', subtype: 'create_order', label: 'Criar pedido', phaseId: 'confirmacao', data: { items: [], payment_method: '{{context.payment_method.id}}', phaseId: 'confirmacao' } },
+    { id: 'success', type: 'action', subtype: 'send_message', label: 'Pedido realizado', phaseId: 'conclusao', data: { message: 'Pedido #{{context.order_id}} realizado com sucesso! Total: R$ {{context.order_total}}. Acompanhe e conclua o pagamento aqui: {{context.checkout_url}}', wait_for_reply: false, phaseId: 'conclusao' } },
+    { id: 'cancelled', type: 'action', subtype: 'send_message', label: 'Pedido não confirmado', phaseId: 'conclusao', data: { message: 'Tudo bem, não criaremos o pedido. Se quiser recomeçar, envie QUERO SABER MAIS.', wait_for_reply: false, phaseId: 'conclusao' } },
+    { id: 'end-success', type: 'end', subtype: 'order_created', label: 'Pedido confirmado', phaseId: 'conclusao', data: {} },
+    { id: 'end-cancelled', type: 'end', subtype: 'cancelled', label: 'Encerrado sem pedido', phaseId: 'conclusao', data: {} },
+  ]
+  const chain = ['campaign-trigger', 'welcome', 'name', 'product', 'quantity', 'delivery', 'payment', 'confirm']
+  const connections = chain.slice(0, -1).map((from, index) => ({ id: `order-c${index + 1}`, from, fromHandle: 'main', to: chain[index + 1] }))
+  connections.push(
+    { id: 'order-confirm-yes', from: 'confirm', fromHandle: 'yes', to: 'create-order' },
+    { id: 'order-create-success', from: 'create-order', fromHandle: 'main', to: 'success' },
+    { id: 'order-end-success', from: 'success', fromHandle: 'main', to: 'end-success' },
+    { id: 'order-confirm-no', from: 'confirm', fromHandle: 'no', to: 'cancelled' },
+    { id: 'order-end-cancelled', from: 'cancelled', fromHandle: 'main', to: 'end-cancelled' },
+  )
+  const phases = [
+    { id: 'interesse', name: 'Interesse', order: 1 }, { id: 'triagem', name: 'Triagem', order: 2 },
+    { id: 'pedido', name: 'Pedido', order: 3 }, { id: 'entrega', name: 'Entrega', order: 4 },
+    { id: 'pagamento', name: 'Pagamento', order: 5 }, { id: 'confirmacao', name: 'Confirmação', order: 6 },
+    { id: 'conclusao', name: 'Conclusão', order: 7 },
+  ]
+  return { nodes, connections, phases }
+}

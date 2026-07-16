@@ -118,6 +118,7 @@ export function phoneFromJid(jid: string): string {
 const OPT_OUT_PATTERNS = [
   /^\s*(parar|stop|sair|cancelar|cancela|descadastrar|descadastro|opt[\s-]?out|nao quero|não quero|remover|tira da lista|me tira)\s*[.!]*\s*$/i,
   /^\s*(parar|stop)\s+(mensagens?|disparos?|promo(c|ç)(o|õ)es?)\s*$/i,
+  /^(?:\[(?:button_reply|list_reply|interactive_reply|option_reply)\]\s*)?(?:n[aã]o\s+(?:tenho|tenho mais|possuo)\s+interesse|sem\s+interesse|n[aã]o\s+quero(?:\s+mais)?)(?:\s*\(id:[^)]+\))?\s*[.!]*$/i,
 ];
 
 export function isWhatsAppOptOutText(text: unknown): boolean {

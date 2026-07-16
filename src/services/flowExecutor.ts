@@ -3,6 +3,7 @@ import { getPool } from "../config/database";
 import { InstanceManager } from "../core/instanceManager";
 import { logger } from "../utils/logger";
 import { getNotificationService } from "./notifications";
+import { CommerceService } from "./commerce";
 import { ensureFlowSchema } from "./flowSchema";
 import {
   extractInteractiveOptions,
@@ -74,6 +75,7 @@ export class FlowExecutorService {
   constructor(private instanceManager: InstanceManager) {}
 
   private readonly notificationService = getNotificationService();
+  private readonly commerceService = new CommerceService();
 
   static init(im: InstanceManager): FlowExecutorService {
     FlowExecutorService._inst = new FlowExecutorService(im);
@@ -333,8 +335,13 @@ export class FlowExecutorService {
           if (triggerSubtype === "message_received") {
             const keywords = this.parseKeywords(trigger.data);
             if (keywords.length > 0) {
-              const msg = String(triggerData.message || "").toLowerCase();
-              const hit = keywords.some((k) => msg.includes(k.toLowerCase()));
+              const searchable = [
+                triggerData.message,
+                triggerData.reply?.optionLabel,
+                triggerData.reply?.optionId,
+                triggerData.reply?.intent,
+              ].map((value) => String(value || "").toLowerCase()).join(" ");
+              const hit = keywords.some((k) => searchable.includes(k.toLowerCase()));
               if (!hit) continue;
             }
           }
@@ -1186,6 +1193,70 @@ export class FlowExecutorService {
           target_user_id: targetUser,
           priority: notification.priority,
           channels: notification.channels,
+        };
+      }
+
+      case "create_order": {
+        const phone = String(ctx.execution.system_vars?.customer?.phone || "").replace(/\D/g, "");
+        let items: Array<{
+          product_id?: string;
+          nome?: string;
+          quantidade: number;
+          valor_unitario?: number;
+        }> = (Array.isArray(data.items) ? data.items : [])
+          .map((item: any) => ({
+            product_id: this.interpolate(String(item?.product_id || item?.productId || ""), ctx) || undefined,
+            nome: this.interpolate(String(item?.nome || item?.name || ""), ctx) || undefined,
+            quantidade: Math.max(1, Number(this.resolveValue(item?.quantidade ?? item?.quantity ?? 1, ctx)) || 1),
+            valor_unitario: Number(this.resolveValue(item?.valor_unitario ?? item?.unitPrice ?? 0, ctx)) || undefined,
+          }))
+          .filter((item: any) => item.product_id || (item.nome && item.valor_unitario));
+        if (!items.length) {
+          const queryText = String(ctx.execution.context.product || ctx.execution.context.product_query || "")
+            .trim().toLowerCase();
+          const products = await this.commerceService.listProducts(ctx.userId, ctx.brandId || null);
+          const selected = products.find((product: any) =>
+            String(product.id) === queryText || String(product.nome || "").toLowerCase().includes(queryText)
+          );
+          if (selected) {
+            items = [{
+              product_id: String(selected.id),
+              quantidade: Math.max(1, Number(ctx.execution.context.quantity || 1) || 1),
+            }];
+          }
+        }
+        if (!items.length) throw new Error("Produto informado não foi encontrado no catálogo");
+
+        const checkoutBaseUrl = String(
+          data.checkout_base_url || process.env.FRONTEND_URL || process.env.APP_URL || "http://127.0.0.1:5173"
+        ).replace(/\/+$/, "");
+        const result = await this.commerceService.createOrder(ctx.userId, ctx.brandId || null, {
+          lead_id: ctx.execution.system_vars?.customer?.id || null,
+          instance_id: ctx.instanceId || null,
+          origem: "whatsapp",
+          forma_pagamento: this.interpolate(String(data.payment_method || "{{context.payment_method}}"), ctx),
+          customer_name: String(ctx.execution.context.name || ctx.execution.system_vars?.customer?.name || ""),
+          customer_email: String(ctx.execution.context.email || ""),
+          customer_phone: phone,
+          checkout_base_url: checkoutBaseUrl,
+          itens: items,
+        });
+        ctx.execution.context.order_id = result.order.id;
+        ctx.execution.context.order_total = result.order.valor_total;
+        ctx.execution.context.checkout_url = result.checkout_url;
+        ctx.execution.system_vars.order = {
+          ...(ctx.execution.system_vars.order || {}),
+          id: result.order.id,
+          total: result.order.valor_total,
+          payment_method: result.order.forma_pagamento,
+          checkout_url: result.checkout_url,
+        };
+        return {
+          order_id: result.order.id,
+          total: result.order.valor_total,
+          checkout_url: result.checkout_url,
+          status: result.order.status_pedido,
+          item_count: result.items.length,
         };
       }
 

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { FlowListView } from '@/components/flows/FlowListView'
 import { FlowEditor } from '@/components/flows/FlowEditor'
 import type { Flow, FlowStatusFilter } from '@/lib/flows/types'
-import { defaultSupportFlow } from '@/lib/flows/catalog'
+import { defaultRestaurantOrderFlow, defaultSupportFlow } from '@/lib/flows/catalog'
 import * as api from '@/lib/flows/api'
 
 export function FlowBuilderPage() {
@@ -51,6 +51,24 @@ export function FlowBuilderPage() {
     } finally {
       setCreating(false)
     }
+  }
+
+  async function createOrderFlow() {
+    if (creating) return
+    setCreating(true)
+    setCreateError('')
+    try {
+      const { nodes, connections, phases } = defaultRestaurantOrderFlow()
+      const flow = await api.createFlow({
+        name: 'Boas-vindas Restaurante · Pedido completo',
+        description: 'Inicia por resposta positiva de campanha, coleta pedido, entrega e pagamento, cria o pedido e envia a confirmação.',
+        status: 'draft', nodes, connections, phases,
+      })
+      setEditFlow(flow)
+      await load()
+    } catch (error) {
+      setCreateError(error instanceof Error ? error.message : 'Não foi possível criar o fluxo de pedido.')
+    } finally { setCreating(false) }
   }
 
   async function toggleStatus(flow: Flow) {
@@ -116,6 +134,7 @@ export function FlowBuilderPage() {
       busyId={busyId}
       onFilter={setFilter}
       onCreate={() => void createFlow()}
+      onCreateOrder={() => void createOrderFlow()}
       onOpen={setEditFlow}
       onToggle={(f) => void toggleStatus(f)}
       onDuplicate={(f) => void duplicateFlow(f)}

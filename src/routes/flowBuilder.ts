@@ -4,6 +4,7 @@ import { authMiddleware, AuthRequest } from "../middleware/auth";
 import { getPool } from "../config/database";
 import { ensureFlowSchema } from "../services/flowSchema";
 import { normalizeHandle } from "../services/flowTypes";
+import { FlowExecutorService } from "../services/flowExecutor";
 
 const router = Router();
 router.use(authMiddleware);
@@ -349,6 +350,100 @@ router.put("/:id", async (req: AuthRequest, res: Response) => {
 
     const [rows] = await pool.query<any[]>("SELECT * FROM flow_automations WHERE id = ? LIMIT 1", [id]);
     return res.json({ success: true, flow: serializeFlow(rows[0]) });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/flows/:id/start — inicia execução (teste manual / API)
+router.post("/:id/start", async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = resolveUserId(req);
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    await ready();
+    const id = String(req.params.id || "").trim();
+    const phone = String(req.body?.phone || "").trim();
+    const message = String(req.body?.message || "").trim();
+    const name = String(req.body?.name || "").trim();
+    const brandId = resolveBrandId(req) || req.body?.brand_id || null;
+
+    const result = await FlowExecutorService.get().startFlowById({
+      flowId: id,
+      userId,
+      brandId,
+      phone,
+      message,
+      name,
+      triggerSubtype: String(req.body?.triggerSubtype || "manual"),
+      source: "api_manual",
+      requireActive: req.body?.requireActive !== false,
+    });
+
+    if (!result.ok) return res.status(400).json({ error: result.error });
+    return res.json({ success: true, execution_id: result.executionId });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/flows/:id/metrics — agregados simples de execuções
+router.get("/:id/metrics", async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = resolveUserId(req);
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    await ready();
+    const id = String(req.params.id || "").trim();
+    const pool = getPool();
+
+    const [exists] = await pool.query<any[]>(
+      "SELECT id, phases_json FROM flow_automations WHERE id = ? AND user_id = ? LIMIT 1",
+      [id, userId]
+    );
+    if (!exists[0]) return res.status(404).json({ error: "Flow not found" });
+
+    const [rows] = await pool.query<any[]>(
+      `SELECT status, context_json, started_at, finished_at
+       FROM flow_automation_executions
+       WHERE flow_id = ? AND user_id = ?
+       ORDER BY started_at DESC
+       LIMIT 200`,
+      [id, userId]
+    );
+
+    const byStatus: Record<string, number> = {};
+    const phaseVisits: Record<string, number> = {};
+    let completed = 0;
+    let waiting = 0;
+    let failed = 0;
+
+    for (const row of rows) {
+      const st = String(row.status || "unknown");
+      byStatus[st] = (byStatus[st] || 0) + 1;
+      if (st === "completed") completed += 1;
+      if (st === "waiting_user" || st === "waiting_agent") waiting += 1;
+      if (st === "failed") failed += 1;
+
+      const ctx = parseJsonSafe(row.context_json, {});
+      const phases = ctx.__phases && typeof ctx.__phases === "object" ? ctx.__phases : {};
+      for (const [phaseId, meta] of Object.entries(phases)) {
+        const visits = Number((meta as any)?.visits || 1);
+        phaseVisits[phaseId] = (phaseVisits[phaseId] || 0) + visits;
+      }
+    }
+
+    const phases = parseJsonSafe(exists[0].phases_json, []);
+    return res.json({
+      success: true,
+      metrics: {
+        sample_size: rows.length,
+        by_status: byStatus,
+        completed,
+        waiting,
+        failed,
+        phase_visits: phaseVisits,
+        phases,
+      },
+    });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }

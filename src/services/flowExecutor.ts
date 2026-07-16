@@ -84,8 +84,34 @@ export class FlowExecutorService {
   }
 
   /**
+   * Contato já está em jornada estruturada — cognitivo/auto-reply deve ceder.
+   */
+  async hasActiveSessionForContact(
+    userId: string,
+    phone: string
+  ): Promise<boolean> {
+    const contactKey = this.normalizeContactKey(phone);
+    if (!contactKey) return false;
+    try {
+      await this.ensureTables();
+      const [rows] = await getPool().query<any[]>(
+        `SELECT id FROM flow_sessions
+         WHERE user_id = ?
+           AND contact_key = ?
+           AND status IN ('waiting_user','waiting_agent','running','paused')
+         LIMIT 1`,
+        [userId, contactKey]
+      );
+      return Boolean(rows[0]);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Entrada principal para mensagens inbound: retoma sessão waiting_user
    * antes de disparar novos fluxos por gatilho.
+   * claimed=true quando a jornada "tomou" o contato (resume ou fire com match).
    */
   async handleInboundMessage(input: {
     userId: string;
@@ -93,9 +119,11 @@ export class FlowExecutorService {
     phone: string;
     message: string;
     instanceId?: string;
-  }): Promise<{ resumed: boolean; fired: boolean }> {
+  }): Promise<{ resumed: boolean; fired: boolean; claimed: boolean; started: number }> {
     const contactKey = this.normalizeContactKey(input.phone);
-    if (!contactKey) return { resumed: false, fired: false };
+    if (!contactKey) {
+      return { resumed: false, fired: false, claimed: false, started: 0 };
+    }
 
     const resumed = await this.resumeWaitingSession({
       userId: input.userId,
@@ -105,22 +133,141 @@ export class FlowExecutorService {
       instanceId: input.instanceId,
     });
 
-    if (resumed) return { resumed: true, fired: false };
+    if (resumed) {
+      return { resumed: true, fired: false, claimed: true, started: 0 };
+    }
 
-    await this.fire("message_received", input.userId, {
+    const started = await this.fire("message_received", input.userId, {
       phone: input.phone,
       message: input.message,
       brandId: input.brandId,
       instanceId: input.instanceId,
     });
-    return { resumed: false, fired: true };
+    return {
+      resumed: false,
+      fired: started > 0,
+      claimed: started > 0,
+      started,
+    };
+  }
+
+  /**
+   * Inicia um fluxo específico (Automação / Campanha / teste manual).
+   * Usa snapshot publicado; ignora filtro de palavra-chave do trigger.
+   */
+  async startFlowById(input: {
+    flowId: string;
+    userId: string;
+    brandId?: string | null;
+    phone?: string;
+    message?: string;
+    name?: string;
+    instanceId?: string;
+    triggerSubtype?: string;
+    source?: string;
+    requireActive?: boolean;
+  }): Promise<{ ok: boolean; executionId?: string; error?: string }> {
+    try {
+      await this.ensureTables();
+      const pool = getPool();
+      const [rows] = await pool.query<any[]>(
+        "SELECT * FROM flow_automations WHERE id = ? AND user_id = ? LIMIT 1",
+        [input.flowId, input.userId]
+      );
+      const row = rows[0];
+      if (!row) return { ok: false, error: "Fluxo não encontrado" };
+
+      if (input.requireActive !== false && row.status !== "active") {
+        return { ok: false, error: "Fluxo não está ativo — publique e ative" };
+      }
+
+      const contactKey = this.normalizeContactKey(String(input.phone || ""));
+      if (contactKey) {
+        const busy = await this.hasActiveSessionForContact(input.userId, contactKey);
+        if (busy) {
+          return { ok: false, error: "Contato já possui sessão de fluxo ativa" };
+        }
+      }
+
+      const { nodes, connections, version } = this.resolveRuntimeGraph(row);
+      if (!nodes.length) return { ok: false, error: "Fluxo sem blocos publicados" };
+
+      const startNode =
+        nodes.find((n) => n.type === "trigger") || nodes[0];
+      const triggerSubtype = String(
+        input.triggerSubtype || startNode.subtype || input.source || "manual"
+      );
+
+      const triggerData: Record<string, any> = {
+        phone: input.phone || "",
+        message: input.message || "",
+        name: input.name || "",
+        brandId: input.brandId || row.brand_id,
+        instanceId: input.instanceId,
+        source: input.source || "start_flow",
+      };
+
+      const execution = this.createExecutionSnapshot({
+        flowId: row.id,
+        userId: input.userId,
+        triggerSubtype,
+        triggerData,
+      });
+      execution.context.source = input.source || "start_flow";
+      execution.debug_log.push(
+        `[${new Date().toISOString()}] startFlowById source=${input.source || "manual"}`
+      );
+
+      const ctx: ExecContext = {
+        flowId: row.id,
+        userId: input.userId,
+        brandId: row.brand_id || input.brandId || null,
+        publishedVersion: version,
+        nodes,
+        connections,
+        instanceId: input.instanceId,
+        execution,
+      };
+
+      await this.insertExecution(ctx.execution);
+      if (!ctx.instanceId) ctx.instanceId = await this.resolveInstance(input.userId);
+
+      this.runFrom(startNode.id, ctx)
+        .then(async () => {
+          if (
+            ctx.execution.status === "waiting_user" ||
+            ctx.execution.status === "waiting_agent"
+          ) {
+            await this.persistExecution(ctx.execution, null, false);
+            return;
+          }
+          ctx.execution.status = "completed";
+          ctx.execution.debug_log.push(
+            `[${new Date().toISOString()}] Flow finished successfully`
+          );
+          await this.persistExecution(ctx.execution, null, true);
+          await this.completeSessionsForExecution(ctx.execution.execution_id, "completed");
+        })
+        .catch(async (err: any) => {
+          ctx.execution.status = "failed";
+          await this.persistExecution(ctx.execution, String(err?.message || err), true);
+          await this.completeSessionsForExecution(ctx.execution.execution_id, "failed");
+          logger.error(`FlowExecutor.startFlowById error: ${err?.message || err}`);
+        });
+
+      return { ok: true, executionId: execution.execution_id };
+    } catch (err: any) {
+      logger.error(`FlowExecutor.startFlowById: ${err?.message || err}`);
+      return { ok: false, error: String(err?.message || err) };
+    }
   }
 
   async fire(
     triggerSubtype: string,
     userId: string,
     triggerData: Record<string, any>
-  ): Promise<void> {
+  ): Promise<number> {
+    let started = 0;
     try {
       await this.ensureTables();
       const pool = getPool();
@@ -139,7 +286,7 @@ export class FlowExecutorService {
         );
         if (waiting[0]) {
           logger.debug(`FlowExecutor.fire skip — session already waiting ${waiting[0].id}`);
-          return;
+          return 0;
         }
       }
 
@@ -189,6 +336,7 @@ export class FlowExecutorService {
 
           await this.insertExecution(ctx.execution);
           if (!ctx.instanceId) ctx.instanceId = await this.resolveInstance(userId);
+          started += 1;
 
           this.runFrom(trigger.id, ctx)
             .then(async () => {
@@ -217,6 +365,7 @@ export class FlowExecutorService {
     } catch (err: any) {
       logger.error(`FlowExecutor.fire error: ${err.message}`);
     }
+    return started;
   }
 
   private resolveRuntimeGraph(row: any): {
@@ -1251,6 +1400,23 @@ export class FlowExecutorService {
   ): void {
     const normalizedOutput = output && typeof output === "object" ? output : { value: output };
     const schema = this.inferOutputSchema(normalizedOutput);
+
+    // Métricas leves por fase (organization / analytics)
+    const phaseId = String((node as any).phaseId || node.data?.phaseId || "").trim();
+    if (phaseId) {
+      const phases = (ctx.execution.context.__phases =
+        ctx.execution.context.__phases && typeof ctx.execution.context.__phases === "object"
+          ? ctx.execution.context.__phases
+          : {});
+      const prev = phases[phaseId] || { visits: 0, nodes: [] as string[] };
+      phases[phaseId] = {
+        visits: Number(prev.visits || 0) + 1,
+        last_node_id: node.id,
+        last_at: new Date().toISOString(),
+        nodes: Array.from(new Set([...(prev.nodes || []), node.id])).slice(-40),
+      };
+      ctx.execution.context.flow_current_phase = phaseId;
+    }
 
     ctx.execution.node_outputs[node.id] = normalizedOutput;
     ctx.execution.node_output_schema[node.id] = schema;

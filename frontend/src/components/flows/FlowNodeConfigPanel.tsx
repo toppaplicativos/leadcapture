@@ -78,6 +78,22 @@ export function FlowNodeConfigPanel({ node, onChange, onData, onRemove }: Props)
         />
       </div>
 
+      <div>
+        <Label>Fase (opcional)</Label>
+        <Input
+          value={String(node.phaseId || node.data?.phaseId || '')}
+          onChange={(e) => {
+            const phaseId = e.target.value.trim()
+            onChange(node.id, { phaseId: phaseId || undefined })
+            onData(node.id, 'phaseId', phaseId || undefined)
+          }}
+          placeholder="Ex.: boas-vindas, qualificacao, pagamento"
+        />
+        <p className="mt-1.5 text-xs text-gray-500">
+          Usado em métricas e organização. Conexões podem cruzar fases.
+        </p>
+      </div>
+
       {node.type === 'trigger' && (
         <div className="space-y-3">
           <div>

@@ -81,3 +81,32 @@ export async function listSessions(flowId: string, limit = 20): Promise<FlowSess
   )
   return d.sessions || []
 }
+
+export async function startFlow(
+  flowId: string,
+  body: { phone?: string; message?: string; name?: string } = {},
+): Promise<{ execution_id: string }> {
+  const d = await parseJson(
+    await fetch(`/api/flows/${flowId}/start`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(body),
+    }),
+  )
+  return { execution_id: d.execution_id }
+}
+
+export async function fetchFlowMetrics(flowId: string): Promise<{
+  sample_size: number
+  by_status: Record<string, number>
+  completed: number
+  waiting: number
+  failed: number
+  phase_visits: Record<string, number>
+  phases: Array<{ id: string; name: string }>
+}> {
+  const d = await parseJson(
+    await fetch(`/api/flows/${flowId}/metrics`, { headers: getHeaders() }),
+  )
+  return d.metrics
+}

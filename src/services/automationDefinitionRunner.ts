@@ -19,6 +19,7 @@ import {
 import { evaluateLimits, extractActorId } from "./automationMatchLogic";
 import { computeSendRealForMode, getBrandDispatchMode, isBrandRepliesPaused } from "./automationDispatchMode";
 import { instagramService } from "./instagram";
+import { FlowExecutorService } from "./flowExecutor";
 
 export interface AutomationRunContext {
   triggeredBy: "cron" | "manual" | "event";
@@ -356,6 +357,57 @@ async function executeAction(
         data: { subject: config.emailSubject, to: config.emailDestino },
         outcome: "stub",
       };
+
+    case "iniciar_fluxo": {
+      const flowId = String(
+        config.flowId || config.fluxoId || config.flow_id || ""
+      ).trim();
+      if (!flowId) {
+        return { ok: false, message: "flowId ausente na ação iniciar_fluxo", outcome: "error" };
+      }
+      const phone = String(
+        payload.phone ||
+          payload.telefone ||
+          payload.from ||
+          payload.wa_id ||
+          payload.customer?.phone ||
+          config.destinoValor ||
+          ""
+      ).trim();
+      try {
+        const result = await FlowExecutorService.get().startFlowById({
+          flowId,
+          userId: automation.user_id,
+          brandId: automation.brand_id,
+          phone,
+          message: String(payload.message || payload.text || payload.body || ""),
+          name: String(payload.name || payload.nome || ""),
+          instanceId: payload.instanceId ? String(payload.instanceId) : undefined,
+          triggerSubtype: "automation",
+          source: "automation",
+        });
+        return {
+          ok: result.ok,
+          message: result.ok
+            ? `Fluxo iniciado (${result.executionId})`
+            : result.error || "Falha ao iniciar fluxo",
+          data: {
+            action: step.tipo,
+            flow_id: flowId,
+            execution_id: result.executionId,
+            phone: phone || null,
+            error: result.error,
+          },
+          outcome: result.ok ? "success" : "error",
+        };
+      } catch (err: any) {
+        return {
+          ok: false,
+          message: String(err?.message || err),
+          outcome: "error",
+        };
+      }
+    }
 
     default:
       return { ok: false, message: `Ação não suportada: ${step.tipo}`, outcome: "error" };

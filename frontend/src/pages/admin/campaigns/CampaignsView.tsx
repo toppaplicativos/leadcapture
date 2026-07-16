@@ -725,6 +725,38 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
   })
   const ne = s.nameEnrichment || {}
   const [nameEnrichmentEnabled, setNameEnrichmentEnabled] = useState(ne.enabled || false)
+  const [replyStartFlowId, setReplyStartFlowId] = useState(
+    String(s.replyStartFlowId || s.reply_start_flow_id || ''),
+  )
+  const [replyStartFlowOnlyInterested, setReplyStartFlowOnlyInterested] = useState(
+    Boolean(s.replyStartFlowOnlyInterested),
+  )
+  const [flowOptions, setFlowOptions] = useState<Array<{ id: string; name: string }>>([])
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const headers: Record<string, string> = { Accept: 'application/json' }
+        const t = localStorage.getItem('lead-system-token')
+        if (t) headers.Authorization = `Bearer ${t}`
+        const b = localStorage.getItem('lead-system:active-brand-id')
+        if (b) headers['x-brand-id'] = b
+        const r = await fetch('/api/flows', { headers })
+        const d = await r.json()
+        if (!cancelled) {
+          setFlowOptions(
+            (d.flows || []).map((f: any) => ({ id: String(f.id), name: String(f.name || 'Fluxo') })),
+          )
+        }
+      } catch {
+        if (!cancelled) setFlowOptions([])
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   function selectCampaignChannel(channelKey: CampaignChannel) {
     if (channels[0] === channelKey) return
@@ -1227,6 +1259,8 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
             useAutoVariations,
             actionBlocks: cleanedBlocks,
           },
+          replyStartFlowId: replyStartFlowId.trim() || undefined,
+          replyStartFlowOnlyInterested: Boolean(replyStartFlowOnlyInterested),
           nameEnrichment: { enabled: nameEnrichmentEnabled },
           antiBlock: {
             autoPauseByBlocks: parseInt(autoPauseBlocks) || 5,
@@ -2455,6 +2489,30 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
                     <p className="text-[9px] text-gray-400 mt-0.5">Quando o prospect nao tem nome, busca automaticamente do WhatsApp e normaliza antes do envio</p>
                   </div>
                   <Toggle value={nameEnrichmentEnabled} onChange={setNameEnrichmentEnabled} />
+                </div>
+                <div className="bg-gray-50 rounded-xl p-3 border border-gray-100 space-y-2">
+                  <div>
+                    <span className="text-[11px] font-medium text-gray-700">Fluxo após resposta</span>
+                    <p className="text-[9px] text-gray-400 mt-0.5">
+                      Quando o lead responder a campanha, inicia a jornada em /fluxos (publicada e ativa).
+                    </p>
+                  </div>
+                  <select
+                    value={replyStartFlowId}
+                    onChange={(e) => setReplyStartFlowId(e.target.value)}
+                    className="h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm"
+                  >
+                    <option value="">Nenhum</option>
+                    {flowOptions.map((f) => (
+                      <option key={f.id} value={f.id}>{f.name}</option>
+                    ))}
+                  </select>
+                  {replyStartFlowId && (
+                    <label className="flex items-center justify-between gap-2 text-[11px] text-gray-700">
+                      <span>Somente se classificação = interessado</span>
+                      <Toggle value={replyStartFlowOnlyInterested} onChange={setReplyStartFlowOnlyInterested} />
+                    </label>
+                  )}
                 </div>
               </div>
             </details>

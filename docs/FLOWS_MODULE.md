@@ -192,5 +192,7 @@ Nó wait_reply / collect_input
 - [x] Canvas xyflow (Fase 3) — `@xyflow/react`, minimap, connect, posições em `data.ui`  
 - [x] MessagePipelineComposer nos nós de mensagem (Fase 2 UI)  
 - [x] UI product-grade (lista + editor canvas/lista + painel config + DS canônico)  
-- [ ] Integração Campanha/Automação start_flow (Fase 7)  
+- [x] Integração Campanha (`replyStartFlowId`) + Automação (`iniciar_fluxo`)  
+- [x] Anti double-reply: sessão de fluxo bloqueia IA cognitiva no inbox  
+- [x] Métricas por status/fase + teste manual `POST /api/flows/:id/start`  
 - [ ] Matriz completa de testes §24  

@@ -1025,16 +1025,49 @@ export class InboxService {
       );
 
       if (!fromMe && !isGroup) {
-        await this.tryAutonomousReply({
-          pool,
-          instanceId,
-          conversationId,
-          remoteJid: String(remoteJid),
-          incomingMessageId: msgId,
-          incomingBody: String(body || ""),
-          incomingMessageType: String(messageType || "text"),
-          aiMode: conversationAIMode,
-        });
+        // Fluxos sempre processam inbound (mesmo com IA manual) — anti double-reply no cognitivo
+        let flowClaimed = false;
+        try {
+          const [ownerRows] = await pool.execute(
+            "SELECT created_by, brand_id FROM whatsapp_instances WHERE id = ? LIMIT 1",
+            [instanceId]
+          );
+          const owner = ownerRows?.[0] || {};
+          const ownerUserId = String(owner.created_by || "").trim();
+          const ownerBrandId = String(owner.brand_id || "").trim() || null;
+          const phone = this.extractPhoneFromJid(String(remoteJid));
+          if (ownerUserId && phone) {
+            const { FlowExecutorService } = await import("./flowExecutor");
+            const flowResult = await FlowExecutorService.get().handleInboundMessage({
+              userId: ownerUserId,
+              brandId: ownerBrandId,
+              phone,
+              message: String(body || ""),
+              instanceId,
+            });
+            flowClaimed = flowResult.claimed;
+            if (flowClaimed) {
+              logger.info(
+                `[AI-AUTO] fluxo claimed resumed=${flowResult.resumed} fired=${flowResult.fired} — skip cognitivo`
+              );
+            }
+          }
+        } catch (err: any) {
+          logger.debug(`flow inbound skipped: ${err?.message || err}`);
+        }
+
+        if (!flowClaimed) {
+          await this.tryAutonomousReply({
+            pool,
+            instanceId,
+            conversationId,
+            remoteJid: String(remoteJid),
+            incomingMessageId: msgId,
+            incomingBody: String(body || ""),
+            incomingMessageType: String(messageType || "text"),
+            aiMode: conversationAIMode,
+          });
+        }
       }
 
       logger.info(`Message saved: ${msgId} in conversation ${conversationId}`);

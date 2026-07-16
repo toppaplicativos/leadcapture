@@ -47,6 +47,15 @@ export function FlowEditor({ flow, onClose, onUpdated }: Props) {
   const [simSteps, setSimSteps] = useState<Array<{ label: string; type: string; subtype: string }> | null>(null)
   const [toast, setToast] = useState<Toast | null>(null)
   const [viewMode, setViewMode] = useState<'canvas' | 'list'>('canvas')
+  const [metrics, setMetrics] = useState<{
+    sample_size: number
+    completed: number
+    waiting: number
+    failed: number
+    phase_visits: Record<string, number>
+  } | null>(null)
+  const [testPhone, setTestPhone] = useState('')
+  const [starting, setStarting] = useState(false)
 
   const selected = nodes.find((n) => n.id === selectedId) || null
 
@@ -57,12 +66,22 @@ export function FlowEditor({ flow, onClose, onUpdated }: Props) {
 
   const reloadObs = useCallback(async () => {
     try {
-      const [ex, se] = await Promise.all([
+      const [ex, se, m] = await Promise.all([
         api.listExecutions(flow.id, 12),
         api.listSessions(flow.id, 12),
+        api.fetchFlowMetrics(flow.id).catch(() => null),
       ])
       setExecutions(ex)
       setSessions(se)
+      if (m) {
+        setMetrics({
+          sample_size: m.sample_size,
+          completed: m.completed,
+          waiting: m.waiting,
+          failed: m.failed,
+          phase_visits: m.phase_visits || {},
+        })
+      }
     } catch {
       /* ignore */
     }
@@ -123,6 +142,28 @@ export function FlowEditor({ flow, onClose, onUpdated }: Props) {
       setSimSteps(steps)
     } catch (e: any) {
       flash(e?.message || 'Falha na simulação', 'err')
+    }
+  }
+
+  async function startTest() {
+    const phone = testPhone.replace(/\D/g, '')
+    if (phone.length < 10) {
+      flash('Informe um telefone com DDD para teste', 'err')
+      return
+    }
+    setStarting(true)
+    try {
+      if (dirty) await api.updateFlow(flow.id, { name, nodes, connections })
+      const { execution_id } = await api.startFlow(flow.id, {
+        phone,
+        message: 'teste manual',
+      })
+      flash(`Execução iniciada ${execution_id.slice(0, 14)}…`)
+      void reloadObs()
+    } catch (e: any) {
+      flash(e?.message || 'Falha ao iniciar', 'err')
+    } finally {
+      setStarting(false)
     }
   }
 
@@ -379,7 +420,66 @@ export function FlowEditor({ flow, onClose, onUpdated }: Props) {
       )}
 
       {showObservability && (
-        <div className="grid gap-3 md:grid-cols-2">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          <Card flat>
+            <CardBody className="py-3 space-y-2">
+              <p className="text-xs font-semibold text-gray-800">Métricas (últimas execuções)</p>
+              {metrics ? (
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="rounded-lg bg-gray-50 border border-border px-2.5 py-2">
+                    <p className="text-gray-500">Amostra</p>
+                    <p className="font-semibold text-gray-900 tabular-nums">{metrics.sample_size}</p>
+                  </div>
+                  <div className="rounded-lg bg-emerald-50 border border-emerald-100 px-2.5 py-2">
+                    <p className="text-emerald-800/80">Concluídas</p>
+                    <p className="font-semibold text-emerald-900 tabular-nums">{metrics.completed}</p>
+                  </div>
+                  <div className="rounded-lg bg-sky-50 border border-sky-100 px-2.5 py-2">
+                    <p className="text-sky-800/80">Aguardando</p>
+                    <p className="font-semibold text-sky-900 tabular-nums">{metrics.waiting}</p>
+                  </div>
+                  <div className="rounded-lg bg-red-50 border border-red-100 px-2.5 py-2">
+                    <p className="text-red-800/80">Falhas</p>
+                    <p className="font-semibold text-red-900 tabular-nums">{metrics.failed}</p>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs text-gray-500">Sem dados ainda.</p>
+              )}
+              {metrics && Object.keys(metrics.phase_visits).length > 0 && (
+                <div className="pt-1">
+                  <p className="text-[11px] font-semibold text-gray-600 mb-1">Visitas por fase</p>
+                  <ul className="space-y-1">
+                    {Object.entries(metrics.phase_visits).map(([phase, n]) => (
+                      <li key={phase} className="flex justify-between text-[11px] text-gray-700">
+                        <span className="truncate">{phase}</span>
+                        <span className="tabular-nums font-semibold">{n}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              <div className="pt-2 border-t border-border-light space-y-1.5">
+                <p className="text-[11px] font-semibold text-gray-600">Teste manual</p>
+                <div className="flex gap-1.5">
+                  <Input
+                    value={testPhone}
+                    onChange={(e) => setTestPhone(e.target.value)}
+                    placeholder="5511999999999"
+                    className="!h-9 text-xs"
+                  />
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    loading={starting}
+                    onClick={() => void startTest()}
+                  >
+                    Iniciar
+                  </Button>
+                </div>
+              </div>
+            </CardBody>
+          </Card>
           <Card flat>
             <CardBody className="py-3 max-h-44 overflow-y-auto">
               <div className="flex items-center gap-2 mb-2">

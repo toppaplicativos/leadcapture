@@ -3,6 +3,7 @@ import {
   Plus, Trash2, ChevronDown, ChevronUp, GripVertical,
   MessageCircle, Camera, Mail, Megaphone, Bell,
   MapPin, Loader2, X, UserPlus, Accessibility, Users, BrainCircuit, CheckCircle2,
+  GitBranch,
 } from 'lucide-react'
 import type {
   AcaoPipeline, AcaoConfig, TipoAcao, AutomationTrigger,
@@ -28,6 +29,7 @@ const ACTION_ICONS: Partial<Record<TipoAcao, typeof MessageCircle>> = {
   publicar_conteudo: Megaphone,
   enviar_email: Mail,
   notificar_equipe: Bell,
+  iniciar_fluxo: GitBranch,
 }
 
 const ACTION_DESC: Partial<Record<TipoAcao, string>> = {
@@ -37,6 +39,19 @@ const ACTION_DESC: Partial<Record<TipoAcao, string>> = {
   publicar_conteudo: 'Publicar post / story / reel',
   enviar_email: 'E-mail com assunto e corpo',
   notificar_equipe: 'Aviso interno para a equipe',
+  iniciar_fluxo: 'Dispara uma jornada multi-turno em /fluxos',
+}
+
+function defaultConfig(tipo: TipoAcao): AcaoConfig {
+  if (tipo === 'iniciar_fluxo') return { flowId: '' }
+  if (actionUsesMessageBlocks(tipo)) {
+    return { mensagemSteps: [{ id: newMensagemStepId(), tipo: 'texto', caption: '', delaySegundos: 0 }] }
+  }
+  if (tipo === 'publicar_conteudo') {
+    return { contentPublishing: { format: 'single_image', approvalMode: 'manual_review' } }
+  }
+  if (tipo === 'enviar_email') return { emailSubject: '', emailBody: '' }
+  return {}
 }
 
 function defaultActionForTrigger(trigger: AutomationTrigger): TipoAcao {
@@ -50,17 +65,6 @@ function actionsForTrigger(trigger: AutomationTrigger) {
   if (trigger.tipo === 'evento') return ACOES_POR_PLATAFORMA[trigger.plataforma]
   const all = Object.values(ACOES_POR_PLATAFORMA).flat()
   return all.filter((v, i, arr) => arr.findIndex((x) => x.id === v.id) === i)
-}
-
-function defaultConfig(tipo: TipoAcao): AcaoConfig {
-  if (actionUsesMessageBlocks(tipo)) {
-    return { mensagemSteps: [{ id: newMensagemStepId(), tipo: 'texto', caption: '', delaySegundos: 0 }] }
-  }
-  if (tipo === 'publicar_conteudo') {
-    return { contentPublishing: { format: 'single_image', approvalMode: 'manual_review' } }
-  }
-  if (tipo === 'enviar_email') return { emailSubject: '', emailBody: '' }
-  return {}
 }
 
 export function ActionPipelineEditor({ pipeline, trigger, onChange }: Props) {
@@ -312,6 +316,13 @@ export function ActionPipelineEditor({ pipeline, trigger, onChange }: Props) {
                     />
                   </div>
                 )}
+
+                {acao.tipo === 'iniciar_fluxo' && (
+                  <FlowIdPicker
+                    value={config.flowId || config.fluxoId || ''}
+                    onChange={(flowId) => updateConfig(index, { ...config, flowId, fluxoId: flowId })}
+                  />
+                )}
               </div>
             )}
           </div>
@@ -319,6 +330,70 @@ export function ActionPipelineEditor({ pipeline, trigger, onChange }: Props) {
       })}
 
       <div ref={bottomRef} className="h-2" aria-hidden />
+    </div>
+  )
+}
+
+function FlowIdPicker({ value, onChange }: { value: string; onChange: (id: string) => void }) {
+  const [flows, setFlows] = useState<Array<{ id: string; name: string; status: string }>>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const h: Record<string, string> = { Accept: 'application/json' }
+        const t = localStorage.getItem('lead-system-token')
+        if (t) h.Authorization = `Bearer ${t}`
+        const b = localStorage.getItem('lead-system:active-brand-id')
+        if (b) h['x-brand-id'] = b
+        const r = await fetch('/api/flows', { headers: h })
+        const d = await r.json()
+        if (!cancelled) {
+          setFlows(
+            (d.flows || []).map((f: any) => ({
+              id: String(f.id),
+              name: String(f.name || 'Fluxo'),
+              status: String(f.status || 'draft'),
+            })),
+          )
+        }
+      } catch {
+        if (!cancelled) setFlows([])
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  return (
+    <div className="space-y-2">
+      <label className="block text-[11px] font-semibold text-gray-700">
+        Fluxo a iniciar
+        <select
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="mt-1 h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm"
+          disabled={loading}
+        >
+          <option value="">{loading ? 'Carregando…' : 'Selecione um fluxo publicado'}</option>
+          {flows.map((f) => (
+            <option key={f.id} value={f.id}>
+              {f.name} ({f.status})
+            </option>
+          ))}
+        </select>
+      </label>
+      <p className="text-[11px] text-gray-500 leading-relaxed">
+        O fluxo precisa estar <strong className="font-semibold text-gray-700">ativo</strong> (publicado).
+        O telefone vem do evento (lead/WhatsApp) ou de destino, se configurado.
+      </p>
+      {!loading && flows.length === 0 && (
+        <p className="text-[11px] text-amber-700">Nenhum fluxo em /fluxos ainda.</p>
+      )}
     </div>
   )
 }

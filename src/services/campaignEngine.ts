@@ -2955,6 +2955,50 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
     // Update lead tags and score
     await this.updateLeadAfterReply(userId, campaignLead.lead_id, classification, scoreDelta);
 
+    // Opcional: iniciar jornada (Fluxo) após resposta — settings.replyStartFlowId
+    if (classification !== "opt_out" && !wasAlreadyReplied) {
+      try {
+        const campaignRow = await queryOne<{ settings?: any; brand_id?: string | null }>(
+          `SELECT settings, brand_id FROM campaign_history WHERE id = ? AND user_id = ? LIMIT 1`,
+          [campaignLead.campaign_id, userId]
+        );
+        const settings =
+          typeof campaignRow?.settings === "string"
+            ? JSON.parse(campaignRow.settings)
+            : campaignRow?.settings || {};
+        const flowId = String(
+          settings.replyStartFlowId ||
+            settings.reply_start_flow_id ||
+            settings.followUpFlowId ||
+            ""
+        ).trim();
+        const onlyInterested = Boolean(settings.replyStartFlowOnlyInterested);
+        const shouldStart =
+          flowId && (!onlyInterested || classification === "interested");
+        if (shouldStart) {
+          const { FlowExecutorService } = await import("./flowExecutor");
+          const start = await FlowExecutorService.get().startFlowById({
+            flowId,
+            userId,
+            brandId: campaignRow?.brand_id || brandId || null,
+            phone: normalizedPhone,
+            message: messageText,
+            triggerSubtype: "campaign",
+            source: "campaign_reply",
+          });
+          if (start.ok) {
+            logger.info(
+              `${ctx} fluxo ${flowId.slice(0, 8)} iniciado apos reply (exec=${start.executionId})`
+            );
+          } else {
+            logger.warn(`${ctx} start flow apos reply falhou: ${start.error}`);
+          }
+        }
+      } catch (err: any) {
+        logger.warn(`${ctx} reply→flow skip: ${err?.message || err}`);
+      }
+    }
+
     logger.info(
       `${ctx} resposta registrada — campaign=${String(campaignLead.campaign_id || "").slice(0, 8)} classification=${classification} scoreDelta=${scoreDelta} repliedDelta=${repliedDelta} (was=${previousStatus || "(novo)"}).`
     );

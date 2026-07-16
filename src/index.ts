@@ -845,16 +845,8 @@ instanceManager.onGlobalMessage(async (instanceId, msg) => {
             });
         }
 
-        // Fluxos — retoma sessão waiting_user ou dispara gatilho message_received
-        FlowExecutorService.get()
-          .handleInboundMessage({
-            userId: ownerUserId,
-            brandId: ownerBrandId,
-            phone,
-            message: String(parsed.body),
-            instanceId,
-          })
-          .catch(() => {});
+        // Fluxos: prioridade no inbound é aplicada dentro do InboxService.tryAutonomousReply
+        // (resume/fire + skip da IA cognitiva se claimed). Evita double-reply.
 
         affiliateDistributionService
           .processInboundReply({

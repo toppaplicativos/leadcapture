@@ -21,7 +21,8 @@ export type AutomationActionType =
   | "comentar_ig"
   | "publicar_conteudo"
   | "enviar_email"
-  | "notificar_equipe";
+  | "notificar_equipe"
+  | "iniciar_fluxo";
 
 export interface AutomationActionStep {
   ordem: number;

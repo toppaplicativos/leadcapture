@@ -39,6 +39,7 @@ export type TipoAcao =
   | 'publicar_conteudo'
   | 'enviar_email'
   | 'notificar_equipe'
+  | 'iniciar_fluxo'
 
 export type MensagemStepTipo =
   | 'texto'
@@ -142,6 +143,9 @@ export interface AcaoConfig {
   midia?: { tipo: 'imagem' | 'video'; url: string }
   destinoTipo?: 'ator_do_gatilho' | 'todos_leads' | 'segmento' | 'contato' | 'equipe'
   destinoValor?: string
+  /** Ação iniciar_fluxo — id do flow_automations */
+  flowId?: string
+  fluxoId?: string
 }
 
 export interface AcaoPipeline {
@@ -346,12 +350,14 @@ export const ACOES_POR_PLATAFORMA: Record<Plataforma, Array<{ id: TipoAcao; labe
   ],
   whatsapp: [
     { id: 'enviar_dm_wa', label: 'Enviar mensagem WhatsApp' },
+    { id: 'iniciar_fluxo', label: 'Iniciar fluxo (jornada)' },
     { id: 'notificar_equipe', label: 'Notificar equipe' },
   ],
   email: [{ id: 'enviar_email', label: 'Enviar e-mail' }],
   leads: [
     { id: 'notificar_equipe', label: 'Notificar equipe' },
     { id: 'enviar_dm_wa', label: 'Enviar WhatsApp ao lead' },
+    { id: 'iniciar_fluxo', label: 'Iniciar fluxo (jornada)' },
   ],
 }
 

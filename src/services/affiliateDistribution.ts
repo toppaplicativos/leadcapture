@@ -1735,9 +1735,6 @@ export class AffiliateDistributionService {
           [ownerUserId, brandId]
         );
 
-    const maxDaily = Number(rules?.max_daily_per_affiliate || 20);
-    const today = todayDateOnly();
-
     let allowedRegions: string[] = [];
     try {
       const raw = rules?.allowed_regions_json ? JSON.parse(String(rules.allowed_regions_json)) : null;
@@ -1749,10 +1746,6 @@ export class AffiliateDistributionService {
     }
 
     return (affiliates || []).filter((a) => {
-      const dailyOn = a.daily_assigned_on ? String(a.daily_assigned_on).slice(0, 10) : null;
-      const dailyCount = dailyOn === today ? Number(a.daily_assigned_count || 0) : 0;
-      if (dailyCount >= maxDaily) return false;
-
       if (region && a.region) {
         const affRegion = String(a.region).toLowerCase();
         const prospectRegion = String(region).toLowerCase();

@@ -155,14 +155,14 @@ type CampaignComposerSettings = {
 };
 
 /** Bloco do compositor de campanha (ordem = sequência de entrega). */
-type CampaignActionBlock = {
+export type CampaignActionBlock = {
   id?: string;
   channel?: string;
   actionType?: string;
   content?: string;
   useAi?: boolean;
   aiInstruction?: string;
-  config?: Record<string, string>;
+  config?: Record<string, any>;
 };
 
 /** Contexto do afiliado no momento do envio — uma campanha se adapta a cada afiliado. */
@@ -1971,6 +1971,91 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
     };
   }
 
+  async sendWhatsappCompositionTest(
+    userId: string,
+    input: {
+      instanceId: string;
+      testPhone?: string;
+      brandId?: string | null;
+      blocks: CampaignActionBlock[];
+    }
+  ): Promise<{
+    message: string;
+    sentTo: string;
+    instanceId: string;
+    blockCount: number;
+  }> {
+    const instanceId = String(input.instanceId || "").trim();
+    const sentTo = normalizePhone(input.testPhone);
+    const blocks = Array.isArray(input.blocks) ? input.blocks.slice(0, 30) : [];
+    if (!instanceId) throw new Error("instanceId is required");
+    if (!sentTo || sentTo.length < 10) throw new Error("testPhone is required");
+    if (!blocks.length) throw new Error("Add at least one message block");
+
+    const brandId = String(input.brandId || "").trim() || null;
+    const instance = await queryOne<{ id: string; status: string }>(
+      `SELECT id, status FROM whatsapp_instances
+       WHERE id = ? AND created_by = ?
+       ${brandId ? "AND (brand_id = ? OR brand_id IS NULL)" : ""}
+       LIMIT 1`,
+      brandId ? [instanceId, userId, brandId] : [instanceId, userId]
+    );
+    if (!instance) throw new Error("Instance not found");
+
+    const runtimeInstance = this.instanceManager.getInstance(instanceId, userId);
+    if (!runtimeInstance || runtimeInstance.status !== "connected") {
+      throw new Error("Instance not connected");
+    }
+
+    const jid = await this.instanceManager.resolvePhoneJid(instanceId, sentTo);
+    if (!jid) throw new Error("Test number is not available on WhatsApp");
+
+    const testLead = {
+      id: "composer-test",
+      name: "Contato de Teste",
+      phone: sentTo,
+      city: "Sua cidade",
+      state: "",
+      category: "Teste interno",
+      segment: "Teste interno",
+      company: "Empresa de Teste",
+    };
+    const primary =
+      blocks.find((block) => String(block.content || "").trim())?.content ||
+      "[TESTE] Composição sem texto principal";
+    const result = await this.sendCampaignActionBlocks({
+      instanceId,
+      jid,
+      phone: sentTo,
+      messageText: this.fillTemplate(String(primary), testLead, { brandName: "Marca ativa" }),
+      blocks,
+      media: {
+        imagePath: null,
+        imageCaption: "",
+        imageUseTextAsCaption: false,
+        videoPaths: [],
+        videoCaption: "",
+        videoUseTextAsCaption: false,
+        audioPath: null,
+        audioVoiceNote: false,
+        documentPath: null,
+        documentName: null,
+        linkUrl: "",
+        product: null,
+      },
+      lead: testLead,
+      templateOpts: { brandName: "Marca ativa", products: [] },
+    });
+    if (!result.ok) throw new Error(result.error || "Failed to send composition test");
+
+    return {
+      message: "Composição de teste enviada",
+      sentTo,
+      instanceId,
+      blockCount: blocks.length,
+    };
+  }
+
   // ─── Core execution loop ───────────────────────────────────────
 
   private async executeCampaign(userId: string, campaignId: string, brandId?: string | null): Promise<void> {
@@ -3418,6 +3503,13 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
     for (let i = 0; i < ordered.length; i++) {
       const block = ordered[i];
       const actionType = String(block.actionType || "text").toLowerCase();
+      const configuredDelay = Math.max(
+        0,
+        Math.min(300, Number(block.config?.delaySeconds || block.config?.delaySegundos || 0)),
+      );
+      if (configuredDelay > 0) {
+        await new Promise((resolve) => setTimeout(resolve, configuredDelay * 1000));
+      }
 
       if (actionType === "divider") continue;
 
@@ -3454,6 +3546,20 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
         if (caption && caption !== messageText) {
           await sendText(this.fillTemplate(caption, lead, templateOpts));
           await new Promise((r) => setTimeout(r, 600));
+        }
+        continue;
+      }
+
+      if (["audio", "document"].includes(actionType)) {
+        const pathFromBlock = resolveBlockMediaPath(block);
+        if (pathFromBlock) {
+          await sendMediaFile(actionType as "audio" | "document", pathFromBlock, {
+            voiceNote: actionType === "audio" && block.config?.voiceNote !== false,
+            fileName: block.config?.fileName || undefined,
+          });
+          if (i < ordered.length - 1) await new Promise((r) => setTimeout(r, 800));
+        } else {
+          lastError = `${actionType}: media not configured`;
         }
         continue;
       }
@@ -3571,6 +3677,47 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
           await sendText(["Links dos produtos:", ...linkLines].join("\n"));
         }
         if (i < ordered.length - 1) await new Promise((r) => setTimeout(r, 1200));
+        continue;
+      }
+
+      if (actionType === "poll" && jid) {
+        const cfg = block.config || {};
+        const optionItems = Array.isArray(cfg.optionItems)
+          ? cfg.optionItems.map((item: any) => String(item?.label || item?.title || "").trim()).filter(Boolean)
+          : String(cfg.options || "")
+              .split(/\r?\n/)
+              .map((option: string) => option.trim())
+              .filter(Boolean);
+        const question =
+          (!primaryTextConsumed ? messageText : this.fillTemplate(String(block.content || ""), lead, templateOpts)) ||
+          "Qual opção você prefere?";
+        primaryTextConsumed = true;
+        if (optionItems.length < 2) {
+          lastError = "poll: at least two options are required";
+          continue;
+        }
+        try {
+          const result = await this.instanceManager.sendPollByJid(instanceId, jid, {
+            question: String(question).trim().slice(0, 255),
+            options: optionItems.slice(0, 12),
+            selectableCount: Math.max(1, Math.min(Number(cfg.pollSelectableCount || 1), optionItems.length)),
+          });
+          if (result.ok) anySent = true;
+          else lastError = result.error || "poll_failed";
+        } catch (err: any) {
+          lastError = `poll: ${err.message}`;
+        }
+        if (i < ordered.length - 1) await new Promise((r) => setTimeout(r, 1200));
+        continue;
+      }
+
+      if (["link", "cta", "deeplink"].includes(actionType)) {
+        const cfg = block.config || {};
+        const url = String(cfg.url || cfg.linkUrl || block.content || "").trim();
+        const caption = String(block.content || cfg.caption || "").trim();
+        const text = caption && caption !== url ? `${caption}\n\n${url}` : url;
+        if (text) await sendText(this.fillTemplate(text, lead, templateOpts));
+        if (i < ordered.length - 1) await new Promise((r) => setTimeout(r, 800));
         continue;
       }
 

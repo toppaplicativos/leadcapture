@@ -3,10 +3,10 @@ import makeWASocket, {
   DisconnectReason,
   downloadMediaMessage,
   generateWAMessageFromContent,
+  makeCacheableSignalKeyStore,
   proto,
   useMultiFileAuthState,
   WASocket,
-  fetchLatestBaileysVersion,
 } from "@whiskeysockets/baileys";
 import { Boom } from "@hapi/boom";
 import * as QRCode from "qrcode";
@@ -708,7 +708,6 @@ export class InstanceManager {
     }
 
     const { state, saveCreds } = await useMultiFileAuthState(authPath);
-    const { version } = await fetchLatestBaileysVersion();
 
     instance.status = "connecting";
     this.instances.set(id, instance);
@@ -719,7 +718,7 @@ export class InstanceManager {
 
       /* Mesmo fingerprint do pairing (Ubuntu/Chrome). "Lead System"/Desktop
          gerava 428 e sessões instáveis após pair. */
-      const sock = this.makeStableSocket(version, state);
+      const sock = this.makeStableSocket(state);
       this.sockets.set(id, sock);
       sock.ev.on("creds.update", saveCreds);
 
@@ -990,12 +989,15 @@ export class InstanceManager {
    * Socket de sessão já autenticada (reconnect / restore).
    * NÃO usar no fluxo de geração de código — ver makePairingSocket (intocado).
    */
-  private makeStableSocket(version: any, state: any) {
+  private makeStableSocket(state: any) {
+    const socketLogger = pino({ level: "silent" }) as any;
     return makeWASocket({
-      version,
-      auth: state,
+      auth: {
+        creds: state.creds,
+        keys: makeCacheableSignalKeyStore(state.keys, socketLogger),
+      },
       printQRInTerminal: false,
-      logger: pino({ level: "silent" }) as any,
+      logger: socketLogger,
       browser: Browsers.ubuntu("Chrome"),
       connectTimeoutMs: 60000,
       defaultQueryTimeoutMs: 0,
@@ -1009,16 +1011,19 @@ export class InstanceManager {
   }
 
   /** Socket exclusivo do pareamento por código — NÃO alterar sem teste manual. */
-  private makePairingSocket(version: any, state: any) {
+  private makePairingSocket(state: any) {
     /* Ubuntu/Chrome = default Baileys e plataforma WEB_BROWSER.
        macOS("Desktop") gera companion_platform Desktop/DARWIN e o WhatsApp
        encerra com 428 antes do vínculo — erro no celular:
        "Não foi possível conectar o dispositivo". */
+    const socketLogger = pino({ level: "silent" }) as any;
     return makeWASocket({
-      version,
-      auth: state,
+      auth: {
+        creds: state.creds,
+        keys: makeCacheableSignalKeyStore(state.keys, socketLogger),
+      },
       printQRInTerminal: false,
-      logger: pino({ level: "silent" }) as any,
+      logger: socketLogger,
       browser: Browsers.ubuntu("Chrome"),
       connectTimeoutMs: 60000,
       defaultQueryTimeoutMs: 0,
@@ -1091,8 +1096,7 @@ export class InstanceManager {
       ({ state, saveCreds } = await useMultiFileAuthState(authPath));
     }
 
-    const { version } = await fetchLatestBaileysVersion();
-    const sock = this.makePairingSocket(version, state);
+    const sock = this.makePairingSocket(state);
     this.sockets.set(id, sock);
     sock.ev.on("creds.update", saveCreds);
     /* NÃO reconectar em registered=true sozinho.
@@ -1198,8 +1202,7 @@ export class InstanceManager {
         return;
       }
 
-      const { version } = await fetchLatestBaileysVersion();
-      const sock = this.makePairingSocket(version, state);
+      const sock = this.makePairingSocket(state);
       this.sockets.set(id, sock);
       sock.ev.on("creds.update", saveCreds);
       instance.status = "connecting";
@@ -1862,6 +1865,18 @@ export class InstanceManager {
       }
     }
     return { exists: false, triedVariants: variants };
+  }
+
+  async resolvePhoneJid(instanceId: string, phone: string): Promise<string | null> {
+    const sock = this.sockets.get(instanceId);
+    const instance = this.instances.get(instanceId);
+    if (!sock || !instance || instance.status !== "connected") {
+      throw new Error("Instance not connected");
+    }
+    const digits = String(phone || "").replace(/\D/g, "");
+    if (!digits) return null;
+    const resolved = await this.resolveWhatsAppTarget(sock, digits);
+    return resolved.exists && resolved.jid ? resolved.jid : null;
   }
 
   async sendMessage(instanceId: string, phone: string, message: string): Promise<boolean> {

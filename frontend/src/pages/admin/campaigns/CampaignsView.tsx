@@ -35,6 +35,7 @@ import { useCampaignsBridgeOptional } from '@/lib/agent/CampaignsBridgeContext'
 import { useAgentShell } from '@/lib/agent/AgentShellContext'
 import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
 import { fieldControlClass, fieldLabelLegacyClass } from '@/components/ui'
+import { WhatsAppCompositionTest } from '@/components/whatsapp/WhatsAppCompositionTest'
 
 type CampaignChannel = 'whatsapp' | 'instagram' | 'email' | 'push'
 type CampaignActionBlock = {
@@ -2182,6 +2183,13 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
               </div>
 
               <button type="button" onClick={addActionBlock} className="w-full min-h-12 rounded-2xl border border-dashed border-gray-300 bg-gray-50 text-xs font-bold text-gray-700 hover:border-gray-400 hover:bg-gray-100 flex items-center justify-center gap-2"><Plus size={15} /> Adicionar bloco</button>
+
+              {channels[0] === 'whatsapp' && (
+                <WhatsAppCompositionTest
+                  blocks={actionBlocks}
+                  sourceLabel="Campanha"
+                />
+              )}
 
             </div>
 

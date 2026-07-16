@@ -287,17 +287,6 @@ export function AffiliateDistributionSection({ showToast, saving, setSaving }: P
               ? <ToggleRight size={22} className="text-emerald-600" />
               : <ToggleLeft size={22} className="text-gray-400" />}
           </button>
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="text-gray-600">Limite de atribuições por afiliado</span>
-            <input
-              type="number"
-              min={1}
-              max={500}
-              value={rulesForm.max_daily_per_affiliate}
-              onChange={(e) => setRulesForm((f) => ({ ...f, max_daily_per_affiliate: Number(e.target.value) }))}
-              className="rounded-lg border border-gray-200 px-3 py-2"
-            />
-          </label>
           <div className="sm:col-span-2 rounded-[18px] border border-gray-200 bg-gray-50 p-4">
             <h4 className="text-sm font-semibold text-gray-900">Ritmo individual de cada seção</h4>
             <p className="mb-3 mt-0.5 text-xs text-gray-500">

@@ -826,7 +826,11 @@ export class InboxService {
 
       const isGroup = remoteJid.endsWith("@g.us");
       let fromMe = Boolean(msg?.key?.fromMe ?? msg?.fromMe);
-      const senderJid = msg?.key?.participant || remoteJid;
+      const senderJid =
+        msg?.key?.participantAlt ||
+        msg?.key?.remoteJidAlt ||
+        msg?.key?.participant ||
+        remoteJid;
       const pushName = msg.pushName || null;
       const senderName = !fromMe && !isGroup ? (pushName ? String(pushName) : null) : null;
       const instancePhone = await this.getInstancePhone(pool, instanceId);
@@ -837,7 +841,9 @@ export class InboxService {
       }
 
       if (isGroup && !fromMe) {
-        const participantPhone = this.extractPhoneFromJid(msg?.key?.participant);
+        const participantPhone = this.extractPhoneFromJid(
+          msg?.key?.participantAlt || msg?.key?.participant,
+        );
         if (this.isSamePhone(participantPhone, instancePhone)) {
           fromMe = true;
         }

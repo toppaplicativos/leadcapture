@@ -259,6 +259,8 @@ export function FlowNodeConfigPanel({ node, onChange, onData, onRemove }: Props)
               allowedTipos={['texto', 'imagem', 'video', 'audio', 'documento', 'link', 'cta', 'botoes', 'lista', 'enquete']}
               variableHints="{{context.name}} {{customer.phone}} {{customer.name}}"
               compact
+              enableWhatsappTest
+              testSourceLabel="Fluxo"
             />
           </div>
           <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">

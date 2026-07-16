@@ -10,6 +10,10 @@ import {
 } from '@/lib/automations/schema'
 import { MediaPickerModal } from '@/components/gallery/MediaPickerModal'
 import type { GalleryItem } from '@/lib/gallery/types'
+import {
+  mensagemStepsToWhatsAppBlocks,
+  WhatsAppCompositionTest,
+} from '@/components/whatsapp/WhatsAppCompositionTest'
 
 type CatalogProduct = { id: string; name: string; price?: number; promoPrice?: number; description?: string }
 
@@ -48,6 +52,8 @@ type Props = {
   allowedTipos: MensagemStepTipo[]
   variableHints?: string
   compact?: boolean
+  enableWhatsappTest?: boolean
+  testSourceLabel?: string
 }
 
 function defaultFields(tipo: MensagemStepTipo): Partial<MensagemStep> {
@@ -72,7 +78,15 @@ function defaultFields(tipo: MensagemStepTipo): Partial<MensagemStep> {
   return {}
 }
 
-export function MessagePipelineComposer({ steps, onChange, allowedTipos, variableHints, compact }: Props) {
+export function MessagePipelineComposer({
+  steps,
+  onChange,
+  allowedTipos,
+  variableHints,
+  compact,
+  enableWhatsappTest,
+  testSourceLabel = 'Automação',
+}: Props) {
   const [openIds, setOpenIds] = useState<Record<string, boolean>>({})
   const [pickerOpen, setPickerOpen] = useState(true)
   const [galleryFor, setGalleryFor] = useState<string | null>(null)
@@ -691,6 +705,13 @@ export function MessagePipelineComposer({ steps, onChange, allowedTipos, variabl
       </div>
 
       <div ref={bottomRef} className="h-1" aria-hidden />
+
+      {enableWhatsappTest && (
+        <WhatsAppCompositionTest
+          blocks={mensagemStepsToWhatsAppBlocks(steps)}
+          sourceLabel={testSourceLabel}
+        />
+      )}
 
       <MediaPickerModal
         open={!!galleryFor}

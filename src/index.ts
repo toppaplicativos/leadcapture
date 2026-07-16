@@ -752,6 +752,29 @@ app.set("automationRuntime", automationRuntime);
 export const campaignEngine = new CampaignEngineService(instanceManager, instanceRotation);
 app.set("campaignEngine", campaignEngine);
 setCampaignEngineRef(campaignEngine);
+app.post("/api/whatsapp/composer-test", authMiddleware, async (req: any, res) => {
+  try {
+    const userId = req.user?.userId as string | undefined;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    if (req.body?.confirmed !== true) {
+      return res.status(400).json({ error: "Explicit confirmation is required" });
+    }
+    const result = await campaignEngine.sendWhatsappCompositionTest(userId, {
+      instanceId: String(req.body?.instanceId || ""),
+      testPhone: String(req.body?.testPhone || ""),
+      brandId: String(req.headers["x-brand-id"] || "").trim() || null,
+      blocks: Array.isArray(req.body?.blocks) ? req.body.blocks : [],
+    });
+    res.json({ success: true, ...result });
+  } catch (error: any) {
+    const message = String(error?.message || "Failed to send composition test");
+    const status =
+      message.includes("not found") ? 404 :
+      message.includes("required") || message.includes("connected") || message.includes("WhatsApp") ? 400 :
+      500;
+    res.status(status).json({ error: message });
+  }
+});
 app.use("/api/campaigns-v2", authMiddleware, requireModuleAndPlan("campaigns"), createCampaignRoutes(instanceManager, instanceRotation, campaignEngine));
 const inboxService = new InboxService();
 inboxService.setMediaDownloader((instanceId, msg) => instanceManager.downloadIncomingMedia(instanceId, msg));
@@ -779,12 +802,14 @@ instanceManager.onGlobalMessage(async (instanceId, msg) => {
     });
 
     // Campaign Engine — process incoming reply for active campaigns
-    /* WhatsApp multidevice: mensagens recebidas vêm com remoteJid = X@lid
-       (LinkedID interno, não é o número real). Baileys 6.7+ expõe o número
-       de telefone real em `msg.key.senderPn`. Preferimos esse quando existe;
-       fallback para o número extraído do JID se for um @s.whatsapp.net. */
+    /* Baileys 7 / WhatsApp LID: a identidade principal pode vir como @lid.
+       Quando o protocolo fornece o PN alternativo, ele aparece em
+       remoteJidAlt (conversa direta) ou participantAlt (grupo). Campos antigos
+       continuam como fallback para mensagens persistidas pela linha 6.x. */
     const rawRemoteJid = String(msg?.key?.remoteJid || "");
     const keyAny = (msg?.key as any) || {};
+    const remoteJidAlt = String(keyAny.remoteJidAlt || "").trim();
+    const participantAlt = String(keyAny.participantAlt || "").trim();
     const senderPn = String(keyAny.senderPn || "").trim();
     const participantPn = String(keyAny.participantPn || "").trim();
     /* Em multidevice, Baileys também pode popular esses campos que tentamos: */
@@ -796,7 +821,13 @@ instanceManager.onGlobalMessage(async (instanceId, msg) => {
        - key.participantPn (mensagens em grupo)
        - key.participant (alguns casos legados)
        Pegamos a primeira que parecer @s.whatsapp.net ou puramente numérica. */
-    const candidates = [senderPn, participantPn, participantField].filter(Boolean);
+    const candidates = [
+      remoteJidAlt,
+      participantAlt,
+      senderPn,
+      participantPn,
+      participantField,
+    ].filter(Boolean);
     const resolvedPn = candidates.find((c) => /^\d+@s\.whatsapp\.net$/.test(c) || /^\d{10,15}$/.test(c)) || "";
     const isLid = rawRemoteJid.endsWith("@lid");
     const phone = resolvedPn
@@ -808,7 +839,7 @@ instanceManager.onGlobalMessage(async (instanceId, msg) => {
     if (isLid && !resolvedPn) {
       /* Log diagnóstico — mostra a estrutura inteira do key uma vez só por instância pra debug */
       logger.warn(
-        `[CampaignReply] @lid sem PN resolvido. instance=${instanceId} jid=${rawRemoteJid} key.senderPn=${senderPn || "(empty)"} key.participantPn=${participantPn || "(empty)"} key.senderLid=${senderLid || "(empty)"} key.participantLid=${participantLid || "(empty)"} key.participant=${participantField || "(empty)"} keys=${Object.keys(keyAny).join(",")}`
+        `[CampaignReply] @lid sem PN alternativo. instance=${instanceId} jid=${rawRemoteJid} key.remoteJidAlt=${remoteJidAlt || "(empty)"} key.participantAlt=${participantAlt || "(empty)"} key.senderPn=${senderPn || "(empty)"} key.participantPn=${participantPn || "(empty)"} key.senderLid=${senderLid || "(empty)"} key.participantLid=${participantLid || "(empty)"} key.participant=${participantField || "(empty)"} keys=${Object.keys(keyAny).join(",")}`
       );
     }
 

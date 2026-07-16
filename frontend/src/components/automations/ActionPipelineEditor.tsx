@@ -289,6 +289,8 @@ export function ActionPipelineEditor({ pipeline, trigger, onChange }: Props) {
                         onChange={(mensagemSteps) => updateConfig(index, { ...config, mensagemSteps })}
                         allowedTipos={allowedStepTypesForAction(acao.tipo)}
                         variableHints="Clique em uma tag dentro de cada bloco para inserir."
+                        enableWhatsappTest={acao.tipo === 'enviar_dm_wa'}
+                        testSourceLabel="Automação"
                       />
                     </div>
                   </>

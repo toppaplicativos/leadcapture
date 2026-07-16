@@ -3,6 +3,7 @@ import makeWASocket, {
   DisconnectReason,
   downloadMediaMessage,
   generateWAMessageFromContent,
+  isJidGroup,
   makeCacheableSignalKeyStore,
   proto,
   useMultiFileAuthState,
@@ -2237,10 +2238,53 @@ export class InstanceManager {
     }
   }
 
+  /**
+   * WhatsApp exige nós binários extras (biz/interactive/native_flow + bot em 1:1)
+   * para renderizar InteractiveMessage.NativeFlowMessage. Sem isso o relay “sai”
+   * localmente mas o servidor não confirma (NO ACK) e o destino não recebe botões.
+   */
+  private buildNativeFlowAdditionalNodes(
+    targetJid: string,
+    flowName: string = "mixed"
+  ): Array<{ tag: string; attrs: Record<string, string>; content?: any[] }> {
+    const nodes: Array<{ tag: string; attrs: Record<string, string>; content?: any[] }> = [
+      {
+        tag: "biz",
+        attrs: {},
+        content: [
+          {
+            tag: "interactive",
+            attrs: { type: "native_flow", v: "1" },
+            content: [
+              {
+                tag: "native_flow",
+                attrs: { name: flowName, v: "9" },
+              },
+            ],
+          },
+        ],
+      },
+    ];
+
+    // Contato 1:1 precisa do marcador de bot de negócio para o client renderizar o flow.
+    if (!isJidGroup(targetJid)) {
+      nodes.push({
+        tag: "bot",
+        attrs: { biz_bot: "1" },
+      });
+    }
+
+    return nodes;
+  }
+
   private async sendProtoMessageByJid(
     instanceId: string,
     jid: string,
-    content: proto.IMessage
+    content: proto.IMessage,
+    options?: {
+      additionalNodes?: Array<{ tag: string; attrs: Record<string, string>; content?: any[] }>;
+      label?: string;
+    }
   ): Promise<boolean> {
     const sock = this.sockets.get(instanceId);
     const instance = this.instances.get(instanceId);
@@ -2258,13 +2302,17 @@ export class InstanceManager {
       throw new Error("Failed to build WhatsApp message");
     }
 
-    await sock.relayMessage(targetJid, fullMsg.message, { messageId });
+    const additionalNodes = options?.additionalNodes || [];
+    await sock.relayMessage(targetJid, fullMsg.message, {
+      messageId,
+      ...(additionalNodes.length ? { additionalNodes } : {}),
+    });
 
     let ackOk = true;
     ackOk = await this.waitForAck(messageId, instanceId);
     if (!ackOk) {
       logger.warn(
-        `Proto message to ${targetJid} sent locally but NO WhatsApp ack in ${InstanceManager.DEFAULT_ACK_TIMEOUT_MS}ms (instance=${instance.name}, mid=${messageId})`
+        `Proto message${options?.label ? ` (${options.label})` : ""} to ${targetJid} sent locally but NO WhatsApp ack in ${InstanceManager.DEFAULT_ACK_TIMEOUT_MS}ms (instance=${instance.name}, mid=${messageId}, nodes=${additionalNodes.map((n) => n.tag).join("+") || "none"})`
       );
       return false;
     }
@@ -2310,16 +2358,19 @@ export class InstanceManager {
       .join("\n")
       .trim();
 
+    const footerText = input.footer ? String(input.footer).trim() : "";
+    // Payload alinhado ao native flow do cliente oficial: viewOnce + context + interactive.
+    // Os nós binários biz/bot são injetados em sendProtoMessageByJid — sem eles o WA não ACK.
     const buttonsPayload = {
       viewOnceMessage: {
         message: {
+          messageContextInfo: {
+            deviceListMetadata: {},
+            deviceListMetadataVersion: 2,
+          },
           interactiveMessage: {
-            header: {
-              title: "",
-              hasMediaAttachment: false,
-            },
             body: { text: String(input.body).trim() },
-            footer: { text: input.footer ? String(input.footer).trim() : "" },
+            ...(footerText ? { footer: { text: footerText } } : {}),
             nativeFlowMessage: {
               buttons: normalizedButtons.map((button) => ({
                 name: "quick_reply",
@@ -2328,21 +2379,27 @@ export class InstanceManager {
                   id: button.id,
                 }),
               })),
-              messageParamsJson: "",
             },
           },
         },
       },
-    } satisfies proto.IMessage;
+    } as proto.IMessage;
 
     try {
       if (deliveryMode !== "text_only") {
-        const sent = await this.sendProtoMessageByJid(instanceId, jid, buttonsPayload);
+        const sock = this.sockets.get(instanceId);
+        const resolvedJid = sock
+          ? await this.resolveSendTargetJid(sock, jid)
+          : jid;
+        const sent = await this.sendProtoMessageByJid(instanceId, jid, buttonsPayload, {
+          additionalNodes: this.buildNativeFlowAdditionalNodes(resolvedJid, "mixed"),
+          label: "buttons-native-flow",
+        });
         if (!sent) {
           if (deliveryMode === "native_only") {
-            return { ok: false, mode: "native", error: "native_send_failed" };
+            return { ok: false, mode: "native", error: "native_send_failed_no_ack" };
           }
-          throw new Error("native_send_failed");
+          throw new Error("native_send_failed_no_ack");
         }
         logger.info(`Native-flow buttons sent from instance ${instanceId} to ${jid}`);
         return { ok: true, mode: "native_flow" };
@@ -2444,46 +2501,64 @@ export class InstanceManager {
       .join("\n")
       .trim();
 
+    const listFooter = input.footer ? String(input.footer).trim() : "";
+    const listTitle = String(input.title).trim();
     const listPayload = {
       viewOnceMessage: {
         message: {
+          messageContextInfo: {
+            deviceListMetadata: {},
+            deviceListMetadataVersion: 2,
+          },
           interactiveMessage: {
-            header: {
-              title: String(input.title).trim(),
-              hasMediaAttachment: false,
-            },
+            ...(listTitle
+              ? {
+                  header: {
+                    title: listTitle,
+                    hasMediaAttachment: false,
+                  },
+                }
+              : {}),
             body: { text: String(input.description).trim() },
-            footer: { text: input.footer ? String(input.footer).trim() : "" },
+            ...(listFooter ? { footer: { text: listFooter } } : {}),
             nativeFlowMessage: {
-              buttons: [{
-                name: "single_select",
-                buttonParamsJson: JSON.stringify({
-                  title: String(input.buttonText).trim(),
-                  sections: normalizedSections.map((section) => ({
-                    title: section.title || "",
-                    rows: section.rows.map((row) => ({
-                      id: row.id,
-                      title: row.title,
-                      description: row.description || "",
+              buttons: [
+                {
+                  name: "single_select",
+                  buttonParamsJson: JSON.stringify({
+                    title: String(input.buttonText).trim(),
+                    sections: normalizedSections.map((section) => ({
+                      title: section.title || "",
+                      rows: section.rows.map((row) => ({
+                        id: row.id,
+                        title: row.title,
+                        description: row.description || "",
+                      })),
                     })),
-                  })),
-                }),
-              }],
-              messageParamsJson: "",
+                  }),
+                },
+              ],
             },
           },
         },
       },
-    } satisfies proto.IMessage;
+    } as proto.IMessage;
 
     try {
       if (deliveryMode !== "text_only") {
-        const sent = await this.sendProtoMessageByJid(instanceId, jid, listPayload);
+        const sock = this.sockets.get(instanceId);
+        const resolvedJid = sock
+          ? await this.resolveSendTargetJid(sock, jid)
+          : jid;
+        const sent = await this.sendProtoMessageByJid(instanceId, jid, listPayload, {
+          additionalNodes: this.buildNativeFlowAdditionalNodes(resolvedJid, "mixed"),
+          label: "list-native-flow",
+        });
         if (!sent) {
           if (deliveryMode === "native_only") {
-            return { ok: false, mode: "native", error: "native_send_failed" };
+            return { ok: false, mode: "native", error: "native_send_failed_no_ack" };
           }
-          throw new Error("native_send_failed");
+          throw new Error("native_send_failed_no_ack");
         }
         logger.info(`Native-flow list sent from instance ${instanceId} to ${jid}`);
         return { ok: true, mode: "native_flow" };

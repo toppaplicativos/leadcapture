@@ -3,23 +3,17 @@ import { getPool } from "../config/database";
 import { InstanceManager } from "../core/instanceManager";
 import { logger } from "../utils/logger";
 import { getNotificationService } from "./notifications";
-
-interface FNode {
-  id: string;
-  type: "trigger" | "condition" | "action" | "delay" | "destination" | "end";
-  subtype: string;
-  label: string;
-  data: Record<string, any>;
-}
-
-interface FConn {
-  id: string;
-  from: string;
-  fromHandle: string;
-  to: string;
-}
-
-type ExecutionStatus = "running" | "completed" | "failed";
+import { ensureFlowSchema } from "./flowSchema";
+import {
+  connectionMatches,
+  isCollectNode,
+  isHandoffNode,
+  isWaitNode,
+  normalizeHandle,
+  type FlowConnection as FConn,
+  type FlowExecutionStatus as ExecutionStatus,
+  type FlowNode as FNode,
+} from "./flowTypes";
 
 type NodeStepLog = {
   node_id: string;
@@ -60,8 +54,15 @@ type ExecutionSnapshot = {
 interface ExecContext {
   flowId: string;
   userId: string;
+  brandId?: string | null;
   instanceId?: string;
+  publishedVersion?: number;
+  nodes: FNode[];
+  connections: FConn[];
+  sessionId?: string;
   execution: ExecutionSnapshot;
+  /** When resuming, the inbound message that unlocked wait/collect */
+  inboundMessage?: string;
 }
 
 export class FlowExecutorService {
@@ -82,6 +83,39 @@ export class FlowExecutorService {
     return FlowExecutorService._inst;
   }
 
+  /**
+   * Entrada principal para mensagens inbound: retoma sessão waiting_user
+   * antes de disparar novos fluxos por gatilho.
+   */
+  async handleInboundMessage(input: {
+    userId: string;
+    brandId?: string | null;
+    phone: string;
+    message: string;
+    instanceId?: string;
+  }): Promise<{ resumed: boolean; fired: boolean }> {
+    const contactKey = this.normalizeContactKey(input.phone);
+    if (!contactKey) return { resumed: false, fired: false };
+
+    const resumed = await this.resumeWaitingSession({
+      userId: input.userId,
+      brandId: input.brandId,
+      contactKey,
+      message: input.message,
+      instanceId: input.instanceId,
+    });
+
+    if (resumed) return { resumed: true, fired: false };
+
+    await this.fire("message_received", input.userId, {
+      phone: input.phone,
+      message: input.message,
+      brandId: input.brandId,
+      instanceId: input.instanceId,
+    });
+    return { resumed: false, fired: true };
+  }
+
   async fire(
     triggerSubtype: string,
     userId: string,
@@ -90,23 +124,49 @@ export class FlowExecutorService {
     try {
       await this.ensureTables();
       const pool = getPool();
+      const brandId = triggerData.brandId ? String(triggerData.brandId) : null;
+      const contactKey = this.normalizeContactKey(
+        String(triggerData.phone || triggerData.contactKey || "")
+      );
+
+      // Concorrência: se já há sessão waiting para o contato, não inicia novo fluxo reativo
+      if (contactKey && triggerSubtype === "message_received") {
+        const [waiting] = await pool.query<any[]>(
+          `SELECT id FROM flow_sessions
+           WHERE user_id = ? AND contact_key = ? AND status = 'waiting_user'
+           LIMIT 1`,
+          [userId, contactKey]
+        );
+        if (waiting[0]) {
+          logger.debug(`FlowExecutor.fire skip — session already waiting ${waiting[0].id}`);
+          return;
+        }
+      }
+
       const [rows] = await pool.query<any[]>(
         "SELECT * FROM flow_automations WHERE user_id = ? AND status = 'active'",
         [userId]
       );
 
       for (const row of rows) {
-        const nodes: FNode[] = typeof row.nodes_json === "string"
-          ? JSON.parse(row.nodes_json)
-          : (row.nodes_json ?? []);
+        if (brandId && row.brand_id && String(row.brand_id) !== brandId) continue;
 
-        const connections: FConn[] = typeof row.connections_json === "string"
-          ? JSON.parse(row.connections_json)
-          : (row.connections_json ?? []);
-
-        const triggers = nodes.filter((n) => n.type === "trigger" && n.subtype === triggerSubtype);
+        const { nodes, connections, version } = this.resolveRuntimeGraph(row);
+        const triggers = nodes.filter(
+          (n) => n.type === "trigger" && n.subtype === triggerSubtype
+        );
 
         for (const trigger of triggers) {
+          // Keyword filter opcional no trigger
+          if (triggerSubtype === "message_received") {
+            const keywords = this.parseKeywords(trigger.data);
+            if (keywords.length > 0) {
+              const msg = String(triggerData.message || "").toLowerCase();
+              const hit = keywords.some((k) => msg.includes(k.toLowerCase()));
+              if (!hit) continue;
+            }
+          }
+
           const execution = this.createExecutionSnapshot({
             flowId: row.id,
             userId,
@@ -117,17 +177,31 @@ export class FlowExecutorService {
           const ctx: ExecContext = {
             flowId: row.id,
             userId,
+            brandId: row.brand_id || brandId,
+            publishedVersion: version,
+            nodes,
+            connections,
+            instanceId: triggerData.instanceId
+              ? String(triggerData.instanceId)
+              : undefined,
             execution,
           };
 
           await this.insertExecution(ctx.execution);
-          ctx.instanceId = await this.resolveInstance(userId);
+          if (!ctx.instanceId) ctx.instanceId = await this.resolveInstance(userId);
 
-          this.runFrom(trigger.id, nodes, connections, ctx)
+          this.runFrom(trigger.id, ctx)
             .then(async () => {
+              if (ctx.execution.status === "waiting_user" || ctx.execution.status === "waiting_agent") {
+                await this.persistExecution(ctx.execution, null, false);
+                return;
+              }
               ctx.execution.status = "completed";
-              ctx.execution.debug_log.push(`[${new Date().toISOString()}] Flow finished successfully`);
+              ctx.execution.debug_log.push(
+                `[${new Date().toISOString()}] Flow finished successfully`
+              );
               await this.persistExecution(ctx.execution, null, true);
+              await this.completeSessionsForExecution(ctx.execution.execution_id, "completed");
             })
             .catch(async (err: any) => {
               ctx.execution.status = "failed";
@@ -135,6 +209,7 @@ export class FlowExecutorService {
                 `[${new Date().toISOString()}] Flow failed: ${String(err?.message || err)}`
               );
               await this.persistExecution(ctx.execution, String(err?.message || err), true);
+              await this.completeSessionsForExecution(ctx.execution.execution_id, "failed");
               logger.error(`FlowExecutor error in flow ${row.id}: ${err.message}`);
             });
         }
@@ -144,13 +219,213 @@ export class FlowExecutorService {
     }
   }
 
-  private async runFrom(
-    nodeId: string,
-    nodes: FNode[],
-    conns: FConn[],
-    ctx: ExecContext
-  ): Promise<void> {
-    const node = nodes.find((n) => n.id === nodeId);
+  private resolveRuntimeGraph(row: any): {
+    nodes: FNode[];
+    connections: FConn[];
+    version: number;
+  } {
+    const version = Number(row.published_version || 0);
+    const usePublished =
+      version > 0 && (row.published_nodes_json != null || row.published_connections_json != null);
+
+    const nodesRaw = usePublished
+      ? row.published_nodes_json ?? row.nodes_json
+      : row.nodes_json;
+    const connsRaw = usePublished
+      ? row.published_connections_json ?? row.connections_json
+      : row.connections_json;
+
+    const nodes: FNode[] =
+      typeof nodesRaw === "string" ? JSON.parse(nodesRaw) : nodesRaw ?? [];
+    const connections: FConn[] =
+      typeof connsRaw === "string" ? JSON.parse(connsRaw) : connsRaw ?? [];
+
+    return { nodes, connections, version: usePublished ? version : 0 };
+  }
+
+  private parseKeywords(data: Record<string, any> | undefined): string[] {
+    if (!data) return [];
+    if (Array.isArray(data.keywords)) {
+      return data.keywords.map((k: any) => String(k).trim()).filter(Boolean);
+    }
+    const raw = String(data.keyword || data.keywords || data.palavra_chave || "").trim();
+    if (!raw) return [];
+    return raw.split(/[,;|]/).map((s) => s.trim()).filter(Boolean);
+  }
+
+  private normalizeContactKey(phone: string): string {
+    return String(phone || "").replace(/\D/g, "").slice(-15);
+  }
+
+  private async resumeWaitingSession(input: {
+    userId: string;
+    brandId?: string | null;
+    contactKey: string;
+    message: string;
+    instanceId?: string;
+  }): Promise<boolean> {
+    await this.ensureTables();
+    const pool = getPool();
+    const [rows] = await pool.query<any[]>(
+      `SELECT * FROM flow_sessions
+       WHERE user_id = ? AND contact_key = ? AND status = 'waiting_user'
+       ORDER BY updated_at DESC
+       LIMIT 1`,
+      [input.userId, input.contactKey]
+    );
+    const session = rows[0];
+    if (!session) return false;
+
+    if (session.expires_at && new Date(session.expires_at).getTime() < Date.now()) {
+      await pool.execute(
+        `UPDATE flow_sessions SET status = 'expired', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        [session.id]
+      );
+      return false;
+    }
+
+    const nodes: FNode[] =
+      typeof session.nodes_snapshot_json === "string"
+        ? JSON.parse(session.nodes_snapshot_json)
+        : session.nodes_snapshot_json ?? [];
+    const connections: FConn[] =
+      typeof session.connections_snapshot_json === "string"
+        ? JSON.parse(session.connections_snapshot_json)
+        : session.connections_snapshot_json ?? [];
+
+    const waitingNodeId = String(session.waiting_node_id || session.current_node_id || "");
+    const waitingNode = nodes.find((n) => n.id === waitingNodeId);
+    if (!waitingNode) {
+      await pool.execute(
+        `UPDATE flow_sessions SET status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        [session.id]
+      );
+      return false;
+    }
+
+    const [execRows] = await pool.query<any[]>(
+      `SELECT * FROM flow_automation_executions WHERE id = ? LIMIT 1`,
+      [session.execution_id]
+    );
+    const execRow = execRows[0];
+    if (!execRow) return false;
+
+    const execution: ExecutionSnapshot = {
+      execution_id: execRow.id,
+      flow_id: execRow.flow_id,
+      user_id: execRow.user_id,
+      trigger_subtype: execRow.trigger_subtype,
+      system_vars:
+        typeof execRow.system_vars_json === "string"
+          ? JSON.parse(execRow.system_vars_json)
+          : execRow.system_vars_json || {},
+      context:
+        typeof execRow.context_json === "string"
+          ? JSON.parse(execRow.context_json)
+          : execRow.context_json || {},
+      node_outputs:
+        typeof execRow.node_outputs_json === "string"
+          ? JSON.parse(execRow.node_outputs_json)
+          : execRow.node_outputs_json || {},
+      node_output_schema:
+        typeof execRow.node_output_schema_json === "string"
+          ? JSON.parse(execRow.node_output_schema_json)
+          : execRow.node_output_schema_json || {},
+      steps_output:
+        typeof execRow.steps_output_json === "string"
+          ? JSON.parse(execRow.steps_output_json)
+          : execRow.steps_output_json || {},
+      steps_timeline:
+        typeof execRow.steps_timeline_json === "string"
+          ? JSON.parse(execRow.steps_timeline_json)
+          : execRow.steps_timeline_json || [],
+      debug_log:
+        typeof execRow.debug_log_json === "string"
+          ? JSON.parse(execRow.debug_log_json)
+          : execRow.debug_log_json || [],
+      status: "running",
+    };
+
+    // Merge session context (more recent)
+    const sessionCtx =
+      typeof session.context_json === "string"
+        ? JSON.parse(session.context_json)
+        : session.context_json || {};
+    execution.context = { ...execution.context, ...sessionCtx };
+    execution.system_vars = {
+      ...execution.system_vars,
+      ...(typeof session.system_vars_json === "string"
+        ? JSON.parse(session.system_vars_json)
+        : session.system_vars_json || {}),
+    };
+    if (execution.system_vars.customer) {
+      execution.system_vars.customer.phone =
+        execution.system_vars.customer.phone || input.contactKey;
+    }
+
+    execution.debug_log.push(
+      `[${new Date().toISOString()}] Resume session ${session.id} on node ${waitingNodeId}`
+    );
+
+    const ctx: ExecContext = {
+      flowId: session.flow_id,
+      userId: input.userId,
+      brandId: session.brand_id || input.brandId,
+      publishedVersion: Number(session.published_version || 0),
+      nodes,
+      connections,
+      sessionId: session.id,
+      instanceId: input.instanceId || session.instance_id || undefined,
+      inboundMessage: input.message,
+      execution,
+    };
+
+    await pool.execute(
+      `UPDATE flow_sessions
+       SET status = 'running', last_inbound_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [session.id]
+    );
+    await this.persistExecution(execution, null, false);
+
+    // Process waiting node with inbound message, then continue
+    this.continueAfterWait(waitingNode, ctx)
+      .then(async () => {
+        if (ctx.execution.status === "waiting_user" || ctx.execution.status === "waiting_agent") {
+          await this.persistExecution(ctx.execution, null, false);
+          return;
+        }
+        ctx.execution.status = "completed";
+        ctx.execution.debug_log.push(`[${new Date().toISOString()}] Flow finished after resume`);
+        await this.persistExecution(ctx.execution, null, true);
+        await this.completeSessionsForExecution(ctx.execution.execution_id, "completed");
+      })
+      .catch(async (err: any) => {
+        ctx.execution.status = "failed";
+        await this.persistExecution(ctx.execution, String(err?.message || err), true);
+        await this.completeSessionsForExecution(ctx.execution.execution_id, "failed");
+        logger.error(`FlowExecutor resume error: ${err?.message || err}`);
+      });
+
+    return true;
+  }
+
+  private async continueAfterWait(node: FNode, ctx: ExecContext): Promise<void> {
+    const result = await this.processWaitOrCollect(node, ctx, true);
+    this.registerNodeOutput(node, result.output, result.handle, ctx);
+
+    if (result.handle === null) return;
+
+    const next = ctx.connections.filter((c) =>
+      connectionMatches(c, node.id, result.handle)
+    );
+    for (const conn of next) {
+      await this.runFrom(conn.to, ctx);
+    }
+  }
+
+  private async runFrom(nodeId: string, ctx: ExecContext): Promise<void> {
+    const node = ctx.nodes.find((n) => n.id === nodeId);
     if (!node) return;
 
     const result = await this.processNode(node, ctx);
@@ -158,11 +433,11 @@ export class FlowExecutorService {
 
     if (result.handle === null) return;
 
-    const next = conns.filter(
-      (c) => c.from === nodeId && (c.fromHandle === result.handle || c.fromHandle === "main")
+    const next = ctx.connections.filter((c) =>
+      connectionMatches(c, nodeId, result.handle)
     );
     for (const conn of next) {
-      await this.runFrom(conn.to, nodes, conns, ctx);
+      await this.runFrom(conn.to, ctx);
     }
   }
 
@@ -170,6 +445,14 @@ export class FlowExecutorService {
     node: FNode,
     ctx: ExecContext
   ): Promise<{ handle: string | null; output: Record<string, any> }> {
+    if (isWaitNode(node) || isCollectNode(node)) {
+      return this.processWaitOrCollect(node, ctx, false);
+    }
+
+    if (isHandoffNode(node) || node.subtype === "handoff_agent") {
+      return this.processHandoff(node, ctx);
+    }
+
     switch (node.type) {
       case "trigger":
       case "destination":
@@ -194,8 +477,290 @@ export class FlowExecutorService {
         return { handle: null, output: { ended: true, reason: node.subtype || "end" } };
 
       default:
+        // subtypes on action-like nodes without type
+        if (node.subtype === "send_message" || node.subtype === "ai_message") {
+          const output = await this.handleAction(node, ctx);
+          return { handle: "main", output };
+        }
         return { handle: "main", output: { ok: true } };
     }
+  }
+
+  private async processWaitOrCollect(
+    node: FNode,
+    ctx: ExecContext,
+    hasInbound: boolean
+  ): Promise<{ handle: string | null; output: Record<string, any> }> {
+    const prompt = String(
+      node.data?.prompt || node.data?.message || node.data?.pergunta || ""
+    ).trim();
+
+    if (!hasInbound) {
+      // Envia prompt opcional e pausa
+      if (prompt) {
+        await this.sendWhatsApp(ctx, this.interpolate(prompt, ctx), node.data || {});
+      }
+      await this.parkSession(node, ctx);
+      ctx.execution.status = "waiting_user";
+      ctx.execution.debug_log.push(
+        `[${new Date().toISOString()}] Waiting user at node ${node.id} (${node.subtype})`
+      );
+      return {
+        handle: null,
+        output: { waiting: true, node_id: node.id, subtype: node.subtype },
+      };
+    }
+
+    const raw = String(ctx.inboundMessage || "").trim();
+    const variableName = String(
+      node.data?.variable_name || node.data?.field || node.data?.campo || "user_reply"
+    ).trim();
+    const fieldType = String(node.data?.field_type || node.subtype || "text");
+
+    const validation = this.validateCollectedValue(raw, fieldType, node.data || {});
+    if (!validation.ok) {
+      const attempts = Number(ctx.execution.context.__attempts?.[node.id] || 0) + 1;
+      ctx.execution.context.__attempts = {
+        ...(ctx.execution.context.__attempts || {}),
+        [node.id]: attempts,
+      };
+      const maxAttempts = Number(node.data?.max_attempts ?? 3);
+      const errMsg = String(
+        node.data?.error_message || validation.error || "Resposta inválida. Tente novamente."
+      );
+      await this.sendWhatsApp(ctx, errMsg, node.data || {});
+
+      if (attempts >= maxAttempts) {
+        return {
+          handle: "invalid",
+          output: { valid: false, value: raw, attempts, exhausted: true },
+        };
+      }
+
+      await this.parkSession(node, ctx);
+      ctx.execution.status = "waiting_user";
+      return {
+        handle: null,
+        output: { valid: false, value: raw, attempts, re_waiting: true },
+      };
+    }
+
+    ctx.execution.context[variableName] = validation.value;
+    if (ctx.execution.system_vars?.customer && variableName === "name") {
+      ctx.execution.system_vars.customer.name = String(validation.value);
+      ctx.execution.system_vars.customer.nome = String(validation.value);
+    }
+    if (ctx.execution.system_vars?.customer && variableName === "email") {
+      (ctx.execution.system_vars.customer as any).email = String(validation.value);
+    }
+
+    return {
+      handle: "main",
+      output: { valid: true, variable: variableName, value: validation.value },
+    };
+  }
+
+  private validateCollectedValue(
+    raw: string,
+    fieldType: string,
+    data: Record<string, any>
+  ): { ok: boolean; value: any; error?: string } {
+    const t = fieldType.toLowerCase();
+    if (!raw && data.required !== false) {
+      return { ok: false, value: raw, error: "Campo obrigatório." };
+    }
+    if (t.includes("email")) {
+      const ok = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw);
+      return ok
+        ? { ok: true, value: raw }
+        : { ok: false, value: raw, error: "Informe um e-mail válido." };
+    }
+    if (t.includes("phone") || t.includes("telefone")) {
+      const digits = raw.replace(/\D/g, "");
+      const ok = digits.length >= 10 && digits.length <= 15;
+      return ok
+        ? { ok: true, value: digits }
+        : { ok: false, value: raw, error: "Informe um telefone válido com DDD." };
+    }
+    if (t.includes("number") || t.includes("quantidade") || t.includes("number")) {
+      const n = Number(String(raw).replace(",", "."));
+      if (!Number.isFinite(n)) {
+        return { ok: false, value: raw, error: "Informe um número válido." };
+      }
+      return { ok: true, value: n };
+    }
+    if (t.includes("confirm")) {
+      const v = raw.toLowerCase();
+      const yes = /^(s|sim|yes|ok|confirmo|1)$/i.test(v);
+      const no = /^(n|nao|não|no|0)$/i.test(v);
+      if (!yes && !no) {
+        return { ok: false, value: raw, error: "Responda sim ou não." };
+      }
+      return { ok: true, value: yes };
+    }
+    return { ok: true, value: raw };
+  }
+
+  private async processHandoff(
+    node: FNode,
+    ctx: ExecContext
+  ): Promise<{ handle: string | null; output: Record<string, any> }> {
+    const summary = this.interpolate(
+      String(node.data?.summary || "Cliente solicitou atendimento humano."),
+      ctx
+    );
+    ctx.execution.context.handoff = {
+      at: new Date().toISOString(),
+      reason: node.data?.reason || "flow_handoff",
+      summary,
+      node_id: node.id,
+    };
+    ctx.execution.status = "waiting_agent";
+
+    await this.sendWhatsApp(
+      ctx,
+      String(
+        node.data?.user_message ||
+          "Em instantes um atendente vai continuar seu atendimento. Obrigado!"
+      ),
+      node.data || {}
+    );
+
+    try {
+      await this.notificationService.createNotification({
+        user_id: ctx.userId,
+        type: "support",
+        event: "flow_handoff",
+        title: "Fluxo: transferência humana",
+        message: summary.slice(0, 400),
+        priority: "high",
+        channels: ["in_app"] as any,
+        metadata: {
+          flow_id: ctx.flowId,
+          execution_id: ctx.execution.execution_id,
+          contact: ctx.execution.system_vars?.customer?.phone,
+        },
+      });
+    } catch {
+      /* non-fatal */
+    }
+
+    if (ctx.sessionId) {
+      const pool = getPool();
+      await pool.execute(
+        `UPDATE flow_sessions SET status = 'waiting_agent', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        [ctx.sessionId]
+      );
+    }
+
+    return {
+      handle: null,
+      output: { handoff: true, summary },
+    };
+  }
+
+  private async parkSession(node: FNode, ctx: ExecContext): Promise<void> {
+    const pool = getPool();
+    const contactKey = this.normalizeContactKey(
+      String(ctx.execution.system_vars?.customer?.phone || "")
+    );
+    if (!contactKey) {
+      logger.warn(`FlowExecutor parkSession: missing contact phone on flow ${ctx.flowId}`);
+      return;
+    }
+
+    const timeoutMin = Number(node.data?.timeout_minutes ?? 1440);
+    const expiresAt =
+      Number.isFinite(timeoutMin) && timeoutMin > 0
+        ? new Date(Date.now() + timeoutMin * 60_000)
+        : null;
+
+    const sessionId = ctx.sessionId || `fs_${randomUUID()}`;
+    ctx.sessionId = sessionId;
+
+    await pool.execute(
+      `INSERT INTO flow_sessions (
+        id, flow_id, execution_id, user_id, brand_id, contact_key, channel, status,
+        published_version, current_node_id, waiting_node_id,
+        context_json, system_vars_json, nodes_snapshot_json, connections_snapshot_json,
+        instance_id, attempts, max_attempts, expires_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, 'whatsapp', 'waiting_user', ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT (id) DO UPDATE SET
+        status = 'waiting_user',
+        waiting_node_id = EXCLUDED.waiting_node_id,
+        current_node_id = EXCLUDED.current_node_id,
+        context_json = EXCLUDED.context_json,
+        system_vars_json = EXCLUDED.system_vars_json,
+        attempts = EXCLUDED.attempts,
+        expires_at = EXCLUDED.expires_at,
+        updated_at = CURRENT_TIMESTAMP`,
+      [
+        sessionId,
+        ctx.flowId,
+        ctx.execution.execution_id,
+        ctx.userId,
+        ctx.brandId || null,
+        contactKey,
+        ctx.publishedVersion || 0,
+        node.id,
+        node.id,
+        JSON.stringify(ctx.execution.context || {}),
+        JSON.stringify(ctx.execution.system_vars || {}),
+        JSON.stringify(ctx.nodes),
+        JSON.stringify(ctx.connections),
+        ctx.instanceId || null,
+        Number(node.data?.max_attempts ?? 3),
+        expiresAt,
+      ]
+    );
+  }
+
+  private async completeSessionsForExecution(
+    executionId: string,
+    status: string
+  ): Promise<void> {
+    try {
+      await getPool().execute(
+        `UPDATE flow_sessions
+         SET status = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE execution_id = ? AND status IN ('running','waiting_user','waiting_agent','paused')`,
+        [status, executionId]
+      );
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** Prefer mensagemSteps (MessagePipelineComposer) then plain message. */
+  private resolveMessageBody(data: Record<string, any>): string {
+    const steps = Array.isArray(data.mensagemSteps) ? data.mensagemSteps : [];
+    if (steps.length > 0) {
+      const parts = steps
+        .map((step: any) => {
+          const tipo = String(step?.tipo || "");
+          if (tipo === "texto" || tipo === "cta" || tipo === "link") {
+            return String(step.caption || step.url || "").trim();
+          }
+          if (tipo === "botoes") {
+            const labels = Array.isArray(step.buttons)
+              ? step.buttons.map((b: any) => b?.label).filter(Boolean).join(" | ")
+              : "";
+            return [String(step.caption || "").trim(), labels].filter(Boolean).join("\n");
+          }
+          if (tipo === "lista") {
+            return String(step.caption || step.listButtonText || "Lista").trim();
+          }
+          if (tipo === "imagem" || tipo === "video" || tipo === "audio" || tipo === "documento") {
+            return [String(step.caption || "").trim(), String(step.url || "").trim()]
+              .filter(Boolean)
+              .join("\n");
+          }
+          return String(step.caption || step.url || "").trim();
+        })
+        .filter(Boolean);
+      if (parts.length) return parts.join("\n\n");
+    }
+    return String(data.message || "").trim();
   }
 
   private async handleDelay(node: FNode): Promise<number> {
@@ -220,8 +785,8 @@ export class FlowExecutorService {
       case "ai_message": {
         const sourceText =
           subtype === "ai_message"
-            ? String(data.ai_instrucao || data.message || "").trim()
-            : String(data.message || "").trim();
+            ? String(data.ai_instrucao || data.ai_instruction || data.message || "").trim()
+            : this.resolveMessageBody(data);
 
         const message = this.interpolate(sourceText, ctx);
         const sendResult = await this.sendWhatsApp(ctx, message, data);
@@ -231,6 +796,7 @@ export class FlowExecutorService {
           delivered: sendResult.sent,
           destination: sendResult.destination,
           transport: sendResult.transport,
+          steps: Array.isArray(data.mensagemSteps) ? data.mensagemSteps.length : 0,
         };
       }
 
@@ -930,59 +1496,7 @@ export class FlowExecutorService {
 
   private async ensureTables(): Promise<void> {
     if (this.tableReady) return;
-    const pool = getPool();
-
-    await pool.execute(`
-      CREATE TABLE IF NOT EXISTS flow_automations (
-        id VARCHAR(36) PRIMARY KEY,
-        user_id VARCHAR(36) NOT NULL,
-        name VARCHAR(255) NOT NULL DEFAULT 'Novo Fluxo',
-        status ENUM('draft','active','paused') NOT NULL DEFAULT 'draft',
-        nodes_json JSON NOT NULL,
-        connections_json JSON NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        INDEX idx_flow_user (user_id),
-        INDEX idx_flow_status (status)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-    `);
-
-    await pool.execute(`
-      CREATE TABLE IF NOT EXISTS flow_automation_executions (
-        id VARCHAR(64) PRIMARY KEY,
-        flow_id VARCHAR(36) NOT NULL,
-        user_id VARCHAR(36) NOT NULL,
-        trigger_subtype VARCHAR(80) NOT NULL,
-        status ENUM('running','completed','failed') NOT NULL DEFAULT 'running',
-        system_vars_json JSON NULL,
-        context_json JSON NULL,
-        node_outputs_json JSON NULL,
-        node_output_schema_json JSON NULL,
-        steps_output_json JSON NULL,
-        steps_timeline_json JSON NULL,
-        debug_log_json JSON NULL,
-        last_node_id VARCHAR(64) NULL,
-        error_message TEXT NULL,
-        started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        finished_at TIMESTAMP NULL DEFAULT NULL,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        INDEX idx_flow_exec_user (user_id),
-        INDEX idx_flow_exec_flow (flow_id),
-        INDEX idx_flow_exec_status (status)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-    `);
-
-    try {
-      await pool.execute("ALTER TABLE flow_automation_executions ADD COLUMN node_output_schema_json JSON NULL AFTER node_outputs_json");
-    } catch {
-      // column already exists
-    }
-    try {
-      await pool.execute("ALTER TABLE flow_automation_executions ADD COLUMN steps_timeline_json JSON NULL AFTER steps_output_json");
-    } catch {
-      // column already exists
-    }
-
+    await ensureFlowSchema();
     this.tableReady = true;
   }
 

@@ -845,9 +845,15 @@ instanceManager.onGlobalMessage(async (instanceId, msg) => {
             });
         }
 
-        // Flow Executor — fire message_received trigger
+        // Fluxos — retoma sessão waiting_user ou dispara gatilho message_received
         FlowExecutorService.get()
-          .fire("message_received", ownerUserId, { phone, message: String(parsed.body) })
+          .handleInboundMessage({
+            userId: ownerUserId,
+            brandId: ownerBrandId,
+            phone,
+            message: String(parsed.body),
+            instanceId,
+          })
           .catch(() => {});
 
         affiliateDistributionService

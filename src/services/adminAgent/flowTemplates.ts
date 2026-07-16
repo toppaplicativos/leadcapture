@@ -27,7 +27,8 @@ export type FlowTemplate = {
 function chain(ids: string[]): Array<{ id: string; from: string; fromHandle: string; to: string }> {
   const out: Array<{ id: string; from: string; fromHandle: string; to: string }> = [];
   for (let i = 0; i < ids.length - 1; i++) {
-    out.push({ id: `c-${ids[i]}-${ids[i + 1]}`, from: ids[i], fromHandle: "default", to: ids[i + 1] });
+    // fromHandle "main" — padrão do FlowExecutor (templates legados usavam "default")
+    out.push({ id: `c-${ids[i]}-${ids[i + 1]}`, from: ids[i], fromHandle: "main", to: ids[i + 1] });
   }
   return out;
 }

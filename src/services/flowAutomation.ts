@@ -1,6 +1,8 @@
 import { randomUUID } from "crypto";
 import { getPool } from "../config/database";
 import { getFlowTemplate, listFlowTemplates, resolveTemplateFromBrief, type FlowTemplate } from "./adminAgent/flowTemplates";
+import { ensureFlowSchema } from "./flowSchema";
+import { normalizeHandle } from "./flowTypes";
 
 export type FlowSummary = {
   id: string;
@@ -12,21 +14,7 @@ export type FlowSummary = {
 };
 
 async function ensureTables(): Promise<void> {
-  const pool = getPool();
-  await pool.execute(`
-    CREATE TABLE IF NOT EXISTS flow_automations (
-      id VARCHAR(36) PRIMARY KEY,
-      user_id VARCHAR(36) NOT NULL,
-      name VARCHAR(255) NOT NULL DEFAULT 'Novo Fluxo',
-      status ENUM('draft','active','paused') NOT NULL DEFAULT 'draft',
-      nodes_json JSON NOT NULL,
-      connections_json JSON NOT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      INDEX idx_flow_user (user_id),
-      INDEX idx_flow_status (status)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  `);
+  await ensureFlowSchema();
 }
 
 function parseNodes(row: any): any[] {
@@ -70,9 +58,13 @@ export async function createFlowFromTemplate(
   const status = opts?.activate ? "active" : "draft";
   const name = String(opts?.name || template.name).slice(0, 255);
 
+  const connections = (template.connections || []).map((c) => ({
+    ...c,
+    fromHandle: normalizeHandle(c.fromHandle),
+  }));
   await pool.execute(
-    "INSERT INTO flow_automations (id, user_id, name, status, nodes_json, connections_json) VALUES (?, ?, ?, ?, ?, ?)",
-    [id, userId, name, status, JSON.stringify(template.nodes), JSON.stringify(template.connections)],
+    "INSERT INTO flow_automations (id, user_id, name, status, nodes_json, connections_json, published_version) VALUES (?, ?, ?, ?, ?, ?, 0)",
+    [id, userId, name, status, JSON.stringify(template.nodes), JSON.stringify(connections)],
   );
 
   return { flowId: id, template };

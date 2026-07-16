@@ -156,7 +156,7 @@ export function AffiliateProgramsSection({
         description: p.description || '',
         status: p.status || 'draft',
         commission_mode: normalizeCommissionMode(p.commission_mode),
-        commission_value: Number(p.commission_value || 10),
+        commission_value: Number(p.commission_value ?? 10),
         commission_rules: p.commission_rules || '',
         accept_applications: p.accept_applications !== false,
         auto_approve_applications: !!p.auto_approve_applications,

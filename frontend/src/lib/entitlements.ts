@@ -104,6 +104,10 @@ export function invalidateEntitlementsCache() {
 
 export function isNavAllowed(navKey: string, modules?: PlatformModules | null): boolean {
   if (!modules) return true
+  // Fluxos é a camada visual de Automações, não um produto isolado.
+  // Planos que já possuem automações não devem perder o editor por ausência
+  // do novo flag flow_builder em contratos criados antes desse módulo.
+  if (navKey === 'fluxos' && modules.automations !== false) return true
   const mod = NAV_MODULE_MAP[navKey]
   if (!mod) return true
   return modules[mod] !== false

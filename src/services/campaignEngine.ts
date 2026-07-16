@@ -8,6 +8,7 @@ import { GeminiService } from "./gemini";
 import { InstanceRotationService, RotationMode } from "./instanceRotation";
 import { aiRouter } from "./aiRouter";
 import { logger } from "../utils/logger";
+import { parseInteractiveInbound } from "./flowTypes";
 
 // ─── Name enrichment helpers ────────────────────────────────────
 
@@ -2955,28 +2956,87 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
     // Update lead tags and score
     await this.updateLeadAfterReply(userId, campaignLead.lead_id, classification, scoreDelta);
 
-    // Opcional: iniciar jornada (Fluxo) após resposta — settings.replyStartFlowId
-    if (classification !== "opt_out" && !wasAlreadyReplied) {
+    // Contrato campanha -> fluxo: campanha, bloco e escolha seguem como payload estável.
+    if (classification !== "opt_out") {
       try {
-        const campaignRow = await queryOne<{ settings?: any; brand_id?: string | null }>(
-          `SELECT settings, brand_id FROM campaign_history WHERE id = ? AND user_id = ? LIMIT 1`,
+        const campaignRow = await queryOne<{ settings?: any; brand_id?: string | null; name?: string }>(
+          `SELECT name, settings, brand_id FROM campaign_history WHERE id = ? AND user_id = ? LIMIT 1`,
           [campaignLead.campaign_id, userId]
         );
         const settings =
           typeof campaignRow?.settings === "string"
             ? JSON.parse(campaignRow.settings)
             : campaignRow?.settings || {};
+        const parsedReply = parseInteractiveInbound(messageText);
+        const blocks = Array.isArray(settings?.composer?.actionBlocks) ? settings.composer.actionBlocks : [];
+        let matchedBlock: any = null;
+        let matchedOption: any = null;
+        for (const block of blocks) {
+          const items = Array.isArray(block?.config?.optionItems) ? block.config.optionItems : [];
+          const match = items.find((item: any) => {
+            const itemId = String(item?.id || "").trim().toLowerCase();
+            const label = String(item?.label || "").trim().toLowerCase();
+            return Boolean(
+              (parsedReply.id && itemId === String(parsedReply.id).trim().toLowerCase()) ||
+              (label && label === String(parsedReply.label || "").trim().toLowerCase())
+            );
+          });
+          if (match) {
+            matchedBlock = block;
+            matchedOption = match;
+            break;
+          }
+        }
+
+        const campaignId = String(campaignLead.campaign_id);
+        const blockId = String(matchedBlock?.id || "");
+        const optionId = String(matchedOption?.id || "");
+        const choiceKey = blockId && optionId ? `${campaignId}:${blockId}:${optionId}` : "";
+        const campaignPayload = {
+          id: campaignId,
+          name: String(campaignRow?.name || "Campanha"),
+          channel: String(settings?.campaignCore?.channels?.[0] || "whatsapp"),
+          blockId: blockId || null,
+          blockType: String(matchedBlock?.actionType || "") || null,
+        };
+        const replyPayload = {
+          kind: parsedReply.kind,
+          raw: messageText,
+          optionId: optionId || parsedReply.id || null,
+          optionLabel: String(matchedOption?.label || parsedReply.label || messageText),
+          choiceKey: choiceKey || null,
+          classification,
+        };
+
+        const { FlowExecutorService } = await import("./flowExecutor");
+        const campaignTriggered = await FlowExecutorService.get().fire(
+          "message_received",
+          userId,
+          {
+            phone: normalizedPhone,
+            message: messageText,
+            leadId: campaignLead.lead_id,
+            brandId: campaignRow?.brand_id || brandId || null,
+            source: "campaign_reply",
+            campaign: campaignPayload,
+            reply: replyPayload,
+          },
+          { scope: "campaign_only" }
+        );
+        if (campaignTriggered > 0) {
+          logger.info(`${ctx} ${campaignTriggered} fluxo(s) disparado(s) pelo contrato de campanha`);
+        }
+
         const flowId = String(
+          matchedOption?.flowId ||
           settings.replyStartFlowId ||
             settings.reply_start_flow_id ||
             settings.followUpFlowId ||
             ""
         ).trim();
         const onlyInterested = Boolean(settings.replyStartFlowOnlyInterested);
-        const shouldStart =
-          flowId && (!onlyInterested || classification === "interested");
+        const shouldStart = flowId && !wasAlreadyReplied && (!onlyInterested || classification === "interested");
         if (shouldStart) {
-          const { FlowExecutorService } = await import("./flowExecutor");
           const start = await FlowExecutorService.get().startFlowById({
             flowId,
             userId,
@@ -2985,6 +3045,7 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
             message: messageText,
             triggerSubtype: "campaign",
             source: "campaign_reply",
+            triggerData: { campaign: campaignPayload, reply: replyPayload, leadId: campaignLead.lead_id },
           });
           if (start.ok) {
             logger.info(

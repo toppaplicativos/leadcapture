@@ -1,5 +1,5 @@
-import type { ReactNode } from 'react'
-import { Trash2 } from 'lucide-react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { ChevronDown, GitBranch, Megaphone, Trash2 } from 'lucide-react'
 import { Button, Input, Select, Textarea } from '@/components/ui'
 import { fieldLabelClass } from '@/components/ui'
 import { MessagePipelineComposer } from '@/components/automations/MessagePipelineComposer'
@@ -16,6 +16,16 @@ type Props = {
   onRemove: (nodeId: string) => void
 }
 
+type CampaignTriggerOption = {
+  key: string
+  campaignId: string
+  campaignName: string
+  blockId: string
+  blockLabel: string
+  optionId: string
+  optionLabel: string
+}
+
 function Label({ children }: { children: ReactNode }) {
   return <label className={cn(fieldLabelClass, 'mb-1.5 block')}>{children}</label>
 }
@@ -24,6 +34,67 @@ export function FlowNodeConfigPanel({ node, onChange, onData, onRemove }: Props)
   const tone = toneForNode(node.type, node.subtype)
   const Icon = NODE_ICON[node.type] || NODE_ICON.action
   const canRemove = node.type !== 'trigger' && node.type !== 'end'
+  const [campaignCatalog, setCampaignCatalog] = useState<CampaignTriggerOption[]>([])
+  const [campaignNames, setCampaignNames] = useState<Array<{ id: string; name: string }>>([])
+
+  useEffect(() => {
+    if (node.type !== 'trigger' || node.subtype !== 'message_received') return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const headers: Record<string, string> = { Accept: 'application/json' }
+        const token = localStorage.getItem('lead-system-token')
+        const brandId = localStorage.getItem('lead-system:active-brand-id')
+        if (token) headers.Authorization = `Bearer ${token}`
+        if (brandId) headers['x-brand-id'] = brandId
+        const response = await fetch('/api/campaigns', { headers })
+        const data = await response.json()
+        const campaigns = Array.isArray(data?.campaigns) ? data.campaigns : []
+        const names = campaigns.map((campaign: any) => ({ id: String(campaign.id), name: String(campaign.name || 'Campanha') }))
+        const options: CampaignTriggerOption[] = []
+        for (const campaign of campaigns) {
+          const settings = typeof campaign.settings === 'string' ? JSON.parse(campaign.settings) : (campaign.settings || {})
+          const blocks = Array.isArray(settings?.composer?.actionBlocks) ? settings.composer.actionBlocks : []
+          for (const block of blocks) {
+            const items = Array.isArray(block?.config?.optionItems) ? block.config.optionItems : []
+            items.forEach((item: any, index: number) => {
+              const optionId = String(item?.id || `${block.id}_option_${index + 1}`)
+              const optionLabel = String(item?.label || '').trim()
+              if (!optionLabel) return
+              options.push({
+                key: `${campaign.id}:${block.id}:${optionId}`,
+                campaignId: String(campaign.id),
+                campaignName: String(campaign.name || 'Campanha'),
+                blockId: String(block.id || ''),
+                blockLabel: String(block.actionType || 'interação'),
+                optionId,
+                optionLabel,
+              })
+            })
+          }
+        }
+        if (!cancelled) {
+          setCampaignNames(names)
+          setCampaignCatalog(options)
+        }
+      } catch {
+        if (!cancelled) {
+          setCampaignNames([])
+          setCampaignCatalog([])
+        }
+      }
+    })()
+    return () => { cancelled = true }
+  }, [node.type, node.subtype])
+
+  const selectedCampaignIds = useMemo(
+    () => Array.isArray(node.data?.campaignIds) ? node.data.campaignIds.map(String) : [],
+    [node.data?.campaignIds],
+  )
+  const selectedCampaignChoices = useMemo(
+    () => Array.isArray(node.data?.campaignChoices) ? node.data.campaignChoices.map(String) : [],
+    [node.data?.campaignChoices],
+  )
 
   const steps: MensagemStep[] = Array.isArray(node.data?.mensagemSteps)
     ? node.data.mensagemSteps
@@ -110,16 +181,64 @@ export function FlowNodeConfigPanel({ node, onChange, onData, onRemove }: Props)
             </Select>
           </div>
           {node.subtype === 'message_received' && (
-            <div>
-              <Label>Palavras-chave (opcional)</Label>
-              <Input
-                value={String(node.data.keywords || node.data.keyword || '')}
-                onChange={(e) => onData(node.id, 'keywords', e.target.value)}
-                placeholder="pedido, quero comprar, orçamento"
-              />
-              <p className="mt-1.5 text-xs text-gray-500">
-                Separadas por vírgula. Vazio = qualquer mensagem (respeitando sessão ativa).
-              </p>
+            <div className="space-y-3">
+              <div className="rounded-xl border border-gray-200 bg-gray-50/70 p-3 space-y-3">
+                <div className="flex items-start gap-2.5">
+                  <Megaphone size={16} className="mt-0.5 text-gray-700" />
+                  <div>
+                    <p className="text-xs font-semibold text-gray-900">Origem da mensagem</p>
+                    <p className="text-[11px] leading-relaxed text-gray-500">Aceite qualquer conversa ou restrinja a campanhas e escolhas específicas.</p>
+                  </div>
+                </div>
+                <Select
+                  value={String(node.data?.campaignSourceMode || 'any')}
+                  onChange={(e) => {
+                    onData(node.id, 'campaignSourceMode', e.target.value)
+                    if (e.target.value === 'any') {
+                      onData(node.id, 'campaignIds', [])
+                      onData(node.id, 'campaignChoices', [])
+                    }
+                  }}
+                >
+                  <option value="any">Qualquer mensagem recebida</option>
+                  <option value="campaign">Resposta de campanha</option>
+                </Select>
+
+                {node.data?.campaignSourceMode === 'campaign' && (
+                  <div className="space-y-2">
+                    <p className="text-[11px] font-semibold text-gray-700">Campanhas aceitas</p>
+                    <div className="max-h-32 overflow-y-auto rounded-lg border border-gray-200 bg-white p-2 space-y-1">
+                      {campaignNames.length === 0 ? <p className="p-2 text-[11px] text-gray-500">Nenhuma campanha disponível nesta marca.</p> : campaignNames.map((campaign) => (
+                        <label key={campaign.id} className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-gray-700 hover:bg-gray-50 cursor-pointer">
+                          <input type="checkbox" checked={selectedCampaignIds.includes(campaign.id)} onChange={(e) => onData(node.id, 'campaignIds', e.target.checked ? [...selectedCampaignIds, campaign.id] : selectedCampaignIds.filter((id) => id !== campaign.id))} className="rounded border-gray-300" />
+                          <span className="truncate">{campaign.name}</span>
+                        </label>
+                      ))}
+                    </div>
+                    <details className="group rounded-lg border border-gray-200 bg-white">
+                      <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2.5 text-xs font-semibold text-gray-800">
+                        <span className="flex items-center gap-2"><GitBranch size={14} /> Botões, listas e enquetes</span>
+                        <ChevronDown size={14} className="transition group-open:rotate-180" />
+                      </summary>
+                      <div className="border-t border-gray-100 p-2 space-y-1 max-h-48 overflow-y-auto">
+                        <p className="px-2 pb-1 text-[10px] text-gray-500">Sem escolha marcada, qualquer resposta das campanhas selecionadas dispara.</p>
+                        {campaignCatalog.filter((option) => selectedCampaignIds.length === 0 || selectedCampaignIds.includes(option.campaignId)).map((option) => (
+                          <label key={option.key} className="flex items-start gap-2 rounded-md px-2 py-2 hover:bg-gray-50 cursor-pointer">
+                            <input type="checkbox" checked={selectedCampaignChoices.includes(option.key)} onChange={(e) => onData(node.id, 'campaignChoices', e.target.checked ? [...selectedCampaignChoices, option.key] : selectedCampaignChoices.filter((key) => key !== option.key))} className="mt-0.5 rounded border-gray-300" />
+                            <span className="min-w-0"><span className="block truncate text-xs font-medium text-gray-800">{option.optionLabel}</span><span className="block truncate text-[10px] text-gray-500">{option.campaignName} · {option.blockLabel}</span></span>
+                          </label>
+                        ))}
+                      </div>
+                    </details>
+                  </div>
+                )}
+              </div>
+              <div>
+                <Label>Palavras-chave (opcional)</Label>
+                <Input value={String(node.data.keywords || node.data.keyword || '')} onChange={(e) => onData(node.id, 'keywords', e.target.value)} placeholder="pedido, quero comprar, orçamento" />
+                <p className="mt-1.5 text-xs text-gray-500">Aplicadas depois do filtro de campanha. Vazio aceita qualquer texto ou escolha mapeada.</p>
+              </div>
+              {node.data?.campaignSourceMode === 'campaign' && <div className="rounded-lg border border-emerald-100 bg-emerald-50/60 px-3 py-2 text-[10px] leading-relaxed text-emerald-900">Payload: <code>{'{{system.raw.campaign.name}}'}</code>, <code>{'{{system.raw.reply.optionLabel}}'}</code> e <code>{'{{system.raw.reply.kind}}'}</code>.</div>}
             </div>
           )}
         </div>

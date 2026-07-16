@@ -1,8 +1,10 @@
 import { getHeaders } from '@/lib/admin/helpers'
+import { formatCommissionShort, normalizeCommissionMode } from '@/lib/affiliate-commission'
 
 export type AffiliateSnapshot = {
   enabled: boolean
   commissionPct: number
+  commissionLabel: string
   affiliatesTotal: number
   affiliatesPending: number
   affiliatesActive: number
@@ -37,7 +39,11 @@ export async function fetchAffiliatesSnapshot(): Promise<AffiliateSnapshot> {
   const program = s.program || {}
   return {
     enabled: !!program.is_enabled,
-    commissionPct: Number(program.default_commission_pct || 10),
+    commissionPct: Number(program.default_commission_pct ?? 10),
+    commissionLabel: formatCommissionShort(
+      normalizeCommissionMode(program.default_commission_mode),
+      Number(program.default_commission_value ?? program.default_commission_pct ?? 10),
+    ),
     affiliatesTotal: Number(s.affiliates_total || 0),
     affiliatesPending: Number(s.affiliates_pending || 0),
     affiliatesActive: Number(s.affiliates_active || 0),

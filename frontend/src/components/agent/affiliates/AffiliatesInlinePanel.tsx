@@ -178,7 +178,7 @@ export function AffiliatesInlinePanel() {
             open={managerOpen}
             onClose={() => setManagerOpen(false)}
             title="Afiliados"
-            subtitle={snap?.enabled ? `${snap.affiliatesActive} ativo${snap.affiliatesActive !== 1 ? 's' : ''} · ${snap.commissionPct}%` : 'Programa desativado'}
+            subtitle={snap?.enabled ? `${snap.affiliatesActive} ativo${snap.affiliatesActive !== 1 ? 's' : ''} · ${snap.commissionLabel || `${snap.commissionPct}%`}` : 'Programa desativado'}
           >
             <Suspense fallback={<PageSplash variant="panel" label="Afiliados" />}>
               <AffiliatesManagerEmbedded initialTab={managerTab} />

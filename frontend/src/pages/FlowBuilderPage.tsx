@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { FlowListView } from '@/components/flows/FlowListView'
 import { FlowEditor } from '@/components/flows/FlowEditor'
 import type { Flow, FlowStatusFilter } from '@/lib/flows/types'
-import { defaultJourneyNodes } from '@/lib/flows/catalog'
+import { defaultSupportFlow } from '@/lib/flows/catalog'
 import * as api from '@/lib/flows/api'
 
 export function FlowBuilderPage() {
@@ -12,6 +12,7 @@ export function FlowBuilderPage() {
   const [editFlow, setEditFlow] = useState<Flow | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
+  const [createError, setCreateError] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -32,18 +33,21 @@ export function FlowBuilderPage() {
   async function createFlow() {
     if (creating) return
     setCreating(true)
+    setCreateError('')
     try {
-      const { nodes, connections } = defaultJourneyNodes()
+      const { nodes, connections, phases } = defaultSupportFlow()
       const flow = await api.createFlow({
-        name: 'Jornada de atendimento',
+        name: 'Atendimento padrão',
+        description: 'Fluxo completo para receber, entender, resolver e concluir atendimentos. Quando necessário, transfere a conversa para uma pessoa da equipe.',
         status: 'draft',
         nodes,
         connections,
+        phases,
       })
       setEditFlow(flow)
       await load()
-    } catch {
-      /* silent — user can retry */
+    } catch (error) {
+      setCreateError(error instanceof Error ? error.message : 'Não foi possível criar o fluxo de atendimento.')
     } finally {
       setCreating(false)
     }
@@ -116,6 +120,7 @@ export function FlowBuilderPage() {
       onToggle={(f) => void toggleStatus(f)}
       onDuplicate={(f) => void duplicateFlow(f)}
       onDelete={(id) => void deleteFlow(id)}
+      error={createError}
     />
   )
 }

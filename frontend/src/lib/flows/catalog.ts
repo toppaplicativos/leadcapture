@@ -154,28 +154,32 @@ export function statusLabel(status: string): string {
   return map[status] || status
 }
 
-/** Starter journey: mensagem → coleta nome → confirmação */
-export function defaultJourneyNodes() {
+/** Fluxo inicial operacional: abertura -> entendimento -> solução -> conclusão. */
+export function defaultSupportFlow() {
   const nodes = [
     {
       id: 'trigger-1',
       type: 'trigger',
       subtype: 'message_received',
-      label: 'Mensagem recebida',
-      data: { keywords: 'pedido,quero,ola,olá' },
+      label: 'Cliente inicia o atendimento',
+      phaseId: 'inicio',
+      data: { keywords: '', phaseId: 'inicio' },
     },
     {
       id: 'msg-1',
       type: 'action',
       subtype: 'send_message',
-      label: 'Boas-vindas',
+      label: 'Receber e orientar',
+      phaseId: 'inicio',
       data: {
-        message: 'Olá! Sou o assistente. Vou te ajudar com o pedido.',
+        message: 'Olá! Sou o assistente da equipe. Vou entender o que você precisa e acompanhar seu atendimento até a conclusão.',
+        wait_for_reply: false,
+        phaseId: 'inicio',
         mensagemSteps: [
           {
             id: 'step-welcome',
             tipo: 'texto' as const,
-            caption: 'Olá! Sou o assistente. Vou te ajudar com o pedido.',
+            caption: 'Olá! Sou o assistente da equipe. Vou entender o que você precisa e acompanhar seu atendimento até a conclusão.',
           },
         ],
       },
@@ -184,37 +188,80 @@ export function defaultJourneyNodes() {
       id: 'collect-1',
       type: 'collect',
       subtype: 'collect_name',
-      label: 'Coletar nome',
+      label: 'Identificar o cliente',
+      phaseId: 'entendimento',
       data: {
-        prompt: 'Como posso te chamar?',
+        prompt: 'Antes de começarmos, como posso te chamar?',
         variable_name: 'name',
         max_attempts: 3,
         timeout_minutes: 1440,
+        phaseId: 'entendimento',
       },
     },
     {
-      id: 'msg-2',
-      type: 'action',
-      subtype: 'send_message',
-      label: 'Confirmação',
+      id: 'collect-2',
+      type: 'collect',
+      subtype: 'collect_text',
+      label: 'Entender a necessidade',
+      phaseId: 'entendimento',
       data: {
-        message: 'Prazer, {{context.name}}! Em breve seguimos com seu pedido.',
-        mensagemSteps: [
-          {
-            id: 'step-confirm',
-            tipo: 'texto' as const,
-            caption: 'Prazer, {{context.name}}! Em breve seguimos com seu pedido.',
-          },
-        ],
+        prompt: 'Certo, {{context.name}}. Conte com suas palavras como podemos ajudar hoje.',
+        variable_name: 'need',
+        max_attempts: 3,
+        timeout_minutes: 1440,
+        phaseId: 'entendimento',
       },
     },
-    { id: 'end-1', type: 'end', subtype: 'end', label: 'Encerrar', data: {} },
+    {
+      id: 'ai-1',
+      type: 'action',
+      subtype: 'ai_message',
+      label: 'Preparar e enviar a solução',
+      phaseId: 'resolucao',
+      data: {
+        ai_instruction: 'Responda à necessidade em {{context.need}} usando somente informações confirmadas da organização. Seja claro, objetivo e acolhedor. Se faltarem dados, explique o próximo passo sem inventar informações.',
+        ai_instrucao: 'Responda à necessidade em {{context.need}} usando somente informações confirmadas da organização. Seja claro, objetivo e acolhedor. Se faltarem dados, explique o próximo passo sem inventar informações.',
+        phaseId: 'resolucao',
+      },
+    },
+    {
+      id: 'confirm-1', type: 'collect', subtype: 'collect_confirm', label: 'Confirmar se foi resolvido', phaseId: 'conclusao',
+      data: { prompt: 'Consegui resolver sua necessidade?', variable_name: 'resolved', max_attempts: 3, timeout_minutes: 1440, phaseId: 'conclusao' },
+    },
+    {
+      id: 'msg-success', type: 'action', subtype: 'send_message', label: 'Encerrar com sucesso', phaseId: 'conclusao',
+      data: {
+        message: 'Perfeito, {{context.name}}! Atendimento concluído. Se precisar novamente, é só chamar.',
+        wait_for_reply: false,
+        phaseId: 'conclusao',
+        mensagemSteps: [{ id: 'step-success', tipo: 'texto' as const, caption: 'Perfeito, {{context.name}}! Atendimento concluído. Se precisar novamente, é só chamar.' }],
+      },
+    },
+    {
+      id: 'handoff-1', type: 'action', subtype: 'handoff_agent', label: 'Transferir para atendente', phaseId: 'conclusao',
+      data: { reason: 'Cliente informou que a necessidade ainda não foi resolvida.', message: 'Entendi. Vou transferir seu atendimento para uma pessoa da equipe continuar com você.', phaseId: 'conclusao' },
+    },
+    { id: 'end-success', type: 'end', subtype: 'completed', label: 'Atendimento concluído', phaseId: 'conclusao', data: { phaseId: 'conclusao' } },
+    { id: 'end-handoff', type: 'end', subtype: 'handoff', label: 'Atendimento encaminhado', phaseId: 'conclusao', data: { phaseId: 'conclusao' } },
   ]
   const connections = [
     { id: 'c1', from: 'trigger-1', fromHandle: 'main', to: 'msg-1' },
     { id: 'c2', from: 'msg-1', fromHandle: 'main', to: 'collect-1' },
-    { id: 'c3', from: 'collect-1', fromHandle: 'main', to: 'msg-2' },
-    { id: 'c4', from: 'msg-2', fromHandle: 'main', to: 'end-1' },
+    { id: 'c3', from: 'collect-1', fromHandle: 'main', to: 'collect-2' },
+    { id: 'c4', from: 'collect-2', fromHandle: 'main', to: 'ai-1' },
+    { id: 'c5', from: 'ai-1', fromHandle: 'main', to: 'confirm-1' },
+    { id: 'c6', from: 'confirm-1', fromHandle: 'yes', to: 'msg-success' },
+    { id: 'c7', from: 'msg-success', fromHandle: 'main', to: 'end-success' },
+    { id: 'c8', from: 'confirm-1', fromHandle: 'no', to: 'handoff-1' },
+    { id: 'c9', from: 'handoff-1', fromHandle: 'main', to: 'end-handoff' },
   ]
-  return { nodes, connections }
+  const phases = [
+    { id: 'inicio', name: 'Começo', description: 'Recebe o cliente e explica como o atendimento funcionará.', color: '#171717', order: 1 },
+    { id: 'entendimento', name: 'Entendimento', description: 'Identifica o cliente e registra sua necessidade.', color: '#4f46e5', order: 2 },
+    { id: 'resolucao', name: 'Resolução', description: 'A IA prepara uma resposta usando o contexto confirmado da organização.', color: '#059669', order: 3 },
+    { id: 'conclusao', name: 'Conclusão', description: 'Confirma a resolução ou transfere para atendimento humano.', color: '#d97706', order: 4 },
+  ]
+  return { nodes, connections, phases }
 }
+
+export const defaultJourneyNodes = defaultSupportFlow

@@ -824,6 +824,7 @@ export function AgentShellProvider({
       affiliatesBridge?.publishSnapshot({
         enabled: !!stats.props.enabled,
         commissionPct: Number(stats.props.commissionPct || 10),
+        commissionLabel: String(stats.props.commissionLabel || `${Number(stats.props.commissionPct ?? 10)}%`),
         affiliatesTotal: Number(stats.props.affiliatesTotal || 0),
         affiliatesPending: Number(stats.props.affiliatesPending || 0),
         affiliatesActive: Number(stats.props.affiliatesActive || 0),

@@ -15,6 +15,7 @@ type Props = {
   onToggle: (f: Flow) => void
   onDuplicate: (f: Flow) => void
   onDelete: (id: string) => void
+  error?: string
 }
 
 const FILTERS: { id: FlowStatusFilter; label: string }[] = [
@@ -35,6 +36,7 @@ export function FlowListView({
   onToggle,
   onDuplicate,
   onDelete,
+  error,
 }: Props) {
   const filtered = flows.filter((f) => (filter === 'all' ? true : f.status === filter))
   const activeCount = flows.filter((f) => f.status === 'active').length
@@ -47,8 +49,8 @@ export function FlowListView({
             Fluxos
           </h1>
           <p className="mt-1 text-sm text-gray-600 max-w-xl leading-relaxed">
-            Jornadas multi-turno com início, coleta, condições e encerramento.
-            Diferente de automações (reação pontual) e campanhas (disparo em massa).
+            Organize atendimentos completos: receba o cliente, entenda a necessidade,
+            resolva e confirme a conclusão ou encaminhe para a equipe.
           </p>
           {!loading && flows.length > 0 && (
             <p className="mt-2 text-xs text-gray-500 tabular-nums">
@@ -67,6 +69,12 @@ export function FlowListView({
           Novo fluxo
         </Button>
       </header>
+
+      {error && (
+        <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+          {error} Tente novamente ou verifique a conexão do serviço.
+        </div>
+      )}
 
       {flows.length > 0 && (
         <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Filtrar fluxos">
@@ -114,22 +122,22 @@ export function FlowListView({
               <GitBranch size={26} className="text-gray-700" strokeWidth={1.75} />
             </div>
             <h2 className="text-[15px] font-semibold text-gray-900 tracking-tight">
-              Monte sua primeira jornada
+              Crie seu fluxo padrão de atendimento
             </h2>
             <p className="mt-2 text-sm text-gray-600 max-w-md mx-auto leading-relaxed">
-              Exemplo: cliente manda “quero pedir” → bot cumprimenta → coleta o nome → confirma.
-              Sessões ficam pausadas até a resposta, sem perder o contexto.
+              Comece com uma estrutura pronta para receber o cliente, entender sua necessidade,
+              responder com contexto e confirmar se o atendimento foi resolvido.
             </p>
             <div className="mt-6 flex flex-col sm:flex-row items-center justify-center gap-2">
               <Button variant="primary" size="md" iconLeft={<Plus size={16} />} onClick={onCreate}>
-                Criar jornada de exemplo
+                Criar fluxo de atendimento
               </Button>
             </div>
             <div className="mt-8 grid gap-3 sm:grid-cols-3 text-left max-w-2xl mx-auto">
               {[
-                { t: 'Gatilho', d: 'Mensagem, lead ou pedido' },
-                { t: 'Conversa', d: 'Mensagens, coleta e espera' },
-                { t: 'Conclusão', d: 'Sucesso, handoff ou fim' },
+                { t: 'Começo', d: 'Recepção e identificação do cliente' },
+                { t: 'Meio', d: 'Entendimento e solução da necessidade' },
+                { t: 'Conclusão', d: 'Resolvido ou transferência para a equipe' },
               ].map((item) => (
                 <div key={item.t} className="rounded-xl border border-border bg-gray-50/80 px-3.5 py-3">
                   <p className="text-xs font-semibold text-gray-900">{item.t}</p>

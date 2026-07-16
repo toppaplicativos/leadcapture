@@ -687,7 +687,9 @@ app.use("/api/affiliate-programs", authMiddleware, requireModuleAndPlan("affilia
 app.use("/api/inventory", authMiddleware, inventoryRoutes);
 app.use("/api/leads", authMiddleware, rateLimit({ name: "leads", max: 200, windowMs: 60_000 }), leadsRoutes);
 app.use("/api/lead-categories", leadCategoriesRoutes);
-app.use("/api/flows", requireModuleAndPlan("flow_builder"), flowBuilderRoutes);
+// O editor de Fluxos é a camada visual de Automações. Autentique antes do
+// guard e preserve acesso para contratos Pro anteriores ao flag flow_builder.
+app.use("/api/flows", authMiddleware, requireModuleAndPlan("automations"), flowBuilderRoutes);
 app.use("/api/notifications", notificationsRoutes);
 app.use("/api/actions", actionsRoutes);
 app.use("/api/support", supportRoutes);

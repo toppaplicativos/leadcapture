@@ -455,6 +455,15 @@ router.patch("/:id/commission", requireRole(["admin", "operator"]), async (req: 
   try {
     const ownerUserId = String(req.user?.userId || "").trim();
     const affiliateId = String(req.params.id || "").trim();
+    if (req.body?.inherit === true) {
+      await query(
+        `UPDATE affiliates
+         SET commission_mode = NULL, commission_value = NULL, updated_at = NOW()
+         WHERE id = ? AND owner_user_id = ?`,
+        [affiliateId, ownerUserId]
+      );
+      return res.json({ success: true, inherited: true });
+    }
     const hasMode = req.body?.commission_mode !== undefined && req.body?.commission_mode !== null;
     const hasValue = req.body?.commission_value !== undefined && req.body?.commission_value !== null;
 

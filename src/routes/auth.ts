@@ -9,6 +9,7 @@ import { authMiddleware, AuthRequest, requireRole } from "../middleware/auth";
 import { config } from "../config";
 import { query, queryOne } from "../config/database";
 import { logger } from "../utils/logger";
+import { resolveCommissionConfig } from "../services/affiliateCommission";
 
 const router = Router();
 const usersService = new UsersService();
@@ -804,9 +805,23 @@ router.get("/affiliate-access", authMiddleware, requireRole(["admin", "operator"
       [ownerUserId, brandId]
     );
 
-    res.json({
-      success: true,
-      credentials: rows.map((item) => ({
+    const credentials = await Promise.all(rows.map(async (item) => {
+      const program = item.affiliate_id
+        ? await queryOne<any>(
+            `SELECT p.id, p.name, p.commission_mode, p.commission_value
+             FROM affiliate_program_enrollments e
+             INNER JOIN affiliate_programs p ON p.id = e.program_id
+             WHERE e.affiliate_id = ? AND e.brand_id = ?
+             ORDER BY CASE WHEN e.status = 'active' THEN 0 ELSE 1 END, e.updated_at DESC
+             LIMIT 1`,
+            [item.affiliate_id, brandId]
+          ).catch(() => null)
+        : null;
+      const effectiveCommission = resolveCommissionConfig({
+        affiliate: item,
+        program,
+      });
+      return {
         id: item.id,
         brand_id: item.brand_id,
         email: item.email,
@@ -826,12 +841,24 @@ router.get("/affiliate-access", authMiddleware, requireRole(["admin", "operator"
         commission_pct: item.commission_pct,
         commission_mode: item.commission_mode || null,
         commission_value: item.commission_value != null ? Number(item.commission_value) : null,
+        effective_commission_mode: effectiveCommission.mode,
+        effective_commission_value: effectiveCommission.value,
+        effective_commission_source: effectiveCommission.source,
+        program_id: program?.id || null,
+        program_name: program?.name || null,
+        program_commission_mode: program?.commission_mode || null,
+        program_commission_value: program?.commission_value != null ? Number(program.commission_value) : null,
         total_clicks: Number(item.total_clicks || 0),
         total_sales: Number(item.total_sales || 0),
         total_commission: Number(item.total_commission || 0),
         created_at: item.created_at,
         updated_at: item.updated_at,
-      })),
+      };
+    }));
+
+    res.json({
+      success: true,
+      credentials,
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message || "Failed to list affiliate credentials" });
@@ -1014,7 +1041,7 @@ router.get("/affiliate-brand", async (req: Request, res: Response) => {
         is_enabled: !!program.is_enabled,
         accept_new_affiliates: program.accept_new_affiliates !== false,
         auto_approve_affiliates: program.auto_approve_affiliates !== false,
-        default_commission_pct: Number(program.default_commission_pct || 10),
+        default_commission_pct: Number(program.default_commission_pct ?? 10),
         default_commission_mode: String(program.default_commission_mode || "percentage"),
         default_commission_value: Number(program.default_commission_value ?? program.default_commission_pct ?? 10),
         commission_rules: program.commission_rules || null,

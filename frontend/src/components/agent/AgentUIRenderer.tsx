@@ -580,7 +580,7 @@ function AffiliateCreatePreview({ spec, callbacks }: { spec: ComponentSpec; call
         <Handshake size={14} className="text-teal-700 shrink-0" />
         <div>
           <p className="catalog-aff-preview__title">{String(props.name || 'Novo parceiro')}</p>
-          <p className="catalog-aff-preview__meta">{String(props.email || '')} · Comissão {Number(props.commissionPct || 10)}%</p>
+          <p className="catalog-aff-preview__meta">{String(props.email || '')} · Comissão {String(props.commissionLabel || `${Number(props.commissionPct ?? 10)}%`)}</p>
         </div>
       </div>
       <ul className="catalog-aff-preview__list">

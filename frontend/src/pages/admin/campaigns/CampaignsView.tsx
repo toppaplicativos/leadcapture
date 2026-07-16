@@ -10,7 +10,7 @@ import {
   Boxes, Store, Laptop, CheckCircle2, Copy, Info, AlertTriangle, Star,
   Camera, Ticket, Percent, MessageSquareQuote, ThumbsUp, ThumbsDown, Film, ShoppingBag,
   ImageIcon, MousePointerClick, List, Minus, GripVertical, ArrowUp, ArrowDown,
-  Images, Upload, ExternalLink,
+  Images, Upload, ExternalLink, GitBranch,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { InstagramIcon, WhatsAppIcon } from '@/components/icons'
@@ -868,7 +868,7 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
     }))
   }
 
-  type OptionItem = { label: string; productId?: string; productName?: string }
+  type OptionItem = { id: string; label: string; productId?: string; productName?: string; flowId?: string }
 
   /** Opções editáveis no UI (mantém campos vazios enquanto digita). */
   function getEditableOptions(block: CampaignActionBlock): string[] {
@@ -881,13 +881,15 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
       ? ((block.config as any).optionItems as OptionItem[])
       : null
     if (rawItems && rawItems.length) {
-      const list: OptionItem[] = rawItems.map((it: any) => ({
+      const list: OptionItem[] = rawItems.map((it: any, index: number) => ({
+        id: String(it?.id || `${block.id}_option_${index + 1}`),
         label: String(it?.label || it?.title || ''),
         productId: it?.productId ? String(it.productId) : undefined,
         productName: it?.productName ? String(it.productName) : undefined,
+        flowId: it?.flowId ? String(it.flowId) : undefined,
       }))
       const targetLen = Math.min(meta.max, Math.max(meta.min, list.length, 1))
-      while (list.length < targetLen) list.push({ label: '' })
+      while (list.length < targetLen) list.push({ id: `${block.id}_option_${list.length + 1}`, label: '' })
       return list.slice(0, meta.max)
     }
     const raw = String(block.config?.options ?? '')
@@ -895,8 +897,8 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
     const lines = hasKey || raw ? raw.split(/\r?\n/) : []
     const slotHint = Math.max(0, Number(block.config?._optionSlots || 0) || 0)
     const targetLen = Math.min(meta.max, Math.max(meta.min, lines.length, slotHint, 1))
-    const list: OptionItem[] = lines.slice(0, meta.max).map((label) => ({ label }))
-    while (list.length < targetLen) list.push({ label: '' })
+    const list: OptionItem[] = lines.slice(0, meta.max).map((label, index) => ({ id: `${block.id}_option_${index + 1}`, label }))
+    while (list.length < targetLen) list.push({ id: `${block.id}_option_${list.length + 1}`, label: '' })
     return list
   }
 
@@ -933,7 +935,7 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
             productName: product.name,
             label: list[index].label?.trim() ? list[index].label : product.name.slice(0, 24),
           }
-        : { label: list[index].label, productId: undefined, productName: undefined }
+        : { ...list[index], productId: undefined, productName: undefined }
       return {
         ...block,
         config: persistOptionItems(block, list),
@@ -947,7 +949,7 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
       const meta = optionBuilderMeta(block.actionType)
       const list = getEditableOptionItems(block)
       if (list.length >= meta.max) return block
-      list.push({ label: '' })
+      list.push({ id: `${block.id}_option_${Date.now().toString(36)}`, label: '' })
       return {
         ...block,
         config: persistOptionItems(block, list),
@@ -961,7 +963,7 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
       const meta = optionBuilderMeta(block.actionType)
       const list = getEditableOptionItems(block)
       if (list.length <= meta.min) {
-        list[index] = { label: '' }
+        list[index] = { ...list[index], label: '' }
       } else {
         list.splice(index, 1)
       }
@@ -969,6 +971,15 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
         ...block,
         config: persistOptionItems(block, list),
       }
+    }))
+  }
+
+  function updateOptionFlow(blockId: string, index: number, flowId: string) {
+    setActionBlocks((blocks) => blocks.map((block) => {
+      if (block.id !== blockId) return block
+      const list = getEditableOptionItems(block)
+      list[index] = { ...list[index], flowId: flowId || undefined }
+      return { ...block, config: persistOptionItems(block, list) }
     }))
   }
 
@@ -2030,7 +2041,7 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
 
                             <div className="space-y-2">
                               {getEditableOptionItems(block).map((optItem, optIndex) => (
-                                <div key={`${block.id}-opt-${optIndex}`} className="space-y-1">
+                                <div key={optItem.id} className="space-y-1">
                                   <div className="flex items-center gap-2">
                                     <span className="w-6 h-9 rounded-lg bg-gray-100 text-gray-500 grid place-items-center text-[10px] font-black tabular-nums shrink-0">
                                       {optIndex + 1}
@@ -2091,6 +2102,21 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
                                       )}
                                     </div>
                                   )}
+                                  <div className="pl-8 flex items-center gap-2">
+                                    <GitBranch size={12} className="text-gray-400 shrink-0" />
+                                    <span className="text-[9px] font-semibold text-gray-500 whitespace-nowrap">Ao escolher</span>
+                                    <select
+                                      value={optItem.flowId || ''}
+                                      onChange={(e) => updateOptionFlow(block.id, optIndex, e.target.value)}
+                                      className="flex-1 h-8 px-2 rounded-lg border border-gray-200 bg-white text-[11px] text-gray-800"
+                                      aria-label={`Fluxo iniciado pela opção ${optItem.label || optIndex + 1}`}
+                                    >
+                                      <option value="">Continuar sem fluxo</option>
+                                      {flowOptions.map((flow) => (
+                                        <option key={flow.id} value={flow.id}>{flow.name}</option>
+                                      ))}
+                                    </select>
+                                  </div>
                                 </div>
                               ))}
                             </div>

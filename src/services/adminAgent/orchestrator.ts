@@ -33,6 +33,7 @@ import { AffiliatesService } from "../affiliates";
 import bcrypt from "bcryptjs";
 import { SKILLS, NAV_PATHS, buildSkillsCatalog } from "./squads";
 import { getSkillMeta } from "./skillMeta";
+import { formatCommissionShort, normalizeCommissionMode } from "../affiliateCommission";
 import { combineMemoryBlocks } from "./memory";
 import type { AdminAgentMemory } from "./sessionStore";
 import type {
@@ -2090,7 +2091,11 @@ Responda APENAS com JSON válido neste formato:
             type: "affiliate_stats",
             props: {
               enabled: !!stats.program?.is_enabled,
-              commissionPct: Number(stats.program?.default_commission_pct || 10),
+              commissionPct: Number(stats.program?.default_commission_pct ?? 10),
+              commissionLabel: formatCommissionShort(
+                normalizeCommissionMode(stats.program?.default_commission_mode),
+                Number(stats.program?.default_commission_value ?? stats.program?.default_commission_pct ?? 10),
+              ),
               affiliatesTotal: stats.affiliates_total,
               affiliatesPending: stats.affiliates_pending,
               affiliatesActive: stats.affiliates_active,
@@ -2178,7 +2183,11 @@ Responda APENAS com JSON válido neste formato:
             phone: phone || null,
             code: code || null,
             region: region || null,
-            commissionPct: Number(config.default_commission_pct || 10),
+            commissionPct: Number(config.default_commission_pct ?? 10),
+            commissionLabel: formatCommissionShort(
+              normalizeCommissionMode(config.default_commission_mode),
+              Number(config.default_commission_value ?? config.default_commission_pct ?? 10),
+            ),
           },
         });
         break;

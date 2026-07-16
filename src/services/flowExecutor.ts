@@ -168,6 +168,7 @@ export class FlowExecutorService {
     triggerSubtype?: string;
     source?: string;
     requireActive?: boolean;
+    triggerData?: Record<string, any>;
   }): Promise<{ ok: boolean; executionId?: string; error?: string }> {
     try {
       await this.ensureTables();
@@ -201,6 +202,7 @@ export class FlowExecutorService {
       );
 
       const triggerData: Record<string, any> = {
+        ...(input.triggerData || {}),
         phone: input.phone || "",
         message: input.message || "",
         name: input.name || "",
@@ -267,7 +269,8 @@ export class FlowExecutorService {
   async fire(
     triggerSubtype: string,
     userId: string,
-    triggerData: Record<string, any>
+    triggerData: Record<string, any>,
+    options?: { scope?: "all" | "campaign_only" }
   ): Promise<number> {
     let started = 0;
     try {
@@ -306,6 +309,26 @@ export class FlowExecutorService {
         );
 
         for (const trigger of triggers) {
+          const campaignSourceMode = String(trigger.data?.campaignSourceMode || "any");
+          const requiresCampaign = campaignSourceMode === "campaign";
+          if (options?.scope === "campaign_only" && !requiresCampaign) continue;
+          if (requiresCampaign) {
+            const campaignId = String(triggerData.campaign?.id || triggerData.campaignId || "");
+            if (!campaignId) continue;
+            const allowedCampaigns = Array.isArray(trigger.data?.campaignIds)
+              ? trigger.data.campaignIds.map(String).filter(Boolean)
+              : [];
+            if (allowedCampaigns.length > 0 && !allowedCampaigns.includes(campaignId)) continue;
+
+            const allowedChoices = Array.isArray(trigger.data?.campaignChoices)
+              ? trigger.data.campaignChoices.map(String).filter(Boolean)
+              : [];
+            if (allowedChoices.length > 0) {
+              const choiceKey = String(triggerData.reply?.choiceKey || "");
+              if (!choiceKey || !allowedChoices.includes(choiceKey)) continue;
+            }
+          }
+
           // Keyword filter opcional no trigger
           if (triggerSubtype === "message_received") {
             const keywords = this.parseKeywords(trigger.data);

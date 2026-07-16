@@ -18,6 +18,7 @@ export type AffiliatesTabKey =
 export type AffiliatesSnapshot = {
   enabled: boolean
   commissionPct: number
+  commissionLabel?: string
   affiliatesTotal: number
   affiliatesPending: number
   affiliatesActive: number
@@ -59,6 +60,7 @@ export type AffiliatesHandlers = {
 const EMPTY: AffiliatesSnapshot = {
   enabled: false,
   commissionPct: 10,
+  commissionLabel: '10%',
   affiliatesTotal: 0,
   affiliatesPending: 0,
   affiliatesActive: 0,

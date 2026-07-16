@@ -179,7 +179,7 @@ export function AffiliatesPage({ showToast = () => {}, embedded = false, initial
           is_enabled: !!progData.program.is_enabled,
           accept_new_affiliates: progData.program.accept_new_affiliates !== false,
           auto_approve_affiliates: progData.program.auto_approve_affiliates !== false,
-          default_commission_pct: Number(progData.program.default_commission_pct || 10),
+          default_commission_pct: Number(progData.program.default_commission_pct ?? 10),
           default_commission_mode: normalizeCommissionMode(progData.program.default_commission_mode),
           default_commission_value: Number(progData.program.default_commission_value ?? progData.program.default_commission_pct ?? 10),
           commission_rules: progData.program.commission_rules || '',
@@ -705,6 +705,11 @@ export function AffiliatesPage({ showToast = () => {}, embedded = false, initial
         <AffiliateAccessManageModal
           credential={managing}
           brandSlug={brandSlug}
+          sales={sales}
+          payouts={payouts}
+          ranking={[...credentials]
+            .sort((a, b) => Number(b.total_sales || 0) - Number(a.total_sales || 0))
+            .findIndex((item) => item.id === managing.id) + 1}
           onClose={() => setManaging(null)}
           onChanged={() => { setManaging(null); refresh() }}
           showToast={showToast}

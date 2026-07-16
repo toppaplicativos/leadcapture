@@ -16,7 +16,7 @@ export function AffiliatesModuleBlock({ messageId, isActive }: Props) {
   if (!isActive || !bridge.moduleOpen) return null
 
   const summary = snap.enabled
-    ? `Afiliados · ${snap.affiliatesActive} ativo${snap.affiliatesActive !== 1 ? 's' : ''} · ${snap.commissionPct}%`
+    ? `Afiliados · ${snap.affiliatesActive} ativo${snap.affiliatesActive !== 1 ? 's' : ''} · ${snap.commissionLabel || `${snap.commissionPct}%`}`
     : 'Afiliados · programa desativado'
 
   return (

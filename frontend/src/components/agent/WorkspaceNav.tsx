@@ -15,7 +15,7 @@ import { openPlanUpgradeForModule } from '@/lib/plan-upgrade'
  * Itens fora do plano aparecem bloqueados e abrem modal de upgrade.
  */
 const WORKSPACE_NAV = [
-  'dashboard', 'leads', 'mensagens', 'atendente', 'produtos', 'pedidos', 'estoque', 'configuracoes',
+  'dashboard', 'leads', 'mensagens', 'atendente', 'fluxos', 'produtos', 'pedidos', 'estoque', 'configuracoes',
 ] as const
 
 const BRAND_ICON_CLASS: Record<string, string> = {
@@ -30,6 +30,7 @@ const KEY_TO_PATH: Record<string, string> = {
   leads: '/leads',
   mensagens: '/mensagens',
   atendente: '/atendente',
+  fluxos: '/fluxos',
   produtos: '/produtos',
   pedidos: '/pedidos',
   estoque: '/estoque',

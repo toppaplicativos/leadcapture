@@ -177,7 +177,7 @@ export function extractInteractiveOptions(data: Record<string, any> | undefined)
 }
 
 export function parseInteractiveInbound(raw: string): {
-  kind: "button" | "list" | "interactive" | "text" | "number_choice";
+  kind: "button" | "list" | "poll" | "interactive" | "text" | "number_choice";
   id: string | null;
   label: string;
   raw: string;
@@ -189,7 +189,9 @@ export function parseInteractiveInbound(raw: string): {
   if (m) {
     const kindRaw = m[1].toLowerCase();
     const kind =
-      kindRaw.startsWith("list")
+      kindRaw.startsWith("poll")
+        ? "poll"
+        : kindRaw.startsWith("list")
         ? "list"
         : kindRaw.startsWith("interactive")
           ? "interactive"

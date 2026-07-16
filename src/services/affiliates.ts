@@ -812,7 +812,7 @@ export class AffiliatesService {
     const pct = couponDiscountPercent({
       mode: commission.mode,
       value: commission.value,
-      fallbackPct: Number(config.default_commission_pct || 10),
+      fallbackPct: Number(config.default_commission_pct ?? 10),
     });
     const code = String(affiliate.coupon_code || "").trim().toUpperCase();
     if (!code || pct <= 0) return;

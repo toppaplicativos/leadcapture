@@ -831,6 +831,32 @@ export class CommerceService {
       origem: input.origem || "whatsapp",
     });
 
+    /* Consentimento: telefone informado no checkout/pedido = opt-in para
+       updates do pedido + comunicações da marca (com evidência do pedido). */
+    if (input.customer_phone) {
+      const origemLabel =
+        input.origem === "checkout_web"
+          ? "checkout da loja online"
+          : "pedido via WhatsApp / atendimento";
+      void import("./whatsappSendEligibility").then(({ whatsappSendEligibility }) =>
+        whatsappSendEligibility.recordCaptureConsent({
+          phone: input.customer_phone,
+          userId,
+          brandId: normalizedBrandId,
+          origin: origemLabel,
+          source: input.origem === "checkout_web" ? "checkout_web" : "whatsapp",
+          purpose: ["transactional", "order", "marketing"],
+          evidence: `order_id=${orderId}; origem=${input.origem || "whatsapp"}; customer=${String(input.customer_name || "").slice(0, 80)}`,
+          requireExplicitSource: false,
+          metadata: {
+            entity: "commerce_order",
+            order_id: orderId,
+            origem: input.origem || "whatsapp",
+          },
+        })
+      );
+    }
+
     /* Transactional e-mails: seller + buyer (fire-and-forget) */
     try {
       const { emailTriggers } = await import("./emailTriggers");

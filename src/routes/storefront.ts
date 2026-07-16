@@ -3213,9 +3213,10 @@ publicRouter.post("/stores/:slug/orders", async (req, res) => {
               phone: normalizedPhone,
               email: req.body?.customer?.email || undefined,
               address: deliveryAddress || undefined,
-              source: "manual",
+              source: "checkout_web",
               client_type: clientTypeName,
               status: "new",
+              notes: `Cliente criado automaticamente no checkout da loja (${slug}).`,
             } as any,
             inventoryBrandId || undefined
           );

@@ -367,6 +367,83 @@ class WhatsAppSendEligibilityService {
     return { id };
   }
 
+  /**
+   * Fontes que representam opt-in real do titular (não scrape/prospecção fria).
+   */
+  isExplicitConsentSource(source?: string | null): boolean {
+    const s = String(source || "")
+      .trim()
+      .toLowerCase();
+    if (!s) return false;
+    if (
+      /google|maps|scrape|prospect|import.?csv|cold|lista.?comprada|cold.?list|enriched/.test(s)
+    ) {
+      return false;
+    }
+    return /manual|form|website|site|checkout|loja|storefront|landing|cadastro|whatsapp|inbox|pedido|order|cliente|public|opt.?in|newsletter|lead.?form|catalogo|catálogo/.test(
+      s
+    );
+  }
+
+  /**
+   * Fire-and-forget: grava consentimento em capturas/checkout com evidência.
+   * Nunca lança — falha de consent não derruba o fluxo de negócio.
+   */
+  async recordCaptureConsent(input: {
+    phone?: string | null;
+    userId?: string | null;
+    brandId?: string | null;
+    origin: string;
+    purpose?: string | string[];
+    evidence?: string | null;
+    source?: string | null;
+    requireExplicitSource?: boolean;
+    metadata?: Record<string, unknown>;
+  }): Promise<void> {
+    try {
+      const phone = normalizeWaPhone(input.phone);
+      if (!phone || phone.length < 10) return;
+
+      if (input.requireExplicitSource !== false && input.source) {
+        if (!this.isExplicitConsentSource(input.source) && !this.isExplicitConsentSource(input.origin)) {
+          return;
+        }
+      }
+
+      const purposes = Array.isArray(input.purpose)
+        ? input.purpose
+        : [input.purpose || "marketing"];
+
+      for (const purpose of purposes) {
+        // Evita spam de linhas idênticas no mesmo dia
+        const recent = await queryOne<any>(
+          `SELECT id FROM wa_message_consents
+           WHERE phone_normalized = ?
+             AND purpose = ?
+             AND COALESCE(brand_id,'') = COALESCE(?,'')
+             AND revoked_at IS NULL
+             AND granted_at > NOW() - INTERVAL '7 days'
+           LIMIT 1`,
+          [phone, String(purpose).slice(0, 40), input.brandId || null]
+        ).catch(() => null);
+        if (recent) continue;
+
+        await this.registerConsent({
+          phone,
+          userId: input.userId,
+          brandId: input.brandId,
+          purpose: String(purpose || "marketing"),
+          origin: input.origin,
+          evidence: input.evidence || null,
+          source: input.source || null,
+          metadata: input.metadata,
+        });
+      }
+    } catch (e: any) {
+      logger.warn(`[wa_eligibility] recordCaptureConsent: ${e?.message || e}`);
+    }
+  }
+
   async hasActiveConsent(
     phone: string,
     brandId?: string | null,

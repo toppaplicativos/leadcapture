@@ -175,6 +175,21 @@ export class ClientsService {
     }
 
     const created = await this.getById(id, userId, brandId);
+
+    void import("./whatsappSendEligibility").then(({ whatsappSendEligibility }) =>
+      whatsappSendEligibility.recordCaptureConsent({
+        phone: data.phone,
+        userId,
+        brandId: brandId || null,
+        origin: `cadastro de cliente CRM (${data.source || "manual"})`,
+        source: data.source || "manual",
+        purpose: ["marketing", "transactional"],
+        evidence: `client_id=${id}; name=${String(data.name || "").slice(0, 80)}; source=${data.source || "manual"}`,
+        requireExplicitSource: true,
+        metadata: { entity: "client", client_id: id },
+      })
+    );
+
     if (created?.email) {
       try {
         const { emailTriggers } = await import("./emailTriggers");

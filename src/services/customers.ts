@@ -867,6 +867,21 @@ export class CustomersService {
 
     const id = await this.insertDynamicCustomer(record);
     logger.info(`Customer created: ${dto.name} (ID: ${id})`);
+
+    /* Consentimento WhatsApp — só fontes com opt-in real (não scrape/Google). */
+    void import("./whatsappSendEligibility").then(({ whatsappSendEligibility }) =>
+      whatsappSendEligibility.recordCaptureConsent({
+        phone: dto.phone,
+        userId: ownerUserId,
+        brandId: brandId || null,
+        origin: `cadastro de cliente (${dto.source || "manual"})`,
+        source: dto.source || "manual",
+        purpose: ["marketing", "transactional"],
+        evidence: `customer_id=${id}; name=${String(dto.name || "").slice(0, 80)}; source=${dto.source || "manual"}`,
+        requireExplicitSource: true,
+        metadata: { entity: "customer", customer_id: id },
+      })
+    );
     void this.notifyCampaignAutoFeed(ownerUserId, brandId, id);
     return (await this.getById(id, ownerUserId, brandId))!;
   }

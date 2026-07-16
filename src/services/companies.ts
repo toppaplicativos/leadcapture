@@ -89,6 +89,20 @@ export class CompaniesService {
       );
     }
 
+    void import("./whatsappSendEligibility").then(({ whatsappSendEligibility }) =>
+      whatsappSendEligibility.recordCaptureConsent({
+        phone: data.phone,
+        userId,
+        brandId: brandId || null,
+        origin: "cadastro de empresa (manual/CRM)",
+        source: "manual",
+        purpose: ["marketing", "transactional"],
+        evidence: `company_id=${id}; name=${String(data.name || "").slice(0, 80)}`,
+        requireExplicitSource: true,
+        metadata: { entity: "company", company_id: id },
+      })
+    );
+
     return this.getById(id, userId, brandId) as Promise<Company>;
   }
 

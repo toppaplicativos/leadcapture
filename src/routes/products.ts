@@ -470,6 +470,48 @@ router.post("/refine-description-preview", async (req: BrandRequest, res: Respon
   }
 });
 
+router.post("/ai-assist", async (req: BrandRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId as string | undefined;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+    const name = normalizeText(req.body?.name) || "Novo produto";
+    const category = normalizeText(req.body?.category) || "geral";
+    const description = normalizeText(req.body?.description);
+    const command = normalizeText(req.body?.command) || "Organize e valorize este produto";
+
+    const result = await aiRouter.generateJson<{
+      name?: string;
+      subtitle?: string;
+      description?: string;
+      benefits?: string[];
+      suggested_category?: string;
+      seo_title?: string;
+      seo_description?: string;
+    }>(
+      [
+        "Você é um especialista em cadastro e apresentação de produtos para e-commerce.",
+        "Transforme as informações simples em conteúdo claro, confiável e comercialmente forte.",
+        "Não invente especificações, certificações, garantias, resultados ou depoimentos.",
+        "A descrição deve ter: abertura de valor, vantagens, detalhes de uso e fechamento curto.",
+        "Use português do Brasil e retorne somente JSON válido.",
+        'Formato: {"name":"string","subtitle":"string","description":"string","benefits":["string"],"suggested_category":"string","seo_title":"string","seo_description":"string"}',
+        `Comando do usuário: ${command}`,
+        `Nome atual: ${name}`,
+        `Categoria atual: ${category}`,
+        `Descrição simples: ${description || "não informada"}`,
+      ].join("\n"),
+      { userId, brandId: req.brandId || undefined },
+      { functionKey: "text.product.description" },
+    );
+
+    res.json({ success: true, suggestion: result });
+  } catch (error: any) {
+    logger.error(error, "Error assisting product content");
+    res.status(500).json({ error: error.message || "Failed to assist product content" });
+  }
+});
+
 // GET all products
 router.get("/", async (req: BrandRequest, res: Response) => {
   try {

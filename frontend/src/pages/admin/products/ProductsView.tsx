@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, Users, MessageSquare, Megaphone, ShoppingCart,
@@ -10,6 +11,7 @@ import {
   Boxes, Store, Laptop, CheckCircle2, Copy, Info, AlertTriangle, Star,
   Camera, Ticket, Percent, MessageSquareQuote, ThumbsUp, ThumbsDown, Film, ShoppingBag,
   CheckSquare, Square, FolderOpen, Power, PowerOff, XCircle,
+  Share2, ImageIcon, LineChart, ListChecks, MessageCircle, ExternalLink,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { adminApi, inventoryApi } from '@/lib/api-admin'
@@ -305,7 +307,7 @@ export function ProductsView({
 
       {/* KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
-        <KpiCard label="Total" value={String(metrics.total)} icon={Package} bg="bg-blue-50" color="text-blue-500" accent="text-blue-600" />
+        <KpiCard label="Total" value={String(metrics.total)} icon={Package} bg="bg-gray-100" color="text-gray-600" accent="text-gray-950" />
         <KpiCard label="Ativos" value={String(metrics.active)} icon={Eye} bg="bg-emerald-50" color="text-emerald-500" accent="text-emerald-600" />
         <KpiCard label="Com Imagem" value={String(metrics.withImage)} icon={Eye} bg="bg-gray-50" color="text-gray-500" accent="text-gray-700" />
         <KpiCard label="Preco Medio" value={money(metrics.avgPrice)} icon={BarChart3} bg="bg-amber-50" color="text-amber-500" accent="text-amber-600" />
@@ -315,12 +317,12 @@ export function ProductsView({
       {categories.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           <button onClick={() => setCatFilter('')}
-            className={`px-3 py-1.5 rounded-lg text-[11px] font-semibold transition ${!catFilter ? 'bg-blue-100 text-blue-700 ring-1 ring-blue-300' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'}`}>
+            className={`px-3 py-1.5 rounded-lg text-[11px] font-semibold transition ${!catFilter ? 'bg-gray-950 text-white ring-1 ring-gray-950' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'}`}>
             Todos ({metrics.total})
           </button>
           {categories.map((c: any) => (
             <button key={c.id} onClick={() => setCatFilter(catFilter === c.name ? '' : c.name)}
-              className={`px-3 py-1.5 rounded-lg text-[11px] font-semibold transition ${catFilter === c.name ? 'ring-1 ring-blue-300 text-blue-700 bg-blue-50' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'}`}>
+              className={`px-3 py-1.5 rounded-lg text-[11px] font-semibold transition ${catFilter === c.name ? 'ring-1 ring-gray-950 text-white bg-gray-950' : 'bg-gray-50 text-gray-500 hover:bg-gray-100'}`}>
               {c.color && <span className="inline-block w-2 h-2 rounded-full mr-1.5" style={{ backgroundColor: c.color }} />}
               {c.name} {metrics.catCounts[c.name] ? <span className="text-[9px] opacity-60">({metrics.catCounts[c.name]})</span> : null}
             </button>
@@ -359,10 +361,10 @@ export function ProductsView({
           </button>
         )}
         <div className="flex gap-0.5 bg-gray-100 p-0.5 rounded-lg shrink-0">
-          <button onClick={() => setViewMode('grid')} className={`p-1.5 rounded-md transition ${viewMode === 'grid' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-400'}`}>
+          <button onClick={() => setViewMode('grid')} className={`p-1.5 rounded-md transition ${viewMode === 'grid' ? 'bg-white shadow-sm text-gray-950' : 'text-gray-400'}`}>
             <Package size={14} />
           </button>
-          <button onClick={() => setViewMode('list')} className={`p-1.5 rounded-md transition ${viewMode === 'list' ? 'bg-white shadow-sm text-blue-600' : 'text-gray-400'}`}>
+          <button onClick={() => setViewMode('list')} className={`p-1.5 rounded-md transition ${viewMode === 'list' ? 'bg-white shadow-sm text-gray-950' : 'text-gray-400'}`}>
             <BarChart3 size={14} />
           </button>
         </div>
@@ -377,7 +379,7 @@ export function ProductsView({
             <div
               key={p.id}
               className={`bg-white rounded-2xl border overflow-hidden group hover:shadow-md transition-all cursor-pointer ${
-                isSelected ? 'border-blue-400 ring-2 ring-blue-200' : 'border-border-light'
+                isSelected ? 'border-gray-950 ring-2 ring-gray-200' : 'border-border-light'
               }`}
               onClick={() => {
                 if (selectionActive) toggleSelected(String(p.id))
@@ -395,7 +397,7 @@ export function ProductsView({
                     type="button"
                     onClick={(e) => { e.stopPropagation(); toggleSelected(String(p.id)) }}
                     className={`absolute top-2 left-2 p-1 rounded-lg shadow-sm transition ${
-                      isSelected ? 'bg-blue-600 text-white' : 'bg-white/90 text-gray-500 hover:bg-white'
+                      isSelected ? 'bg-gray-950 text-white' : 'bg-white/90 text-gray-500 hover:bg-white'
                     }`}
                     aria-label={isSelected ? 'Desmarcar' : 'Selecionar'}
                   >
@@ -446,7 +448,7 @@ export function ProductsView({
                       aria-label="Selecionar todos"
                     >
                       {filtered.length > 0 && filtered.every((p) => selectedIds.has(String(p.id)))
-                        ? <CheckSquare size={14} className="text-blue-600" />
+                        ? <CheckSquare size={14} className="text-gray-950" />
                         : <Square size={14} className="text-gray-400" />}
                     </button>
                   </th>
@@ -464,8 +466,8 @@ export function ProductsView({
                 return (
                 <tr
                   key={p.id}
-                  className={`border-b border-gray-100 last:border-0 hover:bg-blue-50/30 transition cursor-pointer ${
-                    isSelected ? 'bg-blue-50/50' : ''
+                  className={`border-b border-gray-100 last:border-0 hover:bg-gray-50 transition cursor-pointer ${
+                    isSelected ? 'bg-gray-100/80' : ''
                   }`}
                   onClick={() => {
                     if (selectionActive) toggleSelected(String(p.id))
@@ -479,7 +481,7 @@ export function ProductsView({
                         onClick={(e) => { e.stopPropagation(); toggleSelected(String(p.id)) }}
                         className="p-1 rounded-md"
                       >
-                        {isSelected ? <CheckSquare size={14} className="text-blue-600" /> : <Square size={14} className="text-gray-400" />}
+                        {isSelected ? <CheckSquare size={14} className="text-gray-950" /> : <Square size={14} className="text-gray-400" />}
                       </button>
                     </td>
                   )}
@@ -607,7 +609,7 @@ export function ProductsView({
                   type="button"
                   disabled={bulkBusy || !bulkCategory}
                   onClick={() => runBulkAction('set_category', { category: bulkCategory })}
-                  className="px-3 py-1.5 rounded-lg bg-blue-500 hover:bg-blue-400 text-[11px] font-bold disabled:opacity-50"
+                  className="px-3 py-1.5 rounded-lg bg-white text-gray-950 hover:bg-gray-100 text-[11px] font-bold disabled:opacity-50"
                 >
                   Aplicar
                 </button>
@@ -701,8 +703,22 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
   const [features, setFeatures] = useState((product?.features || []).join(', '))
   const [active, setActive] = useState(product?.active !== false)
   const [imageUrl, setImageUrl] = useState(product?.imageUrl || product?.image || '')
+  const [galleryImages, setGalleryImages] = useState<string[]>(() => {
+    const initial = Array.isArray(product?.galleryImages)
+      ? product.galleryImages
+      : Array.isArray(product?.gallery_images)
+        ? product.gallery_images
+        : []
+    return Array.from(new Set([product?.imageUrl || product?.image, ...initial].filter(Boolean).map(String)))
+  })
   const [uploading, setUploading] = useState(false)
   const [galleryOpen, setGalleryOpen] = useState(false)
+  const [editorSection, setEditorSection] = useState('essencial')
+  const [aiCommand, setAiCommand] = useState('')
+  const [aiBusy, setAiBusy] = useState(false)
+  const [copilotOpen, setCopilotOpen] = useState(false)
+  const [reviewStats, setReviewStats] = useState({ average: 0, count: 0 })
+  const editorScrollRef = useRef<HTMLDivElement>(null)
   /* OfferEntity Fase 0+3 — type, subtitle, CTA */
   const [offerType, setOfferType] = useState<string>(product?.type || 'physical_product')
   const [subtitle, setSubtitle] = useState<string>(product?.subtitle || '')
@@ -869,6 +885,34 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
       .then(d => setAttrDefs(d.definitions || []))
       .catch(() => {})
   }, [])
+
+  useEffect(() => {
+    if (!product?.id) return
+    fetch(`/api/reviews/product/${product.id}/aggregates`, { headers: getHeaders() })
+      .then(r => r.json())
+      .then(d => {
+        const agg = d?.aggregates || {}
+        setReviewStats({
+          average: Number(agg.average_rating || agg.avg || 0),
+          count: Number(agg.total || agg.count || 0),
+        })
+      })
+      .catch(() => {})
+  }, [product?.id])
+
+  useEffect(() => {
+    if (!product?.id) return
+    fetch(`/api/products/${product.id}/gallery-images`, { headers: getHeaders() })
+      .then(r => r.json())
+      .then(d => {
+        const images = Array.isArray(d?.images) ? d.images.map(String).filter(Boolean) : []
+        const cover = String(d?.coverImage || product?.imageUrl || product?.image || '').trim()
+        const normalized = Array.from(new Set([cover, ...images].filter(Boolean)))
+        setGalleryImages(normalized)
+        if (cover) setImageUrl(cover)
+      })
+      .catch(() => {})
+  }, [product?.id])
   /* Variants (Fase 1) — loaded async after edit modal opens for existing product */
   const [variants, setVariants] = useState<Array<{
     id?: string
@@ -957,10 +1001,146 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
       const fd = new FormData(); fd.append('file', file)
       const r = await fetch('/api/media/upload', { method: 'POST', headers: { 'Authorization': getHeaders()['Authorization'] }, body: fd })
       const d = await r.json()
-      if (d.file?.url) setImageUrl(d.file.url)
+      if (d.file?.url) {
+        const url = String(d.file.url)
+        setGalleryImages(prev => Array.from(new Set([...prev, url])))
+        if (!imageUrl) setImageUrl(url)
+      }
     } catch {}
     setUploading(false)
   }
+
+  function addGalleryImages(urls: string[]) {
+    const clean = urls.map(String).map(url => url.trim()).filter(Boolean)
+    if (!clean.length) return
+    setGalleryImages(prev => Array.from(new Set([...prev, ...clean])).slice(0, 12))
+    if (!imageUrl) setImageUrl(clean[0])
+  }
+
+  function makeGalleryCover(url: string) {
+    setImageUrl(url)
+    setGalleryImages(prev => [url, ...prev.filter(item => item !== url)])
+  }
+
+  function removeGalleryImage(url: string) {
+    setGalleryImages(prev => {
+      const next = prev.filter(item => item !== url)
+      if (imageUrl === url) setImageUrl(next[0] || '')
+      return next
+    })
+  }
+
+  function moveGalleryImage(index: number, direction: -1 | 1) {
+    setGalleryImages(prev => {
+      const nextIndex = index + direction
+      if (nextIndex < 0 || nextIndex >= prev.length) return prev
+      const next = [...prev]
+      ;[next[index], next[nextIndex]] = [next[nextIndex], next[index]]
+      return next
+    })
+  }
+
+  async function assistWithAI() {
+    if (!name.trim() && !description.trim()) {
+      showToast('Informe ao menos um nome ou uma descrição simples para a IA trabalhar.', 'err')
+      setEditorSection('essencial')
+      return
+    }
+    setAiBusy(true)
+    try {
+      const r = await fetch('/api/products/ai-assist', {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify({ name, category, description, command: aiCommand }),
+      })
+      const d = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(d.error || 'Não foi possível refinar o produto')
+      const suggestion = d.suggestion || {}
+      if (suggestion.name) setName(String(suggestion.name))
+      if (suggestion.subtitle) setSubtitle(String(suggestion.subtitle))
+      if (suggestion.description) setDescription(String(suggestion.description))
+      if (Array.isArray(suggestion.benefits)) setFeatures(suggestion.benefits.filter(Boolean).join(', '))
+      if (!category && suggestion.suggested_category) setCategory(String(suggestion.suggested_category))
+      setSeoValues(prev => ({
+        ...prev,
+        ...(suggestion.seo_title ? { meta_title: String(suggestion.seo_title) } : {}),
+        ...(suggestion.seo_description ? { meta_description: String(suggestion.seo_description) } : {}),
+      }))
+      setEditorSection('conteudo')
+      showToast('Conteúdo refinado. Revise antes de publicar.')
+    } catch (e: any) {
+      showToast(e.message || 'Erro ao usar a IA', 'err')
+    } finally {
+      setAiBusy(false)
+    }
+  }
+
+  function scrollToEditorSection(section: string) {
+    setEditorSection(section)
+    const target = document.getElementById(`product-editor-${section}`)
+    const scroller = editorScrollRef.current
+    if (!target || !scroller) return
+    const scrollerRect = scroller.getBoundingClientRect()
+    const targetRect = target.getBoundingClientRect()
+    const mobileTabsOffset = window.matchMedia('(max-width: 1023px)').matches ? 118 : 16
+    scroller.scrollTo({
+      top: Math.max(0, scroller.scrollTop + targetRect.top - scrollerRect.top - mobileTabsOffset),
+      behavior: 'smooth',
+    })
+  }
+
+  const editorSteps = [
+    { key: 'essencial', label: 'Essencial', icon: Package },
+    { key: 'midia', label: 'Mídia', icon: ImageIcon },
+    { key: 'comercial', label: 'Venda', icon: ShoppingBag },
+    { key: 'conteudo', label: 'Conteúdo', icon: FileText },
+    { key: 'social', label: 'Avaliações', icon: Star },
+    { key: 'divulgacao', label: 'Divulgação', icon: Share2 },
+    { key: 'avancado', label: 'Avançado', icon: Settings },
+  ]
+  const activeStepIndex = Math.max(0, editorSteps.findIndex(step => step.key === editorSection))
+  function moveEditorStep(direction: -1 | 1) {
+    const next = editorSteps[activeStepIndex + direction]
+    if (next) scrollToEditorSection(next.key)
+  }
+
+  useEffect(() => {
+    const scroller = editorScrollRef.current
+    if (!scroller) return
+    let frame = 0
+    const updateActiveSection = () => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => {
+        const scrollerTop = scroller.getBoundingClientRect().top
+        const probe = scrollerTop + (window.matchMedia('(max-width: 1023px)').matches ? 132 : 32)
+        let closest = editorSteps[0]?.key || 'essencial'
+        let closestDistance = Number.POSITIVE_INFINITY
+        for (const step of editorSteps) {
+          const element = document.getElementById(`product-editor-${step.key}`)
+          if (!element) continue
+          const distance = Math.abs(element.getBoundingClientRect().top - probe)
+          if (distance < closestDistance) {
+            closest = step.key
+            closestDistance = distance
+          }
+        }
+        setEditorSection(current => current === closest ? current : closest)
+      })
+    }
+    scroller.addEventListener('scroll', updateActiveSection, { passive: true })
+    window.addEventListener('resize', updateActiveSection)
+    return () => {
+      cancelAnimationFrame(frame)
+      scroller.removeEventListener('scroll', updateActiveSection)
+      window.removeEventListener('resize', updateActiveSection)
+    }
+  }, [])
+
+  const productUrl = catalogStoreSlug && name.trim()
+    ? buildCatalogProductUrl(catalogStoreSlug, slugifyCatalogProduct(name), { primaryDomain: catalogPrimaryDomain })
+    : ''
+  const requiredProgress = [name.trim(), category.trim(), price && !isNaN(parseFloat(price)), imageUrl].filter(Boolean).length
+  const reviewInviteText = `Olá! Como foi sua experiência com ${name.trim() || 'nosso produto'}? Sua avaliação ajuda outros clientes a comprar com mais segurança. ${productUrl || ''}`.trim()
 
   function collectPublishErrors(): Record<string, string> {
     const errors: Record<string, string> = {}
@@ -978,10 +1158,11 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
     const metadata: Record<string, unknown> = {
       ...(product?.metadata && typeof product.metadata === 'object' ? product.metadata : {}),
     }
+    const normalizedGallery = Array.from(new Set([trimmedImage, ...galleryImages].filter(Boolean)))
     if (trimmedImage) {
       metadata.cover_image = trimmedImage
-      metadata.gallery_images = [trimmedImage]
-      metadata.galleryImages = [trimmedImage]
+      metadata.gallery_images = normalizedGallery
+      metadata.galleryImages = normalizedGallery
     }
     if (saveAsDraft || product?.metadata?.is_draft) {
       metadata.is_draft = true
@@ -1012,6 +1193,16 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
   }
 
   async function persistRelationsAndVariants(savedId: string) {
+    if (savedId) {
+      try {
+        const images = Array.from(new Set([imageUrl.trim(), ...galleryImages].filter(Boolean)))
+        await fetch(`/api/products/${savedId}/gallery-images`, {
+          method: 'PUT',
+          headers: getHeaders(),
+          body: JSON.stringify({ images }),
+        })
+      } catch { /* non-blocking */ }
+    }
     if (savedId && relationsLoaded) {
       try {
         await fetch(`/api/products/${savedId}/relations`, {
@@ -1100,51 +1291,94 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
   const inputCls = fieldControlClass
   const labelCls = fieldLabelLegacyClass
 
-  return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
-        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between shrink-0">
-          <h3 className="font-bold text-base text-gray-900">{isEdit ? 'Editar Produto' : 'Novo Produto'}</h3>
+  const modal = (
+    <div
+      className="fixed inset-0 z-[2147483000] flex items-center justify-center bg-black/50 backdrop-blur-sm p-2 sm:p-4"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label={isEdit ? 'Editar produto' : 'Criar produto'}
+    >
+      <div className="bg-[#fbfbfc] rounded-[24px] shadow-2xl w-full max-w-6xl h-[min(92vh,900px)] flex flex-col overflow-hidden border border-white/70" onClick={e => e.stopPropagation()}>
+        <div className="px-5 sm:px-7 py-4 border-b border-gray-200/80 bg-white flex items-center justify-between shrink-0">
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold text-gray-400">Catálogo · Estúdio de produto</p>
+            <h3 className="font-extrabold text-lg text-gray-950 tracking-[-0.025em] truncate">{isEdit ? (name || 'Editar produto') : 'Novo produto'}</h3>
+          </div>
           <button type="button" onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100 transition" aria-label="Fechar editor"><X size={18} className="text-gray-400" /></button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-          {/* Image */}
-          <div className="flex items-center justify-between mb-1">
-            <span className={labelCls + ' mb-0'} id="product-image-label">Imagem do produto</span>
-            <button
-              type="button"
-              onClick={() => setGalleryOpen(true)}
-              className="text-[11px] font-semibold text-gray-700 hover:text-gray-900"
-            >
-              Escolher da galeria
-            </button>
-          </div>
-          <div
-            className={`rounded-xl border-2 border-dashed overflow-hidden transition ${imageUrl ? 'border-blue-300' : 'border-gray-200'}`}
-            role="group"
-            aria-labelledby="product-image-label"
-          >
-            {imageUrl ? (
-              <div className="relative group" style={{ aspectRatio: '16/10' }}>
-                <img src={imageUrl} alt={name ? `Foto de ${name}` : 'Imagem do produto'} className="w-full h-full object-cover" />
-                <div className="absolute inset-0 bg-black/40 sm:opacity-0 sm:group-hover:opacity-100 opacity-100 transition-opacity flex items-center justify-center gap-2">
-                  <label className="px-3 py-1.5 bg-white/90 rounded-lg text-[11px] font-bold text-gray-700 cursor-pointer">
-                    Trocar imagem
-                    <input type="file" accept="image/*" className="sr-only" aria-label="Trocar imagem do produto" onChange={e => { const f = e.target.files?.[0]; if (f) uploadImage(f) }} />
-                  </label>
-                  <button type="button" onClick={() => setImageUrl('')} className="px-3 py-1.5 bg-red-500/90 rounded-lg text-[11px] font-bold text-white" aria-label="Remover imagem">Remover</button>
-                </div>
+        <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[220px_minmax(0,1fr)]">
+          <aside className="hidden lg:flex flex-col border-r border-gray-200/80 bg-white p-4 overflow-y-auto">
+            <div className="rounded-2xl bg-gray-950 text-white p-4 mb-4">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold">Pronto para publicar</span>
+                <span className="text-sm font-black">{requiredProgress}/4</span>
               </div>
-            ) : (
-              <label className="flex flex-col items-center justify-center py-8 cursor-pointer hover:bg-blue-50/30 transition">
-                {uploading ? <Loader2 size={24} className="text-blue-400 animate-spin" /> : <Package size={28} className="text-gray-300" />}
-                <p className="text-xs text-gray-400 mt-1">{uploading ? 'Enviando...' : 'Clique para adicionar imagem'}</p>
-                <input type="file" accept="image/*" className="sr-only" aria-label="Enviar imagem do produto" onChange={e => { const f = e.target.files?.[0]; if (f) uploadImage(f) }} />
-              </label>
-            )}
-          </div>
+              <div className="h-1.5 rounded-full bg-white/15 mt-3 overflow-hidden">
+                <div className="h-full rounded-full bg-white transition-all" style={{ width: `${requiredProgress * 25}%` }} />
+              </div>
+              <p className="text-[10px] text-white/60 mt-2">Nome, categoria, preço e imagem.</p>
+            </div>
+            {editorSteps.map(({ key, icon: Icon, label }) => (
+              <button key={key} type="button" onClick={() => scrollToEditorSection(key)}
+                className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left text-xs font-bold transition ${
+                  editorSection === key ? 'bg-gray-950 text-white shadow-sm' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-950'
+                }`}>
+                <Icon size={15} /> {label}
+              </button>
+            ))}
+            <div className="mt-auto pt-4">
+              <button type="button" onClick={() => window.open('/avaliacoes', '_blank')}
+                className="w-full flex items-center justify-between p-3 rounded-xl border border-gray-200 text-left hover:bg-gray-50">
+                <span><b className="block text-[11px] text-gray-800">Central de avaliações</b><small className="text-[10px] text-gray-400">{reviewStats.count} recebidas</small></span>
+                <ExternalLink size={13} className="text-gray-400" />
+              </button>
+            </div>
+          </aside>
 
+          <div ref={editorScrollRef} className="relative flex-1 overflow-y-auto px-4 sm:px-7 py-5 space-y-5 scroll-smooth">
+          <nav className="lg:hidden sticky -top-5 z-20 -mx-4 -mt-5 mb-5 border-b border-gray-200 bg-white/95 backdrop-blur px-4 pt-3 pb-2" aria-label="Etapas do produto">
+            <div className="flex items-center justify-between mb-2">
+              <div>
+                <p className="text-[10px] font-bold text-gray-400">ETAPA {activeStepIndex + 1} DE {editorSteps.length}</p>
+                <p className="text-sm font-extrabold text-gray-950">{editorSteps[activeStepIndex]?.label}</p>
+              </div>
+              <span className="text-xs font-black tabular-nums text-gray-700">{Math.round(((activeStepIndex + 1) / editorSteps.length) * 100)}%</span>
+            </div>
+            <div className="h-1 rounded-full bg-gray-100 overflow-hidden mb-2">
+              <div className="h-full rounded-full bg-gray-950 transition-all" style={{ width: `${((activeStepIndex + 1) / editorSteps.length) * 100}%` }} />
+            </div>
+            <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+              {editorSteps.map(({ key, icon: Icon, label }, index) => (
+                <button key={key} type="button" onClick={() => scrollToEditorSection(key)}
+                  aria-current={editorSection === key ? 'step' : undefined}
+                  className={`shrink-0 min-h-11 px-3 rounded-xl inline-flex items-center gap-1.5 text-[11px] font-bold border transition ${
+                    editorSection === key
+                      ? 'bg-gray-950 border-gray-950 text-white'
+                      : index < activeStepIndex
+                        ? 'bg-gray-100 border-gray-100 text-gray-700'
+                        : 'bg-white border-gray-200 text-gray-500'
+                  }`}>
+                  <Icon size={13} /> {label}
+                </button>
+              ))}
+            </div>
+          </nav>
+          <section id="product-editor-essencial" className="scroll-mt-4 space-y-4">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <h4 className="text-base font-extrabold tracking-[-0.02em] text-gray-950">Informações essenciais</h4>
+                <p className="text-xs text-gray-500 mt-1">O necessário para identificar, precificar e publicar o produto.</p>
+              </div>
+              <button type="button" onClick={() => setCopilotOpen(open => !open)}
+                aria-expanded={copilotOpen}
+                className={`shrink-0 min-h-11 px-3 rounded-xl border text-[11px] font-bold inline-flex items-center gap-1.5 transition ${
+                  copilotOpen ? 'bg-gray-950 border-gray-950 text-white' : 'bg-white border-gray-200 text-gray-800 hover:bg-gray-50'
+                }`}>
+                <Wand2 size={13} /> {copilotOpen ? 'Fechar copiloto' : 'Refinar com copiloto'}
+              </button>
+            </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="sm:col-span-2">
               <label className={labelCls}>Nome *</label>
@@ -1213,9 +1447,125 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
               <input type="number" step="0.01" value={promoPrice} onChange={e => setPromoPrice(e.target.value)} placeholder="Opcional" className={inputCls} />
             </div>
           </div>
+          {copilotOpen && (
+            <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+              <div className="flex items-start gap-3">
+                <span className="w-9 h-9 rounded-xl bg-gray-950 text-white grid place-items-center shrink-0"><Sparkles size={16} /></span>
+                <div className="flex-1 min-w-0">
+                  <h5 className="text-sm font-extrabold text-gray-950">Refinar dados preenchidos</h5>
+                  <p className="text-[11px] text-gray-500 mt-0.5">O copiloto usa nome, categoria e descrição atuais para organizar subtítulo, vantagens e SEO.</p>
+                  <div className="mt-3 flex flex-col sm:flex-row gap-2">
+                    <input value={aiCommand} onChange={e => setAiCommand(e.target.value)}
+                      placeholder="Opcional: destaque praticidade, qualidade ou outro diferencial"
+                      className={inputCls + ' bg-white'} />
+                    <button type="button" onClick={assistWithAI} disabled={aiBusy}
+                      className="h-11 px-4 rounded-xl bg-gray-950 text-white text-xs font-bold hover:bg-gray-800 disabled:opacity-50 inline-flex items-center justify-center gap-2 whitespace-nowrap">
+                      {aiBusy ? <Loader2 size={14} className="animate-spin" /> : <Wand2 size={14} />}
+                      Refinar agora
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+          </section>
+
+          <section id="product-editor-midia" className="scroll-mt-4 rounded-2xl border border-gray-200 bg-white p-4 sm:p-5">
+            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <span className="w-10 h-10 rounded-xl bg-gray-100 text-gray-700 grid place-items-center shrink-0"><ImageIcon size={18} /></span>
+                <div>
+                  <h4 className="text-sm font-extrabold text-gray-950">Galeria do produto</h4>
+                  <p className="text-[11px] text-gray-500 mt-0.5">Escolha a capa e adicione até 12 imagens para apresentar detalhes, ângulos e usos.</p>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button type="button"
+                  onClick={() => window.open(`/criativos/avancado?source=product&name=${encodeURIComponent(name)}${imageUrl ? `&image=${encodeURIComponent(imageUrl)}` : ''}`, '_blank')}
+                  className="h-11 px-3 rounded-xl bg-gray-100 text-gray-800 text-[11px] font-bold inline-flex items-center gap-1.5">
+                  <Wand2 size={13} /> Refinar com IA
+                </button>
+                <button type="button" onClick={() => setGalleryOpen(true)}
+                  className="h-11 px-3 rounded-xl bg-gray-950 text-white text-[11px] font-bold inline-flex items-center gap-1.5">
+                  <FolderOpen size={13} /> Adicionar da galeria
+                </button>
+              </div>
+            </div>
+
+            {imageUrl ? (
+              <div className="mt-4 grid grid-cols-1 md:grid-cols-[minmax(0,1.35fr)_minmax(240px,.65fr)] gap-4">
+                <div className="relative overflow-hidden rounded-2xl bg-gray-100 border border-gray-200 aspect-[4/3]">
+                  <img src={imageUrl} alt={name ? `Imagem principal de ${name}` : 'Imagem principal'} className="w-full h-full object-contain" />
+                  <span className="absolute top-3 left-3 px-2.5 py-1 rounded-full bg-gray-950 text-white text-[10px] font-bold">Imagem principal</span>
+                  <div className="absolute bottom-3 left-3 right-3 flex gap-2 justify-end">
+                    <label className="h-10 px-3 rounded-xl bg-white text-gray-900 shadow-sm text-[11px] font-bold inline-flex items-center gap-1.5 cursor-pointer">
+                      {uploading ? <Loader2 size={13} className="animate-spin" /> : <Camera size={13} />} Enviar imagens
+                      <input type="file" accept="image/*" multiple className="sr-only" onChange={e => {
+                        Array.from(e.target.files || []).slice(0, 12 - galleryImages.length).forEach(file => uploadImage(file))
+                        e.currentTarget.value = ''
+                      }} />
+                    </label>
+                  </div>
+                </div>
+                <div>
+                  <p className="text-[11px] font-bold text-gray-700 mb-2">Imagens adicionais <span className="text-gray-400 font-medium">({galleryImages.length}/12)</span></p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {galleryImages.map((url, index) => (
+                      <div key={url} className={`group relative aspect-square overflow-hidden rounded-xl border bg-gray-50 ${url === imageUrl ? 'border-gray-950 ring-1 ring-gray-950' : 'border-gray-200'}`}>
+                        <img src={url} alt="" className="w-full h-full object-cover" />
+                        <div className="absolute inset-x-1.5 bottom-1.5 flex items-center justify-between gap-1">
+                          {url !== imageUrl ? (
+                            <button type="button" onClick={() => makeGalleryCover(url)}
+                              className="h-7 px-2 rounded-lg bg-white/95 text-[9px] font-bold text-gray-900 shadow-sm">Usar como capa</button>
+                          ) : <span className="h-7 px-2 rounded-lg bg-gray-950 text-white text-[9px] font-bold inline-flex items-center">Capa</span>}
+                          <button type="button" onClick={() => removeGalleryImage(url)}
+                            className="w-7 h-7 rounded-lg bg-white/95 text-red-600 shadow-sm grid place-items-center" aria-label="Remover imagem">
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                        <div className="absolute top-1.5 right-1.5 flex gap-1 opacity-0 group-hover:opacity-100 transition">
+                          <button type="button" disabled={index === 0} onClick={() => moveGalleryImage(index, -1)}
+                            className="w-7 h-7 rounded-lg bg-white/95 text-gray-700 shadow-sm grid place-items-center disabled:opacity-30" aria-label="Mover imagem para trás"><ChevronLeft size={12} /></button>
+                          <button type="button" disabled={index === galleryImages.length - 1} onClick={() => moveGalleryImage(index, 1)}
+                            className="w-7 h-7 rounded-lg bg-white/95 text-gray-700 shadow-sm grid place-items-center disabled:opacity-30" aria-label="Mover imagem para frente"><ChevronRight size={12} /></button>
+                        </div>
+                      </div>
+                    ))}
+                    {galleryImages.length < 12 && (
+                      <label className="aspect-square rounded-xl border border-dashed border-gray-300 bg-gray-50 hover:bg-gray-100 cursor-pointer flex flex-col items-center justify-center text-gray-500">
+                        <Plus size={18} />
+                        <span className="text-[10px] font-bold mt-1">Adicionar</span>
+                        <input type="file" accept="image/*" multiple className="sr-only" onChange={e => {
+                          Array.from(e.target.files || []).slice(0, 12 - galleryImages.length).forEach(file => uploadImage(file))
+                          e.currentTarget.value = ''
+                        }} />
+                      </label>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="mt-4 rounded-2xl border border-dashed border-gray-300 bg-gray-50 px-5 py-10 text-center">
+                <span className="w-12 h-12 rounded-2xl bg-white border border-gray-200 text-gray-400 grid place-items-center mx-auto"><ImageIcon size={22} /></span>
+                <p className="text-sm font-bold text-gray-900 mt-3">Adicione a primeira imagem</p>
+                <p className="text-[11px] text-gray-500 mt-1 max-w-sm mx-auto">Use uma foto nítida do produto. Depois você poderá adicionar detalhes e escolher qual será a capa.</p>
+                <div className="flex flex-col sm:flex-row justify-center gap-2 mt-4">
+                  <label className="h-11 px-4 rounded-xl bg-gray-950 text-white text-xs font-bold inline-flex items-center justify-center gap-2 cursor-pointer">
+                    {uploading ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} />} Enviar imagens
+                    <input type="file" accept="image/*" multiple className="sr-only" onChange={e => {
+                      Array.from(e.target.files || []).slice(0, 12).forEach(file => uploadImage(file))
+                      e.currentTarget.value = ''
+                    }} />
+                  </label>
+                  <button type="button" onClick={() => setGalleryOpen(true)}
+                    className="h-11 px-4 rounded-xl bg-white border border-gray-200 text-gray-800 text-xs font-bold">Escolher da galeria</button>
+                </div>
+              </div>
+            )}
+          </section>
 
           {/* ── Estoque (Fase 12) ── Vazio = ilimitado (não rastrear) */}
-          <div className="bg-gray-50 border border-gray-200 rounded-xl p-3">
+          <div id="product-editor-comercial" className="scroll-mt-4 bg-gray-50 border border-gray-200 rounded-xl p-3">
             <div className="flex items-center gap-2 mb-2">
               <Package size={14} className="text-gray-700" strokeWidth={2.5} />
               <span className="text-[11px] font-bold text-gray-900 uppercase tracking-wider">Estoque</span>
@@ -1258,9 +1608,14 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
             </div>
           </div>
 
+          <section id="product-editor-conteudo" className="scroll-mt-4 space-y-3 rounded-2xl border border-gray-200 bg-white p-4 sm:p-5">
+            <div>
+              <h4 className="text-sm font-extrabold text-gray-950">Conteúdo do produto</h4>
+              <p className="text-[11px] text-gray-500 mt-0.5">Organize a apresentação comercial com descrição, vantagens e uma frase curta de apoio.</p>
+            </div>
           <div>
             <label className={labelCls}>Descricao</label>
-            <textarea value={description} onChange={e => setDescription(e.target.value)} rows={3}
+            <textarea value={description} onChange={e => setDescription(e.target.value)} rows={6}
               placeholder="Descreva o produto..." className={inputCls + ' resize-none'} />
           </div>
 
@@ -1275,6 +1630,7 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
             <input type="text" value={subtitle} onChange={e => setSubtitle(e.target.value)}
               placeholder="Frase curta abaixo do nome (ex: feito a mao)" className={inputCls} />
           </div>
+          </section>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
@@ -1866,8 +2222,66 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
             </div>
           )}
 
+          <section id="product-editor-social" className="scroll-mt-4 rounded-2xl border border-gray-200 bg-white p-4 sm:p-5">
+            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 grid place-items-center"><Star size={15} /></span>
+                  <div>
+                    <h4 className="text-sm font-extrabold text-gray-950">Prova social real</h4>
+                    <p className="text-[11px] text-gray-500">Colete avaliações verificáveis e acompanhe a reputação do produto.</p>
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 rounded-xl bg-gray-50 px-3 py-2">
+                <div><b className="block text-lg leading-none text-gray-950">{reviewStats.average ? reviewStats.average.toFixed(1) : '—'}</b><small className="text-[9px] text-gray-400">média</small></div>
+                <div className="w-px h-8 bg-gray-200" />
+                <div><b className="block text-lg leading-none text-gray-950">{reviewStats.count}</b><small className="text-[9px] text-gray-400">avaliações</small></div>
+              </div>
+            </div>
+            {reviewStats.count === 0 && (
+              <div className="mt-4 rounded-xl bg-amber-50 border border-amber-100 p-3">
+                <p className="text-xs font-bold text-amber-950">Comece a construir confiança</p>
+                <p className="text-[11px] text-amber-800/80 mt-1">Use a mensagem abaixo após uma compra. Ela convida clientes reais a avaliar; nenhuma avaliação fictícia será publicada.</p>
+                <div className="mt-3 flex gap-2">
+                  <textarea readOnly value={reviewInviteText} rows={2} className={inputCls + ' resize-none bg-white'} />
+                  <button type="button" onClick={async () => {
+                    await navigator.clipboard.writeText(reviewInviteText)
+                    showToast('Convite para avaliação copiado!')
+                  }} className="shrink-0 px-3 rounded-xl bg-amber-900 text-white text-[11px] font-bold hover:bg-amber-950">
+                    <Copy size={14} />
+                  </button>
+                </div>
+              </div>
+            )}
+          </section>
+
+          <section id="product-editor-divulgacao" className="scroll-mt-4 rounded-2xl border border-gray-200 bg-white p-4 sm:p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <span className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-700 grid place-items-center"><LineChart size={15} /></span>
+              <div>
+                <h4 className="text-sm font-extrabold text-gray-950">Divulgação e leitura comercial</h4>
+                <p className="text-[11px] text-gray-500">Compartilhe o produto e acompanhe a qualidade do cadastro antes da publicação.</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="rounded-xl bg-gray-50 p-3"><ListChecks size={15} className="text-gray-500" /><b className="block text-lg mt-2">{requiredProgress * 25}%</b><small className="text-[10px] text-gray-500">cadastro essencial</small></div>
+              <div className="rounded-xl bg-gray-50 p-3"><MessageCircle size={15} className="text-gray-500" /><b className="block text-lg mt-2">{reviewStats.count}</b><small className="text-[10px] text-gray-500">avaliações recebidas</small></div>
+              <div className="rounded-xl bg-gray-50 p-3"><Eye size={15} className="text-gray-500" /><b className="block text-lg mt-2">{active ? 'Ativo' : 'Pausado'}</b><small className="text-[10px] text-gray-500">visibilidade atual</small></div>
+            </div>
+            <div className="mt-3 flex flex-col sm:flex-row gap-2">
+              <input readOnly value={productUrl} placeholder="O link será criado após nomear e salvar o produto" className={inputCls + ' bg-gray-50 font-mono text-[11px]'} />
+              <button type="button" disabled={!productUrl} onClick={async () => {
+                await navigator.clipboard.writeText(productUrl)
+                showToast('Link do produto copiado!')
+              }} className="h-11 px-4 rounded-xl bg-gray-950 text-white text-xs font-bold disabled:opacity-40 inline-flex items-center justify-center gap-2">
+                <Share2 size={14} /> Compartilhar
+              </button>
+            </div>
+          </section>
+
           {/* ── SEO (Fase 6) ── */}
-          <div className="border-t border-gray-100 pt-4">
+          <div id="product-editor-avancado" className="scroll-mt-4 border-t border-gray-100 pt-4">
             <div className="mb-2">
               <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">SEO</p>
               <p className="text-[10px] text-gray-400 mt-0.5">Como o produto aparece em buscas e quando compartilhado.</p>
@@ -1929,8 +2343,9 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
             </button>
           </div>
         </div>
+        </div>
 
-        <div className="px-5 py-4 border-t border-gray-100 flex items-center justify-between shrink-0">
+        <div className="px-4 sm:px-7 py-3.5 border-t border-gray-200 bg-white flex flex-col-reverse sm:flex-row gap-3 sm:items-center sm:justify-between shrink-0">
           <div className="flex items-center gap-2">
             <button onClick={onClose} className="px-4 py-2.5 rounded-xl bg-gray-100 text-gray-600 text-xs font-semibold hover:bg-gray-200 transition">Cancelar</button>
             {isEdit && onDelete && (
@@ -1954,6 +2369,16 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
               </button>
             )}
           </div>
+          <div className="grid grid-cols-2 gap-2 lg:hidden">
+            <button type="button" onClick={() => moveEditorStep(-1)} disabled={activeStepIndex === 0}
+              className="h-11 rounded-xl bg-gray-100 text-gray-700 text-xs font-bold disabled:opacity-35 inline-flex items-center justify-center gap-1.5">
+              <ChevronLeft size={15} /> Anterior
+            </button>
+            <button type="button" onClick={() => moveEditorStep(1)} disabled={activeStepIndex === editorSteps.length - 1}
+              className="h-11 rounded-xl bg-gray-950 text-white text-xs font-bold disabled:opacity-35 inline-flex items-center justify-center gap-1.5">
+              Continuar <ChevronRight size={15} />
+            </button>
+          </div>
           <div className="flex items-center gap-2">
             <button onClick={() => save('draft')} disabled={saving}
               className="px-4 py-2.5 rounded-xl bg-amber-50 text-amber-800 border border-amber-200 text-xs font-bold hover:bg-amber-100 disabled:opacity-50 transition">
@@ -1970,6 +2395,8 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
       <MediaPickerModal
         open={galleryOpen}
         onClose={() => setGalleryOpen(false)}
+        multiple
+        maxItems={Math.max(1, 12 - galleryImages.length)}
         accept={['image']}
         folder="produtos"
         preferSection="library"
@@ -1978,12 +2405,18 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
         useContext="product"
         contextId={product?.id}
         onSelect={(item: GalleryItem) => {
-          setImageUrl(item.url)
+          addGalleryImages([item.url])
+          setGalleryOpen(false)
+        }}
+        onSelectMultiple={(items: GalleryItem[]) => {
+          addGalleryImages(items.map(item => item.url))
           setGalleryOpen(false)
         }}
       />
     </div>
   )
+
+  return typeof document === 'undefined' ? modal : createPortal(modal, document.body)
 }
 
 /* ══════════════════════════════════════════════

@@ -62,7 +62,12 @@ export function CartDrawer({
       if (cartIds.has(String(p.id))) return false
       const status = p.stock_status || 'unlimited'
       const qty = p.stock_quantity == null ? null : Number(p.stock_quantity)
-      if (status === 'out_of_stock' || (qty !== null && qty <= 0)) return false
+      const mode = p.metadata?.availability_mode || 'standard'
+      const now = Date.now()
+      const starts = p.metadata?.preorder_starts_at ? new Date(p.metadata.preorder_starts_at).getTime() : null
+      const ends = p.metadata?.preorder_ends_at ? new Date(p.metadata.preorder_ends_at).getTime() : null
+      const preorderOpen = mode === 'preorder' && (!starts || starts <= now) && (!ends || ends >= now)
+      if (!preorderOpen && (mode !== 'standard' || status === 'out_of_stock' || (qty !== null && qty <= 0))) return false
       return true
     })
     if (candidates.length === 0) return null

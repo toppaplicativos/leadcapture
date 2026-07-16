@@ -56,16 +56,21 @@ function resolveStock(product: Product) {
   const stockStatus = product.stock_status || 'unlimited'
   const stockQty = product.stock_quantity == null ? null : Number(product.stock_quantity)
   const legacyStock = product.stock != null && product.stock !== '' ? Number(product.stock) : null
-  const isOutOfStock =
-    stockStatus === 'out_of_stock' ||
+  const mode = product.metadata?.availability_mode || 'standard'
+  const now = Date.now()
+  const starts = product.metadata?.preorder_starts_at ? new Date(product.metadata.preorder_starts_at).getTime() : null
+  const ends = product.metadata?.preorder_ends_at ? new Date(product.metadata.preorder_ends_at).getTime() : null
+  const preorderOpen = mode === 'preorder' && (!starts || starts <= now) && (!ends || ends >= now)
+  const isOutOfStock = !preorderOpen && (
+    mode !== 'standard' || stockStatus === 'out_of_stock' ||
     (stockQty !== null && stockQty <= 0) ||
-    (legacyStock !== null && legacyStock <= 0)
+    (legacyStock !== null && legacyStock <= 0))
   const isLowStock =
     !isOutOfStock &&
     ((stockStatus === 'low_stock' && stockQty !== null && stockQty > 0) ||
       (legacyStock !== null && legacyStock > 0 && legacyStock <= 5))
   const displayQty = stockQty ?? legacyStock
-  const stockCap = displayQty !== null && displayQty > 0 ? displayQty : 999
+  const stockCap = preorderOpen ? 999 : displayQty !== null && displayQty > 0 ? displayQty : 999
   return { isOutOfStock, isLowStock, displayQty, stockStatus, stockCap }
 }
 
@@ -593,5 +598,4 @@ export function ProductModal({ product, onClose, onAddToCart, whatsappPhone, all
     </div>
   )
 }
-
 

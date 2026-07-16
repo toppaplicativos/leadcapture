@@ -7,6 +7,7 @@ import { ClientTypesService } from "../services/clientTypes";
 import { GeminiService } from "../services/gemini";
 import { aiRouter } from "../services/aiRouter";
 import { InventoryService } from "../services/inventory";
+import { productStockService } from "../services/productStock";
 import { OrderManagementService } from "../services/orderManagement";
 import { StorefrontService, sanitizePublicMarketingSettings, sanitizePublicDesignSettings } from "../services/storefront";
 import { couponsService } from "../services/coupons";
@@ -3068,6 +3069,7 @@ publicRouter.post("/stores/:slug/orders", async (req, res) => {
     const inventoryBrandId = normalizeBrandId(bundle.store.brand_id);
     for (const item of normalizedItems) {
       if (!item.product_id) continue;
+      if (await productStockService.isActivePreorder(item.product_id)) continue;
       const stock = await inventoryService.getProductStock(inventoryUserId, inventoryBrandId, item.product_id);
       const available = Number(stock?.stock_available || 0);
       if (available < Number(item.quantidade || 0)) {
@@ -3138,6 +3140,7 @@ publicRouter.post("/stores/:slug/orders", async (req, res) => {
     const reservedItems: Array<{ product_id: string; quantity: number }> = [];
     try {
       for (const item of reservableItems) {
+        if (await productStockService.isActivePreorder(item.product_id)) continue;
         await inventoryService.reserveStock(inventoryUserId, inventoryBrandId, item.product_id, item.quantity, created.order.id);
         reservedItems.push(item);
       }

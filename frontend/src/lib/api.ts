@@ -80,6 +80,13 @@ export interface Product {
   stock_quantity?: number | null
   stock_status?: 'in_stock' | 'low_stock' | 'out_of_stock' | 'unlimited'
   stock_threshold_low?: number
+  metadata?: {
+    availability_mode?: 'standard' | 'sold_out_visible' | 'coming_soon' | 'preorder'
+    launch_at?: string | null
+    preorder_starts_at?: string | null
+    preorder_ends_at?: string | null
+    [key: string]: unknown
+  }
   /* Reviews (Fase 14) — denormalized; 0 means "no reviews yet" */
   reviews_avg?: number
   reviews_count?: number

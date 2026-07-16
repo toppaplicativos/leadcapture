@@ -730,6 +730,10 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
   const [stockThreshold, setStockThreshold] = useState<string>(
     product?.stock_threshold_low != null ? String(product.stock_threshold_low) : '5'
   )
+  const [availabilityMode, setAvailabilityMode] = useState<string>(product?.metadata?.availability_mode || 'standard')
+  const [launchAt, setLaunchAt] = useState<string>(product?.metadata?.launch_at ? String(product.metadata.launch_at).slice(0, 16) : '')
+  const [preorderStartsAt, setPreorderStartsAt] = useState<string>(product?.metadata?.preorder_starts_at ? String(product.metadata.preorder_starts_at).slice(0, 16) : '')
+  const [preorderEndsAt, setPreorderEndsAt] = useState<string>(product?.metadata?.preorder_ends_at ? String(product.metadata.preorder_ends_at).slice(0, 16) : '')
   /* Dynamic attributes (Fase 2) — driven by attribute_definitions */
   const [attrDefs, setAttrDefs] = useState<AttributeDef[]>([])
   const [attrValues, setAttrValues] = useState<Record<string, any>>(product?.attributes || {})
@@ -1174,6 +1178,10 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
       metadata.gallery_images = normalizedGallery
       metadata.galleryImages = normalizedGallery
     }
+    metadata.availability_mode = availabilityMode
+    metadata.launch_at = launchAt || null
+    metadata.preorder_starts_at = preorderStartsAt || null
+    metadata.preorder_ends_at = preorderEndsAt || null
     if (saveAsDraft || product?.metadata?.is_draft) {
       metadata.is_draft = true
     }
@@ -1581,7 +1589,38 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
               <span className="text-[11px] font-bold text-gray-900 uppercase tracking-wider">Estoque</span>
               <span className="text-[10px] text-gray-500 font-normal">deixe vazio para não rastrear</span>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="mb-4">
+              <label className={labelCls}>Disponibilidade no catálogo</label>
+              <select value={availabilityMode} onChange={e => setAvailabilityMode(e.target.value)} className={inputCls}>
+                <option value="standard">Venda normal conforme o estoque</option>
+                <option value="sold_out_visible">Esgotado, mas continuar exibindo</option>
+                <option value="coming_soon">Em breve — exibir antes do lançamento</option>
+                <option value="preorder">Pré-venda — aceitar compra antecipada</option>
+              </select>
+              <p className="text-[10px] text-gray-500 mt-1.5">
+                {availabilityMode === 'sold_out_visible' && 'Permanece no catálogo como esgotado, sem ação de compra.'}
+                {availabilityMode === 'coming_soon' && 'Fica visível com a previsão de lançamento, sem permitir compra.'}
+                {availabilityMode === 'preorder' && 'Aceita pedidos antecipados mesmo com estoque zerado, dentro do período definido.'}
+                {availabilityMode === 'standard' && 'A compra segue a quantidade disponível informada abaixo.'}
+              </p>
+            </div>
+            {(availabilityMode === 'coming_soon' || availabilityMode === 'preorder') && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4 rounded-xl border border-gray-200 bg-white p-3">
+                <div>
+                  <label className={labelCls}>Lançamento previsto</label>
+                  <input type="datetime-local" value={launchAt} onChange={e => setLaunchAt(e.target.value)} className={inputCls} />
+                </div>
+                {availabilityMode === 'preorder' && <div>
+                  <label className={labelCls}>Início da pré-venda</label>
+                  <input type="datetime-local" value={preorderStartsAt} onChange={e => setPreorderStartsAt(e.target.value)} className={inputCls} />
+                </div>}
+                {availabilityMode === 'preorder' && <div>
+                  <label className={labelCls}>Encerramento da pré-venda</label>
+                  <input type="datetime-local" value={preorderEndsAt} onChange={e => setPreorderEndsAt(e.target.value)} className={inputCls} />
+                </div>}
+              </div>
+            )}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className={labelCls}>Quantidade disponível</label>
                 <input

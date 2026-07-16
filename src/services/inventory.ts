@@ -167,10 +167,18 @@ export class InventoryService {
 
     if (!row) {
       const id = uuidv4();
+      const product = await queryOne<any>(
+        `SELECT stock_quantity, stock_threshold_low FROM products WHERE id = ? LIMIT 1`,
+        [productId]
+      );
+      const initial = product?.stock_quantity === null || product?.stock_quantity === undefined
+        ? 0
+        : Math.max(0, Number(product.stock_quantity) || 0);
+      const minimum = Math.max(0, Number(product?.stock_threshold_low ?? 5) || 5);
       await query(
         `INSERT INTO inventory (id, product_id, user_id, brand_id, stock_current, stock_reserved, stock_available, stock_min, cost_price)
-         VALUES (?, ?, ?, ?, 0, 0, 0, 5, 0)`,
-        [id, productId, userId, brandId || null]
+         VALUES (?, ?, ?, ?, ?, 0, ?, ?, 0)`,
+        [id, productId, userId, brandId || null, initial, initial, minimum]
       );
       row = await queryOne<InventoryRecord>(
         `SELECT * FROM inventory WHERE id = ? LIMIT 1`,
@@ -179,6 +187,39 @@ export class InventoryService {
     }
 
     return row!;
+  }
+
+  private async syncProductProjection(productId: string, inventory: InventoryRecord): Promise<void> {
+    const available = Math.max(0, Number(inventory.stock_available) || 0);
+    const minimum = Math.max(0, Number(inventory.stock_min) || 5);
+    const status = available <= 0 ? "out_of_stock" : available <= minimum ? "low_stock" : "in_stock";
+    await Promise.all([
+      query(
+        `UPDATE products SET stock_quantity = ?, stock_threshold_low = ?, stock_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        [available, minimum, status, productId]
+      ).catch(() => undefined),
+      query(
+        `UPDATE commerce_products SET estoque = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        [available, productId]
+      ).catch(() => undefined),
+    ]);
+  }
+
+  async syncProductQuantity(
+    userId: string,
+    brandId: string | null,
+    productId: string,
+    quantity: number,
+    minimum?: number,
+    createdBy?: string
+  ): Promise<InventoryRecord> {
+    const result = await this.adjustStock(userId, brandId, productId, Math.max(0, quantity), "Alteração no cadastro do produto", createdBy);
+    if (minimum !== undefined) {
+      await query(`UPDATE inventory SET stock_min = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [Math.max(0, minimum), result.id]);
+    }
+    const refreshed = await this.getOrCreateInventory(productId, userId, brandId);
+    await this.syncProductProjection(productId, refreshed);
+    return refreshed;
   }
 
   private async recordMovement(params: {
@@ -496,7 +537,9 @@ export class InventoryService {
       createdBy,
     });
 
-    return (await this.getOrCreateInventory(productId, userId, brandId));
+    const result = await this.getOrCreateInventory(productId, userId, brandId);
+    await this.syncProductProjection(productId, result);
+    return result;
   }
 
   /* ─────── 5. Remove Stock (saida) ─────── */
@@ -544,7 +587,9 @@ export class InventoryService {
       createdBy,
     });
 
-    return (await this.getOrCreateInventory(productId, userId, brandId));
+    const result = await this.getOrCreateInventory(productId, userId, brandId);
+    await this.syncProductProjection(productId, result);
+    return result;
   }
 
   /* ─────── 6. Adjust Stock (ajuste) ─────── */
@@ -583,7 +628,9 @@ export class InventoryService {
       createdBy,
     });
 
-    return (await this.getOrCreateInventory(productId, userId, brandId));
+    const result = await this.getOrCreateInventory(productId, userId, brandId);
+    await this.syncProductProjection(productId, result);
+    return result;
   }
 
   /* ─────── 7. Reserve Stock (order.created) ─────── */
@@ -634,7 +681,9 @@ export class InventoryService {
       reason: `Reserva para pedido ${orderId}`,
     });
 
-    return (await this.getOrCreateInventory(productId, userId, brandId));
+    const result = await this.getOrCreateInventory(productId, userId, brandId);
+    await this.syncProductProjection(productId, result);
+    return result;
   }
 
   /* ─────── 8. Release Reservation (order.cancelled) ─────── */
@@ -679,7 +728,9 @@ export class InventoryService {
       reason: `Liberação de reserva do pedido ${orderId}`,
     });
 
-    return (await this.getOrCreateInventory(productId, userId, brandId));
+    const result = await this.getOrCreateInventory(productId, userId, brandId);
+    await this.syncProductProjection(productId, result);
+    return result;
   }
 
   /* ─────── 9. Confirm Stock (order.payment_confirmed) ─────── */
@@ -724,7 +775,9 @@ export class InventoryService {
       reason: `Dedução por pagamento confirmado - pedido ${orderId}`,
     });
 
-    return (await this.getOrCreateInventory(productId, userId, brandId));
+    const result = await this.getOrCreateInventory(productId, userId, brandId);
+    await this.syncProductProjection(productId, result);
+    return result;
   }
 
   /* ─────── 10. Register Expedition ─────── */
@@ -1165,7 +1218,9 @@ export class InventoryService {
       );
     }
 
-    return (await this.getOrCreateInventory(productId, userId, brandId));
+    const result = await this.getOrCreateInventory(productId, userId, brandId);
+    await this.syncProductProjection(productId, result);
+    return result;
   }
 
   /* ─────── 18. Bulk init from commerce_products ─────── */
@@ -1180,28 +1235,16 @@ export class InventoryService {
       : "(brand_id IS NULL OR brand_id = '')";
     const params = brandId ? [userId, brandId] : [userId];
 
-    const products = await query<any[]>(
-      `SELECT id, estoque, preco FROM commerce_products WHERE user_id = ? AND ${bc}`,
-      params
-    );
-
+    const [catalogProducts, legacyProducts] = await Promise.all([
+      query<any[]>(`SELECT id FROM products WHERE user_id = ? AND ${bc}`, params).catch(() => []),
+      query<any[]>(`SELECT id FROM commerce_products WHERE user_id = ? AND ${bc}`, params).catch(() => []),
+    ]);
+    const ids = Array.from(new Set([...(catalogProducts || []), ...(legacyProducts || [])].map((p: any) => String(p.id))));
     let synced = 0;
-    for (const p of products || []) {
-      const existing = await queryOne<any>(
-        `SELECT id FROM inventory WHERE product_id = ? AND user_id = ? AND COALESCE(brand_id,'') = COALESCE(?,'')`,
-        [p.id, userId, brandId || null]
-      );
-
-      if (!existing) {
-        const id = uuidv4();
-        const stock = Number(p.estoque || 0);
-        await query(
-          `INSERT INTO inventory (id, product_id, user_id, brand_id, stock_current, stock_reserved, stock_available, stock_min, cost_price)
-           VALUES (?, ?, ?, ?, ?, 0, ?, 5, 0)`,
-          [id, p.id, userId, brandId || null, stock, stock]
-        );
-        synced++;
-      }
+    for (const productId of ids) {
+      const inventory = await this.getOrCreateInventory(productId, userId, brandId);
+      await this.syncProductProjection(productId, inventory);
+      synced++;
     }
 
     return { synced };

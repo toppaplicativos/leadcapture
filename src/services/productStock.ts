@@ -78,6 +78,18 @@ function computeStatus(qty: number | null, threshold: number): ProductStockStatu
 }
 
 class ProductStockService {
+  async isActivePreorder(productId: string): Promise<boolean> {
+    const row = await queryOne<any>("SELECT metadata_json FROM products WHERE id = ? LIMIT 1", [productId]);
+    let metadata: any = row?.metadata_json || {};
+    if (typeof metadata === "string") {
+      try { metadata = JSON.parse(metadata); } catch { metadata = {}; }
+    }
+    if (String(metadata?.availability_mode || "") !== "preorder") return false;
+    const now = Date.now();
+    const starts = metadata?.preorder_starts_at ? new Date(metadata.preorder_starts_at).getTime() : null;
+    const ends = metadata?.preorder_ends_at ? new Date(metadata.preorder_ends_at).getTime() : null;
+    return (!starts || starts <= now) && (!ends || ends >= now);
+  }
   /**
    * Read current stock for product (and optionally variant).
    * Variant qty wins over product qty when the variant has its own stock_quantity.
@@ -138,6 +150,7 @@ class ProductStockService {
   async checkAvailability(items: AvailabilityItem[]): Promise<AvailabilityResult> {
     const shortages: AvailabilityResult["shortages"] = [];
     for (const item of items) {
+      if (await this.isActivePreorder(item.product_id)) continue;
       const lvl = await this.getStock(item.product_id, item.variant_id || null);
       if (!lvl.is_tracked) continue;
       if ((lvl.quantity || 0) < item.quantity) {
@@ -402,6 +415,7 @@ export async function reserveStockForOrder(
     throw err;
   }
   for (const item of items) {
+    if (await productStockService.isActivePreorder(item.product_id)) continue;
     await productStockService.adjust({
       productId: item.product_id,
       variantId: item.variant_id || null,

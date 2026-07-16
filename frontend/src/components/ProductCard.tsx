@@ -35,7 +35,12 @@ export function ProductCard({
     product.compare_at_price && Number(product.compare_at_price) > Number(product.price)
   const stockStatus = product.stock_status || 'unlimited'
   const stockQty = product.stock_quantity == null ? null : Number(product.stock_quantity)
-  const isOutOfStock = stockStatus === 'out_of_stock' || (stockQty !== null && stockQty <= 0)
+  const availabilityMode = product.metadata?.availability_mode || 'standard'
+  const now = Date.now()
+  const preorderStart = product.metadata?.preorder_starts_at ? new Date(product.metadata.preorder_starts_at).getTime() : null
+  const preorderEnd = product.metadata?.preorder_ends_at ? new Date(product.metadata.preorder_ends_at).getTime() : null
+  const preorderOpen = availabilityMode === 'preorder' && (!preorderStart || preorderStart <= now) && (!preorderEnd || preorderEnd >= now)
+  const isOutOfStock = !preorderOpen && (availabilityMode !== 'standard' || stockStatus === 'out_of_stock' || (stockQty !== null && stockQty <= 0))
   const badges = resolveProductBadges(product, { bestSellerIds, showBadges })
 
   return (
@@ -85,6 +90,11 @@ export function ProductCard({
         )}
 
         {isOutOfStock && <div className="absolute inset-0 bg-white/45 pointer-events-none" />}
+        {availabilityMode !== 'standard' && (
+          <span className="absolute bottom-2.5 left-2.5 z-[2] rounded-full bg-white/95 px-2.5 py-1 text-[10px] font-bold text-gray-900 shadow-sm ring-1 ring-black/5">
+            {preorderOpen ? 'Pré-venda' : availabilityMode === 'coming_soon' ? 'Em breve' : 'Esgotado'}
+          </span>
+        )}
 
         {(!product.cta_type || product.cta_type === 'buy') && !isOutOfStock && (
           <button

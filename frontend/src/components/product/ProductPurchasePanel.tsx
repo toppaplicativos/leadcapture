@@ -13,17 +13,22 @@ function resolveStock(product: Product) {
   const stockStatus = product.stock_status || 'unlimited'
   const stockQty = product.stock_quantity == null ? null : Number(product.stock_quantity)
   const legacyStock = product.stock != null && product.stock !== '' ? Number(product.stock) : null
-  const isOutOfStock =
-    stockStatus === 'out_of_stock' ||
-    (stockQty !== null && stockQty <= 0) ||
-    (legacyStock !== null && legacyStock <= 0)
+  const availabilityMode = product.metadata?.availability_mode || 'standard'
+  const now = Date.now()
+  const preorderStart = product.metadata?.preorder_starts_at ? new Date(product.metadata.preorder_starts_at).getTime() : null
+  const preorderEnd = product.metadata?.preorder_ends_at ? new Date(product.metadata.preorder_ends_at).getTime() : null
+  const preorderOpen = availabilityMode === 'preorder' && (!preorderStart || preorderStart <= now) && (!preorderEnd || preorderEnd >= now)
+  const isOutOfStock = !preorderOpen && (
+    availabilityMode !== 'standard' || stockStatus === 'out_of_stock' ||
+    (stockQty !== null && stockQty <= 0) || (legacyStock !== null && legacyStock <= 0)
+  )
   const isLowStock =
     !isOutOfStock &&
     ((stockStatus === 'low_stock' && stockQty !== null && stockQty > 0) ||
       (legacyStock !== null && legacyStock > 0 && legacyStock <= 5))
   const displayQty = stockQty ?? legacyStock
-  const stockCap = displayQty !== null && displayQty > 0 ? displayQty : 999
-  return { isOutOfStock, isLowStock, displayQty, stockStatus, stockCap }
+  const stockCap = preorderOpen ? 999 : displayQty !== null && displayQty > 0 ? displayQty : 999
+  return { isOutOfStock, isLowStock, displayQty, stockStatus, stockCap, availabilityMode, preorderOpen }
 }
 
 export type ProductPurchaseState = ReturnType<typeof useProductPurchase>
@@ -248,7 +253,8 @@ export function ProductPurchasePanel({
       <ShoppingBag size={18} strokeWidth={2} aria-hidden />
       <span>
         {stock.isOutOfStock
-          ? 'Indisponível'
+          ? stock.availabilityMode === 'coming_soon' ? 'Em breve' : 'Indisponível'
+          : stock.preorderOpen ? `Comprar na pré-venda · ${money(subtotal)}`
           : configEnabled && configErrors.length > 0
             ? configErrors[0]
             : `Adicionar ao carrinho · ${money(subtotal)}`}
@@ -291,7 +297,7 @@ export function ProductPurchasePanel({
                   v.sku ||
                   'Variação'
                 const isSelected = v.id === (selectedVariantId || variants[0]?.id)
-                const outOfStock = v.stock_quantity != null && Number(v.stock_quantity) <= 0
+                const outOfStock = !stock.preorderOpen && v.stock_quantity != null && Number(v.stock_quantity) <= 0
                 return (
                   <button
                     key={v.id}
@@ -363,7 +369,7 @@ export function ProductPurchasePanel({
           )
         })}
 
-      {stock.stockStatus !== 'unlimited' && (
+      {(stock.stockStatus !== 'unlimited' || stock.availabilityMode !== 'standard') && (
         <div
           className={`inline-flex items-center gap-1.5 text-[12px] font-semibold px-2.5 py-1 rounded-full ${
             stock.isOutOfStock
@@ -379,8 +385,12 @@ export function ProductPurchasePanel({
             }`}
             aria-hidden
           />
-          {stock.isOutOfStock
-            ? 'Produto indisponível'
+          {stock.preorderOpen
+            ? `Pré-venda aberta${product.metadata?.launch_at ? ` · lançamento ${new Date(product.metadata.launch_at).toLocaleDateString('pt-BR')}` : ''}`
+            : stock.isOutOfStock
+            ? stock.availabilityMode === 'coming_soon'
+              ? `Em breve${product.metadata?.launch_at ? ` · ${new Date(product.metadata.launch_at).toLocaleDateString('pt-BR')}` : ''}`
+              : 'Produto esgotado'
             : stock.isLowStock
               ? `Últimas ${stock.displayQty} unidades`
               : `${stock.displayQty} em estoque`}

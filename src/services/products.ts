@@ -1,10 +1,12 @@
 import { Product, ProductCategory, PriceTable, ProductPriceEntry } from "../types";
 import { logger } from "../utils/logger";
 import { getPool } from "../config/database";
+import { InventoryService } from "./inventory";
 
 const pool = getPool();
 
 export class ProductsService {
+  private readonly inventoryService = new InventoryService();
   private imageColumnReady: boolean | null = null;
   private metadataColumnReady: boolean | null = null;
   private coverSchemaReady = false;
@@ -966,6 +968,16 @@ export class ProductsService {
       `INSERT INTO products (${insertColumns.join(", ")}) VALUES (${insertColumns.map(() => "?").join(", ")})`,
       insertValues
     );
+    if (userId && anyData.stock_quantity !== undefined && anyData.stock_quantity !== null) {
+      await this.inventoryService.syncProductQuantity(
+        userId,
+        this.normalizeBrandId(brandId),
+        id,
+        Math.max(0, Number(anyData.stock_quantity) || 0),
+        Math.max(0, Number(anyData.stock_threshold_low ?? 5) || 5),
+        userId
+      );
+    }
     logger.info(`Product created: ${data.name} (${id})`);
     return (await this.getProduct(id, userId, brandId))!;
   }
@@ -1056,6 +1068,16 @@ export class ProductsService {
     fields.push("updated_at = ?"); values.push(new Date());
     values.push(id, ...scope.params);
     await pool.query(`UPDATE products SET ${fields.join(", ")} WHERE id = ?${andScope}`, values);
+    if (userId && anyData.stock_quantity !== undefined && anyData.stock_quantity !== null) {
+      await this.inventoryService.syncProductQuantity(
+        userId,
+        this.normalizeBrandId(brandId),
+        id,
+        Math.max(0, Number(anyData.stock_quantity) || 0),
+        Math.max(0, Number(anyData.stock_threshold_low ?? (existing as any).stock_threshold_low ?? 5) || 5),
+        userId
+      );
+    }
     logger.info(`Product updated: ${data.name || existing.name} (${id})`);
     return (await this.getProduct(id, userId, brandId))!;
   }

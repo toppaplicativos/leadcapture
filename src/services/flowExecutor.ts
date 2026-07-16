@@ -4,6 +4,7 @@ import { InstanceManager } from "../core/instanceManager";
 import { logger } from "../utils/logger";
 import { getNotificationService } from "./notifications";
 import { CommerceService } from "./commerce";
+import { InventoryService } from "./inventory";
 import { ensureFlowSchema } from "./flowSchema";
 import {
   extractInteractiveOptions,
@@ -76,6 +77,7 @@ export class FlowExecutorService {
 
   private readonly notificationService = getNotificationService();
   private readonly commerceService = new CommerceService();
+  private readonly inventoryService = new InventoryService();
 
   static init(im: InstanceManager): FlowExecutorService {
     FlowExecutorService._inst = new FlowExecutorService(im);
@@ -1241,6 +1243,14 @@ export class FlowExecutorService {
           checkout_base_url: checkoutBaseUrl,
           itens: items,
         });
+        await this.inventoryService.handleOrderCreated(
+          ctx.userId,
+          ctx.brandId || null,
+          result.order.id,
+          result.items
+            .filter((item: any) => item.product_id)
+            .map((item: any) => ({ product_id: String(item.product_id), quantity: Number(item.quantidade || 1) }))
+        );
         ctx.execution.context.order_id = result.order.id;
         ctx.execution.context.order_total = result.order.valor_total;
         ctx.execution.context.checkout_url = result.checkout_url;

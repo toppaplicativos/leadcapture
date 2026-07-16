@@ -81,6 +81,7 @@ export function mensagemStepsToWhatsAppBlocks(steps: MensagemStep[]): WhatsAppTe
           : 1,
         delaySeconds: step.delaySegundos || 0,
         ctaLabel: step.ctaLabel,
+        deliveryMode: ['botoes', 'lista'].includes(step.tipo) ? 'native_only' : undefined,
       },
     }
   })
@@ -122,6 +123,17 @@ export function WhatsAppCompositionTest({ blocks, sourceLabel, className = '' }:
     ),
     [blocks],
   )
+  const testBlocks = useMemo(
+    () => usefulBlocks.map((block) => {
+      const actionType = String(block.actionType || '').toLowerCase()
+      if (!['buttons', 'button', 'list'].includes(actionType)) return block
+      return {
+        ...block,
+        config: { ...(block.config || {}), deliveryMode: 'native_only' },
+      }
+    }),
+    [usefulBlocks],
+  )
 
   async function sendTest() {
     const normalizedPhone = phone.replace(/\D/g, '')
@@ -156,7 +168,7 @@ export function WhatsAppCompositionTest({ blocks, sourceLabel, className = '' }:
         body: JSON.stringify({
           instanceId,
           testPhone: normalizedPhone,
-          blocks: usefulBlocks,
+          blocks: testBlocks,
           source: sourceLabel,
           confirmed: true,
         }),
@@ -165,7 +177,7 @@ export function WhatsAppCompositionTest({ blocks, sourceLabel, className = '' }:
       if (!response.ok) throw new Error(data?.error || 'Não foi possível enviar o teste')
       localStorage.setItem(storageKey(), normalizedPhone)
       setPhone(normalizedPhone)
-      setFeedback({ ok: true, text: `${data.blockCount} bloco(s) enviados para +${data.sentTo}.` })
+      setFeedback({ ok: true, text: `${data.blockCount} bloco(s) interativos confirmados para +${data.sentTo}.` })
     } catch (error: any) {
       setFeedback({ ok: false, text: error?.message || 'Falha no envio de teste.' })
     } finally {

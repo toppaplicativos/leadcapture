@@ -36,7 +36,7 @@ export type PairingCodeResult = {
 
 export type InteractiveSendResult = {
   ok: boolean;
-  mode: "native" | "text_fallback";
+  mode: "native_flow" | "native" | "text_fallback";
   error?: string;
   nativeError?: string;
 };
@@ -2311,15 +2311,27 @@ export class InstanceManager {
       .trim();
 
     const buttonsPayload = {
-      buttonsMessage: {
-        contentText: String(input.body).trim(),
-        footerText: input.footer ? String(input.footer).trim() : undefined,
-        headerType: proto.Message.ButtonsMessage.HeaderType.EMPTY,
-        buttons: normalizedButtons.map((button) => ({
-          buttonId: button.id,
-          buttonText: { displayText: button.text },
-          type: proto.Message.ButtonsMessage.Button.Type.RESPONSE,
-        })),
+      viewOnceMessage: {
+        message: {
+          interactiveMessage: {
+            header: {
+              title: "",
+              hasMediaAttachment: false,
+            },
+            body: { text: String(input.body).trim() },
+            footer: { text: input.footer ? String(input.footer).trim() : "" },
+            nativeFlowMessage: {
+              buttons: normalizedButtons.map((button) => ({
+                name: "quick_reply",
+                buttonParamsJson: JSON.stringify({
+                  display_text: button.text,
+                  id: button.id,
+                }),
+              })),
+              messageParamsJson: "",
+            },
+          },
+        },
       },
     } satisfies proto.IMessage;
 
@@ -2332,8 +2344,8 @@ export class InstanceManager {
           }
           throw new Error("native_send_failed");
         }
-        logger.info(`Buttons message sent from instance ${instanceId} to ${jid}`);
-        return { ok: true, mode: "native" };
+        logger.info(`Native-flow buttons sent from instance ${instanceId} to ${jid}`);
+        return { ok: true, mode: "native_flow" };
       }
     } catch (error: any) {
       const nativeError = String(error?.message || "unknown_native_buttons_error");
@@ -2433,20 +2445,34 @@ export class InstanceManager {
       .trim();
 
     const listPayload = {
-      listMessage: {
-        title: String(input.title).trim(),
-        description: String(input.description).trim(),
-        buttonText: String(input.buttonText).trim(),
-        footerText: input.footer ? String(input.footer).trim() : undefined,
-        listType: proto.Message.ListMessage.ListType.SINGLE_SELECT,
-        sections: normalizedSections.map((section) => ({
-          title: section.title,
-          rows: section.rows.map((row) => ({
-            rowId: row.id,
-            title: row.title,
-            description: row.description,
-          })),
-        })),
+      viewOnceMessage: {
+        message: {
+          interactiveMessage: {
+            header: {
+              title: String(input.title).trim(),
+              hasMediaAttachment: false,
+            },
+            body: { text: String(input.description).trim() },
+            footer: { text: input.footer ? String(input.footer).trim() : "" },
+            nativeFlowMessage: {
+              buttons: [{
+                name: "single_select",
+                buttonParamsJson: JSON.stringify({
+                  title: String(input.buttonText).trim(),
+                  sections: normalizedSections.map((section) => ({
+                    title: section.title || "",
+                    rows: section.rows.map((row) => ({
+                      id: row.id,
+                      title: row.title,
+                      description: row.description || "",
+                    })),
+                  })),
+                }),
+              }],
+              messageParamsJson: "",
+            },
+          },
+        },
       },
     } satisfies proto.IMessage;
 
@@ -2459,8 +2485,8 @@ export class InstanceManager {
           }
           throw new Error("native_send_failed");
         }
-        logger.info(`List message sent from instance ${instanceId} to ${jid}`);
-        return { ok: true, mode: "native" };
+        logger.info(`Native-flow list sent from instance ${instanceId} to ${jid}`);
+        return { ok: true, mode: "native_flow" };
       }
     } catch (error: any) {
       const nativeError = String(error?.message || "unknown_native_list_error");

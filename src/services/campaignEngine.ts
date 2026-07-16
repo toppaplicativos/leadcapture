@@ -3593,6 +3593,7 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
         try {
           const result = await this.instanceManager.sendButtonsByJid(instanceId, jid, {
             body: String(body).trim().slice(0, 1024),
+            deliveryMode: cfg.deliveryMode === "native_only" ? "native_only" : "auto",
             buttons: hydrated.slice(0, 3).map((b: any, idx: number) => ({
               id: String(b.productId ? `PRODUCT_${b.productId}` : b.id || `btn_${idx + 1}`),
               text: String(b.label || b.title || `Opção ${idx + 1}`).slice(0, 20),
@@ -3660,6 +3661,7 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
             title: String(cfg.listTitle || templateOpts.brandName || "Opções").slice(0, 60),
             description: String(body).trim().slice(0, 1024),
             buttonText: String(cfg.listButtonText || "Ver opções").slice(0, 20),
+            deliveryMode: cfg.deliveryMode === "native_only" ? "native_only" : "auto",
             sections: [{ title: String(cfg.sectionTitle || "Produtos").slice(0, 24), rows: hydrated.slice(0, 10) }],
           });
           if (result.ok) anySent = true;

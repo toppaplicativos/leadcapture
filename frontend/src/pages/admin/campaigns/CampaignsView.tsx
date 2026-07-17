@@ -504,6 +504,11 @@ export function CampaignsView({
                         )}
                         <span className="text-[9px] text-gray-400">· {dt(c.created_at)}</span>
                       </div>
+                      {c.status === 'paused' && (c.pause_reason || c.settings?.pauseReason) && (
+                        <p className="text-[10px] text-amber-800 mt-1.5 line-clamp-2 leading-snug" title={c.pause_reason || c.settings?.pauseReason}>
+                          {c.pause_reason || c.settings?.pauseReason}
+                        </p>
+                      )}
                     </div>
                     {/* Primary action (compact) */}
                     <div className="shrink-0">
@@ -655,11 +660,18 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
   /* Local mirror of campaign status — refreshed from server after each action.
    * NO optimistic update: avoids "ghost states" when backend rejects (e.g., instance offline). */
   const [liveStatus, setLiveStatus] = useState<string>(campaign?.status || 'draft')
+  const [livePauseReason, setLivePauseReason] = useState<string>(
+    String(campaign?.pause_reason || campaign?.settings?.pauseReason || '').trim()
+  )
   const campaignIsRunning = ['active', 'running', 'sending'].includes(liveStatus)
   const [statusActing, setStatusActing] = useState<string | null>(null)
   const [lastStatusError, setLastStatusError] = useState<string | null>(null)
   const { confirm } = useConfirm()
-  useEffect(() => { setLiveStatus(campaign?.status || 'draft'); setLastStatusError(null) }, [campaign?.id, campaign?.status])
+  useEffect(() => {
+    setLiveStatus(campaign?.status || 'draft')
+    setLivePauseReason(String(campaign?.pause_reason || campaign?.settings?.pauseReason || '').trim())
+    setLastStatusError(null)
+  }, [campaign?.id, campaign?.status, campaign?.pause_reason, campaign?.settings?.pauseReason])
 
   const s = campaign?.settings || {}
   const core = s.campaignCore || {}
@@ -1136,8 +1148,23 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
 
   // Load instances
   useEffect(() => {
-    fetch('/api/instances', { headers: getHeaders() }).then(r => r.json()).then(d => setInstances(d.instances || [])).catch(() => {})
+    fetch('/api/instances', { headers: getHeaders() })
+      .then(r => r.json())
+      .then(d => setInstances(d.instances || []))
+      .catch(() => {})
   }, [])
+
+  // Limpa preferência fantasma: instance_id salva de sessão que já desconectou.
+  // Em rodízio o vazio = automático entre ativas; não faz sentido manter id offline.
+  useEffect(() => {
+    if (!instanceId || !instances.length) return
+    const selected = instances.find((inst: any) => String(inst.id) === String(instanceId))
+    if (!selected) return
+    if (selected.status === 'connected') return
+    if (instanceMode === 'smart-rotation') {
+      setInstanceId('')
+    }
+  }, [instances, instanceId, instanceMode])
 
   useEffect(() => {
     fetch('/api/customers/filter-options', { headers: getHeaders() })
@@ -1173,12 +1200,18 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
     const connectedPool = instances
       .filter((inst: any) => inst.status === 'connected')
       .map((inst: any) => String(inst.id))
-    const resolvedInstanceId = String(instanceId || '').trim() || connectedPool[0] || ''
+    const preferredId = String(instanceId || '').trim()
+    const preferredOk = preferredId && connectedPool.includes(preferredId)
+    // Rodízio + "Automático": não grava instance_id fantasma (nem força a 1ª ativa).
+    // Sessão única: exige ativa; se preferida offline, cai na 1ª ativa.
+    const resolvedInstanceId = rotationOn
+      ? (preferredOk ? preferredId : '')
+      : (preferredOk ? preferredId : connectedPool[0] || '')
 
     if (!rotationOn && !resolvedInstanceId) {
       return showToast('Selecione uma instancia WhatsApp na aba Distribuicao', 'err')
     }
-    if (rotationOn && connectedPool.length === 0 && !resolvedInstanceId) {
+    if (rotationOn && connectedPool.length === 0) {
       return showToast('Nenhuma instancia conectada para rotacao inteligente', 'err')
     }
 
@@ -1439,6 +1472,7 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
                 const arr = fresh?.campaigns || fresh?.items || (Array.isArray(fresh) ? fresh : [])
                 const updated = arr.find((c: any) => c.id === campaign.id)
                 if (updated?.status) setLiveStatus(updated.status)
+                setLivePauseReason(String(updated?.pause_reason || updated?.settings?.pauseReason || '').trim())
               } catch { /* fall through — keep current */ }
             } catch (e: any) {
               const msg = e?.message || `Falha ao ${action === 'start' ? 'iniciar' : action === 'pause' ? 'pausar' : action === 'cancel' ? 'cancelar' : 'reabrir'} campanha`
@@ -1542,11 +1576,34 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
                 </div>
               )}
 
+              {/* Motivo da pausa automática (ex.: WhatsApp offline) — visível até retomar */}
+              {!lastStatusError && liveStatus === 'paused' && (() => {
+                const pauseReason = livePauseReason
+                if (!pauseReason) {
+                  return (
+                    <p className="text-[10px] text-gray-500 mt-2 leading-snug">
+                      Campanha pausada — envios suspensos. Retome para continuar de onde parou.
+                    </p>
+                  )
+                }
+                return (
+                  <div className="mt-2 flex items-start gap-2 p-2 rounded-lg bg-amber-50 border border-amber-200 text-[11px] text-amber-900">
+                    <AlertTriangle size={12} className="shrink-0 mt-0.5" strokeWidth={2.5} />
+                    <div className="flex-1 leading-snug">
+                      <p className="font-semibold mb-0.5">Pausada automaticamente</p>
+                      <p>{pauseReason}</p>
+                      <p className="text-[10px] text-amber-800/80 mt-1">
+                        Reconecte o WhatsApp se necessário e clique em Retomar.
+                      </p>
+                    </div>
+                  </div>
+                )
+              })()}
+
               {/* Helpful one-liner about what each transition means */}
-              {!lastStatusError && (
+              {!lastStatusError && liveStatus !== 'paused' && (
                 <p className="text-[10px] text-gray-500 mt-2 leading-snug">
                   {liveStatus === 'draft' && 'Rascunho — configure abaixo e clique Iniciar campanha quando estiver pronto.'}
-                  {liveStatus === 'paused' && 'Campanha pausada — envios suspensos. Retome para continuar de onde parou.'}
                   {liveStatus === 'scheduled' && 'Campanha agendada — começará automaticamente na data marcada.'}
                   {isRunning && 'Campanha ativa — disparando mensagens em fila. Você pode pausar a qualquer momento.'}
                   {liveStatus === 'completed' && 'Campanha concluída — todos os leads foram processados.'}
@@ -2769,8 +2826,15 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
             <div>
               <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Modo de disparo</p>
               <div className="grid grid-cols-2 gap-2">
-                {[['specific', 'Sessão única', 'Envia por uma única conexão selecionada abaixo'], ['smart-rotation', 'Rodízio inteligente', 'Distribui automaticamente entre todas as sessões conectadas']].map(([k, l, d]) => (
-                  <button key={k} type="button" onClick={() => setInstanceMode(k)}
+                {([['specific', 'Sessão única', 'Envia por uma única conexão selecionada abaixo'], ['smart-rotation', 'Rodízio inteligente', 'Distribui automaticamente entre todas as sessões conectadas']] as const).map(([k, l, d]) => (
+                  <button key={k} type="button" onClick={() => {
+                    setInstanceMode(k)
+                    // Ao entrar em rodízio, limpa preferência offline residual
+                    if (k === 'smart-rotation' && instanceId) {
+                      const sel = instances.find((inst: any) => String(inst.id) === String(instanceId))
+                      if (sel && sel.status !== 'connected') setInstanceId('')
+                    }
+                  }}
                     className={`p-3 rounded-xl border text-left transition ${instanceMode === k ? 'border-gray-900 bg-gray-50' : 'border-gray-200 hover:border-gray-300'}`}>
                     <p className={`text-[11px] font-bold ${instanceMode === k ? 'text-gray-900' : 'text-gray-700'}`}>{l}</p>
                     <p className="text-[9px] text-gray-400 mt-0.5 leading-tight">{d}</p>
@@ -2783,30 +2847,67 @@ export function CampaignEditorModal({ campaign, onClose, onSaved, showToast }: {
             <div className="rounded-2xl border border-gray-200 bg-gray-50/70 p-3.5">
               <div className="flex items-start justify-between gap-3 mb-3">
                 <div>
-                  <p className="text-xs font-bold text-gray-900">{isRotation ? 'Fallback preferencial' : 'Sessão de envio'}</p>
+                  <p className="text-xs font-bold text-gray-900">
+                    {isRotation ? 'Preferência opcional (opcional)' : 'Sessão de envio'}
+                  </p>
                   <p className="text-[10px] text-gray-500 mt-0.5 leading-snug">
                     {isRotation
-                      ? 'Usada somente quando o rodízio precisar priorizar uma conexão disponível.'
+                      ? 'No rodízio, o envio usa TODAS as sessões ativas. Este campo só define uma preferência se quiser; deixe “Automático” para o sistema escolher sozinho entre as ativas.'
                       : 'Esta será a única conexão responsável pelos disparos da campanha.'}
                   </p>
                 </div>
                 <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-1 whitespace-nowrap">
-                  {connectedInstances.length} ativa{connectedInstances.length === 1 ? '' : 's'}
+                  {connectedInstances.length} ativa{connectedInstances.length === 1 ? '' : 's'} no rodízio
                 </span>
               </div>
-              <select value={instanceId} onChange={e => setInstanceId(e.target.value)} className={inputCls}>
-                <option value="">{isRotation ? 'Automático — próxima disponível' : 'Selecione uma sessão ativa'}</option>
+              <select
+                value={instanceId}
+                onChange={e => setInstanceId(e.target.value)}
+                className={inputCls}
+              >
+                <option value="">
+                  {isRotation
+                    ? 'Automático — usa qualquer sessão ativa'
+                    : 'Selecione uma sessão ativa'}
+                </option>
                 {instances.map((inst: any) => (
                   <option key={inst.id} value={inst.id} disabled={inst.status !== 'connected'}>
                     {inst.name || 'Sessão'} {inst.phone ? `(${inst.phone})` : ''} — {inst.status === 'connected' ? 'Ativa' : 'Indisponível'}
                   </option>
                 ))}
               </select>
-              {instanceId && instances.find((inst: any) => String(inst.id) === String(instanceId))?.status !== 'connected' && (
-                <p className="mt-2 text-[11px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                  Essa sessão está desconectada e não poderá participar. Escolha uma conexão ativa.
-                </p>
-              )}
+              {(() => {
+                const preferred = instanceId
+                  ? instances.find((inst: any) => String(inst.id) === String(instanceId))
+                  : null
+                if (isRotation && !instanceId) {
+                  return (
+                    <p className="mt-2 text-[11px] font-medium text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+                      Modo automático: o rodízio envia só pelas {connectedInstances.length} sessão(ões) <strong>conectada(s)</strong>.
+                      Sessões offline entram na lista abaixo como “fora do rodízio” e são ignoradas — isso não é erro.
+                    </p>
+                  )
+                }
+                if (preferred && preferred.status !== 'connected') {
+                  return (
+                    <p className="mt-2 text-[11px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                      A preferência salva <strong>{preferred.name || preferred.phone || 'sessão'}</strong> está
+                      desconectada agora. {isRotation
+                        ? 'Ela foi ignorada; o rodízio segue só com as ativas (ou escolha outra preferência).'
+                        : 'Escolha uma conexão ativa para esta campanha.'}
+                    </p>
+                  )
+                }
+                if (isRotation && preferred && preferred.status === 'connected') {
+                  return (
+                    <p className="mt-2 text-[11px] font-medium text-gray-600 bg-white border border-gray-200 rounded-lg px-3 py-2">
+                      Preferência: <strong>{preferred.name || preferred.phone}</strong> (ativa).
+                      O rodízio ainda usa as outras sessões conectadas; esta só tem prioridade quando o balanceamento permitir.
+                    </p>
+                  )
+                }
+                return null
+              })()}
             </div>
 
             {/* Rotation: pool + distribution mode */}

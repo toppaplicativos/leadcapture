@@ -1607,35 +1607,31 @@ function LeadDetailModal({
 
   return createPortal((
     <div
-      className="fixed inset-0 z-[500] flex items-end lg:items-center justify-center bg-black/50 backdrop-blur-[3px] lg:p-6"
+      className="fixed inset-0 z-[500] flex items-stretch lg:items-center justify-center bg-black/50 backdrop-blur-[3px] lg:p-6"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
     >
       <div
-        className="bg-white shadow-[0_24px_80px_rgba(0,0,0,0.20)] border border-black/5 w-full lg:max-w-3xl h-[96dvh] lg:h-auto lg:max-h-[90dvh] flex flex-col overflow-hidden rounded-t-[24px] lg:rounded-[24px]"
+        className="bg-white shadow-[0_24px_80px_rgba(0,0,0,0.20)] border border-black/5 w-full lg:max-w-3xl h-[100dvh] lg:h-auto lg:max-h-[90dvh] flex flex-col overflow-hidden rounded-none lg:rounded-[24px]"
         style={{ animation: 'slideUp 280ms cubic-bezier(0.16, 1, 0.3, 1)' }}
         onClick={e => e.stopPropagation()}
       >
         {/* Drag handle (mobile) */}
-        <div className="lg:hidden pt-2 pb-1 flex justify-center shrink-0">
-          <span className="w-10 h-1 rounded-full bg-gray-300" />
-        </div>
-
         {/* Header */}
-        <div className="px-5 lg:px-6 pt-3 lg:pt-5 pb-4 border-b border-neutral-200 shrink-0 bg-white">
+        <div className="px-4 lg:px-6 pt-[max(12px,env(safe-area-inset-top))] lg:pt-5 pb-3 lg:pb-4 border-b border-neutral-200 shrink-0 bg-white">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
-              <p className="text-[11px] font-medium text-neutral-500 mb-1">Ficha do lead</p>
-              <h3 className="text-[20px] lg:text-[22px] font-semibold tracking-[-0.025em] text-neutral-950 leading-tight truncate">
+              <p className="hidden sm:block text-[11px] font-medium text-neutral-500 mb-1">Ficha do lead</p>
+              <h3 className="text-[18px] lg:text-[22px] font-semibold tracking-[-0.025em] text-neutral-950 leading-tight truncate">
                 {lead.name}
               </h3>
-              <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+              <div className="flex items-center gap-1.5 mt-1.5 overflow-hidden">
                 <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${stCfg.color}`}>
                   {stCfg.label}
                 </span>
                 {lead.category && (
-                  <span className="text-[11px] text-gray-500">{catLabel(lead.category)}</span>
+                    <span className="text-[11px] text-gray-500 truncate">{catLabel(lead.category)}</span>
                 )}
                 {rating > 0 && (
                   <span className="flex items-center gap-0.5 text-[11px] font-medium text-amber-700 tabular-nums">
@@ -1660,7 +1656,7 @@ function LeadDetailModal({
         </div>
 
         {/* Tabs */}
-        <div className="px-5 lg:px-6 py-3 border-b border-neutral-200 shrink-0 bg-neutral-50/70">
+        <div className="px-3 lg:px-6 py-2.5 lg:py-3 border-b border-neutral-200 shrink-0 bg-neutral-50/70">
           <div className="grid grid-cols-3 gap-1 p-1 rounded-2xl bg-neutral-200/70">
           {([['info', 'Detalhes'], ['edit', 'Editar'], ['actions', 'Ações']] as const).map(([k, l]) => (
             <button
@@ -1680,7 +1676,7 @@ function LeadDetailModal({
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto px-5 lg:px-6 py-5 space-y-5 pb-[max(24px,env(safe-area-inset-bottom))] bg-white">
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 lg:px-6 py-4 lg:py-5 space-y-5 bg-white">
           {tab === 'info' && (
             <>
               {lead.phone && (
@@ -1714,7 +1710,7 @@ function LeadDetailModal({
                 </div>
               )}
 
-              <div className="grid grid-cols-2 lg:grid-cols-3 gap-2.5">
+              <div className="grid grid-cols-1 min-[390px]:grid-cols-2 lg:grid-cols-3 gap-2.5">
                 {lead.city && (
                   <div className="border border-neutral-200 bg-white rounded-[18px] p-3.5">
                     <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Cidade</p>
@@ -1802,7 +1798,7 @@ function LeadDetailModal({
                 Edite os dados do lead. Para alterar status ou tipo de cliente, use a aba <b>Ações</b>.
               </p>
 
-              <div className="grid sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1 block">Nome *</label>
                 <input type="text" value={editName} onChange={(e) => setEditName(e.target.value)}
@@ -1817,7 +1813,7 @@ function LeadDetailModal({
               </div>
               </div>
 
-              <div className="grid sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1 block">Telefone</label>
                   <input type="tel" value={editPhone} onChange={(e) => setEditPhone(e.target.value)}
@@ -1874,7 +1870,7 @@ function LeadDetailModal({
                 </div>
               </div>
 
-              <div className="grid sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1 block">Categoria</label>
                   <input type="text" value={editCategory} onChange={(e) => setEditCategory(e.target.value)}
@@ -1962,7 +1958,7 @@ function LeadDetailModal({
                 </div>
               )}
 
-              <div className="sticky bottom-0 -mx-5 lg:-mx-6 px-5 lg:px-6 py-3 flex justify-end gap-2 border-t border-neutral-200 bg-white/95 backdrop-blur">
+              <div className="sticky bottom-0 -mx-4 lg:-mx-6 px-4 lg:px-6 py-3 grid grid-cols-2 sm:flex sm:justify-end gap-2 border-t border-neutral-200 bg-white/95 backdrop-blur">
                 <button onClick={() => setTab('info')} disabled={saving}
                   className="px-4 h-11 rounded-[18px] text-[12px] font-semibold text-neutral-600 hover:bg-neutral-100 transition disabled:opacity-50">
                   Cancelar
@@ -2085,7 +2081,7 @@ function LeadDetailModal({
 
         {/* Contact actions — always available without competing with lead identity */}
         {phone && (
-          <div className="shrink-0 grid grid-cols-[minmax(0,1fr)_auto] gap-2 px-5 lg:px-6 py-3 border-t border-neutral-200 bg-white/95 backdrop-blur pb-[max(12px,env(safe-area-inset-bottom))]">
+          <div className="shrink-0 grid grid-cols-[minmax(0,1fr)_48px] sm:grid-cols-[minmax(0,1fr)_auto] gap-2 px-4 lg:px-6 pt-3 border-t border-neutral-200 bg-white/95 backdrop-blur pb-[max(12px,env(safe-area-inset-bottom))]">
             <button
               type="button"
               onClick={() => setShowWaSend(true)}

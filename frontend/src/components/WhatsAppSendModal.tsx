@@ -531,27 +531,27 @@ export function WhatsAppSendModal({
 
   return createPortal((
     <div
-      className="fixed inset-0 z-[700] flex items-end lg:items-center justify-center bg-black/55 backdrop-blur-[3px] lg:p-6"
+      className="fixed inset-0 z-[700] flex items-stretch lg:items-center justify-center bg-black/55 backdrop-blur-[3px] lg:p-6"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
       aria-label="Enviar pelo WhatsApp"
     >
       <div
-        className="bg-white w-full lg:max-w-5xl h-[96dvh] lg:h-auto lg:max-h-[90dvh] flex flex-col rounded-t-[24px] lg:rounded-[24px] shadow-[0_24px_80px_rgba(0,0,0,0.22)] overflow-hidden border border-black/5"
+        className="bg-white w-full lg:max-w-5xl h-[100dvh] lg:h-auto lg:max-h-[90dvh] flex flex-col rounded-none lg:rounded-[24px] shadow-[0_24px_80px_rgba(0,0,0,0.22)] overflow-hidden border border-black/5"
         style={{ animation: 'slideUp 260ms cubic-bezier(0.16,1,0.3,1)' }}
         onClick={e => e.stopPropagation()}
       >
 
         {/* ── Header ── */}
-        <div className="px-5 lg:px-6 py-4 border-b border-neutral-200 shrink-0 bg-white">
+        <div className="px-4 lg:px-6 pt-[max(12px,env(safe-area-inset-top))] pb-3 lg:py-4 border-b border-neutral-200 shrink-0 bg-white">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
                 <WhatsAppIcon size={16} className="brand-icon--wa shrink-0" />
                 <h2 className="text-[17px] font-semibold tracking-[-0.02em] text-neutral-950">Preparar mensagem</h2>
               </div>
-              <p className="text-[12px] text-neutral-500 mt-0.5 truncate">
+              <p className="text-[11px] lg:text-[12px] text-neutral-500 mt-0.5 truncate">
                 {isQueue
                   ? `Fila de ${leads.length} leads — editando mensagem para cada um`
                   : lead.name}
@@ -568,13 +568,13 @@ export function WhatsAppSendModal({
 
           {/* Queue navigator */}
           {isQueue && (
-            <div className="flex items-center gap-3 mt-3 bg-neutral-50 border border-neutral-200 rounded-2xl px-2 py-2">
+            <div className="flex items-center gap-2 mt-2.5 bg-neutral-50 border border-neutral-200 rounded-2xl px-1.5 py-1.5">
               <button
                 onClick={prevLead}
                 disabled={queueIdx === 0}
                 aria-label="Contato anterior"
                 title="Contato anterior"
-                className="w-10 h-10 grid place-items-center rounded-xl text-neutral-600 hover:bg-neutral-200 disabled:opacity-30 transition"
+                className="w-9 h-9 grid place-items-center rounded-xl text-neutral-600 hover:bg-neutral-200 disabled:opacity-30 transition"
               >
                 <ChevronLeft size={14} strokeWidth={2} />
               </button>
@@ -594,7 +594,7 @@ export function WhatsAppSendModal({
                 disabled={queueIdx >= leads.length - 1}
                 aria-label="Próximo contato"
                 title="Próximo contato"
-                className="w-10 h-10 grid place-items-center rounded-xl text-neutral-600 hover:bg-neutral-200 disabled:opacity-30 transition"
+                className="w-9 h-9 grid place-items-center rounded-xl text-neutral-600 hover:bg-neutral-200 disabled:opacity-30 transition"
               >
                 <ChevronRight size={14} strokeWidth={2} />
               </button>
@@ -603,7 +603,7 @@ export function WhatsAppSendModal({
         </div>
 
         {/* ── Body ── */}
-        <div className="flex-1 min-h-0 overflow-y-auto lg:overflow-hidden lg:grid lg:grid-cols-[300px_minmax(0,1fr)]">
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain lg:overflow-hidden lg:grid lg:grid-cols-[300px_minmax(0,1fr)]">
 
           <aside className="lg:overflow-y-auto lg:border-r lg:border-neutral-200 bg-neutral-50/70">
 
@@ -617,7 +617,7 @@ export function WhatsAppSendModal({
 
           {/* Phone info */}
           {hasPhone && (
-            <div className="mx-4 mt-4 p-3.5 rounded-2xl bg-white border border-neutral-200 shadow-[0_1px_2px_rgba(0,0,0,.03)]">
+            <div className="mx-4 mt-3 lg:mt-4 p-3 rounded-2xl bg-white border border-neutral-200 shadow-[0_1px_2px_rgba(0,0,0,.03)]">
               <p className="text-[11px] font-semibold text-neutral-950 truncate mb-1">{lead.trade_name || lead.name}</p>
               <div className="flex items-center gap-2">
               <Phone size={12} className="text-gray-400 shrink-0" />
@@ -633,9 +633,9 @@ export function WhatsAppSendModal({
           )}
 
           {/* Template selector */}
-          <div className="px-4 pt-4 pb-4">
+          <div className="px-4 pt-3 lg:pt-4 pb-3 lg:pb-4">
             <p className="text-[11px] font-semibold text-neutral-600 mb-2">Escolha um ponto de partida</p>
-            <div className="grid grid-cols-2 lg:grid-cols-1 gap-2">
+            <div className="flex lg:grid lg:grid-cols-1 gap-2 overflow-x-auto snap-x pb-1 -mx-4 px-4 lg:mx-0 lg:px-0 lg:overflow-visible">
               {TEMPLATES.map(t => {
                 const isOptIn = t.id === 'optin'
                 const selected = templateId === t.id
@@ -644,7 +644,7 @@ export function WhatsAppSendModal({
                     key={t.id}
                     type="button"
                     onClick={() => { setTemplateId(t.id); }}
-                    className={`min-h-[54px] flex flex-col justify-center gap-0.5 text-left px-3 py-2.5 rounded-2xl border text-[11px] transition ${
+                    className={`w-[148px] shrink-0 lg:w-auto snap-start min-h-[54px] flex flex-col justify-center gap-0.5 text-left px-3 py-2.5 rounded-2xl border text-[11px] transition ${
                       selected
                         ? isOptIn
                           ? 'bg-emerald-700 text-white border-emerald-700'
@@ -663,7 +663,7 @@ export function WhatsAppSendModal({
               })}
             </div>
             {templateId === 'optin' && (
-              <p className="mt-3 text-[11px] leading-relaxed text-emerald-900 bg-emerald-50 border border-emerald-100 rounded-2xl px-3 py-2.5">
+              <p className="hidden lg:block mt-3 text-[11px] leading-relaxed text-emerald-900 bg-emerald-50 border border-emerald-100 rounded-2xl px-3 py-2.5">
                 Pede autorização antes da oferta. Usa marca, empresa, nicho, região e produto/serviço da proposta de valor.
                 Se o contato não autorizar, trate como opt-out e remova da lista.
               </p>
@@ -674,27 +674,27 @@ export function WhatsAppSendModal({
           <section className="lg:overflow-y-auto bg-white">
 
           {/* Message editor */}
-          <div className="px-5 lg:px-7 pt-5 lg:pt-6 pb-4">
-            <div className="flex items-center justify-between gap-3 mb-3">
+          <div className="px-4 lg:px-7 pt-4 lg:pt-6 pb-3 lg:pb-4">
+            <div className="flex items-start justify-between gap-2 mb-3">
               <div>
                 <p className="text-[15px] font-semibold tracking-[-0.015em] text-neutral-950">Composição</p>
                 <p className="text-[11px] text-neutral-500">Revise o texto antes de abrir o WhatsApp.</p>
               </div>
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1 shrink-0">
                 <button
                   type="button"
                   onClick={applyCurrentTemplate}
                   title="Resetar para o modelo original"
-                  className="flex items-center gap-1.5 px-3 h-9 rounded-xl text-[11px] font-medium text-neutral-600 hover:bg-neutral-100 transition"
+                  className="flex items-center gap-1.5 px-2.5 h-9 rounded-xl text-[11px] font-medium text-neutral-600 hover:bg-neutral-100 transition"
                 >
-                  <RotateCcw size={10} strokeWidth={2} /> Resetar
+                  <RotateCcw size={11} strokeWidth={2} /> <span className="hidden sm:inline">Resetar</span>
                 </button>
                 <button
                   type="button"
                   onClick={aiPersonalize}
                   disabled={aiLoading}
                   title="Personalizar com IA baseado nos dados do lead"
-                  className="flex items-center gap-1.5 px-3 h-9 rounded-xl text-[11px] font-semibold text-neutral-900 bg-neutral-100 hover:bg-neutral-200 disabled:opacity-50 transition"
+                  className="flex items-center gap-1.5 px-2.5 sm:px-3 h-9 rounded-xl text-[11px] font-semibold text-neutral-900 bg-neutral-100 hover:bg-neutral-200 disabled:opacity-50 transition"
                 >
                   {aiLoading
                     ? <><Loader2 size={10} strokeWidth={2} className="animate-spin" /> Gerando...</>
@@ -707,13 +707,13 @@ export function WhatsAppSendModal({
               onChange={e => setMessage(e.target.value)}
               rows={11}
               placeholder="Escreva ou selecione um modelo acima..."
-              className="w-full min-h-[250px] px-4 py-4 rounded-[20px] border border-neutral-200 bg-neutral-50 text-[14px] text-neutral-900 placeholder-neutral-400 focus:outline-none focus:ring-4 focus:ring-neutral-900/5 focus:border-neutral-900 focus:bg-white transition resize-y leading-relaxed font-[Inter,system-ui,sans-serif]"
+              className="w-full min-h-[210px] lg:min-h-[250px] px-4 py-4 rounded-[20px] border border-neutral-200 bg-neutral-50 text-[14px] text-neutral-900 placeholder-neutral-400 focus:outline-none focus:ring-4 focus:ring-neutral-900/5 focus:border-neutral-900 focus:bg-white transition resize-y leading-relaxed font-[Inter,system-ui,sans-serif]"
             />
             <p className="mt-1 text-[10px] text-gray-400 text-right">{message.length} chars</p>
           </div>
 
           {/* Variables legend */}
-          <details className="mx-5 lg:mx-7 mb-5 rounded-2xl border border-neutral-200 bg-neutral-50 group">
+          <details className="mx-4 lg:mx-7 mb-4 lg:mb-5 rounded-2xl border border-neutral-200 bg-neutral-50 group">
             <summary className="min-h-11 px-4 flex items-center justify-between cursor-pointer text-[12px] font-semibold text-neutral-700 list-none">
               Dados usados na personalização
               <ChevronRight size={14} className="transition-transform group-open:rotate-90" />
@@ -760,7 +760,7 @@ export function WhatsAppSendModal({
         </div>
 
         {/* ── Footer actions ── */}
-        <div className="px-5 lg:px-6 py-4 border-t border-neutral-200 space-y-2 shrink-0 bg-white">
+        <div className="px-4 lg:px-6 pt-3 lg:py-4 border-t border-neutral-200 space-y-2 shrink-0 bg-white pb-[max(12px,env(safe-area-inset-bottom))]">
 
           {allSent ? (
             <div className="flex items-center justify-center gap-2 h-12 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-[13px] font-medium">
@@ -788,13 +788,13 @@ export function WhatsAppSendModal({
               </button>
 
               {/* Secondary row: Web + Copy only + Next (queue) */}
-              <div className="flex items-center gap-2">
+              <div className="grid grid-cols-3 sm:flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => handleSend('web')}
                   disabled={!hasPhone || !message.trim()}
                   title="Abrir no WhatsApp Web (navegador)"
-                  className="flex items-center justify-center gap-1.5 h-11 px-3.5 rounded-2xl bg-neutral-100 hover:bg-neutral-200 text-neutral-700 text-[12px] font-medium disabled:opacity-40 transition"
+                  className="flex items-center justify-center gap-1.5 h-11 px-2 sm:px-3.5 rounded-2xl bg-neutral-100 hover:bg-neutral-200 text-neutral-700 text-[12px] font-medium disabled:opacity-40 transition"
                 >
                   <Monitor size={13} strokeWidth={2} /> Web
                 </button>
@@ -803,7 +803,7 @@ export function WhatsAppSendModal({
                   onClick={() => handleSend('app')}
                   disabled={!hasPhone || !message.trim()}
                   title="Abrir no app WhatsApp"
-                  className="flex items-center justify-center gap-1.5 h-11 px-3.5 rounded-2xl bg-neutral-100 hover:bg-neutral-200 text-neutral-700 text-[12px] font-medium disabled:opacity-40 transition"
+                  className="flex items-center justify-center gap-1.5 h-11 px-2 sm:px-3.5 rounded-2xl bg-neutral-100 hover:bg-neutral-200 text-neutral-700 text-[12px] font-medium disabled:opacity-40 transition"
                 >
                   <Smartphone size={13} strokeWidth={2} /> App
                 </button>
@@ -811,7 +811,7 @@ export function WhatsAppSendModal({
                   type="button"
                   onClick={handleCopyOnly}
                   disabled={!message.trim()}
-                  className="flex items-center justify-center gap-1.5 h-11 px-3.5 rounded-2xl bg-neutral-100 hover:bg-neutral-200 text-neutral-700 text-[12px] font-medium disabled:opacity-40 transition"
+                  className="flex items-center justify-center gap-1.5 h-11 px-2 sm:px-3.5 rounded-2xl bg-neutral-100 hover:bg-neutral-200 text-neutral-700 text-[12px] font-medium disabled:opacity-40 transition"
                 >
                   {copied ? <CheckCircle2 size={13} strokeWidth={2} className="text-emerald-600" /> : <Copy size={13} strokeWidth={2} />}
                   {copied ? 'Copiado' : 'Só copiar'}
@@ -822,7 +822,7 @@ export function WhatsAppSendModal({
                   <button
                     type="button"
                     onClick={nextLead}
-                    className="ml-auto flex items-center gap-1.5 h-11 px-3.5 rounded-2xl bg-neutral-950 text-white text-[12px] font-semibold hover:bg-neutral-800 transition"
+                    className="col-span-3 sm:col-span-1 sm:ml-auto flex items-center justify-center gap-1.5 h-11 px-3.5 rounded-2xl bg-neutral-950 text-white text-[12px] font-semibold hover:bg-neutral-800 transition"
                   >
                     Próximo <ChevronRight size={13} strokeWidth={2} />
                   </button>

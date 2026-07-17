@@ -16,6 +16,8 @@ import { affiliateDistributionService } from "../services/affiliateDistribution"
 import { affiliateCrmService } from "../services/affiliateCrm";
 import { CommerceService } from "../services/commerce";
 import { getHealthSnapshot } from "../services/whatsappHealth";
+import { aiRouter } from "../services/aiRouter";
+import { randomUUID } from "crypto";
 
 const router = Router();
 const affiliatesService = new AffiliatesService();
@@ -996,6 +998,134 @@ router.get("/opportunities", async (req: AuthRequest, res: Response) => {
     res.json({ success: true, stats, ...data });
   } catch (e: any) {
     res.status(500).json({ error: e.message || "Falha ao listar oportunidades" });
+  }
+});
+
+async function resolveAffiliateOpportunity(ctx: AffiliateContext, affiliateId: string, refType: string, refId: string) {
+  if (refType === "assignment") {
+    const row = await queryOne<any>(
+      `SELECT pa.*, bu.name AS brand_name
+       FROM prospect_assignments pa
+       INNER JOIN brand_units bu ON bu.id = pa.brand_id
+       WHERE pa.id = ? AND pa.affiliate_id = ? AND pa.brand_id = ? LIMIT 1`,
+      [refId, affiliateId, ctx.brandId],
+    );
+    if (!row) return null;
+    let metadata: Record<string, any> = {};
+    try { metadata = typeof row.metadata_json === "string" ? JSON.parse(row.metadata_json || "{}") : (row.metadata_json || {}); } catch { metadata = {}; }
+    return {
+      ref_type: "assignment", ref_id: refId, name: row.prospect_name, phone: row.prospect_phone,
+      city: row.prospect_city, region: row.prospect_region, brand_name: row.brand_name,
+      status: row.current_stage, notes: row.notes,
+      niche: metadata.niche || metadata.keyword || metadata.segment || metadata.category || null,
+      product_name: metadata.product_name || null,
+    };
+  }
+  if (refType === "affiliate_lead") {
+    const row = await queryOne<any>(
+      `SELECT al.*, bu.name AS brand_name
+       FROM affiliate_leads al
+       INNER JOIN brand_units bu ON bu.id = al.brand_id
+       WHERE al.id = ? AND al.affiliate_id = ? AND al.brand_id = ? LIMIT 1`,
+      [refId, affiliateId, ctx.brandId],
+    );
+    if (!row) return null;
+    return {
+      ref_type: "affiliate_lead", ref_id: refId, name: row.customer_name, phone: row.phone,
+      city: null, region: null, brand_name: row.brand_name, status: row.affiliate_status,
+      notes: row.affiliate_notes, niche: row.cta_type || row.source_type || null,
+      product_name: row.product_name || null, incoming_message: row.message || null,
+    };
+  }
+  return null;
+}
+
+async function recordAffiliateManualAction(input: {
+  ctx: AffiliateContext; affiliateId: string; refType: string; refId: string;
+  action: string; message?: string | null; note?: string | null;
+}) {
+  await query(`CREATE TABLE IF NOT EXISTS affiliate_manual_actions (
+    id VARCHAR(36) PRIMARY KEY, owner_user_id VARCHAR(36) NOT NULL, brand_id VARCHAR(36) NOT NULL,
+    affiliate_id VARCHAR(36) NOT NULL, ref_type VARCHAR(30) NOT NULL, ref_id VARCHAR(36) NOT NULL,
+    action VARCHAR(40) NOT NULL, message_text TEXT NULL, note TEXT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_aff_manual_ref (affiliate_id, brand_id, ref_type, ref_id, created_at)
+  )`);
+  await query(
+    `INSERT INTO affiliate_manual_actions
+     (id, owner_user_id, brand_id, affiliate_id, ref_type, ref_id, action, message_text, note)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [randomUUID(), input.ctx.ownerUserId, input.ctx.brandId, input.affiliateId, input.refType, input.refId,
+      input.action, input.message || null, input.note || null],
+  );
+}
+
+router.post("/opportunities/:refType/:refId/assist", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = await requireAffiliateCredential(req, res);
+    if (!ctx) return;
+    const affiliate = await getAffiliateProfile(ctx);
+    if (!affiliate) return res.status(404).json({ error: "Perfil de afiliado não encontrado" });
+    const item = await resolveAffiliateOpportunity(ctx, String(affiliate.id), String(req.params.refType), String(req.params.refId));
+    if (!item) return res.status(404).json({ error: "Contato não encontrado nesta fila" });
+    if (!String(item.phone || "").replace(/\D/g, "")) return res.status(400).json({ error: "Este contato não possui WhatsApp" });
+
+    const intent = String(req.body?.intent || "primeiro_contato").trim();
+    const instruction = String(req.body?.instruction || "").trim().slice(0, 600);
+    const firstName = String(item.name || "").trim().split(/\s+/)[0] || "tudo bem";
+    const prompt = `Você é o copiloto comercial de um afiliado da marca ${item.brand_name || "marca"}.
+Crie UMA mensagem de WhatsApp humana, curta, respeitosa e personalizada para ${firstName}.
+Objetivo: ${intent}. Nicho/contexto: ${item.niche || "não informado"}. Cidade: ${item.city || item.region || "não informada"}.
+Produto/interesse: ${item.product_name || "não informado"}. Histórico/observação: ${item.incoming_message || item.notes || "sem histórico"}.
+Instrução do afiliado: ${instruction || "nenhuma"}.
+Não invente preço, promoção ou benefício. Não use pressão, promessa exagerada nem linguagem de disparo em massa.
+Se for primeiro contato, identifique a marca e dê uma saída educada. Termine com uma pergunta simples. Responda somente com a mensagem pronta.`;
+    const generated = await aiRouter.generateText(prompt, { userId: ctx.ownerUserId, brandId: ctx.brandId }, {
+      temperature: 0.55, functionKey: "text.affiliate.manual_assist",
+    });
+    const message = String(generated.text || "").trim().replace(/^['\"]|['\"]$/g, "");
+    await recordAffiliateManualAction({ ctx, affiliateId: String(affiliate.id), refType: item.ref_type, refId: item.ref_id, action: "ai_draft", message });
+    res.json({ success: true, message, context: item, provider: generated.provider });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Falha ao preparar mensagem" });
+  }
+});
+
+router.patch("/opportunities/:refType/:refId/progress", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = await requireAffiliateCredential(req, res);
+    if (!ctx) return;
+    const affiliate = await getAffiliateProfile(ctx);
+    if (!affiliate) return res.status(404).json({ error: "Perfil de afiliado não encontrado" });
+    const refType = String(req.params.refType || "");
+    const refId = String(req.params.refId || "");
+    const item = await resolveAffiliateOpportunity(ctx, String(affiliate.id), refType, refId);
+    if (!item) return res.status(404).json({ error: "Contato não encontrado nesta fila" });
+    const action = String(req.body?.action || "").trim();
+    const message = String(req.body?.message || "").trim().slice(0, 4000) || null;
+    const note = String(req.body?.note || "").trim().slice(0, 2000) || null;
+    const allowed = new Set(["sent", "replied", "negotiating", "lost"]);
+    if (!allowed.has(action)) return res.status(400).json({ error: "Etapa inválida" });
+
+    if (refType === "assignment") {
+      const stage = action === "sent" ? "awaiting_response" : action === "replied" ? "engaged" : action === "negotiating" ? "proposal_sent" : "lost";
+      const assignmentStatus = action === "lost" ? "lost" : "active";
+      await query(
+        `UPDATE prospect_assignments SET current_stage = ?, assignment_status = ?, last_interaction_at = NOW(),
+         next_followup_at = CASE WHEN ? = 'sent' THEN DATE_ADD(NOW(), INTERVAL 2 DAY) WHEN ? = 'lost' THEN NULL ELSE next_followup_at END
+         WHERE id = ? AND affiliate_id = ? AND brand_id = ?`,
+        [stage, assignmentStatus, action, action, refId, affiliate.id, ctx.brandId],
+      );
+    } else {
+      const status = action === "sent" ? "contacted" : action === "lost" ? "lost" : "negotiating";
+      await query(
+        `UPDATE affiliate_leads SET affiliate_status = ?, updated_at = NOW() WHERE id = ? AND affiliate_id = ? AND brand_id = ?`,
+        [status, refId, affiliate.id, ctx.brandId],
+      );
+    }
+    await recordAffiliateManualAction({ ctx, affiliateId: String(affiliate.id), refType, refId, action, message, note });
+    res.json({ success: true, action });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message || "Falha ao avançar contato" });
   }
 });
 

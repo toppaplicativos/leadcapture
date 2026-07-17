@@ -84,6 +84,7 @@ function mapSourceType(sourceType: string): string {
     checkout: "Checkout",
     distribution: "Organização",
     panfleteiro_capture: "Panfleteiro",
+    panfleteiro_capture_batch: "Prospecção da organização",
   };
   return labels[String(sourceType || "").toLowerCase()] || sourceType;
 }
@@ -145,7 +146,7 @@ export class AffiliateCrmService {
     const assignmentRows = await query<any[]>(
       `SELECT id, prospect_id, prospect_name, prospect_phone, prospect_city, prospect_region,
               source, assignment_status, current_stage, conversion_status,
-              assigned_at, last_interaction_at, next_followup_at, notes, followup_count
+              assigned_at, last_interaction_at, next_followup_at, notes, followup_count, metadata_json
        FROM prospect_assignments
        WHERE ${assignmentClauses.join(" AND ")}
        ORDER BY assigned_at DESC`,
@@ -191,6 +192,8 @@ export class AffiliateCrmService {
     });
 
     const assignmentItems = (assignmentRows || []).map((row) => {
+      let metadata: Record<string, any> = {};
+      try { metadata = typeof row.metadata_json === "string" ? JSON.parse(row.metadata_json || "{}") : (row.metadata_json || {}); } catch { metadata = {}; }
       const stage = String(row.current_stage || "assigned_to_affiliate");
       const pipelineType = classifyAssignmentPipeline(stage);
       const temperature = classifyAssignmentTemperature(stage);
@@ -213,6 +216,7 @@ export class AffiliateCrmService {
         city: row.prospect_city ? String(row.prospect_city) : null,
         region: row.prospect_region ? String(row.prospect_region) : null,
         product_name: null as string | null,
+        niche: String(metadata.niche || metadata.keyword || metadata.segment || metadata.category || "").trim() || null,
         message: row.notes ? String(row.notes) : null,
         notes: row.notes ? String(row.notes) : null,
         last_interaction_at: row.last_interaction_at ? String(row.last_interaction_at) : null,

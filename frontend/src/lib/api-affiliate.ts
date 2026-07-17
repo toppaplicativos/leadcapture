@@ -249,6 +249,14 @@ export const affiliateApi = {
     const qs = new URLSearchParams({ segment, page: String(page), limit: String(limit) })
     return affiliateFetch<any>(`/api/affiliate-app/opportunities?${qs}`)
   },
+  assistOpportunity: (refType: string, refId: string, payload?: { intent?: string; instruction?: string }) =>
+    affiliateFetch<any>(`/api/affiliate-app/opportunities/${encodeURIComponent(refType)}/${encodeURIComponent(refId)}/assist`, {
+      method: 'POST', body: JSON.stringify(payload || {}),
+    }),
+  progressOpportunity: (refType: string, refId: string, payload: { action: 'sent' | 'replied' | 'negotiating' | 'lost'; message?: string; note?: string }) =>
+    affiliateFetch<any>(`/api/affiliate-app/opportunities/${encodeURIComponent(refType)}/${encodeURIComponent(refId)}/progress`, {
+      method: 'PATCH', body: JSON.stringify(payload),
+    }),
   customers: (page = 1, limit = 50, status?: string) => {
     const qs = new URLSearchParams({ page: String(page), limit: String(limit) })
     if (status) qs.set('status', status)

@@ -38,6 +38,17 @@ interface WhatsAppSendModalProps {
   onClose: () => void
   /** Called when user opens WhatsApp for a lead (optional — e.g. mark as contacted) */
   onSent?: (lead: WaSendLead) => void
+  /** Opens the queue on a specific lead instead of always starting at the first. */
+  initialIndex?: number
+  /** White-label proposition supplied by another app context (for example, affiliate). */
+  initialValueProposition?: string
+  /** Lets another app reuse the same composer with its own authenticated AI endpoint. */
+  onAiPersonalize?: (input: {
+    lead: WaSendLead
+    currentMessage: string
+    templateId: string
+    senderName: string
+  }) => Promise<string>
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -225,8 +236,10 @@ function getHeaders(): Record<string, string> {
   return h
 }
 
-export function WhatsAppSendModal({ leads, onClose, onSent }: WhatsAppSendModalProps) {
-  const [queueIdx, setQueueIdx] = useState(0)
+export function WhatsAppSendModal({
+  leads, onClose, onSent, initialIndex = 0, initialValueProposition = '', onAiPersonalize,
+}: WhatsAppSendModalProps) {
+  const [queueIdx, setQueueIdx] = useState(() => Math.min(Math.max(initialIndex, 0), Math.max(leads.length - 1, 0)))
   const [templateId, setTemplateId] = useState(TEMPLATES[0].id)
   const [message, setMessage] = useState('')
   const [senderName, setSenderNameState] = useState(getSenderName)
@@ -234,10 +247,11 @@ export function WhatsAppSendModal({ leads, onClose, onSent }: WhatsAppSendModalP
   const [sentIdx, setSentIdx] = useState<Set<number>>(new Set())
   const [aiLoading, setAiLoading] = useState(false)
   const [showSenderInput, setShowSenderInput] = useState(false)
-  const [valueProposition, setValuePropositionState] = useState('')
+  const [valueProposition, setValuePropositionState] = useState(initialValueProposition)
 
   /* Fetch brand profile on mount to get value_proposition */
   useEffect(() => {
+    if (initialValueProposition) return
     fetch('/api/ai/agent-profile', { headers: getHeaders() })
       .then(r => r.json())
       .then(d => {
@@ -245,6 +259,12 @@ export function WhatsAppSendModal({ leads, onClose, onSent }: WhatsAppSendModalP
         if (vp) setValuePropositionState(vp)
       })
       .catch(() => {})
+  }, [initialValueProposition])
+
+  useEffect(() => {
+    const previous = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = previous }
   }, [])
 
   const isQueue = leads.length > 1
@@ -273,6 +293,16 @@ export function WhatsAppSendModal({ leads, onClose, onSent }: WhatsAppSendModalP
     if (!lead || aiLoading) return
     setAiLoading(true)
     try {
+      if (onAiPersonalize) {
+        const personalized = await onAiPersonalize({
+          lead,
+          currentMessage: message,
+          templateId,
+          senderName,
+        })
+        if (personalized) setMessage(personalized)
+        return
+      }
       const token = localStorage.getItem('lead-system-token') || ''
       const brandId = localStorage.getItem('lead-system:active-brand-id') || ''
       const r = await fetch('/api/ai/wa-personalize', {
@@ -394,6 +424,8 @@ export function WhatsAppSendModal({ leads, onClose, onSent }: WhatsAppSendModalP
               <button
                 onClick={prevLead}
                 disabled={queueIdx === 0}
+                aria-label="Contato anterior"
+                title="Contato anterior"
                 className="w-7 h-7 grid place-items-center rounded-lg text-gray-500 hover:bg-gray-200 disabled:opacity-30 transition"
               >
                 <ChevronLeft size={14} strokeWidth={2} />
@@ -412,6 +444,8 @@ export function WhatsAppSendModal({ leads, onClose, onSent }: WhatsAppSendModalP
               <button
                 onClick={nextLead}
                 disabled={queueIdx >= leads.length - 1}
+                aria-label="Próximo contato"
+                title="Próximo contato"
                 className="w-7 h-7 grid place-items-center rounded-lg text-gray-500 hover:bg-gray-200 disabled:opacity-30 transition"
               >
                 <ChevronRight size={14} strokeWidth={2} />

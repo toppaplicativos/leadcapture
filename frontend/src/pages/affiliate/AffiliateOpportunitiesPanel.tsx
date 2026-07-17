@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  Briefcase, ChevronDown, Copy, Flame, Loader2, MessageCircle,
-  Phone, Sparkles, Target, UserPlus, Users,
+  ArrowRight, Briefcase, Check, ChevronDown, Copy, Flame, Loader2, MessageCircle,
+  PencilLine, Phone, Send, Sparkles, Target, UserPlus, Users, X,
 } from 'lucide-react'
 import { affiliateApi } from '@/lib/api-affiliate'
 import type { AppContext } from '@/pages/affiliate/types'
+import { WhatsAppSendModal, type WaSendLead } from '@/components/WhatsAppSendModal'
 
 type Segment = 'all' | 'contact' | 'prospect' | 'lead' | 'hot' | 'followup' | 'lost'
 
@@ -22,6 +23,7 @@ type Opportunity = {
   city?: string | null
   region?: string | null
   product_name?: string | null
+  niche?: string | null
   message?: string | null
   last_interaction_at?: string | null
   next_followup_at?: string | null
@@ -90,6 +92,7 @@ export function AffiliateOpportunitiesPanel({ ctx }: { ctx: AppContext }) {
   const [loading, setLoading] = useState(true)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [savingId, setSavingId] = useState<string | null>(null)
+  const [selected, setSelected] = useState<Opportunity | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -171,11 +174,11 @@ export function AffiliateOpportunitiesPanel({ ctx }: { ctx: AppContext }) {
             <Target size={18} style={{ color: ctx.primary }} />
           </div>
           <div className="min-w-0">
-            <p className="font-bold text-sm text-[#1c1c1e]">Contatos do programa</p>
+            <p className="font-bold text-sm text-[#1c1c1e]">Fila assistida</p>
             <p className="text-xs text-[#636366] mt-1 leading-relaxed">{greeting}</p>
             <p className="text-[10px] text-[#8e8e93] mt-2 leading-relaxed">
-              A marca envia contatos, prospects e leads para você. Contato → Prospect → Lead → Cliente.
-              Quem já comprou está em <strong>Clientes</strong>.
+              Escolha um contato, deixe a IA preparar a abordagem e avance cada etapa manualmente.
+              Contato → Prospect → Lead → Cliente.
             </p>
           </div>
         </div>
@@ -283,6 +286,14 @@ export function AffiliateOpportunitiesPanel({ ctx }: { ctx: AppContext }) {
                     </div>
 
                     <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-2xl px-4 text-xs font-bold text-white active:scale-[.98]"
+                        style={{ backgroundColor: ctx.primary }}
+                        onClick={() => setSelected(item)}
+                      >
+                        <MessageCircle size={14} /> Enviar WhatsApp
+                      </button>
                       {item.phone && (
                         <>
                           <button
@@ -345,6 +356,142 @@ export function AffiliateOpportunitiesPanel({ ctx }: { ctx: AppContext }) {
           })}
         </ul>
       )}
+      {selected && (() => {
+        const queue = items.filter((entry) => String(entry.phone || '').replace(/\D/g, '').length >= 8)
+        const initialIndex = Math.max(0, queue.findIndex((entry) => entry.id === selected.id))
+        const leads: WaSendLead[] = queue.map((entry) => ({
+          id: `${entry.ref_type}:${entry.ref_id}`,
+          name: entry.name,
+          trade_name: entry.name,
+          phone: entry.phone || undefined,
+          city: entry.city || undefined,
+          state: entry.region || undefined,
+          category: entry.niche || entry.product_name || undefined,
+          status: entry.commercial_status,
+          notes: entry.message || entry.next_action || undefined,
+        }))
+        return (
+          <WhatsAppSendModal
+            leads={leads}
+            initialIndex={initialIndex}
+            initialValueProposition={ctx.program?.share_description || ctx.brand?.slogan || ''}
+            onClose={() => setSelected(null)}
+            onAiPersonalize={async ({ lead, currentMessage, templateId }) => {
+              const [refType, refId] = String(lead.id || '').split(':')
+              const result = await affiliateApi.assistOpportunity(refType, refId, {
+                intent: templateId,
+                instruction: currentMessage.slice(0, 600),
+              })
+              return String(result.message || currentMessage)
+            }}
+            onSent={async (lead) => {
+              const [refType, refId] = String(lead.id || '').split(':')
+              try {
+                await affiliateApi.progressOpportunity(refType, refId, { action: 'sent' })
+                ctx.showToast('Contato marcado como contatado')
+                void load()
+              } catch (e) {
+                ctx.showToast(e instanceof Error ? e.message : 'Não foi possível atualizar o contato', 'err')
+              }
+            }}
+          />
+        )
+      })()}
+    </div>
+  )
+}
+
+type ManualStep = 'prepare' | 'review' | 'send' | 'progress'
+
+function ManualOpportunityModal({ item, ctx, onClose, onChanged }: {
+  item: Opportunity; ctx: AppContext; onClose: () => void; onChanged: () => void
+}) {
+  const [step, setStep] = useState<ManualStep>('prepare')
+  const [intent, setIntent] = useState(item.followup_due ? 'follow_up' : 'primeiro_contato')
+  const [instruction, setInstruction] = useState('')
+  const [message, setMessage] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const digits = String(item.phone || '').replace(/\D/g, '')
+  const phone = digits.startsWith('55') ? digits : `55${digits}`
+  const steps: Array<{ key: ManualStep; label: string }> = [
+    { key: 'prepare', label: 'Contexto' }, { key: 'review', label: 'Mensagem' },
+    { key: 'send', label: 'Envio' }, { key: 'progress', label: 'Progresso' },
+  ]
+
+  useEffect(() => {
+    const previous = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = previous }
+  }, [])
+
+  async function generate() {
+    setLoading(true)
+    try {
+      const result = await affiliateApi.assistOpportunity(item.ref_type, item.ref_id, { intent, instruction })
+      setMessage(String(result.message || ''))
+      setStep('review')
+    } catch (e) {
+      ctx.showToast(e instanceof Error ? e.message : 'Não foi possível preparar a mensagem', 'err')
+    } finally { setLoading(false) }
+  }
+
+  function openWhatsApp() {
+    if (!digits || !message.trim()) return
+    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message.trim())}`, '_blank', 'noopener')
+    setConfirmOpen(false)
+    setStep('send')
+  }
+
+  async function progress(action: 'sent' | 'replied' | 'negotiating' | 'lost') {
+    setSaving(true)
+    try {
+      await affiliateApi.progressOpportunity(item.ref_type, item.ref_id, { action, message })
+      ctx.showToast(action === 'sent' ? 'Envio registrado. Follow-up programado.' : 'Etapa atualizada')
+      onChanged()
+    } catch (e) {
+      ctx.showToast(e instanceof Error ? e.message : 'Erro ao atualizar contato', 'err')
+    } finally { setSaving(false) }
+  }
+
+  const activeIndex = steps.findIndex((value) => value.key === step)
+  return (
+    <div className="fixed inset-0 z-[500] flex items-end justify-center bg-black/45 backdrop-blur-[2px] sm:items-center sm:p-5" role="dialog" aria-modal="true" aria-label={`Atendimento de ${item.name}`} onMouseDown={onClose}>
+      <div className="relative flex max-h-[96dvh] w-full flex-col overflow-hidden rounded-t-[24px] bg-white shadow-2xl sm:max-h-[88vh] sm:max-w-2xl sm:rounded-[24px]" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="flex justify-center py-2 sm:hidden"><span className="h-1 w-10 rounded-full bg-neutral-300" /></div>
+        <header className="flex items-start gap-3 border-b border-neutral-200 px-4 pb-4 pt-2 sm:px-6 sm:pt-5">
+          <div className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-neutral-100"><Target size={18} /></div>
+          <div className="min-w-0 flex-1"><p className="truncate text-base font-bold tracking-[-.02em] text-neutral-950">{item.name}</p><p className="mt-1 truncate text-xs text-neutral-500">{item.niche || item.product_name || item.source_label}{item.city ? ` · ${item.city}` : ''}</p></div>
+          <button type="button" aria-label="Fechar" onClick={onClose} className="grid h-11 w-11 place-items-center rounded-2xl text-neutral-500 hover:bg-neutral-100"><X size={18}/></button>
+        </header>
+
+        <div className="border-b border-neutral-200 px-4 py-3 sm:px-6"><ol className="grid grid-cols-4 gap-1" aria-label="Etapas do atendimento">{steps.map((entry, index) => <li key={entry.key} className="min-w-0"><div className={`h-1 rounded-full ${index <= activeIndex ? 'bg-neutral-950' : 'bg-neutral-200'}`} /><p className={`mt-1.5 truncate text-[10px] font-semibold ${index === activeIndex ? 'text-neutral-950' : 'text-neutral-400'}`}>{index < activeIndex ? 'Concluído' : entry.label}</p></li>)}</ol></div>
+
+        <div className="flex-1 overflow-y-auto px-4 py-5 sm:px-6">
+          {step === 'prepare' && <div className="space-y-5">
+            <div><h3 className="text-lg font-bold tracking-[-.025em] text-neutral-950">Prepare a abordagem</h3><p className="mt-1 text-sm leading-relaxed text-neutral-600">A IA considera marca, nicho, origem e etapa atual. Você sempre revisa antes de abrir o WhatsApp.</p></div>
+            <div className="grid gap-2 sm:grid-cols-3">{[['primeiro_contato','Primeiro contato'],['follow_up','Follow-up'],['retomar_interesse','Retomar interesse']].map(([value,label]) => <button key={value} type="button" onClick={() => setIntent(value)} className={`min-h-11 rounded-2xl border px-3 text-xs font-bold ${intent === value ? 'border-neutral-950 bg-neutral-950 text-white' : 'border-neutral-200 bg-white text-neutral-700'}`}>{label}</button>)}</div>
+            <label className="block"><span className="mb-2 block text-xs font-semibold text-neutral-700">Orientação opcional para a IA</span><textarea value={instruction} onChange={(e) => setInstruction(e.target.value)} rows={4} maxLength={600} placeholder="Ex.: seja direto, mencione a entrega em BH e não fale de preço ainda." className="w-full resize-none rounded-[18px] border border-neutral-200 p-3.5 text-sm outline-none focus:border-neutral-950 focus:ring-4 focus:ring-neutral-950/5" /></label>
+            <button type="button" disabled={loading || !digits} onClick={generate} className="flex min-h-11 w-full items-center justify-center gap-2 rounded-[18px] bg-neutral-950 px-4 text-sm font-bold text-white disabled:opacity-45">{loading ? <Loader2 size={16} className="animate-spin"/> : <Sparkles size={16}/>} {loading ? 'Raciocinando…' : 'Preparar mensagem com IA'}</button>
+            {!digits && <p className="text-center text-xs font-medium text-red-600">Este contato não possui um WhatsApp válido.</p>}
+          </div>}
+
+          {step === 'review' && <div className="space-y-4">
+            <div><h3 className="text-lg font-bold text-neutral-950">Revise antes de enviar</h3><p className="mt-1 text-sm text-neutral-600">Edite livremente. A IA sugere; a decisão e o tom final são seus.</p></div>
+            <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={9} className="w-full resize-none rounded-[18px] border border-neutral-200 p-4 text-sm leading-relaxed outline-none focus:border-neutral-950 focus:ring-4 focus:ring-neutral-950/5" />
+            <div className="flex gap-2"><button type="button" onClick={generate} disabled={loading} className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-[18px] bg-neutral-100 px-3 text-xs font-bold text-neutral-800"><Sparkles size={14}/> Gerar outra</button><button type="button" onClick={() => setStep('prepare')} className="grid h-11 w-11 place-items-center rounded-[18px] bg-neutral-100" aria-label="Editar contexto"><PencilLine size={15}/></button></div>
+            <button type="button" disabled={!message.trim()} onClick={() => setConfirmOpen(true)} className="flex min-h-11 w-full items-center justify-center gap-2 rounded-[18px] bg-neutral-950 px-4 text-sm font-bold text-white disabled:opacity-45"><Send size={16}/> Continuar para o WhatsApp</button>
+          </div>}
+
+          {step === 'send' && <div className="space-y-5 text-center"><div className="mx-auto grid h-14 w-14 place-items-center rounded-[20px] bg-emerald-50 text-emerald-700"><MessageCircle size={24}/></div><div><h3 className="text-lg font-bold text-neutral-950">A mensagem foi aberta no WhatsApp</h3><p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-neutral-600">Confirme somente depois de tocar em enviar no WhatsApp. Assim o histórico e o próximo follow-up ficam corretos.</p></div><button type="button" disabled={saving} onClick={() => progress('sent')} className="flex min-h-11 w-full items-center justify-center gap-2 rounded-[18px] bg-neutral-950 px-4 text-sm font-bold text-white">{saving ? <Loader2 size={16} className="animate-spin"/> : <Check size={16}/>} Já enviei a mensagem</button><button type="button" onClick={() => setStep('review')} className="min-h-11 w-full rounded-[18px] bg-neutral-100 px-4 text-sm font-bold text-neutral-700">Voltar e editar</button></div>}
+
+          {step === 'progress' && <div className="space-y-4"><div><h3 className="text-lg font-bold text-neutral-950">Atualize a progressão</h3><p className="mt-1 text-sm text-neutral-600">Registre o que realmente aconteceu para manter a fila priorizada.</p></div>{[['replied','Respondeu','Mover para conversa ativa'],['negotiating','Em negociação','Há interesse, proposta ou pedido em construção'],['lost','Sem interesse','Encerrar esta oportunidade']].map(([action,title,desc]) => <button key={action} type="button" disabled={saving} onClick={() => progress(action as 'replied'|'negotiating'|'lost')} className="flex min-h-[64px] w-full items-center gap-3 rounded-[18px] border border-neutral-200 p-3 text-left hover:bg-neutral-50"><span className="grid h-10 w-10 place-items-center rounded-2xl bg-neutral-100"><ArrowRight size={16}/></span><span className="min-w-0"><strong className="block text-sm text-neutral-950">{title}</strong><span className="mt-0.5 block text-xs text-neutral-500">{desc}</span></span></button>)}</div>}
+        </div>
+
+        {step !== 'prepare' && step !== 'progress' && <footer className="border-t border-neutral-200 px-4 py-3 sm:px-6"><button type="button" onClick={() => setStep('progress')} className="min-h-11 w-full rounded-[18px] text-xs font-bold text-neutral-600 hover:bg-neutral-100">Atualizar etapa sem enviar mensagem</button></footer>}
+        {confirmOpen && <div className="absolute inset-0 z-10 flex items-end bg-black/35 p-3 sm:items-center sm:justify-center" onMouseDown={() => setConfirmOpen(false)}><div className="w-full rounded-[22px] bg-white p-5 shadow-2xl sm:max-w-sm" onMouseDown={(e) => e.stopPropagation()}><h4 className="text-base font-bold text-neutral-950">Abrir conversa no WhatsApp?</h4><p className="mt-2 text-sm leading-relaxed text-neutral-600">A mensagem será apenas preenchida. Revise no WhatsApp e toque em enviar por conta própria.</p><div className="mt-5 grid grid-cols-2 gap-2"><button type="button" onClick={() => setConfirmOpen(false)} className="min-h-11 rounded-[18px] bg-neutral-100 text-sm font-bold text-neutral-700">Cancelar</button><button type="button" onClick={openWhatsApp} className="min-h-11 rounded-[18px] bg-neutral-950 text-sm font-bold text-white">Abrir WhatsApp</button></div></div></div>}
+      </div>
     </div>
   )
 }

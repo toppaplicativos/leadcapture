@@ -215,6 +215,8 @@ export type Campaign = {
   negative_count: number;
   opted_out_count: number;
   status: CampaignStatus;
+  /** Motivo da última pausa (auto ou manual) — vem de settings.pauseReason */
+  pause_reason?: string | null;
   scheduled_at: string | null;
   started_at: string | null;
   completed_at: string | null;
@@ -738,6 +740,163 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
       return pool.map((id: any) => String(id || "").trim()).filter(Boolean);
     } catch {
       return [];
+    }
+  }
+
+  /**
+   * Seções com socket vivo do dono da campanha (e brand, se houver).
+   * Usado no rodízio quando o pool salvo está vazio ou todas offline.
+   */
+  private listRuntimeConnectedInstanceIds(userId: string, brandId?: string | null): string[] {
+    try {
+      const all = this.instanceManager.getAllInstances(userId) || [];
+      const brand = String(brandId || "").trim();
+      return all
+        .filter((inst: any) => {
+          if (!inst?.id) return false;
+          if (!this.isInstanceRuntimeConnected(String(inst.id))) return false;
+          if (brand && inst.brandId && String(inst.brandId) !== brand) return false;
+          if (brand && inst.brand_id && String(inst.brand_id) !== brand) return false;
+          return true;
+        })
+        .map((inst: any) => String(inst.id));
+    } catch {
+      return [];
+    }
+  }
+
+  /** Runtime real (socket) tem prioridade sobre status em memória/DB. */
+  private getInstanceRuntimeStatus(instanceId: string): string {
+    const id = String(instanceId || "").trim();
+    if (!id) return "missing";
+    try {
+      const im = this.instanceManager as any;
+      if (typeof im.getRuntimeStatus === "function") {
+        return String(im.getRuntimeStatus(id) || "unknown");
+      }
+    } catch {
+      /* fall through */
+    }
+    const inst =
+      this.instanceManager.getInstance(id) ??
+      undefined;
+    return String(inst?.status || "unknown").toLowerCase();
+  }
+
+  private isInstanceRuntimeConnected(instanceId: string): boolean {
+    const st = this.getInstanceRuntimeStatus(instanceId);
+    return st === "connected";
+  }
+
+  /**
+   * Verifica se a campanha tem ao menos uma instância apta a enviar.
+   * Preferência: pool de rotação (só as live) → instance_id fixo → qualquer live da brand.
+   */
+  private resolveCampaignSendReady(campaign: Campaign, userId: string): {
+    ok: boolean;
+    instanceId?: string;
+    reason?: string;
+  } {
+    const poolIds = campaign.use_instance_rotation ? this.resolveCampaignPoolIds(campaign) : [];
+    let candidates = poolIds.length > 0
+      ? poolIds
+      : [String(campaign.instance_id || "").trim()].filter(Boolean);
+
+    // Rodízio: se pool vazio/fantasma ou todas offline, usa seções live da brand (como a UI promete)
+    if (campaign.use_instance_rotation) {
+      const live = this.listRuntimeConnectedInstanceIds(userId, (campaign as any).brand_id);
+      if (live.length) {
+        const liveSet = new Set(live);
+        const poolLive = candidates.filter((id) => liveSet.has(id));
+        candidates = poolLive.length > 0 ? poolLive : live;
+      }
+    }
+
+    if (candidates.length === 0) {
+      return {
+        ok: false,
+        reason: "Campanha sem instância WhatsApp configurada. Edite e selecione uma seção conectada.",
+      };
+    }
+
+    for (const id of candidates) {
+      if (this.isInstanceRuntimeConnected(id)) {
+        return { ok: true, instanceId: id };
+      }
+    }
+
+    const short = candidates[0].slice(0, 8);
+    return {
+      ok: false,
+      reason:
+        candidates.length > 1
+          ? `Nenhuma das ${candidates.length} seções tem socket vivo no servidor. O celular pode mostrar "conectado" (aparelho ainda vinculado) mas o servidor perdeu a sessão — reconecte em WhatsApp e retome.`
+          : `Instância WhatsApp ${short}… sem socket vivo no servidor (desconexão fantasma). Reconecte em WhatsApp e retome a campanha.`,
+    };
+  }
+
+  private async persistCampaignPauseReason(
+    campaignId: string,
+    userId: string,
+    brandId: string | null,
+    reason: string,
+    code?: string,
+  ): Promise<void> {
+    const text = String(reason || "").trim().slice(0, 500);
+    if (!text) return;
+    try {
+      const row = await queryOne<{ settings: any }>(
+        `SELECT settings FROM campaign_history
+         WHERE id = ? AND user_id = ? AND ${brandId ? "brand_id = ?" : "brand_id IS NULL"}
+         LIMIT 1`,
+        brandId ? [campaignId, userId, brandId] : [campaignId, userId],
+      );
+      const settings = parseJsonSafe(row?.settings);
+      const next = {
+        ...settings,
+        pauseReason: text,
+        pauseCode: code || settings.pauseCode || "auto_pause",
+        pausedAt: new Date().toISOString(),
+      };
+      await update(
+        `UPDATE campaign_history SET settings = ?, updated_at = NOW()
+         WHERE id = ? AND user_id = ? AND ${brandId ? "brand_id = ?" : "brand_id IS NULL"}`,
+        brandId
+          ? [JSON.stringify(next), campaignId, userId, brandId]
+          : [JSON.stringify(next), campaignId, userId],
+      );
+    } catch (err: any) {
+      logger.warn(`[Campaign ${campaignId}] Failed to persist pause reason: ${err?.message || err}`);
+    }
+  }
+
+  private async clearCampaignPauseReason(
+    campaignId: string,
+    userId: string,
+    brandId: string | null,
+  ): Promise<void> {
+    try {
+      const row = await queryOne<{ settings: any }>(
+        `SELECT settings FROM campaign_history
+         WHERE id = ? AND user_id = ? AND ${brandId ? "brand_id = ?" : "brand_id IS NULL"}
+         LIMIT 1`,
+        brandId ? [campaignId, userId, brandId] : [campaignId, userId],
+      );
+      const settings = parseJsonSafe(row?.settings);
+      if (!settings.pauseReason && !settings.pauseCode && !settings.pausedAt) return;
+      const next = { ...settings };
+      delete next.pauseReason;
+      delete next.pauseCode;
+      delete next.pausedAt;
+      await update(
+        `UPDATE campaign_history SET settings = ?, updated_at = NOW()
+         WHERE id = ? AND user_id = ? AND ${brandId ? "brand_id = ?" : "brand_id IS NULL"}`,
+        brandId
+          ? [JSON.stringify(next), campaignId, userId, brandId]
+          : [JSON.stringify(next), campaignId, userId],
+      );
+    } catch {
+      /* non-fatal */
     }
   }
 
@@ -1749,11 +1908,27 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
         return { ok: true, message: "Campanha ja esta em execucao" };
       }
 
+      const readyWhileRunning = this.resolveCampaignSendReady(campaign, userId);
+      if (!readyWhileRunning.ok) {
+        await this.pauseCampaign(
+          userId,
+          campaignId,
+          normalizedBrandId,
+          readyWhileRunning.reason || "WhatsApp desconectado.",
+          "instance_not_connected",
+        );
+        return {
+          ok: false,
+          message: readyWhileRunning.reason || "WhatsApp desconectado. Reconecte e tente novamente.",
+        };
+      }
+
       const queueCount = await this.ensureCampaignQueueReady(userId, campaign, normalizedBrandId);
       if (queueCount <= 0) {
         return { ok: false, message: "Campanha sem fila elegivel para disparo (pending/ready = 0)" };
       }
 
+      await this.clearCampaignPauseReason(campaignId, userId, normalizedBrandId);
       this.activeCampaigns.set(campaignId, true);
       this.executeCampaign(userId, campaignId, normalizedBrandId).catch((err) => {
         logger.error(`Campaign ${campaignId} resume failed: ${err.message}`);
@@ -1768,35 +1943,33 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
 
     let startMessageSuffix = "";
 
-    if (campaign.use_instance_rotation && this.rotationEngine) {
-      // Validate the pool — at least one allowed instance must be connected
-      const poolIds = this.resolveCampaignPoolIds(campaign);
-      const connectedInPool = poolIds.length > 0
-        ? poolIds.filter(id => {
-            const i = this.instanceManager.getInstance(id, userId) ?? this.instanceManager.getInstance(id);
-            return i?.status === "connected";
-          })
-        : [];
-
-      if (poolIds.length > 0 && connectedInPool.length === 0) {
-        return { ok: false, message: "Nenhuma instancia do pool da campanha esta conectada. Verifique o WhatsApp Manager." };
-      }
-
-      // If pool is empty, fall back to any connected instance
-      if (poolIds.length === 0) {
-        const selected = await this.rotationEngine.selectInstance(userId, { preferredInstanceId: campaign.instance_id });
-        if (!selected) {
-          return { ok: false, message: "Nenhuma instancia conectada disponivel para rotacao" };
+    const ready = this.resolveCampaignSendReady(campaign, userId);
+    if (!ready.ok) {
+      if (campaign.use_instance_rotation && this.rotationEngine) {
+        const poolIds = this.resolveCampaignPoolIds(campaign);
+        if (poolIds.length === 0) {
+          const selected = await this.rotationEngine.selectInstance(userId, {
+            preferredInstanceId: campaign.instance_id,
+          });
+          if (!selected) {
+            return {
+              ok: false,
+              message: ready.reason || "Nenhuma instancia conectada disponivel para rotacao",
+            };
+          }
+        } else {
+          return {
+            ok: false,
+            message: ready.reason || "Nenhuma instancia do pool da campanha esta conectada. Verifique o WhatsApp Manager.",
+          };
         }
-      }
-      // IMPORTANT: do NOT mutate campaign.instance_id — preserve user's original preference.
-      // Rotation selects per-message, not per-campaign.
-    } else {
-      // Verify fixed instance — skip ownership filter (instances may be shared across users)
-      const instance = this.instanceManager.getInstance(campaign.instance_id, userId)
-        ?? this.instanceManager.getInstance(campaign.instance_id);
-      if (!instance || instance.status !== "connected") {
-        return { ok: false, message: `Instancia WhatsApp ${campaign.instance_id?.slice(0, 8) || '?'} nao esta conectada. Reconecte em WhatsApp Manager.` };
+      } else {
+        return {
+          ok: false,
+          message:
+            ready.reason ||
+            `Instancia WhatsApp ${campaign.instance_id?.slice(0, 8) || "?"} nao esta conectada. Reconecte em WhatsApp Manager.`,
+        };
       }
     }
 
@@ -1809,6 +1982,7 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
       `UPDATE campaign_history SET status = 'running', started_at = NOW() WHERE id = ? AND user_id = ? AND ${normalizedBrandId ? "brand_id = ?" : "brand_id IS NULL"}`,
       normalizedBrandId ? [campaignId, userId, normalizedBrandId] : [campaignId, userId]
     );
+    await this.clearCampaignPauseReason(campaignId, userId, normalizedBrandId);
 
     this.activeCampaigns.set(campaignId, true);
 
@@ -1820,16 +1994,31 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
     return { ok: true, message: `Campanha iniciada com ${queueCount} leads na fila${startMessageSuffix}` };
   }
 
-  async pauseCampaign(userId: string, campaignId: string, brandId?: string | null): Promise<{ ok: boolean; message: string }> {
+  async pauseCampaign(
+    userId: string,
+    campaignId: string,
+    brandId?: string | null,
+    reason?: string | null,
+    code?: string,
+  ): Promise<{ ok: boolean; message: string }> {
     this.activeCampaigns.set(campaignId, false);
     const normalizedBrandId = String(brandId || "").trim() || null;
 
     await update(
-      `UPDATE campaign_history SET status = 'paused' WHERE id = ? AND user_id = ? AND ${normalizedBrandId ? "brand_id = ?" : "brand_id IS NULL"} AND status = 'running'`,
+      `UPDATE campaign_history SET status = 'paused' WHERE id = ? AND user_id = ? AND ${normalizedBrandId ? "brand_id = ?" : "brand_id IS NULL"} AND status IN ('running', 'scheduled')`,
       normalizedBrandId ? [campaignId, userId, normalizedBrandId] : [campaignId, userId]
     );
 
-    return { ok: true, message: "Campanha pausada" };
+    const pauseText = String(reason || "Pausa manual").trim();
+    await this.persistCampaignPauseReason(
+      campaignId,
+      userId,
+      normalizedBrandId,
+      pauseText,
+      code || (reason ? "auto_pause" : "manual"),
+    );
+
+    return { ok: true, message: reason ? `Campanha pausada: ${pauseText}` : "Campanha pausada" };
   }
 
   async cancelCampaign(userId: string, campaignId: string, brandId?: string | null): Promise<{ ok: boolean; message: string }> {
@@ -1995,6 +2184,13 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
     blockCount: number;
     sameAsInstancePhone?: boolean;
     warning?: string;
+    blockResults?: Array<{
+      index: number;
+      actionType: string;
+      ok: boolean;
+      mode?: string;
+      error?: string;
+    }>;
   }> {
     const instanceId = String(input.instanceId || "").trim();
     const sentTo = normalizePhone(input.testPhone);
@@ -2042,12 +2238,25 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
     const primary =
       blocks.find((block) => String(block.content || "").trim())?.content ||
       "Escolha uma opção:";
+
+    // Test default: auto (native + text fallback). native_only only if block asks for it.
+    const normalizedBlocks = blocks.map((block) => {
+      const t = String(block.actionType || "").toLowerCase();
+      if (!["buttons", "button", "list"].includes(t)) return block;
+      const cfg = { ...(block.config || {}) };
+      if (!cfg.deliveryMode) cfg.deliveryMode = "auto";
+      if (cfg.deliveryMode === "native_only" && cfg.interactiveStrategy !== "native_only") {
+        // keep explicit native_only from UI debug toggle
+      }
+      return { ...block, config: cfg };
+    });
+
     const result = await this.sendCampaignActionBlocks({
       instanceId,
       jid,
       phone: sentTo,
       messageText: this.fillTemplate(String(primary), testLead, { brandName: "Marca ativa" }),
-      blocks,
+      blocks: normalizedBlocks,
       media: {
         imagePath: null,
         imageCaption: "",
@@ -2065,18 +2274,32 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
       lead: testLead,
       templateOpts: { brandName: "Marca ativa", products: [] },
     });
-    if (!result.ok) throw new Error(result.error || "Failed to send composition test");
+    if (!result.ok) {
+      const detail = (result.blockResults || [])
+        .filter((b) => !b.ok)
+        .map((b) => `${b.actionType}:${b.mode || "fail"}:${b.error || "?"}`)
+        .join("; ");
+      throw new Error(result.error || detail || "Failed to send composition test");
+    }
+
+    const modes = (result.blockResults || [])
+      .map((b) => b.mode)
+      .filter(Boolean)
+      .join(", ");
 
     return {
-      message: "Composição de teste enviada",
+      message: modes
+        ? `Composição de teste enviada (${modes})`
+        : "Composição de teste enviada",
       sentTo,
       instanceId,
       blockCount: blocks.length,
+      blockResults: result.blockResults || [],
       sameAsInstancePhone,
       ...(sameAsInstancePhone
         ? {
             warning:
-              "Destino é o mesmo número da seção WhatsApp. Botões de resposta (quick reply) ficam cinza/desativados no próprio chat — teste em outro número para clicar.",
+              "Destino é o mesmo número da seção WhatsApp. Botões de resposta (quick reply) ficam cinza/desativados no próprio chat — teste em outro número para clicar. Se o modo for text_fallback, as opções chegaram como 1) 2) 3).",
           }
         : {}),
     };
@@ -2130,6 +2353,7 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
     let sentThisRun = 0;
     let failedConsecutive = 0;
     const maxConsecutiveFails = 5;
+    let instanceRecoverAttempted = false;
 
     for (let i = 0; i < pendingLeads.length; i++) {
       const lead = pendingLeads[i];
@@ -2173,7 +2397,13 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
       // Auto-pause on high block rate
       if (sentThisRun > 10 && failedConsecutive >= maxConsecutiveFails) {
         logger.warn(`[Campaign ${campaignId}] Auto-paused: ${failedConsecutive} consecutive failures`);
-        await this.pauseCampaign(userId, campaignId, normalizedBrandId);
+        await this.pauseCampaign(
+          userId,
+          campaignId,
+          normalizedBrandId,
+          `${failedConsecutive} falhas consecutivas de envio. Verifique a seção WhatsApp e a qualidade dos números.`,
+          "consecutive_failures",
+        );
         break;
       }
 
@@ -2250,8 +2480,53 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
           logger.warn(`[Campaign ${campaignId}] Validation failed for ${phone}: ${err.message}`);
 
           if (isTransientInstanceConnectionError(err)) {
-            logger.warn(
-              `[Campaign ${campaignId}] Instance unavailable during validation; keeping queue pending for retry`
+            // Tenta uma reconexão rápida (uma vez por run) antes de pausar
+            let recovered = false;
+            if (!instanceRecoverAttempted) {
+              instanceRecoverAttempted = true;
+              try {
+                const im = this.instanceManager as any;
+                const tryIds = (
+                  campaign.use_instance_rotation
+                    ? this.resolveCampaignPoolIds(campaign)
+                    : [campaign.instance_id]
+                )
+                  .map((id) => String(id || "").trim())
+                  .filter(Boolean)
+                  .slice(0, 3);
+                for (const tryId of tryIds) {
+                  if (typeof im.ensureStableConnection === "function") {
+                    const result = await im.ensureStableConnection(tryId);
+                    if (result === "connected" || this.isInstanceRuntimeConnected(tryId)) {
+                      recovered = true;
+                      logger.info(
+                        `[Campaign ${campaignId}] Instance ${tryId} recovered via ensureStable; retrying lead`
+                      );
+                      break;
+                    }
+                  }
+                }
+              } catch {
+                /* ignore reconnect attempt errors */
+              }
+            }
+
+            if (recovered) {
+              i -= 1;
+              continue;
+            }
+
+            const remaining = Math.max(0, pendingLeads.length - i);
+            const pauseMsg =
+              `WhatsApp da campanha desconectado durante validação (${String(err.message || "Instance not connected")}). ` +
+              `Reconecte a seção em WhatsApp e clique em Retomar. A fila de ${remaining} lead(s) permanece intacta.`;
+            logger.warn(`[Campaign ${campaignId}] Auto-pausing: ${pauseMsg}`);
+            await this.pauseCampaign(
+              userId,
+              campaignId,
+              normalizedBrandId,
+              pauseMsg,
+              "instance_not_connected",
             );
             break;
           }
@@ -3130,6 +3405,13 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
         const blocks = Array.isArray(settings?.composer?.actionBlocks) ? settings.composer.actionBlocks : [];
         let matchedBlock: any = null;
         let matchedOption: any = null;
+        const {
+          resolveOptionFromFreeReply,
+          matchIntentAction,
+          defaultIntentActionsFromFlow,
+        } = await import("./whatsappInteractivePolicy");
+
+        // 1) Match native button / list id or label
         for (const block of blocks) {
           const items = Array.isArray(block?.config?.optionItems) ? block.config.optionItems : [];
           const match = items.find((item: any) => {
@@ -3147,9 +3429,76 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
           }
         }
 
+        // 2) Numbered choice / free-text label match against all optionItems (cold text path)
+        if (!matchedOption) {
+          for (const block of blocks) {
+            const items = Array.isArray(block?.config?.optionItems) ? block.config.optionItems : [];
+            if (!items.length) continue;
+            const free = resolveOptionFromFreeReply(messageText, items);
+            if (free) {
+              matchedBlock = block;
+              matchedOption = free;
+              break;
+            }
+          }
+        }
+
+        // 3) AI / rules intent when no option matched — map to intentActions or default flow
+        let intentRouted: { intent: string; flowId?: string; optionId?: string; action?: string } | null = null;
+        if (!matchedOption) {
+          try {
+            const { ResponseIntelligenceService } = await import("./responseIntelligence");
+            const ri = new ResponseIntelligenceService();
+            const classif = await ri.classifyWithAI(messageText, undefined, {
+              userId,
+              brandId: campaignRow?.brand_id || brandId || undefined,
+            } as any);
+            const configuredActions = Array.isArray(settings?.intentActions)
+              ? settings.intentActions
+              : Array.isArray(settings?.composer?.intentActions)
+                ? settings.composer.intentActions
+                : defaultIntentActionsFromFlow(
+                    String(
+                      settings.replyStartFlowId ||
+                        settings.reply_start_flow_id ||
+                        settings.followUpFlowId ||
+                        "",
+                    ),
+                  );
+            const hit = matchIntentAction(classif, configuredActions, 0.55);
+            if (hit) {
+              intentRouted = {
+                intent: String(hit.intent),
+                flowId: hit.flowId ? String(hit.flowId) : undefined,
+                optionId: hit.optionId ? String(hit.optionId) : undefined,
+                action: hit.action ? String(hit.action) : undefined,
+              };
+              // Resolve optionId across blocks if configured
+              if (intentRouted.optionId && !matchedOption) {
+                for (const block of blocks) {
+                  const items = Array.isArray(block?.config?.optionItems) ? block.config.optionItems : [];
+                  const opt = items.find(
+                    (it: any) => String(it?.id || "").toLowerCase() === intentRouted!.optionId!.toLowerCase(),
+                  );
+                  if (opt) {
+                    matchedBlock = block;
+                    matchedOption = opt;
+                    break;
+                  }
+                }
+              }
+              logger.info(
+                `${ctx} intent-route intent=${classif.intent} conf=${classif.confidence} hit=${intentRouted.intent}`,
+              );
+            }
+          } catch (err: any) {
+            logger.warn(`${ctx} intent-route skip: ${err?.message || err}`);
+          }
+        }
+
         const campaignId = String(campaignLead.campaign_id);
         const blockId = String(matchedBlock?.id || "");
-        const optionId = String(matchedOption?.id || "");
+        const optionId = String(matchedOption?.id || intentRouted?.optionId || "");
         const choiceKey = blockId && optionId ? `${campaignId}:${blockId}:${optionId}` : "";
         const campaignPayload = {
           id: campaignId,
@@ -3159,12 +3508,19 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
           blockType: String(matchedBlock?.actionType || "") || null,
         };
         const replyPayload = {
-          kind: parsedReply.kind,
+          kind: matchedOption
+            ? parsedReply.kind === "text" || parsedReply.kind === "number_choice"
+              ? "number_choice"
+              : parsedReply.kind
+            : intentRouted
+              ? "ai_intent"
+              : parsedReply.kind,
           raw: messageText,
           optionId: optionId || parsedReply.id || null,
           optionLabel: String(matchedOption?.label || parsedReply.label || messageText),
           choiceKey: choiceKey || null,
           classification,
+          intent: intentRouted?.intent || classification || null,
         };
 
         const { FlowExecutorService } = await import("./flowExecutor");
@@ -3188,13 +3544,28 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
 
         const flowId = String(
           matchedOption?.flowId ||
-          settings.replyStartFlowId ||
+            intentRouted?.flowId ||
+            settings.replyStartFlowId ||
             settings.reply_start_flow_id ||
             settings.followUpFlowId ||
             ""
         ).trim();
         const onlyInterested = Boolean(settings.replyStartFlowOnlyInterested);
-        const shouldStart = flowId && !wasAlreadyReplied && (!onlyInterested || classification === "interested");
+        const intentBlocksStart =
+          intentRouted &&
+          (intentRouted.action === "opt_out" ||
+            intentRouted.action === "tag_only" ||
+            intentRouted.intent === "opt_out" ||
+            intentRouted.intent === "negative");
+        const shouldStart =
+          Boolean(flowId) &&
+          !wasAlreadyReplied &&
+          !intentBlocksStart &&
+          (!onlyInterested ||
+            classification === "interested" ||
+            Boolean(matchedOption) ||
+            intentRouted?.intent === "interested" ||
+            intentRouted?.intent === "price");
         if (shouldStart) {
           const start = await FlowExecutorService.get().startFlowById({
             flowId,
@@ -3494,7 +3865,20 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
       productValues?: Record<string, string>;
       products?: Array<{ id: string; name: string; link: string; price: number; promoPrice?: number | null; description?: string }>;
     };
-  }): Promise<{ ok: boolean; instanceId: string; error?: string }> {
+    /** Prefer numbered text for buttons (cold outreach) when true */
+    forceColdTextButtons?: boolean;
+  }): Promise<{
+    ok: boolean;
+    instanceId: string;
+    error?: string;
+    blockResults?: Array<{
+      index: number;
+      actionType: string;
+      ok: boolean;
+      mode?: string;
+      error?: string;
+    }>;
+  }> {
     const { instanceId, jid, phone, messageText, blocks, media, lead, templateOpts } = input;
     const productsById = new Map(
       (templateOpts.products || []).map((p) => [String(p.id), p] as const),
@@ -3503,6 +3887,13 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
     let lastError: string | undefined;
     let primaryTextConsumed = false;
     let mediaFromSettingsUsed = false;
+    const blockResults: Array<{
+      index: number;
+      actionType: string;
+      ok: boolean;
+      mode?: string;
+      error?: string;
+    }> = [];
 
     const sendText = async (text: string): Promise<boolean> => {
       const body = String(text || "").trim();
@@ -3641,12 +4032,13 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
       // Native WhatsApp buttons / list (with optional product binding)
       if ((actionType === "buttons" || actionType === "button") && jid) {
         const cfg = block.config || {};
-        let optionItems: Array<{ label: string; productId?: string; id?: string }> = [];
+        let optionItems: Array<{ label: string; productId?: string; id?: string; url?: string }> = [];
         if (Array.isArray(cfg.optionItems) && cfg.optionItems.length) {
           optionItems = cfg.optionItems.map((it: any, idx: number) => ({
             id: String(it.id || `btn_${idx + 1}`),
             label: String(it.label || it.title || "").trim(),
             productId: it.productId ? String(it.productId) : undefined,
+            url: it.url ? String(it.url) : undefined,
           }));
         } else {
           const lines = String(cfg.options || "")
@@ -3664,19 +4056,64 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
           (!primaryTextConsumed ? messageText : this.fillTemplate(String(block.content || ""), lead, templateOpts)) ||
           "Escolha uma opção:";
         primaryTextConsumed = true;
-        try {
-          const result = await this.instanceManager.sendButtonsByJid(instanceId, jid, {
-            body: String(body).trim().slice(0, 1024),
-            deliveryMode: cfg.deliveryMode === "native_only" ? "native_only" : "auto",
-            buttons: hydrated.slice(0, 3).map((b: any, idx: number) => ({
-              id: String(b.productId ? `PRODUCT_${b.productId}` : b.id || `btn_${idx + 1}`),
-              text: String(b.label || b.title || `Opção ${idx + 1}`).slice(0, 20),
-            })),
+
+        const {
+          normalizeInteractiveStrategy,
+          formatButtonsAsNumberedText,
+        } = await import("./whatsappInteractivePolicy");
+        const strategy = normalizeInteractiveStrategy(
+          input.forceColdTextButtons
+            ? "cold_text_then_ai"
+            : cfg.interactiveStrategy || cfg.deliveryStrategy || "",
+        );
+        const useColdText =
+          strategy === "cold_text_then_ai" ||
+          cfg.forceTextOptions === true ||
+          cfg.deliveryMode === "text_only";
+
+        if (useColdText) {
+          const numbered = formatButtonsAsNumberedText(String(body).trim(), hydrated);
+          const ok = await sendText(numbered);
+          blockResults.push({
+            index: i,
+            actionType,
+            ok,
+            mode: "cold_text_numbered",
+            error: ok ? undefined : lastError,
           });
-          if (result.ok) anySent = true;
-          else lastError = result.error || "buttons_failed";
-        } catch (err: any) {
-          lastError = `buttons: ${err.message}`;
+        } else {
+          try {
+            const deliveryMode =
+              strategy === "native_only" || cfg.deliveryMode === "native_only"
+                ? "native_only"
+                : "auto";
+            const result = await this.instanceManager.sendButtonsByJid(instanceId, jid, {
+              body: String(body).trim().slice(0, 1024),
+              deliveryMode,
+              buttons: hydrated.slice(0, 3).map((b: any, idx: number) => ({
+                id: String(b.productId ? `PRODUCT_${b.productId}` : b.id || `btn_${idx + 1}`),
+                text: String(b.label || b.title || `Opção ${idx + 1}`).slice(0, 20),
+              })),
+            });
+            if (result.ok) anySent = true;
+            else lastError = result.error || "buttons_failed";
+            blockResults.push({
+              index: i,
+              actionType,
+              ok: !!result.ok,
+              mode: result.mode || (result.ok ? "native" : "failed"),
+              error: result.ok ? undefined : result.error || lastError,
+            });
+          } catch (err: any) {
+            lastError = `buttons: ${err.message}`;
+            blockResults.push({
+              index: i,
+              actionType,
+              ok: false,
+              mode: "error",
+              error: lastError,
+            });
+          }
         }
         // Also append product links as text if any button has URL/product
         const linkLines = hydrated
@@ -3862,6 +4299,7 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
       ok: anySent,
       instanceId,
       error: anySent ? undefined : lastError || "Envio falhou",
+      blockResults,
     };
   }
 
@@ -4336,6 +4774,8 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
   // ─── Map helpers ───────────────────────────────────────────────
 
   private mapCampaign(row: any): Campaign {
+    const settings = parseJsonSafe(row.settings);
+    const pauseReason = String(settings?.pauseReason || "").trim() || null;
     return {
       id: String(row.id),
       user_id: String(row.user_id),
@@ -4349,7 +4789,7 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
       filter_json: parseJsonSafe(row.filter_json) as CampaignFilterCriteria,
       speed_json: { ...DEFAULT_SPEED, ...parseJsonSafe(row.speed_json) } as CampaignSpeedControl,
       campaign_mode: String(row.campaign_mode || "educational"),
-      settings: parseJsonSafe(row.settings),
+      settings,
       use_instance_rotation: Number(row.use_instance_rotation || 0) === 1,
       rotation_mode: (String(row.rotation_mode || "balanced") as RotationMode) || "balanced",
       target_count: Number(row.target_count || 0),
@@ -4363,6 +4803,7 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
       negative_count: Number(row.negative_count || 0),
       opted_out_count: Number(row.opted_out_count || 0),
       status: String(row.status || "draft") as CampaignStatus,
+      pause_reason: pauseReason,
       scheduled_at: row.scheduled_at ? new Date(row.scheduled_at).toISOString() : null,
       started_at: row.started_at ? new Date(row.started_at).toISOString() : null,
       completed_at: row.completed_at ? new Date(row.completed_at).toISOString() : null,
@@ -4460,6 +4901,23 @@ Gere APENAS a mensagem, sem explicacoes adicionais.`;
 
       const queueCount = await this.ensureCampaignQueueReady(userId, campaign, brandId);
       if (queueCount <= 0) continue;
+
+      // Não reabrir loop infinito se a seção WhatsApp está offline
+      const ready = this.resolveCampaignSendReady(campaign, userId);
+      if (!ready.ok) {
+        logger.warn(
+          `[Scheduler] Pausing running campaign ${campaignId}: ${ready.reason || "instance offline"}`
+        );
+        await this.pauseCampaign(
+          userId,
+          campaignId,
+          brandId,
+          ready.reason ||
+            "WhatsApp desconectado — campanha pausada para não ficar em loop. Reconecte e retome.",
+          "instance_not_connected",
+        );
+        continue;
+      }
 
       this.activeCampaigns.set(campaignId, true);
       this.executeCampaign(userId, campaignId, brandId).catch((err) => {

@@ -294,14 +294,27 @@ export class InstanceManager {
     }
   }
 
-  /** Socket WebSocket ainda aberto (não só referência residual no Map). */
+  /**
+   * Socket WebSocket ainda aberto (não só referência residual no Map).
+   * NÃO confiar só em sock.user — após 401/close o user pode ficar em memória
+   * e o painel/health marcam "connected" (fantasma) enquanto send falha com
+   * "Instance not connected".
+   */
   private isSocketAlive(sock: WASocket | undefined | null): boolean {
     if (!sock) return false;
     try {
       const ws = (sock as any).ws;
       if (ws?.isOpen === true) return true;
-      if (ws?.readyState === 1) return true;
-      if (sock.user) return true;
+      if (ws?.readyState === 1) return true; // OPEN
+      // readyState 2=CLOSING 3=CLOSED → morto mesmo com user residual
+      if (typeof ws?.readyState === "number" && ws.readyState !== 1) return false;
+      if (ws?.isClosed === true || ws?.isClosing === true) return false;
+      // Sem objeto ws legível: só aceita se user E socket não marcado como end
+      if (sock.user && (sock as any).end !== true && !(sock as any).ev?.['_closed']) {
+        /* Baileys às vezes expõe user antes do ws fechar de fato — exige
+           que não haja flag de logout/end explícita. Preferir false se ws sumiu. */
+        return Boolean(ws); // sem ws = fantasma
+      }
       return false;
     } catch {
       return false;

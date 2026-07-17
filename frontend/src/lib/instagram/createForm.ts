@@ -77,6 +77,15 @@ export function validateVideoMetadata(meta: VideoProbe, postType: PostType): str
   if (postType === 'VIDEO' && meta.duration > 60) {
     return 'Video no feed: prefira ate 60 segundos.'
   }
+  if (postType === 'STORIES') {
+    if (meta.duration > 60) return 'Story: video acima de 60 segundos.'
+    if (meta.duration > 0 && meta.duration < 1) return 'Story: video muito curto.'
+    if (meta.width && meta.height) {
+      const ratio = meta.width / meta.height
+      // Prefer vertical but don't hard-block landscape — IG crops stories
+      if (ratio > 1.2) return 'Story: prefira video vertical (9:16).'
+    }
+  }
   return null
 }
 
@@ -197,7 +206,12 @@ export function postToFormState(post: any): InstagramCreateFormState {
       ? [{
           id: 'main',
           url: post.media_url,
-          type: post.media_type === 'REELS' || post.media_type === 'VIDEO' ? 'video' : 'image',
+          type:
+            post.media_type === 'REELS' ||
+            post.media_type === 'VIDEO' ||
+            (post.media_type === 'STORIES' && /\.(mp4|mov|webm|m4v)(\?|#|$)/i.test(String(post.media_url || '')))
+              ? 'video'
+              : 'image',
         }]
       : []
 
@@ -277,6 +291,7 @@ export function validateVideoFile(file: File, postType: PostType): string | null
   if (!kind) return 'Envie MP4 ou MOV (H.264 + AAC).'
   if (file.size > VIDEO_MAX_BYTES) return 'Video acima de 100MB. Comprima antes de enviar.'
   if (postType === 'REELS' && file.size > 95 * 1024 * 1024) return 'Reels: prefira videos abaixo de 95MB.'
+  if (postType === 'STORIES' && file.size > 95 * 1024 * 1024) return 'Story: prefira videos abaixo de 95MB.'
   return null
 }
 

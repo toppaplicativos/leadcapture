@@ -130,7 +130,7 @@ export function InstagramCreateTab({
     { key: 'CAROUSEL_ALBUM', label: 'Carrossel', sub: '2-10 midias', icon: LayoutGrid },
     { key: 'REELS', label: 'Reels', sub: 'Video curto', icon: Film },
     { key: 'VIDEO', label: 'Video', sub: 'Video no feed', icon: Video },
-    { key: 'STORIES', label: 'Story', sub: '24h vertical', icon: Sparkles },
+    { key: 'STORIES', label: 'Story', sub: 'Foto ou vídeo 24h', icon: Sparkles },
   ]
 
   const minMedia = postType === 'CAROUSEL_ALBUM' ? 2 : 1
@@ -148,11 +148,12 @@ export function InstagramCreateTab({
       return
     }
     if (next === 'STORIES') {
-      const image = mediaItems.find((i) => i.type === 'image')
+      // Stories aceitam imagem ou vídeo (1 mídia)
+      const keep = mediaItems.find((i) => i.type === 'image' || i.type === 'video')
       setForm((prev) => ({
         ...prev,
         postType: next,
-        mediaItems: image ? [image] : [],
+        mediaItems: keep ? [keep] : [],
         caption: '',
       }))
       return
@@ -227,6 +228,14 @@ export function InstagramCreateTab({
       const video = mediaItems.find((i) => i.type === 'video')
       if (!video) {
         setScheduleError('Envie um video MP4 ou MOV para Reels/Video.')
+        return
+      }
+    }
+
+    if (postType === 'STORIES') {
+      const media = mediaItems[0]
+      if (!media || (media.type !== 'image' && media.type !== 'video')) {
+        setScheduleError('Envie uma imagem ou um video (MP4/MOV) para o Story.')
         return
       }
     }
@@ -331,7 +340,7 @@ export function InstagramCreateTab({
   }
 
   const ctaLabel = ctaLabelForForm(when, isEditing)
-  const videoTips = postType === 'REELS' || postType === 'VIDEO'
+  const videoTips = postType === 'REELS' || postType === 'VIDEO' || postType === 'STORIES'
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_20rem] gap-4 xl:gap-5">
@@ -535,12 +544,22 @@ export function InstagramCreateTab({
         {videoTips && (
           <div className="mt-3 p-3 bg-gray-50 rounded-lg">
             <p className="text-[10px] font-semibold text-gray-400 uppercase mb-1 flex items-center gap-1">
-              <Film size={10} /> Dicas — {postType === 'REELS' ? 'Reels' : 'Vídeo'}
+              <Film size={10} /> Dicas —{' '}
+              {postType === 'REELS' ? 'Reels' : postType === 'STORIES' ? 'Story' : 'Vídeo'}
             </p>
             <ul className="text-[10px] text-gray-500 space-y-0.5">
               <li>Formato: MP4 ou MOV (H.264 + AAC)</li>
-              <li>Reels: 9:16, até 90 segundos</li>
-              <li>Vídeo no feed: até 60 segundos, máximo de 100MB</li>
+              {postType === 'STORIES' ? (
+                <>
+                  <li>Story: imagem ou vídeo vertical 9:16</li>
+                  <li>Vídeo de story: até 60 segundos, máximo ~95MB</li>
+                </>
+              ) : (
+                <>
+                  <li>Reels: 9:16, até 90 segundos</li>
+                  <li>Vídeo no feed: até 60 segundos, máximo de 100MB</li>
+                </>
+              )}
               <li>A URL pública deve estar acessível para o Instagram</li>
             </ul>
           </div>

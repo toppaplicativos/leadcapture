@@ -13,7 +13,12 @@ import {
 import { MediaPickerModal } from '@/components/gallery/MediaPickerModal'
 import { uploadGalleryFile, uploadGalleryFiles } from '@/lib/gallery/api'
 import type { GalleryItem } from '@/lib/gallery/types'
-import { detectFileKind, IMAGE_ONLY_ACCEPT, VIDEO_ONLY_ACCEPT } from '@/lib/media/detectFileKind'
+import {
+  detectFileKind,
+  IMAGE_ONLY_ACCEPT,
+  IMAGE_UPLOAD_ACCEPT,
+  VIDEO_ONLY_ACCEPT,
+} from '@/lib/media/detectFileKind'
 import {
   probeVideoFile,
   validateVideoFile,
@@ -45,8 +50,22 @@ function galleryToPostItem(item: GalleryItem): PostMediaItem {
   }
 }
 
-function acceptForPostType(postType: PostType): 'image' | 'video' {
-  return postType === 'REELS' || postType === 'VIDEO' ? 'video' : 'image'
+function acceptForPostType(postType: PostType): 'image' | 'video' | 'both' {
+  if (postType === 'REELS' || postType === 'VIDEO') return 'video'
+  if (postType === 'STORIES') return 'both'
+  return 'image'
+}
+
+function fileAcceptAttr(accept: 'image' | 'video' | 'both'): string {
+  if (accept === 'video') return VIDEO_ONLY_ACCEPT
+  if (accept === 'both') return IMAGE_UPLOAD_ACCEPT
+  return IMAGE_ONLY_ACCEPT
+}
+
+function galleryAcceptList(accept: 'image' | 'video' | 'both'): Array<'image' | 'video'> {
+  if (accept === 'video') return ['video']
+  if (accept === 'both') return ['image', 'video']
+  return ['image']
 }
 
 function maxItemsForPostType(postType: PostType): number {
@@ -93,24 +112,34 @@ export function InstagramCreateMediaPanel({ postType, items, onChange }: Props) 
 
       const wrongType = list.find((f) => {
         const kind = detectFileKind(f)
-        return accept === 'video' ? kind !== 'video' : kind !== 'image'
+        if (accept === 'video') return kind !== 'video'
+        if (accept === 'both') return kind !== 'image' && kind !== 'video'
+        return kind !== 'image'
       })
       if (wrongType) {
         setError(
           accept === 'video'
             ? 'Selecione um video (MP4, MOV).'
-            : 'Selecione imagens (JPG, PNG, WEBP ou HEIC).',
+            : accept === 'both'
+              ? 'Selecione imagem (JPG, PNG, WEBP) ou video (MP4, MOV).'
+              : 'Selecione imagens (JPG, PNG, WEBP ou HEIC).',
         )
         return
       }
 
-      if (accept === 'video') {
-        const videoErr = list.map((f) => validateVideoFile(f, postType as FormPostType)).find(Boolean)
+      const videos = list.filter((f) => detectFileKind(f) === 'video')
+      if (videos.length) {
+        // Stories allow one media only; reject mixed multi-file uploads for safety
+        if (accept === 'both' && list.length > 1) {
+          setError('Story aceita apenas 1 midia por vez (imagem ou video).')
+          return
+        }
+        const videoErr = videos.map((f) => validateVideoFile(f, postType as FormPostType)).find(Boolean)
         if (videoErr) {
           setError(videoErr)
           return
         }
-        for (const f of list) {
+        for (const f of videos) {
           try {
             const meta = await probeVideoFile(f)
             const metaErr = validateVideoMetadata(meta, postType as FormPostType)
@@ -147,7 +176,7 @@ export function InstagramCreateMediaPanel({ postType, items, onChange }: Props) 
         if (fileInputRef.current) fileInputRef.current.value = ''
       }
     },
-    [accept, items.length, isCarousel, maxItems, mergeItems],
+    [accept, items.length, isCarousel, maxItems, mergeItems, postType],
   )
 
   function removeAt(index: number) {
@@ -173,7 +202,9 @@ export function InstagramCreateMediaPanel({ postType, items, onChange }: Props) 
       ? `${items.length}/10 — mínimo de 2 imagens; a ordem importa`
       : postType === 'REELS' || postType === 'VIDEO'
         ? '1 vídeo (MP4, MOV)'
-        : '1 imagem (JPG, PNG, WEBP)'
+        : postType === 'STORIES'
+          ? '1 imagem ou vídeo (MP4/MOV, até 60s)'
+          : '1 imagem (JPG, PNG, WEBP)'
 
   return (
     <div className="bg-white border border-gray-100 rounded-xl p-4">
@@ -197,7 +228,7 @@ export function InstagramCreateMediaPanel({ postType, items, onChange }: Props) 
         ref={fileInputRef}
         type="file"
         className="hidden"
-        accept={accept === 'video' ? VIDEO_ONLY_ACCEPT : IMAGE_ONLY_ACCEPT}
+        accept={fileAcceptAttr(accept)}
         multiple={isCarousel}
         onChange={(e) => e.target.files && handleFiles(e.target.files)}
       />
@@ -313,7 +344,7 @@ export function InstagramCreateMediaPanel({ postType, items, onChange }: Props) 
         >
           {uploading ? (
             <Loader2 size={24} className="mx-auto text-purple-400 mb-2 animate-spin" />
-          ) : accept === 'video' ? (
+          ) : accept === 'video' || accept === 'both' ? (
             <Video size={24} className="mx-auto text-gray-300 mb-2" />
           ) : (
             <Upload size={24} className="mx-auto text-gray-300 mb-2" />
@@ -322,7 +353,13 @@ export function InstagramCreateMediaPanel({ postType, items, onChange }: Props) 
             {uploading ? 'Enviando para a galeria...' : 'Clique ou arraste arquivos aqui'}
           </p>
           <p className="text-[10px] text-gray-400 mt-1">
-            {isCarousel ? 'JPG, PNG, WEBP — ate 10 imagens' : accept === 'video' ? 'MP4, MOV' : 'JPG, PNG, WEBP'}
+            {isCarousel
+              ? 'JPG, PNG, WEBP — ate 10 imagens'
+              : accept === 'video'
+                ? 'MP4, MOV'
+                : accept === 'both'
+                  ? 'JPG, PNG, WEBP ou MP4, MOV'
+                  : 'JPG, PNG, WEBP'}
           </p>
           <button
             type="button"
@@ -342,14 +379,16 @@ export function InstagramCreateMediaPanel({ postType, items, onChange }: Props) 
       <MediaPickerModal
         open={galleryOpen}
         onClose={() => setGalleryOpen(false)}
-        accept={[accept]}
+        accept={galleryAcceptList(accept)}
         preferSection="publicidade"
         title={
           isCarousel
             ? 'Imagens da Publicidade · carrossel'
             : accept === 'video'
               ? 'Vídeo da Publicidade · post'
-              : 'Mídia da Publicidade · post'
+              : accept === 'both'
+                ? 'Mídia da Publicidade · story (imagem ou vídeo)'
+                : 'Mídia da Publicidade · post'
         }
         useContext="post"
         multiple={isCarousel}

@@ -517,7 +517,15 @@ function normalizeMediaItemsInput(
   }
   const url = String(fallbackUrl || "").trim();
   if (!url) return [];
-  const type = mediaType === "REELS" || mediaType === "VIDEO" ? "video" : "image";
+  const looksLikeVideo = /\.(mp4|mov|webm|m4v|mkv)(\?|#|$)/i.test(url);
+  const type =
+    mediaType === "REELS" || mediaType === "VIDEO"
+      ? "video"
+      : mediaType === "STORIES" && looksLikeVideo
+        ? "video"
+        : looksLikeVideo && mediaType !== "IMAGE" && mediaType !== "CAROUSEL_ALBUM"
+          ? "video"
+          : "image";
   return [{ url, type, order: 0 }];
 }
 
@@ -2178,11 +2186,19 @@ class InstagramService {
           return this.failPublish(postId, ready.error || "Video ainda em processamento ou com erro");
         }
       } else if (post.media_type === "STORIES") {
-        const imageUrl = resolveInstagramImageUrl(mediaItems[0].url);
+        const storyItem = mediaItems[0];
+        const isVideoStory =
+          storyItem.type === "video" || /\.(mp4|mov|webm|m4v|mkv)(\?|#|$)/i.test(storyItem.url);
         const storyPayload: Record<string, unknown> = {
           media_type: "STORIES",
-          image_url: imageUrl,
         };
+        if (isVideoStory) {
+          storyPayload.video_url = resolveInstagramVideoUrl(storyItem.url);
+          logger.info(`[Instagram] Publishing video story postId=${postId} url=${storyPayload.video_url}`);
+        } else {
+          storyPayload.image_url = resolveInstagramImageUrl(storyItem.url);
+          logger.info(`[Instagram] Publishing image story postId=${postId} url=${storyPayload.image_url}`);
+        }
         applyPublishMetaToContainer(storyPayload, post.publish_meta, {
           allowLocation: false,
           allowAlt: false,
@@ -2192,7 +2208,8 @@ class InstagramService {
         if (!containerId) {
           return this.failPublish(postId, created.error || "Falha ao criar Story");
         }
-        const ready = await waitForMediaContainer(conn.access_token, containerId, 15);
+        // Video stories need longer processing than photos
+        const ready = await waitForMediaContainer(conn.access_token, containerId, isVideoStory ? 30 : 15);
         if (!ready.ok) {
           return this.failPublish(postId, ready.error || "Story ainda em processamento");
         }

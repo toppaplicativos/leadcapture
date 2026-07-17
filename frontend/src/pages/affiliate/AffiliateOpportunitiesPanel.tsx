@@ -378,9 +378,9 @@ export function AffiliateOpportunitiesPanel({ ctx }: { ctx: AppContext }) {
           <WhatsAppSendModal
             leads={leads}
             initialIndex={initialIndex}
-            initialBrandName={String(ctx.brand?.name || ctx.program?.brand_name || '')}
+            initialBrandName={String(ctx.brand?.name || selected.brand_name || '')}
             initialProductName={String(selected.product_name || ctx.program?.share_title || '')}
-            initialValueProposition={ctx.program?.share_description || ctx.brand?.slogan || ''}
+            initialValueProposition={String(ctx.program?.share_description || ctx.brand?.slogan || '')}
             onClose={() => setSelected(null)}
             onAiPersonalize={async ({ lead, currentMessage, templateId }) => {
               const [refType, refId] = String(lead.id || '').split(':')

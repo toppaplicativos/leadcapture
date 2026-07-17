@@ -69,6 +69,9 @@ export interface ConversationMemory {
   last_emotional_state: EmotionalState;
   frustration_score: number;           /* 0-10, acumula com sinais de frustração */
   bot_interaction_score: number;       /* 0-10, conta turns em que detectamos automação anterior */
+  /** Epoch ms — while active, BotLoopGuard blocks auto-replies for this conversation */
+  bot_lock_until_ms?: number | null;
+  bot_lock_reason?: string | null;
   turn_count: number;
   updated_at: string;
 }
@@ -84,6 +87,8 @@ export const EMPTY_MEMORY = (conversationId: string): ConversationMemory => ({
   last_emotional_state: "neutral",
   frustration_score: 0,
   bot_interaction_score: 0,
+  bot_lock_until_ms: null,
+  bot_lock_reason: null,
   turn_count: 0,
   updated_at: new Date().toISOString(),
 });

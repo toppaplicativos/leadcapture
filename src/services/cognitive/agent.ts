@@ -238,6 +238,56 @@ export class CognitiveAgent {
       );
     }
 
+    /* Hard gate: peer-bot signals must BLOCK send (not just "be more human") */
+    const memBotScore = Number(memory?.bot_interaction_score || 0);
+    const lockActive =
+      Number(memory?.bot_lock_until_ms || 0) > Date.now();
+    const peerBotHard =
+      lockActive ||
+      (trace.bot_interaction_detected &&
+        (memBotScore >= 1 || (trace.bot_signals?.length || 0) >= 2 || Number(trace.confidence || 0) >= 0.7)) ||
+      memBotScore >= 3;
+    if (peerBotHard) {
+      const reason = lockActive
+        ? "bot_lock_active"
+        : trace.bot_interaction_detected
+          ? "peer_bot_reasoner"
+          : "bot_score_threshold";
+      if (conversationId) {
+        void conversationMemoryService
+          .applyBotLock(conversationId, {
+            untilMs: Date.now() + 30 * 60 * 1000,
+            reason,
+            signals: trace.bot_signals || [],
+            bumpScore: true,
+          })
+          .catch(() => undefined);
+      }
+      this.persistMemoryAsync(conversationId, memory, {
+        ...trace,
+        bot_interaction_detected: true,
+        should_escalate: true,
+        escalation_reason: reason,
+      }, attendanceSlots);
+      logger.info(
+        `[CognitiveAgent] BLOCK peer-bot conv=${conversationId.slice(0, 12) || "-"} reason=${reason} score=${memBotScore}`,
+      );
+      return {
+        text: "",
+        reasoning: { ...trace, should_escalate: true, escalation_reason: reason },
+        memory,
+        shouldEscalate: true,
+        escalationReason: reason,
+        knowledgeApplied: Boolean(knowledgeBlock),
+        catalogApplied: Boolean(catalogBlock),
+        latencyMs: {
+          reasoner: reasonerMs,
+          composer: 0,
+          total: Date.now() - t0,
+        },
+      };
+    }
+
     /* Early escalation if reasoner flagged it */
     if (trace.should_escalate) {
       this.persistMemoryAsync(conversationId, memory, trace, attendanceSlots);

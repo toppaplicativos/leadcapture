@@ -173,6 +173,35 @@ async function executeAction(
         return { ok: false, message: "recipient/sender_id ausente para DM IG", outcome: "error" };
       }
 
+      // BotLoopGuard — block peer-bot before compose/send (defense in depth)
+      if (inboundText && opts.sendReal !== false) {
+        try {
+          const { evaluateAndMaybeLockIg } = await import("./botLoopGuard");
+          const decision = await evaluateAndMaybeLockIg({
+            brandId: automation.brand_id,
+            senderId: recipientId,
+            inboundText,
+          });
+          if (decision.block) {
+            return {
+              ok: false,
+              message: `Bot loop bloqueado: ${decision.reason}`,
+              data: {
+                action: step.tipo,
+                sender_id: recipientId,
+                bot_loop: true,
+                reason: decision.reason,
+                risk: decision.risk,
+                signals: decision.signals,
+              },
+              outcome: "bot_loop_blocked",
+            };
+          }
+        } catch (err: any) {
+          logger.warn(`[automation] botLoopGuard enviar_dm_ig: ${err?.message || err}`);
+        }
+      }
+
       // Interactive pipeline (buttons / CTA / link) → Meta quick_replies or button template
       if (hasInteractive && steps.length) {
         const pipelineFn = ctx.sendDmPipelineFn || sendInstagramDmFromPipeline;

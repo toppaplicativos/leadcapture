@@ -445,6 +445,31 @@ async function instagramWebhookDmReply(config: Record<string, any>, ctx: TaskCon
     return { ok: false, skipped: true, error: "auto_reply_dm desativado" };
   }
 
+  // BotLoopGuard — block peer-bot before compose/send
+  try {
+    const { evaluateAndMaybeLockIg } = await import("./botLoopGuard");
+    const decision = await evaluateAndMaybeLockIg({
+      brandId: ctx.brandId,
+      senderId,
+      inboundText: text,
+    });
+    if (decision.block) {
+      return {
+        ok: false,
+        skipped: true,
+        error: `bot_loop_blocked:${decision.reason}`,
+        action: "send_dm",
+        sender_id: senderId,
+        bot_loop: true,
+        reason: decision.reason,
+        risk: decision.risk,
+        triggered_by: senderId,
+      };
+    }
+  } catch {
+    /* continue if guard fails */
+  }
+
   const composed = await composeInstagramReply({
     brandId: ctx.brandId,
     userId: ctx.userId,

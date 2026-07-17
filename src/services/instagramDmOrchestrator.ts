@@ -95,6 +95,39 @@ export async function handleIncomingInstagramDm(
   input: HandleIncomingDmInput,
 ): Promise<HandleIncomingDmResult> {
   const text = String(input.messageText || "").trim();
+
+  // ── 0) BotLoopGuard — block peer-bot / ping-pong before any automation ──
+  if (text && input.senderId) {
+    try {
+      const { evaluateAndMaybeLockIg } = await import("./botLoopGuard");
+      const decision = await evaluateAndMaybeLockIg({
+        brandId: input.brandId,
+        senderId: input.senderId,
+        inboundText: text,
+      });
+      if (decision.block) {
+        logger.warn(
+          `[IG DM] brand=${input.brandId} path=bot_loop_block reason=${decision.reason} risk=${decision.risk.toFixed(2)} sender=${String(input.senderId).slice(0, 12)}`,
+        );
+        return {
+          path: "none",
+          keywordMatched: false,
+          defaultMatched: false,
+          results: [
+            {
+              slug: "bot-loop-guard",
+              status: "skipped",
+              error: decision.reason,
+              source: "bot_loop_guard",
+            },
+          ],
+        };
+      }
+    } catch (err: any) {
+      logger.warn(`[IG DM] botLoopGuard failed (continuing): ${err?.message || err}`);
+    }
+  }
+
   const brandContext = await loadBrandReplyContext(input.brandId, input.userId);
 
   const basePayload = {

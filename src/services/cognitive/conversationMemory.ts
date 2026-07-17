@@ -190,7 +190,74 @@ export class ConversationMemoryService {
     if (memory.bot_interaction_score >= 2) {
       lines.push(`- ALERTA: cliente foi exposto a respostas automáticas anteriormente (${memory.bot_interaction_score} sinais). Eleve naturalidade e contextualização.`);
     }
+    if (memory.bot_lock_until_ms && memory.bot_lock_until_ms > Date.now()) {
+      lines.push(
+        `- BLOQUEIO ANTI-LOOP ATIVO até ${new Date(memory.bot_lock_until_ms).toISOString()} (motivo: ${memory.bot_lock_reason || "bot_loop"}). NÃO responder automaticamente.`,
+      );
+    }
     return lines.join("\n");
+  }
+
+  /**
+   * Apply a bot-loop lock and bump interaction score.
+   * Lock is stored inside memory_json (no schema migration required).
+   */
+  async applyBotLock(
+    conversationId: string,
+    opts: {
+      untilMs: number;
+      reason: string;
+      signals?: string[];
+      bumpScore?: boolean;
+    },
+  ): Promise<ConversationMemory> {
+    const id = String(conversationId || "").trim();
+    const current = (await this.load(id)) || EMPTY_MEMORY(id);
+    const next: ConversationMemory = {
+      ...current,
+      conversation_id: id,
+      bot_lock_until_ms: Number(opts.untilMs) || null,
+      bot_lock_reason: String(opts.reason || "bot_loop").slice(0, 80),
+      bot_interaction_score: Math.min(
+        10,
+        current.bot_interaction_score + (opts.bumpScore === false ? 0 : 1),
+      ),
+      facts_learned: this.dedupe([
+        ...current.facts_learned,
+        `bot_lock=${opts.reason}`,
+        ...(opts.signals || []).slice(0, 3).map((s) => `bot_signal=${s}`),
+      ]).slice(-40),
+      updated_at: new Date().toISOString(),
+    };
+    await this.save(next);
+    return next;
+  }
+
+  async bumpBotScore(conversationId: string, by = 1): Promise<void> {
+    const id = String(conversationId || "").trim();
+    if (!id) return;
+    const current = (await this.load(id)) || EMPTY_MEMORY(id);
+    const next: ConversationMemory = {
+      ...current,
+      conversation_id: id,
+      bot_interaction_score: Math.min(10, current.bot_interaction_score + Math.max(1, by)),
+      updated_at: new Date().toISOString(),
+    };
+    await this.save(next);
+  }
+
+  async clearBotLock(conversationId: string): Promise<void> {
+    const id = String(conversationId || "").trim();
+    if (!id) return;
+    const current = await this.load(id);
+    if (!current) return;
+    const next: ConversationMemory = {
+      ...current,
+      bot_lock_until_ms: null,
+      bot_lock_reason: null,
+      updated_at: new Date().toISOString(),
+    };
+    await this.save(next);
   }
 
   private dedupe(values: string[]): string[] {

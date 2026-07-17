@@ -509,6 +509,47 @@ export class InboxService {
         logger.info(`${ctx} silenced by gate: ${reply.silenceReason}`);
         return;
       }
+
+      /* BotLoopGuard / peer-bot: lock conversation to manual so next turn
+       * does not re-open the auto-reply loop. */
+      const escReason = String(reply.escalationReason || "").trim();
+      const isBotEscalation =
+        Boolean(reply.shouldEscalate) &&
+        /bot|loop|peer_bot/i.test(escReason);
+      if (isBotEscalation) {
+        logger.warn(
+          `${ctx} GATE: bot/loop detectado (${escReason}) — travando conversa em ai_mode=manual`,
+        );
+        const payload = {
+          event: "bot_loop_blocked",
+          reason: escReason || "bot_detected",
+          incoming_message_id: input.incomingMessageId,
+          at: new Date().toISOString(),
+        };
+        await input.pool.execute(
+          `UPDATE whatsapp_conversations
+           SET ai_mode = 'manual',
+               ai_lock_human = 0,
+               ai_last_incoming_message_id = ?,
+               ai_last_decision_json = ?,
+               ai_updated_at = NOW(),
+               ai_updated_by = ?,
+               updated_at = NOW()
+           WHERE id = ?`,
+          [input.incomingMessageId, JSON.stringify(payload), userId || null, input.conversationId],
+        );
+        await this.logAIDecision(input.pool, {
+          conversationId: input.conversationId,
+          userId,
+          brandId,
+          decisionType: "bot_loop_blocked",
+          mode: "manual",
+          summary: `Auto-reply bloqueado por bot/loop (${escReason}). Conversa em manual.`,
+          payload,
+        });
+        return;
+      }
+
       finalText = String(reply.text || "").trim();
       cognitiveConfidence = typeof reply.cognitive?.confidence === "number" ? reply.cognitive.confidence : null;
     } catch (err: any) {

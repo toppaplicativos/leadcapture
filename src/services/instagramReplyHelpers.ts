@@ -350,11 +350,22 @@ async function persistAttendanceContext(
     const base = mem || (await conversationMemoryService.load(convId)) || EMPTY_MEMORY(convId);
     const stage = meta?.stage || advanceFunnelFromSlots(currentSlots, detectFunnelStageLight(input.inboundText));
 
+    // Real bot-signal detection for IG memory (was hardcoded false — score never rose)
+    let botDetected = false;
+    let botSignals: string[] = [];
+    try {
+      const { detectBotPhrases } = await import("./botLoopGuard");
+      botSignals = detectBotPhrases(input.inboundText);
+      botDetected = botSignals.length >= 2 || (botSignals.length >= 1 && /op[cç][aã]o|menu|protocolo|digite\s+\d/i.test(input.inboundText));
+    } catch {
+      /* ignore */
+    }
+
     const lightTrace = {
-      emotional_state: "neutral",
-      frustration_signals: [],
-      bot_interaction_detected: false,
-      bot_signals: [],
+      emotional_state: "neutral" as const,
+      frustration_signals: [] as string[],
+      bot_interaction_detected: botDetected,
+      bot_signals: botSignals.slice(0, 6),
       surface_intent: input.inboundText.slice(0, 120),
       real_intent: currentSlots.purchase_intent
         ? "quer comprar"

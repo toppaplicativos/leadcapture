@@ -27,8 +27,8 @@ if (IS_LOCAL_DEV) {
     );
   });
 } else {
-const SHELL_CACHE_NAME = "lead-system-shell-v231-20260717-mob-offer-sound";
-const RUNTIME_CACHE_NAME = "lead-system-runtime-v222-20260717-mob-offer-sound";
+const SHELL_CACHE_NAME = "lead-system-shell-v237-20260717-session-keep";
+const RUNTIME_CACHE_NAME = "lead-system-runtime-v228-20260717-session-keep";
 
 function getBasePath() {
   try {

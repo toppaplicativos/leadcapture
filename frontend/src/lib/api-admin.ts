@@ -45,12 +45,16 @@ function getInventoryHeaders(): Record<string, string> {
 }
 
 function isTokenAuthFailure(status: number, data: any, sentAuthHeader: boolean): boolean {
-  const code = String(data?.code || '')
+  // Nunca trate 5xx como logout — API reiniciando não pode apagar a sessão do PWA
+  if (status >= 500 || status === 0 || status === 408 || status === 429) return false
+  if (!sentAuthHeader) return false
+  const code = String(data?.code || '').toUpperCase()
   const message = String(data?.error || data?.message || '').toLowerCase()
   return (
-    (status === 401 && sentAuthHeader) ||
+    status === 401 ||
     code === 'TOKEN_EXPIRED' ||
     code === 'TOKEN_INVALID' ||
+    code === 'UNAUTHORIZED' ||
     message.includes('token inválido') ||
     message.includes('token invalido') ||
     message.includes('token expirado') ||

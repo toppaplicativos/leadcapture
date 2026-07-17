@@ -38,6 +38,28 @@ export function clearAdminAuth() {
   } catch { /* ignore */ }
 }
 
+/**
+ * Only definitive auth failures should clear the stored session.
+ * 5xx / network / brief outages during deploy must NOT log the user out of the PWA.
+ */
+export function isHardAuthFailure(status: number, data?: any): boolean {
+  if (status === 401) return true
+  const code = String(data?.code || '').toUpperCase()
+  if (code === 'TOKEN_EXPIRED' || code === 'TOKEN_INVALID' || code === 'UNAUTHORIZED') return true
+  const message = String(data?.error || data?.message || '').toLowerCase()
+  if (
+    message.includes('token inválido') ||
+    message.includes('token invalido') ||
+    message.includes('token expirado') ||
+    message.includes('token expired') ||
+    message.includes('invalid token') ||
+    message.includes('unauthorized')
+  ) {
+    return true
+  }
+  return false
+}
+
 export function toBrandSlug(value: string): string {
   return String(value || '')
     .normalize('NFD')

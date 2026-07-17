@@ -202,8 +202,20 @@ function RootIndex() {
     return <Navigate to="/central-afiliado/alhopronto" replace />
   }
 
-  // Marketing root: show the landing immediately, no auth redirect.
-  if (onLandingHost) return <LandingPage />
+  // Marketing root: if the user already has an org session (PWA openou domínio errado),
+  // manda para o app — senão mostra a landing.
+  if (onLandingHost) {
+    const adminToken = typeof window !== 'undefined' ? localStorage.getItem('lead-system-token') : null
+    if (adminToken) {
+      // Prefer absolute app host when known; same-origin fallback for multi-host installs
+      if (typeof window !== 'undefined' && window.location.hostname !== 'app.leadcapture.online') {
+        window.location.replace('https://app.leadcapture.online/assistente?source=pwa')
+        return <RouteFallback />
+      }
+      return <Navigate to="/assistente" replace />
+    }
+    return <LandingPage />
+  }
 
   // Custom-domain catalog: render the catalog directly
   if (storeSlug) return <CatalogShell />

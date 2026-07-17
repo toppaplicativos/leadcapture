@@ -162,15 +162,30 @@ export function LoginPage() {
     fetch('/api/auth/me', {
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     })
-      .then((r) => {
+      .then(async (r) => {
         if (r.ok) {
           if (alive) navigate(postLoginPath(), { replace: true })
           return
         }
-        localStorage.removeItem('lead-system-token')
-        localStorage.removeItem('lead-system:active-brand-id')
+        // Só limpa sessão em 401/token inválido — nunca em 5xx (deploy/restart)
+        let body: any = {}
+        try { body = await r.json() } catch { /* ignore */ }
+        const code = String(body?.code || '').toUpperCase()
+        const hard =
+          r.status === 401 ||
+          code === 'TOKEN_EXPIRED' ||
+          code === 'TOKEN_INVALID' ||
+          code === 'UNAUTHORIZED'
+        if (hard) {
+          localStorage.removeItem('lead-system-token')
+          localStorage.removeItem('lead-system:active-brand-id')
+          return
+        }
+        // API instável: se há token, entra no app mesmo assim
+        if (alive) navigate(postLoginPath(), { replace: true })
       })
       .catch(() => {
+        // Rede instável com token salvo → mantém sessão e entra
         if (alive) navigate(postLoginPath(), { replace: true })
       })
 

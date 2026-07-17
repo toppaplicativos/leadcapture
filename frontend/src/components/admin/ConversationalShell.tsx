@@ -20,7 +20,7 @@ import { DashboardBridgeProvider } from '@/lib/agent/DashboardBridgeContext'
 import { SkillsBridgeProvider } from '@/lib/agent/SkillsBridgeContext'
 import { WorkspaceChat } from '@/components/agent/WorkspaceChat'
 import { AgentCanvas } from '@/components/agent/AgentCanvas'
-import { getHeaders, clearAdminAuth } from '@/lib/admin/helpers'
+import { getHeaders, clearAdminAuth, isHardAuthFailure } from '@/lib/admin/helpers'
 import { cacheActiveBrand } from '@/lib/brand-splash'
 import { PageSplash } from '@/components/PageSplash'
 import { DocumentTitleSync } from '@/components/DocumentTitleSync'
@@ -495,7 +495,6 @@ function ConversationalShellInner({ children }: { children?: ReactNode }) {
   useEffect(() => {
     const token = localStorage.getItem('lead-system-token')
     if (!token) {
-      clearAdminAuth()
       navigate('/login', { replace: true })
       return
     }
@@ -505,13 +504,24 @@ function ConversationalShellInner({ children }: { children?: ReactNode }) {
     })
       .then(async (r) => {
         if (!r.ok) {
-          clearAdminAuth()
-          if (mounted) navigate('/login', { replace: true })
+          // Only hard auth failures clear the PWA session. 5xx during deploy must keep token.
+          let body: any = {}
+          try { body = await r.json() } catch { /* ignore */ }
+          if (isHardAuthFailure(r.status, body)) {
+            clearAdminAuth()
+            if (mounted) navigate('/login', { replace: true })
+            return
+          }
+          // Transient error — keep session and open the shell offline-ish
+          if (mounted) setAuthReady(true)
           return
         }
         if (mounted) setAuthReady(true)
       })
-      .catch(() => { if (mounted) setAuthReady(true) })
+      .catch(() => {
+        // Network blip: keep token, allow shell (API will retry on next call)
+        if (mounted) setAuthReady(true)
+      })
     return () => { mounted = false }
   }, [navigate])
 
@@ -520,7 +530,9 @@ function ConversationalShellInner({ children }: { children?: ReactNode }) {
     fetch('/api/brands', { headers: getHeaders() })
       .then(async (r) => {
         if (!r.ok) {
-          if (r.status === 401) {
+          let body: any = {}
+          try { body = await r.json() } catch { /* ignore */ }
+          if (isHardAuthFailure(r.status, body)) {
             clearAdminAuth()
             navigate('/login', { replace: true })
           }

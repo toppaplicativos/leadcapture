@@ -24,6 +24,7 @@ type Opportunity = {
   region?: string | null
   product_name?: string | null
   niche?: string | null
+  brand_name?: string | null
   message?: string | null
   last_interaction_at?: string | null
   next_followup_at?: string | null
@@ -366,7 +367,10 @@ export function AffiliateOpportunitiesPanel({ ctx }: { ctx: AppContext }) {
           phone: entry.phone || undefined,
           city: entry.city || undefined,
           state: entry.region || undefined,
-          category: entry.niche || entry.product_name || undefined,
+          category: entry.niche || undefined,
+          niche: entry.niche || undefined,
+          product_name: entry.product_name || undefined,
+          brand_name: entry.brand_name || ctx.brand?.name || undefined,
           status: entry.commercial_status,
           notes: entry.message || entry.next_action || undefined,
         }))
@@ -374,6 +378,8 @@ export function AffiliateOpportunitiesPanel({ ctx }: { ctx: AppContext }) {
           <WhatsAppSendModal
             leads={leads}
             initialIndex={initialIndex}
+            initialBrandName={String(ctx.brand?.name || ctx.program?.brand_name || '')}
+            initialProductName={String(selected.product_name || ctx.program?.share_title || '')}
             initialValueProposition={ctx.program?.share_description || ctx.brand?.slogan || ''}
             onClose={() => setSelected(null)}
             onAiPersonalize={async ({ lead, currentMessage, templateId }) => {

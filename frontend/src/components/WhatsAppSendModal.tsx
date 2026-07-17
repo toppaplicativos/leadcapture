@@ -31,6 +31,12 @@ export interface WaSendLead {
   status?: string
   google_rating?: number
   notes?: string
+  /** Product / offer focus for this contact (affiliate queue, campaign, etc.) */
+  product_name?: string
+  /** Niche / segment label when category is empty */
+  niche?: string
+  /** Brand name override for multi-brand / affiliate contexts */
+  brand_name?: string
 }
 
 interface WhatsAppSendModalProps {
@@ -42,6 +48,10 @@ interface WhatsAppSendModalProps {
   initialIndex?: number
   /** White-label proposition supplied by another app context (for example, affiliate). */
   initialValueProposition?: string
+  /** Brand display name (org or program brand). */
+  initialBrandName?: string
+  /** Default product/service line when the lead has none. */
+  initialProductName?: string
   /** Lets another app reuse the same composer with its own authenticated AI endpoint. */
   onAiPersonalize?: (input: {
     lead: WaSendLead
@@ -62,6 +72,16 @@ interface WaTemplate {
 }
 
 const TEMPLATES: WaTemplate[] = [
+  {
+    id: 'optin',
+    label: 'Opt-in LGPD',
+    shortDesc: 'Pedir autorização antes do pitch',
+    body: `Olá! Somos da {{marca}}. Encontramos este número divulgado como contato comercial {{contato_comercial}}.
+
+Atendemos {{nicho_regiao}} com {{produto_ou_servico}}. Podemos enviar uma breve apresentação comercial por aqui?
+
+Se você não autorizar, este contato será removido da nossa lista.`,
+  },
   {
     id: 'apresentacao',
     label: 'Primeiro contato',
@@ -130,21 +150,93 @@ function catLabel(v?: string) {
     bar: 'Bar', manufacturer: 'Fabricante', school: 'Escola', wholesaler: 'Atacadista',
     food: 'Alimentação', snack_bar: 'Lanchonete', hamburger_restaurant: 'Hamburgueria',
     health_food_store: 'Empório', meal_delivery: 'Delivery', store: 'Loja',
+    hotel: 'Hotel', cafe: 'Café', bakery: 'Padaria', supermarket: 'Supermercado',
+    butcher_shop: 'Açougue', industrial: 'Indústria',
   }
-  return MAP[v] || v.replace(/_/g, ' ')
+  const key = String(v).trim().toLowerCase()
+  if (MAP[key]) return MAP[key]
+  // Already a human label (e.g. "Restaurante", niche text)
+  if (/[A-Za-zÀ-ú]/.test(v) && !key.includes('_') && key.length < 40) {
+    return v.trim().replace(/^\w/, (c) => c.toUpperCase())
+  }
+  return v.replace(/_/g, ' ')
 }
 
-function buildVars(lead: WaSendLead, senderName: string, valueProposition = ''): Record<string, string> {
+/** "do Restaurante X" / "da Escola Y" / "da empresa Z" */
+function commercialContactPhrase(empresa: string, segmento: string): string {
+  const name = (empresa || 'seu estabelecimento').trim()
+  const seg = (segmento || '').toLowerCase()
+  if (/restaurante|pizzaria|lanchonete|hamburguer|bar|buffet|café|cafe|padaria|delivery/.test(seg)) {
+    return `do ${segmento || 'Restaurante'} ${name}`
+  }
+  if (/escola|universidade|faculdade/.test(seg)) return `da ${segmento || 'Escola'} ${name}`
+  if (/indústria|industria|fabricante|fábrica|fabrica/.test(seg)) return `da indústria ${name}`
+  if (/hotel|pousada/.test(seg)) return `do hotel ${name}`
+  if (/supermercado|empório|emporio|açougue|acougue|loja|atacadista/.test(seg)) {
+    return `do ${segmento || 'estabelecimento'} ${name}`
+  }
+  if (segmento && segmento !== 'seu segmento') return `do ${segmento} ${name}`
+  return `da empresa ${name}`
+}
+
+/** "restaurantes da sua região" / "negócios do seu segmento em Cidade" */
+function nicheRegionPhrase(segmento: string, cidade?: string): string {
+  const seg = (segmento || '').toLowerCase()
+  let plural = 'negócios do seu segmento'
+  if (/restaurante|pizzaria|lanchonete|hamburguer|buffet|delivery/.test(seg)) plural = 'restaurantes'
+  else if (/bar|café|cafe|padaria/.test(seg)) plural = 'estabelecimentos de alimentação'
+  else if (/supermercado|açougue|acougue|empório|emporio|loja|atacadista/.test(seg)) plural = 'revendedores de alimentos'
+  else if (/indústria|industria|fabricante/.test(seg)) plural = 'indústrias alimentícias'
+  else if (/hotel|pousada/.test(seg)) plural = 'hotéis e cozinhas profissionais'
+  else if (segmento && segmento !== 'seu segmento') plural = `${segmento.toLowerCase()}s`.replace(/ss$/, 's')
+
+  if (cidade) return `${plural} de ${cidade} e região`
+  return `${plural} da sua região`
+}
+
+function shortOffer(valueProposition: string, productName?: string, fallback = 'nossos produtos e soluções'): string {
+  const product = String(productName || '').trim()
+  if (product) return product
+  const vp = String(valueProposition || '').trim()
+  if (!vp) return fallback
+  // First clause up to ~90 chars — readable product/service line
+  const clause = vp.split(/[.\n;]/)[0]?.trim() || vp
+  return clause.length > 100 ? `${clause.slice(0, 97).trim()}…` : clause
+}
+
+function buildVars(
+  lead: WaSendLead,
+  senderName: string,
+  valueProposition = '',
+  brandName = '',
+  defaultProduct = '',
+): Record<string, string> {
+  const empresa = lead.trade_name || lead.name || ''
+  const segmento = catLabel(lead.niche || lead.category) || 'seu segmento'
+  const cidade = lead.city || ''
+  const marca =
+    lead.brand_name?.trim() ||
+    brandName.trim() ||
+    localStorage.getItem('lead-system:active-brand-name') ||
+    'nossa empresa'
+  const produto = shortOffer(valueProposition, lead.product_name || defaultProduct)
+
   return {
     nome: lead.name?.split(' ')[0] || lead.name || '',
-    empresa: lead.trade_name || lead.name || '',
+    empresa,
     nomecompleto: lead.name || '',
-    cidade: lead.city || '',
+    cidade,
     estado: lead.state || '',
-    segmento: catLabel(lead.category) || 'seu segmento',
+    segmento,
     telefone: lead.phone || '',
     remetente: senderName || '',
-    proposta: valueProposition || '(configure sua Proposta de Valor em Configuracoes > Atendente)',
+    proposta: valueProposition || '(configure sua Proposta de Valor em Configurações > Atendente)',
+    marca,
+    produto,
+    produto_ou_servico: produto,
+    nicho: segmento,
+    contato_comercial: commercialContactPhrase(empresa, segmento),
+    nicho_regiao: nicheRegionPhrase(segmento, cidade),
   }
 }
 
@@ -237,10 +329,17 @@ function getHeaders(): Record<string, string> {
 }
 
 export function WhatsAppSendModal({
-  leads, onClose, onSent, initialIndex = 0, initialValueProposition = '', onAiPersonalize,
+  leads,
+  onClose,
+  onSent,
+  initialIndex = 0,
+  initialValueProposition = '',
+  initialBrandName = '',
+  initialProductName = '',
+  onAiPersonalize,
 }: WhatsAppSendModalProps) {
   const [queueIdx, setQueueIdx] = useState(() => Math.min(Math.max(initialIndex, 0), Math.max(leads.length - 1, 0)))
-  const [templateId, setTemplateId] = useState(TEMPLATES[0].id)
+  const [templateId, setTemplateId] = useState('optin')
   const [message, setMessage] = useState('')
   const [senderName, setSenderNameState] = useState(getSenderName)
   const [copied, setCopied] = useState(false)
@@ -248,17 +347,56 @@ export function WhatsAppSendModal({
   const [aiLoading, setAiLoading] = useState(false)
   const [showSenderInput, setShowSenderInput] = useState(false)
   const [valueProposition, setValuePropositionState] = useState(initialValueProposition)
+  const [brandName, setBrandName] = useState(
+    () => initialBrandName || localStorage.getItem('lead-system:active-brand-name') || '',
+  )
+  const [defaultProduct, setDefaultProduct] = useState(initialProductName)
 
-  /* Fetch brand profile on mount to get value_proposition */
+  /* Fetch brand profile on mount to get value_proposition + brand context */
   useEffect(() => {
-    if (initialValueProposition) return
+    if (initialValueProposition && initialBrandName && initialProductName) return
     fetch('/api/ai/agent-profile', { headers: getHeaders() })
       .then(r => r.json())
       .then(d => {
-        const vp = d?.profile?.value_proposition || ''
-        if (vp) setValuePropositionState(vp)
+        const profile = d?.profile || {}
+        const vp = profile.value_proposition || ''
+        if (!initialValueProposition && vp) setValuePropositionState(vp)
+        // Prefer explicit brand name; fall back to agent label without "Consultor"
+        if (!initialBrandName) {
+          const agent = String(profile.agent_name || '').trim()
+          const cleaned = agent.replace(/^consultor(a)?\s+/i, '').trim()
+          if (cleaned) setBrandName((prev) => prev || cleaned)
+        }
       })
       .catch(() => {})
+    // Brand unit name (org admin context)
+    if (!initialBrandName) {
+      fetch('/api/brands', { headers: getHeaders() })
+        .then(r => r.json())
+        .then(d => {
+          const list = Array.isArray(d) ? d : d?.brands || d?.items || []
+          const activeId = localStorage.getItem('lead-system:active-brand-id')
+          const match = list.find((b: any) => String(b.id) === String(activeId)) || list[0]
+          const name = String(match?.name || '').trim()
+          if (name) {
+            setBrandName((prev) => prev || name)
+            localStorage.setItem('lead-system:active-brand-name', name)
+          }
+        })
+        .catch(() => {})
+    }
+  }, [initialValueProposition, initialBrandName, initialProductName])
+
+  useEffect(() => {
+    if (initialBrandName) setBrandName(initialBrandName)
+  }, [initialBrandName])
+
+  useEffect(() => {
+    if (initialProductName) setDefaultProduct(initialProductName)
+  }, [initialProductName])
+
+  useEffect(() => {
+    if (initialValueProposition) setValuePropositionState(initialValueProposition)
   }, [initialValueProposition])
 
   useEffect(() => {
@@ -272,14 +410,20 @@ export function WhatsAppSendModal({
   const phone = cleanPhone(lead?.phone)
   const hasPhone = phone.length > 8
 
-  const vars = useMemo(() => buildVars(lead, senderName, valueProposition), [lead, senderName, valueProposition])
+  const vars = useMemo(
+    () => buildVars(lead, senderName, valueProposition, brandName, defaultProduct),
+    [lead, senderName, valueProposition, brandName, defaultProduct],
+  )
 
   /* When template or lead changes, rebuild message from template */
   useEffect(() => {
     const tpl = TEMPLATES.find(t => t.id === templateId)
     if (!tpl) return
     setMessage(applyVars(tpl.body, vars))
-  }, [templateId, queueIdx, valueProposition]) // re-run when proposta loads
+    // Intentionally not depending on full `vars` object identity every render —
+    // rebuild when lead, template or brand context that feeds vars changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [templateId, queueIdx, valueProposition, brandName, defaultProduct, senderName, lead?.id, lead?.name, lead?.phone, lead?.category, lead?.niche, lead?.product_name, lead?.brand_name, lead?.city])
 
   /* Re-apply vars when sender name changes (only if message still matches template pattern) */
   const applyCurrentTemplate = useCallback(() => {
@@ -318,14 +462,17 @@ export function WhatsAppSendModal({
             trade_name: lead.trade_name,
             city: lead.city,
             state: lead.state,
-            category: catLabel(lead.category),
+            category: catLabel(lead.niche || lead.category),
             google_rating: lead.google_rating,
             notes: lead.notes,
             status: lead.status,
+            product_name: lead.product_name,
+            brand_name: lead.brand_name || brandName,
           },
           current_message: message,
           template_id: templateId,
           sender_name: senderName,
+          intent: templateId === 'optin' ? 'optin_authorization' : templateId,
         }),
       })
       if (r.ok) {
@@ -483,24 +630,38 @@ export function WhatsAppSendModal({
           <div className="px-5 pt-1 pb-3">
             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Modelo de mensagem</p>
             <div className="grid grid-cols-3 gap-1.5">
-              {TEMPLATES.map(t => (
-                <button
-                  key={t.id}
-                  type="button"
-                  onClick={() => { setTemplateId(t.id); }}
-                  className={`flex flex-col gap-0.5 text-left px-2.5 py-2 rounded-xl border text-[11px] transition ${
-                    templateId === t.id
-                      ? 'bg-gray-900 text-white border-gray-900'
-                      : 'bg-white text-gray-700 border-gray-200 hover:border-gray-300 hover:bg-gray-50'
-                  }`}
-                >
-                  <span className="font-semibold leading-tight">{t.label}</span>
-                  <span className={`leading-tight ${templateId === t.id ? 'text-white/60' : 'text-gray-400'}`}>
-                    {t.shortDesc}
-                  </span>
-                </button>
-              ))}
+              {TEMPLATES.map(t => {
+                const isOptIn = t.id === 'optin'
+                const selected = templateId === t.id
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => { setTemplateId(t.id); }}
+                    className={`flex flex-col gap-0.5 text-left px-2.5 py-2 rounded-xl border text-[11px] transition ${
+                      selected
+                        ? isOptIn
+                          ? 'bg-emerald-700 text-white border-emerald-700'
+                          : 'bg-gray-900 text-white border-gray-900'
+                        : isOptIn
+                          ? 'bg-emerald-50 text-emerald-900 border-emerald-200 hover:border-emerald-300'
+                          : 'bg-white text-gray-700 border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                    }`}
+                  >
+                    <span className="font-semibold leading-tight">{t.label}</span>
+                    <span className={`leading-tight ${selected ? 'text-white/60' : isOptIn ? 'text-emerald-700/70' : 'text-gray-400'}`}>
+                      {t.shortDesc}
+                    </span>
+                  </button>
+                )
+              })}
             </div>
+            {templateId === 'optin' && (
+              <p className="mt-2 text-[11px] leading-relaxed text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-xl px-3 py-2">
+                Pede autorização antes da oferta. Usa marca, empresa, nicho, região e produto/serviço da proposta de valor.
+                Se o contato não autorizar, trate como opt-out e remova da lista.
+              </p>
+            )}
           </div>
 
           {/* Message editor */}

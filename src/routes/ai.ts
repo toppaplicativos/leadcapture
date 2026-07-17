@@ -230,18 +230,23 @@ router.post("/wa-personalize", async (req: BrandRequest, res: Response) => {
     const userId = req.user?.userId as string | undefined;
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
-    const { lead, current_message, template_id, sender_name } = req.body || {};
+    const { lead, current_message, template_id, sender_name, intent } = req.body || {};
     const brandId = resolveBrandCompanyId(req);
 
     /* Load brand profile to respect tone/rules */
     const profile = await aiAgentProfileService.getByUserId(userId, brandId);
+    const isOptIn =
+      String(template_id || intent || "").toLowerCase().includes("optin") ||
+      String(template_id || "") === "optin";
 
     const leadDesc = [
       lead?.name && `Nome: ${lead.name}`,
       lead?.trade_name && `Empresa: ${lead.trade_name}`,
       lead?.city && `Cidade: ${lead.city}`,
       lead?.state && `Estado: ${lead.state}`,
-      lead?.category && `Segmento: ${lead.category}`,
+      lead?.category && `Segmento/nicho: ${lead.category}`,
+      lead?.product_name && `Produto/serviço em foco: ${lead.product_name}`,
+      lead?.brand_name && `Marca: ${lead.brand_name}`,
       lead?.google_rating && `Avaliação Google: ${lead.google_rating}/5`,
       lead?.notes && `Notas: ${lead.notes}`,
       lead?.status && `Status no CRM: ${lead.status}`,
@@ -255,7 +260,9 @@ router.post("/wa-personalize", async (req: BrandRequest, res: Response) => {
         ? [
             `PROPOSTA DE VALOR DA SUA EMPRESA (OBRIGATÓRIO COMUNICAR):`,
             profile.value_proposition.trim(),
-            `REGRA CRÍTICA: A mensagem DEVE comunicar esta proposta de forma clara e específica.`,
+            isOptIn
+              ? `REGRA: no opt-in, cite o produto/serviço de forma breve e concreta (não faça pitch longo).`
+              : `REGRA CRÍTICA: A mensagem DEVE comunicar esta proposta de forma clara e específica.`,
             `PROIBIDO usar frases vagas como "soluções", "podemos te ajudar", "fazemos a diferença" sem especificar O QUÊ exatamente você oferece.`,
           ].join('\n')
         : `ATENÇÃO: Proposta de valor não configurada. Configure em Configurações > Atendente > Proposta de Valor para mensagens mais eficazes.`,
@@ -267,10 +274,20 @@ router.post("/wa-personalize", async (req: BrandRequest, res: Response) => {
       String(current_message || ''),
       ``,
       `INSTRUÇÕES:`,
-      `- Substitua qualquer referência genérica pelo dado real do lead (segmento, cidade, nome)`,
-      `- Comunique a proposta de valor de forma específica e relevante para o segmento do lead`,
+      isOptIn
+        ? [
+            `- Esta é uma mensagem de OPT-IN / autorização LGPD (primeiro toque)`,
+            `- Identifique a marca, o estabelecimento do lead (ex.: restaurante X) e o nicho/região`,
+            `- Peça permissão para enviar apresentação comercial; se não autorizar, o contato será removido da lista`,
+            `- NÃO faça pitch de venda ainda — só autorização + 1 menção breve ao produto/serviço`,
+            `- Máximo 450 caracteres`,
+          ].join('\n')
+        : [
+            `- Substitua qualquer referência genérica pelo dado real do lead (segmento, cidade, nome)`,
+            `- Comunique a proposta de valor de forma específica e relevante para o segmento do lead`,
+            `- Máximo 400 caracteres`,
+          ].join('\n'),
       `- Texto puro para WhatsApp (sem markdown, sem bullets desnecessários)`,
-      `- Máximo 400 caracteres`,
       `- Tom: ${profile.tone || 'professional'}`,
       profile.communication_rules ? `- Regras da marca: ${profile.communication_rules}` : '',
       profile.training_notes ? `- Treinamento: ${profile.training_notes}` : '',

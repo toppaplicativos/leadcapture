@@ -14,7 +14,14 @@ import { AffiliatePixSettings } from '@/pages/affiliate/AffiliatePixSettings'
 import { AffiliateLinksHub } from '@/pages/affiliate/AffiliateLinksHub'
 import { AffiliateMarketplace } from '@/pages/affiliate/AffiliateMarketplace'
 import { AffiliateLearningPanel } from '@/pages/affiliate/AffiliateLearningPanel'
-import { affiliateApi, clearAffiliateAuth, getAffiliateToken, getAffiliateBrandRef, getAffiliateHeaders } from '@/lib/api-affiliate'
+import {
+  affiliateApi,
+  clearAffiliateAuth,
+  getAffiliateToken,
+  getAffiliateBrandRef,
+  getAffiliateHeaders,
+  isHardAffiliateAuthFailure,
+} from '@/lib/api-affiliate'
 import { NotificationBellButton, NotificationCenter } from '@/components/notifications/NotificationCenter'
 import { affiliateAppCache } from '@/lib/affiliate-app-cache'
 import { buildAffiliateCatalogUrl } from '@/lib/affiliate-tracking'
@@ -728,10 +735,16 @@ export function AffiliateAppPage() {
         affiliateAppCache.setBoot(d)
         void affiliateAppCache.prefetchAll({ region: d.affiliate?.region })
       })
-      .catch(() => {
+      .catch((err) => {
+        // Mantém sessão se há cache ou se a API falhou por 5xx/rede (deploy).
+        // Só desloga em 401 / token inválido.
         if (cachedBoot) return
-        clearAffiliateAuth()
-        navigate(affiliateLoginPath(), { replace: true })
+        if (isHardAffiliateAuthFailure(err)) {
+          clearAffiliateAuth()
+          navigate(affiliateLoginPath(), { replace: true })
+          return
+        }
+        // Sem cache e erro transitório: fica na tela de loading/retry, não apaga token
       })
       .finally(() => setLoading(false))
   }, [navigate, brandRef, isPartnersProgram, shell.loginPath])

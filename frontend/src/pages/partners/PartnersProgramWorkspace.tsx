@@ -4,7 +4,7 @@ import { ArrowLeft, Loader2 } from 'lucide-react'
 import { AffiliateAppPage } from '@/pages/affiliate/AffiliateAppPage'
 import { AffiliateShellProvider } from '@/lib/affiliate/AffiliateShellContext'
 import { getAffiliateBrandRef, getAffiliateToken, setAffiliateAuth } from '@/lib/api-affiliate'
-import { getPartnersToken, partnersApi } from '@/lib/api-partners'
+import { clearPartnersAuth, getPartnersToken, isHardPartnersAuthFailure, partnersApi } from '@/lib/api-partners'
 
 export function PartnersProgramWorkspace() {
   const navigate = useNavigate()
@@ -48,6 +48,11 @@ export function PartnersProgramWorkspace() {
         if (!cancelled) setLoading(false)
       } catch (e: unknown) {
         if (!cancelled) {
+          if (isHardPartnersAuthFailure(e)) {
+            clearPartnersAuth()
+            navigate('/parceiros/entrar', { replace: true })
+            return
+          }
           setError(e instanceof Error ? e.message : 'Não foi possível abrir o programa')
           setLoading(false)
         }

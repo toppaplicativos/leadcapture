@@ -55,6 +55,26 @@ export function getAffiliateHeaders(): Record<string, string> {
   return headers
 }
 
+/** Erro de API com status — callers podem decidir se limpam sessão. */
+export class AffiliateApiError extends Error {
+  status: number
+  code?: string
+  constructor(message: string, status: number, code?: string) {
+    super(message)
+    this.name = 'AffiliateApiError'
+    this.status = status
+    this.code = code
+  }
+}
+
+export function isHardAffiliateAuthFailure(err: unknown): boolean {
+  if (!(err instanceof AffiliateApiError)) return false
+  if (err.status >= 500 || err.status === 0 || err.status === 408 || err.status === 429) return false
+  if (err.status === 401) return true
+  const code = String(err.code || '').toUpperCase()
+  return code === 'TOKEN_EXPIRED' || code === 'TOKEN_INVALID' || code === 'UNAUTHORIZED'
+}
+
 async function affiliateFetch<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     ...options,
@@ -64,7 +84,13 @@ async function affiliateFetch<T>(url: string, options?: RequestInit): Promise<T>
     },
   })
   const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data.error || `Erro ${res.status}`)
+  if (!res.ok) {
+    throw new AffiliateApiError(
+      data.error || data.message || `Erro ${res.status}`,
+      res.status,
+      data.code,
+    )
+  }
   return data as T
 }
 

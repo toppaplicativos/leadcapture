@@ -37,6 +37,26 @@ export function getPartnersHeaders(): Record<string, string> {
   return headers
 }
 
+/** Erro de API com status — callers só deslogam em 401/token inválido. */
+export class PartnersApiError extends Error {
+  status: number
+  code?: string
+  constructor(message: string, status: number, code?: string) {
+    super(message)
+    this.name = 'PartnersApiError'
+    this.status = status
+    this.code = code
+  }
+}
+
+export function isHardPartnersAuthFailure(err: unknown): boolean {
+  if (!(err instanceof PartnersApiError)) return false
+  if (err.status >= 500 || err.status === 0 || err.status === 408 || err.status === 429) return false
+  if (err.status === 401) return true
+  const code = String(err.code || '').toUpperCase()
+  return code === 'TOKEN_EXPIRED' || code === 'TOKEN_INVALID' || code === 'UNAUTHORIZED'
+}
+
 async function partnersFetch<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     ...options,
@@ -46,7 +66,13 @@ async function partnersFetch<T>(url: string, options?: RequestInit): Promise<T> 
     },
   })
   const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data.error || `Erro ${res.status}`)
+  if (!res.ok) {
+    throw new PartnersApiError(
+      data.error || data.message || `Erro ${res.status}`,
+      res.status,
+      data.code,
+    )
+  }
   return data as T
 }
 

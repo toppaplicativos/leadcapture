@@ -186,9 +186,11 @@ function RootIndex() {
     return <Navigate to="/admin" replace />
   }
 
-  // parceiros.leadcapture.online → app global LeadCapture Parceiros
+  // parceiros.leadcapture.online → painel se logado, landing se não
   if (isPartnersGlobalHost()) {
-    return <Navigate to="/parceiros" replace />
+    const partnersToken =
+      typeof window !== 'undefined' ? localStorage.getItem('lead-system-token-parceiro') : null
+    return <Navigate to={partnersToken ? '/parceiros/painel' : '/parceiros'} replace />
   }
 
   // mob.leadcapture.online → app do entregador
@@ -197,22 +199,45 @@ function RootIndex() {
     return <Navigate to={token ? '/mob/app' : '/mob/entrar'} replace />
   }
 
-  // parceiros.alhopronto.online → Central do Afiliado da marca
+  // parceiros.alhopronto.online → Central do Afiliado da marca (painel se logado)
   if (isAffiliateBrandHost()) {
-    return <Navigate to="/central-afiliado/alhopronto" replace />
+    const affToken =
+      typeof window !== 'undefined' ? localStorage.getItem('lead-system-token-afiliado') : null
+    const affSlug =
+      (typeof window !== 'undefined' && localStorage.getItem('lead-system:active-brand-ref-afiliado')) ||
+      'alhopronto'
+    return (
+      <Navigate
+        to={affToken ? `/central-afiliado/${affSlug}/painel` : `/central-afiliado/${affSlug}`}
+        replace
+      />
+    )
   }
 
-  // Marketing root: if the user already has an org session (PWA openou domínio errado),
-  // manda para o app — senão mostra a landing.
+  // Marketing root: se já tem sessão (admin/parceiro/afiliado), restaura o app.
   if (onLandingHost) {
-    const adminToken = typeof window !== 'undefined' ? localStorage.getItem('lead-system-token') : null
-    if (adminToken) {
-      // Prefer absolute app host when known; same-origin fallback for multi-host installs
-      if (typeof window !== 'undefined' && window.location.hostname !== 'app.leadcapture.online') {
-        window.location.replace('https://app.leadcapture.online/assistente?source=pwa')
+    if (typeof window !== 'undefined') {
+      const adminToken = localStorage.getItem('lead-system-token')
+      if (adminToken) {
+        if (window.location.hostname !== 'app.leadcapture.online') {
+          window.location.replace('https://app.leadcapture.online/assistente?source=pwa')
+          return <RouteFallback />
+        }
+        return <Navigate to="/assistente" replace />
+      }
+      const partnersToken = localStorage.getItem('lead-system-token-parceiro')
+      if (partnersToken) {
+        window.location.replace('https://parceiros.leadcapture.online/parceiros/painel?source=pwa')
         return <RouteFallback />
       }
-      return <Navigate to="/assistente" replace />
+      const affToken = localStorage.getItem('lead-system-token-afiliado')
+      const affSlug = localStorage.getItem('lead-system:active-brand-ref-afiliado')
+      if (affToken && affSlug) {
+        window.location.replace(
+          `https://app.leadcapture.online/central-afiliado/${encodeURIComponent(affSlug)}/painel?source=pwa`,
+        )
+        return <RouteFallback />
+      }
     }
     return <LandingPage />
   }

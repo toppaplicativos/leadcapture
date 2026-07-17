@@ -5,7 +5,14 @@ import {
   TrendingUp, Wallet, MousePointerClick, Users, ChevronRight, Clock, CheckCircle2,
   Bell, User, Building2, Percent, Sparkles,
 } from 'lucide-react'
-import { clearPartnersAuth, clearPendingInvite, getPartnersToken, getPendingInvite, partnersApi } from '@/lib/api-partners'
+import {
+  clearPartnersAuth,
+  clearPendingInvite,
+  getPartnersToken,
+  getPendingInvite,
+  isHardPartnersAuthFailure,
+  partnersApi,
+} from '@/lib/api-partners'
 import { setAffiliateAuth } from '@/lib/api-affiliate'
 import { PartnersProgramDetail } from '@/pages/partners/PartnersProgramDetail'
 import { PartnersProgramOnboarding } from '@/pages/partners/PartnersProgramOnboarding'
@@ -134,12 +141,21 @@ export function PartnersAppPage() {
 
   useEffect(() => {
     if (!getPartnersToken()) {
+      // Sem token → landing de parceiros (PWA deve reabrir /parceiros/painel se logado)
       navigate('/parceiros', { replace: true })
       return
     }
     setLoading(true)
     refresh()
-      .catch((e: Error) => showToast(e.message, 'err'))
+      .catch((e: Error) => {
+        if (isHardPartnersAuthFailure(e)) {
+          clearPartnersAuth()
+          navigate('/parceiros/entrar', { replace: true })
+          return
+        }
+        // 5xx / rede: mantém token e mostra erro (não manda para landing)
+        showToast(e.message || 'Falha ao carregar. Tente de novo.', 'err')
+      })
       .finally(() => setLoading(false))
   }, [navigate, refresh, showToast])
 

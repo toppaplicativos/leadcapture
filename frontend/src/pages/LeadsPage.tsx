@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import {
   Search, Filter, Star, Phone, MapPin, Tag, X,
   ChevronLeft, ChevronRight, Users, Loader2,
@@ -1604,28 +1605,29 @@ function LeadDetailModal({
   const rating = Number(lead.google_rating) || 0
   const stCfg = STATUS_LABEL[status] || { label: status, color: 'bg-gray-100 text-gray-500' }
 
-  return (
+  return createPortal((
     <div
-      className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-[2px] sm:p-4"
+      className="fixed inset-0 z-[500] flex items-end lg:items-center justify-center bg-black/50 backdrop-blur-[3px] lg:p-6"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
     >
       <div
-        className="bg-white shadow-2xl w-full max-w-md max-h-[92vh] sm:max-h-[85vh] flex flex-col overflow-hidden rounded-t-3xl sm:rounded-3xl"
+        className="bg-white shadow-[0_24px_80px_rgba(0,0,0,0.20)] border border-black/5 w-full lg:max-w-3xl h-[96dvh] lg:h-auto lg:max-h-[90dvh] flex flex-col overflow-hidden rounded-t-[24px] lg:rounded-[24px]"
         style={{ animation: 'slideUp 280ms cubic-bezier(0.16, 1, 0.3, 1)' }}
         onClick={e => e.stopPropagation()}
       >
         {/* Drag handle (mobile) */}
-        <div className="sm:hidden pt-2 pb-1 flex justify-center shrink-0">
+        <div className="lg:hidden pt-2 pb-1 flex justify-center shrink-0">
           <span className="w-10 h-1 rounded-full bg-gray-300" />
         </div>
 
         {/* Header */}
-        <div className="px-5 pt-3 pb-4 border-b border-border-light shrink-0">
+        <div className="px-5 lg:px-6 pt-3 lg:pt-5 pb-4 border-b border-neutral-200 shrink-0 bg-white">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
-              <h3 className="text-[20px] font-bold tracking-tight text-gray-900 leading-tight truncate">
+              <p className="text-[11px] font-medium text-neutral-500 mb-1">Ficha do lead</p>
+              <h3 className="text-[20px] lg:text-[22px] font-semibold tracking-[-0.025em] text-neutral-950 leading-tight truncate">
                 {lead.name}
               </h3>
               <div className="flex items-center gap-2 mt-1.5 flex-wrap">
@@ -1649,70 +1651,41 @@ function LeadDetailModal({
             <button
               onClick={onClose}
               aria-label="Fechar"
-              className="w-9 h-9 grid place-items-center rounded-full text-gray-400 hover:text-gray-700 hover:bg-gray-100 active:scale-90 transition shrink-0"
+              className="w-11 h-11 grid place-items-center rounded-2xl text-neutral-500 hover:text-neutral-950 hover:bg-neutral-100 active:scale-95 transition shrink-0"
             >
               <X size={16} strokeWidth={1.75} />
             </button>
           </div>
 
-          {/* Quick contact */}
-          {(phone || lead.email) && (
-            <div className="flex gap-2 mt-3">
-              {phone && (
-                <button
-                  type="button"
-                  onClick={() => setShowWaSend(true)}
-                  className="flex items-center justify-center gap-1.5 h-10 flex-1 px-3 rounded-xl bg-emerald-600 text-white text-[13px] font-medium hover:bg-emerald-700 active:scale-[0.98] transition"
-                >
-                  <Send size={14} strokeWidth={1.75} /> WhatsApp
-                </button>
-              )}
-              {lead.email && (
-                <a
-                  href={`mailto:${lead.email}`}
-                  className="flex items-center justify-center gap-1.5 h-10 flex-1 px-3 rounded-xl bg-gray-100 text-gray-800 text-[13px] font-medium hover:bg-gray-200 active:scale-[0.98] transition"
-                >
-                  <Mail size={14} strokeWidth={1.75} /> Email
-                </a>
-              )}
-              {phone && (
-                <a
-                  href={`tel:+${phone}`}
-                  aria-label="Ligar"
-                  className="flex items-center justify-center w-10 h-10 rounded-xl bg-gray-100 text-gray-800 hover:bg-gray-200 active:scale-90 transition"
-                >
-                  <Phone size={14} strokeWidth={1.75} />
-                </a>
-              )}
-            </div>
-          )}
         </div>
 
         {/* Tabs */}
-        <div className="px-5 pt-1 border-b border-border-light flex gap-1 shrink-0">
+        <div className="px-5 lg:px-6 py-3 border-b border-neutral-200 shrink-0 bg-neutral-50/70">
+          <div className="grid grid-cols-3 gap-1 p-1 rounded-2xl bg-neutral-200/70">
           {([['info', 'Detalhes'], ['edit', 'Editar'], ['actions', 'Ações']] as const).map(([k, l]) => (
             <button
               key={k}
               onClick={() => setTab(k)}
               aria-current={tab === k ? 'page' : undefined}
-              className={`px-3.5 h-9 text-[12px] font-medium transition border-b-2 -mb-px ${
+              className={`px-3.5 h-10 rounded-xl text-[12px] font-semibold transition ${
                 tab === k
-                  ? 'text-gray-900 border-gray-900'
-                  : 'text-gray-500 border-transparent hover:text-gray-900'
+                  ? 'text-neutral-950 bg-white shadow-[0_1px_3px_rgba(0,0,0,.08)]'
+                  : 'text-neutral-500 hover:text-neutral-950 hover:bg-white/50'
               }`}
             >
               {l}
             </button>
           ))}
+          </div>
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4 pb-[max(20px,env(safe-area-inset-bottom))]">
+        <div className="flex-1 overflow-y-auto px-5 lg:px-6 py-5 space-y-5 pb-[max(24px,env(safe-area-inset-bottom))] bg-white">
           {tab === 'info' && (
             <>
               {lead.phone && (
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2.5 bg-gray-50 rounded-xl px-3.5 py-2.5">
+                <div className="grid sm:grid-cols-[1fr_auto] gap-2 p-4 border border-neutral-200 rounded-[20px] bg-neutral-50">
+                  <div className="flex items-center gap-2.5 min-h-11 bg-white border border-neutral-200 rounded-2xl px-3.5 py-2.5">
                     <Phone size={14} strokeWidth={1.75} className="text-gray-400 shrink-0" />
                     <span className="text-[13px] font-mono text-gray-800 flex-1">{lead.phone}</span>
                     {waValidation ? (
@@ -1727,7 +1700,7 @@ function LeadDetailModal({
                   <button
                     onClick={validateWhatsApp}
                     disabled={validatingWa}
-                    className="w-full flex items-center justify-center gap-2 h-9 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-[12px] font-semibold disabled:opacity-50 active:scale-[0.98] transition"
+                    className="w-full sm:w-auto flex items-center justify-center gap-2 h-11 px-4 rounded-2xl bg-neutral-950 hover:bg-neutral-800 text-white text-[12px] font-semibold disabled:opacity-50 active:scale-[0.98] transition"
                   >
                     {validatingWa ? <Loader2 size={13} className="animate-spin" /> : <ShieldCheck size={13} strokeWidth={2} />}
                     {validatingWa ? 'Validando...' : waValidation ? 'Revalidar WhatsApp' : 'Validar WhatsApp'}
@@ -1735,55 +1708,55 @@ function LeadDetailModal({
                 </div>
               )}
               {lead.address && (
-                <div className="flex items-start gap-2.5 bg-gray-50 rounded-xl px-3.5 py-2.5">
+                <div className="flex items-start gap-2.5 border border-neutral-200 bg-neutral-50 rounded-[20px] px-4 py-3.5">
                   <MapPin size={14} strokeWidth={1.75} className="text-gray-400 shrink-0 mt-0.5" />
                   <span className="text-[12px] text-gray-700 flex-1 leading-relaxed">{lead.address}</span>
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 lg:grid-cols-3 gap-2.5">
                 {lead.city && (
-                  <div className="bg-gray-50 rounded-xl p-3">
+                  <div className="border border-neutral-200 bg-white rounded-[18px] p-3.5">
                     <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Cidade</p>
                     <p className="text-[13px] font-medium text-gray-900 mt-0.5">{lead.city}</p>
                   </div>
                 )}
                 {lead.state && (
-                  <div className="bg-gray-50 rounded-xl p-3">
+                  <div className="border border-neutral-200 bg-white rounded-[18px] p-3.5">
                     <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Estado</p>
                     <p className="text-[13px] font-medium text-gray-900 mt-0.5">{lead.state}</p>
                   </div>
                 )}
                 {lead.trade_name && (
-                  <div className="bg-gray-50 rounded-xl p-3">
+                  <div className="border border-neutral-200 bg-white rounded-[18px] p-3.5">
                     <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Nome fantasia</p>
                     <p className="text-[13px] font-medium text-gray-900 mt-0.5 truncate">{lead.trade_name}</p>
                   </div>
                 )}
                 {lead.category && (
-                  <div className="bg-gray-50 rounded-xl p-3">
+                  <div className="border border-neutral-200 bg-white rounded-[18px] p-3.5">
                     <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Categoria</p>
                     <p className="text-[13px] font-medium text-gray-900 mt-0.5">{catLabel(lead.category)}</p>
                   </div>
                 )}
-                <div className="bg-gray-50 rounded-xl p-3">
+                <div className="border border-neutral-200 bg-white rounded-[18px] p-3.5">
                   <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Cadastrado</p>
                   <p className="text-[13px] font-medium text-gray-900 mt-0.5 tabular-nums">{fmtDateFull(lead.created_at)}</p>
                 </div>
-                <div className="bg-gray-50 rounded-xl p-3">
+                <div className="border border-neutral-200 bg-white rounded-[18px] p-3.5">
                   <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Fonte</p>
                   <p className="text-[13px] font-medium text-gray-900 mt-0.5">
                     {lead.source === 'google_places' ? 'Google Places' : lead.source || '—'}
                   </p>
                 </div>
                 {Number(lead.lead_score) > 0 && (
-                  <div className="bg-gray-900 text-white rounded-xl p-3">
+                  <div className="bg-neutral-950 text-white rounded-[18px] p-3.5">
                     <p className="text-[10px] font-semibold text-white/50 uppercase tracking-wide">Score</p>
                     <p className="text-[20px] font-bold mt-0.5 tabular-nums">{lead.lead_score}</p>
                   </div>
                 )}
                 {lead.business_status && (
-                  <div className="bg-gray-50 rounded-xl p-3">
+                  <div className="border border-neutral-200 bg-white rounded-[18px] p-3.5">
                     <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">Status</p>
                     <p className="text-[13px] font-medium text-gray-900 mt-0.5">{lead.business_status}</p>
                   </div>
@@ -1823,27 +1796,28 @@ function LeadDetailModal({
           )}
 
           {tab === 'edit' && (
-            <div className="space-y-3">
+            <div className="space-y-5">
               {/* Header explanatory */}
               <p className="text-[11px] text-gray-500 leading-relaxed">
                 Edite os dados do lead. Para alterar status ou tipo de cliente, use a aba <b>Ações</b>.
               </p>
 
+              <div className="grid sm:grid-cols-2 gap-3">
               <div>
                 <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1 block">Nome *</label>
                 <input type="text" value={editName} onChange={(e) => setEditName(e.target.value)}
                   placeholder="Nome do contato ou empresa"
                   className="w-full h-10 px-3 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900 transition" />
               </div>
-
               <div>
                 <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1 block">Nome fantasia</label>
                 <input type="text" value={editTradeName} onChange={(e) => setEditTradeName(e.target.value)}
                   placeholder="Razão social ou apelido comercial"
                   className="w-full h-10 px-3 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900 transition" />
               </div>
+              </div>
 
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid sm:grid-cols-2 gap-3">
                 <div>
                   <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1 block">Telefone</label>
                   <input type="tel" value={editPhone} onChange={(e) => setEditPhone(e.target.value)}
@@ -1879,8 +1853,8 @@ function LeadDetailModal({
                   className="w-full h-10 px-3 rounded-xl border border-border bg-white text-sm focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900 transition" />
               </div>
 
-              <div className="grid grid-cols-[1fr_80px_120px] gap-2">
-                <div>
+              <div className="grid grid-cols-2 sm:grid-cols-[1fr_80px_140px] gap-3">
+                <div className="col-span-2 sm:col-span-1">
                   <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1 block">Cidade</label>
                   <input type="text" value={editCity} onChange={(e) => setEditCity(e.target.value)}
                     placeholder="São Paulo"
@@ -1900,7 +1874,7 @@ function LeadDetailModal({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid sm:grid-cols-2 gap-3">
                 <div>
                   <label className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1 block">Categoria</label>
                   <input type="text" value={editCategory} onChange={(e) => setEditCategory(e.target.value)}
@@ -1988,9 +1962,9 @@ function LeadDetailModal({
                 </div>
               )}
 
-              <div className="flex justify-end gap-2 pt-2 border-t border-border-light">
+              <div className="sticky bottom-0 -mx-5 lg:-mx-6 px-5 lg:px-6 py-3 flex justify-end gap-2 border-t border-neutral-200 bg-white/95 backdrop-blur">
                 <button onClick={() => setTab('info')} disabled={saving}
-                  className="px-4 h-10 rounded-xl text-[12px] font-semibold text-gray-600 hover:bg-gray-100 transition disabled:opacity-50">
+                  className="px-4 h-11 rounded-[18px] text-[12px] font-semibold text-neutral-600 hover:bg-neutral-100 transition disabled:opacity-50">
                   Cancelar
                 </button>
                 <Button onClick={saveAllFields} loading={saving} size="md">
@@ -2001,9 +1975,9 @@ function LeadDetailModal({
           )}
 
           {tab === 'actions' && (
-            <>
+            <div className="grid lg:grid-cols-2 gap-5">
               {/* Status */}
-              <div>
+              <section className="border border-neutral-200 rounded-[20px] p-4">
                 <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">Alterar status</p>
                 <div className="flex flex-wrap gap-1.5">
                   {Object.entries(STATUS_LABEL).map(([k, v]) => (
@@ -2021,11 +1995,11 @@ function LeadDetailModal({
                     </button>
                   ))}
                 </div>
-              </div>
+              </section>
 
               {/* Client Type */}
               {clientTypes.length > 0 && (
-                <div>
+                <section className="border border-neutral-200 rounded-[20px] p-4">
                   <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">Tipo de cliente</p>
                   <select
                     value={clientType}
@@ -2037,11 +2011,11 @@ function LeadDetailModal({
                       <option key={t.id} value={t.id}>{t.name}</option>
                     ))}
                   </select>
-                </div>
+                </section>
               )}
 
               {/* Notes */}
-              <div>
+              <section className="border border-neutral-200 rounded-[20px] p-4 lg:col-span-2">
                 <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">Observações</p>
                 <textarea
                   value={notes}
@@ -2053,10 +2027,10 @@ function LeadDetailModal({
                 <Button onClick={saveNotes} loading={saving} size="sm" className="mt-2">
                   {saving ? 'Salvando' : 'Salvar'}
                 </Button>
-              </div>
+              </section>
 
               {/* Communication grid */}
-              <div>
+              <section className="border border-neutral-200 rounded-[20px] p-4 lg:col-span-2">
                 <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-2">Comunicação</p>
                 {/* WhatsApp campaign sender — full width */}
                 {phone && (
@@ -2094,10 +2068,10 @@ function LeadDetailModal({
                     </a>
                   )}
                 </div>
-              </div>
+              </section>
 
               {/* Delete */}
-              <div className="pt-2 border-t border-border-light">
+              <div className="pt-2 lg:col-span-2 border-t border-neutral-200">
                 <button
                   onClick={handleDelete}
                   className="inline-flex items-center gap-1.5 px-3 h-9 rounded-lg text-red-600 text-[12px] font-medium hover:bg-red-50 transition"
@@ -2105,9 +2079,31 @@ function LeadDetailModal({
                   <Trash2 size={13} strokeWidth={1.75} /> Remover este lead
                 </button>
               </div>
-            </>
+            </div>
           )}
         </div>
+
+        {/* Contact actions — always available without competing with lead identity */}
+        {phone && (
+          <div className="shrink-0 grid grid-cols-[minmax(0,1fr)_auto] gap-2 px-5 lg:px-6 py-3 border-t border-neutral-200 bg-white/95 backdrop-blur pb-[max(12px,env(safe-area-inset-bottom))]">
+            <button
+              type="button"
+              onClick={() => setShowWaSend(true)}
+              className="flex items-center justify-center gap-2.5 h-12 px-5 rounded-[18px] bg-emerald-600 text-white text-[13px] font-semibold hover:bg-emerald-700 active:scale-[0.98] transition"
+            >
+              <WhatsAppIcon size={16} className="brand-icon--wa" />
+              Preparar mensagem
+            </button>
+            <a
+              href={`tel:+${phone}`}
+              aria-label={`Ligar para ${lead.name}`}
+              className="flex items-center justify-center gap-2 h-12 min-w-12 sm:px-5 rounded-[18px] bg-neutral-100 text-neutral-900 text-[13px] font-semibold hover:bg-neutral-200 active:scale-[0.98] transition"
+            >
+              <Phone size={16} strokeWidth={1.75} />
+              <span className="hidden sm:inline">Ligar</span>
+            </a>
+          </div>
+        )}
       </div>
 
       {/* WhatsApp send modal */}
@@ -2119,7 +2115,7 @@ function LeadDetailModal({
         />
       )}
     </div>
-  )
+  ), document.body)
 }
 
 /* ══════════════════════════════════════════════

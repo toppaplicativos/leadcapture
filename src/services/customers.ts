@@ -1321,24 +1321,33 @@ export class CustomersService {
       }
     }
 
-    // category — supports comma-separated multi-value
+    // category / nicho — multi-value + fuzzy (ILIKE) em category, subcategory, tags e source_details
     if (filters?.category) {
       const vals = filters.category.split(",").map((v) => v.trim()).filter(Boolean);
-      if (this.hasColumn(columns, "category")) {
-        if (vals.length === 1) {
-          where += " AND category = ?";
-          params.push(vals[0]);
-        } else if (vals.length > 1) {
-          where += ` AND category IN (${vals.map(() => "?").join(", ")})`;
-          params.push(...vals);
+      if (vals.length > 0) {
+        const orParts: string[] = [];
+        for (const v of vals) {
+          const like = `%${v}%`;
+          if (this.hasColumn(columns, "category")) {
+            orParts.push("LOWER(COALESCE(category, '')) LIKE LOWER(?)");
+            params.push(like);
+          }
+          if (this.hasColumn(columns, "subcategory")) {
+            orParts.push("LOWER(COALESCE(subcategory, '')) LIKE LOWER(?)");
+            params.push(like);
+          }
+          if (this.hasColumn(columns, "tags")) {
+            orParts.push("LOWER(COALESCE(tags::text, '')) LIKE LOWER(?)");
+            params.push(like);
+          }
+          if (this.hasColumn(columns, "source_details")) {
+            orParts.push("LOWER(COALESCE(source_details::text, '')) LIKE LOWER(?)");
+            params.push(like);
+          }
+          // match exato ainda coberto pelo LIKE
         }
-      } else if (this.hasColumn(columns, "source_details") && vals.length > 0) {
-        if (vals.length === 1) {
-          where += " AND source_details::jsonb->>'category' = ?";
-          params.push(vals[0]);
-        } else {
-          where += ` AND source_details::jsonb->>'category' IN (${vals.map(() => "?").join(", ")})`;
-          params.push(...vals);
+        if (orParts.length) {
+          where += ` AND (${orParts.join(" OR ")})`;
         }
       }
     }
@@ -1371,18 +1380,40 @@ export class CustomersService {
       params.push(filters.state);
     }
 
-    // search — case-insensitive + accent-insensitive via unaccent.
-    // "Iguatu"/"iguatu"/"IGUATU" e "imobiliaria"/"imobiliária" todos batem.
-    // Requer extensão `unaccent` habilitada (CREATE EXTENSION IF NOT EXISTS unaccent).
+    // search — nome, telefone, e-mail, cidade, nicho, tags, notas (sem depender de unaccent).
+    // unaccent derrubava a listagem inteira quando a extensão PG não existe.
     if (filters?.search) {
-      const searchFields = ["name", "trade_name", "phone", "email"].filter((field) =>
-        this.hasColumn(columns, field)
-      );
+      const raw = String(filters.search || "").trim();
+      if (raw) {
+        const searchFields = [
+          "name",
+          "trade_name",
+          "phone",
+          "email",
+          "city",
+          "state",
+          "category",
+          "subcategory",
+          "notes",
+          "address",
+          "tags",
+        ].filter((field) => this.hasColumn(columns, field));
 
-      if (searchFields.length > 0) {
-        where += ` AND (${searchFields.map((f) => `LOWER(unaccent(COALESCE(${f}::text, ''))) LIKE LOWER(unaccent(?))`).join(" OR ")})`;
-        const s = `%${filters.search}%`;
-        searchFields.forEach(() => params.push(s));
+        if (searchFields.length > 0) {
+          const digits = raw.replace(/\D/g, "");
+          const parts: string[] = [];
+          const s = `%${raw}%`;
+          for (const f of searchFields) {
+            parts.push(`LOWER(COALESCE(${f}::text, '')) LIKE LOWER(?)`);
+            params.push(s);
+          }
+          // telefone só dígitos (ex.: "8599" bate em +55 85 9…)
+          if (digits.length >= 3 && this.hasColumn(columns, "phone")) {
+            parts.push(`REGEXP_REPLACE(COALESCE(phone, ''), '[^0-9]', '', 'g') LIKE ?`);
+            params.push(`%${digits}%`);
+          }
+          where += ` AND (${parts.join(" OR ")})`;
+        }
       }
     }
 

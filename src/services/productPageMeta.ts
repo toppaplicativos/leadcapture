@@ -10,13 +10,6 @@ type ProductRow = {
   category?: string | null
 }
 
-export type ProductPageMetaInput = {
-  origin: string
-  canonicalPath: string
-  storeName: string
-  product: ProductRow
-}
-
 function escapeHtml(value: string): string {
   return String(value || "")
     .replace(/&/g, "&amp;")
@@ -64,18 +57,6 @@ function absoluteUrl(origin: string, path: string | null | undefined): string | 
   return `${base}/${src}`;
 }
 
-function optimizedImage(origin: string, url: string | null, width = 1200): string | null {
-  const abs = absoluteUrl(origin, url);
-  if (!abs) return null;
-  if (!abs.includes("/uploads/")) return abs;
-  try {
-    const u = new URL(abs);
-    return `${origin.replace(/\/+$/, "")}/api/img?src=${encodeURIComponent(u.pathname)}&w=${width}&q=85`;
-  } catch {
-    return abs;
-  }
-}
-
 function resolveAvailability(product: ProductRow): string {
   const md = parseJson<Record<string, unknown>>(product.metadata_json, {});
   const stockStatus = String(md.stock_status || "unlimited");
@@ -84,7 +65,41 @@ function resolveAvailability(product: ProductRow): string {
   return isOut ? "out of stock" : "in stock";
 }
 
-/** Injeta meta tags no <head> para crawlers (Instagram, Facebook, Google). */
+export type ProductPageMetaInput = {
+  origin: string
+  /** Host que serve /uploads e /api/img (request) */
+  assetOrigin?: string
+  canonicalPath: string
+  storeName: string
+  product: ProductRow
+  /** Complemento de descrição (ex.: cupom do afiliado no OG) */
+  extraDescription?: string | null
+}
+
+function optimizedImageWithAsset(
+  publicOrigin: string,
+  assetOrigin: string | undefined,
+  url: string | null,
+  width = 1200,
+): string | null {
+  const raw = String(url || "").trim();
+  if (!raw) return null;
+  const tryOrigin = (origin: string): string | null => {
+    const abs = absoluteUrl(origin, raw);
+    if (!abs) return null;
+    if (!abs.includes("/uploads/")) return abs;
+    try {
+      const u = new URL(abs);
+      return `${origin.replace(/\/+$/, "")}/api/img?src=${encodeURIComponent(u.pathname)}&w=${width}&q=85&fm=jpg`;
+    } catch {
+      return abs;
+    }
+  };
+  const asset = String(assetOrigin || publicOrigin).replace(/\/+$/, "");
+  return tryOrigin(asset) || tryOrigin(publicOrigin.replace(/\/+$/, ""));
+}
+
+/** Injeta meta tags no <head> para crawlers (WhatsApp, Instagram, Facebook, Google). */
 export function buildProductPageHeadMarkup(input: ProductPageMetaInput): string {
   const { origin, canonicalPath, storeName, product } = input;
   const md = parseJson<Record<string, unknown>>(product.metadata_json, {});
@@ -93,11 +108,19 @@ export function buildProductPageHeadMarkup(input: ProductPageMetaInput): string 
   const productName = String(product.name || "Produto").trim();
   const title = String(seo.meta_title || productName).slice(0, 70);
   const pageTitle = storeName ? `${title} · ${storeName}` : title;
-  const description = truncate(seo.meta_description || product.description || productName, 160);
+  const priceNum = Number(product.price || 0);
+  const priceLabel = priceNum > 0
+    ? priceNum.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
+    : "";
+  const baseDesc = String(seo.meta_description || product.description || productName).trim();
+  const description = truncate(
+    [baseDesc, priceLabel || null, input.extraDescription || null].filter(Boolean).join(" · "),
+    160,
+  );
   const canonicalUrl = absoluteUrl(origin, canonicalPath) || origin;
   const images = parseImages(product);
-  const shareImage = optimizedImage(origin, images[0] || null, 1200);
-  const price = Number(product.price || 0).toFixed(2);
+  const shareImage = optimizedImageWithAsset(origin, input.assetOrigin, images[0] || null, 1200);
+  const price = priceNum.toFixed(2);
   const currency = String(product.currency || "BRL").trim() || "BRL";
   const availability = resolveAvailability(product);
 
@@ -106,7 +129,9 @@ export function buildProductPageHeadMarkup(input: ProductPageMetaInput): string 
     "@type": "Product",
     name: productName,
     description: description || undefined,
-    image: images.length ? images.map((img) => absoluteUrl(origin, img)).filter(Boolean) : undefined,
+    image: images.length
+      ? images.map((img) => absoluteUrl(input.assetOrigin || origin, img) || absoluteUrl(origin, img)).filter(Boolean)
+      : undefined,
     url: canonicalUrl,
     brand: { "@type": "Brand", name: storeName },
     offers: {
@@ -131,6 +156,9 @@ export function buildProductPageHeadMarkup(input: ProductPageMetaInput): string 
     `<meta property="og:url" content="${escapeHtml(canonicalUrl)}" />`,
     shareImage ? `<meta property="og:image" content="${escapeHtml(shareImage)}" />` : "",
     shareImage ? `<meta property="og:image:secure_url" content="${escapeHtml(shareImage)}" />` : "",
+    shareImage ? `<meta property="og:image:width" content="1200" />` : "",
+    shareImage ? `<meta property="og:image:height" content="630" />` : "",
+    shareImage ? `<meta property="og:image:alt" content="${escapeHtml(productName)}" />` : "",
     `<meta property="product:price:amount" content="${escapeHtml(price)}" />`,
     `<meta property="product:price:currency" content="${escapeHtml(currency)}" />`,
     `<meta property="product:availability" content="${escapeHtml(availability)}" />`,
@@ -149,5 +177,9 @@ export function injectProductMetaIntoHtml(html: string, headMarkup: string): str
   result = result.replace(/<title>[^<]*<\/title>/i, "");
   result = result.replace(/<meta\s+name="description"[^>]*>/i, "");
   result = result.replace(/<link\s+rel="canonical"[^>]*>/i, "");
+  /* Remove OG/Twitter genéricos do SPA para o crawler do WhatsApp não misturar */
+  result = result.replace(/<meta\s+property="og:[^"]+"[^>]*>/gi, "");
+  result = result.replace(/<meta\s+name="twitter:[^"]+"[^>]*>/gi, "");
+  result = result.replace(/<meta\s+property="product:[^"]+"[^>]*>/gi, "");
   return result.replace("</head>", `    ${headMarkup}\n  </head>`);
 }

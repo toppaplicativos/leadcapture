@@ -2161,19 +2161,40 @@ publicRouter.get("/stores/:slug/client-types", async (req, res) => {
   }
 });
 
+/** In-flight catalog rebuild locks (stale-while-revalidate). */
+const catalogRebuildLocks = new Set<string>();
+
 publicRouter.get("/stores/:slug/catalog", async (req, res) => {
+  let rebuildLockHeld = false;
   try {
     const slug = String(req.params.slug || "").trim();
 
-    /* Return cached response if still fresh */
-    const cached = getCatalogCacheEntry(slug);
-    if (cached) {
+    /* Fresh cache → instant response */
+    const cached = getCatalogCacheEntry(slug, { allowStale: true });
+    if (cached && !cached.stale) {
       res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
+      res.set("X-Catalog-Cache", "hit");
       return res.json(cached.data);
     }
 
+    /*
+     * Stale-while-revalidate: serve last good payload immediately, then rebuild
+     * in this same request (client already has data). Dedup concurrent rebuilds.
+     */
+    if (cached?.stale) {
+      res.set("Cache-Control", "public, max-age=15, stale-while-revalidate=300");
+      res.set("X-Catalog-Cache", "stale");
+      res.json(cached.data);
+      if (catalogRebuildLocks.has(slug)) return;
+      catalogRebuildLocks.add(slug);
+      rebuildLockHeld = true;
+    }
+
     const bundle = await storefront.resolvePublicStore({ slug });
-    if (!bundle) return res.status(404).json({ error: "Store not found" });
+    if (!bundle) {
+      if (!res.headersSent) return res.status(404).json({ error: "Store not found" });
+      return;
+    }
 
     // Resolve category names from categories table
     const categoryNameMap = new Map<string, string>();
@@ -2183,19 +2204,10 @@ publicRouter.get("/stores/:slug/catalog", async (req, res) => {
       const catId = String(item?.category || "").trim();
       if (catId) categoryIds.add(catId);
     }
-    if (categoryIds.size > 0) {
-      const placeholders = Array.from(categoryIds).map(() => "?").join(",");
-      const catRows = (await query<any[]>(
-        `SELECT id, name FROM categories WHERE id IN (${placeholders})`,
-        Array.from(categoryIds)
-      )) as any[];
-      for (const row of catRows) {
-        categoryNameMap.set(String(row.id), String(row.name || row.id));
-      }
-    }
 
     /* Build source_id → storefront_id map (and reverse) to translate relations across the two ID schemes */
     const sourceToStorefrontId = new Map<string, string>();
+    const sourceProductIds: string[] = [];
     for (const item of productsRaw) {
       const md = (() => {
         try { return typeof item?.metadata_json === "string" ? JSON.parse(item.metadata_json) : (item?.metadata_json || {}); }
@@ -2205,19 +2217,95 @@ publicRouter.get("/stores/:slug/catalog", async (req, res) => {
         const norm = String(c || "").trim();
         if (norm) sourceToStorefrontId.set(norm, String(item.id));
       });
+      const ownSource = String(md?.source_product_id || md?.source_product_id_legacy || "").trim();
+      if (ownSource) sourceProductIds.push(ownSource);
     }
 
-    /* Batch load relations for all source products (Fase 6) */
-    const sourceProductIds = productsRaw
-      .map((item: any) => {
-        const md = (() => {
-          try { return typeof item?.metadata_json === "string" ? JSON.parse(item.metadata_json) : (item?.metadata_json || {}); }
-          catch { return {}; }
-        })();
-        return String(md?.source_product_id || md?.source_product_id_legacy || "").trim();
-      })
-      .filter(Boolean);
-    const relationsBySourceId = await productRelationsService.listForProducts(sourceProductIds).catch(() => new Map());
+    const catalogBrandIdEarly = normalizeBrandId(bundle.store.brand_id);
+    const storeIdEarly = String(bundle.store.id);
+    const ownerIdEarly = String(bundle.store.owner_user_id || "").trim();
+
+    /* Parallel fan-out: categories, relations, sales, payment methods (independent) */
+    const [
+      catRowsResult,
+      relationsBySourceId,
+      managedSales,
+      legacySalesRows,
+      brandCatRows,
+      paymentMethodsResolved,
+    ] = await Promise.all([
+      categoryIds.size > 0
+        ? query<any[]>(
+            `SELECT id, name FROM categories WHERE id IN (${Array.from(categoryIds).map(() => "?").join(",")})`,
+            Array.from(categoryIds)
+          ).catch(() => [])
+        : Promise.resolve([] as any[]),
+      productRelationsService.listForProducts(sourceProductIds).catch(() => new Map()),
+      query<any[]>(
+        `SELECT i.product_id, SUM(i.quantidade) AS sold_quantity
+         FROM commerce_order_items i
+         INNER JOIN commerce_orders o ON o.id = i.order_id
+         INNER JOIN order_management_meta m ON m.order_id = o.id
+         WHERE m.store_id = ?
+           AND COALESCE(m.business_status, 'novo') <> 'cancelado'
+           AND i.product_id IS NOT NULL
+         GROUP BY i.product_id
+         ORDER BY sold_quantity DESC
+         LIMIT 600`,
+        [storeIdEarly]
+      ).catch(() => []),
+      query<any[]>(
+        `SELECT items_json
+         FROM storefront_orders
+         WHERE store_id = ?
+           AND status <> 'cancelado'
+         ORDER BY created_at DESC
+         LIMIT 300`,
+        [storeIdEarly]
+      ).catch(() => []),
+      catalogBrandIdEarly
+        ? query<any[]>(
+            `SELECT id, name, color, cover_image FROM categories WHERE brand_id = ? ORDER BY name ASC`,
+            [catalogBrandIdEarly]
+          ).catch(() => [])
+        : Promise.resolve([] as any[]),
+      ownerIdEarly
+        ? (async () => {
+            try {
+              const methodConfigs = await paymentConfig.listMethodConfigs(ownerIdEarly);
+              const settings = await paymentConfig.getSettings(ownerIdEarly);
+              const methodLabels: Record<string, string> = {
+                pix: "PIX",
+                card: "Cartão",
+                boleto: "Boleto",
+                wallet: "Carteira",
+              };
+              const allowMap: Record<string, boolean> = {
+                pix: settings.allow_pix,
+                card: settings.allow_card,
+                boleto: settings.allow_boleto,
+                wallet: settings.allow_wallet,
+              };
+              const out: Array<{ type: string; label: string }> = [];
+              for (const mc of methodConfigs) {
+                if (mc.enabled && allowMap[mc.method_type]) {
+                  out.push({
+                    type: mc.method_type,
+                    label: methodLabels[mc.method_type] || mc.method_type,
+                  });
+                }
+              }
+              return out;
+            } catch {
+              return [] as Array<{ type: string; label: string }>;
+            }
+          })()
+        : Promise.resolve([] as Array<{ type: string; label: string }>),
+    ]);
+
+    for (const row of (catRowsResult as any[]) || []) {
+      categoryNameMap.set(String(row.id), String(row.name || row.id));
+    }
 
     const products = productsRaw.map((item: any) => {
       const catId = String(item?.category || "").trim();
@@ -2255,8 +2343,7 @@ publicRouter.get("/stores/:slug/catalog", async (req, res) => {
       };
     });
 
-    /* Reviews: lê agregados da tabela products (fonte) — metadata_json do storefront
-     * costuma ficar 0 mesmo com avaliações aprovadas. */
+    /* Reviews + snippets + attribute defs — parallel (sales already loaded above) */
     const reviewAggBySource = new Map<string, { avg: number; count: number }>();
     const uniqueSourceIds = Array.from(
       new Set(
@@ -2265,55 +2352,107 @@ publicRouter.get("/stores/:slug/catalog", async (req, res) => {
           .filter(Boolean)
       )
     );
-    if (uniqueSourceIds.length > 0) {
-      try {
-        const ph = uniqueSourceIds.map(() => "?").join(",");
-        const revRows = (await query<any[]>(
-          `SELECT id,
-                  COALESCE(reviews_avg, 0) AS reviews_avg,
-                  COALESCE(reviews_count, 0) AS reviews_count
-             FROM products
-            WHERE id IN (${ph})`,
-          uniqueSourceIds
-        )) as any[];
-        for (const row of revRows || []) {
-          const id = String(row?.id || "").trim();
-          if (!id) continue;
-          reviewAggBySource.set(id, {
-            avg: Number(row?.reviews_avg || 0),
-            count: Number(row?.reviews_count || 0),
-          });
-        }
-        /* Fallback: agrega ao vivo se denorm estiver zerado mas houver reviews aprovadas */
-        const zeroIds = uniqueSourceIds.filter((id) => {
-          const a = reviewAggBySource.get(id);
-          return !a || a.count <= 0;
-        });
-        if (zeroIds.length > 0) {
-          const ph2 = zeroIds.map(() => "?").join(",");
-          const live = (await query<any[]>(
-            `SELECT product_id,
-                    COUNT(*)::int AS n,
-                    COALESCE(AVG(rating), 0)::float AS avg
-               FROM product_reviews
-              WHERE product_id IN (${ph2}) AND status = 'approved'
-              GROUP BY product_id`,
-            zeroIds
-          ).catch(() => [])) as any[];
-          for (const row of live || []) {
-            const id = String(row?.product_id || "").trim();
-            const n = Number(row?.n || 0);
-            if (!id || n <= 0) continue;
+    const catalogBrandId = catalogBrandIdEarly;
+
+    const [reviewEnrichOk, recentReviews, attributeDefinitions] = await Promise.all([
+      (async () => {
+        if (uniqueSourceIds.length === 0) return true;
+        try {
+          const ph = uniqueSourceIds.map(() => "?").join(",");
+          const revRows = (await query<any[]>(
+            `SELECT id,
+                    COALESCE(reviews_avg, 0) AS reviews_avg,
+                    COALESCE(reviews_count, 0) AS reviews_count
+               FROM products
+              WHERE id IN (${ph})`,
+            uniqueSourceIds
+          )) as any[];
+          for (const row of revRows || []) {
+            const id = String(row?.id || "").trim();
+            if (!id) continue;
             reviewAggBySource.set(id, {
-              avg: Math.round(Number(row?.avg || 0) * 100) / 100,
-              count: n,
+              avg: Number(row?.reviews_avg || 0),
+              count: Number(row?.reviews_count || 0),
             });
           }
+          const zeroIds = uniqueSourceIds.filter((id) => {
+            const a = reviewAggBySource.get(id);
+            return !a || a.count <= 0;
+          });
+          if (zeroIds.length > 0) {
+            const ph2 = zeroIds.map(() => "?").join(",");
+            const live = (await query<any[]>(
+              `SELECT product_id,
+                      COUNT(*)::int AS n,
+                      COALESCE(AVG(rating), 0)::float AS avg
+                 FROM product_reviews
+                WHERE product_id IN (${ph2}) AND status = 'approved'
+                GROUP BY product_id`,
+              zeroIds
+            ).catch(() => [])) as any[];
+            for (const row of live || []) {
+              const id = String(row?.product_id || "").trim();
+              const n = Number(row?.n || 0);
+              if (!id || n <= 0) continue;
+              reviewAggBySource.set(id, {
+                avg: Math.round(Number(row?.avg || 0) * 100) / 100,
+                count: n,
+              });
+            }
+          }
+          return true;
+        } catch (e: any) {
+          logger.warn(`[catalog] reviews enrich failed: ${e?.message || e}`);
+          return false;
         }
-      } catch (e: any) {
-        logger.warn(`[catalog] reviews enrich failed: ${e?.message || e}`);
-      }
-    }
+      })(),
+      (async () => {
+        if (!catalogBrandId) return [] as Array<{
+          id: string;
+          customer_name: string;
+          rating: number;
+          comment: string | null;
+          product_name: string | null;
+          product_id: string | null;
+          verified_purchase: boolean;
+          created_at: string;
+        }>;
+        try {
+          const snippetRows = (await query<any[]>(
+            `SELECT r.id, r.customer_name, r.rating, r.comment, r.verified_purchase,
+                    r.created_at, r.product_id, p.name AS product_name
+               FROM product_reviews r
+               LEFT JOIN products p ON p.id = r.product_id
+              WHERE r.brand_id = ? AND r.status = 'approved'
+                AND r.comment IS NOT NULL AND LENGTH(TRIM(r.comment)) > 0
+              ORDER BY r.verified_purchase DESC, r.created_at DESC
+              LIMIT 8`,
+            [catalogBrandId]
+          )) as any[];
+          return (snippetRows || []).map((row) => {
+            const sourcePid = String(row?.product_id || "").trim();
+            const sfId = sourcePid ? sourceToStorefrontId.get(sourcePid) || null : null;
+            return {
+              id: String(row.id),
+              customer_name: String(row.customer_name || "Cliente"),
+              rating: Number(row.rating) || 5,
+              comment: row.comment ? String(row.comment).trim().slice(0, 280) : null,
+              product_name: row.product_name ? String(row.product_name) : null,
+              product_id: sfId,
+              verified_purchase: Boolean(row.verified_purchase),
+              created_at: row.created_at ? new Date(row.created_at).toISOString() : "",
+            };
+          });
+        } catch (e: any) {
+          logger.warn(`[catalog] recent reviews failed: ${e?.message || e}`);
+          return [];
+        }
+      })(),
+      attributeDefinitionService
+        .listForPublic(catalogBrandId)
+        .catch(() => []),
+    ]);
+    void reviewEnrichOk;
 
     for (const p of products as any[]) {
       const sid = String(p._source_product_id || "").trim();
@@ -2325,82 +2464,14 @@ publicRouter.get("/stores/:slug/catalog", async (req, res) => {
       delete p._source_product_id;
     }
 
-    /* Snippets públicos recentes da marca (home / social proof) */
-    let recentReviews: Array<{
-      id: string;
-      customer_name: string;
-      rating: number;
-      comment: string | null;
-      product_name: string | null;
-      product_id: string | null;
-      verified_purchase: boolean;
-      created_at: string;
-    }> = [];
-    const catalogBrandId = normalizeBrandId(bundle.store.brand_id);
-    if (catalogBrandId) {
-      try {
-        const snippetRows = (await query<any[]>(
-          `SELECT r.id, r.customer_name, r.rating, r.comment, r.verified_purchase,
-                  r.created_at, r.product_id, p.name AS product_name
-             FROM product_reviews r
-             LEFT JOIN products p ON p.id = r.product_id
-            WHERE r.brand_id = ? AND r.status = 'approved'
-              AND r.comment IS NOT NULL AND LENGTH(TRIM(r.comment)) > 0
-            ORDER BY r.verified_purchase DESC, r.created_at DESC
-            LIMIT 8`,
-          [catalogBrandId]
-        )) as any[];
-        recentReviews = (snippetRows || []).map((row) => {
-          const sourcePid = String(row?.product_id || "").trim();
-          const sfId = sourcePid ? sourceToStorefrontId.get(sourcePid) || null : null;
-          return {
-            id: String(row.id),
-            customer_name: String(row.customer_name || "Cliente"),
-            rating: Number(row.rating) || 5,
-            comment: row.comment ? String(row.comment).trim().slice(0, 280) : null,
-            product_name: row.product_name ? String(row.product_name) : null,
-            product_id: sfId,
-            verified_purchase: Boolean(row.verified_purchase),
-            created_at: row.created_at ? new Date(row.created_at).toISOString() : "",
-          };
-        });
-      } catch (e: any) {
-        logger.warn(`[catalog] recent reviews failed: ${e?.message || e}`);
-      }
-    }
-
     const soldByProductId = new Map<string, number>();
-    const managedSales = await query<any[]>(
-      `SELECT i.product_id, SUM(i.quantidade) AS sold_quantity
-       FROM commerce_order_items i
-       INNER JOIN commerce_orders o ON o.id = i.order_id
-       INNER JOIN order_management_meta m ON m.order_id = o.id
-       WHERE m.store_id = ?
-         AND COALESCE(m.business_status, 'novo') <> 'cancelado'
-         AND i.product_id IS NOT NULL
-       GROUP BY i.product_id
-       ORDER BY sold_quantity DESC
-       LIMIT 600`,
-      [String(bundle.store.id)]
-    );
-
-    for (const row of managedSales || []) {
+    for (const row of (managedSales as any[]) || []) {
       const productId = String(row?.product_id || "").trim();
       if (!productId) continue;
       soldByProductId.set(productId, (soldByProductId.get(productId) || 0) + Number(row?.sold_quantity || 0));
     }
 
-    const legacySalesRows = (await query<any[]>(
-      `SELECT items_json
-       FROM storefront_orders
-       WHERE store_id = ?
-         AND status <> 'cancelado'
-       ORDER BY created_at DESC
-       LIMIT 300`,
-      [String(bundle.store.id)]
-    )) as any[];
-
-    for (const row of legacySalesRows) {
+    for (const row of (legacySalesRows as any[]) || []) {
       const items = parseJson<any[]>(row?.items_json, []);
       if (!Array.isArray(items)) continue;
       for (const rawItem of items) {
@@ -2434,7 +2505,6 @@ publicRouter.get("/stores/:slug/catalog", async (req, res) => {
     }
 
     /* Categorias definidas no admin — com capa, cor e contagem de produtos */
-    const brandId = normalizeBrandId(bundle.store.brand_id);
     let storeCategories: Array<{
       id: string;
       name: string;
@@ -2442,19 +2512,15 @@ publicRouter.get("/stores/:slug/catalog", async (req, res) => {
       color: string | null;
       count: number;
     }> = [];
-    if (brandId) {
-      const catRows = (await query<any[]>(
-        `SELECT id, name, color, cover_image FROM categories WHERE brand_id = ? ORDER BY name ASC`,
-        [brandId]
-      )) as any[];
+    {
       const countByKey = new Map<string, number>();
       for (const product of ranked) {
         const key = String(product.category || product.category_name || "").trim();
         if (!key) continue;
         countByKey.set(key, (countByKey.get(key) || 0) + 1);
       }
-      storeCategories = (Array.isArray(catRows) ? catRows : [])
-        .map((row) => {
+      storeCategories = (Array.isArray(brandCatRows) ? brandCatRows : [])
+        .map((row: any) => {
           const id = String(row?.id || "").trim();
           const name = String(row?.name || "").trim();
           const count = countByKey.get(name) || countByKey.get(id) || 0;
@@ -2466,7 +2532,7 @@ publicRouter.get("/stores/:slug/catalog", async (req, res) => {
             count,
           };
         })
-        .filter((c) => c.id && c.name && c.count > 0);
+        .filter((c: any) => c.id && c.name && c.count > 0);
     }
 
     const storeBrand = (bundle.store.brand || {}) as Record<string, any>;
@@ -2479,27 +2545,7 @@ publicRouter.get("/stores/:slug/catalog", async (req, res) => {
       .toLowerCase();
     const profileStatus = profileStatusRaw === "fechado" ? "fechado" : "aberto";
 
-    /* Resolve enabled payment methods for this store */
-    const ownerId = String(bundle.store.owner_user_id || "").trim();
-    let paymentMethods: Array<{ type: string; label: string }> = [];
-    if (ownerId) {
-      try {
-        const methodConfigs = await paymentConfig.listMethodConfigs(ownerId);
-        const settings = await paymentConfig.getSettings(ownerId);
-        const methodLabels: Record<string, string> = { pix: "PIX", card: "Cartão", boleto: "Boleto", wallet: "Carteira" };
-        const allowMap: Record<string, boolean> = {
-          pix: settings.allow_pix,
-          card: settings.allow_card,
-          boleto: settings.allow_boleto,
-          wallet: settings.allow_wallet,
-        };
-        for (const mc of methodConfigs) {
-          if (mc.enabled && allowMap[mc.method_type]) {
-            paymentMethods.push({ type: mc.method_type, label: methodLabels[mc.method_type] || mc.method_type });
-          }
-        }
-      } catch (_) { /* ignore — use empty array as fallback */ }
-    }
+    const paymentMethods: Array<{ type: string; label: string }> = paymentMethodsResolved || [];
 
     const catalogResponse = {
       success: true,
@@ -2573,32 +2619,13 @@ publicRouter.get("/stores/:slug/catalog", async (req, res) => {
       all_products: ranked,
       recent_reviews: recentReviews,
       /* Attribute definitions for client-side filters (Fase 2). Only is_filter=TRUE. */
-      attribute_definitions: await attributeDefinitionService
-        .listForPublic(normalizeBrandId(bundle.store.brand_id))
-        .catch(() => []),
+      attribute_definitions: attributeDefinitions || [],
       /* Collections (Fase 1) — resolved against current catalog.
        * IMPORTANT: collection.product_ids stores source-catalog product IDs (products.id),
        * but `ranked` items use storefront_products.id. We map via metadata.source_product_id. */
       collections: await (async () => {
         try {
-          const brandId = normalizeBrandId(bundle.store.brand_id);
-          const cols = await offerCatalogService.listActiveCollectionsByBrand(brandId);
-          /* Build source_id → storefront_id lookup. Different code paths historically used
-           * different ID schemes (UUID, prod-XXX legacy, commerce_product_id), so index all of them. */
-          const sourceToStorefront = new Map<string, string>();
-          for (const item of productsRaw) {
-            const md = parseJson<Record<string, any>>(item?.metadata_json, {});
-            const storefrontId = String(item.id);
-            const candidates = [
-              md?.source_product_id,
-              md?.source_product_id_legacy,
-              md?.commerce_product_id,
-            ];
-            for (const c of candidates) {
-              const norm = String(c || "").trim();
-              if (norm) sourceToStorefront.set(norm, storefrontId);
-            }
-          }
+          const cols = await offerCatalogService.listActiveCollectionsByBrand(catalogBrandId);
           const productsForRules = ranked.map((p: any) => ({
             id: p.id,
             price: Number(p.price || 0),
@@ -2607,13 +2634,14 @@ publicRouter.get("/stores/:slug/catalog", async (req, res) => {
             type: p.type,
             cta_type: p.cta_type,
           }));
+          const rankedIds = new Set(ranked.map((p: any) => p.id));
           return cols.map((c) => {
             /* For manual: translate source IDs to storefront IDs. For auto: rules already work on storefront items. */
             const isManual = c.type !== "auto";
             const resolvedIds = isManual
-              ? c.product_ids.map((id) => sourceToStorefront.get(String(id))).filter((x): x is string => !!x)
+              ? c.product_ids.map((id) => sourceToStorefrontId.get(String(id))).filter((x): x is string => !!x)
               : offerCatalogService.resolveProductIds(c, productsForRules);
-            const validIds = resolvedIds.filter((id) => ranked.some((p: any) => p.id === id));
+            const validIds = resolvedIds.filter((id) => rankedIds.has(id));
             return {
               id: c.id,
               slug: c.slug,
@@ -2631,17 +2659,29 @@ publicRouter.get("/stores/:slug/catalog", async (req, res) => {
       })(),
       stats: {
         total_products: ranked.length,
-        total_orders: Number((managedSales || []).length) + Number((legacySalesRows || []).length),
+        total_orders: Number(((managedSales as any[]) || []).length) + Number(((legacySalesRows as any[]) || []).length),
       },
     };
 
     /* Persist in cache */
     setCatalogCacheEntry(slug, catalogResponse);
 
-    res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
-    res.json(catalogResponse);
+    if (!res.headersSent) {
+      res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
+      res.set("X-Catalog-Cache", "miss");
+      res.json(catalogResponse);
+    }
   } catch (error: any) {
-    res.status(500).json({ error: error.message || "Failed to load catalog" });
+    if (!res.headersSent) {
+      res.status(500).json({ error: error.message || "Failed to load catalog" });
+    } else {
+      logger.warn(`[catalog] rebuild after stale failed: ${error?.message || error}`);
+    }
+  } finally {
+    if (rebuildLockHeld) {
+      const slug = String(req.params.slug || "").trim();
+      catalogRebuildLocks.delete(slug);
+    }
   }
 });
 

@@ -27,8 +27,8 @@ if (IS_LOCAL_DEV) {
     );
   });
 } else {
-const SHELL_CACHE_NAME = "lead-system-shell-v238-20260717-affiliate-session";
-const RUNTIME_CACHE_NAME = "lead-system-runtime-v229-20260717-affiliate-session";
+const SHELL_CACHE_NAME = "lead-system-shell-v270-20260721-affiliate-session";
+const RUNTIME_CACHE_NAME = "lead-system-runtime-v261-20260721-affiliate-session";
 
 function getBasePath() {
   try {
@@ -81,14 +81,18 @@ self.addEventListener("install", (event) => {
     (async () => {
       try {
         const cache = await caches.open(SHELL_CACHE_NAME);
+        // NÃO precachear /manifest.json — vira SPA HTML (catch-all) e confunde installability.
+        // Manifest real: /pwa/manifest.webmanifest (dinâmico, network-only).
         const shellUrls = [
           toScopedPath(""),
           toScopedPath("index.html"),
-          toScopedPath("manifest.json"),
           toScopedPath("brand-mark.png"),
           toScopedPath("brand-mark.svg"),
           toScopedPath("brand-mark-dark.png"),
           toScopedPath("brand-mark-dark.svg"),
+          toScopedPath("brand-mark-512.png"),
+          "/pwa/icons/admin/192.png",
+          "/pwa/icons/admin/512.png",
           "/sounds/mob-offer.wav",
         ];
         await Promise.all(
@@ -307,7 +311,7 @@ self.addEventListener("push", (event) => {
     vibrate: meta.vibrate || defaultVibrate,
     actions: data.actions || (isOffer
       ? [
-          { action: "open", title: "Ver oferta" },
+          { action: "open", title: "Ver corrida" },
           { action: "close", title: "Depois" },
         ]
       : [

@@ -59,8 +59,10 @@ function slugifyBrandCode(raw: unknown): string {
 
 /**
  * Nome/código automático de sessão do afiliado — sem input do usuário.
- * Formato: {slugOrg}-WA-001 (sequencial por afiliado+marca).
- * Serve de rastreio: cada sessão amarra contatos à organização e ao afiliado.
+ * Formato: {slugOrg}-WA-001
+ * Fila global sequencial por marca (não reinicia por afiliado).
+ * Ex.: afiliado A → marca-WA-001, afiliado B → marca-WA-002, A de novo → marca-WA-003.
+ * Serve de rastreio: cada sessão amarra contatos à organização e ao afiliado dono.
  */
 export async function allocateAffiliateSessionCode(input: {
   ownerUserId: string;
@@ -76,47 +78,52 @@ export async function allocateAffiliateSessionCode(input: {
 
   await ensureWhatsAppInstanceOwnerSchema();
 
-  /* Reserva o próximo número sob lock de linha. Antes, dois requests
-     simultâneos podiam ler a mesma lista e gerar o mesmo código. */
+  /* Reserva o próximo número sob lock de linha (fila global da marca).
+     Dois requests simultâneos não geram o mesmo código. */
   const connection = await getPool().getConnection();
   try {
     await connection.query("BEGIN");
     await connection.execute(
-      `INSERT IGNORE INTO affiliate_whatsapp_session_sequences
-         (owner_user_id, brand_id, actor_user_id, next_seq)
-       VALUES (?, ?, ?, 1)`,
-      [input.ownerUserId, input.brandId, input.actorUserId],
+      `INSERT IGNORE INTO brand_whatsapp_session_sequences
+         (brand_id, next_seq)
+       VALUES (?, 1)`,
+      [input.brandId],
     );
     const [counterRows] = await connection.execute<any[]>(
       `SELECT next_seq
-       FROM affiliate_whatsapp_session_sequences
-       WHERE owner_user_id = ? AND brand_id = ? AND actor_user_id = ?
+       FROM brand_whatsapp_session_sequences
+       WHERE brand_id = ?
        FOR UPDATE`,
-      [input.ownerUserId, input.brandId, input.actorUserId],
+      [input.brandId],
     );
+    /* Todas as sessões da marca (afiliado + sistema) que seguem o padrão WA-NNN */
     const [existingRows] = await connection.execute<any[]>(
-      `SELECT name FROM whatsapp_instances
-       WHERE created_by = ? AND brand_id = ?
-         AND owner_type = 'affiliate' AND owner_actor_id = ?`,
-      [input.ownerUserId, input.brandId, input.actorUserId],
+      `SELECT name FROM whatsapp_instances WHERE brand_id = ?`,
+      [input.brandId],
     );
 
     const used = new Set<number>();
+    const pattern = new RegExp(`^${brandSlug.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}-WA-(\\d+)`, "i");
     for (const row of existingRows || []) {
-      const match = String(row.name || "").match(new RegExp(`^${brandSlug}-WA-(\\d+)`, "i"));
+      const match = String(row.name || "").match(pattern);
       if (match) used.add(Number(match[1]));
     }
     let seq = Math.max(1, Number(counterRows?.[0]?.next_seq || 1));
+    /* Se o contador ficou atrás (legado / migração), sobe a partir do maior usado */
+    if (used.size > 0) {
+      const maxUsed = Math.max(...used);
+      if (seq <= maxUsed) seq = maxUsed + 1;
+    }
     while (used.has(seq)) seq += 1;
-    if (seq > 50) {
-      throw new Error("Limite de 50 sessões WhatsApp por organização atingido para este afiliado");
+    if (seq > 999) {
+      throw new Error("Limite de 999 sessões WhatsApp atingido para esta organização");
     }
 
     await connection.execute(
-      `UPDATE affiliate_whatsapp_session_sequences
+      `UPDATE brand_whatsapp_session_sequences
        SET next_seq = ?, updated_at = NOW()
-       WHERE owner_user_id = ? AND brand_id = ? AND actor_user_id = ?`,
-      [seq + 1, input.ownerUserId, input.brandId, input.actorUserId],
+       WHERE brand_id = ?`,
+      [seq + 1, input.brandId],
     );
     await connection.query("COMMIT");
     const trackingCode = `${brandSlug}-WA-${String(seq).padStart(3, "0")}`;
@@ -184,6 +191,15 @@ export async function ensureWhatsAppInstanceOwnerSchema(): Promise<void> {
          next_seq INT NOT NULL DEFAULT 1,
          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
          PRIMARY KEY (owner_user_id, brand_id, actor_user_id)
+       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    );
+    /* Fila global sequencial por marca (sem reinício por afiliado) */
+    await query(
+      `CREATE TABLE IF NOT EXISTS brand_whatsapp_session_sequences (
+         brand_id VARCHAR(36) NOT NULL,
+         next_seq INT NOT NULL DEFAULT 1,
+         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+         PRIMARY KEY (brand_id)
        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
     );
 

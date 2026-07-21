@@ -666,7 +666,12 @@ export function AffiliateProgramsSection({
             <textarea rows={2} value={form.promotion_tone} onChange={(e) => setForm((f) => ({ ...f, promotion_tone: e.target.value }))} placeholder="Ex.: amigável e direto, foco em qualidade." />
           </label>
           <div className="affiliates-page__field affiliates-page__field--wide">
-            <span>Preview ao compartilhar (WhatsApp / redes)</span>
+            <span>Preview ao recrutar afiliados (WhatsApp / redes)</span>
+            <p className="text-[11px] text-gray-500 mt-1 mb-2 leading-relaxed">
+              Capa do <strong>programa de afiliados</strong> — usada para atrair novos parceiros (central-afiliado).
+              O preview quando o afiliado compartilha o <em>catálogo com o cliente</em> fica em{' '}
+              <strong>Loja → Identidade → Compartilhamento do catálogo</strong>.
+            </p>
             <div className="flex flex-col sm:flex-row gap-3 mt-2">
               <label className="affiliates-page__share-upload shrink-0">
                 {form.share_image_url ? (
@@ -693,8 +698,8 @@ export function AffiliateProgramsSection({
                 </span>
               </label>
               <div className="flex-1 space-y-2 min-w-0">
-                <input value={form.share_title} onChange={(e) => setForm((f) => ({ ...f, share_title: e.target.value }))} placeholder="Título do link" className="w-full" />
-                <textarea value={form.share_description} onChange={(e) => setForm((f) => ({ ...f, share_description: e.target.value }))} rows={3} placeholder="Descrição do preview" />
+                <input value={form.share_title} onChange={(e) => setForm((f) => ({ ...f, share_title: e.target.value }))} placeholder="Título do link de recrutamento" className="w-full" />
+                <textarea value={form.share_description} onChange={(e) => setForm((f) => ({ ...f, share_description: e.target.value }))} rows={3} placeholder="Descrição para atrair afiliados" />
                 {form.share_image_url && (
                   <button type="button" className="text-xs font-semibold text-red-500" onClick={() => setForm((f) => ({ ...f, share_image_url: '' }))}>
                     Remover capa

@@ -176,7 +176,7 @@ const SYSTEM_TYPES: Array<
   {
     slug: "on_foot",
     name: "A pé",
-    description: "Entrega a pé / caminhando",
+    description: "Corrida a pé / caminhando",
     icon: "footprints",
     category: "light",
     max_weight_kg: 8,
@@ -1760,5 +1760,227 @@ export const mobFleetService = {
       }
     }
     return { overdue: rows.length, blocked };
+  },
+
+  /* ── Courier-owned vehicle registration (pending approval) ── */
+
+  VEHICLE_SENSITIVE_FIELDS: ["plate", "renavam", "chassi", "vehicle_type_id"] as const,
+
+  async getVehicleByIdForCourier(
+    courierId: string,
+    vehicleId: string
+  ): Promise<(MobVehicle & { owner_user_id: string; brand_id: string }) | null> {
+    await ensureFleetSchema();
+    const row = await queryOne<any>(
+      `SELECT * FROM mob_vehicles WHERE id = ? AND courier_id = ? LIMIT 1`,
+      [vehicleId, courierId]
+    );
+    if (!row) return null;
+    const v = mapVehicle(row);
+    v.type = await this.getType(v.vehicle_type_id);
+    return v as MobVehicle & { owner_user_id: string; brand_id: string };
+  },
+
+  async createCourierVehicle(
+    courierId: string,
+    input: Partial<MobVehicle> & {
+      vehicle_type_id: string;
+      owner_user_id: string;
+      brand_id: string;
+    }
+  ): Promise<MobVehicle> {
+    await ensureFleetSchema();
+    const membership = await queryOne<any>(
+      `SELECT * FROM mob_courier_memberships
+       WHERE courier_id = ? AND owner_user_id = ? AND brand_id = ?
+         AND status IN ('pending','approved')
+       LIMIT 1`,
+      [courierId, input.owner_user_id, input.brand_id]
+    );
+    if (!membership) {
+      throw new Error("Vínculo com a loja não encontrado — aceite um convite primeiro");
+    }
+
+    const vehicle = await this.createVehicle(input.owner_user_id, input.brand_id, {
+      ...input,
+      courier_id: courierId,
+      ownership: input.ownership || "own",
+      status: "pending_approval",
+    });
+
+    // Soft cache on courier profile for map/dispatch legacy
+    try {
+      const { mobLogisticsService } = await import("./mobLogistics");
+      await mobLogisticsService.updateCourierProfile(courierId, {
+        vehicle_json: {
+          type: vehicle.type?.slug || vehicle.type?.name || null,
+          plate: vehicle.plate,
+          make: vehicle.make,
+          model: vehicle.model,
+          vehicle_id: vehicle.id,
+          status: vehicle.status,
+        },
+      });
+    } catch {
+      /* non-blocking */
+    }
+
+    return vehicle;
+  },
+
+  async updateCourierVehicle(
+    courierId: string,
+    vehicleId: string,
+    patch: Partial<MobVehicle>
+  ): Promise<MobVehicle> {
+    await ensureFleetSchema();
+    const current = await this.getVehicleByIdForCourier(courierId, vehicleId);
+    if (!current) throw new Error("Veículo não encontrado");
+
+    const locked = current.status === "available" || current.status === "in_use";
+    const safe: Partial<MobVehicle> = { ...patch };
+
+    if (locked) {
+      for (const k of ["plate", "renavam", "chassi", "vehicle_type_id"] as const) {
+        if (patch[k] !== undefined && patch[k] !== (current as any)[k]) {
+          throw new Error(
+            "Placa, RENAVAM, chassi e tipo não podem ser alterados após aprovação do veículo"
+          );
+        }
+        delete (safe as any)[k];
+      }
+      // courier cannot self-set status to available
+      delete (safe as any).status;
+      delete (safe as any).courier_id;
+    } else {
+      // while pending, keep pending_approval unless blocked/docs_expired
+      if (safe.status && !["pending_approval", "inactive"].includes(String(safe.status))) {
+        delete (safe as any).status;
+      }
+      if (!safe.status) safe.status = "pending_approval";
+    }
+
+    return this.updateVehicle(current.owner_user_id, current.brand_id, vehicleId, safe);
+  },
+
+  async resubmitVehicleDocument(
+    courierId: string,
+    vehicleId: string,
+    docId: string,
+    patch: Partial<MobVehicleDocument>
+  ): Promise<MobVehicleDocument> {
+    await ensureFleetSchema();
+    const vehicle = await this.getVehicleByIdForCourier(courierId, vehicleId);
+    if (!vehicle) throw new Error("Veículo não encontrado");
+
+    const doc = await queryOne<any>(
+      `SELECT * FROM mob_vehicle_documents
+       WHERE id = ? AND vehicle_id = ? AND owner_user_id = ? AND brand_id = ?`,
+      [docId, vehicleId, vehicle.owner_user_id, vehicle.brand_id]
+    );
+    if (!doc) throw new Error("Documento não encontrado");
+    if (!["pending", "rejected", "expired"].includes(String(doc.status))) {
+      throw new Error("Documento não pode ser reenviado neste status");
+    }
+
+    await update(
+      `UPDATE mob_vehicle_documents
+       SET doc_number = COALESCE(?, doc_number),
+           issued_at = COALESCE(?, issued_at),
+           expires_at = COALESCE(?, expires_at),
+           file_url = COALESCE(?, file_url),
+           status = 'pending',
+           rejection_reason = NULL,
+           validated_by = NULL,
+           validated_at = NULL,
+           updated_at = NOW()
+       WHERE id = ?`,
+      [
+        patch.doc_number ?? null,
+        patch.issued_at ?? null,
+        patch.expires_at ?? null,
+        patch.file_url ?? null,
+        docId,
+      ]
+    );
+
+    if (vehicle.status === "docs_expired" || vehicle.status === "blocked") {
+      await this.updateVehicle(vehicle.owner_user_id, vehicle.brand_id, vehicleId, {
+        status: "pending_approval",
+      }).catch(() => undefined);
+    }
+
+    const row = await queryOne<any>(`SELECT * FROM mob_vehicle_documents WHERE id = ?`, [docId]);
+    return mapDoc(row);
+  },
+
+  async approveVehicle(
+    ownerUserId: string,
+    brandId: string,
+    vehicleId: string,
+    opts?: { notes?: string }
+  ): Promise<MobVehicle> {
+    await ensureFleetSchema();
+    const vehicle = await this.getVehicle(ownerUserId, brandId, vehicleId);
+    if (!vehicle) throw new Error("Veículo não encontrado");
+
+    const meta = {
+      ...(vehicle.metadata_json || {}),
+      approval: {
+        status: "approved",
+        at: new Date().toISOString(),
+        notes: opts?.notes || null,
+      },
+    };
+
+    // Approve pending docs
+    await update(
+      `UPDATE mob_vehicle_documents
+       SET status = 'approved', validated_at = NOW(), updated_at = NOW()
+       WHERE vehicle_id = ? AND owner_user_id = ? AND brand_id = ? AND status = 'pending'`,
+      [vehicleId, ownerUserId, brandId]
+    ).catch(() => undefined);
+
+    return this.updateVehicle(ownerUserId, brandId, vehicleId, {
+      status: "available",
+      metadata_json: meta,
+      notes: opts?.notes ? `${vehicle.notes || ""}\n[aprovação] ${opts.notes}`.trim() : vehicle.notes,
+    });
+  },
+
+  async rejectVehicle(
+    ownerUserId: string,
+    brandId: string,
+    vehicleId: string,
+    opts?: { reason?: string }
+  ): Promise<MobVehicle> {
+    await ensureFleetSchema();
+    const vehicle = await this.getVehicle(ownerUserId, brandId, vehicleId);
+    if (!vehicle) throw new Error("Veículo não encontrado");
+
+    const reason = opts?.reason || "Veículo recusado pela loja";
+    const meta = {
+      ...(vehicle.metadata_json || {}),
+      approval: {
+        status: "rejected",
+        at: new Date().toISOString(),
+        reason,
+      },
+    };
+
+    await update(
+      `UPDATE mob_vehicle_documents
+       SET status = 'rejected',
+           rejection_reason = COALESCE(rejection_reason, ?),
+           updated_at = NOW()
+       WHERE vehicle_id = ? AND owner_user_id = ? AND brand_id = ? AND status = 'pending'`,
+      [reason, vehicleId, ownerUserId, brandId]
+    ).catch(() => undefined);
+
+    return this.updateVehicle(ownerUserId, brandId, vehicleId, {
+      status: "blocked",
+      metadata_json: meta,
+      notes: `${vehicle.notes || ""}\n[recusa] ${reason}`.trim(),
+    });
   },
 };

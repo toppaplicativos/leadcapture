@@ -432,8 +432,8 @@ router.post("/stock-access", authMiddleware, requireRole(["admin", "operator"]),
       return res.status(400).json({ error: "email e password são obrigatórios" });
     }
 
-    if (password.length < 6) {
-      return res.status(400).json({ error: "password deve ter pelo menos 6 caracteres" });
+    if (password.length < 8) {
+      return res.status(400).json({ error: "A senha deve ter pelo menos 8 caracteres" });
     }
 
     const passwordHash = await bcrypt.hash(password, 12);
@@ -620,7 +620,7 @@ router.patch("/stock-access/:id/password", authMiddleware, requireRole(["admin",
     const id = String(req.params.id || "").trim();
     const password = String(req.body?.password || "").trim();
     if (!id) return res.status(400).json({ error: "id inválido" });
-    if (!password || password.length < 6) return res.status(400).json({ error: "Senha deve ter no mínimo 6 caracteres" });
+    if (!password || password.length < 8) return res.status(400).json({ error: "Senha deve ter no mínimo 8 caracteres" });
 
     const cred = await queryOne<any>(
       `SELECT manager_user_id FROM stock_app_credentials WHERE id = ? AND owner_user_id = ? LIMIT 1`,

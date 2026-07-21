@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Lead Capture Mob — logistics platform core.
  * Multi-tenant deliveries, global couriers, org memberships, pricing, geo, audit.
  */
@@ -301,6 +301,9 @@ async function ensureMobSchema(): Promise<void> {
         UNIQUE (email)
       )
     `);
+    await query(
+      `ALTER TABLE mob_couriers ADD COLUMN IF NOT EXISTS review_notes TEXT NULL`
+    ).catch(() => undefined);
 
     await query(`
       CREATE TABLE IF NOT EXISTS mob_courier_memberships (
@@ -1094,6 +1097,10 @@ export class MobLogisticsService {
   }
 
   async setOpsStatus(courierId: string, opsStatus: CourierOpsStatus): Promise<MobCourier | null> {
+    if (opsStatus === "available") {
+      const { mobCourierProfileService } = await import("./mobCourierProfile");
+      await mobCourierProfileService.assertCanGoOnline(courierId);
+    }
     return this.updateCourierProfile(courierId, { ops_status: opsStatus });
   }
 
@@ -1117,6 +1124,8 @@ export class MobLogisticsService {
     await this.ensureSchema();
     const rows = await query<any[]>(
       `SELECT m.*, c.full_name, c.phone, c.email, c.photo_url, c.ops_status, c.vehicle_json,
+              c.cadastro_status, c.cpf, c.birth_date, c.whatsapp, c.pix_key,
+              c.address_json, c.emergency_contact_json, c.review_notes,
               c.rating_avg AS courier_rating, c.last_lat, c.last_lng, c.last_location_at
        FROM mob_courier_memberships m
        INNER JOIN mob_couriers c ON c.id = m.courier_id
@@ -1127,6 +1136,8 @@ export class MobLogisticsService {
     return (rows || []).map((r) => ({
       ...r,
       vehicle_json: parseJson(r.vehicle_json, null),
+      address_json: parseJson(r.address_json, null),
+      emergency_contact_json: parseJson(r.emergency_contact_json, null),
     }));
   }
 
@@ -1384,7 +1395,7 @@ export class MobLogisticsService {
       toStatus: status,
       actorType: "system",
       source: "create_delivery",
-      note: "Entrega criada",
+      note: "Corrida criada",
     });
 
     return (await this.getDeliveryById(id))!;
@@ -1652,7 +1663,7 @@ export class MobLogisticsService {
   }> {
     await this.ensureSchema();
     const delivery = await this.getDeliveryById(deliveryId);
-    if (!delivery) throw new Error("Entrega não encontrada");
+    if (!delivery) throw new Error("Corrida não encontrada");
     if (delivery.courier_id && delivery.status === "accepted_by_courier") {
       return { mode: "assigned", offered_to: [delivery.courier_id], expires_at: null };
     }
@@ -1728,7 +1739,7 @@ export class MobLogisticsService {
             toStatus: "offered_to_courier",
             actorType: "system",
             source: "dispatch_simultaneous",
-            note: `Oferta simultânea para ${offered.length} entregadores`,
+            note: `Corrida simultânea para ${offered.length} entregadores`,
           });
         }
       } catch {
@@ -1769,7 +1780,7 @@ export class MobLogisticsService {
           toStatus: "offered_to_courier",
           actorType: "system",
           source: "dispatch_sequential",
-          note: `Oferta sequencial → ${next.full_name || next.courier_id}`,
+          note: `Corrida sequencial → ${next.full_name || next.courier_id}`,
         });
       } else {
         await update(
@@ -1791,7 +1802,7 @@ export class MobLogisticsService {
       actorType: "system",
       courierId: next.courier_id,
       source: "sequential_offer",
-      note: `Oferecida a ${next.full_name || next.courier_id} (${timeoutSec}s)`,
+      note: `Corrida enviada a ${next.full_name || next.courier_id} (${timeoutSec}s)`,
     });
 
     return { mode: "sequential", offered_to: [next.courier_id], expires_at: expiresAt };
@@ -1831,7 +1842,7 @@ export class MobLogisticsService {
         actorType: "system",
         courierId: String(row.courier_id),
         source: "offer_expired",
-        note: "Oferta expirou sem aceite",
+        note: "Corrida expirou sem aceite",
       }).catch(() => undefined);
     }
 
@@ -1860,9 +1871,9 @@ export class MobLogisticsService {
   }): Promise<MobDelivery> {
     await this.ensureSchema();
     const delivery = await this.getDeliveryById(input.deliveryId);
-    if (!delivery) throw new Error("Entrega não encontrada");
+    if (!delivery) throw new Error("Corrida não encontrada");
     if (delivery.owner_user_id !== input.ownerUserId || delivery.brand_id !== input.brandId) {
-      throw new Error("Entrega de outra organização");
+      throw new Error("Corrida de outra organização");
     }
 
     const membership = await queryOne<any>(
@@ -1895,7 +1906,7 @@ export class MobLogisticsService {
       actorId: input.actorId || input.ownerUserId,
       courierId: input.courierId,
       source: input.direct ? "direct_assign" : "offer",
-      note: input.direct ? "Atribuição direta" : "Oferecida ao entregador",
+      note: input.direct ? "Atribuição direta" : "Corrida enviada ao entregador",
     });
 
     return (await this.getDeliveryById(input.deliveryId))!;
@@ -1904,10 +1915,10 @@ export class MobLogisticsService {
   async courierAccept(courierId: string, deliveryId: string): Promise<MobDelivery> {
     await this.ensureSchema();
     const delivery = await this.getDeliveryById(deliveryId);
-    if (!delivery) throw new Error("Entrega não encontrada");
+    if (!delivery) throw new Error("Corrida não encontrada");
 
     if (delivery.courier_id && delivery.courier_id !== courierId) {
-      throw new Error("Entrega já atribuída a outro entregador");
+      throw new Error("Corrida já atribuída a outro entregador");
     }
 
     const membership = await queryOne<any>(
@@ -1982,9 +1993,9 @@ export class MobLogisticsService {
   ): Promise<{ redispatched: boolean; offered_to: string[]; expires_at: string | null; mode?: string }> {
     await this.ensureSchema();
     const delivery = await this.getDeliveryById(deliveryId);
-    if (!delivery) throw new Error("Entrega não encontrada");
+    if (!delivery) throw new Error("Corrida não encontrada");
     if (delivery.courier_id && delivery.courier_id !== courierId) {
-      throw new Error("Entrega de outro entregador");
+      throw new Error("Corrida de outro entregador");
     }
 
     if (delivery.courier_id === courierId) {
@@ -2067,7 +2078,7 @@ export class MobLogisticsService {
 
     // COD must be collected before complete when required
     if ((delivery as any).cod_required && !(delivery as any).cod_collected_at) {
-      throw new Error("Confirme o recebimento do pagamento (dinheiro) antes de concluir a entrega");
+      throw new Error("Confirme o recebimento do pagamento (dinheiro) antes de concluir a corrida");
     }
 
     // OTP verification (optional path or required)
@@ -2095,7 +2106,7 @@ export class MobLogisticsService {
     if (needsPin && delivery.delivery_pin) {
       const pin = String(input.deliveryPin || "").trim();
       if (!pin) {
-        throw new Error("Informe o PIN de confirmação do cliente para concluir a entrega");
+        throw new Error("Informe o PIN de confirmação do cliente para concluir a corrida");
       }
       if (pin !== String(delivery.delivery_pin).trim()) {
         const attempts = num((delivery as any).pin_attempts) + 1;
@@ -2141,7 +2152,7 @@ export class MobLogisticsService {
     if (needsPhoto) {
       const photo = String(input.proofPhotoUrl || delivery.proof_photo_url || "").trim();
       if (!photo) {
-        throw new Error("Envie a foto do comprovante de entrega para concluir");
+        throw new Error("Envie a foto do comprovante da corrida para concluir");
       }
     }
 
@@ -2182,12 +2193,12 @@ export class MobLogisticsService {
   }): Promise<MobDelivery> {
     await this.ensureSchema();
     const d = await this.getDeliveryById(input.deliveryId);
-    if (!d) throw new Error("Entrega não encontrada");
+    if (!d) throw new Error("Corrida não encontrada");
     if (d.courier_id && d.courier_id !== input.courierId) {
-      throw new Error("Entrega de outro entregador");
+      throw new Error("Corrida de outro entregador");
     }
     if (!(d as any).cod_required) {
-      throw new Error("Esta entrega não exige cobrança na entrega");
+      throw new Error("Esta corrida não exige cobrança na entrega");
     }
     if ((d as any).cod_collected_at) {
       return d;
@@ -2230,7 +2241,7 @@ export class MobLogisticsService {
   }): Promise<MobDelivery> {
     await this.ensureSchema();
     const delivery = await this.getDeliveryById(input.deliveryId);
-    if (!delivery) throw new Error("Entrega não encontrada");
+    if (!delivery) throw new Error("Corrida não encontrada");
 
     const from = delivery.status as DeliveryStatus;
     const to = input.toStatus;
@@ -3108,7 +3119,7 @@ export class MobLogisticsService {
           lat: d.dropoff_lat,
           lng: d.dropoff_lng,
           address: d.dropoff_address,
-          label: `Entrega · ${d.customer_name || d.id.slice(0, 6)}`,
+          label: `Corrida · ${d.customer_name || d.id.slice(0, 6)}`,
           status: "pending",
         });
       }
@@ -3132,14 +3143,14 @@ export class MobLogisticsService {
     };
   }): Promise<any> {
     await this.ensureSchema();
-    if (!input.deliveryIds.length) throw new Error("Informe ao menos uma entrega");
+    if (!input.deliveryIds.length) throw new Error("Informe ao menos uma corrida");
 
     const deliveries: MobDelivery[] = [];
     for (const id of input.deliveryIds) {
       const d = await this.getDeliveryById(id);
       if (!d) throw new Error(`Entrega ${id} não encontrada`);
       if (d.owner_user_id !== input.ownerUserId || d.brand_id !== input.brandId) {
-        throw new Error("Entrega de outra organização");
+        throw new Error("Corrida de outra organização");
       }
       deliveries.push(d);
     }

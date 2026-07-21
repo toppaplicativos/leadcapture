@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Lead Capture Mob — offline event replay with client_event_id idempotency.
  */
 import { randomUUID } from "crypto";
@@ -169,7 +169,7 @@ export const mobSyncService = {
 
       const delivery = await mobLogisticsService.getDeliveryById(deliveryId);
       if (!delivery || delivery.courier_id !== courierId) {
-        throw new Error("Entrega não encontrada");
+        throw new Error("Corrida não encontrada");
       }
 
       const updated = await mobLogisticsService.transitionStatus({
@@ -200,7 +200,7 @@ export const mobSyncService = {
       if (!deliveryId || !code) throw new Error("delivery_id e code obrigatórios");
       const delivery = await mobLogisticsService.getDeliveryById(deliveryId);
       if (!delivery || delivery.courier_id !== courierId) {
-        throw new Error("Entrega não encontrada");
+        throw new Error("Corrida não encontrada");
       }
       const { mobPackagesService } = await import("./mobPackages");
       const phase = String(body.phase || "pickup") === "dropoff" ? "dropoff" : "pickup";
@@ -220,7 +220,7 @@ export const mobSyncService = {
       if (!deliveryId || !packageId) throw new Error("delivery_id e package_id obrigatórios");
       const delivery = await mobLogisticsService.getDeliveryById(deliveryId);
       if (!delivery || delivery.courier_id !== courierId) {
-        throw new Error("Entrega não encontrada");
+        throw new Error("Corrida não encontrada");
       }
       const { mobPackagesService } = await import("./mobPackages");
       const pkg = await mobPackagesService.markStatus({

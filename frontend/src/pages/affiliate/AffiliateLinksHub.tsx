@@ -13,9 +13,12 @@ import {
 import { AffiliateShareStudio } from '@/pages/affiliate/AffiliateShareStudio'
 import { resolveAffiliateCopyTemplate } from '@/lib/affiliates/copy-template'
 import { formatConversionRate, resolveProductSlug } from '@/lib/affiliates/link-hub'
+import type { AffiliateSharePack } from '@/lib/affiliates/share-pack'
+import { sharePackOpenWhatsApp } from '@/lib/affiliates/share-pack'
 import type { AppContext } from '@/pages/affiliate/types'
 import type { AffiliateProductCatalogItem } from '@/lib/affiliates/types'
 import { normalizeUploadUrl } from '@/lib/media-url'
+import { WhatsAppIcon } from '@/components/icons'
 
 type HubSection = 'links' | 'produtos' | 'analise'
 type PeriodDays = 7 | 30 | 90
@@ -50,8 +53,10 @@ export function AffiliateLinksHub({ ctx, active = true }: Props) {
     link_catalogo: code ? buildAffiliateCatalogUrl({ origin: storeOrigin, primaryDomain, storeSlug, code, couponCode: coupon }) : '',
   }), [ctx, storeOrigin, primaryDomain, storeSlug, code, coupon])
 
-  const shortUrl = code ? buildAffiliateShortUrl({ origin: storeOrigin, primaryDomain, code }) : ''
-  const catalogUrl = copyCtx.link_catalogo
+  const shortUrl = String(hub?.links?.short_url || '').trim()
+    || (code ? buildAffiliateShortUrl({ origin: storeOrigin, primaryDomain, code }) : '')
+  const catalogUrl = String(hub?.links?.catalog_url || '').trim()
+    || copyCtx.link_catalogo
 
   useEffect(() => {
     if (!active) return
@@ -107,7 +112,42 @@ export function AffiliateLinksHub({ ctx, active = true }: Props) {
 
   function shareWhatsApp(text: string) {
     if (!text) return
-    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank')
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener,noreferrer')
+  }
+
+  function shareCatalogWhatsApp() {
+    const pack = hub?.share?.catalog as AffiliateSharePack | undefined
+    if (pack?.url) {
+      sharePackOpenWhatsApp(pack, false)
+      return
+    }
+    shareWhatsApp(resolveAffiliateCopyTemplate(
+      'Separei o catálogo da {{marca}} pra você 👇\n\n{{link_catalogo}}',
+      copyCtx,
+    ))
+  }
+
+  function shareShortWhatsApp() {
+    const pack = hub?.share?.short as AffiliateSharePack | undefined
+    if (pack?.url) {
+      sharePackOpenWhatsApp(pack, false)
+      return
+    }
+    if (shortUrl) shareWhatsApp(`Catálogo da ${ctx.brand?.name || 'loja'} 👇\n\n${shortUrl}`)
+  }
+
+  async function shareProductWhatsApp(p: AffiliateProductCatalogItem) {
+    try {
+      const res = await affiliateApi.sharePack({ kind: 'product', product_id: p.id })
+      if (res?.pack?.url) {
+        sharePackOpenWhatsApp(res.pack, false)
+        return
+      }
+    } catch {
+      /* fallback */
+    }
+    const url = productUrl(p)
+    shareWhatsApp(`Olha isso: *${p.name}* 👇\n\n${url}`)
   }
 
   if (productShareKit) {
@@ -241,10 +281,19 @@ export function AffiliateLinksHub({ ctx, active = true }: Props) {
               <button type="button" className="affiliate-links__action" style={{ color: ctx.primary }} onClick={() => copyText(shortUrl, 'Link copiado!')}>
                 <Copy size={12} /> Copiar
               </button>
-              <button type="button" className="affiliate-links__action text-emerald-600" onClick={() => shareWhatsApp(resolveAffiliateCopyTemplate('Indicação {{marca}} · cupom {{cupom}}: ' + shortUrl, copyCtx))}>
-                <Share2 size={12} /> WhatsApp
+              <button type="button" className="affiliate-links__action text-emerald-600" onClick={shareShortWhatsApp}>
+                <WhatsAppIcon size={12} /> WhatsApp
               </button>
             </div>
+            {hub?.share?.short?.title && (
+              <div className="mt-2 rounded-lg border border-neutral-100 bg-neutral-50 p-2">
+                {hub.share.short.image_url && (
+                  <img src={hub.share.short.image_url} alt="" className="mb-1.5 h-16 w-full rounded-md object-cover" />
+                )}
+                <p className="text-[11px] font-bold text-neutral-900 line-clamp-1">{hub.share.short.title}</p>
+                <p className="text-[10px] text-neutral-500 line-clamp-2">{hub.share.short.description}</p>
+              </div>
+            )}
           </article>
 
           <article className="affiliate-card affiliate-links__card">
@@ -262,10 +311,19 @@ export function AffiliateLinksHub({ ctx, active = true }: Props) {
               <button type="button" className="affiliate-links__action" style={{ color: ctx.primary }} onClick={() => copyText(catalogUrl, 'Catálogo copiado!')}>
                 <Copy size={12} /> Copiar
               </button>
-              <button type="button" className="affiliate-links__action text-emerald-600" onClick={() => shareWhatsApp(resolveAffiliateCopyTemplate('Confira {{marca}} com cupom {{cupom}}: {{link_catalogo}}', copyCtx))}>
-                <Share2 size={12} /> WhatsApp
+              <button type="button" className="affiliate-links__action text-emerald-600" onClick={shareCatalogWhatsApp}>
+                <WhatsAppIcon size={12} /> WhatsApp
               </button>
             </div>
+            {hub?.share?.catalog?.title && (
+              <div className="mt-2 rounded-lg border border-neutral-100 bg-neutral-50 p-2">
+                {hub.share.catalog.image_url && (
+                  <img src={hub.share.catalog.image_url} alt="" className="mb-1.5 h-16 w-full rounded-md object-cover" />
+                )}
+                <p className="text-[11px] font-bold text-neutral-900 line-clamp-1">{hub.share.catalog.title}</p>
+                <p className="text-[10px] text-neutral-500 line-clamp-2">{hub.share.catalog.description}</p>
+              </div>
+            )}
           </article>
 
           <article className="affiliate-card affiliate-links__card affiliate-links__card--compact">
@@ -330,11 +388,14 @@ export function AffiliateLinksHub({ ctx, active = true }: Props) {
                   <div className="min-w-0 flex-1">
                     <p className="font-bold text-xs text-[#1c1c1e] leading-tight line-clamp-2">{p.name}</p>
                     <p className="text-[10px] text-[#8e8e93] mt-0.5">{money(p.promo_price ?? p.price)} · {clicks} cliques</p>
-                    <div className="flex gap-1.5 mt-2">
+                    <div className="flex flex-wrap gap-1.5 mt-2">
                       <button type="button" className="affiliate-links__action" style={{ color: ctx.primary }} onClick={() => copyText(url, 'Link do produto copiado!')}>
                         <Copy size={11} /> Link
                       </button>
-                      <button type="button" className="affiliate-links__action text-emerald-600" onClick={() => setProductShareKit(p)}>
+                      <button type="button" className="affiliate-links__action text-emerald-600" onClick={() => void shareProductWhatsApp(p)}>
+                        <WhatsAppIcon size={11} /> WhatsApp
+                      </button>
+                      <button type="button" className="affiliate-links__action text-neutral-600" onClick={() => setProductShareKit(p)}>
                         <Share2 size={11} /> Kit
                       </button>
                     </div>

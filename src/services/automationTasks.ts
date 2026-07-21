@@ -438,12 +438,8 @@ async function instagramWebhookDmReply(config: Record<string, any>, ctx: TaskCon
     return { ok: false, error: "Payload de DM incompleto" };
   }
 
-  // Global auto_reply_dm is product-legacy: honor config.force / brand hybrid elsewhere.
-  // Only skip when explicitly required by config.respect_global_auto_reply === true
-  const settings = await instagramService.getAiSettings(ctx.brandId);
-  if (config.respect_global_auto_reply === true && !settings.auto_reply_dm) {
-    return { ok: false, skipped: true, error: "auto_reply_dm desativado" };
-  }
+  // Resposta automática é controlada APENAS pelo status da automação
+  // (brand_automations.status = active / definition.ativa). Não há gate global.
 
   // BotLoopGuard — block peer-bot before compose/send
   try {

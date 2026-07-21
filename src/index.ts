@@ -152,6 +152,12 @@ import { socketManager } from "./core/socketManager";
 import { StorefrontService } from "./services/storefront";
 import { buildAffiliatePageHeadForSlug, injectAffiliateMetaIntoHtml } from "./services/affiliatePageMeta";
 import { buildProductPageHeadMarkup, injectProductMetaIntoHtml } from "./services/productPageMeta";
+import {
+  buildStorefrontPageHeadMarkup,
+  injectStorefrontMetaIntoHtml,
+  resolveStorePublicMetaByAffiliateCode,
+  resolveStorePublicMetaBySlug,
+} from "./services/storefrontPageMeta";
 
 const app = express();
 const httpServer = createServer(app);
@@ -284,6 +290,7 @@ async function serveProductPage(
         : origin;
       const headMarkup = buildProductPageHeadMarkup({
         origin: canonicalOrigin,
+        assetOrigin: origin,
         canonicalPath: opts.canonicalPath,
         storeName,
         product,
@@ -304,20 +311,109 @@ async function serveProductPage(
   }
 }
 
-function serveCatalogWithSlug(res: express.Response, filename: string, slug: string) {
+async function serveCatalogWithSlug(
+  req: express.Request,
+  res: express.Response,
+  filename: string,
+  slug: string,
+  opts?: { customDomain?: boolean; canonicalPath?: string },
+) {
   try {
-    // If React build exists, serve it with slug injection
+    const origin = requestOrigin(req);
+    const injection = `<script>window.__STORE_SLUG__=${JSON.stringify(slug)};window.__CUSTOM_DOMAIN__=${opts?.customDomain !== false};</script>`;
+
     if (hasReactBuild) {
-      const reactHtml = require("fs").readFileSync(reactIndexPath, "utf-8");
-      const injection = `<script>window.__STORE_SLUG__=${JSON.stringify(slug)};window.__CUSTOM_DOMAIN__=true;</script>`;
-      return res.type("html").send(reactHtml.replace("</head>", `${injection}\n</head>`));
+      let html = readFileSync(reactIndexPath, "utf-8");
+      try {
+        const meta = await resolveStorePublicMetaBySlug(slug);
+        if (meta) {
+          const headMarkup = buildStorefrontPageHeadMarkup({
+            requestOrigin: origin,
+            assetOrigin: origin,
+            canonicalPath: opts?.canonicalPath || "/",
+            meta,
+            kind: "catalog",
+          });
+          html = injectStorefrontMetaIntoHtml(html, headMarkup);
+        }
+      } catch (metaErr: any) {
+        logger.warn(`serveCatalogWithSlug meta: ${metaErr?.message || metaErr}`);
+      }
+      html = html.replace("</head>", `${injection}\n</head>`);
+      res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
+      return res.type("html").send(html);
     }
+
     const html = readCatalogHtml(filename);
-    const injection = `<script>window.__STORE_SLUG__=${JSON.stringify(slug)};window.__CUSTOM_DOMAIN__=true;</script>`;
     res.type("html").send(html.replace("</head>", `${injection}\n</head>`));
   } catch (err: any) {
     logger.error(`serveCatalogWithSlug error: ${err.message || err}`);
     res.status(500).send("Internal Server Error");
+  }
+}
+
+/** Link curto /afiliado/:code — OG title/image da marca + domínio canônico. */
+async function serveAffiliateShortLink(req: express.Request, res: express.Response, code: string) {
+  if (!hasReactBuild) {
+    return res.sendFile(path.join(__dirname, "../public", "index.html"));
+  }
+  try {
+    let html = readFileSync(reactIndexPath, "utf-8");
+    const origin = requestOrigin(req);
+    const resolved = await resolveStorePublicMetaByAffiliateCode(code);
+    if (resolved) {
+      const headMarkup = buildStorefrontPageHeadMarkup({
+        requestOrigin: origin,
+        assetOrigin: origin,
+        canonicalPath: `/afiliado/${encodeURIComponent(resolved.affiliateCode || code)}`,
+        meta: resolved,
+        kind: "affiliate_short",
+        affiliateName: resolved.affiliateName,
+      });
+      html = injectStorefrontMetaIntoHtml(html, headMarkup);
+      if (resolved.storeSlug) {
+        const injection = `<script>window.__STORE_SLUG__=${JSON.stringify(resolved.storeSlug)};</script>`;
+        html = html.replace("</head>", `${injection}\n</head>`);
+      }
+    }
+    res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
+    return res.type("html").send(html);
+  } catch (err: any) {
+    logger.error(`serveAffiliateShortLink error: ${err.message || err}`);
+    return res.sendFile(reactIndexPath);
+  }
+}
+
+/** Catálogo plataforma /catalogo/:slug com OG da loja. */
+async function servePlatformCatalog(
+  req: express.Request,
+  res: express.Response,
+  slug: string,
+) {
+  if (!hasReactBuild) {
+    return serveCatalogSPA(res, "catalogo-publico.html");
+  }
+  try {
+    let html = readFileSync(reactIndexPath, "utf-8");
+    const origin = requestOrigin(req);
+    const meta = await resolveStorePublicMetaBySlug(slug);
+    if (meta) {
+      const headMarkup = buildStorefrontPageHeadMarkup({
+        requestOrigin: origin,
+        assetOrigin: origin,
+        canonicalPath: meta.primaryDomain
+          ? "/"
+          : `/catalogo/${encodeURIComponent(meta.storeSlug || slug)}`,
+        meta,
+        kind: "catalog",
+      });
+      html = injectStorefrontMetaIntoHtml(html, headMarkup);
+    }
+    res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
+    return res.type("html").send(html);
+  } catch (err: any) {
+    logger.error(`servePlatformCatalog error: ${err.message || err}`);
+    return serveCatalogSPA(res, "catalogo-publico.html");
   }
 }
 
@@ -339,7 +435,10 @@ app.use(async (req: express.Request, res: express.Response, next: express.NextFu
   if (!slug) return next();
   const normalized = req.path.toLowerCase().replace(/\/+$/, "") || "/";
   if (CUSTOM_DOMAIN_PAGES[normalized]) {
-    return serveCatalogWithSlug(res, CUSTOM_DOMAIN_PAGES[normalized], slug);
+    return serveCatalogWithSlug(req, res, CUSTOM_DOMAIN_PAGES[normalized], slug, {
+      customDomain: true,
+      canonicalPath: normalized === "/" ? "/" : normalized,
+    });
   }
   if (/^\/produto\/[^/]+$/.test(normalized)) {
     const productSlug = decodeURIComponent(normalized.split("/")[2] || "");
@@ -349,6 +448,11 @@ app.use(async (req: express.Request, res: express.Response, next: express.NextFu
       canonicalPath: normalized,
       customDomain: true,
     });
+  }
+  /* Link curto de afiliado no domínio da loja */
+  if (/^\/afiliado\/[^/]+$/.test(normalized)) {
+    const code = decodeURIComponent(normalized.split("/")[2] || "");
+    return serveAffiliateShortLink(req, res, code);
   }
   next();
 });
@@ -497,12 +601,12 @@ async function serveAffiliateSPA(
   }
 }
 
-app.get("/catalogo/:slug", (_req, res) => {
-  serveCatalogSPA(res, "catalogo-publico.html");
+app.get("/catalogo/:slug", async (req, res) => {
+  await servePlatformCatalog(req, res, String(req.params.slug || ""));
 });
 
-app.get("/loja/:slug", (_req, res) => {
-  serveCatalogSPA(res, "catalogo-publico.html");
+app.get("/loja/:slug", async (req, res) => {
+  await servePlatformCatalog(req, res, String(req.params.slug || ""));
 });
 
 app.get("/loja/:slug/checkout", (_req, res) => {
@@ -574,7 +678,9 @@ app.get("/central-afiliado", (_req, res) => { serveCatalogSPA(res, "index.html")
 app.get("/central-afiliado/:brand", async (req, res) => { await serveAffiliateSPA(req, res, String(req.params.brand || "")); });
 app.get("/central-afiliado/:brand/painel", async (req, res) => { await serveAffiliateSPA(req, res, String(req.params.brand || "")); });
 app.get("/central-afiliado/:brand/painel/*", async (req, res) => { await serveAffiliateSPA(req, res, String(req.params.brand || "")); });
-app.get("/afiliado/:code", (_req, res) => { serveCatalogSPA(res, "index.html"); });
+app.get("/afiliado/:code", async (req, res) => {
+  await serveAffiliateShortLink(req, res, String(req.params.code || ""));
+});
 
 // Admin panel routes (all serve React SPA)
 const adminPages = [
@@ -3529,7 +3635,12 @@ app.get("*", async (req, res) => {
   const host = extractHostname(req);
   if (isCustomDomainHost(host)) {
     const slug = await resolveSlugByDomain(host);
-    if (slug) return serveCatalogWithSlug(res, "catalogo-publico.html", slug);
+    if (slug) {
+      return serveCatalogWithSlug(req, res, "catalogo-publico.html", slug, {
+        customDomain: true,
+        canonicalPath: "/",
+      });
+    }
   }
   // Serve React SPA for all unmatched routes
   serveCatalogSPA(res, "index.html");

@@ -80,7 +80,7 @@ export function stopWhatsAppHealthMonitor(): void {
 async function tick(): Promise<void> {
   try {
     const rows = (await query<any[]>(
-      `SELECT id, name, status, phone, last_connected_at FROM whatsapp_instances`,
+      `SELECT id, name, status, phone, last_connected_at, updated_at FROM whatsapp_instances`,
     )) as any;
     if (!Array.isArray(rows)) return;
 
@@ -115,11 +115,10 @@ async function tick(): Promise<void> {
             await (imRef as any).ensureStableConnection(id);
           } catch { /* ignore */ }
         }
-      } else if (
-        r.status === "connected"
-        && (runtime === "disconnected" || runtime === "unknown")
-      ) {
-        /* Drift clássico: DB connected mas socket morto */
+      } else if (r.status === "connected" && runtime === "disconnected") {
+        /* Drift clássico: DB connected mas socket morto.
+           NÃO tratar runtime=unknown (imRef ausente / outro processo) — isso
+           apagava "connected" no DB e gerava fantasma de desconexão. */
         try {
           await query(
             `UPDATE whatsapp_instances SET status = 'disconnected' WHERE id = ?`,
@@ -153,14 +152,34 @@ async function tick(): Promise<void> {
 
       /* Identifica instances "mortas" — disconnected ha > 30min sem reconectar.
          Campanhas amarradas a elas vao ser pausadas pra parar o loop infinito.
-         IMPORTANT: use the corrected r.status (after drift fix), not original DB value. */
+         IMPORTANT: use the corrected r.status (after drift fix), not original DB value.
+         NÃO marcar morta só por last_connected_at NULL (falso positivo em sessões
+         novas / pairing / race de escrita) nem com runtime=unknown (sem imRef). */
       const runtimeAfter = detectRuntimeStatusFallback(id);
-      if (r.status !== "connected" && runtimeAfter !== "connected" && runtimeAfter !== "connecting" && runtimeAfter !== "pairing") {
-        const isDead = r.last_connected_at &&
-          (now - new Date(r.last_connected_at).getTime()) > DEAD_THRESHOLD_MS;
-        if (isDead || !r.last_connected_at) {
-          deadInstanceIds.push(id);
-        }
+      if (
+        runtimeAfter === "unknown" ||
+        runtimeAfter === "connected" ||
+        runtimeAfter === "connecting" ||
+        runtimeAfter === "pairing"
+      ) {
+        continue;
+      }
+      if (r.status === "connected") {
+        // runtime disconnected mas DB ainda connected: deixe o drift + ensureStable
+        // tentarem primeiro; só marca morta após limiar real de last_connected_at
+      }
+      const lastConnMs = r.last_connected_at ? new Date(r.last_connected_at).getTime() : NaN;
+      const hasLastConn = Number.isFinite(lastConnMs);
+      const staleByLastConn = hasLastConn && now - lastConnMs > DEAD_THRESHOLD_MS;
+      // Nunca conectou: só considera morta se updated_at também for antigo (evita
+      // pausar campanha no meio do primeiro pareamento)
+      const updatedMs = r.updated_at ? new Date(r.updated_at).getTime() : NaN;
+      const neverConnectedStale =
+        !hasLastConn &&
+        Number.isFinite(updatedMs) &&
+        now - updatedMs > DEAD_THRESHOLD_MS;
+      if (staleByLastConn || neverConnectedStale) {
+        deadInstanceIds.push(id);
       }
     }
 
@@ -183,6 +202,68 @@ async function tick(): Promise<void> {
   }
 }
 
+function parseSettingsSafe(value: unknown): Record<string, any> {
+  if (!value) return {};
+  if (typeof value === "object") return value as Record<string, any>;
+  if (typeof value !== "string") return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+async function mergeCampaignPauseReason(
+  campaignId: string,
+  reason: string,
+  code: string,
+): Promise<void> {
+  try {
+    const rows = (await query<any[]>(
+      `SELECT settings FROM campaign_history WHERE id = ? LIMIT 1`,
+      [campaignId],
+    )) as any;
+    const row = Array.isArray(rows) ? rows[0] : null;
+    const settings = parseSettingsSafe(row?.settings);
+    const next = {
+      ...settings,
+      pauseReason: String(reason || "").slice(0, 500),
+      pauseCode: code,
+      pausedAt: new Date().toISOString(),
+    };
+    await query(
+      `UPDATE campaign_history SET settings = ?, updated_at = NOW() WHERE id = ?`,
+      [JSON.stringify(next), campaignId],
+    );
+  } catch (e: any) {
+    logger.warn(`mergeCampaignPauseReason failed for ${campaignId}: ${e?.message || e}`);
+  }
+}
+
+/** Pool de rotação: se ainda existe seção viva, não auto-pausar a campanha. */
+async function campaignHasAnyLiveInstance(camp: {
+  instance_id?: string;
+  settings?: unknown;
+}): Promise<boolean> {
+  const settings = parseSettingsSafe(camp.settings);
+  const poolRaw = (settings as any)?.campaignCore?.poolInstanceIds;
+  const pool = Array.isArray(poolRaw)
+    ? poolRaw.map((id: any) => String(id || "").trim()).filter(Boolean)
+    : [];
+  const candidates = pool.length > 0
+    ? pool
+    : [String(camp.instance_id || "").trim()].filter(Boolean);
+
+  for (const id of candidates) {
+    const runtime = detectRuntimeStatusFallback(id);
+    if (runtime === "connected" || runtime === "connecting" || runtime === "pairing") {
+      return true;
+    }
+  }
+  return false;
+}
+
 /* Auto-pause campanhas RUNNING ou SCHEDULED amarradas a instances disconnected ha > 30min.
    Inclui 'scheduled' pra parar loop infinito de campanhas que nunca chegam a executar.
    So pausa RUNNING se tem leads pending (evita pausar campanha que ja terminou). */
@@ -190,7 +271,7 @@ async function autoPauseCampaignsForDeadInstances(deadInstanceIds: string[]): Pr
   try {
     const placeholders = deadInstanceIds.map(() => "?").join(",");
     const affected = (await query<any[]>(
-      `SELECT ch.id, ch.name, ch.instance_id, ch.user_id, ch.brand_id, ch.status AS camp_status
+      `SELECT ch.id, ch.name, ch.instance_id, ch.user_id, ch.brand_id, ch.status AS camp_status, ch.settings
        FROM campaign_history ch
        WHERE ch.status IN ('running', 'scheduled')
          AND ch.instance_id IN (${placeholders})
@@ -198,7 +279,7 @@ async function autoPauseCampaignsForDeadInstances(deadInstanceIds: string[]): Pr
            ch.status = 'scheduled'
            OR EXISTS (
              SELECT 1 FROM campaign_leads cl
-             WHERE cl.campaign_id = ch.id AND cl.status = 'pending'
+             WHERE cl.campaign_id = ch.id AND cl.status IN ('pending', 'ready')
            )
          )`,
       deadInstanceIds,
@@ -208,11 +289,22 @@ async function autoPauseCampaignsForDeadInstances(deadInstanceIds: string[]): Pr
 
     for (const camp of affected) {
       try {
+        // Se a campanha usa pool/rotação e ainda tem alguma seção viva, não pausa
+        if (await campaignHasAnyLiveInstance(camp)) {
+          continue;
+        }
+
+        const pauseReason =
+          `A seção WhatsApp da campanha está desconectada há mais de 30 minutos. ` +
+          `Reconecte em WhatsApp e retome a campanha.`;
         await query(
           `UPDATE campaign_history SET status = 'paused', updated_at = NOW() WHERE id = ?`,
           [camp.id],
         );
-        logger.warn(`WhatsAppHealth: auto-pause campanha "${camp.name}" (${camp.id}) — instance ${camp.instance_id} morta ha > 30min`);
+        await mergeCampaignPauseReason(camp.id, pauseReason, "instance_disconnected_30min");
+        logger.warn(
+          `WhatsAppHealth: auto-pause campanha "${camp.name}" (${camp.id}) — instance ${camp.instance_id} morta ha > 30min`,
+        );
 
         /* Notifica o dono da campanha */
         if (camp.user_id) {
@@ -223,7 +315,7 @@ async function autoPauseCampaignsForDeadInstances(deadInstanceIds: string[]): Pr
             type: "system",
             event: "campaign_auto_paused_dead_instance",
             title: `Campanha pausada: ${camp.name}`,
-            message: `A campanha "${camp.name}" foi pausada automaticamente porque a instância WhatsApp está desconectada há mais de 30 minutos. Reconecte a instância em /whatsapp e reative a campanha quando estiver pronta.`,
+            message: pauseReason,
             priority: "high",
             metadata: {
               campaign_id: camp.id,
@@ -260,11 +352,17 @@ async function autoPauseOrphanedCampaigns(): Promise<void> {
 
     for (const camp of orphaned) {
       try {
+        const pauseReason =
+          `A seção WhatsApp desta campanha foi excluída. ` +
+          `Edite a campanha, escolha outra seção e retome.`;
         await query(
           `UPDATE campaign_history SET status = 'paused', updated_at = NOW() WHERE id = ?`,
           [camp.id],
         );
-        logger.warn(`WhatsAppHealth: auto-pause campanha "${camp.name}" (${camp.id}) — instancia ${camp.instance_id} nao existe mais (foi excluida)`);
+        await mergeCampaignPauseReason(camp.id, pauseReason, "instance_deleted");
+        logger.warn(
+          `WhatsAppHealth: auto-pause campanha "${camp.name}" (${camp.id}) — instancia ${camp.instance_id} nao existe mais (foi excluida)`,
+        );
 
         if (camp.user_id) {
           const { getNotificationService } = await import("./notifications");
@@ -274,7 +372,7 @@ async function autoPauseOrphanedCampaigns(): Promise<void> {
             type: "system",
             event: "campaign_auto_paused_missing_instance",
             title: `Campanha pausada: ${camp.name}`,
-            message: `A campanha "${camp.name}" foi pausada porque a instância WhatsApp que ela usava foi excluída. Edite a campanha e selecione uma nova instância antes de reativar.`,
+            message: pauseReason,
             priority: "high",
             metadata: {
               campaign_id: camp.id,

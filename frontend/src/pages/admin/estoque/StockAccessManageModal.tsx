@@ -46,7 +46,7 @@ export function StockAccessManageModal({
   }
 
   async function changePassword() {
-    if (!newPassword || newPassword.length < 6) return showToast('Senha deve ter no mínimo 6 caracteres', 'err')
+    if (!newPassword || newPassword.length < 8) return showToast('Senha deve ter no mínimo 8 caracteres', 'err')
     if (newPassword !== confirmPassword) return showToast('As senhas não coincidem', 'err')
     setSaving(true)
     try {
@@ -202,7 +202,7 @@ export function StockAccessManageModal({
               </div>
               <div>
                 <label className="text-[11px] font-bold text-gray-500 uppercase tracking-wide mb-1.5 block">Nova senha *</label>
-                <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} className={inp} placeholder="Mín. 6 caracteres" />
+                <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} className={inp} placeholder="Mínimo de 8 caracteres" />
               </div>
               <div>
                 <label className="text-[11px] font-bold text-gray-500 uppercase tracking-wide mb-1.5 block">Confirmar senha *</label>

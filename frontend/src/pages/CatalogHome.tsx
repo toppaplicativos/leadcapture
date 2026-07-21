@@ -34,6 +34,15 @@ import {
   StoreReviewsHighlight,
   type StoreReviewSnippet,
 } from '@/components/store/StoreReviewsHighlight'
+import {
+  publishStorefrontPwa,
+  storefrontPwaFromStore,
+} from '@/lib/store-pwa-install'
+
+/** Stale-but-usable local cache — paint immediately, refresh in background (24h). */
+const LOCAL_CACHE_STALE_MS = 24 * 60 * 60 * 1000
+/** First paint batch size for large catalogs (rest hydrate after paint). */
+const INITIAL_PRODUCT_BATCH = 24
 
 interface CatalogHomeProps {
   onStoreLoaded: (store: StoreData['store']) => void
@@ -61,7 +70,7 @@ interface AttributeFilterDef {
 
 function HeroSkeletonBlock() {
   return (
-    <div className="store-hero">
+    <div className="store-hero" aria-hidden>
       <div className="store-hero__placeholder skeleton" />
       <div className="relative z-10 max-w-[var(--store-max)] mx-auto px-4 -mt-10 pb-5">
         <div className="store-identity">
@@ -79,6 +88,118 @@ function HeroSkeletonBlock() {
   )
 }
 
+function CatalogStatusBar({
+  loading,
+  refreshing,
+  productCount,
+}: {
+  loading: boolean
+  refreshing: boolean
+  productCount: number
+}) {
+  if (!loading && !refreshing) return null
+
+  const showLabel = loading || productCount === 0
+  const label = loading
+    ? 'Carregando catálogo…'
+    : 'Sincronizando catálogo…'
+
+  return (
+    <div
+      className={`store-catalog-status${showLabel ? '' : ' store-catalog-status--thin'}`}
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
+      aria-label={loading ? 'Carregando catálogo' : 'Atualizando catálogo'}
+    >
+      <div className="store-catalog-status__track" aria-hidden>
+        <div className="store-catalog-status__bar" />
+      </div>
+      {showLabel && (
+        <p className="store-catalog-status__label">
+          <span className="store-catalog-status__dot" aria-hidden />
+          {label}
+        </p>
+      )}
+    </div>
+  )
+}
+
+function applyCatalogData(
+  data: StoreData,
+  opts: {
+    setStore: (s: StoreData['store']) => void
+    setCatalogSlug: (s: string) => void
+    setProducts: (p: Product[]) => void
+    setRecentReviews: (r: StoreReviewSnippet[]) => void
+    setStoreCategories: (c: StoreCatalogCategory[]) => void
+    setCollections: (c: CatalogCollection[]) => void
+    setAttrDefs: (a: AttributeFilterDef[]) => void
+    onStoreLoaded: (store: StoreData['store']) => void
+    onProductsLoaded?: (products: Product[], slug: string) => void
+  },
+) {
+  opts.setStore(data.store)
+  const slug = String((data.store as any)?.slug || getStoreSlug()).trim()
+  if (slug) opts.setCatalogSlug(slug)
+  const list = data.all_products || []
+  opts.setProducts(list)
+  opts.setRecentReviews(
+    Array.isArray((data as any).recent_reviews)
+      ? ((data as any).recent_reviews as StoreReviewSnippet[])
+      : [],
+  )
+  opts.onProductsLoaded?.(list, slug)
+  opts.setStoreCategories(
+    Array.isArray(data.store_categories)
+      ? data.store_categories
+      : Array.isArray((data as any).categories)
+        ? (data as any).categories.filter((c: StoreCatalogCategory) => c?.id && c?.name)
+        : [],
+  )
+  opts.setCollections(Array.isArray((data as any).collections) ? (data as any).collections : [])
+  opts.setAttrDefs(
+    Array.isArray((data as any).attribute_definitions)
+      ? (data as any).attribute_definitions
+      : [],
+  )
+  opts.onStoreLoaded(data.store)
+
+  const b = data.store.brand || {}
+  const t = data.store.theme || {}
+  const p = (data.store as any).profile || {}
+  const brandName = b.name || (data.store as any).name || 'Catálogo'
+  const slogan = b.slogan || b.description || ''
+  applySeo({
+    title: slogan ? `${brandName} — ${slogan}` : brandName,
+    description: truncate(b.description || slogan, 160),
+    image: (b as any).cover_image || (t as any).cover_image || p.cover_image || b.logo_url,
+    url: typeof window !== 'undefined' ? window.location.href : null,
+  })
+
+  const brand = data.store.brand
+  const theme = data.store.theme
+  const primary = brand?.primary_color || theme?.primary_color || '#111827'
+  const secondary = brand?.secondary_color || theme?.secondary_color || '#3b82f6'
+  const root = document.documentElement
+  root.style.setProperty('--brand-primary', primary)
+  root.style.setProperty('--brand-secondary', secondary)
+  root.style.setProperty('--brand-primary-light', primary + '0d')
+  root.style.setProperty('--brand-secondary-light', secondary + '14')
+  root.style.setProperty('--brand-secondary-soft', secondary + '1a')
+  try {
+    const colorKey = `lead-system:store-brand-colors:${window.location.hostname}:${slug}`
+    localStorage.setItem(colorKey, JSON.stringify({ primary, secondary }))
+  } catch { /* storage can be unavailable in private mode */ }
+
+  // Card de instalar app: identidade da marca (whitelabel), nunca LeadCapture raiz
+  const pwaBrand = storefrontPwaFromStore({
+    ...data.store,
+    slug: data.store.slug || slug,
+  })
+  if (pwaBrand) publishStorefrontPwa(pwaBrand)
+}
+
 export function CatalogHome({ onStoreLoaded, onProductsLoaded }: CatalogHomeProps) {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -90,17 +211,52 @@ export function CatalogHome({ onStoreLoaded, onProductsLoaded }: CatalogHomeProp
   const [store, setStore] = useState<StoreData['store'] | null>(null)
   const [storeCategories, setStoreCategories] = useState<StoreCatalogCategory[]>([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedCategory, setSelectedCategory] = useState('')
   const [affiliateBanner, setAffiliateBanner] = useState<{ name: string; coupon: string } | null>(null)
   const [recentReviews, setRecentReviews] = useState<StoreReviewSnippet[]>([])
+  const [visibleCount, setVisibleCount] = useState(INITIAL_PRODUCT_BATCH)
   const addItem = useCartStore((s) => s.addItem)
   const { showToast } = useToast()
 
   useEffect(() => {
+    const cacheKey = `lead-system:storefront-catalog:${window.location.hostname}:${getStoreSlug()}`
+    let hasCachedData = false
+    let cancelled = false
+
+    // Paint last good catalog immediately (fresh or stale-within-24h), then revalidate.
+    try {
+      const cachedRaw = localStorage.getItem(cacheKey)
+      if (cachedRaw) {
+        const cached = JSON.parse(cachedRaw) as { savedAt?: number; data?: StoreData }
+        const age = Date.now() - Number(cached.savedAt || 0)
+        if (cached.data && age < LOCAL_CACHE_STALE_MS) {
+          hasCachedData = true
+          applyCatalogData(cached.data, {
+            setStore,
+            setCatalogSlug,
+            setProducts,
+            setRecentReviews,
+            setStoreCategories,
+            setCollections,
+            setAttrDefs,
+            onStoreLoaded,
+            onProductsLoaded,
+          })
+          setLoading(false)
+          /* Soft-refresh indicator while network revalidates */
+          setRefreshing(true)
+        }
+      }
+    } catch { /* ignore invalid or unavailable browser storage */ }
+
+    if (!hasCachedData) setLoading(true)
+
     captureAffiliateFromUrl()
       .then((result) => {
+        if (cancelled) return
         if (result.ok && (result.coupon || result.ref)) {
           const coupon = result.coupon || getAffiliateCoupon() || ''
           const name = result.displayName || getAffiliateDisplayName() || result.ref || 'parceiro'
@@ -115,55 +271,88 @@ export function CatalogHome({ onStoreLoaded, onProductsLoaded }: CatalogHomeProp
         }
       })
       .catch(() => {})
+
     fetchCatalog()
       .then((data) => {
-        setStore(data.store)
-        const slug = String((data.store as any)?.slug || getStoreSlug()).trim()
-        if (slug) setCatalogSlug(slug)
-        const list = data.all_products || []
-        setProducts(list)
-        const snippets = Array.isArray((data as any).recent_reviews)
-          ? ((data as any).recent_reviews as StoreReviewSnippet[])
-          : []
-        setRecentReviews(snippets)
-        onProductsLoaded?.(list, slug)
-        setStoreCategories(
-          Array.isArray(data.store_categories)
-            ? data.store_categories
-            : Array.isArray((data as any).categories)
-              ? (data as any).categories.filter((c: StoreCatalogCategory) => c?.id && c?.name)
-              : [],
-        )
-        setCollections(Array.isArray((data as any).collections) ? (data as any).collections : [])
-        setAttrDefs(Array.isArray((data as any).attribute_definitions) ? (data as any).attribute_definitions : [])
-        onStoreLoaded(data.store)
-
-        const b = data.store.brand || {}
-        const t = data.store.theme || {}
-        const p = (data.store as any).profile || {}
-        const brandName = b.name || (data.store as any).name || 'Catálogo'
-        const slogan = b.slogan || b.description || ''
-        applySeo({
-          title: slogan ? `${brandName} — ${slogan}` : brandName,
-          description: truncate(b.description || slogan, 160),
-          image: (b as any).cover_image || (t as any).cover_image || p.cover_image || b.logo_url,
-          url: typeof window !== 'undefined' ? window.location.href : null,
+        if (cancelled) return
+        try {
+          localStorage.setItem(cacheKey, JSON.stringify({ savedAt: Date.now(), data }))
+        } catch { /* catalog still works when storage is unavailable */ }
+        applyCatalogData(data, {
+          setStore,
+          setCatalogSlug,
+          setProducts,
+          setRecentReviews,
+          setStoreCategories,
+          setCollections,
+          setAttrDefs,
+          onStoreLoaded,
+          onProductsLoaded,
         })
-
-        const brand = data.store.brand
-        const theme = data.store.theme
-        const primary = brand?.primary_color || theme?.primary_color || '#111827'
-        const secondary = brand?.secondary_color || theme?.secondary_color || '#3b82f6'
-        const root = document.documentElement
-        root.style.setProperty('--brand-primary', primary)
-        root.style.setProperty('--brand-secondary', secondary)
-        root.style.setProperty('--brand-primary-light', primary + '0d')
-        root.style.setProperty('--brand-secondary-light', secondary + '14')
-        root.style.setProperty('--brand-secondary-soft', secondary + '1a')
       })
-      .catch((err) => setError(err.message || 'Erro ao carregar catálogo'))
-      .finally(() => setLoading(false))
+      .catch((err) => {
+        if (cancelled) return
+        if (!hasCachedData) setError(err.message || 'Erro ao carregar catálogo')
+      })
+      .finally(() => {
+        if (cancelled) return
+        setLoading(false)
+        setRefreshing(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+    // onProductsLoaded is often an inline callback from the shell — don't re-fetch on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onStoreLoaded])
+
+  /* Progressive reveal — large catalogs don't block the main thread on first paint */
+  useEffect(() => {
+    if (loading) {
+      setVisibleCount(INITIAL_PRODUCT_BATCH)
+      return
+    }
+    const total = products.length
+    if (total <= INITIAL_PRODUCT_BATCH) {
+      setVisibleCount(total)
+      return
+    }
+    /* Filters/search: show everything matched immediately */
+    if (searchQuery || selectedCategory || Object.keys(attrFilters).length > 0) {
+      setVisibleCount(total)
+      return
+    }
+    setVisibleCount(INITIAL_PRODUCT_BATCH)
+    let cancelled = false
+    const schedule = (cb: () => void) => {
+      const w = window as Window & {
+        requestIdleCallback?: (fn: () => void, opts?: { timeout: number }) => number
+      }
+      if (typeof w.requestIdleCallback === 'function') {
+        return w.requestIdleCallback(cb, { timeout: 120 })
+      }
+      return window.setTimeout(cb, 32)
+    }
+    const expand = () => {
+      if (cancelled) return
+      setVisibleCount((n) => {
+        if (n >= total) return n
+        const next = Math.min(total, n + 48)
+        if (next < total) schedule(expand)
+        return next
+      })
+    }
+    const id = schedule(expand)
+    return () => {
+      cancelled = true
+      const w = window as Window & { cancelIdleCallback?: (id: number) => void }
+      if (typeof w.cancelIdleCallback === 'function') {
+        try { w.cancelIdleCallback(id as number) } catch { /* ignore */ }
+      }
+      window.clearTimeout(id as number)
+    }
+  }, [loading, products.length, searchQuery, selectedCategory, attrFilters])
 
   /* Links antigos ?produto=slug ou ?p=slug → página dedicada do produto */
   useEffect(() => {
@@ -290,8 +479,18 @@ export function CatalogHome({ onStoreLoaded, onProductsLoaded }: CatalogHomeProp
   const storeReviews = !loading ? aggregateStoreReviews(products) : { count: 0, avg: 0, topProducts: [] }
   const showHomeExtras = !searchQuery && !selectedCategory
 
+  const visibleFiltered = loading
+    ? []
+    : filtered.slice(0, Math.max(visibleCount, INITIAL_PRODUCT_BATCH))
+
   return (
-    <div className="store-page page-enter">
+    <div className="store-page page-enter" aria-busy={loading || refreshing}>
+      <CatalogStatusBar
+        loading={loading}
+        refreshing={refreshing}
+        productCount={products.length}
+      />
+
       {conversion.announcement_bar.enabled && announceText && (
         <StoreAnnouncementBar
           text={announceText}
@@ -377,7 +576,7 @@ export function CatalogHome({ onStoreLoaded, onProductsLoaded }: CatalogHomeProp
       />
 
       <div className="max-w-[var(--store-max)] mx-auto px-4 pt-5 pb-28 space-y-8">
-        {showHomeExtras && (
+        {!loading && showHomeExtras && (storeReviews.count > 0 || recentReviews.length > 0) && (
           <StoreReviewsHighlight
             avg={storeReviews.avg}
             count={storeReviews.count}
@@ -389,7 +588,7 @@ export function CatalogHome({ onStoreLoaded, onProductsLoaded }: CatalogHomeProp
 
         {showHomeExtras && bestSellers.length >= 3 && (
           <StoreSection title={conversion.best_sellers_title} count={bestSellers.length}>
-            <div className="store-collection-track -mx-4 px-4">
+            <div className="store-collection-track -mr-4 pr-4">
               {bestSellers.map((product, i) => (
                 <ProductCard
                   key={product.id}
@@ -419,7 +618,7 @@ export function CatalogHome({ onStoreLoaded, onProductsLoaded }: CatalogHomeProp
                   description={col.description}
                   count={colProducts.length}
                 >
-                  <div className="store-collection-track -mx-4 px-4">
+                  <div className="store-collection-track -mr-4 pr-4">
                     {colProducts.map((product, i) => (
                       <ProductCard
                         key={product.id}
@@ -439,10 +638,19 @@ export function CatalogHome({ onStoreLoaded, onProductsLoaded }: CatalogHomeProp
         )}
 
         {loading ? (
-          <div className="store-product-grid">
-            {Array.from({ length: 8 }).map((_, i) => (
-              <ProductSkeleton key={i} />
-            ))}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between px-0.5">
+              <div className="skeleton h-4 w-28 rounded" />
+              <div className="skeleton h-3 w-16 rounded" />
+            </div>
+            <div className="store-product-grid" aria-label="Carregando produtos">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <ProductSkeleton key={i} />
+              ))}
+            </div>
+            <p className="text-center text-[12px] text-gray-500 pt-1">
+              Montando vitrine…
+            </p>
           </div>
         ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center rounded-2xl border border-dashed border-gray-200 bg-white">
@@ -458,7 +666,7 @@ export function CatalogHome({ onStoreLoaded, onProductsLoaded }: CatalogHomeProp
             count={filtered.length}
           >
             <div className="store-product-grid">
-              {filtered.map((product, i) => (
+              {visibleFiltered.map((product, i) => (
                 <ProductCard
                   key={product.id}
                   product={product}
@@ -470,6 +678,14 @@ export function CatalogHome({ onStoreLoaded, onProductsLoaded }: CatalogHomeProp
                 />
               ))}
             </div>
+            {visibleFiltered.length < filtered.length && (
+              <div className="flex justify-center pt-3">
+                <p className="text-[12px] text-gray-500 flex items-center gap-2">
+                  <span className="store-catalog-status__dot" aria-hidden />
+                  Carregando mais produtos ({visibleFiltered.length}/{filtered.length})
+                </p>
+              </div>
+            )}
           </StoreSection>
         )}
       </div>

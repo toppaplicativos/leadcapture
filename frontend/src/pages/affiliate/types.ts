@@ -18,6 +18,10 @@ export type AppContext = {
     document?: string
     pix_key?: string
     region?: string
+    city?: string
+    bio?: string
+    avatar_url?: string
+    email?: string
     social_instagram?: string
     social_whatsapp?: string
     status?: string

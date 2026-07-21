@@ -24,8 +24,10 @@ export type InstagramCreateFormState = {
   altText: string
   /** Reels: também publicar no feed */
   shareToFeed: boolean
-  /** Reels: URL da capa (opcional) */
+  /** Reels: URL pública da capa (upload/galeria) */
   coverUrl: string
+  /** Reels: renomeia áudio original (API não adiciona trilha da biblioteca IG) */
+  audioName: string
   /** Usernames de collab (até 3, best-effort na API) */
   collaborators: string[]
 }
@@ -102,6 +104,7 @@ export function createDefaultFormState(): InstagramCreateFormState {
     altText: '',
     shareToFeed: true,
     coverUrl: '',
+    audioName: '',
     collaborators: [],
   }
 }
@@ -126,9 +129,12 @@ export function buildPublishMeta(form: InstagramCreateFormState): Record<string,
   }
   if (user_tags.length) meta.user_tags = user_tags
   if (form.altText.trim()) meta.alt_text = form.altText.trim().slice(0, 1000)
-  if (form.postType === 'REELS') {
-    meta.share_to_feed = form.shareToFeed !== false
+  if (form.postType === 'REELS' || form.postType === 'VIDEO') {
+    if (form.postType === 'REELS') {
+      meta.share_to_feed = form.shareToFeed !== false
+    }
     if (form.coverUrl.trim()) meta.cover_url = form.coverUrl.trim()
+    if (form.audioName.trim()) meta.audio_name = form.audioName.trim().slice(0, 100)
   }
   if (collaborators.length) meta.collaborators = collaborators
 
@@ -250,6 +256,7 @@ export function postToFormState(post: any): InstagramCreateFormState {
     altText: String(meta.alt_text || ''),
     shareToFeed: meta.share_to_feed !== false,
     coverUrl: String(meta.cover_url || ''),
+    audioName: String(meta.audio_name || ''),
     collaborators,
   }
 }

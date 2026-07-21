@@ -35,6 +35,10 @@ export function MobLogisticsView({
   const [inviteUrl, setInviteUrl] = useState('')
   const [selectedDeliveryIds, setSelectedDeliveryIds] = useState<string[]>([])
   const [routeCourierId, setRouteCourierId] = useState('')
+  const [courierDetailId, setCourierDetailId] = useState<string | null>(null)
+  const [courierDetail, setCourierDetail] = useState<any>(null)
+  const [courierDetailLoading, setCourierDetailLoading] = useState(false)
+  const [reviewNotes, setReviewNotes] = useState('')
 
   const [form, setForm] = useState({
     enabled: false,
@@ -249,7 +253,7 @@ export function MobLogisticsView({
           delivery_address: newDelivery.dropoff_address || undefined,
           business_status: 'pago',
         })
-        showToast(res.created === false ? 'Entrega já vinculada ao pedido' : 'Entrega gerada do pedido')
+        showToast(res.created === false ? 'Corrida já vinculada ao pedido' : 'Corrida gerada do pedido')
         if (res.tracking_url) {
           await navigator.clipboard.writeText(res.tracking_url).catch(() => undefined)
           showToast('Link de rastreio copiado')
@@ -271,7 +275,7 @@ export function MobLogisticsView({
         notes: newDelivery.notes || undefined,
         status: 'ready_for_dispatch',
       })
-      showToast('Entrega criada')
+      showToast('Corrida criada')
       setNewDelivery({ customer_name: '', customer_phone: '', dropoff_address: '', products_total: '', notes: '', order_id: '' })
       const d = await mobAdminApi.deliveries()
       setDeliveries(d.deliveries || [])
@@ -303,7 +307,7 @@ export function MobLogisticsView({
     { key: 'settings', label: 'Configuração', icon: Settings2 },
     { key: 'couriers', label: 'Entregadores', icon: Users },
     { key: 'fleet', label: 'Frota', icon: Truck },
-    { key: 'deliveries', label: 'Entregas', icon: Bike },
+    { key: 'deliveries', label: 'Corridas', icon: Bike },
     { key: 'map', label: 'Mapa', icon: MapPin },
     { key: 'finance', label: 'Financeiro', icon: Wallet },
   ]
@@ -380,7 +384,7 @@ export function MobLogisticsView({
       {tab === 'overview' && (
         <div className="space-y-4">
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <KpiCard label="Entregas" value={String(reports?.deliveries?.total ?? 0)} />
+            <KpiCard label="Corridas" value={String(reports?.deliveries?.total ?? 0)} />
             <KpiCard label="Em andamento" value={String(reports?.deliveries?.in_progress ?? 0)} />
             <KpiCard label="Concluídas" value={String(reports?.deliveries?.delivered ?? 0)} />
             <KpiCard label="Entregadores" value={String(reports?.couriers?.approved ?? 0)} />
@@ -394,7 +398,7 @@ export function MobLogisticsView({
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <p className="text-sm font-semibold text-gray-900">
-                    Permitir gerenciamento de entregas pelo Lead Capture Mob
+                    Permitir gerenciamento de corridas pelo Lead Capture Mob
                   </p>
                   <p className="text-xs text-gray-500 mt-0.5">
                     Ativa operação logística separada do pedido, com entregadores globais
@@ -421,12 +425,12 @@ export function MobLogisticsView({
               </Button>
               {!form.enabled && (
                 <p className="text-xs text-amber-700 bg-amber-50 rounded-xl px-3 py-2">
-                  Módulo desativado — configure e ative para operar entregas no Mob.
+                  Módulo desativado — configure e ative para operar corridas no Mob.
                 </p>
               )}
               {form.enabled && (
                 <p className="text-xs text-emerald-800 bg-emerald-50 rounded-xl px-3 py-2">
-                  Integração ativa: pedidos <strong>pagos</strong> geram entrega Mob automaticamente; o cliente recebe
+                  Integração ativa: pedidos <strong>pagos</strong> geram corrida Mob automaticamente; o cliente recebe
                   link em <code className="text-[11px]">mob.leadcapture.online/rastreio/…</code>
                 </p>
               )}
@@ -455,15 +459,15 @@ export function MobLogisticsView({
               >
                 <option value="manual">Manual</option>
                 <option value="direct">Atribuição direta</option>
-                <option value="sequential">Oferta sequencial (fase 2)</option>
-                <option value="simultaneous">Oferta simultânea (fase 2)</option>
+                <option value="sequential">Corrida sequencial (fase 2)</option>
+                <option value="simultaneous">Corrida simultânea (fase 2)</option>
                 <option value="auto">Automática (fase 2)</option>
               </Select>
             </CardBody>
           </Card>
 
           <Card>
-            <CardHeader><CardTitle>Cobrança de entrega</CardTitle></CardHeader>
+            <CardHeader><CardTitle>Cobrança da corrida</CardTitle></CardHeader>
             <CardBody className="grid sm:grid-cols-2 gap-3">
               <Select
                 label="Modelo"
@@ -514,7 +518,7 @@ export function MobLogisticsView({
                 type="number"
                 value={form.default_sla_minutes}
                 onChange={(e) => setForm({ ...form, default_sla_minutes: e.target.value })}
-                hint="Entregas acima do prazo aparecem como atrasadas no mapa"
+                hint="Corridas acima do prazo aparecem como atrasadas no mapa"
               />
               <Select
                 label="Anti-fraude GPS"
@@ -582,7 +586,7 @@ export function MobLogisticsView({
                 max={400}
                 value={form.geofence_dropoff_m}
                 onChange={(e) => setForm({ ...form, geofence_dropoff_m: e.target.value })}
-                hint="Nunca conclui entrega sozinho — só avança status até 'no destino'."
+                hint="Nunca conclui corrida sozinho — só avança status até 'no destino'."
               />
               <label className="flex items-center gap-2 text-sm text-gray-800 cursor-pointer sm:col-span-2">
                 <input
@@ -633,6 +637,321 @@ export function MobLogisticsView({
               </div>
             </div>
           )}
+
+          {courierDetailId && courierDetail ? (
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between gap-2">
+                <CardTitle>Revisão do entregador</CardTitle>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setCourierDetailId(null)
+                    setCourierDetail(null)
+                  }}
+                >
+                  Fechar
+                </Button>
+              </CardHeader>
+              <CardBody className="space-y-4">
+                {courierDetailLoading ? (
+                  <Skeleton rows={3} />
+                ) : (
+                  <>
+                    <div className="flex flex-wrap gap-2 items-center">
+                      <p className="text-sm font-bold text-gray-900 m-0">
+                        {courierDetail.courier?.full_name || courierDetail.membership?.full_name}
+                      </p>
+                      <Badge
+                        variant={
+                          courierDetail.courier?.cadastro_status === 'approved'
+                            ? 'success'
+                            : courierDetail.courier?.cadastro_status === 'under_review'
+                              ? 'info'
+                              : 'warning'
+                        }
+                      >
+                        cadastro: {courierDetail.courier?.cadastro_status}
+                      </Badge>
+                      <Badge
+                        variant={
+                          courierDetail.membership?.status === 'approved' ? 'success' : 'warning'
+                        }
+                      >
+                        vínculo: {courierDetail.membership?.status}
+                      </Badge>
+                    </div>
+                    <div className="grid sm:grid-cols-2 gap-2 text-xs text-gray-700">
+                      <p className="m-0">CPF: {courierDetail.courier?.cpf || '—'}</p>
+                      <p className="m-0">
+                        Tel: {courierDetail.courier?.phone || courierDetail.courier?.whatsapp || '—'}
+                      </p>
+                      <p className="m-0">E-mail: {courierDetail.courier?.email || '—'}</p>
+                      <p className="m-0">PIX: {courierDetail.courier?.pix_key || '—'}</p>
+                      <p className="m-0 sm:col-span-2">
+                        Endereço:{' '}
+                        {courierDetail.courier?.address_json?.line ||
+                          courierDetail.courier?.address_json?.full ||
+                          '—'}
+                      </p>
+                      {courierDetail.courier?.review_notes ? (
+                        <p className="m-0 sm:col-span-2 text-amber-800">
+                          Notas: {courierDetail.courier.review_notes}
+                        </p>
+                      ) : null}
+                    </div>
+
+                    <div>
+                      <p className="text-xs font-bold text-gray-900 mb-2">Documentos pessoais</p>
+                      {(courierDetail.documents || []).length ? (
+                        <div className="space-y-2">
+                          {courierDetail.documents.map((d: any) => (
+                            <div
+                              key={d.id}
+                              className="flex flex-wrap items-center gap-2 rounded-xl border border-border px-3 py-2"
+                            >
+                              <div className="min-w-0 flex-1 text-xs">
+                                <p className="font-semibold m-0">{d.doc_type}</p>
+                                <p className="text-gray-500 m-0">
+                                  {d.doc_number || '—'}
+                                  {d.file_url ? (
+                                    <>
+                                      {' · '}
+                                      <a href={d.file_url} target="_blank" rel="noreferrer" className="text-emerald-700">
+                                        ver arquivo
+                                      </a>
+                                    </>
+                                  ) : null}
+                                </p>
+                              </div>
+                              <Badge variant={d.status === 'approved' ? 'success' : d.status === 'rejected' ? 'danger' : 'warning'}>
+                                {d.status}
+                              </Badge>
+                              {d.status === 'pending' || d.status === 'needs_resubmit' ? (
+                                <div className="flex gap-1">
+                                  <Button
+                                    size="sm"
+                                    variant="secondary"
+                                    onClick={async () => {
+                                      try {
+                                        await mobAdminApi.validateCourierDocument(courierDetailId, d.id, {
+                                          status: 'rejected',
+                                          rejection_reason: reviewNotes || 'Documento recusado',
+                                        })
+                                        showToast('Documento recusado')
+                                        const det = await mobAdminApi.courierDetail(courierDetailId)
+                                        setCourierDetail(det)
+                                      } catch (e: any) {
+                                        showToast(e.message, 'err')
+                                      }
+                                    }}
+                                  >
+                                    Recusar
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    onClick={async () => {
+                                      try {
+                                        await mobAdminApi.validateCourierDocument(courierDetailId, d.id, {
+                                          status: 'approved',
+                                        })
+                                        showToast('Documento aprovado')
+                                        const det = await mobAdminApi.courierDetail(courierDetailId)
+                                        setCourierDetail(det)
+                                      } catch (e: any) {
+                                        showToast(e.message, 'err')
+                                      }
+                                    }}
+                                  >
+                                    Aprovar
+                                  </Button>
+                                </div>
+                              ) : null}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-gray-500">Nenhum documento pessoal.</p>
+                      )}
+                    </div>
+
+                    <div>
+                      <p className="text-xs font-bold text-gray-900 mb-2">Veículos nesta loja</p>
+                      {(courierDetail.vehicles || []).length ? (
+                        <div className="space-y-2">
+                          {courierDetail.vehicles.map((v: any) => (
+                            <div
+                              key={v.id}
+                              className="rounded-xl border border-border px-3 py-2 text-xs space-y-1"
+                            >
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-semibold">
+                                  {v.plate || v.label || v.id.slice(0, 8)}
+                                </span>
+                                <Badge
+                                  variant={
+                                    v.status === 'available'
+                                      ? 'success'
+                                      : v.status === 'pending_approval'
+                                        ? 'warning'
+                                        : 'neutral'
+                                  }
+                                >
+                                  {v.status}
+                                </Badge>
+                                {v.status === 'pending_approval' || v.status === 'blocked' ? (
+                                  <div className="flex gap-1 ml-auto">
+                                    <Button
+                                      size="sm"
+                                      variant="secondary"
+                                      onClick={async () => {
+                                        try {
+                                          await mobAdminApi.rejectVehicle(v.id, {
+                                            reason: reviewNotes || 'Veículo recusado',
+                                          })
+                                          showToast('Veículo recusado')
+                                          const det = await mobAdminApi.courierDetail(courierDetailId)
+                                          setCourierDetail(det)
+                                        } catch (e: any) {
+                                          showToast(e.message, 'err')
+                                        }
+                                      }}
+                                    >
+                                      Recusar veículo
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      onClick={async () => {
+                                        try {
+                                          await mobAdminApi.approveVehicle(v.id)
+                                          showToast('Veículo aprovado')
+                                          const det = await mobAdminApi.courierDetail(courierDetailId)
+                                          setCourierDetail(det)
+                                        } catch (e: any) {
+                                          showToast(e.message, 'err')
+                                        }
+                                      }}
+                                    >
+                                      Aprovar veículo
+                                    </Button>
+                                  </div>
+                                ) : null}
+                              </div>
+                              <p className="text-gray-500 m-0">
+                                {[v.make, v.model, v.type?.name].filter(Boolean).join(' · ') || '—'}
+                              </p>
+                              {(v.documents || []).map((vd: any) => (
+                                <p key={vd.id} className="text-gray-500 m-0">
+                                  Doc {vd.doc_type}: {vd.status}
+                                  {vd.file_url ? (
+                                    <>
+                                      {' · '}
+                                      <a href={vd.file_url} target="_blank" rel="noreferrer" className="text-emerald-700">
+                                        arquivo
+                                      </a>
+                                    </>
+                                  ) : null}
+                                </p>
+                              ))}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-gray-500">Nenhum veículo cadastrado nesta loja.</p>
+                      )}
+                    </div>
+
+                    <Input
+                      label="Motivo / notas (recusa ou correção)"
+                      value={reviewNotes}
+                      onChange={(e) => setReviewNotes(e.target.value)}
+                      placeholder="Ex: CNH ilegível, placa divergente…"
+                    />
+
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        onClick={async () => {
+                          try {
+                            await mobAdminApi.courierCadastro(courierDetailId, {
+                              action: 'approve',
+                              notes: reviewNotes || undefined,
+                            })
+                            showToast('Cadastro aprovado')
+                            const det = await mobAdminApi.courierDetail(courierDetailId)
+                            setCourierDetail(det)
+                            mobAdminApi.couriers().then((d) => setMemberships(d.memberships || []))
+                          } catch (e: any) {
+                            showToast(e.message, 'err')
+                          }
+                        }}
+                        iconLeft={<Check size={14} />}
+                      >
+                        Aprovar cadastro
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={async () => {
+                          try {
+                            await mobAdminApi.courierCadastro(courierDetailId, {
+                              action: 'request_changes',
+                              notes: reviewNotes || 'Corrija os documentos',
+                            })
+                            showToast('Correção solicitada')
+                            const det = await mobAdminApi.courierDetail(courierDetailId)
+                            setCourierDetail(det)
+                          } catch (e: any) {
+                            showToast(e.message, 'err')
+                          }
+                        }}
+                      >
+                        Pedir correção
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={async () => {
+                          try {
+                            await mobAdminApi.courierCadastro(courierDetailId, {
+                              action: 'reject',
+                              notes: reviewNotes || 'Cadastro recusado',
+                            })
+                            showToast('Cadastro recusado')
+                            const det = await mobAdminApi.courierDetail(courierDetailId)
+                            setCourierDetail(det)
+                          } catch (e: any) {
+                            showToast(e.message, 'err')
+                          }
+                        }}
+                        iconLeft={<X size={14} />}
+                      >
+                        Recusar cadastro
+                      </Button>
+                      {courierDetail.membership?.status === 'pending' ? (
+                        <Button
+                          size="sm"
+                          onClick={() => setMembershipStatus(courierDetailId, 'approved')}
+                        >
+                          Aprovar vínculo
+                        </Button>
+                      ) : null}
+                      {courierDetail.membership?.status === 'approved' ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setMembershipStatus(courierDetailId, 'suspended')}
+                        >
+                          Suspender vínculo
+                        </Button>
+                      ) : null}
+                    </div>
+                  </>
+                )}
+              </CardBody>
+            </Card>
+          ) : null}
+
           {memberships.map((m) => (
             <div key={m.id} className="bg-white rounded-2xl border border-border p-4 flex flex-wrap items-center gap-3">
               <div className="w-11 h-11 rounded-full bg-gray-100 grid place-items-center overflow-hidden">
@@ -644,15 +963,37 @@ export function MobLogisticsView({
               </div>
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-bold text-gray-900">{m.full_name}</p>
-                <p className="text-xs text-gray-500">{m.phone || m.email} · {m.ops_status || 'offline'}</p>
+                <p className="text-xs text-gray-500">
+                  {m.phone || m.email} · {m.ops_status || 'offline'} · cadastro{' '}
+                  {m.cadastro_status || '—'}
+                </p>
               </div>
               <Badge
                 variant={
                   m.status === 'approved' ? 'success' : m.status === 'pending' ? 'warning' : m.status === 'rejected' ? 'danger' : 'neutral'
                 }
               >
-                {m.status}
+                vínculo: {m.status}
               </Badge>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={async () => {
+                  setCourierDetailId(m.id)
+                  setCourierDetailLoading(true)
+                  try {
+                    const det = await mobAdminApi.courierDetail(m.id)
+                    setCourierDetail(det)
+                  } catch (e: any) {
+                    showToast(e.message, 'err')
+                    setCourierDetailId(null)
+                  } finally {
+                    setCourierDetailLoading(false)
+                  }
+                }}
+              >
+                Revisar
+              </Button>
               {m.status === 'pending' && (
                 <div className="flex gap-1.5">
                   <Button size="sm" variant="secondary" onClick={() => setMembershipStatus(m.id, 'rejected')} iconLeft={<X size={14} />}>
@@ -676,27 +1017,27 @@ export function MobLogisticsView({
       {tab === 'deliveries' && (
         <div className="space-y-4">
           <Card>
-            <CardHeader><CardTitle>Nova entrega</CardTitle></CardHeader>
+            <CardHeader><CardTitle>Nova corrida</CardTitle></CardHeader>
             <CardBody className="grid sm:grid-cols-2 gap-3">
               <div className="sm:col-span-2">
                 <Input
                   label="ID do pedido (Lead Capture)"
                   value={newDelivery.order_id}
                   onChange={(e) => setNewDelivery({ ...newDelivery, order_id: e.target.value })}
-                  hint="Se preenchido, gera a entrega a partir do pedido (módulo ativo)."
+                  hint="Se preenchido, gera a corrida a partir do pedido (módulo ativo)."
                   placeholder="UUID do commerce_orders"
                 />
               </div>
               <Input label="Cliente" value={newDelivery.customer_name} onChange={(e) => setNewDelivery({ ...newDelivery, customer_name: e.target.value })} />
               <Input label="Telefone" value={newDelivery.customer_phone} onChange={(e) => setNewDelivery({ ...newDelivery, customer_phone: e.target.value })} />
               <div className="sm:col-span-2">
-                <Input label="Endereço de entrega" value={newDelivery.dropoff_address} onChange={(e) => setNewDelivery({ ...newDelivery, dropoff_address: e.target.value })} />
+                <Input label="Endereço da corrida" value={newDelivery.dropoff_address} onChange={(e) => setNewDelivery({ ...newDelivery, dropoff_address: e.target.value })} />
               </div>
               <Input label="Valor produtos (R$)" type="number" value={newDelivery.products_total} onChange={(e) => setNewDelivery({ ...newDelivery, products_total: e.target.value })} />
               <Input label="Observações" value={newDelivery.notes} onChange={(e) => setNewDelivery({ ...newDelivery, notes: e.target.value })} />
               <div className="sm:col-span-2">
                 <Button onClick={createDelivery} iconLeft={<Plus size={14} />}>
-                  {newDelivery.order_id.trim() ? 'Gerar do pedido' : 'Criar entrega'}
+                  {newDelivery.order_id.trim() ? 'Gerar do pedido' : 'Criar corrida'}
                 </Button>
               </div>
             </CardBody>
@@ -788,7 +1129,7 @@ export function MobLogisticsView({
                           const res = await mobAdminApi.dispatch(d.id)
                           showToast(
                             res.offered_to?.length
-                              ? `Oferta enviada a ${res.offered_to.length} entregador(es)`
+                              ? `Corrida enviada a ${res.offered_to.length} entregador(es)`
                               : 'Nenhum entregador disponível',
                           )
                         } catch (e: any) {
@@ -796,7 +1137,7 @@ export function MobLogisticsView({
                         }
                       }}
                     >
-                      Ofertar (auto)
+                      Enviar corrida (auto)
                     </Button>
                     {approvedCouriers.slice(0, 5).map((c) => (
                       <Button key={c.courier_id} size="sm" variant="secondary" onClick={() => assign(d.id, c.courier_id)}>
@@ -870,7 +1211,7 @@ export function MobLogisticsView({
               </div>
             ))}
             {!deliveries.length && (
-              <EmptyState text="Nenhuma entrega" hint="Crie uma entrega manual ou aguarde pedidos integrados." />
+              <EmptyState text="Nenhuma corrida" hint="Crie uma corrida manual ou aguarde pedidos integrados." />
             )}
           </div>
         </div>
@@ -987,7 +1328,7 @@ export function MobLogisticsView({
                     <EmptyState
                       icon={Wallet}
                       text="Sem movimento no período"
-                      hint="Quando houver entregas concluídas, taxas e COD aparecem dia a dia aqui."
+                      hint="Quando houver corridas concluídas, taxas e COD aparecem dia a dia aqui."
                     />
                   ) : (
                     <table className="w-full text-sm">
@@ -1029,15 +1370,15 @@ export function MobLogisticsView({
                   {!(finance?.by_courier || []).length ? (
                     <EmptyState
                       icon={Users}
-                      text="Nenhum entregador com entregas"
-                      hint="Payouts e km por pessoa aparecem quando entregas forem concluídas no período."
+                      text="Nenhum entregador com corridas"
+                      hint="Payouts e km por pessoa aparecem quando corridas forem concluídas no período."
                     />
                   ) : (
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="text-left text-[11px] font-semibold text-gray-600 border-b border-border">
                           <th className="py-2 pr-3">Entregador</th>
-                          <th className="py-2 pr-3">Entregas</th>
+                          <th className="py-2 pr-3">Corridas</th>
                           <th className="py-2 pr-3">Taxas</th>
                           <th className="py-2 pr-3">Payout est.</th>
                           <th className="py-2 pr-3">COD</th>
@@ -1091,7 +1432,7 @@ export function MobLogisticsView({
 
           {mapSummary.late > 0 && (
             <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 font-semibold">
-              {mapSummary.late} entrega(s) atrasada(s) no SLA
+              {mapSummary.late} corrida(s) atrasada(s) no SLA
             </div>
           )}
 
@@ -1136,7 +1477,7 @@ export function MobLogisticsView({
             {[
               { l: 'Online', v: mapSummary.online ?? 0 },
               { l: 'Disponíveis', v: mapSummary.available ?? 0 },
-              { l: 'Entregas', v: mapSummary.active_deliveries ?? 0 },
+              { l: 'Corridas', v: mapSummary.active_deliveries ?? 0 },
               { l: 'Atrasadas', v: mapSummary.late ?? 0 },
             ].map((k) => (
               <div key={k.l} className="rounded-2xl border border-border bg-white px-3 py-2.5">
@@ -1180,7 +1521,7 @@ export function MobLogisticsView({
                       <p className="text-sm font-semibold text-gray-900 truncate">{c.full_name}</p>
                       <p className="text-[11px] text-gray-400">
                         {c.ops_status === 'available' ? 'Disponível' : 'Ocupado'}
-                        {c.active_load ? ` · ${c.active_load} entrega(s)` : ''}
+                        {c.active_load ? ` · ${c.active_load} corrida(s)` : ''}
                       </p>
                     </div>
                   </div>
@@ -1191,7 +1532,7 @@ export function MobLogisticsView({
               </CardBody>
             </Card>
             <Card>
-              <CardHeader><CardTitle>Entregas ativas</CardTitle></CardHeader>
+              <CardHeader><CardTitle>Corridas ativas</CardTitle></CardHeader>
               <CardBody className="space-y-0 !pt-0">
                 {(mapState?.deliveries || []).map((d: any) => (
                   <div key={d.id} className="py-2 border-b border-border-light last:border-0">
@@ -1203,7 +1544,7 @@ export function MobLogisticsView({
                   </div>
                 ))}
                 {!(mapState?.deliveries || []).length && (
-                  <p className="text-sm text-gray-400 py-3">Nenhuma entrega em rota</p>
+                  <p className="text-sm text-gray-400 py-3">Nenhuma corrida em rota</p>
                 )}
               </CardBody>
             </Card>

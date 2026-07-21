@@ -44,6 +44,7 @@ function FlowBlockNode({ data, selected }: NodeProps) {
   const Icon = NODE_ICON[flowNode.type] || NODE_ICON.action
   const isCondition =
     flowNode.type === 'condition' || flowNode.subtype === 'collect_confirm'
+  const isPhaseManager = flowNode.subtype === 'phase_manager'
 
   return (
     <div
@@ -76,7 +77,14 @@ function FlowBlockNode({ data, selected }: NodeProps) {
         </div>
       </div>
 
-      {isCondition ? (
+      {isPhaseManager ? (
+        <>
+          <Handle type="source" position={Position.Bottom} id="source-back" className="!w-2.5 !h-2.5 !bg-amber-500 !border-2 !border-white" style={{ left: '20%' }} />
+          <Handle type="source" position={Position.Bottom} id="source-stay" className="!w-2.5 !h-2.5 !bg-sky-500 !border-2 !border-white" style={{ left: '50%' }} />
+          <Handle type="source" position={Position.Bottom} id="source-advance" className="!w-2.5 !h-2.5 !bg-emerald-500 !border-2 !border-white" style={{ left: '80%' }} />
+          <div className="flex justify-between px-3 pb-1.5 text-[9px] font-semibold"><span className="text-amber-600">voltar</span><span className="text-sky-600">manter</span><span className="text-emerald-600">avançar</span></div>
+        </>
+      ) : isCondition ? (
         <>
           <Handle
             type="source"
@@ -114,6 +122,9 @@ const nodeTypes = { flowBlock: FlowBlockNode }
 function sourceHandleFromFromHandle(fromHandle: string, branched: boolean): string {
   const h = String(fromHandle || 'main').toLowerCase()
   if (branched) {
+    if (h === 'advance') return 'source-advance'
+    if (h === 'stay') return 'source-stay'
+    if (h === 'back') return 'source-back'
     if (h === 'no' || h === 'false' || h === 'nao' || h === 'não') return 'source-no'
     if (h === 'yes' || h === 'true' || h === 'sim') return 'source-yes'
     // custom option ids still use main source; labels on edges show branch
@@ -125,6 +136,9 @@ function sourceHandleFromFromHandle(fromHandle: string, branched: boolean): stri
 
 function fromHandleFromSourceId(sourceHandle: string | null | undefined): string {
   const h = String(sourceHandle || 'source-main')
+  if (h.includes('advance')) return 'advance'
+  if (h.includes('stay')) return 'stay'
+  if (h.includes('back')) return 'back'
   if (h.includes('no')) return 'no'
   if (h.includes('yes')) return 'yes'
   return 'main'
@@ -163,13 +177,19 @@ export function flowToRf(
       markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16, color: '#a3a3a3' },
       style: { stroke: '#a3a3a3', strokeWidth: 1.5 },
       label: branched
-        ? handle === 'no'
-          ? 'não'
-          : handle === 'yes'
-            ? 'sim'
-            : handle !== 'main'
-              ? handle
-              : undefined
+        ? handle === 'advance'
+          ? 'avançar'
+          : handle === 'stay'
+            ? 'manter'
+            : handle === 'back'
+              ? 'voltar'
+              : handle === 'no'
+                ? 'não'
+                : handle === 'yes'
+                  ? 'sim'
+                  : handle !== 'main'
+                    ? handle
+                    : undefined
         : handle !== 'main'
           ? handle
           : undefined,

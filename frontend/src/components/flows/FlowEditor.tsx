@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ArrowLeft, Plus, Save, CheckCircle2, Play, X, History,
-  Users, ChevronRight, LayoutList, Network,
+  Users, ChevronRight, LayoutList, Network, Pencil, Trash2,
 } from 'lucide-react'
 import { Button, Badge, Card, CardBody, Input } from '@/components/ui'
 import { FlowNodeConfigPanel } from './FlowNodeConfigPanel'
@@ -20,6 +20,7 @@ import {
 } from '@/lib/flows/catalog'
 import * as api from '@/lib/flows/api'
 import { cn } from '@/lib/cn'
+import { useMediaQuery } from '@/lib/hooks/useMediaQuery'
 
 type Props = {
   flow: Flow
@@ -56,13 +57,51 @@ export function FlowEditor({ flow, onClose, onUpdated }: Props) {
   } | null>(null)
   const [testPhone, setTestPhone] = useState('')
   const [starting, setStarting] = useState(false)
+  /** Bottom-sheet editor for mobile / iPad (< xl). Desktop keeps the side panel. */
+  const [configSheetOpen, setConfigSheetOpen] = useState(false)
+
+  /** Side-by-side canvas + config only on true desktop (≥1280). Tablets use the sheet. */
+  const isWideLayout = useMediaQuery('(min-width: 1280px)')
 
   const selected = nodes.find((n) => n.id === selectedId) || null
+  const selectedTone = selected ? toneForNode(selected.type, selected.subtype) : null
+  const SelectedIcon = selected
+    ? NODE_ICON[selected.type] || NODE_ICON.action
+    : null
+  const canRemoveSelected =
+    !!selected && selected.type !== 'trigger' && selected.type !== 'end'
 
   const flash = useCallback((text: string, kind: Toast['kind'] = 'ok') => {
     setToast({ text, kind })
     window.setTimeout(() => setToast(null), 2800)
   }, [])
+
+  const selectNode = useCallback(
+    (id: string | null) => {
+      setSelectedId(id)
+      if (!id) {
+        setConfigSheetOpen(false)
+        return
+      }
+      // Only open the sheet when the user intentionally picks a block (not on editor mount).
+      if (!isWideLayout) setConfigSheetOpen(true)
+    },
+    [isWideLayout],
+  )
+
+  useEffect(() => {
+    if (isWideLayout) setConfigSheetOpen(false)
+  }, [isWideLayout])
+
+  // Lock page scroll while a sheet is open (config or add-block).
+  useEffect(() => {
+    if (!configSheetOpen && !showAdd) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = prev
+    }
+  }, [configSheetOpen, showAdd])
 
   const reloadObs = useCallback(async () => {
     try {
@@ -201,6 +240,28 @@ export function FlowEditor({ flow, onClose, onUpdated }: Props) {
       data.mensagemSteps = []
       data.wait_for_reply = true
     }
+    if (item.subtype === 'product_offer') {
+      data.intro_message = 'Separei estas opções para você:'
+      data.product_ids = []
+      data.catalog_mode = 'smart'
+      data.context_variable = 'product_interest'
+      data.category_filters = []
+      data.tag_filters = []
+      data.fallback_mode = 'selected'
+      data.max_items = 3
+      data.show_price = true
+      data.show_stock = false
+      data.selection_variable = 'product'
+      data.phaseId = 'oferta'
+    }
+    if (item.subtype === 'phase_manager') {
+      data.decision_source = 'required_fields'
+      data.required_fields = []
+      data.variable_name = ''
+      data.advance_value = 'sim'
+      data.back_value = 'voltar'
+      data.max_stays = 3
+    }
     if (item.subtype === 'wait_button') {
       data.prompt = 'Escolha uma opção:'
       data.variable_name = 'choice'
@@ -242,7 +303,9 @@ export function FlowEditor({ flow, onClose, onUpdated }: Props) {
             fromHandle: incoming.fromHandle || 'main',
             to: id,
           })
-          if (item.type === 'condition' || item.subtype === 'collect_confirm') {
+          if (item.subtype === 'phase_manager') {
+            rest.push({ id: `conn-${ts}-advance`, from: id, fromHandle: 'advance', to: endNode.id })
+          } else if (item.type === 'condition' || item.subtype === 'collect_confirm') {
             rest.push({
               id: `conn-${ts}-yes`,
               from: id,
@@ -269,7 +332,7 @@ export function FlowEditor({ flow, onClose, onUpdated }: Props) {
     } else {
       setNodes((prev) => [...prev, newNode])
     }
-    setSelectedId(id)
+    selectNode(id)
     setShowAdd(false)
     markDirty()
   }
@@ -296,6 +359,7 @@ export function FlowEditor({ flow, onClose, onUpdated }: Props) {
     })
     setNodes((prev) => prev.filter((n) => n.id !== nodeId))
     setSelectedId(null)
+    setConfigSheetOpen(false)
     markDirty()
   }
 
@@ -555,15 +619,20 @@ export function FlowEditor({ flow, onClose, onUpdated }: Props) {
         </div>
       )}
 
-      {/* Workspace: canvas/list + config */}
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(300px,400px)] items-start">
+      {/* Workspace: canvas/list + desktop config */}
+      <div
+        className={cn(
+          'grid gap-4 items-start',
+          isWideLayout && 'xl:grid-cols-[minmax(0,1fr)_minmax(320px,400px)]',
+        )}
+      >
         {viewMode === 'canvas' ? (
-          <div className="min-h-[520px] h-[min(70vh,720px)]">
+          <div className="relative min-h-[min(58dvh,520px)] h-[min(68dvh,680px)] xl:min-h-[520px] xl:h-[min(70vh,720px)]">
             <FlowCanvas
               flowNodes={nodes}
               connections={connections}
               selectedId={selectedId}
-              onSelect={setSelectedId}
+              onSelect={selectNode}
               onNodesChange={(next) => {
                 setNodes(next)
                 markDirty()
@@ -574,6 +643,15 @@ export function FlowEditor({ flow, onClose, onUpdated }: Props) {
               }}
               className="h-full"
             />
+
+            {/* Compact hint over canvas when nothing is open */}
+            {!isWideLayout && !selected && (
+              <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center px-3 z-10">
+                <p className="pointer-events-none rounded-full bg-gray-900/90 text-white text-[11px] font-semibold px-3.5 py-2 shadow-lg max-w-[min(100%,22rem)] text-center leading-snug">
+                  Toque em um bloco para editar mensagem, opções e conexões
+                </p>
+              </div>
+            )}
           </div>
         ) : (
           <Card className="min-h-[420px]">
@@ -582,7 +660,7 @@ export function FlowEditor({ flow, onClose, onUpdated }: Props) {
                 <div>
                   <p className="text-[15px] font-semibold text-gray-900 tracking-tight">Jornada</p>
                   <p className="text-xs text-gray-500 mt-0.5">
-                    Ordem de execução · clique para configurar
+                    Ordem de execução · toque para configurar
                   </p>
                 </div>
                 <Button variant="secondary" size="sm" onClick={() => setShowAdd(true)} iconLeft={<Plus size={14} />}>
@@ -602,7 +680,7 @@ export function FlowEditor({ flow, onClose, onUpdated }: Props) {
                       <div className="flex flex-col items-center w-10 shrink-0">
                         <button
                           type="button"
-                          onClick={() => setSelectedId(node.id)}
+                          onClick={() => selectNode(node.id)}
                           className={cn(
                             'w-10 h-10 rounded-xl grid place-items-center transition-shadow duration-150',
                             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2',
@@ -610,7 +688,7 @@ export function FlowEditor({ flow, onClose, onUpdated }: Props) {
                             active && `ring-2 ring-offset-2 ${tone.ring}`,
                           )}
                           aria-current={active ? 'true' : undefined}
-                          aria-label={`Selecionar ${node.label}`}
+                          aria-label={`Editar ${node.label}`}
                         >
                           <Icon size={18} strokeWidth={1.75} />
                         </button>
@@ -621,7 +699,7 @@ export function FlowEditor({ flow, onClose, onUpdated }: Props) {
 
                       <button
                         type="button"
-                        onClick={() => setSelectedId(node.id)}
+                        onClick={() => selectNode(node.id)}
                         className={cn(
                           'flex-1 min-w-0 text-left mb-2 rounded-xl border px-3.5 py-3 transition-colors duration-150',
                           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2',
@@ -639,10 +717,13 @@ export function FlowEditor({ flow, onClose, onUpdated }: Props) {
                               {node.type} · {node.subtype}
                             </p>
                           </div>
-                          <ChevronRight
-                            size={16}
-                            className={cn('shrink-0 text-gray-300', active && 'text-gray-700')}
-                          />
+                          <span className="inline-flex items-center gap-1 shrink-0 text-[11px] font-semibold text-gray-500">
+                            <span className="xl:hidden">Editar</span>
+                            <ChevronRight
+                              size={16}
+                              className={cn('text-gray-300', active && 'text-gray-700')}
+                            />
+                          </span>
                         </div>
                         {(node.type === 'wait' || node.type === 'collect') && node.data?.prompt && (
                           <p className="mt-2 text-xs text-gray-600 line-clamp-2 leading-relaxed">
@@ -668,52 +749,189 @@ export function FlowEditor({ flow, onClose, onUpdated }: Props) {
           </Card>
         )}
 
-        <Card className="lg:sticky lg:top-3 min-h-[420px] max-h-[min(70vh,720px)] overflow-y-auto">
-          <CardBody className="py-5">
-            {selected ? (
+        {/* Desktop sticky config panel only */}
+        {isWideLayout && (
+          <Card className="xl:sticky xl:top-3 min-h-[420px] max-h-[min(70vh,720px)] overflow-y-auto">
+            <CardBody className="py-5">
+              {selected ? (
+                <FlowNodeConfigPanel
+                  node={selected}
+                  onChange={patchNode}
+                  onData={patchData}
+                  onRemove={removeNode}
+                />
+              ) : (
+                <div className="h-full min-h-[320px] grid place-items-center text-center px-4">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900">Selecione um bloco</p>
+                    <p className="mt-1 text-xs text-gray-500 max-w-[220px] mx-auto leading-relaxed">
+                      No canvas, clique em um nó ou arraste conexões entre handles.
+                    </p>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="mt-4"
+                      onClick={() => setShowAdd(true)}
+                      iconLeft={<Plus size={14} />}
+                    >
+                      Adicionar bloco
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </CardBody>
+          </Card>
+        )}
+      </div>
+
+      {/* Compact: re-open editor when sheet was dismissed but a block remains selected */}
+      {!isWideLayout && selected && !configSheetOpen && (
+        <div className="fixed inset-x-0 bottom-0 z-[170] pointer-events-none px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+          <div className="pointer-events-auto mx-auto max-w-lg">
+            <button
+              type="button"
+              onClick={() => setConfigSheetOpen(true)}
+              className={cn(
+                'w-full flex items-center gap-3 rounded-2xl border border-gray-900/10 bg-white px-3.5 py-3',
+                'shadow-[0_12px_40px_rgba(15,23,42,0.16)] text-left',
+                'active:scale-[0.99] transition-transform duration-150',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2',
+              )}
+            >
+              {SelectedIcon && selectedTone && (
+                <span className={cn('w-10 h-10 rounded-xl grid place-items-center shrink-0', selectedTone.icon)}>
+                  <SelectedIcon size={18} strokeWidth={1.75} />
+                </span>
+              )}
+              <span className="min-w-0 flex-1">
+                <span className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wide">
+                  Bloco selecionado
+                </span>
+                <span className="block text-sm font-semibold text-gray-900 truncate tracking-tight">
+                  {selected.label || selected.subtype}
+                </span>
+              </span>
+              <span className="inline-flex items-center gap-1.5 shrink-0 h-9 px-3 rounded-xl bg-gray-900 text-white text-xs font-semibold">
+                <Pencil size={13} />
+                Editar
+              </span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Mobile / iPad: full editor bottom sheet */}
+      {!isWideLayout && configSheetOpen && selected && (
+        <div
+          className="fixed inset-0 z-[185] flex flex-col justify-end"
+          role="presentation"
+        >
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/45 backdrop-blur-[2px]"
+            style={{ animation: 'igSheetFade 0.2s ease-out' }}
+            aria-label="Fechar editor do bloco"
+            onClick={() => setConfigSheetOpen(false)}
+          />
+          <div
+            className={cn(
+              'relative w-full max-w-2xl mx-auto flex flex-col',
+              'bg-white rounded-t-[1.35rem] shadow-[0_-12px_48px_rgba(15,23,42,0.18)]',
+              'max-h-[min(92dvh,880px)]',
+              'pb-[env(safe-area-inset-bottom,0px)]',
+            )}
+            style={{ animation: 'igSheetUp 0.28s cubic-bezier(0.22, 1, 0.36, 1)' }}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="flow-node-editor-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex justify-center pt-2.5 pb-1 shrink-0" aria-hidden>
+              <span className="w-10 h-1 rounded-full bg-gray-300" />
+            </div>
+
+            <div className="px-4 sm:px-5 pb-3 pt-1 border-b border-border flex items-start gap-3 shrink-0">
+              {SelectedIcon && selectedTone && (
+                <div className={cn('w-11 h-11 rounded-xl grid place-items-center shrink-0', selectedTone.icon)}>
+                  <SelectedIcon size={19} strokeWidth={1.75} />
+                </div>
+              )}
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">
+                  Editar bloco
+                </p>
+                <h2
+                  id="flow-node-editor-title"
+                  className="text-[16px] font-semibold text-gray-900 tracking-tight truncate"
+                >
+                  {selected.label || selected.subtype}
+                </h2>
+                <p className="text-xs text-gray-500 truncate mt-0.5">
+                  {selected.type} · {selected.subtype}
+                </p>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="!px-2 shrink-0"
+                onClick={() => setConfigSheetOpen(false)}
+                aria-label="Fechar"
+                iconLeft={<X size={18} />}
+              />
+            </div>
+
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 sm:px-5 py-4">
               <FlowNodeConfigPanel
                 node={selected}
                 onChange={patchNode}
                 onData={patchData}
                 onRemove={removeNode}
+                hideHeader
               />
-            ) : (
-              <div className="h-full min-h-[320px] grid place-items-center text-center px-4">
-                <div>
-                  <p className="text-sm font-semibold text-gray-900">Selecione um bloco</p>
-                  <p className="mt-1 text-xs text-gray-500 max-w-[220px] mx-auto leading-relaxed">
-                    No canvas, clique em um nó ou arraste conexões entre handles.
-                  </p>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    className="mt-4"
-                    onClick={() => setShowAdd(true)}
-                    iconLeft={<Plus size={14} />}
-                  >
-                    Adicionar bloco
-                  </Button>
-                </div>
-              </div>
-            )}
-          </CardBody>
-        </Card>
-      </div>
+            </div>
+
+            <div className="shrink-0 border-t border-border bg-white px-4 sm:px-5 py-3 flex items-center gap-2">
+              {canRemoveSelected && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="!px-3 text-red-600 hover:bg-red-50 shrink-0"
+                  onClick={() => removeNode(selected.id)}
+                  iconLeft={<Trash2 size={14} />}
+                >
+                  Remover
+                </Button>
+              )}
+              <Button
+                variant="primary"
+                size="sm"
+                className="flex-1 !h-11"
+                onClick={() => setConfigSheetOpen(false)}
+              >
+                Pronto
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Add block drawer */}
       {showAdd && (
         <div
-          className="fixed inset-0 z-[180] flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4"
+          className="fixed inset-0 z-[190] flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4"
           onClick={() => setShowAdd(false)}
           role="presentation"
         >
           <div
-            className="w-full sm:max-w-lg max-h-[85vh] bg-white rounded-t-2xl sm:rounded-2xl shadow-[0_12px_40px_rgba(0,0,0,0.12)] flex flex-col"
+            className="w-full sm:max-w-lg max-h-[85vh] bg-white rounded-t-2xl sm:rounded-2xl shadow-[0_12px_40px_rgba(0,0,0,0.12)] flex flex-col pb-[env(safe-area-inset-bottom,0px)]"
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
             aria-labelledby="add-block-title"
           >
+            <div className="flex justify-center pt-2.5 sm:hidden" aria-hidden>
+              <span className="w-10 h-1 rounded-full bg-gray-300" />
+            </div>
             <div className="px-5 py-4 border-b border-border flex items-center justify-between">
               <h2 id="add-block-title" className="text-[15px] font-semibold text-gray-900 tracking-tight">
                 Adicionar bloco

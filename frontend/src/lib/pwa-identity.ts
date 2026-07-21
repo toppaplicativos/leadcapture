@@ -76,6 +76,7 @@ function detectFromLocation(): {
   if (first === 'mob' || first === 'rastreio' || first === 'entrar') {
     return { app: 'mob', slug: null, surface: null }
   }
+  // /catalogo/:slug e /loja/:slug = vitrine; /loja sozinho = Studio admin
   if ((first === 'catalogo' || first === 'loja') && parts[1]) {
     return { app: 'store', slug: decodeURIComponent(parts[1]), surface: null }
   }
@@ -93,6 +94,7 @@ function detectFromLocation(): {
       surface: null,
     }
   }
+  // Home do painel e qualquer rota do AdminShell (ex.: /assistente)
   return { app: 'admin', slug: null, surface: null }
 }
 

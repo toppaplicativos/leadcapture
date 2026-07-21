@@ -176,7 +176,7 @@ export function MobDispatchPanel({
     setBusy(true)
     try {
       await mobAdminApi.dispatch(deliveryId)
-      showToast('Oferta enviada à fila')
+      showToast('Corrida enviada à fila')
       await load()
     } catch (e: any) {
       showToast(e.message, 'err')
@@ -193,7 +193,7 @@ export function MobDispatchPanel({
 
   async function buildRoute(courierId: string) {
     if (selectedIds.length < 1) {
-      showToast('Selecione ao menos uma entrega', 'err')
+      showToast('Selecione ao menos uma corrida', 'err')
       return
     }
     setBusy(true)
@@ -297,7 +297,7 @@ export function MobDispatchPanel({
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
         <KpiCard label="Sem entregador" value={String(k.unassigned ?? 0)} />
-        <KpiCard label="Oferecidas" value={String(k.offered ?? 0)} />
+        <KpiCard label="Corridas na fila" value={String(k.offered ?? 0)} />
         <KpiCard label="Em rota" value={String(k.in_route ?? 0)} />
         <KpiCard label="Atrasadas" value={String(k.late ?? 0)} />
         <KpiCard label="Disponíveis" value={String(k.couriers_available ?? 0)} />
@@ -352,7 +352,7 @@ export function MobDispatchPanel({
               <CardHeader className="!py-3">
                 <CardTitle className="flex items-start justify-between gap-2">
                   <span className="min-w-0 truncate">
-                    {selected.customer_name || 'Entrega'}
+                    {selected.customer_name || 'Corrida'}
                   </span>
                   <Badge variant={selected.is_late ? 'danger' : 'warning'}>
                     {STATUS_LABELS[selected.status] || selected.status}
@@ -393,7 +393,7 @@ export function MobDispatchPanel({
                     onClick={() => dispatchOffer(selected.id)}
                     iconLeft={<Radio size={14} strokeWidth={ICON} />}
                   >
-                    Ofertar na fila
+                    Enviar corrida na fila
                   </Button>
                 </div>
 
@@ -546,7 +546,7 @@ export function MobDispatchPanel({
           <QueueList
             title="Em andamento"
             items={board?.queues?.in_progress || []}
-            empty="Nenhuma entrega ativa"
+            empty="Nenhuma corrida ativa"
             selectedId={selected?.id || null}
             onSelect={selectDelivery}
           />
@@ -589,7 +589,7 @@ export function MobDispatchPanel({
         <CardBody className="!pt-0">
           {!routes.length ? (
             <p className="text-xs text-gray-500 py-2">
-              Nenhuma rota planning/active. Selecione entregas na fila e use “Criar rota multi”.
+              Nenhuma rota planning/active. Selecione corridas na fila e use “Criar rota multi”.
             </p>
           ) : (
             <div className="grid lg:grid-cols-5 gap-4">

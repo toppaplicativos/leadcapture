@@ -212,11 +212,11 @@ export function MobOperationalMap({
           22,
         ),
       }).addTo(layer)
-      m.bindTooltip(d.customer_name || 'Entrega', { direction: 'top', offset: [0, -8] })
+      m.bindTooltip(d.customer_name || 'Corrida', { direction: 'top', offset: [0, -8] })
       m.on('click', () => {
         setSelected({
           type: 'delivery',
-          title: d.customer_name || 'Entrega',
+          title: d.customer_name || 'Corrida',
           subtitle: STATUS_LABELS[d.status || ''] || d.status,
           meta: d.courier_name ? `Entregador: ${d.courier_name}` : d.dropoff_address || undefined,
         })
@@ -284,7 +284,7 @@ export function MobOperationalMap({
           className="w-full leaflet-container"
           style={{ height }}
           role="img"
-          aria-label="Mapa operacional de entregas"
+          aria-label="Mapa operacional de corridas"
         />
 
         <div className="absolute top-3 left-3 z-[500] flex flex-wrap gap-1.5 pointer-events-none">
@@ -320,7 +320,7 @@ export function MobOperationalMap({
       {selected && (
         <div className="mt-3 rounded-2xl border border-border bg-white px-4 py-3 shadow-card">
           <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">
-            {selected.type === 'courier' ? 'Entregador' : 'Entrega'}
+            {selected.type === 'courier' ? 'Entregador' : 'Corrida'}
           </p>
           <p className="text-sm font-bold text-gray-900 mt-0.5">{selected.title}</p>
           {selected.subtitle && <p className="text-xs text-gray-600 mt-0.5">{selected.subtitle}</p>}
@@ -330,7 +330,7 @@ export function MobOperationalMap({
 
       {!points.length && (
         <p className="mt-2 text-xs text-gray-500">
-          Sem coordenadas ainda. Quando entregadores ficarem online com GPS ou entregas tiverem lat/lng, o mapa preenche.
+          Sem coordenadas ainda. Quando entregadores ficarem online com GPS ou corridas tiverem lat/lng, o mapa preenche.
         </p>
       )}
     </div>

@@ -27,8 +27,8 @@ if (IS_LOCAL_DEV) {
     );
   });
 } else {
-const SHELL_CACHE_NAME = "lead-system-shell-v238-20260717-affiliate-session";
-const RUNTIME_CACHE_NAME = "lead-system-runtime-v229-20260717-affiliate-session";
+const SHELL_CACHE_NAME = "lead-system-shell-v271-20260721-stock-push";
+const RUNTIME_CACHE_NAME = "lead-system-runtime-v262-20260721-stock-push";
 
 function getBasePath() {
   try {
@@ -81,14 +81,18 @@ self.addEventListener("install", (event) => {
     (async () => {
       try {
         const cache = await caches.open(SHELL_CACHE_NAME);
+        // NÃO precachear /manifest.json — vira SPA HTML (catch-all) e confunde installability.
+        // Manifest real: /pwa/manifest.webmanifest (dinâmico, network-only).
         const shellUrls = [
           toScopedPath(""),
           toScopedPath("index.html"),
-          toScopedPath("manifest.json"),
           toScopedPath("brand-mark.png"),
           toScopedPath("brand-mark.svg"),
           toScopedPath("brand-mark-dark.png"),
           toScopedPath("brand-mark-dark.svg"),
+          toScopedPath("brand-mark-512.png"),
+          "/pwa/icons/admin/192.png",
+          "/pwa/icons/admin/512.png",
           "/sounds/mob-offer.wav",
         ];
         await Promise.all(
@@ -307,7 +311,7 @@ self.addEventListener("push", (event) => {
     vibrate: meta.vibrate || defaultVibrate,
     actions: data.actions || (isOffer
       ? [
-          { action: "open", title: "Ver oferta" },
+          { action: "open", title: "Ver corrida" },
           { action: "close", title: "Depois" },
         ]
       : [
@@ -382,8 +386,19 @@ self.addEventListener("notificationclick", (event) => {
   event.notification.close();
 
   const meta = event.notification?.data || {};
+  if (event.action === "close") {
+    event.waitUntil(trackPushInteraction({
+      interaction: "dismissed",
+      notification_id: meta.notification_id,
+      event_key: meta.event,
+    }));
+    return;
+  }
   const rawUrl = meta.url || toScopedPath("");
-  const urlToOpen = new URL(rawUrl, self.location.origin).toString();
+  const parsedUrl = new URL(rawUrl, self.location.origin);
+  const urlToOpen = parsedUrl.origin === self.location.origin
+    ? parsedUrl.toString()
+    : new URL(toScopedPath(""), self.location.origin).toString();
 
   event.waitUntil(
     Promise.all([
@@ -396,7 +411,10 @@ self.addEventListener("notificationclick", (event) => {
       clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
       for (let i = 0; i < clientList.length; i += 1) {
         const client = clientList[i];
-        if (client.url === urlToOpen && "focus" in client) {
+        if (new URL(client.url).origin === self.location.origin && "focus" in client) {
+          if ("navigate" in client && client.url !== urlToOpen) {
+            return client.navigate(urlToOpen).then(() => client.focus());
+          }
           return client.focus();
         }
       }
@@ -419,6 +437,16 @@ self.addEventListener("notificationclose", (event) => {
       interaction: "dismissed",
       notification_id: meta.notification_id,
       event_key: meta.event,
+    })
+  );
+});
+
+// O navegador pode invalidar/rotacionar uma assinatura. O SW acorda as abas
+// para que o cliente autenticado reafirme a nova assinatura no servidor.
+self.addEventListener("pushsubscriptionchange", (event) => {
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+      clients.forEach((client) => client.postMessage({ type: "PUSH_SUBSCRIPTION_CHANGED" }));
     })
   );
 });

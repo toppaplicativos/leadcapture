@@ -645,7 +645,7 @@ export class PushNotificationService {
         body: input.body,
         icon: iconUrl,
         badge: badgeUrl,
-        tag: `${input.eventKey}:${input.notificationId || randomUUID().slice(0, 8)}`,
+        tag: input.metadata?.tag || `${input.eventKey}:${input.notificationId || randomUUID().slice(0, 8)}`,
         requireInteraction:
           priority === "critical" ||
           isOffer ||

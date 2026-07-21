@@ -5,32 +5,66 @@ import { logger } from "../utils/logger";
  * In-memory cache for the public catalog response (GET /api/storefront/public/stores/:slug/catalog).
  * Extracted as a shared module so any service/route that mutates brand or storefront state can
  * invalidate it — avoiding stale 5-minute waits when a seller edits Design or brand info.
+ *
+ * Fresh window: 5 min. After that, entries remain servable as stale for 15 more min while
+ * a background rebuild runs (stale-while-revalidate) — first paint stays fast after cold gaps.
  */
 
 interface CachedEntry {
   data: any;
   expires: number;
+  staleUntil: number;
 }
 
-const cache = new Map<string, CachedEntry>();
-const CATALOG_CACHE_TTL_MS = 300_000; /* 5 minutes */
+export type CatalogCacheHit = CachedEntry & { stale: boolean };
 
-export function getCatalogCacheEntry(slug: string): CachedEntry | null {
+const cache = new Map<string, CachedEntry>();
+const CATALOG_CACHE_TTL_MS = 300_000; /* 5 minutes fresh */
+const CATALOG_STALE_TTL_MS = 900_000; /* +15 minutes serve-stale while revalidate */
+const inflightRebuilds = new Map<string, Promise<void>>();
+
+export function getCatalogCacheEntry(
+  slug: string,
+  opts?: { allowStale?: boolean }
+): CatalogCacheHit | null {
   const key = String(slug || "").trim();
   if (!key) return null;
   const entry = cache.get(key);
   if (!entry) return null;
-  if (entry.expires < Date.now()) {
-    cache.delete(key);
-    return null;
+  const now = Date.now();
+  if (entry.expires >= now) {
+    return { ...entry, stale: false };
   }
-  return entry;
+  if (opts?.allowStale && entry.staleUntil >= now) {
+    return { ...entry, stale: true };
+  }
+  cache.delete(key);
+  return null;
 }
 
 export function setCatalogCacheEntry(slug: string, data: any): void {
   const key = String(slug || "").trim();
   if (!key) return;
-  cache.set(key, { data, expires: Date.now() + CATALOG_CACHE_TTL_MS });
+  const now = Date.now();
+  cache.set(key, {
+    data,
+    expires: now + CATALOG_CACHE_TTL_MS,
+    staleUntil: now + CATALOG_CACHE_TTL_MS + CATALOG_STALE_TTL_MS,
+  });
+}
+
+/** Dedup concurrent background rebuilds per slug. */
+export function runCatalogRebuildOnce(slug: string, rebuild: () => Promise<void>): void {
+  const key = String(slug || "").trim();
+  if (!key || inflightRebuilds.has(key)) return;
+  const job = rebuild()
+    .catch((err: any) => {
+      logger.warn(`[catalog-cache] background rebuild failed for ${key}: ${err?.message || err}`);
+    })
+    .finally(() => {
+      inflightRebuilds.delete(key);
+    });
+  inflightRebuilds.set(key, job);
 }
 
 export function invalidateCatalogCacheBySlug(slug: string | null | undefined): void {

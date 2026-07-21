@@ -17,6 +17,7 @@ import { ProductPurchasePanel, useProductPurchase } from '@/components/product/P
 import { ProductReviewsSection } from '@/components/product/ProductReviewsSection'
 import type { StoreData } from '@/lib/api'
 import { normalizeConversionSettings } from '@/lib/store-conversion'
+import { publishStorefrontPwa, storefrontPwaFromStore } from '@/lib/store-pwa-install'
 
 const PRODUCT_CONTENT_HEADINGS = new Set([
   'Visão geral',
@@ -83,8 +84,22 @@ function ProductEditorialContent({ description, features }: { description?: stri
 }
 
 function applyStoreBrand(store: {
-  brand?: { primary_color?: string; secondary_color?: string }
-  theme?: { primary_color?: string; secondary_color?: string }
+  slug?: string
+  name?: string
+  brand?: {
+    name?: string
+    logo_url?: string
+    primary_color?: string
+    secondary_color?: string
+  }
+  theme?: {
+    logo_url?: string
+    primary_color?: string
+    secondary_color?: string
+  }
+  marketing?: {
+    pwa_install?: Record<string, unknown> | null
+  } | null
 }) {
   const brand = store.brand || {}
   const theme = store.theme || {}
@@ -96,6 +111,9 @@ function applyStoreBrand(store: {
   root.style.setProperty('--brand-primary-light', primary + '0d')
   root.style.setProperty('--brand-secondary-light', secondary + '14')
   root.style.setProperty('--brand-secondary-soft', secondary + '1a')
+
+  const pwa = storefrontPwaFromStore(store as any)
+  if (pwa) publishStorefrontPwa(pwa)
 }
 
 function DetailSkeleton() {

@@ -15,6 +15,11 @@ import {
   type StoreAnnouncementBar,
   type StoreConversionSettings,
 } from '@/lib/store-conversion'
+import {
+  DEFAULT_STORE_PWA_INSTALL,
+  normalizeStorePwaInstall,
+  type StorePwaInstallSettings,
+} from '@/lib/store-pwa-install'
 
 export function getStoreStudioHeaders(): Record<string, string> {
   const h: Record<string, string> = { 'Content-Type': 'application/json' }
@@ -45,6 +50,10 @@ export function useStoreStudio() {
   const [primaryColor, setPrimaryColor] = useState('#111827')
   const [secondaryColor, setSecondaryColor] = useState('#3b82f6')
   const [coverImage, setCoverImage] = useState('')
+  /** Preview WhatsApp quando afiliado compartilha o catálogo (≠ imagem do programa de afiliados) */
+  const [catalogShareImage, setCatalogShareImage] = useState('')
+  const [catalogShareTitle, setCatalogShareTitle] = useState('')
+  const [catalogShareDescription, setCatalogShareDescription] = useState('')
   const [whatsappPhone, setWhatsappPhone] = useState('')
   const [whatsappMarketing, setWhatsappMarketing] = useState<StoreMarketingWhatsApp>(DEFAULT_WHATSAPP_MARKETING)
   const [storeDesign, setStoreDesign] = useState<StoreDesign>(DEFAULT_STORE_DESIGN)
@@ -52,6 +61,7 @@ export function useStoreStudio() {
   const [announcementBar, setAnnouncementBar] = useState<StoreAnnouncementBar>(
     DEFAULT_CONVERSION.announcement_bar,
   )
+  const [pwaInstall, setPwaInstall] = useState<StorePwaInstallSettings>(DEFAULT_STORE_PWA_INSTALL)
 
   const [collectEmail, setCollectEmail] = useState(true)
   const [collectAddress, setCollectAddress] = useState(true)
@@ -103,12 +113,17 @@ export function useStoreStudio() {
         setPrimaryColor(brand.primary_color || s.theme?.primary_color || '#111827')
         setSecondaryColor(brand.secondary_color || s.theme?.secondary_color || '#3b82f6')
         setCoverImage(brand.cover_image || s.theme?.cover_image || '')
+        const catalogShare = marketing.catalog_share || settings.catalog_share || {}
+        setCatalogShareImage(String(catalogShare.image_url || catalogShare.image || '').trim())
+        setCatalogShareTitle(String(catalogShare.title || '').trim())
+        setCatalogShareDescription(String(catalogShare.description || '').trim())
         setWhatsappPhone(String(brand.whatsapp_phone || '').replace(/\D/g, ''))
         setWhatsappMarketing(normalizeWhatsAppMarketing(marketing.whatsapp))
         setStoreDesign(normalizeStoreDesign(settings.design))
         const conv = normalizeConversionSettings(marketing)
         setConversion(conv)
         setAnnouncementBar(conv.announcement_bar)
+        setPwaInstall(normalizeStorePwaInstall(marketing.pwa_install || settings.pwa_install))
         setCollectEmail(checkout.collect_email !== false)
         setCollectAddress(checkout.collect_address !== false)
         setStoreStatus(brand.status === 'fechado' ? 'fechado' : 'aberto')
@@ -182,6 +197,12 @@ export function useStoreStudio() {
             },
             marketing: {
               whatsapp: normalizeWhatsAppMarketing(whatsappMarketing),
+              /** Preview do link do catálogo (afiliado → cliente). Separado do programa de afiliados. */
+              catalog_share: {
+                image_url: catalogShareImage || null,
+                title: catalogShareTitle || null,
+                description: catalogShareDescription || null,
+              },
               announcement_bar: {
                 enabled: announcementBar.enabled,
                 text: announcementBar.text,
@@ -205,6 +226,7 @@ export function useStoreStudio() {
                 promo_ends_at: conversion.promo_ends_at,
                 promo_label: conversion.promo_label,
               },
+              pwa_install: normalizeStorePwaInstall(pwaInstall),
             },
             design: normalizeStoreDesign(storeDesign),
           },
@@ -227,6 +249,9 @@ export function useStoreStudio() {
     slogan,
     logoUrl,
     coverImage,
+    catalogShareImage,
+    catalogShareTitle,
+    catalogShareDescription,
     primaryColor,
     secondaryColor,
     whatsappPhone,
@@ -234,6 +259,7 @@ export function useStoreStudio() {
     storeDesign,
     conversion,
     announcementBar,
+    pwaInstall,
     currentBrand,
     description,
     storeStatus,
@@ -263,6 +289,12 @@ export function useStoreStudio() {
     setSecondaryColor,
     coverImage,
     setCoverImage,
+    catalogShareImage,
+    setCatalogShareImage,
+    catalogShareTitle,
+    setCatalogShareTitle,
+    catalogShareDescription,
+    setCatalogShareDescription,
     whatsappPhone,
     setWhatsappPhone,
     whatsappMarketing,
@@ -273,6 +305,8 @@ export function useStoreStudio() {
     setConversion,
     announcementBar,
     setAnnouncementBar,
+    pwaInstall,
+    setPwaInstall,
     collectEmail,
     setCollectEmail,
     collectAddress,

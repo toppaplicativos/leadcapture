@@ -204,7 +204,7 @@ export function MobLoginPage() {
             to="/rastreio"
             className="text-gray-700 font-semibold underline-offset-2 hover:underline"
           >
-            Acompanhar entrega como cliente
+            Acompanhar corrida como cliente
           </Link>
         </p>
       </div>

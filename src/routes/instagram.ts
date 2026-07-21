@@ -809,7 +809,15 @@ router.get("/location-search", async (req: BrandRequest, res: Response) => {
     if (!q || q.length < 2) return res.json({ success: true, locations: [] });
 
     const locations = await instagramService.searchLocations(brandId, q);
-    res.json({ success: true, locations });
+    res.json({
+      success: true,
+      locations,
+      // Dica quando vazio: app token Meta costuma ser necessário (IG Login token não busca places)
+      hint:
+        locations.length === 0
+          ? "Nenhum place com coordenadas. Use nome do estabelecimento ou verifique META_APP_ID/SECRET."
+          : undefined,
+    });
   } catch (err: any) {
     logger.error(`[Instagram] location-search error: ${err.message}`);
     res.status(500).json({ error: err.message });

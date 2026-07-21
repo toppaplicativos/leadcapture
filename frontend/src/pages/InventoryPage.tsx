@@ -23,6 +23,7 @@ import { AlertsView } from './stock/views/AlertsView'
 import { ClientsView } from './stock/views/ClientsView'
 import { ReportsView } from './stock/views/ReportsView'
 import { resolveStockDeepLink } from './stock/deepLink'
+import { ensurePushSubscription, pushPermission } from '@/lib/push/client'
 
 let _toastTimer: ReturnType<typeof setTimeout> | undefined
 function useToast() {
@@ -144,6 +145,36 @@ export function InventoryPage() {
       setCategories(arr)
     }).catch(() => {})
   }, [auth.token, stockRoute])
+
+  // Mantém o dispositivo instalado registrado mesmo após troca de SW, VAPID,
+  // limpeza parcial do navegador ou renovação da sessão.
+  useEffect(() => {
+    if (!auth.token || pushPermission() !== 'granted') return
+    let lastRepair = 0
+    const repair = () => {
+      if (Date.now() - lastRepair < 5 * 60 * 1000) return
+      lastRepair = Date.now()
+      void ensurePushSubscription({ appContext: stockRoute ? 'stock' : 'admin', organizationId: auth.brandId || null })
+        .catch(() => undefined)
+    }
+    repair()
+    const onVisible = () => { if (document.visibilityState === 'visible') repair() }
+    const onServiceWorkerMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'PUSH_SUBSCRIPTION_CHANGED') repair()
+    }
+    window.addEventListener('online', repair)
+    window.addEventListener('focus', repair)
+    document.addEventListener('visibilitychange', onVisible)
+    navigator.serviceWorker?.addEventListener('controllerchange', repair)
+    navigator.serviceWorker?.addEventListener('message', onServiceWorkerMessage)
+    return () => {
+      window.removeEventListener('online', repair)
+      window.removeEventListener('focus', repair)
+      document.removeEventListener('visibilitychange', onVisible)
+      navigator.serviceWorker?.removeEventListener('controllerchange', repair)
+      navigator.serviceWorker?.removeEventListener('message', onServiceWorkerMessage)
+    }
+  }, [auth.token, auth.brandId, stockRoute])
 
   function logout() {
     if (stockRoute) {
@@ -329,7 +360,7 @@ export function InventoryPage() {
         {/* ── Main ── */}
         <main className="flex-1 lg:ml-[240px] overflow-y-auto">
           <div className="max-w-4xl mx-auto px-4 pt-5 pb-24 lg:pb-10 lg:px-8 page-enter">
-            <PushActivationCard className="mb-4" />
+            <PushActivationCard compact className="mb-4" />
             {view === 'overview' && (
               <OverviewView
                 showToast={showToast}

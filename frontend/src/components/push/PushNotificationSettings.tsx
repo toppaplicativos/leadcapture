@@ -26,7 +26,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   reports: 'Relatórios',
 }
 
-export function PushNotificationSettings({ dark = false }: { dark?: boolean }) {
+export function PushNotificationSettings({ dark = false, compact = false }: { dark?: boolean; compact?: boolean }) {
   const ctx = resolvePushAppContext()
   const [perm, setPerm] = useState(pushPermission())
   const [events, setEvents] = useState<any[]>([])
@@ -56,7 +56,7 @@ export function PushNotificationSettings({ dark = false }: { dark?: boolean }) {
     } catch (err: any) {
       setEvents([])
       setDevice(null)
-      setToast(err?.message || 'Não foi possível carregar preferências de push')
+      setToast('Não foi possível carregar este dispositivo agora')
       setTimeout(() => setToast(null), 4000)
     } finally {
       setLoading(false)
@@ -132,12 +132,17 @@ export function PushNotificationSettings({ dark = false }: { dark?: boolean }) {
   return (
     <div className="space-y-4">
       <PushActivationCard
+        compact={compact}
         className={dark ? '!border-white/10 !bg-white/[0.02]' : ''}
         onActivated={load}
       />
 
       {toast && (
-        <div className={`text-[12px] px-3 py-2 rounded-xl ${dark ? 'bg-emerald-500/15 text-emerald-300' : 'bg-emerald-50 text-emerald-700'}`}>
+        <div className={`text-[12px] px-3 py-2 rounded-xl ${
+          /^não|^falha|^erro/i.test(toast)
+            ? dark ? 'bg-red-500/15 text-red-300' : 'bg-amber-50 text-amber-800'
+            : dark ? 'bg-emerald-500/15 text-emerald-300' : 'bg-emerald-50 text-emerald-700'
+        }`}>
           {toast}
         </div>
       )}

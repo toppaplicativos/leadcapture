@@ -126,6 +126,49 @@ function inferFromHost(host: string | null | undefined): Partial<PwaContext> {
   return {};
 }
 
+const ADMIN_PATH_FIRST = new Set([
+  "admin",
+  "dashboard",
+  "login",
+  "assistente",
+  "leads",
+  "clientes",
+  "busca",
+  "mensagens",
+  "notificacoes",
+  "campanhas",
+  "campanha",
+  "automacoes",
+  "fluxos",
+  "habilidades",
+  "skills",
+  "criativos",
+  "creative",
+  "integracoes",
+  "galeria",
+  "video-studio",
+  "produtos",
+  "pedidos",
+  "design",
+  "whatsapp",
+  "instagram",
+  "facebook",
+  "pagamentos",
+  "frete",
+  "dominio",
+  "agente",
+  "atendente",
+  "configuracoes",
+  "emails",
+  "provedores-ia",
+  "afiliados",
+  "cupons",
+  "avaliacoes",
+  "tirar-pedido",
+  "estoque",
+  "inicio",
+]);
+
 function inferFromPath(input: string): Partial<PwaContext> {
   try {
     const url = new URL(input, "https://placeholder.local");
@@ -135,9 +178,10 @@ function inferFromPath(input: string): Partial<PwaContext> {
     if (first === "parceiros") {
       return { app: "affiliate", surface: "partners" };
     }
-    if (first === "mob" || first === "rastreio") {
+    if (first === "mob" || first === "rastreio" || first === "entrar") {
       return { app: "mob", surface: "mob" };
     }
+    // /loja/:slug e /catalogo/:slug = vitrine; /loja sozinho = Studio admin
     if ((first === "catalogo" || first === "loja") && parts[1]) {
       return {
         app: "store",
@@ -157,13 +201,7 @@ function inferFromPath(input: string): Partial<PwaContext> {
         slug: parts[1] ? decodeURIComponent(parts[1]) : undefined,
       };
     }
-    if (
-      first === "admin" ||
-      first === "dashboard" ||
-      first === "login" ||
-      first === "leads" ||
-      first === "afiliados"
-    ) {
+    if (!first || ADMIN_PATH_FIRST.has(first) || first === "loja") {
       return { app: "admin" };
     }
   } catch {
@@ -195,6 +233,13 @@ function resolvePwaContext(req: Request): PwaContext {
     app = fromHost.app;
   } else if (inferred.app) {
     app = inferred.app;
+  } else if (
+    host === "app.leadcapture.online"
+    || host === "leadcapture.online"
+    || host === "www.leadcapture.online"
+  ) {
+    // Em hosts do produto, default é o painel — não o catálogo genérico.
+    app = "admin";
   }
 
   const surface: "partners" | "mob" | null =
@@ -527,11 +572,12 @@ async function resolveThemeOverrides(context: PwaContext): Promise<{
   return { displayName, shortName, description, themeColor, backgroundColor, iconBg };
 }
 
-router.get("/icon", async (req: Request, res: Response) => {
-  const context = resolvePwaContext(req);
-  const size = parseSize(req.query.size);
-  const maskable = String(req.query.maskable || "") === "1" || String(req.query.maskable || "") === "true";
-
+async function sendPwaIcon(
+  res: Response,
+  context: PwaContext,
+  size: number,
+  maskable: boolean,
+): Promise<void> {
   try {
     const theme = await resolveThemeOverrides(context);
     const logo = await resolveLogoBuffer(context);
@@ -545,14 +591,47 @@ router.get("/icon", async (req: Request, res: Response) => {
     res.setHeader("Content-Type", "image/png");
     res.setHeader("Cache-Control", "public, max-age=300, stale-while-revalidate=86400");
     res.setHeader("X-Pwa-App", context.app);
-    return res.send(png);
+    res.send(png);
   } catch (err: any) {
     console.error("[pwa/icon]", err?.message || err);
     if (existsSync(fallbackLogoPath)) {
-      return res.sendFile(fallbackLogoPath);
+      res.sendFile(fallbackLogoPath);
+      return;
     }
-    return res.status(500).json({ error: "Falha ao gerar ícone" });
+    res.status(500).json({ error: "Falha ao gerar ícone" });
   }
+}
+
+function contextFromIconKey(key: string): PwaContext {
+  const k = String(key || "").toLowerCase().trim();
+  if (k === "partners" || k === "parceiros") {
+    return { app: "affiliate", surface: "partners" };
+  }
+  if (k === "mob") return { app: "mob", surface: "mob" };
+  if (k === "admin" || k === "stock" || k === "store" || k === "affiliate") {
+    return { app: k };
+  }
+  return { app: "admin" };
+}
+
+router.get("/icon", async (req: Request, res: Response) => {
+  const context = resolvePwaContext(req);
+  const size = parseSize(req.query.size);
+  const maskable = String(req.query.maskable || "") === "1" || String(req.query.maskable || "") === "true";
+  await sendPwaIcon(res, context, size, maskable);
+});
+
+/**
+ * Ícones por path estável (sem query string) — Chrome antigo / Android Go
+ * validam melhor URLs do tipo /pwa/icons/admin/192.png.
+ */
+router.get("/icons/:key/:file", async (req: Request, res: Response) => {
+  const context = contextFromIconKey(String(req.params.key || ""));
+  const file = String(req.params.file || "").toLowerCase();
+  const maskable = file.includes("maskable");
+  const sizeMatch = file.match(/(\d{2,4})/);
+  const size = parseSize(sizeMatch?.[1] || "192");
+  await sendPwaIcon(res, context, size, maskable);
 });
 
 router.get("/manifest.webmanifest", async (req: Request, res: Response) => {
@@ -592,14 +671,31 @@ router.get("/manifest.webmanifest", async (req: Request, res: Response) => {
           : context.app === "admin"
             ? "/assistente?source=pwa"
             : context.app === "stock"
-              ? `${rootPath}?source=pwa`
+              ? context.slug
+                ? `${rootPath}/painel?source=pwa`
+                : `${rootPath}/?source=pwa`
               : rootPath === "/"
                 ? "/?source=pwa"
                 : `${rootPath}?source=pwa`;
 
-  const icon192 = `/pwa/icon${iconQuery}&size=192`;
-  const icon512 = `/pwa/icon${iconQuery}&size=512`;
-  const iconMaskable = `/pwa/icon${iconQuery}&size=512&maskable=1`;
+  // Path sem query é mais confiável em Chrome antigo / Android Go (tablets Multilaser etc.)
+  // Com slug de marca, mantém query (ícone personalizado).
+  const iconKey =
+    context.app === "affiliate" && (context.surface === "partners" || !context.slug)
+      ? "partners"
+      : context.app === "mob"
+        ? "mob"
+        : context.app;
+  const usePathIcons = !context.slug;
+  const icon192 = usePathIcons
+    ? `/pwa/icons/${iconKey}/192.png`
+    : `/pwa/icon${iconQuery}&size=192`;
+  const icon512 = usePathIcons
+    ? `/pwa/icons/${iconKey}/512.png`
+    : `/pwa/icon${iconQuery}&size=512`;
+  const iconMaskable = usePathIcons
+    ? `/pwa/icons/${iconKey}/512-maskable.png`
+    : `/pwa/icon${iconQuery}&size=512&maskable=1`;
 
   const affiliateBase =
     context.app === "affiliate" && (context.surface === "partners" || !context.slug)
@@ -669,9 +765,27 @@ router.get("/manifest.webmanifest", async (req: Request, res: Response) => {
           : context.app === "stock"
             ? [
                 {
-                  name: "Inventário",
-                  short_name: "Inventário",
-                  url: rootPath,
+                  name: "Visão geral do estoque",
+                  short_name: "Início",
+                  url: `${rootPath}/painel?view=overview`,
+                  icons: [{ src: icon192, sizes: "192x192" }],
+                },
+                {
+                  name: "Expedição de pedidos",
+                  short_name: "Expedição",
+                  url: `${rootPath}/painel?view=expedition`,
+                  icons: [{ src: icon192, sizes: "192x192" }],
+                },
+                {
+                  name: "Alertas de estoque",
+                  short_name: "Alertas",
+                  url: `${rootPath}/painel?view=alerts`,
+                  icons: [{ src: icon192, sizes: "192x192" }],
+                },
+                {
+                  name: "Movimentações",
+                  short_name: "Movimentos",
+                  url: `${rootPath}/painel?view=movements`,
                   icons: [{ src: icon192, sizes: "192x192" }],
                 },
               ]
@@ -704,7 +818,9 @@ router.get("/manifest.webmanifest", async (req: Request, res: Response) => {
       : context.app === "mob"
         ? (hostIsMob ? "/?app=mob" : "/mob?app=mob")
         : context.app === "stock"
-          ? `${rootPath}?app=stock`
+          ? context.slug
+            ? `${rootPath}?app=stock`
+            : `${rootPath}/?app=stock`
           : context.app === "affiliate" && (context.surface === "partners" || !context.slug)
             ? "/parceiros?app=affiliate&surface=partners"
             : context.app === "affiliate"
@@ -724,11 +840,12 @@ router.get("/manifest.webmanifest", async (req: Request, res: Response) => {
     scope,
     display: "standalone",
     display_override: ["standalone", "minimal-ui", "fullscreen"],
-    orientation: "portrait-primary",
+    orientation: context.app === "stock" ? "any" : "portrait-primary",
     background_color: theme.backgroundColor,
     theme_color: theme.themeColor,
     categories: base.categories,
     prefer_related_applications: false,
+    launch_handler: { client_mode: ["navigate-existing", "auto"] },
     icons: [
       { src: icon192, sizes: "192x192", type: "image/png", purpose: "any" },
       { src: icon512, sizes: "512x512", type: "image/png", purpose: "any" },

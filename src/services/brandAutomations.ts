@@ -560,6 +560,21 @@ export class BrandAutomationsService {
     }));
   }
 
+  /**
+   * Pausa template de catálogo por brand (sem exigir userId).
+   * Usado para desligar “zumbis” de webhook quando o controle passa a ser por automação.
+   */
+  async pauseSlugForBrand(brandId: string, catalogSlug: string): Promise<number> {
+    await this.ensureSchema();
+    const result = await update(
+      `UPDATE brand_automations
+       SET status = 'paused', next_run_at = NULL, updated_at = NOW()
+       WHERE brand_id = ? AND catalog_slug = ? AND status = 'active'`,
+      [brandId, catalogSlug],
+    );
+    return Number((result as any)?.affectedRows ?? (result as any)?.rowCount ?? 0);
+  }
+
   /* Toggle (cria se nao existir, alterna active/paused). Retorna o estado novo. */
   /* Ativa um template (cria se nao existir). Idempotente — nao pausa se ja ativo. */
   async activateSlug(

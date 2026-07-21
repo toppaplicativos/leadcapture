@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Lead Capture Mob — courier app API (credential_type: entregador).
  */
 import { Router, Response } from "express";
@@ -98,10 +98,93 @@ router.patch("/profile", async (req: AuthRequest, res: Response) => {
     const courierId = await resolveCourierId(ctx, res);
     if (!courierId) return;
 
-    const courier = await mobLogisticsService.updateCourierProfile(courierId, req.body || {});
+    const { mobCourierProfileService } = await import("../services/mobCourierProfile");
+    const courier = await mobCourierProfileService.updateProfileSafe(courierId, req.body || {});
     res.json({ success: true, courier });
   } catch (e: any) {
     res.status(400).json({ error: e.message || "Falha ao atualizar perfil" });
+  }
+});
+
+router.get("/onboarding", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = requireCourier(req, res);
+    if (!ctx) return;
+    const courierId = await resolveCourierId(ctx, res);
+    if (!courierId) return;
+    const { mobCourierProfileService } = await import("../services/mobCourierProfile");
+    const state = await mobCourierProfileService.getOnboardingState(courierId);
+    res.json({ success: true, ...state });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message || "Falha ao carregar onboarding" });
+  }
+});
+
+router.post("/profile/submit", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = requireCourier(req, res);
+    if (!ctx) return;
+    const courierId = await resolveCourierId(ctx, res);
+    if (!courierId) return;
+    const { mobCourierProfileService } = await import("../services/mobCourierProfile");
+    const result = await mobCourierProfileService.submitForReview(courierId);
+    res.json({ success: true, ...result });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message || "Falha ao enviar cadastro" });
+  }
+});
+
+router.get("/profile/documents", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = requireCourier(req, res);
+    if (!ctx) return;
+    const courierId = await resolveCourierId(ctx, res);
+    if (!courierId) return;
+    const { mobCourierProfileService } = await import("../services/mobCourierProfile");
+    const documents = await mobCourierProfileService.listDocuments(courierId);
+    res.json({ success: true, documents });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.post("/profile/documents", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = requireCourier(req, res);
+    if (!ctx) return;
+    const courierId = await resolveCourierId(ctx, res);
+    if (!courierId) return;
+    const doc_type = String(req.body?.doc_type || "").trim();
+    if (!doc_type) return res.status(400).json({ error: "doc_type obrigatório" });
+    const { mobCourierProfileService } = await import("../services/mobCourierProfile");
+    const document = await mobCourierProfileService.addDocument(courierId, {
+      doc_type,
+      doc_number: req.body?.doc_number,
+      issued_at: req.body?.issued_at,
+      expires_at: req.body?.expires_at,
+      file_url: req.body?.file_url,
+    });
+    res.status(201).json({ success: true, document });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message || "Falha ao adicionar documento" });
+  }
+});
+
+router.patch("/profile/documents/:id", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = requireCourier(req, res);
+    if (!ctx) return;
+    const courierId = await resolveCourierId(ctx, res);
+    if (!courierId) return;
+    const { mobCourierProfileService } = await import("../services/mobCourierProfile");
+    const document = await mobCourierProfileService.resubmitDocument(
+      courierId,
+      String(req.params.id),
+      req.body || {}
+    );
+    res.json({ success: true, document });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message || "Falha ao reenviar documento" });
   }
 });
 
@@ -136,7 +219,7 @@ router.get("/memberships", async (req: AuthRequest, res: Response) => {
   }
 });
 
-/** Vehicles linked to this courier across approved orgs (fleet domain). */
+/** Vehicles linked to this courier (pending + approved memberships). */
 router.get("/vehicles", async (req: AuthRequest, res: Response) => {
   try {
     const ctx = requireCourier(req, res);
@@ -146,23 +229,239 @@ router.get("/vehicles", async (req: AuthRequest, res: Response) => {
     const { mobFleetService } = await import("../services/mobFleet");
     await mobFleetService.ensureSchema();
     const memberships = await mobLogisticsService.listMembershipsForCourier(courierId);
-    const approved = (memberships || []).filter((m: any) => m.status === "approved");
+    const orgs = (memberships || []).filter((m: any) =>
+      ["pending", "approved"].includes(m.status)
+    );
     const all: any[] = [];
-    for (const m of approved) {
+    for (const m of orgs) {
       const list = await mobFleetService.listVehicles(m.owner_user_id, m.brand_id, {
         courier_id: courierId,
       });
       for (const v of list) {
+        const documents = await mobFleetService.listDocuments(
+          m.owner_user_id,
+          m.brand_id,
+          v.id
+        );
         all.push({
           ...v,
+          documents,
           org_name: m.brand_name || m.operation_name || null,
           brand_id: m.brand_id,
+          owner_user_id: m.owner_user_id,
+          membership_id: m.id,
+          membership_status: m.status,
         });
       }
     }
     res.json({ success: true, vehicles: all });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+router.get("/vehicle-types", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = requireCourier(req, res);
+    if (!ctx) return;
+    const courierId = await resolveCourierId(ctx, res);
+    if (!courierId) return;
+    const { mobFleetService } = await import("../services/mobFleet");
+    const memberships = await mobLogisticsService.listMembershipsForCourier(courierId);
+    const m =
+      (memberships || []).find((x: any) => x.status === "approved") ||
+      (memberships || []).find((x: any) => x.status === "pending") ||
+      null;
+    if (!m) {
+      // system types only via a dummy call — listTypes needs org; use first system seed
+      await mobFleetService.ensureSchema();
+      const types = await querySystemVehicleTypes();
+      return res.json({ success: true, types });
+    }
+    const types = await mobFleetService.listTypes(m.owner_user_id, m.brand_id);
+    res.json({ success: true, types });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+async function querySystemVehicleTypes() {
+  const { query } = await import("../config/database");
+  const rows =
+    (await query<any[]>(
+      `SELECT * FROM mob_vehicle_types WHERE is_system = TRUE AND active = TRUE ORDER BY sort_order ASC, name ASC`
+    ).catch(() => [])) || [];
+  return rows;
+}
+
+router.post("/vehicles", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = requireCourier(req, res);
+    if (!ctx) return;
+    const courierId = await resolveCourierId(ctx, res);
+    if (!courierId) return;
+
+    const vehicle_type_id = String(req.body?.vehicle_type_id || "").trim();
+    if (!vehicle_type_id) return res.status(400).json({ error: "vehicle_type_id obrigatório" });
+
+    let owner_user_id = String(req.body?.owner_user_id || "").trim();
+    let brand_id = String(req.body?.brand_id || "").trim();
+    const membership_id = String(req.body?.membership_id || "").trim();
+
+    if (membership_id) {
+      const memberships = await mobLogisticsService.listMembershipsForCourier(courierId);
+      const m = (memberships || []).find((x: any) => x.id === membership_id);
+      if (!m) return res.status(400).json({ error: "Membership inválido" });
+      owner_user_id = m.owner_user_id;
+      brand_id = m.brand_id;
+    }
+    if (!owner_user_id || !brand_id) {
+      return res.status(400).json({ error: "membership_id ou owner_user_id+brand_id obrigatórios" });
+    }
+
+    const { mobFleetService } = await import("../services/mobFleet");
+    const vehicle = await mobFleetService.createCourierVehicle(courierId, {
+      ...req.body,
+      vehicle_type_id,
+      owner_user_id,
+      brand_id,
+    });
+    res.status(201).json({ success: true, vehicle });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message || "Falha ao cadastrar veículo" });
+  }
+});
+
+router.get("/vehicles/:id", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = requireCourier(req, res);
+    if (!ctx) return;
+    const courierId = await resolveCourierId(ctx, res);
+    if (!courierId) return;
+    const { mobFleetService } = await import("../services/mobFleet");
+    const vehicle = await mobFleetService.getVehicleByIdForCourier(
+      courierId,
+      String(req.params.id)
+    );
+    if (!vehicle) return res.status(404).json({ error: "Veículo não encontrado" });
+    const documents = await mobFleetService.listDocuments(
+      vehicle.owner_user_id,
+      vehicle.brand_id,
+      vehicle.id
+    );
+    res.json({ success: true, vehicle, documents });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.patch("/vehicles/:id", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = requireCourier(req, res);
+    if (!ctx) return;
+    const courierId = await resolveCourierId(ctx, res);
+    if (!courierId) return;
+    const { mobFleetService } = await import("../services/mobFleet");
+    const vehicle = await mobFleetService.updateCourierVehicle(
+      courierId,
+      String(req.params.id),
+      req.body || {}
+    );
+    res.json({ success: true, vehicle });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message || "Falha ao atualizar veículo" });
+  }
+});
+
+router.post("/vehicles/:id/documents", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = requireCourier(req, res);
+    if (!ctx) return;
+    const courierId = await resolveCourierId(ctx, res);
+    if (!courierId) return;
+    const { mobFleetService } = await import("../services/mobFleet");
+    const vehicle = await mobFleetService.getVehicleByIdForCourier(
+      courierId,
+      String(req.params.id)
+    );
+    if (!vehicle) return res.status(404).json({ error: "Veículo não encontrado" });
+    const doc_type = String(req.body?.doc_type || "").trim();
+    if (!doc_type) return res.status(400).json({ error: "doc_type obrigatório" });
+    const document = await mobFleetService.addDocument(
+      vehicle.owner_user_id,
+      vehicle.brand_id,
+      vehicle.id,
+      {
+        doc_type,
+        doc_number: req.body?.doc_number,
+        issued_at: req.body?.issued_at,
+        expires_at: req.body?.expires_at,
+        file_url: req.body?.file_url,
+      }
+    );
+    if (vehicle.status === "available" || vehicle.status === "in_use") {
+      await mobFleetService
+        .updateVehicle(vehicle.owner_user_id, vehicle.brand_id, vehicle.id, {
+          status: "pending_approval",
+        })
+        .catch(() => undefined);
+    }
+    res.status(201).json({ success: true, document });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message || "Falha ao anexar documento" });
+  }
+});
+
+router.patch("/vehicles/:id/documents/:docId", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = requireCourier(req, res);
+    if (!ctx) return;
+    const courierId = await resolveCourierId(ctx, res);
+    if (!courierId) return;
+    const { mobFleetService } = await import("../services/mobFleet");
+    const document = await mobFleetService.resubmitVehicleDocument(
+      courierId,
+      String(req.params.id),
+      String(req.params.docId),
+      req.body || {}
+    );
+    res.json({ success: true, document });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message || "Falha ao reenviar documento" });
+  }
+});
+
+router.post("/vehicles/:id/submit", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = requireCourier(req, res);
+    if (!ctx) return;
+    const courierId = await resolveCourierId(ctx, res);
+    if (!courierId) return;
+    const { mobFleetService } = await import("../services/mobFleet");
+    const vehicle = await mobFleetService.getVehicleByIdForCourier(
+      courierId,
+      String(req.params.id)
+    );
+    if (!vehicle) return res.status(404).json({ error: "Veículo não encontrado" });
+    if (!vehicle.plate) return res.status(400).json({ error: "Informe a placa do veículo" });
+    const documents = await mobFleetService.listDocuments(
+      vehicle.owner_user_id,
+      vehicle.brand_id,
+      vehicle.id
+    );
+    const hasCrlv = documents.some((d) => d.doc_type === "crlv" || d.file_url);
+    if (!hasCrlv) {
+      return res.status(400).json({ error: "Anexe o CRLV (ou documento do veículo) antes de enviar" });
+    }
+    const updated = await mobFleetService.updateVehicle(
+      vehicle.owner_user_id,
+      vehicle.brand_id,
+      vehicle.id,
+      { status: "pending_approval" }
+    );
+    res.json({ success: true, vehicle: updated, documents });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message || "Falha ao enviar veículo" });
   }
 });
 
@@ -225,7 +524,7 @@ router.get("/deliveries/:id", async (req: AuthRequest, res: Response) => {
         const hit = offers.find((o) => o.id === delivery.id);
         if (hit) return res.json({ success: true, delivery: hit, masked: true });
       }
-      return res.status(404).json({ error: "Entrega não encontrada" });
+      return res.status(404).json({ error: "Corrida não encontrada" });
     }
     const events = await mobLogisticsService.listEvents(delivery.id);
     res.json({ success: true, delivery, events });
@@ -250,8 +549,8 @@ router.post("/deliveries/:id/accept", async (req: AuthRequest, res: Response) =>
         eventKey: "delivery_status_changed",
         title: "Entregador aceitou",
         body: delivery.customer_name
-          ? `Entrega de ${delivery.customer_name} aceita`
-          : "Uma entrega foi aceita no Mob",
+          ? `Corrida de ${delivery.customer_name} aceita`
+          : "Uma corrida foi aceita no Mob",
         deliveryId: delivery.id,
       });
     } catch {
@@ -376,7 +675,7 @@ router.post(
       if (!courierId) return;
       const delivery = await mobLogisticsService.getDeliveryById(String(req.params.id));
       if (!delivery || delivery.courier_id !== courierId) {
-        return res.status(404).json({ error: "Entrega não encontrada" });
+        return res.status(404).json({ error: "Corrida não encontrada" });
       }
       const file = (req as any).file as Express.Multer.File | undefined;
       let url = "";
@@ -429,7 +728,7 @@ router.post("/deliveries/:id/request-otp", async (req: AuthRequest, res: Respons
     if (!courierId) return;
     const delivery = await mobLogisticsService.getDeliveryById(String(req.params.id));
     if (!delivery || delivery.courier_id !== courierId) {
-      return res.status(404).json({ error: "Entrega não encontrada" });
+      return res.status(404).json({ error: "Corrida não encontrada" });
     }
     if (!delivery.customer_phone) {
       return res.status(400).json({ error: "Cliente sem telefone para OTP" });
@@ -466,7 +765,7 @@ router.post("/deliveries/:id/signature", async (req: AuthRequest, res: Response)
     if (!courierId) return;
     const delivery = await mobLogisticsService.getDeliveryById(String(req.params.id));
     if (!delivery || delivery.courier_id !== courierId) {
-      return res.status(404).json({ error: "Entrega não encontrada" });
+      return res.status(404).json({ error: "Corrida não encontrada" });
     }
     const dataUrl = String(req.body?.signature_data_url || "").trim();
     if (!dataUrl) return res.status(400).json({ error: "signature_data_url obrigatório" });
@@ -521,7 +820,7 @@ router.post("/deliveries/:id/status", async (req: AuthRequest, res: Response) =>
 
     const delivery = await mobLogisticsService.getDeliveryById(String(req.params.id));
     if (!delivery || delivery.courier_id !== courierId) {
-      return res.status(404).json({ error: "Entrega não encontrada" });
+      return res.status(404).json({ error: "Corrida não encontrada" });
     }
 
     const toStatus = String(req.body?.status || "").trim() as DeliveryStatus;
@@ -551,10 +850,10 @@ router.post("/deliveries/:id/status", async (req: AuthRequest, res: Response) =>
           ownerUserId: updated.owner_user_id,
           brandId: updated.brand_id,
           eventKey: "mob_delivery_completed",
-          title: "Entrega concluída",
+          title: "Corrida concluída",
           body: updated.customer_name
             ? `${updated.customer_name} recebeu o pedido`
-            : "Entrega marcada como concluída no Mob",
+            : "Corrida marcada como concluída no Mob",
           deliveryId: updated.id,
         });
       } else if (["picked_up", "en_route", "at_destination"].includes(toStatus)) {
@@ -562,7 +861,7 @@ router.post("/deliveries/:id/status", async (req: AuthRequest, res: Response) =>
           ownerUserId: updated.owner_user_id,
           brandId: updated.brand_id,
           eventKey: "delivery_status_changed",
-          title: "Entrega em andamento",
+          title: "Corrida em andamento",
           body: `Status: ${toStatus.replace(/_/g, " ")}`,
           deliveryId: updated.id,
         });
@@ -597,7 +896,7 @@ router.post("/routes/optimize", async (req: AuthRequest, res: Response) => {
     const courierId = await resolveCourierId(ctx, res);
     if (!courierId) return;
     const route = await mobLogisticsService.optimizeCourierActiveRoute(courierId);
-    if (!route) return res.status(400).json({ error: "Nenhuma entrega ativa para montar rota" });
+    if (!route) return res.status(400).json({ error: "Nenhuma corrida ativa para montar rota" });
     res.json({ success: true, route });
   } catch (e: any) {
     res.status(400).json({ error: e.message || "Falha ao otimizar rota" });
@@ -719,7 +1018,7 @@ router.get("/deliveries/:id/packages", async (req: AuthRequest, res: Response) =
     if (!courierId) return;
     const delivery = await mobLogisticsService.getDeliveryById(String(req.params.id));
     if (!delivery || delivery.courier_id !== courierId) {
-      return res.status(404).json({ error: "Entrega não encontrada" });
+      return res.status(404).json({ error: "Corrida não encontrada" });
     }
     const { mobPackagesService } = await import("../services/mobPackages");
     await mobPackagesService.ensureForDelivery({
@@ -744,7 +1043,7 @@ router.post("/deliveries/:id/packages/scan", async (req: AuthRequest, res: Respo
     if (!courierId) return;
     const delivery = await mobLogisticsService.getDeliveryById(String(req.params.id));
     if (!delivery || delivery.courier_id !== courierId) {
-      return res.status(404).json({ error: "Entrega não encontrada" });
+      return res.status(404).json({ error: "Corrida não encontrada" });
     }
     const code = String(req.body?.code || req.body?.qr || "").trim();
     if (!code) return res.status(400).json({ error: "code ou qr obrigatório" });
@@ -781,7 +1080,7 @@ router.post("/deliveries/:id/packages/:pkgId/status", async (req: AuthRequest, r
     if (!courierId) return;
     const delivery = await mobLogisticsService.getDeliveryById(String(req.params.id));
     if (!delivery || delivery.courier_id !== courierId) {
-      return res.status(404).json({ error: "Entrega não encontrada" });
+      return res.status(404).json({ error: "Corrida não encontrada" });
     }
     const status = String(req.body?.status || "").trim() as any;
     if (!["missing", "damaged", "loaded", "returned", "pending"].includes(status)) {
@@ -810,7 +1109,7 @@ router.post("/deliveries/:id/packages/confirm-load", async (req: AuthRequest, re
     if (!courierId) return;
     const delivery = await mobLogisticsService.getDeliveryById(String(req.params.id));
     if (!delivery || delivery.courier_id !== courierId) {
-      return res.status(404).json({ error: "Entrega não encontrada" });
+      return res.status(404).json({ error: "Corrida não encontrada" });
     }
     const { mobPackagesService } = await import("../services/mobPackages");
     const conference = await mobPackagesService.confirmLoad(delivery.id, courierId);

@@ -47,15 +47,22 @@ export function AffiliatePromotionHub({ ctx }: Props) {
 
   const storeOrigin = typeof window !== 'undefined' ? window.location.origin : ''
   const storeSlug = String(ctx.brand?.slug || getAffiliateBrandRef() || '').trim()
+  const primaryDomain = String(ctx.brand?.primary_domain || '').trim() || null
   const copyCtx = useMemo(() => ({
     nome_afiliado: ctx.affiliate?.display_name || '',
     cupom: ctx.affiliate?.coupon_code || '',
     codigo: ctx.affiliate?.code || '',
     marca: ctx.brand?.name || '',
     link_catalogo: ctx.affiliate?.code
-      ? buildAffiliateCatalogUrl({ origin: storeOrigin, storeSlug, code: ctx.affiliate.code, couponCode: ctx.affiliate.coupon_code })
+      ? buildAffiliateCatalogUrl({
+          origin: storeOrigin,
+          primaryDomain,
+          storeSlug,
+          code: ctx.affiliate.code,
+          couponCode: ctx.affiliate.coupon_code,
+        })
       : '',
-  }), [ctx, storeOrigin, storeSlug])
+  }), [ctx, storeOrigin, storeSlug, primaryDomain])
 
   useEffect(() => {
     affiliateApi.programEnrollments()

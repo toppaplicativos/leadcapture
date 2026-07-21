@@ -51,7 +51,7 @@ export function EstoqueAccessView({ showToast }: { showToast: (t: string, tp?: '
       : '/api/auth/stock-access'
     try {
       const r = await fetch(url, { headers })
-      const d = await r.json()
+      const d = await r.json().catch(() => ({}))
       if (!r.ok) throw new Error(d.error || `Erro ${r.status}`)
       setCredentials(d.credentials || [])
       return d.credentials || []
@@ -82,21 +82,29 @@ export function EstoqueAccessView({ showToast }: { showToast: (t: string, tp?: '
 
         const activeBrand = brands.find((x: any) => String(x.id) === activeId) || brands[0] || null
 
-        let storeSlug = ''
-        if (activeId) {
-          const storeHeaders = getHeaders()
-          if (!storeHeaders['x-brand-id']) storeHeaders['x-brand-id'] = activeId
-          try {
-            const storesRes = await fetch('/api/storefront/stores', { headers: storeHeaders })
-            const storesData = await storesRes.json().catch(() => ({}))
-            const stores = storesData.stores || []
-            storeSlug = String(stores[0]?.slug || '').trim()
-          } catch { /* ignore */ }
-        }
+        // Libera o acesso assim que a marca ativa chega. Loja e credenciais
+        // enriquecem o fallback em paralelo, sem prender o botão por vários segundos.
+        const immediateSlug = pickStockBrandSlug(activeBrand)
+        if (immediateSlug) setBrandSlug(immediateSlug)
 
-        const creds = await loadCredentials(activeId)
+        const storeHeaders = getHeaders()
+        if (activeId && !storeHeaders['x-brand-id']) storeHeaders['x-brand-id'] = activeId
+        const [storesResult, credentialsResult] = await Promise.allSettled([
+          activeId
+            ? fetch('/api/storefront/stores', { headers: storeHeaders })
+                .then(async (response) => {
+                  const data = await response.json().catch(() => ({}))
+                  if (!response.ok) throw new Error(data.error || `Erro ${response.status}`)
+                  return data.stores || []
+                })
+            : Promise.resolve([]),
+          loadCredentials(activeId),
+        ])
         if (cancelled) return
 
+        const stores = storesResult.status === 'fulfilled' ? storesResult.value : []
+        const creds = credentialsResult.status === 'fulfilled' ? credentialsResult.value : []
+        const storeSlug = String(stores[0]?.slug || '').trim()
         const slug = pickStockBrandSlug(activeBrand, storeSlug, creds[0]?.brand_slug)
         setBrandSlug(slug)
       } catch {
@@ -111,8 +119,8 @@ export function EstoqueAccessView({ showToast }: { showToast: (t: string, tp?: '
   }, [])
 
   async function createAccess() {
-    if (!formEmail.trim() || !formPassword || formPassword.length < 6) {
-      return showToast('Email e senha (min 6 chars) obrigatórios', 'err')
+    if (!formEmail.trim() || !formPassword || formPassword.length < 8) {
+      return showToast('Informe o e-mail e uma senha com pelo menos 8 caracteres', 'err')
     }
     setSaving(true)
     try {
@@ -121,7 +129,7 @@ export function EstoqueAccessView({ showToast }: { showToast: (t: string, tp?: '
         method: 'POST', headers: getHeaders(),
         body: JSON.stringify({ email: formEmail.trim(), password: formPassword, name: formName.trim() || 'Gerente de Estoque', phone: formPhone.trim() || null, brand_id: brandId }),
       })
-      const d = await r.json()
+      const d = await r.json().catch(() => ({}))
       if (!r.ok) throw new Error(d.error || 'Erro ao criar acesso')
       showToast('Acesso ao estoque criado!')
       setShowForm(false); setFormName(''); setFormEmail(''); setFormPassword(''); setFormPhone('')
@@ -193,7 +201,7 @@ export function EstoqueAccessView({ showToast }: { showToast: (t: string, tp?: '
             <div>
               <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1 block">Senha *</label>
               <input type="password" value={formPassword} onChange={e => setFormPassword(e.target.value)}
-                placeholder="Mín. 6 caracteres" required
+                placeholder="Mínimo de 8 caracteres" required
                 className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand" />
             </div>
           </div>

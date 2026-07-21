@@ -1,503 +1,999 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+/**
+ * Meus contatos — CRM mobile-first.
+ * Fase é navegação primária; canal/nicho/região são filtros secundários.
+ * Contagens de fase NUNCA somem com filtro (só a lista é filtrada).
+ */
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  ArrowRight, Briefcase, Check, ChevronDown, Copy, Flame, Loader2, MessageCircle,
-  PencilLine, Phone, Send, Sparkles, Target, UserPlus, Users, X,
+  ChevronRight, Clock3, Filter, Inbox, Loader2, Mail, MapPin,
+  RefreshCw, Search, Sparkles, Users, X,
 } from 'lucide-react'
 import { affiliateApi } from '@/lib/api-affiliate'
 import type { AppContext } from '@/pages/affiliate/types'
-import { WhatsAppSendModal, type WaSendLead } from '@/components/WhatsAppSendModal'
+import type { AttendanceOpportunity } from '@/pages/affiliate/AffiliateAttendanceWorkspace'
+import { InstagramIcon, WhatsAppIcon } from '@/components/icons'
+import {
+  applyProgressPatchToLists,
+  pendingProgressCount,
+  readOpportunitiesCache,
+  writeOpportunitiesCache,
+  type ProgressPatch,
+} from '@/lib/affiliate-crm-local'
 
-type Segment = 'all' | 'contact' | 'prospect' | 'lead' | 'hot' | 'followup' | 'lost'
+type Phase = 'inbox' | 'contacted' | 'engaged' | 'closed' | 'all'
+type ChannelFilter = 'all' | 'whatsapp' | 'email' | 'instagram' | 'address'
 
-type Opportunity = {
-  id: string
-  ref_type: 'affiliate_lead' | 'assignment'
-  ref_id: string
-  name: string
-  phone?: string | null
-  pipeline_type: 'contact' | 'prospect' | 'lead'
-  commercial_status: string
-  temperature: 'cold' | 'warm' | 'hot'
-  source: string
-  source_label: string
-  city?: string | null
-  region?: string | null
-  product_name?: string | null
-  niche?: string | null
-  brand_name?: string | null
-  message?: string | null
+type Opportunity = AttendanceOpportunity & {
+  pipeline_type?: 'contact' | 'prospect' | 'lead'
+  temperature?: 'cold' | 'warm' | 'hot'
+  source?: string
   last_interaction_at?: string | null
+  received_at?: string
   next_followup_at?: string | null
-  next_action?: string | null
-  received_at: string
-  followup_due?: boolean
+  niche?: string | null
 }
 
 type Stats = {
-  received_today?: number
-  received_week?: number
   total_open?: number
-  contacts?: number
-  prospects?: number
-  leads?: number
-  hot?: number
+  phase_new?: number
+  phase_to_contact?: number
+  phase_inbox?: number
+  phase_contacted?: number
+  phase_engaged?: number
+  phase_closed?: number
   followup_due?: number
-  lost?: number
-  converted_total?: number
-  from_own_links?: number
-  from_organization?: number
 }
 
-const SEGMENTS: { key: Segment; label: string }[] = [
-  { key: 'all', label: 'Todos' },
-  { key: 'contact', label: 'Contatos' },
-  { key: 'prospect', label: 'Prospects' },
-  { key: 'lead', label: 'Leads' },
-  { key: 'hot', label: 'Quentes' },
-  { key: 'followup', label: 'Follow-up' },
-  { key: 'lost', label: 'Perdidos' },
+type Facets = {
+  niches?: string[]
+  regions?: string[]
+  channels?: { whatsapp?: number; email?: number; instagram?: number; address?: number; total?: number }
+}
+
+const STORAGE_KEY = 'affiliate.meus_contatos.filters.v4'
+
+const PHASES: { key: Phase; label: string; short: string }[] = [
+  { key: 'inbox', label: 'Fila', short: 'Fila' },
+  { key: 'contacted', label: 'Enviado', short: 'Env.' },
+  { key: 'engaged', label: 'Conversa', short: 'Conv.' },
+  { key: 'closed', label: 'Excluídos', short: 'Exc.' },
+  { key: 'all', label: 'Todos', short: 'Todos' },
 ]
 
-const PIPELINE_LABEL = {
-  contact: 'Contato',
-  prospect: 'Prospect',
-  lead: 'Lead',
-} as const
+const PHASE_META: Record<string, { bg: string; color: string; label: string }> = {
+  new: { bg: 'bg-orange-50', color: 'text-orange-800', label: 'Fila' },
+  to_contact: { bg: 'bg-orange-50', color: 'text-orange-800', label: 'Fila' },
+  contacted: { bg: 'bg-emerald-50', color: 'text-emerald-800', label: 'Enviado' },
+  engaged: { bg: 'bg-violet-50', color: 'text-violet-800', label: 'Conversa' },
+  closed: { bg: 'bg-neutral-100', color: 'text-neutral-600', label: 'Excluído' },
+}
 
-const TEMP_STYLE = {
-  hot: { bg: '#fef2f2', color: '#dc2626', label: 'Quente' },
-  warm: { bg: '#fff7ed', color: '#ea580c', label: 'Morno' },
-  cold: { bg: '#f3f4f6', color: '#6b7280', label: 'Frio' },
-} as const
+function stripAccents(s: string) {
+  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
+}
 
-function dt(v?: string | null) {
+/**
+ * Match de nicho resiliente.
+ * Aceita objeto com search_query / place_type / vertical OU string legada.
+ * "Restaurantes" casa com Churrascaria / Barbecue / Pizzaria.
+ */
+export function nicheMatches(
+  itemNiche:
+    | string
+    | null
+    | undefined
+    | {
+        niche?: string | null
+        search_query?: string | null
+        place_type?: string | null
+        vertical?: string | null
+      },
+  filterNiche: string,
+): boolean {
+  const filter = stripAccents(filterNiche)
+  if (!filter) return true
+
+  const fields: string[] = []
+  if (itemNiche && typeof itemNiche === 'object') {
+    for (const k of [itemNiche.vertical, itemNiche.search_query, itemNiche.place_type, itemNiche.niche]) {
+      const v = String(k || '').trim()
+      if (v) fields.push(stripAccents(v))
+    }
+  } else {
+    const raw = String(itemNiche || '').trim()
+    if (raw) fields.push(stripAccents(raw))
+  }
+  if (!fields.length) return false
+
+  for (const item of fields) {
+    if (item === filter) return true
+    if (item.includes(filter) || filter.includes(item)) return true
+  }
+
+  const families: Record<string, string[]> = {
+    restaurante: [
+      'restaurante', 'restaurantes', 'restaurant', 'restaurants',
+      'pizzaria', 'hamburgueria', 'lanchonete', 'japonesa',
+      'fast food', 'buffet', 'bar', 'gastropub', 'frutos do mar', 'hot dog', 'acai', 'açaí',
+      'churrascaria', 'churrasco', 'barbecue', 'steak house', 'steakhouse', 'bbq',
+      'padaria', 'cafe', 'café', 'cafeteria', 'delivery', 'comida',
+    ],
+    supermercado: [
+      'supermercado', 'supermercados', 'supermarket', 'mercearia', 'mercado', 'atacado',
+      'conveniencia', 'conveniência', 'alimentacao', 'alimentação', 'grocery',
+    ],
+  }
+  for (const [family, members] of Object.entries(families)) {
+    const filterIn =
+      filter === stripAccents(family)
+      || members.some((m) => filter === stripAccents(m) || filter.includes(stripAccents(m)))
+    if (!filterIn) continue
+    const itemIn = fields.some(
+      (item) =>
+        item === stripAccents(family)
+        || members.some((m) => item === stripAccents(m) || item.includes(stripAccents(m))),
+    )
+    if (itemIn) return true
+  }
+  return false
+}
+
+function loadStored() {
   try {
-    return new Date(v!).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (!raw) {
+      return { phase: 'inbox' as Phase, channel: 'all' as ChannelFilter, niche: '', region: '', q: '' }
+    }
+    const p = JSON.parse(raw)
+    const phase = PHASES.some((x) => x.key === p.phase) ? p.phase : 'inbox'
+    const channel = ['all', 'whatsapp', 'email', 'instagram', 'address'].includes(p.channel)
+      ? p.channel
+      : 'all'
+    return {
+      phase: phase as Phase,
+      channel: channel as ChannelFilter,
+      niche: String(p.niche || ''),
+      region: String(p.region || ''),
+      q: String(p.q || ''),
+    }
   } catch {
-    return ''
+    return { phase: 'inbox' as Phase, channel: 'all' as ChannelFilter, niche: '', region: '', q: '' }
   }
 }
 
-function waLink(phone?: string | null, text?: string) {
-  const digits = String(phone || '').replace(/\D/g, '')
-  if (!digits) return null
-  const n = digits.startsWith('55') ? digits : `55${digits}`
-  const qs = text ? `?text=${encodeURIComponent(text)}` : ''
-  return `https://wa.me/${n}${qs}`
+function initials(name: string) {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean)
+  if (!parts.length) return '?'
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
 }
 
-export function AffiliateOpportunitiesPanel({ ctx }: { ctx: AppContext }) {
-  const [segment, setSegment] = useState<Segment>('all')
-  const [items, setItems] = useState<Opportunity[]>([])
-  const [stats, setStats] = useState<Stats | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [savingId, setSavingId] = useState<string | null>(null)
-  const [selected, setSelected] = useState<Opportunity | null>(null)
+function followupLabel(item: Opportunity): string | null {
+  if (item.followup_due) return 'Follow-up atrasado'
+  if (!item.next_followup_at) return null
+  try {
+    const d = new Date(item.next_followup_at)
+    if (Number.isNaN(d.getTime())) return null
+    const days = Math.ceil((d.getTime() - Date.now()) / 86400000)
+    if (days <= 0) return 'Follow-up atrasado'
+    if (days === 1) return 'Lembrar amanhã'
+    return `Lembrar em ${days} dias`
+  } catch {
+    return null
+  }
+}
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    try {
-      const r = await affiliateApi.opportunities(segment, 1, 80)
-      setItems(r.opportunities || [])
-      setStats(r.stats || null)
-    } catch {
-      ctx.showToast('Erro ao carregar contatos', 'err')
-    } finally {
+function phaseOf(item: Opportunity): string {
+  return String(item.operational_phase || 'to_contact')
+}
+
+function inPhase(item: Opportunity, phase: Phase): boolean {
+  const op = phaseOf(item)
+  if (phase === 'all') return true
+  if (phase === 'inbox') return op === 'new' || op === 'to_contact'
+  if (phase === 'closed') return op === 'closed' || item.status_code === 'lost'
+  return op === phase
+}
+
+function hasChannel(item: Opportunity, channel: ChannelFilter): boolean {
+  if (channel === 'all') return true
+  const phone = item.channels?.whatsapp || item.phone
+  const hasWa = item.has_whatsapp ?? String(phone || '').replace(/\D/g, '').length >= 8
+  if (channel === 'whatsapp') return hasWa
+  if (channel === 'email') return !!(item.channels?.email || item.email)
+  if (channel === 'instagram') return !!(item.channels?.instagram || item.instagram)
+  if (channel === 'address') return !!(item.channels?.address || item.address)
+  return true
+}
+
+type Props = {
+  ctx: AppContext
+  focusRefId?: string | null
+  onOpenWorkspace?: (item: AttendanceOpportunity) => void
+  /** Incrementa para pedir reload silencioso (sem remount). */
+  refreshToken?: number
+  /** Patch otimista vindo do workspace (progresso / offline). */
+  progressPatch?: ProgressPatch | null
+  onProgressPatchConsumed?: () => void
+  /** Busca do Hub (global) — sobrescreve/combina com a busca local */
+  externalSearch?: string
+}
+
+export function AffiliateOpportunitiesPanel({
+  ctx,
+  focusRefId,
+  onOpenWorkspace,
+  refreshToken = 0,
+  progressPatch = null,
+  onProgressPatchConsumed,
+  externalSearch = '',
+}: Props) {
+  const initial = useMemo(() => loadStored(), [])
+  const brandId = (ctx as any)?.brand?.id || (ctx as any)?.brandId || null
+  const [phase, setPhase] = useState<Phase>(initial.phase)
+  const [channel, setChannel] = useState<ChannelFilter>(initial.channel)
+  const [niche, setNiche] = useState(initial.niche)
+  const [region, setRegion] = useState(initial.region)
+  const [q, setQ] = useState(initial.q)
+  const [showFilters, setShowFilters] = useState(false)
+  const [openItems, setOpenItems] = useState<Opportunity[]>([])
+  const [closedItems, setClosedItems] = useState<Opportunity[]>([])
+  const [stats, setStats] = useState<Stats | null>(null)
+  const [facets, setFacets] = useState<Facets | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [fromCache, setFromCache] = useState(false)
+  const [pendingSync, setPendingSync] = useState(0)
+  const loadGen = useRef(0)
+  const closedLoaded = useRef(false)
+  const openRef = useRef<Opportunity[]>([])
+  const closedRef = useRef<Opportunity[]>([])
+  openRef.current = openItems
+  closedRef.current = closedItems
+
+  /* Hidrata cache local imediatamente (evita tela vazia em rede ruim) */
+  useEffect(() => {
+    const cached = readOpportunitiesCache(brandId)
+    if (cached?.all_open?.length || cached?.all_closed?.length) {
+      setOpenItems((cached.all_open || []) as Opportunity[])
+      setClosedItems((cached.all_closed || []) as Opportunity[])
+      if (cached.stats) setStats(cached.stats as Stats)
+      if (cached.facets) setFacets(cached.facets as Facets)
+      if ((cached.all_closed || []).length) closedLoaded.current = true
+      setFromCache(true)
       setLoading(false)
     }
-  }, [ctx.showToast, segment])
+    setPendingSync(pendingProgressCount())
+  }, [brandId])
 
   useEffect(() => {
-    void load()
-  }, [load, ctx.cacheVersion])
-
-  const greeting = useMemo(() => {
-    const brand = ctx.brand?.name || 'a marca'
-    const name = ctx.affiliate?.display_name || ctx.affiliate?.code || 'parceiro'
-    return `${name}, aqui chegam contatos, prospects e leads que ${brand} envia ao seu programa — e os gerados pelos seus links.`
-  }, [ctx.affiliate, ctx.brand?.name])
-
-  async function updateLeadStatus(refId: string, status: string) {
-    setSavingId(refId)
     try {
-      await affiliateApi.updateLead(refId, { status })
-      ctx.showToast('Status atualizado')
-      void load()
-    } catch (e: unknown) {
-      ctx.showToast(e instanceof Error ? e.message : 'Erro ao salvar', 'err')
-    } finally {
-      setSavingId(null)
-    }
-  }
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ phase, channel, niche, region, q }))
+    } catch { /* ignore */ }
+  }, [phase, channel, niche, region, q])
 
-  async function convertAssignment(refId: string) {
-    setSavingId(refId)
+  const showToast = ctx.showToast
+
+  const applyPayload = useCallback((r: any, opts?: { keepClosed?: boolean }) => {
+    const open = (r.all_open || r.opportunities || []) as Opportunity[]
+    const closed = (r.all_closed || []) as Opportunity[]
+    const nextOpen = Array.isArray(open) ? open : []
+    openRef.current = nextOpen
+    setOpenItems(nextOpen)
+    if (Array.isArray(closed) && closed.length) {
+      closedRef.current = closed
+      setClosedItems(closed)
+      closedLoaded.current = true
+    } else if (opts?.keepClosed || r.include_closed === false) {
+      /* mantém closed anterior se payload não trouxe arquivo */
+    } else {
+      const nextClosed = Array.isArray(closed) ? closed : []
+      closedRef.current = nextClosed
+      setClosedItems(nextClosed)
+      if (Array.isArray(closed)) closedLoaded.current = true
+    }
+    setStats(r.stats || null)
+    setFromCache(false)
+
+    const apiFacets = r.facets || null
+    if (apiFacets?.niches?.length || apiFacets?.regions?.length) {
+      setFacets(apiFacets)
+    } else {
+      const pool = [...(Array.isArray(open) ? open : []), ...(Array.isArray(closed) ? closed : [])]
+      const nSet = new Set<string>()
+      const rSet = new Set<string>()
+      for (const i of pool) {
+        if (i.niche) nSet.add(String(i.niche).trim())
+        if (i.city) rSet.add(String(i.city).trim())
+        if (i.region) rSet.add(String(i.region).trim())
+      }
+      setFacets({
+        niches: Array.from(nSet).sort((a, b) => a.localeCompare(b, 'pt-BR')),
+        regions: Array.from(rSet).sort((a, b) => a.localeCompare(b, 'pt-BR')),
+        channels: { total: pool.length },
+      })
+    }
+
+    writeOpportunitiesCache({
+      all_open: Array.isArray(open) ? open : [],
+      all_closed: Array.isArray(closed) && closed.length
+        ? closed
+        : undefined,
+      stats: r.stats || null,
+      facets: r.facets || null,
+      brand_id: brandId,
+    })
+  }, [brandId])
+
+  const applyLocalPatch = useCallback((patch: ProgressPatch) => {
+    const { open, closed } = applyProgressPatchToLists(openRef.current, closedRef.current, patch)
+    openRef.current = open as Opportunity[]
+    closedRef.current = closed as Opportunity[]
+    setOpenItems(open as Opportunity[])
+    setClosedItems(closed as Opportunity[])
+    writeOpportunitiesCache({
+      all_open: open,
+      all_closed: closed,
+      brand_id: brandId,
+    })
+    setPendingSync(pendingProgressCount())
+  }, [brandId])
+
+  /* Recebe patch otimista do Hub/workspace */
+  useEffect(() => {
+    if (!progressPatch) return
+    applyLocalPatch(progressPatch)
+    onProgressPatchConsumed?.()
+  }, [progressPatch, applyLocalPatch, onProgressPatchConsumed])
+
+  const load = useCallback(async (opts?: { silent?: boolean; withClosed?: boolean }) => {
+    const gen = ++loadGen.current
+    const silent = !!opts?.silent
+    const withClosed = opts?.withClosed ?? (phase === 'closed' || phase === 'all' || !closedLoaded.current)
+
+    if (silent) setRefreshing(true)
+    else if (!openItems.length && !closedItems.length) setLoading(true)
+    setLoadError(null)
+    setPendingSync(pendingProgressCount())
+
     try {
-      await affiliateApi.convertDistributionAssignment(refId, { notes: 'Convertido pelo afiliado' })
-      ctx.showToast('Marcado como convertido — agora é cliente', 'ok')
-      void load()
-    } catch {
-      ctx.showToast('Erro ao registrar conversão', 'err')
+      /* 1) Abertos primeiro (rápido) — desbloqueia Fila/Enviado/Conversa */
+      const openRes = await affiliateApi.opportunities('all', 1, 300, {
+        includeClosed: false,
+        timeoutMs: 22_000,
+      })
+      if (gen !== loadGen.current) return
+      applyPayload(openRes, { keepClosed: true })
+      setLoading(false)
+
+      /* 2) Arquivo sob demanda / em background */
+      if (withClosed) {
+        try {
+          const closedRes = await affiliateApi.opportunities('closed', 1, 200, {
+            includeClosed: true,
+            timeoutMs: 18_000,
+          })
+          if (gen !== loadGen.current) return
+          const closed = (closedRes.all_closed || closedRes.opportunities || []) as Opportunity[]
+          setClosedItems(Array.isArray(closed) ? closed : [])
+          closedRef.current = Array.isArray(closed) ? closed : []
+          closedLoaded.current = true
+          writeOpportunitiesCache({
+            all_open: openRef.current,
+            all_closed: Array.isArray(closed) ? closed : [],
+            stats: openRes.stats,
+            facets: openRes.facets,
+            brand_id: brandId,
+          })
+          if (closedRes.stats?.phase_closed != null) {
+            setStats((s) => ({ ...(s || {}), phase_closed: closedRes.stats.phase_closed }))
+          }
+          /* merge facets */
+          if (closedRes.facets?.niches?.length) {
+            setFacets((prev) => {
+              const n = new Set([...(prev?.niches || []), ...(closedRes.facets.niches || [])])
+              const r = new Set([...(prev?.regions || []), ...(closedRes.facets.regions || [])])
+              return {
+                niches: Array.from(n).sort((a, b) => a.localeCompare(b, 'pt-BR')),
+                regions: Array.from(r).sort((a, b) => a.localeCompare(b, 'pt-BR')),
+                channels: prev?.channels || closedRes.facets.channels,
+              }
+            })
+          }
+        } catch {
+          /* arquivo é opcional — não zera a lista principal */
+        }
+      }
+    } catch (e) {
+      if (gen !== loadGen.current) return
+      const msg = e instanceof Error ? e.message : 'Erro ao carregar contatos'
+      /* Mantém cache se houver dados */
+      if (openRef.current.length || closedRef.current.length) {
+        setFromCache(true)
+        setLoadError(null)
+        if (!silent) {
+          showToast('Usando lista salva no aparelho (sem conexão)', 'err')
+        }
+      } else {
+        setLoadError(msg)
+        if (!silent) showToast(msg, 'err')
+      }
     } finally {
-      setSavingId(null)
+      if (gen === loadGen.current) {
+        setLoading(false)
+        setRefreshing(false)
+        setPendingSync(pendingProgressCount())
+      }
     }
+  }, [applyPayload, phase, showToast, brandId, openItems.length, closedItems.length])
+
+  useEffect(() => {
+    void load({ withClosed: false })
+  }, [ctx.cacheVersion]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (refreshToken > 0) void load({ silent: true, withClosed: phase === 'closed' || phase === 'all' })
+  }, [refreshToken]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* Ao abrir Arquivo/Todos, garante closed carregado */
+  useEffect(() => {
+    if ((phase === 'closed' || phase === 'all') && !closedLoaded.current && !loading) {
+      void load({ silent: true, withClosed: true })
+    }
+  }, [phase, loading, load])
+
+  const niches = useMemo(() => {
+    if (facets?.niches?.length) return facets.niches
+    return Array.from(
+      new Set(
+        [...openItems, ...closedItems]
+          .map((i) => String(i.niche || '').trim())
+          .filter(Boolean),
+      ),
+    ).sort((a, b) => a.localeCompare(b, 'pt-BR'))
+  }, [facets, openItems, closedItems])
+
+  const regions = useMemo(() => {
+    if (facets?.regions?.length) return facets.regions
+    return Array.from(
+      new Set(
+        [...openItems, ...closedItems]
+          .flatMap((i) => [i.city, i.region].map((x) => String(x || '').trim()).filter(Boolean)),
+      ),
+    ).sort((a, b) => a.localeCompare(b, 'pt-BR'))
+  }, [facets, openItems, closedItems])
+
+  /* Remove filtros órfãos só se nenhum item do universo bate */
+  useEffect(() => {
+    if (loading) return
+    if (niche) {
+      const any = [...openItems, ...closedItems].some((i) =>
+        nicheMatches({ niche: i.niche, search_query: (i as any).search_query, place_type: (i as any).place_type, vertical: (i as any).vertical }, niche),
+      )
+      if (!any && openItems.length + closedItems.length > 0) setNiche('')
+    }
+    if (region) {
+      const any = [...openItems, ...closedItems].some((i) => {
+        const place = stripAccents(`${i.city || ''} ${i.region || ''}`)
+        return place.includes(stripAccents(region))
+      })
+      if (!any && openItems.length + closedItems.length > 0) setRegion('')
+    }
+  }, [loading, openItems, closedItems]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** Itens na fase atual (sem canal/nicho/busca) — base da contagem de fase. */
+  const phasePool = useMemo(() => {
+    if (phase === 'closed') return closedItems
+    if (phase === 'all') return [...openItems, ...closedItems]
+    return openItems.filter((i) => inPhase(i, phase))
+  }, [phase, openItems, closedItems])
+
+  const filtered = useMemo(() => {
+    const query = (externalSearch || q).trim()
+    const list = phasePool.filter((item) => {
+      if (!hasChannel(item, channel)) return false
+      if (niche && !nicheMatches({
+        niche: item.niche,
+        search_query: (item as any).search_query,
+        place_type: (item as any).place_type,
+        vertical: (item as any).vertical,
+      }, niche)) return false
+      if (region) {
+        const place = stripAccents(`${item.city || ''} ${item.region || ''}`)
+        if (!place.includes(stripAccents(region))) return false
+      }
+      if (query) {
+        const hay = stripAccents(
+          [item.name, item.phone, item.email, item.niche, item.city, item.region, item.next_action]
+            .filter(Boolean)
+            .join(' '),
+        )
+        if (!hay.includes(stripAccents(query))) return false
+      }
+      return true
+    })
+
+    /* Fila inteligente: follow-up atrasado → sem contato → com WA → mais recente */
+    const phaseRank = (item: Opportunity) => {
+      const op = phaseOf(item)
+      if (op === 'new' || op === 'to_contact') return 0
+      if (op === 'contacted') return 1
+      if (op === 'engaged') return 2
+      return 3
+    }
+    const hasWaItem = (item: Opportunity) => {
+      const phone = item.channels?.whatsapp || item.phone
+      return item.has_whatsapp ?? String(phone || '').replace(/\D/g, '').length >= 8
+    }
+    const ts = (item: Opportunity) => {
+      const raw = item.last_interaction_at || item.received_at || item.next_followup_at || 0
+      const t = new Date(raw).getTime()
+      return Number.isFinite(t) ? t : 0
+    }
+
+    return list.slice().sort((a, b) => {
+      if (!!a.followup_due !== !!b.followup_due) return a.followup_due ? -1 : 1
+      const pr = phaseRank(a) - phaseRank(b)
+      if (pr !== 0) return pr
+      const wa = (hasWaItem(b) ? 1 : 0) - (hasWaItem(a) ? 1 : 0)
+      if (wa !== 0) return wa
+      return ts(b) - ts(a)
+    })
+  }, [phasePool, channel, niche, region, q, externalSearch])
+
+  const phaseCount = useCallback(
+    (key: Phase) => {
+      if (key === 'closed') return closedItems.length || Number(stats?.phase_closed || 0)
+      if (key === 'all') return openItems.length + closedItems.length
+      if (key === 'inbox') {
+        return openItems.filter((i) => inPhase(i, 'inbox')).length
+      }
+      return openItems.filter((i) => phaseOf(i) === key).length
+    },
+    [openItems, closedItems, stats],
+  )
+
+  useEffect(() => {
+    if (!focusRefId || !onOpenWorkspace) return
+    const hit =
+      filtered.find((i) => i.ref_id === focusRefId)
+      || openItems.find((i) => i.ref_id === focusRefId)
+      || closedItems.find((i) => i.ref_id === focusRefId)
+    if (hit) onOpenWorkspace(hit)
+  }, [focusRefId, filtered, openItems, closedItems, onOpenWorkspace])
+
+  const activeFilterCount =
+    (channel !== 'all' ? 1 : 0)
+    + (niche ? 1 : 0)
+    + (region ? 1 : 0)
+    + ((externalSearch || q).trim() ? 1 : 0)
+
+  const hiddenByFilter = Math.max(0, phasePool.length - filtered.length)
+
+  function clearFilters() {
+    setChannel('all')
+    setNiche('')
+    setRegion('')
+    setQ('')
   }
 
-  function copyPhone(phone?: string | null) {
-    const digits = String(phone || '').replace(/\D/g, '')
-    if (!digits) return ctx.showToast('Sem telefone', 'err')
-    navigator.clipboard.writeText(digits).then(
-      () => ctx.showToast('Telefone copiado'),
-      () => ctx.showToast('Não foi possível copiar', 'err'),
-    )
+  function selectPhase(next: Phase) {
+    setPhase(next)
+    /* Se o filtro zera a nova fase, não limpa sozinho — empty state orienta.
+       Mas se canal whatsapp e zero na fila, usuário vê CTA limpar. */
   }
 
-  if (loading && !items.length) {
+  if (loading && openItems.length === 0 && closedItems.length === 0) {
     return (
-      <div className="space-y-3 pb-2">
-        <div className="affiliate-skel h-20 w-full" />
-        <div className="grid grid-cols-3 gap-2">
-          <div className="affiliate-skel h-16" />
-          <div className="affiliate-skel h-16" />
-          <div className="affiliate-skel h-16" />
-        </div>
-        <div className="affiliate-skel h-24 w-full" />
+      <div className="space-y-3 pb-2" aria-busy="true" aria-label="Carregando contatos">
+        <div className="affiliate-skel h-14 w-full rounded-2xl" />
+        <div className="affiliate-skel h-11 w-full rounded-2xl" />
+        <div className="affiliate-skel h-[72px] w-full rounded-2xl" />
+        <div className="affiliate-skel h-[72px] w-full rounded-2xl" />
+        <div className="affiliate-skel h-[72px] w-full rounded-2xl" />
       </div>
     )
   }
 
   return (
     <div className="space-y-3 pb-4 min-w-0">
-      <div className="affiliate-card p-4">
-        <div className="flex items-start gap-3">
-          <div className="w-10 h-10 rounded-xl grid place-items-center shrink-0" style={{ backgroundColor: `${ctx.primary}14` }}>
-            <Target size={18} style={{ color: ctx.primary }} />
-          </div>
-          <div className="min-w-0">
-            <p className="font-bold text-sm text-[#1c1c1e]">Fila assistida</p>
-            <p className="text-xs text-[#636366] mt-1 leading-relaxed">{greeting}</p>
-            <p className="text-[10px] text-[#8e8e93] mt-2 leading-relaxed">
-              Escolha um contato, deixe a IA preparar a abordagem e avance cada etapa manualmente.
-              Contato → Prospect → Lead → Cliente.
+      {/* Header compacto */}
+      <header className="rounded-2xl border border-neutral-200/90 bg-white px-3.5 py-3 shadow-[0_1px_0_rgba(0,0,0,0.03)]">
+        <div className="flex items-start gap-2.5">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <Users size={16} className="text-neutral-900 shrink-0" strokeWidth={2.25} />
+              <h2 className="text-[15px] font-semibold tracking-tight text-neutral-900">
+                Meus contatos
+              </h2>
+            </div>
+            <p className="mt-0.5 text-[11px] leading-snug text-neutral-500">
+              {phasePool.length} na fase
+              {activeFilterCount > 0 ? ` · ${filtered.length} com filtros` : ` · ${filtered.length} listados`}
+              {stats?.followup_due ? ` · ${stats.followup_due} follow-up` : ''}
+              {phase === 'inbox' || phase === 'all' ? ' · prioritários no topo' : ''}
+              {fromCache ? ' · offline' : ''}
             </p>
           </div>
+          <button
+            type="button"
+            onClick={() => void load({ silent: true, withClosed: true })}
+            disabled={refreshing}
+            className="min-h-10 min-w-10 grid place-items-center rounded-xl border border-neutral-200 text-neutral-600 active:bg-neutral-50 disabled:opacity-50"
+            aria-label="Atualizar lista"
+          >
+            <RefreshCw size={15} className={refreshing ? 'animate-spin' : ''} />
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowFilters((v) => !v)}
+            className={[
+              'relative min-h-10 min-w-10 grid place-items-center rounded-xl border',
+              showFilters || activeFilterCount
+                ? 'border-neutral-900 bg-neutral-900 text-white'
+                : 'border-neutral-200 bg-white text-neutral-700',
+            ].join(' ')}
+            aria-expanded={showFilters}
+            aria-label="Filtros"
+          >
+            <Filter size={15} />
+            {activeFilterCount > 0 && (
+              <span className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-orange-500 px-1 text-[9px] font-bold text-white">
+                {activeFilterCount}
+              </span>
+            )}
+          </button>
         </div>
-      </div>
 
-      {stats && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          <div className="affiliate-card affiliate-kpi p-3">
-            <p className="affiliate-kpi__label">Hoje</p>
-            <p className="affiliate-kpi__value text-lg">{stats.received_today ?? 0}</p>
-            <p className="text-[10px] text-[#8e8e93]">recebidos</p>
+        {/* Busca local só se Hub não trouxe busca global */}
+        {!externalSearch && (
+          <div className="relative mt-2.5">
+            <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" />
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Buscar nome, telefone, nicho…"
+              className="h-10 w-full rounded-xl border border-neutral-200 bg-neutral-50 pl-9 pr-9 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-neutral-900 focus:bg-white focus:outline-none focus:ring-4 focus:ring-neutral-900/5"
+            />
+            {q ? (
+              <button
+                type="button"
+                className="absolute right-2 top-1/2 -translate-y-1/2 grid h-7 w-7 place-items-center rounded-lg text-neutral-400"
+                onClick={() => setQ('')}
+                aria-label="Limpar busca"
+              >
+                <X size={14} />
+              </button>
+            ) : null}
           </div>
-          <div className="affiliate-card affiliate-kpi p-3">
-            <p className="affiliate-kpi__label">Abertos</p>
-            <p className="affiliate-kpi__value text-lg">{stats.total_open ?? 0}</p>
-            <p className="text-[10px] text-[#8e8e93]">{stats.leads ?? 0} leads · {stats.hot ?? 0} quentes</p>
+        )}
+      </header>
+
+      {/* Fases — navegação primária, contagens independentes de filtro */}
+      <nav
+        className="grid grid-cols-5 gap-1 rounded-2xl border border-neutral-200/90 bg-neutral-100/80 p-1"
+        aria-label="Fase do atendimento"
+      >
+        {PHASES.map((opt) => {
+          const n = phaseCount(opt.key)
+          const on = phase === opt.key
+          return (
+            <button
+              key={opt.key}
+              type="button"
+              onClick={() => selectPhase(opt.key)}
+              className={[
+                'min-h-11 rounded-xl px-0.5 py-1.5 text-center transition',
+                on
+                  ? 'bg-white text-neutral-900 shadow-sm ring-1 ring-black/5'
+                  : 'text-neutral-600 active:bg-white/60',
+              ].join(' ')}
+            >
+              <span className="block text-[10px] font-bold leading-tight sm:text-[11px]">
+                {opt.short}
+              </span>
+              <span
+                className={[
+                  'mt-0.5 block text-[11px] font-semibold tabular-nums',
+                  on ? 'text-neutral-900' : 'text-neutral-400',
+                ].join(' ')}
+              >
+                {n}
+              </span>
+            </button>
+          )
+        })}
+      </nav>
+
+      {/* Filtros secundários (sheet inline) */}
+      {showFilters && (
+        <div className="space-y-3 rounded-2xl border border-neutral-200 bg-white p-3.5">
+          <div>
+            <p className="mb-1.5 text-[11px] font-semibold text-neutral-500">Canal</p>
+            <div className="flex flex-wrap gap-1.5">
+              {(
+                [
+                  { key: 'all' as const, label: 'Todos' },
+                  { key: 'whatsapp' as const, label: 'WhatsApp', icon: 'wa' as const },
+                  { key: 'instagram' as const, label: 'Instagram', icon: 'ig' as const },
+                  { key: 'email' as const, label: 'E-mail', icon: 'mail' as const },
+                  { key: 'address' as const, label: 'Endereço', icon: 'map' as const },
+                ]
+              ).map((opt) => {
+                const on = channel === opt.key
+                return (
+                  <button
+                    key={opt.key}
+                    type="button"
+                    onClick={() => setChannel(opt.key)}
+                    className={[
+                      'inline-flex min-h-9 items-center gap-1.5 rounded-xl border px-2.5 text-[11px] font-bold transition',
+                      on
+                        ? opt.key === 'whatsapp'
+                          ? 'border-emerald-600 bg-emerald-600 text-white'
+                          : 'border-neutral-900 bg-neutral-900 text-white'
+                        : 'border-neutral-200 bg-white text-neutral-700',
+                    ].join(' ')}
+                  >
+                    {opt.icon === 'wa' && <WhatsAppIcon size={13} />}
+                    {opt.icon === 'ig' && <InstagramIcon size={13} />}
+                    {opt.icon === 'mail' && <Mail size={13} />}
+                    {opt.icon === 'map' && <MapPin size={13} />}
+                    {opt.label}
+                  </button>
+                )
+              })}
+            </div>
           </div>
-          <div className="affiliate-card affiliate-kpi p-3">
-            <p className="affiliate-kpi__label">Follow-up</p>
-            <p className="affiliate-kpi__value text-lg" style={{ color: stats.followup_due ? '#dc2626' : undefined }}>
-              {stats.followup_due ?? 0}
-            </p>
-            <p className="text-[10px] text-[#8e8e93]">vencidos</p>
-          </div>
-          <div className="affiliate-card affiliate-kpi p-3">
-            <p className="affiliate-kpi__label">Convertidos</p>
-            <p className="affiliate-kpi__value text-lg" style={{ color: '#059669' }}>{stats.converted_total ?? 0}</p>
-            <p className="text-[10px] text-[#8e8e93]">viraram cliente</p>
-          </div>
+
+          {niches.length > 0 && (
+            <div>
+              <p className="mb-1.5 text-[11px] font-semibold text-neutral-500">
+                Nicho ({niches.length})
+              </p>
+              <select
+                value={niche}
+                onChange={(e) => setNiche(e.target.value)}
+                className="h-11 w-full rounded-xl border border-neutral-200 bg-white px-3 text-sm text-neutral-900"
+              >
+                <option value="">Todos os nichos</option>
+                {niches.map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {regions.length > 0 && (
+            <div>
+              <p className="mb-1.5 text-[11px] font-semibold text-neutral-500">
+                Região ({regions.length})
+              </p>
+              <select
+                value={region}
+                onChange={(e) => setRegion(e.target.value)}
+                className="h-11 w-full rounded-xl border border-neutral-200 bg-white px-3 text-sm text-neutral-900"
+              >
+                <option value="">Todas as regiões</option>
+                {regions.map((r) => (
+                  <option key={r} value={r}>{r}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {activeFilterCount > 0 && (
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="inline-flex min-h-10 w-full items-center justify-center gap-1.5 rounded-xl bg-neutral-100 text-xs font-bold text-neutral-800"
+            >
+              <X size={14} /> Limpar filtros
+            </button>
+          )}
         </div>
       )}
 
-      <div className="affiliate-hub__channel-pills flex flex-wrap gap-1.5 px-0.5">
-        {SEGMENTS.map((opt) => (
+      {/* Chips de nicho rápidos (quando há 2+) — fora do sheet */}
+      {!showFilters && niches.length > 1 && (
+        <div className="flex gap-1.5 overflow-x-auto scrollbar-hide px-0.5">
           <button
-            key={opt.key}
             type="button"
-            className={`affiliate-hub__channel-pill${segment === opt.key ? ' affiliate-hub__channel-pill--on' : ''}`}
-            style={segment === opt.key ? { backgroundColor: `${ctx.primary}18`, color: ctx.primary } : undefined}
-            onClick={() => setSegment(opt.key)}
+            onClick={() => setNiche('')}
+            className={[
+              'shrink-0 min-h-8 rounded-full border px-2.5 text-[10px] font-bold',
+              !niche
+                ? 'border-neutral-900 bg-neutral-900 text-white'
+                : 'border-neutral-200 bg-white text-neutral-600',
+            ].join(' ')}
           >
-            {opt.label}
+            Todos
           </button>
-        ))}
-      </div>
-
-      {items.length === 0 ? (
-        <div className="affiliate-card p-8 text-center">
-          <Sparkles size={28} className="mx-auto text-[#c7c7cc] mb-3" />
-          <p className="font-bold text-sm text-[#1c1c1e]">Nenhum contato neste filtro</p>
-          <p className="text-xs text-[#8e8e93] mt-2 leading-relaxed max-w-xs mx-auto">
-            Quando a marca distribuir prospects ou quando alguém entrar pelos seus links, eles aparecem aqui até virarem cliente.
-          </p>
+          {niches.slice(0, 20).map((n) => {
+            const on = Boolean(niche) && stripAccents(niche) === stripAccents(n)
+            const count = phasePool.filter((i) => nicheMatches({
+              niche: i.niche,
+              search_query: (i as any).search_query,
+              place_type: (i as any).place_type,
+              vertical: (i as any).vertical,
+            }, n)).length
+            if (count === 0) return null
+            return (
+              <button
+                key={n}
+                type="button"
+                onClick={() => setNiche(on ? '' : n)}
+                className={[
+                  'max-w-[150px] shrink-0 truncate min-h-8 rounded-full border px-2.5 text-[10px] font-bold',
+                  on
+                    ? 'border-orange-600 bg-orange-600 text-white'
+                    : 'border-neutral-200 bg-white text-neutral-700',
+                ].join(' ')}
+                title={`${n} (${count} nesta fase)`}
+              >
+                {n}
+                {count > 0 ? ` · ${count}` : ''}
+              </button>
+            )
+          })}
         </div>
-      ) : (
-        <ul className="space-y-2.5">
-          {items.map((item) => {
-            const expanded = expandedId === item.id
-            const busy = savingId === item.ref_id
-            const temp = TEMP_STYLE[item.temperature]
-            const link = waLink(item.phone, `Olá ${item.name}, tudo bem? Posso te ajudar?`)
-            const TypeIcon = item.pipeline_type === 'lead' ? Flame : item.pipeline_type === 'prospect' ? Briefcase : Users
+      )}
+
+      {(fromCache || pendingSync > 0) && (
+        <div className="flex items-center justify-between gap-2 rounded-xl border border-sky-100 bg-sky-50 px-3 py-2 text-[11px] text-sky-950">
+          <span>
+            {pendingSync > 0
+              ? `${pendingSync} atualização${pendingSync > 1 ? 'ões' : ''} aguardando sincronizar`
+              : 'Mostrando lista salva no aparelho'}
+          </span>
+          <button
+            type="button"
+            onClick={() => void load({ silent: true, withClosed: true })}
+            className="font-bold underline-offset-2 hover:underline shrink-0"
+          >
+            Atualizar
+          </button>
+        </div>
+      )}
+
+      {/* Banner: filtros escondem contatos da fase */}
+      {hiddenByFilter > 0 && filtered.length > 0 && (
+        <div className="flex items-center justify-between gap-2 rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-[11px] text-amber-950">
+          <span>
+            <strong>{hiddenByFilter}</strong> oculto{hiddenByFilter > 1 ? 's' : ''} por filtro nesta fase
+          </span>
+          <button type="button" onClick={clearFilters} className="font-bold underline-offset-2 hover:underline">
+            Limpar
+          </button>
+        </div>
+      )}
+
+      {loadError && openItems.length === 0 && (
+        <div className="rounded-2xl border border-red-100 bg-red-50 p-5 text-center">
+          <p className="text-sm font-semibold text-red-900">Não foi possível carregar</p>
+          <p className="mt-1 text-xs text-red-800/80 leading-relaxed">{loadError}</p>
+          <button
+            type="button"
+            onClick={() => void load({ withClosed: true })}
+            className="mt-3 min-h-10 rounded-xl bg-neutral-900 px-4 text-xs font-bold text-white"
+          >
+            Tentar de novo
+          </button>
+        </div>
+      )}
+
+      {filtered.length === 0 && !loadError ? (
+        <div className="rounded-2xl border border-neutral-200 bg-white px-5 py-8 text-center">
+          {phasePool.length > 0 && activeFilterCount > 0 ? (
+            <>
+              <Filter size={24} className="mx-auto text-neutral-300 mb-3" />
+              <p className="text-sm font-semibold text-neutral-900">
+                {phasePool.length} na {PHASES.find((p) => p.key === phase)?.label || 'fase'}, nenhum com estes filtros
+              </p>
+              <p className="mt-1.5 text-xs leading-relaxed text-neutral-500 max-w-[16rem] mx-auto">
+                Os filtros de canal, nicho ou busca estão escondendo a lista. Limpe para ver a fila completa.
+              </p>
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="mt-4 min-h-11 rounded-xl bg-neutral-900 px-5 text-xs font-bold text-white"
+              >
+                Limpar filtros e mostrar {phasePool.length}
+              </button>
+            </>
+          ) : phase === 'inbox' ? (
+            <>
+              <Inbox size={24} className="mx-auto text-neutral-300 mb-3" />
+              <p className="text-sm font-semibold text-neutral-900">Fila vazia</p>
+              <p className="mt-1.5 text-xs leading-relaxed text-neutral-500 max-w-[16rem] mx-auto">
+                Assuma contatos em <strong>Disponíveis</strong> ou confira as outras fases.
+              </p>
+            </>
+          ) : (
+            <>
+              <Sparkles size={24} className="mx-auto text-neutral-300 mb-3" />
+              <p className="text-sm font-semibold text-neutral-900">Nada nesta fase</p>
+              <p className="mt-1.5 text-xs leading-relaxed text-neutral-500 max-w-[16rem] mx-auto">
+                {phase === 'closed'
+                  ? 'Nenhum excluído — recusas e saídas da fila aparecem aqui.'
+                  : 'Avance contatos da Fila para preencher esta etapa.'}
+              </p>
+            </>
+          )}
+        </div>
+      ) : filtered.length > 0 ? (
+        <ul className="overflow-hidden rounded-2xl border border-neutral-200/90 bg-white divide-y divide-neutral-100">
+          {filtered.map((item) => {
+            const op = phaseOf(item)
+            const meta = PHASE_META[op] || PHASE_META.to_contact
+            const phone = item.channels?.whatsapp || item.phone
+            const hasWa = item.has_whatsapp ?? String(phone || '').replace(/\D/g, '').length >= 8
+            const hasEmail = !!(item.channels?.email || item.email)
+            const hasIg = !!(item.channels?.instagram || item.instagram)
+            const fu = followupLabel(item)
+            const place = [item.city, item.region].filter(Boolean).join(' · ')
 
             return (
-              <li key={item.id} className="affiliate-card overflow-hidden">
+              <li key={item.id}>
                 <button
                   type="button"
-                  className="w-full text-left p-4 flex items-start gap-3 active:bg-black/[0.02]"
-                  onClick={() => setExpandedId(expanded ? null : item.id)}
+                  onClick={() => onOpenWorkspace?.(item)}
+                  className="flex min-h-[72px] w-full items-center gap-3 px-3.5 py-3 text-left transition active:bg-neutral-50"
                 >
-                  <div className="w-9 h-9 rounded-xl grid place-items-center shrink-0 mt-0.5" style={{ backgroundColor: `${ctx.primary}10` }}>
-                    <TypeIcon size={16} style={{ color: ctx.primary }} />
+                  <div
+                    className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-neutral-100 text-[13px] font-bold text-neutral-700"
+                    aria-hidden
+                  >
+                    {initials(item.name)}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-start justify-between gap-2">
-                      <p className="font-bold text-sm text-[#1c1c1e] truncate">{item.name}</p>
-                      <span className="text-[10px] font-bold uppercase tracking-wide shrink-0 px-2 py-0.5 rounded-full" style={{ backgroundColor: temp.bg, color: temp.color }}>
-                        {PIPELINE_LABEL[item.pipeline_type]}
-                      </span>
-                    </div>
-                    <p className="text-xs text-[#636366] mt-0.5">
-                      {item.source_label}
-                      {item.product_name ? ` · ${item.product_name}` : ''}
-                      {item.city ? ` · ${item.city}` : ''}
-                    </p>
-                    <p className="text-[11px] text-[#8e8e93] mt-1">
-                      {item.commercial_status}
-                      {item.followup_due ? ' · follow-up vencido' : ''}
-                    </p>
-                  </div>
-                  <ChevronDown size={16} className={`text-[#c7c7cc] shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`} />
-                </button>
-
-                {expanded && (
-                  <div className="px-4 pb-4 pt-0 border-t border-black/[0.04] space-y-3">
-                    <div className="pt-3 grid grid-cols-2 gap-2 text-[11px]">
-                      <div className="bg-[#f9f9fb] rounded-xl p-2.5">
-                        <p className="text-[#8e8e93] font-semibold uppercase text-[9px]">Temperatura</p>
-                        <p className="font-bold text-[#1c1c1e] mt-0.5">{temp.label}</p>
-                      </div>
-                      <div className="bg-[#f9f9fb] rounded-xl p-2.5">
-                        <p className="text-[#8e8e93] font-semibold uppercase text-[9px]">Próxima ação</p>
-                        <p className="font-bold text-[#1c1c1e] mt-0.5 leading-snug">{item.next_action || 'Acompanhar'}</p>
-                      </div>
-                    </div>
-
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-2xl px-4 text-xs font-bold text-white active:scale-[.98]"
-                        style={{ backgroundColor: ctx.primary }}
-                        onClick={() => setSelected(item)}
-                      >
-                        <MessageCircle size={14} /> Enviar WhatsApp
-                      </button>
-                      {item.phone && (
-                        <>
-                          <button
-                            type="button"
-                            className="affiliate-hub__channel-pill affiliate-hub__channel-pill--on text-[11px]"
-                            style={{ backgroundColor: '#dcfce7', color: '#15803d' }}
-                            onClick={() => link && window.open(link, '_blank', 'noopener')}
-                          >
-                            <MessageCircle size={12} className="inline mr-1" />
-                            WhatsApp
-                          </button>
-                          <button type="button" className="affiliate-hub__channel-pill text-[11px]" onClick={() => copyPhone(item.phone)}>
-                            <Copy size={12} className="inline mr-1" />
-                            Copiar tel.
-                          </button>
-                        </>
-                      )}
-                      {!item.phone && (
-                        <span className="text-[11px] text-[#8e8e93] flex items-center gap-1">
-                          <Phone size={12} /> Sem telefone
+                    <div className="flex items-center gap-2">
+                      <p className="truncate text-[14px] font-semibold tracking-tight text-neutral-900">
+                        {item.name}
+                      </p>
+                      {fu && (
+                        <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-red-50 px-1.5 py-0.5 text-[9px] font-bold text-red-700">
+                          <Clock3 size={10} />
+                          {fu.includes('atras') ? 'Atrasado' : 'Lembrete'}
                         </span>
                       )}
                     </div>
-
-                    {item.message && (
-                      <p className="text-xs text-[#636366] bg-[#f9f9fb] rounded-xl p-3 leading-relaxed whitespace-pre-wrap">{item.message}</p>
-                    )}
-
-                    <p className="text-[10px] text-[#8e8e93]">
-                      Recebido {dt(item.received_at)}
-                      {item.last_interaction_at ? ` · última interação ${dt(item.last_interaction_at)}` : ''}
+                    <p className="mt-0.5 truncate text-[11px] text-neutral-500">
+                      {[item.niche, place].filter(Boolean).join(' · ')
+                        || item.next_action
+                        || 'Continuar atendimento'}
                     </p>
-
-                    <div className="flex flex-wrap gap-2">
-                      {item.ref_type === 'affiliate_lead' && (
-                        <>
-                          <button type="button" disabled={busy} className="text-[11px] font-bold px-3 py-2 rounded-lg border border-[#e5e5ea] active:opacity-70" onClick={() => updateLeadStatus(item.ref_id, 'contacted')}>
-                            Marcar contatado
-                          </button>
-                          <button type="button" disabled={busy} className="text-[11px] font-bold px-3 py-2 rounded-lg border border-[#e5e5ea] active:opacity-70" onClick={() => updateLeadStatus(item.ref_id, 'negotiating')}>
-                            Lead quente
-                          </button>
-                          <button type="button" disabled={busy} className="text-[11px] font-bold px-3 py-2 rounded-lg active:opacity-70" style={{ color: '#059669' }} onClick={() => updateLeadStatus(item.ref_id, 'converted')}>
-                            <UserPlus size={12} className="inline mr-1" />
-                            Converter em cliente
-                          </button>
-                        </>
-                      )}
-                      {item.ref_type === 'assignment' && (
-                        <button type="button" disabled={busy} className="text-[11px] font-bold px-3 py-2 rounded-lg active:opacity-70" style={{ color: '#059669' }} onClick={() => convertAssignment(item.ref_id)}>
-                          {busy ? <Loader2 size={12} className="inline animate-spin mr-1" /> : <UserPlus size={12} className="inline mr-1" />}
-                          Converter em cliente
-                        </button>
-                      )}
+                    <div className="mt-1.5 flex items-center gap-2">
+                      <span
+                        className={[
+                          'rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide',
+                          meta.bg,
+                          meta.color,
+                        ].join(' ')}
+                      >
+                        {meta.label}
+                      </span>
+                      <span className="flex items-center gap-1 text-neutral-400">
+                        {hasWa && <WhatsAppIcon size={12} className="text-emerald-600" />}
+                        {hasIg && <InstagramIcon size={12} />}
+                        {hasEmail && <Mail size={12} />}
+                      </span>
                     </div>
                   </div>
-                )}
+                  <ChevronRight size={18} className="shrink-0 text-neutral-300" />
+                </button>
               </li>
             )
           })}
         </ul>
+      ) : null}
+
+      {refreshing && (
+        <p className="flex items-center justify-center gap-1.5 py-1 text-center text-[11px] text-neutral-400">
+          <Loader2 size={12} className="animate-spin" /> Atualizando…
+        </p>
       )}
-      {selected && (() => {
-        const queue = items.filter((entry) => String(entry.phone || '').replace(/\D/g, '').length >= 8)
-        const initialIndex = Math.max(0, queue.findIndex((entry) => entry.id === selected.id))
-        const leads: WaSendLead[] = queue.map((entry) => ({
-          id: `${entry.ref_type}:${entry.ref_id}`,
-          name: entry.name,
-          trade_name: entry.name,
-          phone: entry.phone || undefined,
-          city: entry.city || undefined,
-          state: entry.region || undefined,
-          category: entry.niche || undefined,
-          niche: entry.niche || undefined,
-          product_name: entry.product_name || undefined,
-          brand_name: entry.brand_name || ctx.brand?.name || undefined,
-          status: entry.commercial_status,
-          notes: entry.message || entry.next_action || undefined,
-        }))
-        return (
-          <WhatsAppSendModal
-            leads={leads}
-            initialIndex={initialIndex}
-            initialBrandName={String(ctx.brand?.name || selected.brand_name || '')}
-            initialProductName={String(selected.product_name || ctx.program?.share_title || '')}
-            initialValueProposition={String(ctx.program?.share_description || ctx.brand?.slogan || '')}
-            onClose={() => setSelected(null)}
-            onAiPersonalize={async ({ lead, currentMessage, templateId }) => {
-              const [refType, refId] = String(lead.id || '').split(':')
-              const result = await affiliateApi.assistOpportunity(refType, refId, {
-                intent: templateId,
-                instruction: currentMessage.slice(0, 600),
-              })
-              return String(result.message || currentMessage)
-            }}
-            onSent={async (lead) => {
-              const [refType, refId] = String(lead.id || '').split(':')
-              try {
-                await affiliateApi.progressOpportunity(refType, refId, { action: 'sent' })
-                ctx.showToast('Contato marcado como contatado')
-                void load()
-              } catch (e) {
-                ctx.showToast(e instanceof Error ? e.message : 'Não foi possível atualizar o contato', 'err')
-              }
-            }}
-          />
-        )
-      })()}
-    </div>
-  )
-}
-
-type ManualStep = 'prepare' | 'review' | 'send' | 'progress'
-
-function ManualOpportunityModal({ item, ctx, onClose, onChanged }: {
-  item: Opportunity; ctx: AppContext; onClose: () => void; onChanged: () => void
-}) {
-  const [step, setStep] = useState<ManualStep>('prepare')
-  const [intent, setIntent] = useState(item.followup_due ? 'follow_up' : 'primeiro_contato')
-  const [instruction, setInstruction] = useState('')
-  const [message, setMessage] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [confirmOpen, setConfirmOpen] = useState(false)
-  const digits = String(item.phone || '').replace(/\D/g, '')
-  const phone = digits.startsWith('55') ? digits : `55${digits}`
-  const steps: Array<{ key: ManualStep; label: string }> = [
-    { key: 'prepare', label: 'Contexto' }, { key: 'review', label: 'Mensagem' },
-    { key: 'send', label: 'Envio' }, { key: 'progress', label: 'Progresso' },
-  ]
-
-  useEffect(() => {
-    const previous = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => { document.body.style.overflow = previous }
-  }, [])
-
-  async function generate() {
-    setLoading(true)
-    try {
-      const result = await affiliateApi.assistOpportunity(item.ref_type, item.ref_id, { intent, instruction })
-      setMessage(String(result.message || ''))
-      setStep('review')
-    } catch (e) {
-      ctx.showToast(e instanceof Error ? e.message : 'Não foi possível preparar a mensagem', 'err')
-    } finally { setLoading(false) }
-  }
-
-  function openWhatsApp() {
-    if (!digits || !message.trim()) return
-    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message.trim())}`, '_blank', 'noopener')
-    setConfirmOpen(false)
-    setStep('send')
-  }
-
-  async function progress(action: 'sent' | 'replied' | 'negotiating' | 'lost') {
-    setSaving(true)
-    try {
-      await affiliateApi.progressOpportunity(item.ref_type, item.ref_id, { action, message })
-      ctx.showToast(action === 'sent' ? 'Envio registrado. Follow-up programado.' : 'Etapa atualizada')
-      onChanged()
-    } catch (e) {
-      ctx.showToast(e instanceof Error ? e.message : 'Erro ao atualizar contato', 'err')
-    } finally { setSaving(false) }
-  }
-
-  const activeIndex = steps.findIndex((value) => value.key === step)
-  return (
-    <div className="fixed inset-0 z-[500] flex items-end justify-center bg-black/45 backdrop-blur-[2px] sm:items-center sm:p-5" role="dialog" aria-modal="true" aria-label={`Atendimento de ${item.name}`} onMouseDown={onClose}>
-      <div className="relative flex max-h-[96dvh] w-full flex-col overflow-hidden rounded-t-[24px] bg-white shadow-2xl sm:max-h-[88vh] sm:max-w-2xl sm:rounded-[24px]" onMouseDown={(e) => e.stopPropagation()}>
-        <div className="flex justify-center py-2 sm:hidden"><span className="h-1 w-10 rounded-full bg-neutral-300" /></div>
-        <header className="flex items-start gap-3 border-b border-neutral-200 px-4 pb-4 pt-2 sm:px-6 sm:pt-5">
-          <div className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-neutral-100"><Target size={18} /></div>
-          <div className="min-w-0 flex-1"><p className="truncate text-base font-bold tracking-[-.02em] text-neutral-950">{item.name}</p><p className="mt-1 truncate text-xs text-neutral-500">{item.niche || item.product_name || item.source_label}{item.city ? ` · ${item.city}` : ''}</p></div>
-          <button type="button" aria-label="Fechar" onClick={onClose} className="grid h-11 w-11 place-items-center rounded-2xl text-neutral-500 hover:bg-neutral-100"><X size={18}/></button>
-        </header>
-
-        <div className="border-b border-neutral-200 px-4 py-3 sm:px-6"><ol className="grid grid-cols-4 gap-1" aria-label="Etapas do atendimento">{steps.map((entry, index) => <li key={entry.key} className="min-w-0"><div className={`h-1 rounded-full ${index <= activeIndex ? 'bg-neutral-950' : 'bg-neutral-200'}`} /><p className={`mt-1.5 truncate text-[10px] font-semibold ${index === activeIndex ? 'text-neutral-950' : 'text-neutral-400'}`}>{index < activeIndex ? 'Concluído' : entry.label}</p></li>)}</ol></div>
-
-        <div className="flex-1 overflow-y-auto px-4 py-5 sm:px-6">
-          {step === 'prepare' && <div className="space-y-5">
-            <div><h3 className="text-lg font-bold tracking-[-.025em] text-neutral-950">Prepare a abordagem</h3><p className="mt-1 text-sm leading-relaxed text-neutral-600">A IA considera marca, nicho, origem e etapa atual. Você sempre revisa antes de abrir o WhatsApp.</p></div>
-            <div className="grid gap-2 sm:grid-cols-3">{[['primeiro_contato','Primeiro contato'],['follow_up','Follow-up'],['retomar_interesse','Retomar interesse']].map(([value,label]) => <button key={value} type="button" onClick={() => setIntent(value)} className={`min-h-11 rounded-2xl border px-3 text-xs font-bold ${intent === value ? 'border-neutral-950 bg-neutral-950 text-white' : 'border-neutral-200 bg-white text-neutral-700'}`}>{label}</button>)}</div>
-            <label className="block"><span className="mb-2 block text-xs font-semibold text-neutral-700">Orientação opcional para a IA</span><textarea value={instruction} onChange={(e) => setInstruction(e.target.value)} rows={4} maxLength={600} placeholder="Ex.: seja direto, mencione a entrega em BH e não fale de preço ainda." className="w-full resize-none rounded-[18px] border border-neutral-200 p-3.5 text-sm outline-none focus:border-neutral-950 focus:ring-4 focus:ring-neutral-950/5" /></label>
-            <button type="button" disabled={loading || !digits} onClick={generate} className="flex min-h-11 w-full items-center justify-center gap-2 rounded-[18px] bg-neutral-950 px-4 text-sm font-bold text-white disabled:opacity-45">{loading ? <Loader2 size={16} className="animate-spin"/> : <Sparkles size={16}/>} {loading ? 'Raciocinando…' : 'Preparar mensagem com IA'}</button>
-            {!digits && <p className="text-center text-xs font-medium text-red-600">Este contato não possui um WhatsApp válido.</p>}
-          </div>}
-
-          {step === 'review' && <div className="space-y-4">
-            <div><h3 className="text-lg font-bold text-neutral-950">Revise antes de enviar</h3><p className="mt-1 text-sm text-neutral-600">Edite livremente. A IA sugere; a decisão e o tom final são seus.</p></div>
-            <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={9} className="w-full resize-none rounded-[18px] border border-neutral-200 p-4 text-sm leading-relaxed outline-none focus:border-neutral-950 focus:ring-4 focus:ring-neutral-950/5" />
-            <div className="flex gap-2"><button type="button" onClick={generate} disabled={loading} className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-[18px] bg-neutral-100 px-3 text-xs font-bold text-neutral-800"><Sparkles size={14}/> Gerar outra</button><button type="button" onClick={() => setStep('prepare')} className="grid h-11 w-11 place-items-center rounded-[18px] bg-neutral-100" aria-label="Editar contexto"><PencilLine size={15}/></button></div>
-            <button type="button" disabled={!message.trim()} onClick={() => setConfirmOpen(true)} className="flex min-h-11 w-full items-center justify-center gap-2 rounded-[18px] bg-neutral-950 px-4 text-sm font-bold text-white disabled:opacity-45"><Send size={16}/> Continuar para o WhatsApp</button>
-          </div>}
-
-          {step === 'send' && <div className="space-y-5 text-center"><div className="mx-auto grid h-14 w-14 place-items-center rounded-[20px] bg-emerald-50 text-emerald-700"><MessageCircle size={24}/></div><div><h3 className="text-lg font-bold text-neutral-950">A mensagem foi aberta no WhatsApp</h3><p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-neutral-600">Confirme somente depois de tocar em enviar no WhatsApp. Assim o histórico e o próximo follow-up ficam corretos.</p></div><button type="button" disabled={saving} onClick={() => progress('sent')} className="flex min-h-11 w-full items-center justify-center gap-2 rounded-[18px] bg-neutral-950 px-4 text-sm font-bold text-white">{saving ? <Loader2 size={16} className="animate-spin"/> : <Check size={16}/>} Já enviei a mensagem</button><button type="button" onClick={() => setStep('review')} className="min-h-11 w-full rounded-[18px] bg-neutral-100 px-4 text-sm font-bold text-neutral-700">Voltar e editar</button></div>}
-
-          {step === 'progress' && <div className="space-y-4"><div><h3 className="text-lg font-bold text-neutral-950">Atualize a progressão</h3><p className="mt-1 text-sm text-neutral-600">Registre o que realmente aconteceu para manter a fila priorizada.</p></div>{[['replied','Respondeu','Mover para conversa ativa'],['negotiating','Em negociação','Há interesse, proposta ou pedido em construção'],['lost','Sem interesse','Encerrar esta oportunidade']].map(([action,title,desc]) => <button key={action} type="button" disabled={saving} onClick={() => progress(action as 'replied'|'negotiating'|'lost')} className="flex min-h-[64px] w-full items-center gap-3 rounded-[18px] border border-neutral-200 p-3 text-left hover:bg-neutral-50"><span className="grid h-10 w-10 place-items-center rounded-2xl bg-neutral-100"><ArrowRight size={16}/></span><span className="min-w-0"><strong className="block text-sm text-neutral-950">{title}</strong><span className="mt-0.5 block text-xs text-neutral-500">{desc}</span></span></button>)}</div>}
-        </div>
-
-        {step !== 'prepare' && step !== 'progress' && <footer className="border-t border-neutral-200 px-4 py-3 sm:px-6"><button type="button" onClick={() => setStep('progress')} className="min-h-11 w-full rounded-[18px] text-xs font-bold text-neutral-600 hover:bg-neutral-100">Atualizar etapa sem enviar mensagem</button></footer>}
-        {confirmOpen && <div className="absolute inset-0 z-10 flex items-end bg-black/35 p-3 sm:items-center sm:justify-center" onMouseDown={() => setConfirmOpen(false)}><div className="w-full rounded-[22px] bg-white p-5 shadow-2xl sm:max-w-sm" onMouseDown={(e) => e.stopPropagation()}><h4 className="text-base font-bold text-neutral-950">Abrir conversa no WhatsApp?</h4><p className="mt-2 text-sm leading-relaxed text-neutral-600">A mensagem será apenas preenchida. Revise no WhatsApp e toque em enviar por conta própria.</p><div className="mt-5 grid grid-cols-2 gap-2"><button type="button" onClick={() => setConfirmOpen(false)} className="min-h-11 rounded-[18px] bg-neutral-100 text-sm font-bold text-neutral-700">Cancelar</button><button type="button" onClick={openWhatsApp} className="min-h-11 rounded-[18px] bg-neutral-950 text-sm font-bold text-white">Abrir WhatsApp</button></div></div></div>}
-      </div>
     </div>
   )
 }

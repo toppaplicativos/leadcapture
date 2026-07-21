@@ -194,7 +194,7 @@ export function InstagramAiTab({ profile, conversationsCount }: Props) {
           Gerenciar automações de resposta
         </a>
         <span className="text-[11px] text-gray-500 max-w-md">
-          Persona e FAQ alimentam respostas com IA. Ligar/desligar DM ou comentário é no toggle de cada automação (não aqui).
+          Persona e FAQ alimentam o texto. Quem manda (ou não) resposta no DM é só o toggle de cada automação em Automações — sem interruptor global.
         </span>
       </div>
 

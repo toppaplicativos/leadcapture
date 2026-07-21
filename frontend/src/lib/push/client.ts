@@ -55,6 +55,27 @@ export async function subscribeToPush(opts?: {
     return { ok: false, message: permission === 'denied' ? 'Permissão negada' : 'Permissão não concedida' }
   }
 
+  return ensurePushSubscription(opts)
+}
+
+function sameApplicationServerKey(a: ArrayBuffer | null, b: Uint8Array<ArrayBuffer>): boolean {
+  if (!a) return false
+  const left = new Uint8Array(a)
+  if (left.length !== b.length) return false
+  return left.every((value, index) => value === b[index])
+}
+
+/**
+ * Repara e reafirma a assinatura no servidor sem abrir novamente o prompt.
+ * Deve rodar no boot/foco quando a permissão já foi concedida.
+ */
+export async function ensurePushSubscription(opts?: {
+  appContext?: PushAppContext
+  organizationId?: string | null
+}): Promise<{ ok: boolean; message?: string; repaired?: boolean }> {
+  if (!pushSupported()) return { ok: false, message: 'Push não suportado neste navegador' }
+  if (Notification.permission !== 'granted') return { ok: false, message: 'Permissão ainda não concedida' }
+
   const reg = await navigator.serviceWorker.ready
   const vapidRes = await pushApi.getVapidKey()
   const publicKey = String(vapidRes?.publicKey || '').trim()
@@ -67,10 +88,17 @@ export async function subscribeToPush(opts?: {
   } catch (err: any) {
     return { ok: false, message: err?.message || 'Chave VAPID inválida' }
   }
-  const sub = await reg.pushManager.subscribe({
-    userVisibleOnly: true,
-    applicationServerKey,
-  })
+  let sub = await reg.pushManager.getSubscription()
+  let repaired = false
+  if (sub && !sameApplicationServerKey(sub.options.applicationServerKey, applicationServerKey)) {
+    await sub.unsubscribe().catch(() => undefined)
+    sub = null
+    repaired = true
+  }
+  if (!sub) {
+    sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey })
+    repaired = true
+  }
 
   const json = sub.toJSON()
   await pushApi.subscribe({
@@ -88,7 +116,7 @@ export async function subscribeToPush(opts?: {
     },
   })
 
-  return { ok: true }
+  return { ok: true, repaired }
 }
 
 export async function unsubscribeFromPush(): Promise<void> {

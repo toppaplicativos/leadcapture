@@ -13,7 +13,7 @@ export function MobTrackPage() {
   const [loading, setLoading] = useState(!!token)
 
   useEffect(() => {
-    document.title = 'Acompanhar entrega · Lead Capture Mob'
+    document.title = 'Acompanhar corrida · Lead Capture Mob'
   }, [])
 
   useEffect(() => {
@@ -40,7 +40,7 @@ export function MobTrackPage() {
     return (
       <div className="min-h-dvh bg-[var(--ds-canvas)] flex items-center justify-center px-5">
         <div className="w-full max-w-sm bg-white rounded-2xl border border-border p-6 shadow-card">
-          <h1 className="text-lg font-bold text-gray-900">Acompanhar entrega</h1>
+          <h1 className="text-lg font-bold text-gray-900">Acompanhar corrida</h1>
           <p className="text-sm text-gray-500 mt-1 mb-4">Cole o código do link que você recebeu.</p>
           <input
             className="w-full h-11 px-3 rounded-xl border border-border text-sm"
@@ -93,7 +93,7 @@ export function MobTrackPage() {
           <div className="min-w-0">
             <p className="text-sm font-bold text-gray-900 truncate">{org?.name}</p>
             <p className="text-xs text-gray-500">
-              {d?.order_id ? `Pedido ${String(d.order_id).slice(0, 8)}` : 'Entrega'}
+              {d?.order_id ? `Pedido ${String(d.order_id).slice(0, 8)}` : 'Corrida'}
             </p>
           </div>
         </div>

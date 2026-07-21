@@ -32,9 +32,6 @@ export function AffiliateLoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPw, setConfirmPw] = useState('')
-  const [phone, setPhone] = useState('')
-  const [region, setRegion] = useState('')
-  const [affiliateCode, setAffiliateCode] = useState('')
   const [showPw, setShowPw] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -148,9 +145,6 @@ export function AffiliateLoginPage() {
         email: email.trim(),
         password,
         brand: brandRef,
-        phone: phone.trim() || undefined,
-        region: region.trim() || undefined,
-        code: affiliateCode.trim() || undefined,
       })
       if (result.pending_approval) {
         setSuccess(result.message || 'Cadastro enviado! Aguarde aprovação da marca.')
@@ -192,42 +186,52 @@ export function AffiliateLoginPage() {
   const isLogin = mode === 'login'
 
   return (
-    <div className="min-h-screen bg-white flex flex-col">
-      <header className="px-6 py-5 flex items-center gap-3">
+    <div className={`relative min-h-screen overflow-x-hidden bg-white flex flex-col text-slate-950 sm:bg-[#f6eff8] ${isLogin ? 'justify-start sm:justify-center sm:py-5' : 'justify-start sm:py-5'}`}>
+      <div className="pointer-events-none absolute inset-0" aria-hidden="true">
+        <div className="absolute -top-64 left-1/2 h-[32rem] w-[32rem] -translate-x-1/2 rounded-full bg-[#7b2c91]/12 blur-3xl sm:h-[40rem] sm:w-[40rem]" />
+        <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-[#351044] via-[#7b2c91] to-[#d6a94c]" />
+      </div>
+      <header className="relative z-10 flex w-full flex-col items-center bg-[#f2e4f5] px-5 pb-8 pt-8 text-center sm:bg-transparent sm:pb-4 sm:pt-0">
         {brand?.logo_url ? (
-          <img src={brand.logo_url} alt="" className="w-9 h-9 rounded-xl object-cover" />
+          <div className="mb-2.5 grid h-[4.25rem] w-[4.25rem] place-items-center overflow-hidden rounded-[1.35rem] border border-white/80 bg-white/90 shadow-[0_12px_32px_rgba(66,20,82,0.11)] backdrop-blur">
+            <img src={brand.logo_url} alt={`Logomarca ${brand?.name || ''}`} className="h-[3.8rem] w-[3.8rem] scale-[1.35] object-contain" />
+          </div>
         ) : (
           <div
-            className="w-9 h-9 rounded-xl grid place-items-center text-white text-sm font-bold"
+            className="mb-2.5 grid h-[4.25rem] w-[4.25rem] place-items-center rounded-[1.35rem] text-lg font-bold text-white shadow-[0_12px_32px_rgba(66,20,82,0.14)]"
             style={{ background: `linear-gradient(135deg, ${primary}, ${brand?.secondary_color || '#22c55e'})` }}
           >
             {(brand?.name || 'A')[0].toUpperCase()}
           </div>
         )}
-        <div>
-          <p className="text-[15px] font-bold tracking-tight text-gray-900">{brand?.name}</p>
-          <p className="text-[11px] text-gray-500">Central do Afiliado</p>
+        <div className="text-center">
+          <p className="text-[19px] font-extrabold leading-none tracking-[-0.035em] text-slate-950">{brand?.name}</p>
+          <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.14em]" style={{ color: primary }}>Central do Afiliado</p>
         </div>
       </header>
 
-      <main className="flex-1 flex items-center justify-center px-6 pb-10">
-        <div className="w-full max-w-[360px]">
+      <main className="relative z-10 -mt-5 flex flex-1 items-start justify-center sm:mt-0 sm:flex-none sm:px-6">
+        <div className="min-h-[calc(100svh-10.5rem)] w-full max-w-none rounded-t-[1.75rem] border border-white/90 bg-white p-5 shadow-none sm:min-h-0 sm:max-w-[400px] sm:rounded-[1.75rem] sm:bg-white/95 sm:p-6 sm:shadow-[0_22px_65px_rgba(64,18,78,0.14)] sm:backdrop-blur-xl">
           {canRegister && (
-            <div className="flex gap-1 p-1 rounded-xl bg-gray-100 mb-8">
+            <div className="mb-7 flex gap-1 rounded-2xl bg-[#f3edf5] p-1.5" role="tablist" aria-label="Acesso à Central do Afiliado">
               <button
                 type="button"
+                role="tab"
+                aria-selected={isLogin}
                 onClick={() => switchMode('login')}
-                className={`flex-1 h-9 rounded-lg text-[13px] font-semibold transition ${
-                  isLogin ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                className={`min-h-10 flex-1 rounded-xl text-[13px] font-bold transition ${
+                  isLogin ? 'bg-white text-slate-950 shadow-[0_5px_18px_rgba(64,18,78,0.1)]' : 'text-slate-500 hover:text-slate-800'
                 }`}
               >
                 Entrar
               </button>
               <button
                 type="button"
+                role="tab"
+                aria-selected={!isLogin}
                 onClick={() => switchMode('register')}
-                className={`flex-1 h-9 rounded-lg text-[13px] font-semibold transition ${
-                  !isLogin ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                className={`min-h-10 flex-1 rounded-xl text-[13px] font-bold transition ${
+                  !isLogin ? 'bg-white text-slate-950 shadow-[0_5px_18px_rgba(64,18,78,0.1)]' : 'text-slate-500 hover:text-slate-800'
                 }`}
               >
                 Criar conta
@@ -235,15 +239,18 @@ export function AffiliateLoginPage() {
             </div>
           )}
 
-          <div className="mb-6">
-            <h1 className="text-[26px] font-semibold text-gray-900 tracking-tight leading-tight">
+          <div className="mb-5 text-center">
+            <p className="hidden">
+              Área exclusiva para parceiros
+            </p>
+            <h1 className="text-[26px] font-extrabold leading-tight tracking-[-0.04em] text-slate-950">
               {isLogin ? 'Entrar' : 'Criar conta'}
             </h1>
-            <p className="text-sm text-gray-500 mt-1.5">
+            <p className="hidden">
               {programRef
                 ? 'Depois de entrar, você será direcionado ao programa indicado.'
                 : isLogin
-                  ? 'Acesse sua central de afiliado.'
+                  ? 'Entre para acompanhar links, vendas, comissões e oportunidades.'
                   : 'Cadastre-se para divulgar produtos desta marca.'}
             </p>
           </div>
@@ -260,7 +267,7 @@ export function AffiliateLoginPage() {
           )}
 
           {isLogin ? (
-            <form onSubmit={handleLogin} className="space-y-4">
+            <form onSubmit={handleLogin} className="space-y-3.5">
               <Input
                 label="E-mail"
                 type="email"
@@ -299,12 +306,12 @@ export function AffiliateLoginPage() {
                 loading={loading}
                 disabled={!email.trim() || !password}
                 iconRight={!loading && <ArrowRight size={16} strokeWidth={2} />}
-                className="mt-2"
+                className="mt-2 min-h-12 rounded-xl font-bold shadow-[0_12px_30px_rgba(84,28,103,0.18)]"
               >
                 {loading ? 'Entrando' : 'Entrar'}
               </Button>
               {canRegister && (
-                <p className="text-center text-xs text-gray-500">
+                <p className="hidden">
                   Novo por aqui?{' '}
                   <button type="button" onClick={() => switchMode('register')} className="font-bold" style={{ color: primary }}>
                     Criar conta
@@ -334,17 +341,6 @@ export function AffiliateLoginPage() {
                 iconLeft={<Mail size={16} strokeWidth={1.75} />}
               />
               <Input
-                label="Código de afiliado (opcional)"
-                type="text"
-                value={affiliateCode}
-                onChange={(e) => setAffiliateCode(e.target.value.replace(/[^a-zA-Z0-9_-]/g, ''))}
-                placeholder="joao10"
-              />
-              <div className="grid grid-cols-2 gap-3">
-                <Input label="Telefone" type="text" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="31999998888" />
-                <Input label="Região" type="text" value={region} onChange={(e) => setRegion(e.target.value)} placeholder="BH" />
-              </div>
-              <Input
                 label="Senha"
                 type={showPw ? 'text' : 'password'}
                 value={password}
@@ -362,11 +358,14 @@ export function AffiliateLoginPage() {
                 required
                 iconLeft={<Lock size={16} strokeWidth={1.75} />}
               />
-              <Button type="submit" size="lg" fullWidth loading={loading} className="mt-1">
+              <Button type="submit" size="lg" fullWidth loading={loading} className="mt-2 min-h-12 rounded-xl font-bold shadow-[0_12px_30px_rgba(84,28,103,0.18)]">
                 {loading ? 'Cadastrando' : 'Criar conta'}
               </Button>
             </form>
           )}
+          <p className="hidden">
+            Ambiente seguro e exclusivo para parceiros {brand?.name}.
+          </p>
         </div>
       </main>
     </div>

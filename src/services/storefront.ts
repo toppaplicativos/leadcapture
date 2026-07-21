@@ -219,6 +219,18 @@ export function defaultStoreSettings(): Record<string, any> {
         promo_ends_at: null,
         promo_label: "Oferta por tempo limitado",
       },
+      /** Card instalar app no catálogo — identidade da marca, não LeadCapture */
+      pwa_install: {
+        enabled: true,
+        title: "",
+        subtitle: "Peça e acompanhe na tela inicial — mais rápido, sem abrir o navegador.",
+        benefit_1: "Abre mais rápido que pelo navegador",
+        benefit_2: "Atalho fixo na tela inicial do celular",
+        benefit_3: "Receba avisos importantes do pedido",
+        benefit_4: "Experiência de app, com a cara da loja",
+        cta_label: "Instalar app",
+        dismiss_label: "Agora não",
+      },
       widgets: [],
       popups: [],
     },
@@ -338,6 +350,25 @@ export function sanitizePublicMarketingSettings(settings: Record<string, any> | 
       promo_ends_at: conv.promo_ends_at ? String(conv.promo_ends_at) : null,
       promo_label: String(conv.promo_label || "Oferta por tempo limitado").trim().slice(0, 80),
     },
+    pwa_install: (() => {
+      const p = marketing.pwa_install || {};
+      return {
+        enabled: p.enabled !== false,
+        title: String(p.title || "").trim().slice(0, 80),
+        subtitle: String(
+          p.subtitle ||
+            "Peça e acompanhe na tela inicial — mais rápido, sem abrir o navegador.",
+        )
+          .trim()
+          .slice(0, 180),
+        benefit_1: String(p.benefit_1 || "Abre mais rápido que pelo navegador").trim().slice(0, 90),
+        benefit_2: String(p.benefit_2 || "Atalho fixo na tela inicial do celular").trim().slice(0, 90),
+        benefit_3: String(p.benefit_3 || "Receba avisos importantes do pedido").trim().slice(0, 90),
+        benefit_4: String(p.benefit_4 || "Experiência de app, com a cara da loja").trim().slice(0, 90),
+        cta_label: String(p.cta_label || "Instalar app").trim().slice(0, 40),
+        dismiss_label: String(p.dismiss_label || "Agora não").trim().slice(0, 40),
+      };
+    })(),
   };
 }
 
@@ -400,6 +431,15 @@ function mergeStoreSettings(input: Record<string, any> | null | undefined): Reco
         ...base.marketing.announcement_bar,
         ...((next.marketing || {}).announcement_bar || {}),
       },
+      /** Preview do catálogo (afiliado → cliente) — separado do programa de afiliados */
+      catalog_share: {
+        ...((base.marketing as any)?.catalog_share || {}),
+        ...((next.marketing || {}).catalog_share || {}),
+      },
+      pwa_install: {
+        ...((base.marketing as any)?.pwa_install || {}),
+        ...((next.marketing || {}).pwa_install || {}),
+      },
       widgets: Array.isArray((next.marketing || {}).widgets) ? (next.marketing || {}).widgets : base.marketing.widgets,
       popups: Array.isArray((next.marketing || {}).popups) ? (next.marketing || {}).popups : base.marketing.popups,
     },
@@ -457,6 +497,14 @@ function mergeStoreSettingsWithPatch(
       announcement_bar: {
         ...((current.marketing || {}).announcement_bar || {}),
         ...((patch.marketing || {}).announcement_bar || {}),
+      },
+      catalog_share: {
+        ...((current.marketing || {}).catalog_share || {}),
+        ...((patch.marketing || {}).catalog_share || {}),
+      },
+      pwa_install: {
+        ...((current.marketing || {}).pwa_install || {}),
+        ...((patch.marketing || {}).pwa_install || {}),
       },
       widgets: patch.marketing?.widgets !== undefined
         ? (Array.isArray(patch.marketing.widgets) ? patch.marketing.widgets : [])
@@ -2653,25 +2701,29 @@ export class StorefrontService {
 
     if (!store) return null;
 
-    /* Throttle sync: max once per 5 min per store to avoid heavy queries on public reads */
+    /*
+     * Public catalog must never wait on product sync.
+     * Sync is heavy (full catalog + per-product writes). Run it in the background
+     * at most once every 5 minutes; serve whatever is already in storefront_products.
+     * Admin mutations already trigger explicit sync/invalidation.
+     */
     const syncKey = `sync_${store.id}`;
     const lastSync = StorefrontService._syncThrottle.get(syncKey) || 0;
     if (Date.now() - lastSync > 300_000) {
-      await this.synchronizeStoreBrandIdentity(store);
-      await this.synchronizeStoreProductsFromCatalog(store);
       StorefrontService._syncThrottle.set(syncKey, Date.now());
-    }
-
-    const refreshedStore = await queryOne<StoreRow>(
-      `SELECT s.*, d.domain AS primary_domain
-       FROM storefront_stores s
-       LEFT JOIN storefront_domains d ON d.store_id = s.id AND d.is_primary = TRUE
-       WHERE s.id = ?
-       LIMIT 1`,
-      [store.id]
-    );
-    if (refreshedStore) {
-      store = refreshedStore;
+      const storeSnapshot = { ...store };
+      void (async () => {
+        try {
+          await this.synchronizeStoreBrandIdentity(storeSnapshot);
+          await this.synchronizeStoreProductsFromCatalog(storeSnapshot);
+        } catch (err: any) {
+          logger.warn(
+            `[storefront] background public sync failed for ${storeSnapshot.id}: ${err?.message || err}`
+          );
+          /* Allow retry sooner after failure */
+          StorefrontService._syncThrottle.set(syncKey, Date.now() - 240_000);
+        }
+      })();
     }
 
     const [template, products, pages, domains] = await Promise.all([

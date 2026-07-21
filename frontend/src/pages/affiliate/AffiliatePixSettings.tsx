@@ -194,8 +194,8 @@ export function AffiliatePixSettings({ ctx, onConfigured }: Props) {
       <div className="affiliate-card affiliate-pay__notice">
         <ShieldCheck size={16} className="text-emerald-600 shrink-0 mt-0.5" />
         <p className="text-xs text-[#636366] leading-relaxed">
-          Sua chave fica vinculada ao perfil de afiliado e é usada automaticamente ao solicitar saques.
-          A marca processa o Pix manualmente dentro do prazo do programa.
+          Sua chave fica vinculada a este programa e é usada automaticamente ao solicitar saques.
+          A marca processa o Pix dentro do prazo informado acima.
         </p>
       </div>
     </div>

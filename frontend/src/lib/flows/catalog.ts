@@ -1,7 +1,7 @@
 import {
   Zap, Play, MessageSquare, Clock, GitBranch, Target, Mail,
   Phone, Tag, Star, Globe, Bell, Bot, Square, CheckCircle2,
-  UserRound, Pause, type LucideIcon,
+  UserRound, Pause, Package, Route, type LucideIcon,
 } from 'lucide-react'
 import { WhatsAppIcon } from '@/components/icons'
 
@@ -91,6 +91,7 @@ export const TRIGGER_CATALOG: CatalogItem[] = [
 
 export const MESSAGE_CATALOG: CatalogItem[] = [
   { type: 'action', subtype: 'send_message', label: 'Enviar mensagem', desc: 'Texto, mídia, botões e lista', icon: WhatsAppIcon, group: 'message' },
+  { type: 'action', subtype: 'product_offer', label: 'Oferecer produtos', desc: 'Apresenta itens reais do catálogo', icon: Package, group: 'message' },
   { type: 'action', subtype: 'ai_message', label: 'Mensagem com IA', desc: 'Texto controlado por instrução', icon: Bot, group: 'message' },
   { type: 'action', subtype: 'send_image', label: 'Enviar imagem', desc: 'URL ou legenda + imagem', icon: Mail, group: 'message' },
 ]
@@ -106,6 +107,7 @@ export const COLLECT_CATALOG: CatalogItem[] = [
 ]
 
 export const LOGIC_CATALOG: CatalogItem[] = [
+  { type: 'condition', subtype: 'phase_manager', label: 'Controlador de fase', desc: 'Avança, mantém ou volta na jornada', icon: Route, group: 'logic' },
   { type: 'condition', subtype: 'score_check', label: 'Score ≥ X', desc: 'Bifurca por pontuação', icon: Star, group: 'logic' },
   { type: 'condition', subtype: 'tag_check', label: 'Tem tag?', desc: 'Bifurca por tag', icon: Tag, group: 'logic' },
   { type: 'condition', subtype: 'status_check', label: 'Status = X', desc: 'Bifurca por status', icon: GitBranch, group: 'logic' },
@@ -272,7 +274,10 @@ export function defaultRestaurantOrderFlow() {
     { id: 'campaign-trigger', type: 'trigger', subtype: 'message_received', label: 'Quero saber mais', phaseId: 'interesse', data: { campaignSourceMode: 'campaign', campaignIds: [], campaignChoices: [], keywords: 'quero saber mais, saber mais, quero pedir, fazer pedido', phaseId: 'interesse' } },
     { id: 'welcome', type: 'action', subtype: 'send_message', label: 'Receber interesse', phaseId: 'interesse', data: { message: 'Ótimo! Vou te ajudar a montar seu pedido. Para sair a qualquer momento, responda PARAR.', wait_for_reply: false, phaseId: 'interesse' } },
     { id: 'name', type: 'collect', subtype: 'collect_name', label: 'Nome do cliente', phaseId: 'triagem', data: { prompt: 'Como posso te chamar?', variable_name: 'name', required: true, phaseId: 'triagem' } },
-    { id: 'product', type: 'collect', subtype: 'collect_text', label: 'Escolher produto', phaseId: 'pedido', data: { prompt: 'Qual item do nosso cardápio você deseja pedir?', variable_name: 'product', required: true, phaseId: 'pedido' } },
+    { id: 'interest', type: 'collect', subtype: 'collect_text', label: 'Entender o interesse', phaseId: 'oferta', data: { prompt: 'O que você está buscando hoje? Conte o tipo, uso ou preferência para eu separar as melhores opções.', variable_name: 'product_interest', required: true, phaseId: 'oferta' } },
+    { id: 'offer', type: 'action', subtype: 'product_offer', label: 'Recomendar produtos', phaseId: 'oferta', data: { intro_message: 'Perfeito, {{context.name}}! Estas opções combinam melhor com o que você procura:', product_ids: [], catalog_mode: 'smart', context_variable: 'product_interest', category_filters: [], tag_filters: [], fallback_mode: 'none', max_items: 3, show_price: true, show_stock: false, selection_variable: 'product', phaseId: 'oferta' } },
+    { id: 'product', type: 'collect', subtype: 'collect_text', label: 'Escolher produto', phaseId: 'oferta', data: { prompt: 'Responda com o número ou nome do produto que deseja.', variable_name: 'product', required: true, phaseId: 'oferta' } },
+    { id: 'offer-manager', type: 'condition', subtype: 'phase_manager', label: 'Validar avanço da oferta', phaseId: 'oferta', data: { decision_source: 'required_fields', required_fields: ['product'], current_phase: 'oferta', next_phase: 'pedido', back_phase: 'entendimento', max_stays: 3, phaseId: 'oferta' } },
     { id: 'quantity', type: 'collect', subtype: 'collect_number', label: 'Definir quantidade', phaseId: 'pedido', data: { prompt: 'Quantas unidades você deseja?', variable_name: 'quantity', required: true, min: 1, phaseId: 'pedido' } },
     { id: 'delivery', type: 'collect', subtype: 'collect_text', label: 'Dados de entrega', phaseId: 'entrega', data: { prompt: 'Informe endereço completo, número e referência para entrega.', variable_name: 'delivery_address', required: true, phaseId: 'entrega' } },
     { id: 'payment', type: 'wait', subtype: 'wait_button', label: 'Forma de pagamento', phaseId: 'pagamento', data: { prompt: 'Como prefere pagar?', variable_name: 'payment_method', options: [{ id: 'pix', label: 'Pix' }, { id: 'cartao', label: 'Cartão' }, { id: 'dinheiro', label: 'Dinheiro' }], phaseId: 'pagamento' } },
@@ -283,9 +288,16 @@ export function defaultRestaurantOrderFlow() {
     { id: 'end-success', type: 'end', subtype: 'order_created', label: 'Pedido confirmado', phaseId: 'conclusao', data: {} },
     { id: 'end-cancelled', type: 'end', subtype: 'cancelled', label: 'Encerrado sem pedido', phaseId: 'conclusao', data: {} },
   ]
-  const chain = ['campaign-trigger', 'welcome', 'name', 'product', 'quantity', 'delivery', 'payment', 'confirm']
+  const chain = ['campaign-trigger', 'welcome', 'name', 'interest', 'offer', 'product']
   const connections = chain.slice(0, -1).map((from, index) => ({ id: `order-c${index + 1}`, from, fromHandle: 'main', to: chain[index + 1] }))
   connections.push(
+    { id: 'order-product-manager', from: 'product', fromHandle: 'main', to: 'offer-manager' },
+    { id: 'order-manager-advance', from: 'offer-manager', fromHandle: 'advance', to: 'quantity' },
+    { id: 'order-manager-stay', from: 'offer-manager', fromHandle: 'stay', to: 'product' },
+    { id: 'order-manager-back', from: 'offer-manager', fromHandle: 'back', to: 'interest' },
+    { id: 'order-quantity-delivery', from: 'quantity', fromHandle: 'main', to: 'delivery' },
+    { id: 'order-delivery-payment', from: 'delivery', fromHandle: 'main', to: 'payment' },
+    { id: 'order-payment-confirm', from: 'payment', fromHandle: 'main', to: 'confirm' },
     { id: 'order-confirm-yes', from: 'confirm', fromHandle: 'yes', to: 'create-order' },
     { id: 'order-create-success', from: 'create-order', fromHandle: 'main', to: 'success' },
     { id: 'order-end-success', from: 'success', fromHandle: 'main', to: 'end-success' },
@@ -294,9 +306,9 @@ export function defaultRestaurantOrderFlow() {
   )
   const phases = [
     { id: 'interesse', name: 'Interesse', order: 1 }, { id: 'triagem', name: 'Triagem', order: 2 },
-    { id: 'pedido', name: 'Pedido', order: 3 }, { id: 'entrega', name: 'Entrega', order: 4 },
-    { id: 'pagamento', name: 'Pagamento', order: 5 }, { id: 'confirmacao', name: 'Confirmação', order: 6 },
-    { id: 'conclusao', name: 'Conclusão', order: 7 },
+    { id: 'oferta', name: 'Oferta', order: 3 }, { id: 'pedido', name: 'Pedido', order: 4 }, { id: 'entrega', name: 'Entrega', order: 5 },
+    { id: 'pagamento', name: 'Pagamento', order: 6 }, { id: 'confirmacao', name: 'Confirmação', order: 7 },
+    { id: 'conclusao', name: 'Conclusão', order: 8 },
   ]
   return { nodes, connections, phases }
 }

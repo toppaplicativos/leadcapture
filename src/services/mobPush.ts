@@ -55,10 +55,10 @@ export function notifyCourierAssigned(input: {
       userId,
       appContext: "mob",
       eventKey: "delivery_assigned",
-      title: "Entrega atribuída",
+      title: "Corrida atribuída",
       body: input.customerHint
         ? `${input.brandName || "Loja"} · ${input.customerHint}`
-        : `${input.brandName || "Loja"} · nova entrega para você`,
+        : `${input.brandName || "Loja"} · nova corrida para você`,
       priority: "high",
       url: `${MOB_BASE}/mob/app`,
       metadata: { delivery_id: input.deliveryId },
@@ -101,10 +101,10 @@ export function notifyCourierOffer(input: {
           userId,
           appContext: "mob",
           eventKey: "delivery_offered",
-          title: "Nova entrega disponível",
+          title: "Nova corrida disponível",
           body: input.brandName
-            ? `${input.brandName} liberou uma entrega${ttl}`
-            : `Há uma nova entrega na fila do Mob${ttl}`,
+            ? `${input.brandName} liberou uma corrida${ttl}`
+            : `Há uma nova corrida na fila do Mob${ttl}`,
           priority: "high",
           url: `${MOB_BASE}/mob/app`,
           metadata: {
@@ -193,6 +193,68 @@ export function notifyCourierMembership(input: {
   }, "membership");
 }
 
+export function notifyCourierCadastro(input: {
+  courierId: string;
+  action: "approved" | "rejected" | "request_changes";
+  notes?: string;
+}): void {
+  pushSafe(async () => {
+    const userId = await courierUserId(input.courierId);
+    if (!userId) return;
+    const push = getPushNotificationService();
+    const map = {
+      approved: {
+        title: "Cadastro aprovado",
+        body: "Seu perfil de entregador foi aprovado. Complete o veículo se ainda falta.",
+      },
+      rejected: {
+        title: "Cadastro recusado",
+        body: input.notes || "Seu cadastro foi recusado. Veja o motivo no app e reenvie.",
+      },
+      request_changes: {
+        title: "Correção solicitada no cadastro",
+        body: input.notes || "A loja pediu ajustes no seu perfil ou documentos.",
+      },
+    } as const;
+    const cfg = map[input.action];
+    await push.sendToUser({
+      userId,
+      appContext: "mob",
+      eventKey: `cadastro_${input.action}`,
+      title: cfg.title,
+      body: cfg.body,
+      priority: "high",
+      url: `${MOB_BASE}/mob/app`,
+    });
+  }, "cadastro");
+}
+
+export function notifyCourierVehicleReview(input: {
+  courierId: string;
+  action: "approved" | "rejected";
+  plate?: string | null;
+  reason?: string;
+}): void {
+  pushSafe(async () => {
+    const userId = await courierUserId(input.courierId);
+    if (!userId) return;
+    const push = getPushNotificationService();
+    const plate = input.plate ? ` (${input.plate})` : "";
+    await push.sendToUser({
+      userId,
+      appContext: "mob",
+      eventKey: `vehicle_${input.action}`,
+      title: input.action === "approved" ? "Veículo aprovado" : "Veículo recusado",
+      body:
+        input.action === "approved"
+          ? `Seu veículo${plate} foi aprovado e já pode ser usado nas corridas.`
+          : input.reason || `Seu veículo${plate} foi recusado. Reenvie os dados no app.`,
+      priority: "high",
+      url: `${MOB_BASE}/mob/app`,
+    });
+  }, "vehicle_review");
+}
+
 export function notifyCourierDeliveryCancelled(input: {
   courierId: string;
   deliveryId: string;
@@ -205,8 +267,8 @@ export function notifyCourierDeliveryCancelled(input: {
       userId,
       appContext: "mob",
       eventKey: "delivery_cancelled",
-      title: "Entrega cancelada",
-      body: "Uma entrega em andamento foi cancelada pela loja",
+      title: "Corrida cancelada",
+      body: "Uma corrida em andamento foi cancelada pela loja",
       priority: "high",
       url: `${MOB_BASE}/mob/app`,
       metadata: { delivery_id: input.deliveryId },

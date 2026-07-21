@@ -211,6 +211,20 @@ export const inventoryApi = {
       body: JSON.stringify({ order_id: orderId }),
     }),
 
+  updateExpeditionOrder: (orderId: string, body: Record<string, unknown>) =>
+    inventoryFetch<any>(`/api/inventory/expedition/orders/${orderId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+
+  mobCouriers: () => inventoryFetch<any>('/api/inventory/expedition/mob/couriers'),
+
+  sendExpeditionToMob: (orderId: string, courierId?: string) =>
+    inventoryFetch<any>(`/api/inventory/expedition/orders/${orderId}/mob`, {
+      method: 'POST',
+      body: JSON.stringify({ courier_id: courierId || undefined }),
+    }),
+
   alerts: () => inventoryFetch<any>('/api/inventory/alerts'),
 
   reports: (dateFrom?: string, dateTo?: string) => {

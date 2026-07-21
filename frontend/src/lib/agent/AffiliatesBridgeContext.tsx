@@ -5,6 +5,7 @@ import {
 /** `settings` é legado — redireciona para Programas (config fica dentro de cada programa). */
 export type AffiliatesTabKey =
   | 'overview'
+  | 'analytics'
   | 'distribution'
   | 'programs'
   | 'partners'

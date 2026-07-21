@@ -333,16 +333,88 @@ export class FlowExecutorService {
             }
           }
 
-          // Keyword filter opcional no trigger
+          // Keyword / AI-intent filter no trigger message_received
           if (triggerSubtype === "message_received") {
+            const matchMode = String(
+              trigger.data?.matchMode || trigger.data?.match_mode || "",
+            )
+              .trim()
+              .toLowerCase();
             const keywords = this.parseKeywords(trigger.data);
-            if (keywords.length > 0) {
+            const useAiIntent =
+              matchMode === "ai_intent" ||
+              matchMode === "intent" ||
+              matchMode === "context";
+
+            if (useAiIntent) {
+              const intents = Array.isArray(trigger.data?.intents)
+                ? trigger.data.intents
+                    .map((x: any) => String(x || "").trim().toLowerCase())
+                    .filter(Boolean)
+                : String(trigger.data?.intents || "")
+                    .split(/[,;\n]+/)
+                    .map((s) => s.trim().toLowerCase())
+                    .filter(Boolean);
+              const replyIntent = String(
+                triggerData.reply?.intent || triggerData.classification || "",
+              )
+                .trim()
+                .toLowerCase();
+              let hit =
+                intents.length === 0
+                  ? Boolean(replyIntent)
+                  : intents.some(
+                      (i: string) => replyIntent === i || replyIntent.includes(i),
+                    );
+
+              if (!hit) {
+                try {
+                  const { ResponseIntelligenceService } = await import(
+                    "./responseIntelligence"
+                  );
+                  const ri = new ResponseIntelligenceService();
+                  const msg = String(
+                    triggerData.message || triggerData.reply?.optionLabel || "",
+                  );
+                  const classif = await ri.classifyWithAI(msg, undefined, {
+                    userId,
+                    brandId: row.brand_id || brandId || undefined,
+                  } as any);
+                  const intent = String(classif.intent || "").toLowerCase();
+                  hit =
+                    intents.length === 0
+                      ? classif.confidence >= 0.55
+                      : intents.some(
+                          (i: string) =>
+                            intent === i || intent.includes(i) || i.includes(intent),
+                        );
+                  if (hit) {
+                    triggerData.reply = {
+                      ...(triggerData.reply || {}),
+                      intent,
+                      classification: intent,
+                      confidence: classif.confidence,
+                      kind: triggerData.reply?.kind || "ai_intent",
+                    };
+                    logger.info(
+                      `[FlowIntent] flow=${String(row.id).slice(0, 8)} intent=${intent} conf=${classif.confidence}`,
+                    );
+                  }
+                } catch (err: any) {
+                  logger.warn(`[FlowIntent] classify failed: ${err?.message || err}`);
+                  hit = false;
+                }
+              }
+              if (!hit) continue;
+            } else if (keywords.length > 0) {
               const searchable = [
                 triggerData.message,
                 triggerData.reply?.optionLabel,
                 triggerData.reply?.optionId,
                 triggerData.reply?.intent,
-              ].map((value) => String(value || "").toLowerCase()).join(" ");
+              ]
+                .map((value) => String(value || "").toLowerCase())
+                .join(" ");
               const hit = keywords.some((k) => searchable.includes(k.toLowerCase()));
               if (!hit) continue;
             }
@@ -675,7 +747,14 @@ export class FlowExecutorService {
 
       case "condition": {
         const out = this.evaluateCondition(node, ctx);
-        return { handle: out, output: { result: out === "yes", branch: out } };
+        return {
+          handle: out,
+          output: {
+            result: out === "yes" || out === "advance",
+            branch: out,
+            phase: ctx.execution.context.current_phase,
+          },
+        };
       }
 
       case "end":
@@ -768,9 +847,10 @@ export class FlowExecutorService {
         : { id: inbound.id, label: inbound.label, raw };
       ctx.execution.context[variableName] = value;
       ctx.execution.context.last_choice = value;
+      const tagAdded = await this.applyCollectedTag(node, value.label || value.id, ctx);
       return {
         handle: match.handle === "invalid" ? "main" : match.handle,
-        output: { valid: true, variable: variableName, value, interactive: inbound },
+        output: { valid: true, variable: variableName, value, interactive: inbound, tag_added: tagAdded },
       };
     }
 
@@ -810,20 +890,51 @@ export class FlowExecutorService {
     if (ctx.execution.system_vars?.customer && variableName === "email") {
       (ctx.execution.system_vars.customer as any).email = String(validation.value);
     }
+    const tagAdded = await this.applyCollectedTag(node, validation.value, ctx);
 
     // collect_confirm → yes/no branches
     if (String(fieldType).includes("confirm") || node.subtype === "collect_confirm") {
       const yes = validation.value === true || validation.value === "yes" || validation.value === "sim";
       return {
         handle: yes ? "yes" : "no",
-        output: { valid: true, variable: variableName, value: validation.value, branch: yes ? "yes" : "no" },
+        output: { valid: true, variable: variableName, value: validation.value, branch: yes ? "yes" : "no", tag_added: tagAdded },
       };
     }
 
     return {
       handle: "main",
-      output: { valid: true, variable: variableName, value: validation.value },
+      output: { valid: true, variable: variableName, value: validation.value, tag_added: tagAdded },
     };
+  }
+
+  private async applyCollectedTag(node: FNode, value: any, ctx: ExecContext): Promise<string | null> {
+    const mode = String(node.data?.tag_mode || "none");
+    if (mode === "none") return null;
+
+    const rawValue = typeof value === "object" && value
+      ? String(value.label || value.id || "")
+      : String(value ?? "");
+    const prefix = String(node.data?.tag_prefix || "").trim();
+    const source = mode === "answer"
+      ? `${prefix}${rawValue}`
+      : this.interpolate(String(node.data?.tag_value || ""), ctx);
+    const tag = source.trim().replace(/\s+/g, " ").slice(0, 80);
+    if (!tag) return null;
+
+    await this.addTag(ctx, tag);
+    const customer = ctx.execution.system_vars?.customer;
+    if (customer) {
+      const current = Array.isArray(customer.tags) ? customer.tags.map(String) : [];
+      if (!current.includes(tag)) current.push(tag);
+      customer.tags = current;
+    }
+    const contextTags = Array.isArray(ctx.execution.context.tags)
+      ? ctx.execution.context.tags.map(String)
+      : [];
+    if (!contextTags.includes(tag)) contextTags.push(tag);
+    ctx.execution.context.tags = contextTags;
+    ctx.execution.context.last_tag = tag;
+    return tag;
   }
 
   private validateCollectedValue(
@@ -1198,6 +1309,99 @@ export class FlowExecutorService {
         };
       }
 
+      case "product_offer": {
+        const selectedIds = Array.isArray(data.product_ids)
+          ? data.product_ids.map((id: any) => String(id))
+          : [];
+        const maxItems = Math.max(1, Math.min(6, Number(data.max_items || 3)));
+        const allProducts = await this.commerceService.listProducts(ctx.userId, ctx.brandId || null);
+        const catalogMode = String(data.catalog_mode || "selected");
+        const categoryFilters = (Array.isArray(data.category_filters) ? data.category_filters : []).map((item: any) => String(item).trim().toLowerCase()).filter(Boolean);
+        const tagFilters = (Array.isArray(data.tag_filters) ? data.tag_filters : []).map((item: any) => String(item).trim().toLowerCase()).filter(Boolean);
+        const normalize = (value: any) => String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+        const tokens = (value: any) => normalize(value).split(/[^a-z0-9]+/).filter((token) => token.length >= 2);
+        const available = allProducts.filter((product: any) =>
+          product.ativo !== false && product.active !== false && Number(product.estoque ?? product.stock_quantity ?? product.stock ?? 1) !== 0
+        );
+        const marked = available.filter((product: any) => {
+          const category = normalize(product.category_name || product.category || product.categoria);
+          const tags = Array.isArray(product.tags)
+            ? product.tags.map(normalize)
+            : tokens(product.tags || product.metadata?.tags);
+          const categoryOk = categoryFilters.length === 0 || categoryFilters.some((filter: string) => category.includes(normalize(filter)));
+          const tagOk = tagFilters.length === 0 || tagFilters.some((filter: string) => tags.some((tag: string) => tag.includes(normalize(filter))));
+          return categoryOk && tagOk;
+        });
+        let offered: any[] = [];
+        if (catalogMode === "selected") {
+          offered = available.filter((product: any) => selectedIds.includes(String(product.id)));
+        } else if (catalogMode === "filters") {
+          offered = marked;
+        } else {
+          const contextVariable = String(data.context_variable || "product_interest");
+          const interest = ctx.execution.context[contextVariable] ?? ctx.execution.context.product_interest ?? ctx.execution.context.need ?? "";
+          const interestTokens = tokens(interest);
+          offered = marked
+            .map((product: any) => {
+              const name = normalize(product.nome || product.name);
+              const category = normalize(product.category_name || product.category || product.categoria);
+              const description = normalize(product.descricao || product.description);
+              const productTags = normalize(Array.isArray(product.tags) ? product.tags.join(" ") : product.tags || product.metadata?.tags);
+              const score = interestTokens.reduce((total, token) => total +
+                (name.includes(token) ? 8 : 0) +
+                (productTags.includes(token) ? 6 : 0) +
+                (category.includes(token) ? 4 : 0) +
+                (description.includes(token) ? 2 : 0), 0);
+              return { product, score };
+            })
+            .filter((entry: any) => entry.score > 0)
+            .sort((a: any, b: any) => b.score - a.score)
+            .map((entry: any) => entry.product);
+        }
+        if (!offered.length && String(data.fallback_mode || "selected") === "selected") {
+          offered = available.filter((product: any) => selectedIds.includes(String(product.id)));
+        }
+        offered = offered.slice(0, maxItems);
+
+        if (!offered.length) {
+          throw new Error("Nenhum produto corresponde à intenção ou às marcações da oferta");
+        }
+
+        const intro = this.interpolate(String(data.intro_message || "Separei estas opções para você:"), ctx);
+        const lines = offered.map((product: any, index: number) => {
+          const name = String(product.nome || product.name || "Produto");
+          const price = Number(product.preco_promocional ?? product.sale_price ?? product.preco ?? product.price ?? 0);
+          const stock = Number(product.estoque ?? product.stock_quantity ?? product.stock ?? 0);
+          const details = [
+            data.show_price !== false && price > 0
+              ? price.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
+              : "",
+            data.show_stock === true ? `${Math.max(0, stock)} disponível(is)` : "",
+          ].filter(Boolean);
+          return `*${index + 1}. ${name}*${details.length ? ` — ${details.join(" · ")}` : ""}`;
+        });
+        const prompt = String(data.choice_prompt || "Responda com o número ou nome do produto que deseja.");
+        const message = [intro, "", ...lines, "", prompt].join("\n");
+        const sendResult = await this.sendWhatsApp(ctx, message, data);
+        const offerProducts = offered.map((product: any, index: number) => ({
+          option: index + 1,
+          id: String(product.id),
+          name: String(product.nome || product.name || "Produto"),
+          price: Number(product.preco_promocional ?? product.sale_price ?? product.preco ?? product.price ?? 0),
+        }));
+        ctx.execution.context.offer_products = offerProducts;
+        ctx.execution.context.offer_product_ids = offerProducts.map((product) => product.id);
+        return {
+          delivered: sendResult.sent,
+          destination: sendResult.destination,
+          transport: sendResult.transport,
+          products: offerProducts,
+          product_count: offerProducts.length,
+          strategy: catalogMode,
+          context_variable: String(data.context_variable || "product_interest"),
+        };
+      }
+
       case "create_order": {
         const phone = String(ctx.execution.system_vars?.customer?.phone || "").replace(/\D/g, "");
         let items: Array<{
@@ -1217,8 +1421,18 @@ export class FlowExecutorService {
           const queryText = String(ctx.execution.context.product || ctx.execution.context.product_query || "")
             .trim().toLowerCase();
           const products = await this.commerceService.listProducts(ctx.userId, ctx.brandId || null);
+          const offered = Array.isArray(ctx.execution.context.offer_products)
+            ? ctx.execution.context.offer_products
+            : [];
+          const numericChoice = Number(queryText);
+          const offeredMatch = offered.find((product: any) =>
+            (Number.isInteger(numericChoice) && Number(product.option) === numericChoice) ||
+            String(product.id).toLowerCase() === queryText ||
+            String(product.name || "").toLowerCase().includes(queryText)
+          );
           const selected = products.find((product: any) =>
-            String(product.id) === queryText || String(product.nome || "").toLowerCase().includes(queryText)
+            String(product.id) === String(offeredMatch?.id || queryText) ||
+            (!offeredMatch && String(product.nome || product.name || "").toLowerCase().includes(queryText))
           );
           if (selected) {
             items = [{
@@ -1311,6 +1525,62 @@ export class FlowExecutorService {
     const order = system.order || {};
 
     switch (subtype) {
+      case "phase_manager": {
+        const source = String(data.decision_source || "required_fields");
+        const counts = (ctx.execution.context.phase_manager_counts ||= {});
+        const history = (ctx.execution.context.phase_history ||= []);
+        const currentPhase = String(
+          data.current_phase || node.phaseId || ctx.execution.context.current_phase || ""
+        );
+        const maxStays = Math.max(1, Number(data.max_stays || 3));
+        let decision: "advance" | "stay" | "back" = "stay";
+
+        if (source === "required_fields") {
+          const fields = Array.isArray(data.required_fields)
+            ? data.required_fields.map(String).filter(Boolean)
+            : String(data.required_fields || "").split(",").map((item) => item.trim()).filter(Boolean);
+          const complete = fields.length > 0 && fields.every((field) => {
+            const value = ctx.execution.context[field];
+            return value !== undefined && value !== null && String(value).trim() !== "";
+          });
+          decision = complete ? "advance" : "stay";
+        } else if (source === "attempts") {
+          const attempts = Number(counts[node.id] || 0) + 1;
+          decision = attempts >= Math.max(1, Number(data.advance_after_attempts || 1))
+            ? "advance"
+            : "stay";
+        } else {
+          const variableName = String(data.variable_name || "phase_signal");
+          const value = String(ctx.execution.context[variableName] ?? "").trim().toLowerCase();
+          const advanceValue = String(data.advance_value || "sim").trim().toLowerCase();
+          const backValue = String(data.back_value || "voltar").trim().toLowerCase();
+          decision = value === advanceValue ? "advance" : value === backValue ? "back" : "stay";
+        }
+
+        if (decision === "stay") {
+          counts[node.id] = Number(counts[node.id] || 0) + 1;
+          if (counts[node.id] >= maxStays) decision = "back";
+        } else {
+          counts[node.id] = 0;
+        }
+
+        const targetPhase = decision === "advance"
+          ? String(data.next_phase || currentPhase)
+          : decision === "back"
+            ? String(data.back_phase || currentPhase)
+            : currentPhase;
+        ctx.execution.context.current_phase = targetPhase;
+        history.push({
+          node_id: node.id,
+          from: currentPhase,
+          to: targetPhase,
+          decision,
+          at: new Date().toISOString(),
+        });
+        if (history.length > 50) history.splice(0, history.length - 50);
+        return decision;
+      }
+
       case "score_check": {
         const score = Number(customer.lead_score ?? customer.score ?? 0);
         const threshold = Number(this.resolveValue(data.threshold, ctx) ?? 70);
@@ -1428,10 +1698,17 @@ export class FlowExecutorService {
           ),
           ctx
         );
+        // Mid-flow / session: prefer native buttons (auto still falls back to 1)2)3)
         const r = await this.instanceManager.sendButtonsByJid(ctx.instanceId, jid, {
           body: (bodyOnly || message || "Escolha:").split("\n")[0] || "Escolha:",
+          deliveryMode: data.deliveryMode === "native_only" ? "native_only" : "auto",
           buttons: options.slice(0, 3).map((o) => ({ id: o.id, text: o.label.slice(0, 20) })),
         });
+        if (r?.ok) {
+          logger.info(
+            `[FlowExecutor] buttons sent mode=${r.mode || "native"} phone=${phone.slice(-4)}`,
+          );
+        }
         return { sent: !!r?.ok, destination: phone, transport: r?.mode || "buttons" };
       }
       const sent = await this.instanceManager.sendMessage(ctx.instanceId, phone, message);

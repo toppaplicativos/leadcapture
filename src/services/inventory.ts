@@ -193,6 +193,10 @@ export class InventoryService {
     const available = Math.max(0, Number(inventory.stock_available) || 0);
     const minimum = Math.max(0, Number(inventory.stock_min) || 5);
     const status = available <= 0 ? "out_of_stock" : available <= minimum ? "low_stock" : "in_stock";
+    const previous = await queryOne<any>(
+      `SELECT name, stock_status FROM products WHERE id = ? LIMIT 1`,
+      [productId],
+    ).catch(() => null);
     await Promise.all([
       query(
         `UPDATE products SET stock_quantity = ?, stock_threshold_low = ?, stock_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
@@ -203,6 +207,18 @@ export class InventoryService {
         [available, productId]
       ).catch(() => undefined),
     ]);
+    if (previous?.stock_status !== status && (status === "low_stock" || status === "out_of_stock")) {
+      const { notifyStockManagers } = await import("./stockPush");
+      void notifyStockManagers({
+        ownerUserId: String(inventory.user_id),
+        brandId: inventory.brand_id,
+        eventKey: status,
+        title: status === "out_of_stock" ? "Produto sem estoque" : "Estoque baixo",
+        body: `${String(previous?.name || "Produto")} · ${available} unidade${available === 1 ? "" : "s"} disponível${available === 1 ? "" : "is"}`,
+        url: `/app-estoque?view=products&product_id=${encodeURIComponent(productId)}`,
+        metadata: { product_id: productId, stock_available: available, stock_min: minimum },
+      });
+    }
   }
 
   async syncProductQuantity(

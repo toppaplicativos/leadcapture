@@ -56,6 +56,7 @@ export function DashboardView({ showToast }: { showToast: (t: string, tp?: 'ok' 
         deliveredOrders: orderSummary ? Number(orderSummary.delivered_count || 0) : null,
         affiliatesTotal: affiliateSummary ? Number(affiliateSummary.affiliates_total || 0) : null,
         affiliatesActive: affiliateSummary ? Number(affiliateSummary.affiliates_active || 0) : null,
+        affiliateActivity: affiliateSummary?.activity || null,
       })
       setLoading(false)
     })
@@ -139,6 +140,42 @@ export function DashboardView({ showToast }: { showToast: (t: string, tp?: 'ok' 
           </div>
         ))}
       </div>
+
+      {data?.affiliateActivity && (
+        <section className="rounded-2xl border border-border-light bg-white overflow-hidden">
+          <div className="flex items-start justify-between gap-3 p-4 sm:p-5 border-b border-border-light">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">Rede de afiliados</p>
+              <h2 className="mt-1 text-[16px] font-semibold text-gray-900">Atividade de hoje</h2>
+              <p className="mt-1 text-[12px] text-gray-500">Contatos trabalhados e retornos registrados pela equipe.</p>
+            </div>
+            <button type="button" onClick={() => goOperational('/afiliados')} className="h-10 px-3 rounded-xl bg-gray-100 text-[12px] font-semibold text-gray-700 inline-flex items-center gap-1.5 shrink-0">
+              Ver detalhes <ArrowRight size={14} />
+            </button>
+          </div>
+          <div className="grid grid-cols-2 lg:grid-cols-4 divide-x divide-y lg:divide-y-0 divide-border-light">
+            {[
+              { label: 'Contatos enviados', value: data.affiliateActivity.today?.contacts_sent ?? 0, Icon: Send },
+              { label: 'Retornos', value: data.affiliateActivity.today?.replies ?? 0, Icon: MessageSquareQuote },
+              { label: 'Follow-ups', value: data.affiliateActivity.today?.followups ?? 0, Icon: Clock },
+              { label: 'Afiliados atuantes', value: data.affiliateActivity.today?.active_affiliates ?? 0, Icon: BadgeCheck },
+            ].map((item) => (
+              <div key={item.label} className="p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">{item.label}</span>
+                  <item.Icon size={14} className="text-gray-400" />
+                </div>
+                <p className="mt-2 text-[22px] font-bold tabular-nums text-gray-900">{num(item.value)}</p>
+              </div>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-4 py-3 bg-gray-50 border-t border-border-light text-[11px] text-gray-600">
+            <span><strong className="text-gray-900">{data.affiliateActivity.today?.response_rate ?? '—'}{data.affiliateActivity.today?.response_rate != null ? '%' : ''}</strong> de retorno hoje</span>
+            <span><strong className="text-gray-900">{num(data.affiliateActivity.last_7_days?.contacts_sent || 0)}</strong> contatos em 7 dias</span>
+            <span><strong className="text-gray-900">{num(data.affiliateActivity.today?.conversions || 0)}</strong> conversões hoje</span>
+          </div>
+        </section>
+      )}
 
       <section className="org-dashboard__analyses">
         <div className="org-dashboard__section-head"><div><h2>Análises guiadas</h2><p>Abra uma conversa já contextualizada com os dados da operação.</p></div><Bot size={18} /></div>

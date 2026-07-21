@@ -240,9 +240,9 @@ export function WhatsAppInstancesPanel({
               )}
             </button>
             <p className="wa-instances__hint">
-              ID gerado automaticamente (ex.: <strong>marca-WA-001</strong>).
-              A sessão só recebe contatos desta organização
-              {brandName ? ` (${brandName})` : ''} e fica vinculada ao seu perfil de afiliado.
+              ID em fila global da organização (ex.: <strong>marca-WA-001</strong>, <strong>002</strong>…).
+              Números não reiniciam por afiliado. A sessão fica vinculada a
+              {brandName ? ` ${brandName}` : ' esta organização'} e ao seu perfil.
             </p>
           </>
         ) : (

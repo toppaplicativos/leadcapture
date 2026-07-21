@@ -4,6 +4,8 @@ import { CommerceService } from "../services/commerce";
 import { InventoryService } from "../services/inventory";
 import { ClientsService } from "../services/clients";
 import { query, queryOne } from "../config/database";
+import { ensureMobDeliveryForOrder, getMobTrackingForOrder } from "../services/mobOrderBridge";
+import { mobLogisticsService } from "../services/mobLogistics";
 
 const router = Router();
 const commerceService = new CommerceService();
@@ -372,7 +374,32 @@ router.get("/inventory/expedition", async (req: AuthRequest, res: Response) => {
       limit: Number(req.query.limit) || 50,
     };
     const result = await inventoryService.listExpeditions(ctx.ownerUserId, ctx.brandId, filters);
-    res.json({ success: true, ...result });
+    const enriched = await Promise.all((result.items || []).map(async (entry: any) => {
+      const order = await queryOne<any>(
+        `SELECT o.customer_name, o.customer_phone, o.customer_email, o.valor_total AS total,
+                o.origem AS origin, o.created_at, m.notes AS delivery_address,
+                COALESCE(m.business_status, o.status_pedido) AS status_pedido,
+                m.payment_status, m.delivery_status
+         FROM commerce_orders o LEFT JOIN order_management_meta m ON m.order_id = o.id
+         WHERE o.id = ? AND o.user_id = ? AND o.brand_id = ? LIMIT 1`,
+        [entry.order_id, ctx.ownerUserId, ctx.brandId],
+      );
+      const orderItems = await query<any[]>(
+        `SELECT product_id, nome, quantidade, valor_unitario, valor_total
+         FROM commerce_order_items WHERE order_id = ? ORDER BY id ASC`,
+        [entry.order_id],
+      );
+      const tracking = await getMobTrackingForOrder(ctx.ownerUserId, ctx.brandId, String(entry.order_id)).catch(() => ({ tracking_url: null, delivery_id: null, status: null }));
+      return {
+        ...entry,
+        ...(order || {}),
+        items: (orderItems || []).map((item) => ({ product_id: item.product_id, name: item.nome, quantity: Number(item.quantidade || 0), unit_price: Number(item.valor_unitario || 0), total: Number(item.valor_total || 0) })),
+        tracking_url: tracking.tracking_url,
+        mob_delivery_id: tracking.delivery_id,
+        mob_status: tracking.status,
+      };
+    }));
+    res.json({ success: true, ...result, items: enriched });
   } catch (e: any) {
     res.status(500).json({ error: e.message || "Falha ao listar expedições" });
   }
@@ -395,8 +422,15 @@ router.get("/inventory/expedition/pending", async (req: AuthRequest, res: Respon
               o.customer_name,
               o.customer_phone,
               o.status_pedido,
+              o.origem,
+              EXISTS(SELECT 1 FROM affiliate_sales af WHERE af.order_id = o.id LIMIT 1) AS affiliate_order,
+              o.customer_email,
               o.valor_total AS total,
               o.created_at,
+              m.business_status,
+              m.payment_status,
+              m.delivery_status,
+              m.notes AS delivery_address,
               (SELECT COUNT(*) FROM commerce_order_items i WHERE i.order_id = o.id) AS items_count,
               EXISTS(
                 SELECT 1 FROM inventory_movements m
@@ -407,30 +441,161 @@ router.get("/inventory/expedition/pending", async (req: AuthRequest, res: Respon
                 LIMIT 1
               ) AS already_expedited
        FROM commerce_orders o
+       LEFT JOIN order_management_meta m ON m.order_id = o.id
        WHERE o.user_id = ?
          AND o.brand_id = ?
-         AND o.status_pedido = 'pago'
+         AND COALESCE(m.business_status, o.status_pedido) NOT IN ('entregue', 'cancelado')
        ORDER BY o.created_at DESC
        LIMIT ?`,
       [ctx.ownerUserId, brandId, limit]
     );
 
-    const pending = (rows || [])
+    const visible = (rows || [])
       .filter((r) => !Number(r.already_expedited))
-      .map((r) => ({
+    const orderIds = visible.map((r) => String(r.id))
+    const itemRows = orderIds.length
+      ? await query<any[]>(
+          `SELECT order_id, product_id, nome, quantidade, valor_unitario, valor_total
+           FROM commerce_order_items WHERE order_id IN (${orderIds.map(() => "?").join(",")})
+           ORDER BY id ASC`,
+          orderIds,
+        )
+      : []
+    const itemsByOrder = new Map<string, any[]>()
+    for (const item of itemRows || []) {
+      const list = itemsByOrder.get(String(item.order_id)) || []
+      list.push({
+        product_id: item.product_id || null,
+        name: item.nome || "Produto",
+        quantity: Number(item.quantidade || 0),
+        unit_price: Number(item.valor_unitario || 0),
+        total: Number(item.valor_total || 0),
+      })
+      itemsByOrder.set(String(item.order_id), list)
+    }
+
+    const pending = await Promise.all(visible.map(async (r) => {
+      const tracking = await getMobTrackingForOrder(ctx.ownerUserId, brandId, String(r.id)).catch(() => ({
+        tracking_url: null, delivery_id: null, status: null,
+      }))
+      return {
         id: String(r.id),
         customer_name: r.customer_name || null,
         customer_phone: r.customer_phone || null,
-        status_pedido: r.status_pedido || "pago",
+        customer_email: r.customer_email || null,
+        status_pedido: r.business_status || r.status_pedido || "novo",
+        payment_status: r.payment_status || (r.status_pedido === "pago" ? "paid" : "pending"),
+        delivery_status: r.delivery_status || "nao_iniciado",
+        delivery_address: r.delivery_address || null,
+        origin: Number(r.affiliate_order) ? "affiliate" : (r.origem || "site"),
         total: Number(r.total || 0),
         created_at: r.created_at,
         items_count: Number(r.items_count || 0),
+        items: itemsByOrder.get(String(r.id)) || [],
+        mob_delivery_id: tracking.delivery_id,
+        mob_status: tracking.status,
+        tracking_url: tracking.tracking_url,
         already_expedited: false,
-      }));
+      }
+    }));
 
     res.json({ success: true, orders: pending, total: pending.length });
   } catch (e: any) {
     res.status(500).json({ error: e.message || "Falha ao listar pedidos pendentes" });
+  }
+});
+
+router.patch("/inventory/expedition/orders/:orderId", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = requireStockCredential(req, res);
+    if (!ctx) return;
+    const orderId = String(req.params.orderId || "").trim();
+    const existing = await queryOne<any>(
+      `SELECT id FROM commerce_orders WHERE id = ? AND user_id = ? AND brand_id = ? LIMIT 1`,
+      [orderId, ctx.ownerUserId, ctx.brandId],
+    );
+    if (!existing) return res.status(404).json({ error: "Pedido não encontrado" });
+
+    const customerName = String(req.body?.customer_name || "").trim();
+    const customerPhone = String(req.body?.customer_phone || "").trim();
+    const customerEmail = String(req.body?.customer_email || "").trim();
+    const deliveryAddress = String(req.body?.delivery_address || "").trim();
+    await query(
+      `UPDATE commerce_orders SET customer_name = ?, customer_phone = ?, customer_email = ?, data_atualizacao = NOW()
+       WHERE id = ? AND user_id = ? AND brand_id = ?`,
+      [customerName || null, customerPhone || null, customerEmail || null, orderId, ctx.ownerUserId, ctx.brandId],
+    );
+    await query(
+      `UPDATE order_management_meta SET notes = ?, updated_at = NOW() WHERE order_id = ? AND user_id = ?`,
+      [deliveryAddress || null, orderId, ctx.ownerUserId],
+    );
+    await query(
+      `INSERT INTO order_management_timeline
+       (order_id, user_id, brand_id, status, event_key, actor_type, updated_by, payload_json)
+       VALUES (?, ?, ?, 'dados_atualizados', 'order.expedition_details_updated', 'admin', ?, ?)`,
+      [orderId, ctx.ownerUserId, ctx.brandId, ctx.managerUserId, JSON.stringify({ customerName, customerPhone, customerEmail, deliveryAddress })],
+    ).catch(() => undefined);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message || "Falha ao atualizar pedido" });
+  }
+});
+
+router.get("/inventory/expedition/mob/couriers", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = requireStockCredential(req, res);
+    if (!ctx) return;
+    const memberships = await mobLogisticsService.listMembershipsForOrg(ctx.ownerUserId, ctx.brandId);
+    res.json({ success: true, couriers: (memberships || []).filter((m: any) => m.status === "approved") });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Falha ao carregar entregadores" });
+  }
+});
+
+router.post("/inventory/expedition/orders/:orderId/mob", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = requireStockCredential(req, res);
+    if (!ctx) return;
+    const orderId = String(req.params.orderId || "").trim();
+    const order = await queryOne<any>(
+      `SELECT o.*, m.notes AS delivery_address, COALESCE(m.business_status, o.status_pedido) AS business_status
+       FROM commerce_orders o LEFT JOIN order_management_meta m ON m.order_id = o.id
+       WHERE o.id = ? AND o.user_id = ? AND o.brand_id = ? LIMIT 1`,
+      [orderId, ctx.ownerUserId, ctx.brandId],
+    );
+    if (!order) return res.status(404).json({ error: "Pedido não encontrado" });
+    if (!['pago', 'em_preparacao', 'em_entrega'].includes(String(order.business_status || ''))) {
+      return res.status(409).json({ error: "Confirme o pagamento antes de enviar a entrega ao MOB" });
+    }
+    const ensured = await ensureMobDeliveryForOrder({
+      ownerUserId: ctx.ownerUserId,
+      brandId: ctx.brandId,
+      orderId,
+      customerName: order.customer_name,
+      customerPhone: order.customer_phone,
+      customerEmail: order.customer_email,
+      productsTotal: Number(order.valor_total || 0),
+      paymentMethod: order.forma_pagamento,
+      deliveryAddress: order.delivery_address,
+      businessStatus: order.business_status,
+      forceCreate: true,
+    });
+    if (!ensured.delivery) return res.status(400).json({ error: "Não foi possível criar a entrega no MOB" });
+    const courierId = String(req.body?.courier_id || "").trim();
+    let delivery = ensured.delivery;
+    if (courierId) {
+      delivery = await mobLogisticsService.assignCourier({
+        deliveryId: delivery.id,
+        courierId,
+        ownerUserId: ctx.ownerUserId,
+        brandId: ctx.brandId,
+        actorId: ctx.managerUserId,
+        direct: true,
+      });
+    }
+    res.json({ success: true, delivery, tracking_url: ensured.tracking_url });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message || "Falha ao integrar entrega ao MOB" });
   }
 });
 

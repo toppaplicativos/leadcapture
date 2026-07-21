@@ -16,7 +16,12 @@ import {
   Users,
   Sparkles,
   ChevronDown,
+  Smartphone,
 } from 'lucide-react'
+import {
+  DEFAULT_STORE_PWA_INSTALL,
+  resolveStorePwaTitle,
+} from '@/lib/store-pwa-install'
 import { Button, Input } from '@/components/ui'
 import { WhatsAppIcon } from '@/components/icons'
 import { StorePreviewPane } from './StorePreviewPane'
@@ -361,6 +366,205 @@ export function StoreStudioPage() {
                     e.target.value = ''
                   }} />
                 </label>
+              </div>
+
+              {/* Preview do link do catálogo — afiliado → cliente (≠ programa de afiliados) */}
+              <div className="border-t border-border-light pt-5 space-y-3">
+                <div>
+                  <p className="text-[11px] font-semibold text-gray-800">Compartilhamento do catálogo</p>
+                  <p className="mt-0.5 text-[10px] text-gray-500 leading-relaxed">
+                    Título, descrição e imagem que o WhatsApp mostra quando o <strong>afiliado compartilha o catálogo</strong> com o cliente.
+                    Não confundir com a capa do <em>programa de afiliados</em> (que atrai novos parceiros).
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_200px] gap-3">
+                  <div className="space-y-3">
+                    <Input
+                      label="Título do preview"
+                      value={studio.catalogShareTitle}
+                      onChange={(e) => studio.setCatalogShareTitle(e.target.value)}
+                      placeholder={`Ex: Catálogo ${studio.brandName || 'da loja'}`}
+                    />
+                    <div>
+                      <label className="block text-[11px] font-semibold text-gray-600 mb-1.5 tracking-wide">
+                        Descrição do preview
+                      </label>
+                      <textarea
+                        value={studio.catalogShareDescription}
+                        onChange={(e) => studio.setCatalogShareDescription(e.target.value)}
+                        rows={2}
+                        maxLength={160}
+                        placeholder="Ex: Alho fresco e temperos com entrega. Use o cupom do afiliado no checkout."
+                        className="w-full px-3.5 py-2.5 rounded-xl border border-border bg-white text-sm text-gray-900 placeholder:text-gray-400 resize-none focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900 transition"
+                      />
+                      <p className="mt-1 text-[10px] text-gray-400">{studio.catalogShareDescription.length}/160</p>
+                    </div>
+                  </div>
+                  <label className="cursor-pointer rounded-2xl border border-border-light bg-gray-50 p-3 hover:border-gray-300 transition self-start">
+                    <span className="mb-2 flex items-center justify-between gap-2">
+                      <span className="text-[10px] font-semibold text-gray-600">Imagem do link</span>
+                      <span className="text-[9px] text-gray-400">1200×630</span>
+                    </span>
+                    <span
+                      className="flex w-full items-center justify-center overflow-hidden rounded-xl border border-dashed border-gray-300 bg-white"
+                      style={{ aspectRatio: '1.91/1' }}
+                    >
+                      {studio.catalogShareImage
+                        ? <img src={studio.catalogShareImage} alt="Preview catálogo" className="h-full w-full object-cover" />
+                        : <ImageIcon size={22} className="text-gray-400" />}
+                    </span>
+                    <span className="mt-2 block text-center text-[10px] font-semibold text-gray-700">
+                      {studio.catalogShareImage ? 'Trocar imagem' : 'Enviar imagem'}
+                    </span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0]
+                        if (!file) return
+                        const url = await studio.uploadFile(file)
+                        if (url) studio.setCatalogShareImage(url)
+                        e.target.value = ''
+                      }}
+                    />
+                    {studio.catalogShareImage && (
+                      <button
+                        type="button"
+                        className="mt-1.5 w-full text-center text-[10px] font-semibold text-red-500"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          studio.setCatalogShareImage('')
+                        }}
+                      >
+                        Remover
+                      </button>
+                    )}
+                  </label>
+                </div>
+              </div>
+
+              {/* Card instalar app (PWA) — whitelabel da marca */}
+              <div className="border-t border-border-light pt-5 space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <Smartphone size={14} className="text-gray-600" strokeWidth={1.75} />
+                      <p className="text-[11px] font-semibold text-gray-800">App na tela inicial</p>
+                    </div>
+                    <p className="mt-0.5 text-[10px] text-gray-500 leading-relaxed">
+                      Card que convida o cliente a instalar o catálogo no celular.
+                      Em domínio próprio (whitelabel) usa <strong>sempre a identidade da sua marca</strong> — nunca o visual LeadCapture.
+                    </p>
+                  </div>
+                  <Toggle
+                    value={studio.pwaInstall.enabled}
+                    onChange={(v) => studio.setPwaInstall({ ...studio.pwaInstall, enabled: v })}
+                  />
+                </div>
+
+                {studio.pwaInstall.enabled && (
+                  <div className="space-y-3 rounded-2xl border border-border-light bg-gray-50/80 p-3.5">
+                    <Input
+                      label="Título do card"
+                      value={studio.pwaInstall.title}
+                      onChange={(e) => studio.setPwaInstall({ ...studio.pwaInstall, title: e.target.value })}
+                      placeholder={`Instalar ${studio.brandName || 'sua loja'}`}
+                    />
+                    <div>
+                      <label className="block text-[11px] font-semibold text-gray-600 mb-1.5 tracking-wide">
+                        Texto de apoio
+                      </label>
+                      <textarea
+                        value={studio.pwaInstall.subtitle}
+                        onChange={(e) => studio.setPwaInstall({ ...studio.pwaInstall, subtitle: e.target.value })}
+                        rows={2}
+                        maxLength={180}
+                        placeholder={DEFAULT_STORE_PWA_INSTALL.subtitle}
+                        className="w-full px-3.5 py-2.5 rounded-xl border border-border bg-white text-sm text-gray-900 placeholder:text-gray-400 resize-none focus:outline-none focus:ring-4 focus:ring-gray-900/5 focus:border-gray-900 transition"
+                      />
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {([
+                        ['benefit_1', 'Benefício 1'],
+                        ['benefit_2', 'Benefício 2'],
+                        ['benefit_3', 'Benefício 3'],
+                        ['benefit_4', 'Benefício 4'],
+                      ] as const).map(([key, label]) => (
+                        <Input
+                          key={key}
+                          label={label}
+                          value={studio.pwaInstall[key]}
+                          onChange={(e) =>
+                            studio.setPwaInstall({ ...studio.pwaInstall, [key]: e.target.value })
+                          }
+                          placeholder={DEFAULT_STORE_PWA_INSTALL[key]}
+                        />
+                      ))}
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <Input
+                        label="Botão principal"
+                        value={studio.pwaInstall.cta_label}
+                        onChange={(e) =>
+                          studio.setPwaInstall({ ...studio.pwaInstall, cta_label: e.target.value })
+                        }
+                        placeholder={DEFAULT_STORE_PWA_INSTALL.cta_label}
+                      />
+                      <Input
+                        label="Botão recusar"
+                        value={studio.pwaInstall.dismiss_label}
+                        onChange={(e) =>
+                          studio.setPwaInstall({ ...studio.pwaInstall, dismiss_label: e.target.value })
+                        }
+                        placeholder={DEFAULT_STORE_PWA_INSTALL.dismiss_label}
+                      />
+                    </div>
+
+                    {/* Mini preview do card com cores da marca */}
+                    <div className="pt-1">
+                      <p className="mb-2 text-[10px] font-semibold text-gray-500 uppercase tracking-wide">
+                        Preview no celular
+                      </p>
+                      <div className="max-w-[280px] rounded-2xl border border-border bg-white shadow-sm overflow-hidden">
+                        <div
+                          className="h-1 w-full"
+                          style={{
+                            background: `linear-gradient(90deg, ${studio.primaryColor}, ${studio.secondaryColor})`,
+                          }}
+                        />
+                        <div className="p-4 text-center">
+                          {studio.logoUrl ? (
+                            <img
+                              src={studio.logoUrl}
+                              alt=""
+                              className="mx-auto mb-2 h-12 w-12 rounded-xl object-cover"
+                            />
+                          ) : (
+                            <div
+                              className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-xl text-sm font-bold text-white"
+                              style={{ background: studio.primaryColor }}
+                            >
+                              {(studio.brandName || 'L').charAt(0).toUpperCase()}
+                            </div>
+                          )}
+                          <p className="text-[13px] font-semibold text-gray-900">
+                            {resolveStorePwaTitle(studio.pwaInstall, studio.brandName || 'Loja')}
+                          </p>
+                          <p className="mt-1 text-[11px] text-gray-500 leading-snug">
+                            {studio.pwaInstall.subtitle || DEFAULT_STORE_PWA_INSTALL.subtitle}
+                          </p>
+                          <div
+                            className="mt-3 rounded-xl py-2 text-[12px] font-semibold text-white"
+                            style={{ background: studio.primaryColor }}
+                          >
+                            {studio.pwaInstall.cta_label || DEFAULT_STORE_PWA_INSTALL.cta_label}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="border-t border-border-light pt-5">

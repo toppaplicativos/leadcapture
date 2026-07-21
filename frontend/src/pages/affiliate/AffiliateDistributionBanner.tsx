@@ -82,10 +82,15 @@ export function AffiliateDistributionBanner({
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-sm font-bold text-[#1c1c1e]">
-            {paused ? 'Recebimento pausado' : 'Conecte o WhatsApp para receber leads'}
+            {paused
+              ? 'Recebimento automático pausado'
+              : 'Complete o cadastro para liberar oportunidades'}
           </p>
           <p className="text-xs text-[#8e8e93] mt-1 leading-relaxed">
-            {data.blockers[0] || 'Vincule seu número para a organização enviar oportunidades.'}
+            {paused
+              ? 'A sessão sincronizada está offline (opcional). Com o número cadastrado você continua assumindo contatos e atendendo manualmente. A sessão online só volta automação.'
+              : (data.blockers?.[0]
+                || 'Cadastre o número de WhatsApp que você usa (pode ter mais de um). Sessão online é opcional e serve só para automação.')}
           </p>
 
           <ul className="mt-3 space-y-1">

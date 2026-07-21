@@ -53,6 +53,8 @@ interface WhatsAppSendModalProps {
   initialBrandName?: string
   /** Default product/service line when the lead has none. */
   initialProductName?: string
+  /** Template inicial (ex.: optin | followup). Default: optin */
+  initialTemplateId?: string
   /** Lets another app reuse the same composer with its own authenticated AI endpoint. */
   onAiPersonalize?: (input: {
     lead: WaSendLead
@@ -195,14 +197,29 @@ function nicheRegionPhrase(segmento: string, cidade?: string): string {
   return `${plural} da sua região`
 }
 
-function shortOffer(valueProposition: string, productName?: string, fallback = 'nossos produtos e soluções'): string {
+/** Copy de recrutamento de afiliados não é produto/serviço para o cliente final. */
+function looksLikeAffiliateProgramCopy(text: string): boolean {
+  const t = String(text || '').trim()
+  if (!t) return false
+  return /seja\s+parceiro|programa\s+de\s+afiliad|afiliad[oa]s?|ganhe\s+comiss|comiss[aã]o\s+em\s+cada|vagas?\s*[—\-]|link\s+de\s+parceiro|recrut|cadastro\s+de\s+parceiro/i.test(
+    t,
+  )
+}
+
+function shortOffer(
+  valueProposition: string,
+  productName?: string,
+  fallback = 'nossos produtos e soluções',
+): string {
   const product = String(productName || '').trim()
-  if (product) return product
+  if (product && !looksLikeAffiliateProgramCopy(product)) return product
   const vp = String(valueProposition || '').trim()
-  if (!vp) return fallback
-  // First clause up to ~90 chars — readable product/service line
-  const clause = vp.split(/[.\n;]/)[0]?.trim() || vp
-  return clause.length > 100 ? `${clause.slice(0, 97).trim()}…` : clause
+  if (vp && !looksLikeAffiliateProgramCopy(vp)) {
+    // First clause up to ~90 chars — readable product/service line
+    const clause = vp.split(/[.\n;]/)[0]?.trim() || vp
+    return clause.length > 100 ? `${clause.slice(0, 97).trim()}…` : clause
+  }
+  return fallback
 }
 
 function buildVars(
@@ -322,8 +339,21 @@ function VarChip({ name, value, missing }: { name: string; value: string; missin
    ───────────────────────────────────────────────────────────── */
 function getHeaders(): Record<string, string> {
   const h: Record<string, string> = { 'Content-Type': 'application/json' }
-  const t = localStorage.getItem('lead-system-token')
-  if (t) h['Authorization'] = `Bearer ${t}`
+  const path = typeof window !== 'undefined' ? window.location.pathname || '' : ''
+  const affiliateCtx =
+    path.startsWith('/central-afiliado') ||
+    (path.startsWith('/parceiros/') && path.includes('/painel'))
+  const affToken = localStorage.getItem('lead-system-token-afiliado')
+  const adminToken = localStorage.getItem('lead-system-token')
+  if (affiliateCtx && affToken) {
+    h.Authorization = `Bearer ${affToken}`
+    const b =
+      localStorage.getItem('lead-system:active-brand-id-afiliado') ||
+      localStorage.getItem('lead-system:active-brand-id')
+    if (b) h['x-brand-id'] = b
+    return h
+  }
+  if (adminToken) h.Authorization = `Bearer ${adminToken}`
   const b = localStorage.getItem('lead-system:active-brand-id')
   if (b) h['x-brand-id'] = b
   return h
@@ -337,10 +367,14 @@ export function WhatsAppSendModal({
   initialValueProposition = '',
   initialBrandName = '',
   initialProductName = '',
+  initialTemplateId = 'optin',
   onAiPersonalize,
 }: WhatsAppSendModalProps) {
   const [queueIdx, setQueueIdx] = useState(() => Math.min(Math.max(initialIndex, 0), Math.max(leads.length - 1, 0)))
-  const [templateId, setTemplateId] = useState('optin')
+  const [templateId, setTemplateId] = useState(() => {
+    const id = String(initialTemplateId || 'optin')
+    return TEMPLATES.some((t) => t.id === id) ? id : 'optin'
+  })
   const [message, setMessage] = useState('')
   const [senderName, setSenderNameState] = useState(getSenderName)
   const [copied, setCopied] = useState(false)
@@ -664,8 +698,8 @@ export function WhatsAppSendModal({
             </div>
             {templateId === 'optin' && (
               <p className="hidden lg:block mt-3 text-[11px] leading-relaxed text-emerald-900 bg-emerald-50 border border-emerald-100 rounded-2xl px-3 py-2.5">
-                Pede autorização antes da oferta. Usa marca, empresa, nicho, região e produto/serviço da proposta de valor.
-                Se o contato não autorizar, trate como opt-out e remova da lista.
+                Pede autorização antes da oferta. Usa a <strong>marca</strong> e o <strong>produto/serviço</strong> que
+                a empresa vende ao cliente (não o nome do programa de afiliados). Se não autorizar, remova da lista.
               </p>
             )}
           </div>

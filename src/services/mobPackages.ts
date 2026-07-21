@@ -462,7 +462,7 @@ export const mobPackagesService = {
     if (conf.total === 0) {
       // No packages tracked — ok unless explicitly required with count
       if (delivery.require_package_scan && num(delivery.package_count) > 0) {
-        throw new Error("Volumes ainda não foram gerados para esta entrega");
+        throw new Error("Volumes ainda não foram gerados para esta corrida");
       }
       return;
     }

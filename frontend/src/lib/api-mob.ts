@@ -46,6 +46,25 @@ export function getMobHeaders(): Record<string, string> {
   return headers
 }
 
+export class MobApiError extends Error {
+  status: number
+  code?: string
+  constructor(message: string, status: number, code?: string) {
+    super(message)
+    this.name = 'MobApiError'
+    this.status = status
+    this.code = code
+  }
+}
+
+export function isMobAuthError(err: unknown): boolean {
+  if (err instanceof MobApiError) {
+    return err.status === 401 || err.code === 'TOKEN_EXPIRED' || err.code === 'TOKEN_INVALID'
+  }
+  const msg = String((err as any)?.message || err || '')
+  return /401|token (não fornecido|expirado|inválido)|unauthorized|credencial/i.test(msg)
+}
+
 async function mobFetch<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     ...options,
@@ -55,7 +74,13 @@ async function mobFetch<T>(url: string, options?: RequestInit): Promise<T> {
     },
   })
   const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data.error || `Erro ${res.status}`)
+  if (!res.ok) {
+    throw new MobApiError(
+      String(data.error || data.message || `Erro ${res.status}`),
+      res.status,
+      data.code ? String(data.code) : undefined,
+    )
+  }
   return data as T
 }
 
@@ -96,7 +121,7 @@ export const STATUS_LABELS: Record<string, string> = {
   preparing: 'Em preparação',
   ready_for_dispatch: 'Pronto para despacho',
   awaiting_courier: 'Aguardando entregador',
-  offered_to_courier: 'Oferecida a você',
+  offered_to_courier: 'Corrida disponível',
   accepted_by_courier: 'Aceita',
   courier_to_pickup: 'A caminho da coleta',
   courier_at_pickup: 'No local de coleta',
@@ -117,10 +142,10 @@ export const COURIER_NEXT: Partial<Record<string, { status: string; label: strin
   accepted_by_courier: { status: 'courier_to_pickup', label: 'Ir para coleta' },
   courier_to_pickup: { status: 'courier_at_pickup', label: 'Cheguei na coleta' },
   courier_at_pickup: { status: 'picked_up', label: 'Coletei o pedido' },
-  picked_up: { status: 'en_route', label: 'Iniciar entrega' },
+  picked_up: { status: 'en_route', label: 'Iniciar corrida' },
   en_route: { status: 'near_destination', label: 'Estou próximo' },
   near_destination: { status: 'at_destination', label: 'Cheguei no destino' },
-  at_destination: { status: 'delivered', label: 'Confirmar entrega' },
+  at_destination: { status: 'delivered', label: 'Concluir corrida' },
 }
 
 export const mobApi = {
@@ -160,8 +185,22 @@ export const mobApi = {
       }),
 
   me: () => mobFetch<any>('/api/mob/app/me'),
+  onboarding: () => mobFetch<any>('/api/mob/app/onboarding'),
   updateProfile: (payload: Record<string, any>) =>
     mobFetch<any>('/api/mob/app/profile', {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+  submitProfile: () =>
+    mobFetch<any>('/api/mob/app/profile/submit', { method: 'POST', body: '{}' }),
+  profileDocuments: () => mobFetch<any>('/api/mob/app/profile/documents'),
+  addProfileDocument: (payload: Record<string, any>) =>
+    mobFetch<any>('/api/mob/app/profile/documents', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  resubmitProfileDocument: (id: string, payload: Record<string, any>) =>
+    mobFetch<any>(`/api/mob/app/profile/documents/${encodeURIComponent(id)}`, {
       method: 'PATCH',
       body: JSON.stringify(payload),
     }),
@@ -175,6 +214,33 @@ export const mobApi = {
     mobFetch<any>('/api/mob/app/invites/accept', {
       method: 'POST',
       body: JSON.stringify({ code }),
+    }),
+  vehicleTypes: () => mobFetch<any>('/api/mob/app/vehicle-types'),
+  createVehicle: (payload: Record<string, any>) =>
+    mobFetch<any>('/api/mob/app/vehicles', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  vehicle: (id: string) => mobFetch<any>(`/api/mob/app/vehicles/${encodeURIComponent(id)}`),
+  updateVehicle: (id: string, payload: Record<string, any>) =>
+    mobFetch<any>(`/api/mob/app/vehicles/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+  addVehicleDocument: (id: string, payload: Record<string, any>) =>
+    mobFetch<any>(`/api/mob/app/vehicles/${encodeURIComponent(id)}/documents`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  resubmitVehicleDocument: (id: string, docId: string, payload: Record<string, any>) =>
+    mobFetch<any>(
+      `/api/mob/app/vehicles/${encodeURIComponent(id)}/documents/${encodeURIComponent(docId)}`,
+      { method: 'PATCH', body: JSON.stringify(payload) },
+    ),
+  submitVehicle: (id: string) =>
+    mobFetch<any>(`/api/mob/app/vehicles/${encodeURIComponent(id)}/submit`, {
+      method: 'POST',
+      body: '{}',
     }),
   offers: () => mobFetch<any>('/api/mob/app/offers'),
   deliveries: (opts?: { active?: boolean }) =>
@@ -342,10 +408,39 @@ export const mobAdminApi = {
       body: JSON.stringify(payload),
     }),
   couriers: () => adminMobFetch<any>('/api/mob/admin/couriers'),
+  courierDetail: (membershipId: string) =>
+    adminMobFetch<any>(`/api/mob/admin/couriers/${encodeURIComponent(membershipId)}`),
   updateCourier: (membershipId: string, payload: Record<string, any>) =>
     adminMobFetch<any>(`/api/mob/admin/couriers/${membershipId}`, {
       method: 'PATCH',
       body: JSON.stringify(payload),
+    }),
+  courierCadastro: (
+    membershipId: string,
+    payload: { action: 'approve' | 'reject' | 'request_changes'; notes?: string },
+  ) =>
+    adminMobFetch<any>(`/api/mob/admin/couriers/${encodeURIComponent(membershipId)}/cadastro`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  validateCourierDocument: (
+    membershipId: string,
+    docId: string,
+    payload: { status: 'approved' | 'rejected' | 'needs_resubmit'; rejection_reason?: string },
+  ) =>
+    adminMobFetch<any>(
+      `/api/mob/admin/couriers/${encodeURIComponent(membershipId)}/documents/${encodeURIComponent(docId)}/validate`,
+      { method: 'POST', body: JSON.stringify(payload) },
+    ),
+  approveVehicle: (id: string, payload?: { notes?: string }) =>
+    adminMobFetch<any>(`/api/mob/admin/fleet/vehicles/${encodeURIComponent(id)}/approve`, {
+      method: 'POST',
+      body: JSON.stringify(payload || {}),
+    }),
+  rejectVehicle: (id: string, payload?: { reason?: string }) =>
+    adminMobFetch<any>(`/api/mob/admin/fleet/vehicles/${encodeURIComponent(id)}/reject`, {
+      method: 'POST',
+      body: JSON.stringify(payload || {}),
     }),
   createInvite: (payload?: Record<string, any>) =>
     adminMobFetch<any>('/api/mob/admin/invites', {

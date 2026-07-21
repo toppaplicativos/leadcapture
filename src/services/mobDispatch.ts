@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Lead Capture Mob — dispatch center domain.
  * Board KPIs, queues, explainable courier/vehicle recommendations (spec §11–12, §57).
  */
@@ -300,7 +300,7 @@ export const mobDispatchService = {
 
     const delivery = await mobLogisticsService.getDeliveryById(deliveryId);
     if (!delivery || delivery.owner_user_id !== ownerUserId || delivery.brand_id !== brandId) {
-      throw new Error("Entrega não encontrada");
+      throw new Error("Corrida não encontrada");
     }
 
     const settings = await mobLogisticsService.getOrCreateSettings(ownerUserId, brandId);
@@ -507,7 +507,7 @@ export const mobDispatchService = {
     courierId?: string
   ): Promise<{ eta_minutes: number | null; components: string[] }> {
     const delivery = await mobLogisticsService.getDeliveryById(deliveryId);
-    if (!delivery) throw new Error("Entrega não encontrada");
+    if (!delivery) throw new Error("Corrida não encontrada");
     const settings = await mobLogisticsService.getOrCreateSettings(ownerUserId, brandId);
     const components: string[] = [];
     let minutes = num(settings.prep_time_minutes, 0);

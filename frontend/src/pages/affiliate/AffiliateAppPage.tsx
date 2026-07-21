@@ -3,9 +3,8 @@ import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, ShoppingBag, Wallet, Megaphone, Banknote, User,
   LogOut, Loader2, Copy, QrCode, Share2, Trophy, MousePointerClick,
-  TrendingUp, Clock, ChevronRight, ChevronLeft, GraduationCap, LayoutGrid, X, Phone, Package, MessageCircle, AlertCircle, Link2, Crown, Store, Bell, Home, Target, Radio, Image,
+  TrendingUp, Clock, ChevronRight, ChevronLeft, GraduationCap, LayoutGrid, X, Phone, Package, MessageCircle, AlertCircle, Link2, Crown, Store, Bell, Home, Target, Radio, Image, Users, Sparkles, CheckCircle2, ArrowUpRight,
 } from 'lucide-react'
-import { AffiliateOpportunitiesPanel } from '@/pages/affiliate/AffiliateOpportunitiesPanel'
 import { AffiliateCustomersPanel } from '@/pages/affiliate/AffiliateCustomersPanel'
 import { AffiliateProductsPanel } from '@/pages/affiliate/AffiliateProductsPanel'
 import { AffiliatePromotionHub } from '@/pages/affiliate/AffiliatePromotionHub'
@@ -19,12 +18,18 @@ import {
   clearAffiliateAuth,
   getAffiliateToken,
   getAffiliateBrandRef,
-  getAffiliateHeaders,
   isHardAffiliateAuthFailure,
 } from '@/lib/api-affiliate'
-import { NotificationBellButton, NotificationCenter } from '@/components/notifications/NotificationCenter'
 import { affiliateAppCache } from '@/lib/affiliate-app-cache'
-import { buildAffiliateCatalogUrl } from '@/lib/affiliate-tracking'
+import { startAffiliateCrmSyncLoop } from '@/lib/affiliate-crm-local'
+import { buildAffiliateCatalogUrl, buildAffiliateShortUrl } from '@/lib/affiliate-tracking'
+import type { AffiliateSharePack } from '@/lib/affiliates/share-pack'
+import {
+  sharePackCopyUrl,
+  sharePackOpenWhatsApp,
+  sharePackViaSystem,
+  sharePackWhatsAppText,
+} from '@/lib/affiliates/share-pack'
 import { WhatsAppConnectProvider } from '@/lib/whatsapp/WhatsAppConnectContext'
 import { WhatsAppConnectModal } from '@/components/whatsapp/WhatsAppConnectModal'
 import { AffiliateConnections } from '@/pages/affiliate/AffiliateConnections'
@@ -32,14 +37,18 @@ import { AffiliateMessages } from '@/pages/affiliate/AffiliateMessages'
 import { AffiliateDistributionBanner } from '@/pages/affiliate/AffiliateDistributionBanner'
 import { AffiliateWhatsAppHeaderIcon } from '@/pages/affiliate/AffiliateWhatsAppHeaderIcon'
 import { AffiliateLiveDispatchPanel } from '@/pages/affiliate/AffiliateLiveDispatchPanel'
+import { AffiliateOpportunitiesHub, type OppHubTab } from '@/pages/affiliate/AffiliateOpportunitiesHub'
+import { AffiliateContactsPage } from '@/pages/affiliate/AffiliateContactsPage'
 import { AffiliateOrdersHub } from '@/pages/affiliate/AffiliateOrdersHub'
+import { AffiliateAttendanceHub } from '@/pages/affiliate/AffiliateAttendanceHub'
 
 import { WhatsAppIcon } from '@/components/icons'
 import { AffiliateCommissionCard } from '@/pages/affiliate/AffiliateCommissionCard'
 import type { AppContext } from '@/pages/affiliate/types'
 import { applyAffiliatePwaTitle, cacheAffiliateBrandMeta } from '@/lib/affiliate-brand-meta'
 import { applyDocumentTitle } from '@/lib/document-title'
-import { PushNotificationSettings } from '@/components/push/PushNotificationSettings'
+import { AffiliateProfilePanel } from '@/pages/affiliate/AffiliateProfilePanel'
+import { AffiliateAlertsPanel } from '@/pages/affiliate/AffiliateAlertsPanel'
 import { useAffiliateShell } from '@/lib/affiliate/AffiliateShellContext'
 
 const money = (v: number | string | undefined) =>
@@ -53,20 +62,22 @@ const dt = (v?: string) => {
   }
 }
 
-type TabId = 'resumo' | 'ao-vivo' | 'vendas' | 'financeiro' | 'divulgacao' | 'materiais' | 'links' | 'contatos' | 'mercado' | 'alertas' | 'clientes' | 'aprendizado' | 'produtos' | 'perfil' | 'conexoes' | 'mensagens'
+type TabId = 'resumo' | 'ao-vivo' | 'oportunidades' | 'atendimento' | 'vendas' | 'financeiro' | 'divulgacao' | 'materiais' | 'links' | 'contatos' | 'mercado' | 'alertas' | 'preferencias' | 'clientes' | 'aprendizado' | 'produtos' | 'perfil' | 'conexoes' | 'mensagens'
 type FinanceiroMode = 'comissoes' | 'saques' | 'pagamentos'
 
 const TAB_ROUTES: { key: TabId; path: string; icon: typeof LayoutDashboard; label: string }[] = [
   { key: 'resumo', path: '', icon: LayoutDashboard, label: 'Início' },
-  { key: 'ao-vivo', path: 'ao-vivo', icon: Radio, label: 'Ao vivo' },
+  { key: 'oportunidades', path: 'oportunidades', icon: Target, label: 'Oportunidades' },
+  { key: 'atendimento', path: 'atendimento', icon: MessageCircle, label: 'Atendimento' },
+  { key: 'ao-vivo', path: 'ao-vivo', icon: Radio, label: 'Automático' },
   { key: 'vendas', path: 'vendas', icon: ShoppingBag, label: 'Pedidos' },
   { key: 'divulgacao', path: 'divulgacao', icon: Megaphone, label: 'Divulgar' },
   { key: 'materiais', path: 'materiais', icon: Image, label: 'Materiais' },
   { key: 'financeiro', path: 'financeiro', icon: Wallet, label: 'Carteira' },
   { key: 'links', path: 'links', icon: Link2, label: 'Links' },
-  { key: 'contatos', path: 'contatos', icon: Target, label: 'Contatos' },
+  { key: 'contatos', path: 'contatos', icon: Users, label: 'Contatos' },
   { key: 'mercado', path: 'mercado', icon: Store, label: 'Mercado' },
-  { key: 'alertas', path: 'alertas', icon: Bell, label: 'Alertas' },
+  { key: 'alertas', path: 'notificacoes', icon: Bell, label: 'Notificações' },
   { key: 'clientes', path: 'clientes', icon: Crown, label: 'Clientes' },
   { key: 'aprendizado', path: 'aprendizado', icon: GraduationCap, label: 'Aprender' },
   { key: 'produtos', path: 'produtos', icon: Package, label: 'Produtos' },
@@ -75,6 +86,8 @@ const TAB_ROUTES: { key: TabId; path: string; icon: typeof LayoutDashboard; labe
 
 const TAB_PATHS: Partial<Record<TabId, string>> = {
   resumo: '',
+  oportunidades: 'oportunidades',
+  atendimento: 'atendimento',
   'ao-vivo': 'ao-vivo',
   vendas: 'vendas',
   divulgacao: 'divulgacao',
@@ -82,7 +95,7 @@ const TAB_PATHS: Partial<Record<TabId, string>> = {
   links: 'links',
   contatos: 'contatos',
   mercado: 'mercado',
-  alertas: 'alertas',
+  alertas: 'notificacoes',
   clientes: 'clientes',
   aprendizado: 'aprendizado',
   produtos: 'produtos',
@@ -91,33 +104,35 @@ const TAB_PATHS: Partial<Record<TabId, string>> = {
   mensagens: 'mensagens',
 }
 
-/** Início · Vendas · Divulgar · Carteira · Mais */
+/** Início · Oportunidades · Pedidos · Carteira · Mais */
 const BOTTOM_NAV: { key: TabId; path: string; icon: typeof LayoutDashboard; label: string }[] = [
   { key: 'resumo', path: '', icon: LayoutDashboard, label: 'Início' },
-  { key: 'ao-vivo', path: 'ao-vivo', icon: Radio, label: 'Ao vivo' },
+  { key: 'oportunidades', path: 'oportunidades', icon: Target, label: 'Oportunidades' },
   { key: 'vendas', path: 'vendas', icon: ShoppingBag, label: 'Pedidos' },
   { key: 'financeiro', path: 'financeiro', icon: Wallet, label: 'Carteira' },
 ]
 
-const MORE_MENU_TABS_BASE: TabId[] = ['divulgacao', 'materiais', 'links', 'contatos', 'mercado', 'clientes', 'aprendizado', 'produtos', 'perfil', 'conexoes', 'mensagens', 'alertas']
+const MORE_MENU_TABS_BASE: TabId[] = ['atendimento', 'ao-vivo', 'divulgacao', 'materiais', 'links', 'contatos', 'mercado', 'clientes', 'aprendizado', 'produtos', 'perfil', 'conexoes', 'mensagens', 'alertas']
 
 type MoreMenuItem =
   | { kind: 'tab'; tab: TabId; icon: typeof LayoutDashboard; label: string; desc: string }
   | { kind: 'financeiro'; mode: FinanceiroMode; icon: typeof LayoutDashboard; label: string; desc: string }
 
 const MORE_MENU_BASE: MoreMenuItem[] = [
+  { kind: 'tab', tab: 'atendimento', icon: MessageCircle, label: 'Atendimento', desc: 'Copiloto IA, print da conversa e links para converter' },
+  { kind: 'tab', tab: 'ao-vivo', icon: Radio, label: 'Automático', desc: 'Disparo da marca e status do WhatsApp conectado' },
   { kind: 'tab', tab: 'divulgacao', icon: Megaphone, label: 'Divulgar', desc: 'Kits, argumentos e canais para vender' },
   { kind: 'tab', tab: 'materiais', icon: Image, label: 'Materiais', desc: 'Galeria oficial de artes e mídias do programa' },
-  { kind: 'tab', tab: 'contatos', icon: Target, label: 'Contatos', desc: 'Prospects e leads enviados pela marca e pelos seus links' },
+  { kind: 'tab', tab: 'contatos', icon: Users, label: 'Contatos', desc: 'Cadastro, relacionamento e histórico de cada pessoa' },
   { kind: 'tab', tab: 'clientes', icon: Crown, label: 'Clientes', desc: 'Quem já comprou — faturamento, pós-venda e comissões' },
   { kind: 'tab', tab: 'links', icon: Link2, label: 'Links', desc: 'Compartilhar e rastrear cliques' },
   { kind: 'tab', tab: 'mercado', icon: Store, label: 'Mercado', desc: 'Outros programas e comissões' },
   { kind: 'tab', tab: 'aprendizado', icon: GraduationCap, label: 'Aprender', desc: 'Treinamento e regras do programa' },
   { kind: 'tab', tab: 'produtos', icon: Package, label: 'Produtos', desc: 'Catálogo com guia IA para vender' },
-  { kind: 'tab', tab: 'alertas', icon: Bell, label: 'Alertas', desc: 'Notificações do programa' },
+  { kind: 'tab', tab: 'alertas', icon: Bell, label: 'Notificações', desc: 'Avisos e preferências em um só lugar' },
   { kind: 'tab', tab: 'conexoes', icon: Phone, label: 'WhatsApp', desc: 'Conectar seu número' },
   { kind: 'tab', tab: 'mensagens', icon: MessageCircle, label: 'Mensagens', desc: 'Inbox das suas sessões' },
-  { kind: 'tab', tab: 'perfil', icon: User, label: 'Perfil', desc: 'Dados e redes sociais' },
+  { kind: 'tab', tab: 'perfil', icon: User, label: 'Conta', desc: 'Foto, dados pessoais e segurança' },
   { kind: 'financeiro', mode: 'comissoes', icon: Banknote, label: 'Comissões', desc: 'Saldo e histórico' },
   { kind: 'financeiro', mode: 'saques', icon: Wallet, label: 'Saques', desc: 'Solicitar pagamento' },
   { kind: 'financeiro', mode: 'pagamentos', icon: QrCode, label: 'Pix', desc: 'Chave para receber comissões' },
@@ -127,17 +142,40 @@ function tabFromPath(pathname: string, base: string): TabId {
   const rest = pathname.startsWith(base) ? pathname.slice(base.length).replace(/^\//, '') : ''
   if (!rest) return 'resumo'
   if (rest === 'ao-vivo') return 'ao-vivo'
+  if (rest.startsWith('oportunidades')) return 'oportunidades'
+  if (rest === 'atendimento' || rest === 'suporte' || rest === 'copiloto') return 'atendimento'
   if (rest === 'conexoes') return 'conexoes'
   if (rest === 'mensagens') return 'mensagens'
   if (rest === 'links') return 'links'
   if (rest === 'materiais' || rest === 'materials') return 'materiais'
-  if (rest === 'alertas') return 'alertas'
-  if (rest === 'leads' || rest === 'contatos' || rest === 'oportunidades') return 'contatos'
+  if (rest === 'alertas' || rest === 'notificacoes') return 'alertas'
+  if (rest === 'preferencias' || rest === 'notificacoes-prefs' || rest === 'push') return 'alertas'
+  if (rest === 'leads' || rest === 'contatos') return 'contatos'
   if (rest === 'mercado') return 'mercado'
   if (rest === 'clientes') return 'clientes'
   if (rest === 'comissoes' || rest === 'saques' || rest === 'pagamentos' || rest === 'financeiro') return 'financeiro'
   const hit = Object.entries(TAB_PATHS).find(([, path]) => path === rest)
   return (hit?.[0] as TabId | undefined) || 'resumo'
+}
+
+function oppHubTabFromSearch(search: string): OppHubTab {
+  const q = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search)
+  const t = String(q.get('tab') || '').toLowerCase()
+  if (t === 'tarefas' || t === 'tasks' || q.get('task')) return 'tarefas'
+  if (t === 'historico' || t === 'history') return 'historico'
+  return 'novas'
+}
+
+function oppHubFocusFromSearch(search: string): string | null {
+  const q = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search)
+  const focus = String(q.get('focus') || q.get('ref') || q.get('ref_id') || '').trim()
+  return focus || null
+}
+
+function oppHubTaskFromSearch(search: string): string | null {
+  const q = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search)
+  const task = String(q.get('task') || q.get('task_id') || '').trim()
+  return task || null
 }
 
 function isMoreMenuActive(tab: TabId, hideMercado: boolean, hidePerfil: boolean) {
@@ -195,18 +233,92 @@ function KpiCard({ label, value, icon: Icon, accent }: { label: string; value: s
   )
 }
 
+function AttendanceMetricsStrip({
+  ctx,
+  onOpenAttendance,
+}: {
+  ctx: AppContext
+  onOpenAttendance?: () => void
+}) {
+  const [d, setD] = useState<{
+    inbox: number
+    followup_due: number
+    claimed_today: number
+    sent_today: number
+    response_rate_today: number | null
+  } | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    affiliateApi.attendanceDigest()
+      .then((r) => {
+        if (!cancelled) {
+          setD({
+            inbox: Number(r.inbox || 0),
+            followup_due: Number(r.followup_due || 0),
+            claimed_today: Number(r.claimed_today || 0),
+            sent_today: Number(r.sent_today || 0),
+            response_rate_today: r.response_rate_today ?? null,
+          })
+        }
+      })
+      .catch(() => undefined)
+    return () => { cancelled = true }
+  }, [ctx.cacheVersion])
+
+  if (!d) return null
+
+  return (
+    <button
+      type="button"
+      onClick={onOpenAttendance}
+      className="affiliate-card w-full p-3.5 text-left active:scale-[0.99] transition"
+    >
+      <div className="flex items-center justify-between gap-2 mb-2.5">
+        <p className="text-[11px] font-bold uppercase tracking-wider text-[#8e8e93]">Atendimento</p>
+        <span className="text-[11px] font-semibold text-neutral-500">Abrir →</span>
+      </div>
+      <div className="grid grid-cols-4 gap-2">
+        {[
+          { label: 'Fila', value: d.inbox },
+          { label: 'Follow-up', value: d.followup_due },
+          { label: 'Hoje', value: d.claimed_today },
+          { label: 'Envios', value: d.sent_today },
+        ].map((k) => (
+          <div key={k.label} className="text-center">
+            <p className="text-[17px] font-bold tabular-nums text-[#1c1c1e] leading-none">{k.value}</p>
+            <p className="mt-1 text-[9px] font-semibold uppercase tracking-wide text-[#8e8e93]">{k.label}</p>
+          </div>
+        ))}
+      </div>
+      {d.response_rate_today != null && (
+        <p className="mt-2 text-[11px] text-neutral-500">
+          Taxa de resposta hoje: <strong className="text-neutral-800">{d.response_rate_today}%</strong>
+        </p>
+      )}
+      {d.followup_due > 0 && (
+        <p className="mt-1.5 text-[11px] font-semibold text-amber-800">
+          {d.followup_due} contato{d.followup_due > 1 ? 's' : ''} com follow-up pendente
+        </p>
+      )}
+    </button>
+  )
+}
+
 function AffiliateDashboard({
   ctx,
   onOpenLinks,
   onOpenLeads,
   onConnectWhatsApp,
   onViewOpportunities,
+  onOpenAttendance,
 }: {
   ctx: AppContext
   onOpenLinks?: () => void
   onOpenLeads?: () => void
   onConnectWhatsApp?: () => void
   onViewOpportunities?: () => void
+  onOpenAttendance?: () => void
 }) {
   const snap = affiliateAppCache.get()
   const [stats, setStats] = useState<any>(snap.dashboard)
@@ -232,9 +344,22 @@ function AffiliateDashboard({
   const affiliate = stats?.affiliate || ctx.affiliate
   const storeOrigin = typeof window !== 'undefined' ? window.location.origin : ''
   const storeSlug = String(ctx.brand?.slug || getAffiliateBrandRef() || 'alhopronto').trim()
-  const shortLink = affiliate?.code ? `${storeOrigin}/afiliado/${affiliate.code}` : ''
+  const primaryDomain = String(ctx.brand?.primary_domain || '').trim() || null
+  const shortLink = affiliate?.code
+    ? buildAffiliateShortUrl({
+        origin: storeOrigin,
+        primaryDomain,
+        code: affiliate.code,
+      })
+    : ''
   const catalogLink = affiliate?.code
-    ? buildAffiliateCatalogUrl({ origin: storeOrigin, storeSlug, code: affiliate.code, couponCode: affiliate.coupon_code })
+    ? buildAffiliateCatalogUrl({
+        origin: storeOrigin,
+        primaryDomain,
+        storeSlug,
+        code: affiliate.code,
+        couponCode: affiliate.coupon_code,
+      })
     : ''
 
   async function copyText(value: string, label: string) {
@@ -277,6 +402,11 @@ function AffiliateDashboard({
         </p>
       </div>
 
+      <AttendanceMetricsStrip
+        ctx={ctx}
+        onOpenAttendance={onOpenAttendance || onViewOpportunities}
+      />
+
       <div className="grid grid-cols-2 gap-2.5">
         <KpiCard label="Total vendido" value={money(stats?.total_sold)} icon={TrendingUp} accent={ctx.primary} />
         <KpiCard label="Comissão acumulada" value={money(stats?.commission_accumulated)} icon={Wallet} accent={ctx.secondary} />
@@ -303,21 +433,41 @@ function AffiliateDashboard({
             </div>
             <QrCode size={30} className="text-white/35" />
           </div>
-          <div className="flex gap-2 pt-1">
+          <div className="grid grid-cols-3 gap-2 pt-1">
             <button
               type="button"
               onClick={() => copyText(catalogLink, 'Link')}
-              className="flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl bg-white/18 text-xs font-bold active:scale-[0.97] transition"
+              className="flex flex-col items-center justify-center gap-0.5 py-2.5 rounded-xl bg-white/18 text-[10px] font-bold active:scale-[0.97] transition"
             >
               <Copy size={14} /> Copiar
             </button>
             <button
               type="button"
-              onClick={shareWhatsApp}
-              className="flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl bg-white text-xs font-bold active:scale-[0.97] transition"
-              style={{ color: ctx.primary }}
+              onClick={async () => {
+                if (!catalogLink) return
+                if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+                  try {
+                    await navigator.share({
+                      title: ctx.brand?.name || 'Catálogo',
+                      text: `Confira a ${ctx.brand?.name || 'loja'}: ${catalogLink}`,
+                      url: catalogLink,
+                    })
+                    return
+                  } catch { /* fallback WA */ }
+                }
+                shareWhatsApp()
+              }}
+              className="flex flex-col items-center justify-center gap-0.5 py-2.5 rounded-xl bg-white/18 text-[10px] font-bold active:scale-[0.97] transition"
             >
-              <Share2 size={14} /> WhatsApp
+              <Share2 size={14} /> Compartilhar
+            </button>
+            <button
+              type="button"
+              onClick={shareWhatsApp}
+              className="flex flex-col items-center justify-center gap-0.5 py-2.5 rounded-xl bg-white text-[10px] font-bold active:scale-[0.97] transition"
+              style={{ color: '#128C7E' }}
+            >
+              <WhatsAppIcon size={14} /> WhatsApp
             </button>
           </div>
           <div className="flex gap-2 mt-2">
@@ -342,6 +492,389 @@ function AffiliateDashboard({
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+function PremiumAffiliateDashboard({
+  ctx,
+  onOpenLinks,
+  onOpenLeads,
+  onConnectWhatsApp,
+  onViewOpportunities,
+  onOpenAttendance,
+  onOpenWallet,
+}: {
+  ctx: AppContext
+  onOpenLinks?: () => void
+  onOpenLeads?: () => void
+  onConnectWhatsApp?: () => void
+  onViewOpportunities?: () => void
+  onOpenAttendance?: () => void
+  onOpenWallet?: () => void
+}) {
+  const snap = affiliateAppCache.get()
+  const [stats, setStats] = useState<any>(snap.dashboard)
+  const [loading, setLoading] = useState(!snap.dashboard)
+  const [sharePack, setSharePack] = useState<AffiliateSharePack | null>(null)
+  const [shareOpen, setShareOpen] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    affiliateAppCache.prefetchAll({ region: ctx.affiliate?.region })
+      .then(() => {
+        if (!cancelled) setStats(affiliateAppCache.get().dashboard || null)
+      })
+      .catch(() => {
+        if (!cancelled && !affiliateAppCache.get().dashboard) ctx.showToast('Erro ao carregar resumo', 'err')
+      })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [ctx.affiliate?.region, ctx.showToast, ctx.cacheVersion])
+
+  /* Pacote de compartilhamento (título + descrição + imagem + URL canônica) */
+  useEffect(() => {
+    let cancelled = false
+    const origin = typeof window !== 'undefined' ? window.location.origin : ''
+    const storeSlug = String(ctx.brand?.slug || getAffiliateBrandRef() || '').trim()
+    const code = String(ctx.affiliate?.code || '').trim()
+    const coupon = String(ctx.affiliate?.coupon_code || '').trim()
+    const primaryDomain = String(ctx.brand?.primary_domain || '').trim() || null
+    const brandName = ctx.brand?.name || 'Loja'
+    const localUrl = code
+      ? buildAffiliateCatalogUrl({
+          origin,
+          primaryDomain,
+          storeSlug,
+          code,
+          couponCode: coupon,
+        })
+      : ''
+    if (localUrl) {
+      setSharePack({
+        kind: 'catalog',
+        title: `${brandName}${coupon ? ` · cupom ${coupon}` : ''}`,
+        description: coupon
+          ? `Ofertas da ${brandName}. Use o cupom ${coupon} no checkout.`
+          : `Catálogo e ofertas da ${brandName}.`,
+        image_url: ctx.brand?.logo_url || null,
+        url: localUrl,
+        site_name: brandName,
+        message: `Separei o catálogo da ${brandName} pra você 👇\n\n${localUrl}`,
+        message_full: `Oi! Catálogo da *${brandName}*.\n${coupon ? `Cupom *${coupon}*\n` : ''}\n${localUrl}`,
+        coupon_code: coupon || null,
+        affiliate_code: code || null,
+        brand: { name: brandName, logo_url: ctx.brand?.logo_url || null, primary_domain: primaryDomain },
+      })
+    }
+
+    affiliateApi.sharePack({ kind: 'catalog' })
+      .then((res) => {
+        if (cancelled || !res?.pack?.url) return
+        setSharePack(res.pack)
+      })
+      .catch(() => {
+        /* fallback local já setado */
+      })
+    return () => { cancelled = true }
+  }, [
+    ctx.affiliate?.code,
+    ctx.affiliate?.coupon_code,
+    ctx.brand?.primary_domain,
+    ctx.brand?.slug,
+    ctx.brand?.name,
+    ctx.brand?.logo_url,
+    ctx.cacheVersion,
+  ])
+
+  if (loading && !stats) return <PanelSkeleton rows={3} />
+
+  const affiliate = stats?.affiliate || ctx.affiliate
+  const firstName = String(affiliate?.name || affiliate?.full_name || '').trim().split(/\s+/)[0]
+  const hour = new Date().getHours()
+  const greeting = hour < 12 ? 'Bom dia' : hour < 18 ? 'Boa tarde' : 'Boa noite'
+  const commission = stats?.commission
+  const commissionLabel = commission?.label || (commission?.value != null
+    ? `${commission.value}${commission.mode === 'percentage' ? '%' : ''}`
+    : null)
+  const brandName = ctx.brand?.name || 'loja'
+  const catalogLink = sharePack?.url || ''
+
+  async function copyCatalog() {
+    if (!sharePack) return
+    const ok = await sharePackCopyUrl(sharePack)
+    ctx.showToast(ok ? 'Link do catálogo copiado!' : 'Não foi possível copiar', ok ? 'ok' : 'err')
+  }
+
+  function shareWhatsApp() {
+    if (!sharePack) return
+    sharePackOpenWhatsApp(sharePack, false)
+  }
+
+  async function shareCatalog() {
+    if (!sharePack) return
+    const result = await sharePackViaSystem(sharePack)
+    if (result === 'shared' || result === 'aborted') return
+    setShareOpen(true)
+  }
+
+  function openShareTarget(kind: 'whatsapp' | 'telegram' | 'facebook' | 'x' | 'email' | 'copy') {
+    if (!sharePack) return
+    const enc = encodeURIComponent
+    const text = sharePackWhatsAppText(sharePack, false)
+    if (kind === 'copy') {
+      void copyCatalog()
+      setShareOpen(false)
+      return
+    }
+    if (kind === 'whatsapp') {
+      sharePackOpenWhatsApp(sharePack, false)
+    } else if (kind === 'telegram') {
+      window.open(`https://t.me/share/url?url=${enc(sharePack.url)}&text=${enc(text)}`, '_blank', 'noopener,noreferrer')
+    } else if (kind === 'facebook') {
+      window.open(`https://www.facebook.com/sharer/sharer.php?u=${enc(sharePack.url)}`, '_blank', 'noopener,noreferrer')
+    } else if (kind === 'x') {
+      window.open(`https://twitter.com/intent/tweet?text=${enc(text)}&url=${enc(sharePack.url)}`, '_blank', 'noopener,noreferrer')
+    } else if (kind === 'email') {
+      window.location.href = `mailto:?subject=${enc(sharePack.title)}&body=${enc(text)}`
+    }
+    setShareOpen(false)
+  }
+
+  return (
+    <div className="space-y-3.5 pb-2">
+      <section className="px-0.5 pt-1">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-neutral-500">
+              <Sparkles size={13} style={{ color: ctx.primary }} /> Seu painel de hoje
+            </p>
+            <h2 className="mt-1 text-[22px] font-bold tracking-tight text-neutral-950">
+              {greeting}{firstName ? `, ${firstName}` : ''}.
+            </h2>
+            <p className="mt-1 max-w-[30rem] text-xs leading-relaxed text-neutral-500">
+              Veja o que pede atenção e continue fazendo sua carteira crescer.
+            </p>
+          </div>
+          {stats?.rank ? (
+            <div className="shrink-0 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-center">
+              <p className="text-[9px] font-semibold uppercase tracking-wide text-neutral-400">Ranking</p>
+              <p className="mt-0.5 text-sm font-bold tabular-nums text-neutral-900">#{stats.rank}</p>
+            </div>
+          ) : null}
+        </div>
+      </section>
+
+      <AttendanceMetricsStrip ctx={ctx} onOpenAttendance={onOpenAttendance || onViewOpportunities} />
+
+      <section className="affiliate-card overflow-hidden">
+        <div className="flex items-start justify-between gap-3 p-4 pb-3">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-neutral-400">Faturamento gerado</p>
+            <p className="mt-1.5 text-2xl font-bold tracking-tight tabular-nums text-neutral-950">{money(stats?.total_sold)}</p>
+            <p className="mt-0.5 text-[11px] text-neutral-500">resultado das suas indicações</p>
+          </div>
+          <button type="button" onClick={onOpenWallet} className="grid h-10 w-10 place-items-center rounded-xl bg-neutral-100 text-neutral-700" aria-label="Abrir carteira">
+            <ArrowUpRight size={17} />
+          </button>
+        </div>
+        <div className="grid grid-cols-2 border-t border-neutral-100">
+          <div className="p-3.5">
+            <p className="text-[10px] text-neutral-500">Disponível para saque</p>
+            <p className="mt-1 text-sm font-bold tabular-nums text-neutral-900">{money(stats?.commission_available)}</p>
+          </div>
+          <div className="border-l border-neutral-100 p-3.5">
+            <p className="text-[10px] text-neutral-500">Comissão acumulada</p>
+            <p className="mt-1 text-sm font-bold tabular-nums text-neutral-900">{money(stats?.commission_accumulated)}</p>
+          </div>
+        </div>
+        {commissionLabel ? (
+          <div className="flex items-center gap-2 border-t border-neutral-100 bg-neutral-50 px-3.5 py-2.5 text-[11px] text-neutral-600">
+            <CheckCircle2 size={14} style={{ color: ctx.primary }} /> Regra do programa: <strong className="text-neutral-900">{commissionLabel}</strong>
+          </div>
+        ) : null}
+      </section>
+
+      <section className="affiliate-card p-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm font-bold text-neutral-900">Compartilhe seu catálogo</p>
+            <p className="mt-0.5 text-xs text-neutral-500">
+              Preview visual no WhatsApp · cupom e rastreio no link
+            </p>
+          </div>
+          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl" style={{ backgroundColor: `${ctx.primary}12`, color: ctx.primary }}>
+            <Link2 size={18} />
+          </div>
+        </div>
+
+        {/* Card no estilo preview WhatsApp */}
+        {sharePack && (
+          <article className="affiliate-share-preview mt-3 overflow-hidden rounded-xl border border-neutral-200 bg-neutral-50">
+            {sharePack.image_url ? (
+              <div className="relative aspect-[1.91/1] w-full bg-neutral-200">
+                <img
+                  src={sharePack.image_url}
+                  alt=""
+                  className="absolute inset-0 h-full w-full object-cover"
+                  loading="lazy"
+                />
+              </div>
+            ) : (
+              <div
+                className="flex aspect-[1.91/1] w-full items-center justify-center text-white"
+                style={{ background: `linear-gradient(135deg, ${ctx.primary}, ${ctx.secondary})` }}
+              >
+                <span className="text-lg font-bold tracking-tight">{sharePack.site_name || brandName}</span>
+              </div>
+            )}
+            <div className="space-y-0.5 border-t border-neutral-200 bg-white px-3 py-2.5">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-neutral-400">
+                {sharePack.site_name || brandName}
+              </p>
+              <p className="text-[13px] font-bold leading-snug text-neutral-900 line-clamp-2">
+                {sharePack.title}
+              </p>
+              <p className="text-[11px] leading-relaxed text-neutral-500 line-clamp-2">
+                {sharePack.description}
+              </p>
+            </div>
+          </article>
+        )}
+
+        {catalogLink ? (
+          <p className="mt-2 break-all rounded-lg bg-neutral-50 px-2.5 py-1.5 font-mono text-[10px] leading-relaxed text-neutral-500">
+            {catalogLink}
+          </p>
+        ) : null}
+
+        <div className="mt-3 grid grid-cols-3 gap-2">
+          <button
+            type="button"
+            onClick={() => void copyCatalog()}
+            disabled={!sharePack}
+            className="flex h-11 flex-col items-center justify-center gap-0.5 rounded-xl bg-neutral-900 px-1 text-[10px] font-bold text-white active:scale-[0.98] transition disabled:opacity-40"
+          >
+            <Copy size={15} />
+            Copiar
+          </button>
+          <button
+            type="button"
+            onClick={() => void shareCatalog()}
+            disabled={!sharePack}
+            className="flex h-11 flex-col items-center justify-center gap-0.5 rounded-xl border border-neutral-200 bg-white px-1 text-[10px] font-bold text-neutral-800 active:scale-[0.98] transition disabled:opacity-40"
+          >
+            <Share2 size={15} />
+            Compartilhar
+          </button>
+          <button
+            type="button"
+            onClick={shareWhatsApp}
+            disabled={!sharePack}
+            className="flex h-11 flex-col items-center justify-center gap-0.5 rounded-xl px-1 text-[10px] font-bold text-white active:scale-[0.98] transition disabled:opacity-40"
+            style={{ backgroundColor: '#25D366' }}
+            aria-label="Compartilhar no WhatsApp"
+          >
+            <WhatsAppIcon size={15} />
+            WhatsApp
+          </button>
+        </div>
+
+        <div className="mt-3 flex items-center justify-between gap-3 rounded-xl bg-neutral-50 px-3 py-2.5">
+          <div>
+            <p className="text-[9px] font-semibold uppercase tracking-wide text-neutral-400">Seu cupom</p>
+            <p className="mt-0.5 text-sm font-bold tracking-wide text-neutral-900">
+              {sharePack?.coupon_code || affiliate?.coupon_code || '—'}
+            </p>
+          </div>
+          <p className="text-right text-[10px] tabular-nums text-neutral-500">{Number(stats?.clicks || 0)} cliques<br />{Number(stats?.conversions || 0)} conversões</p>
+        </div>
+      </section>
+
+      {shareOpen && sharePack && (
+        <div
+          className="fixed inset-0 z-[80] flex items-end justify-center bg-black/40 p-3 sm:items-center"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Opções de compartilhamento"
+          onClick={() => setShareOpen(false)}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl bg-white p-4 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-3 flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-sm font-bold text-neutral-900">Compartilhar</p>
+                <p className="mt-0.5 text-xs font-semibold text-neutral-800 line-clamp-1">{sharePack.title}</p>
+                <p className="mt-0.5 break-all font-mono text-[10px] text-neutral-500">{sharePack.url}</p>
+              </div>
+              <button
+                type="button"
+                className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-neutral-100 text-neutral-600"
+                onClick={() => setShareOpen(false)}
+                aria-label="Fechar"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            {sharePack.image_url && (
+              <img
+                src={sharePack.image_url}
+                alt=""
+                className="mb-3 h-28 w-full rounded-xl object-cover"
+              />
+            )}
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { id: 'whatsapp' as const, label: 'WhatsApp' },
+                { id: 'telegram' as const, label: 'Telegram' },
+                { id: 'facebook' as const, label: 'Facebook' },
+                { id: 'x' as const, label: 'X / Twitter' },
+                { id: 'email' as const, label: 'E-mail' },
+                { id: 'copy' as const, label: 'Copiar link' },
+              ].map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  className="h-11 rounded-xl border border-neutral-200 text-xs font-semibold text-neutral-800 active:bg-neutral-50"
+                  onClick={() => openShareTarget(opt.id)}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <section className="affiliate-card p-4">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <p className="text-sm font-bold text-neutral-900">Comece por aqui</p>
+            <p className="mt-0.5 text-xs text-neutral-500">Três passos para gerar seus primeiros pedidos.</p>
+          </div>
+          <GraduationCap size={19} className="text-neutral-400" />
+        </div>
+        <div className="mt-3 space-y-1">
+          {[
+            { n: '1', label: 'Copie e compartilhe seu catálogo', action: copyCatalog },
+            { n: '2', label: 'Veja novas oportunidades', action: onViewOpportunities },
+            { n: '3', label: 'Acompanhe seus contatos', action: onOpenLeads },
+          ].map((step) => (
+            <button key={step.n} type="button" onClick={step.action} className="flex min-h-11 w-full items-center gap-3 rounded-xl px-2 text-left hover:bg-neutral-50 active:bg-neutral-100">
+              <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-neutral-100 text-[11px] font-bold text-neutral-700">{step.n}</span>
+              <span className="min-w-0 flex-1 text-xs font-semibold text-neutral-700">{step.label}</span>
+              <ChevronRight size={15} className="text-neutral-400" />
+            </button>
+          ))}
+        </div>
+        {onOpenLinks ? (
+          <button type="button" onClick={onOpenLinks} className="mt-2 h-11 w-full rounded-xl border border-neutral-200 text-xs font-semibold text-neutral-700">
+            Ver desempenho dos links
+          </button>
+        ) : null}
+      </section>
     </div>
   )
 }
@@ -587,108 +1120,6 @@ function AffiliateCommissions({
   )
 }
 
-function AffiliateProfile({ ctx, onOpenConnections }: { ctx: AppContext; onOpenConnections: () => void }) {
-  const [form, setForm] = useState({
-    display_name: ctx.affiliate?.display_name || '',
-    phone: ctx.affiliate?.phone || '',
-    document: ctx.affiliate?.document || '',
-    region: ctx.affiliate?.region || '',
-    social_instagram: ctx.affiliate?.social_instagram || '',
-    social_whatsapp: ctx.affiliate?.social_whatsapp || '',
-  })
-  const [saving, setSaving] = useState(false)
-  async function save() {
-    setSaving(true)
-    try {
-      await affiliateApi.updateProfile(form)
-      ctx.showToast('Perfil atualizado!')
-      void ctx.refresh()
-    } catch (e: unknown) {
-      ctx.showToast(e instanceof Error ? e.message : 'Erro ao salvar', 'err')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const fields = [
-    { key: 'display_name', label: 'Nome', placeholder: 'Seu nome' },
-    { key: 'phone', label: 'Telefone', placeholder: '31999998888' },
-    { key: 'document', label: 'CPF/CNPJ', placeholder: '000.000.000-00' },
-    { key: 'region', label: 'Região', placeholder: 'BH, Contagem...' },
-    { key: 'social_instagram', label: 'Instagram', placeholder: '@seu_perfil' },
-    { key: 'social_whatsapp', label: 'WhatsApp', placeholder: '31999998888' },
-  ] as const
-
-  return (
-    <div className="space-y-3 pb-2">
-      <div className="affiliate-card p-4">
-        <div className="flex items-center gap-3 mb-4">
-          <div
-            className="w-14 h-14 rounded-2xl grid place-items-center text-white font-bold text-xl shadow-md"
-            style={{ background: `linear-gradient(135deg, ${ctx.primary}, ${ctx.secondary})` }}
-          >
-            {(form.display_name || 'A')[0].toUpperCase()}
-          </div>
-          <div>
-            <p className="font-bold text-[#1c1c1e]">{form.display_name || 'Afiliado'}</p>
-            <p className="text-xs text-[#8e8e93]">{ctx.affiliate?.code} · {ctx.affiliate?.coupon_code}</p>
-            <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 mt-1 inline-block">
-              {ctx.affiliate?.status === 'active' ? 'ATIVO' : String(ctx.affiliate?.status || '').toUpperCase()}
-            </span>
-          </div>
-        </div>
-
-        <div className="space-y-3">
-          {fields.map((f) => (
-            <div key={f.key}>
-              <label className="text-[10px] font-bold text-[#8e8e93] uppercase tracking-wider mb-1 block">{f.label}</label>
-              <input
-                value={form[f.key]}
-                onChange={(e) => setForm((prev) => ({ ...prev, [f.key]: e.target.value }))}
-                placeholder={f.placeholder}
-                className="w-full px-3.5 py-3 bg-[#f2f2f7] border-0 rounded-xl text-sm outline-none"
-              />
-            </div>
-          ))}
-        </div>
-
-        <button
-          type="button"
-          onClick={save}
-          disabled={saving}
-          className="w-full mt-4 py-3.5 rounded-xl text-white text-sm font-bold disabled:opacity-50 active:scale-[0.98] transition"
-          style={{ background: `linear-gradient(135deg, ${ctx.primary}, ${ctx.secondary})` }}
-        >
-          {saving ? 'Salvando...' : 'Salvar perfil'}
-        </button>
-      </div>
-
-      <div className="affiliate-card p-4">
-        <p className="text-[11px] font-bold text-[#8e8e93] uppercase tracking-wider mb-3">Notificações push</p>
-        <PushNotificationSettings />
-      </div>
-
-      <button
-        type="button"
-        onClick={onOpenConnections}
-        className="affiliate-card w-full p-4 flex items-center justify-between active:scale-[0.99] transition text-left"
-      >
-        <div className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-xl bg-emerald-50 grid place-items-center">
-            <WhatsAppIcon size={18} className="text-emerald-600" />
-          </div>
-          <div>
-            <p className="font-bold text-sm text-[#1c1c1e]">Conexões WhatsApp</p>
-            <p className="text-xs text-[#8e8e93]">Gerenciar sessões do programa</p>
-          </div>
-        </div>
-        <ChevronRight size={18} className="text-[#c7c7cc]" />
-      </button>
-
-    </div>
-  )
-}
-
 export function AffiliateAppPage() {
   const navigate = useNavigate()
   const location = useLocation()
@@ -749,6 +1180,9 @@ export function AffiliateAppPage() {
       .finally(() => setLoading(false))
   }, [navigate, brandRef, isPartnersProgram, shell.loginPath])
 
+  /* Sincroniza progresso offline do CRM (Meus contatos) quando a rede voltar */
+  useEffect(() => startAffiliateCrmSyncLoop(), [])
+
   const primary = boot?.brand?.primary_color || '#16a34a'
   const secondary = boot?.brand?.secondary_color || '#22c55e'
 
@@ -805,7 +1239,15 @@ export function AffiliateAppPage() {
       return
     }
     if (tab === 'alertas') {
-      navigate(`${base}/alertas`, { replace: true })
+      navigate(`${base}/notificacoes`, { replace: true })
+      return
+    }
+    if (tab === 'preferencias') {
+      navigate(`${base}/notificacoes`, { replace: true })
+      return
+    }
+    if (tab === 'oportunidades') {
+      navigate(`${base}/oportunidades`, { replace: true })
       return
     }
     if (tab === 'contatos') {
@@ -872,7 +1314,9 @@ export function AffiliateAppPage() {
 
   const tabTitles: Record<TabId, string> = {
     resumo: 'Início',
-    'ao-vivo': 'Distribuição ao vivo',
+    oportunidades: 'Oportunidades',
+    atendimento: 'Atendimento',
+    'ao-vivo': 'Automático',
     vendas: 'Pedidos',
     financeiro: financeiroMode === 'saques' ? 'Saques' : financeiroMode === 'pagamentos' ? 'Recebimento Pix' : 'Comissões',
     divulgacao: 'Divulgação',
@@ -880,11 +1324,12 @@ export function AffiliateAppPage() {
     links: 'Links',
     contatos: 'Contatos',
     mercado: 'Mercado',
-    alertas: 'Alertas',
+    alertas: 'Notificações',
+    preferencias: 'Preferências',
     clientes: 'Clientes',
     aprendizado: 'Aprender',
     produtos: 'Produtos',
-    perfil: 'Perfil',
+    perfil: 'Conta',
     conexoes: 'WhatsApp',
     mensagens: 'Mensagens',
   }
@@ -905,30 +1350,51 @@ export function AffiliateAppPage() {
     switch (tab) {
       case 'resumo':
         return (
-          <AffiliateDashboard
+          <PremiumAffiliateDashboard
             ctx={appCtx}
             onOpenLinks={() => goTab('links')}
             onOpenLeads={() => goTab('contatos')}
             onConnectWhatsApp={() => goTab('conexoes')}
-            onViewOpportunities={() => goTab('contatos')}
+            onViewOpportunities={() => goTab('oportunidades')}
+            onOpenAttendance={() => goTab('atendimento')}
+            onOpenWallet={() => goTab('financeiro')}
           />
         )
-      case 'ao-vivo':
+      case 'oportunidades':
         return (
-          <AffiliateLiveDispatchPanel
+          <AffiliateOpportunitiesHub
             ctx={appCtx}
-            onConnectWhatsApp={() => goTab('conexoes')}
+            initialTab={oppHubTabFromSearch(location.search)}
+            initialTaskId={oppHubTaskFromSearch(location.search)}
             onNavigate={(path) => {
               const clean = path.replace(/^\//, '').split('?')[0]
               if (clean === 'conexoes') return goTab('conexoes')
+              if (clean === 'perfil') return goTab('perfil')
               if (clean === 'aprendizado') return goTab('aprendizado')
               if (clean === 'pagamentos') return goFinanceiro('pagamentos')
               if (clean === 'mercado') return goTab('mercado')
               if (clean === 'links') return goTab('links')
+              if (clean === 'atendimento') return goTab('atendimento')
+              if (clean === 'contatos') {
+                setMoreOpen(false)
+                const query = path.includes('?') ? `?${path.split('?').slice(1).join('?')}` : ''
+                navigate(`${base}/contatos${query}`, { replace: true })
+                return
+              }
+              if (clean === 'oportunidades') return goTab('oportunidades')
               goTab(tabFromPath(`/${clean}`, '/'))
             }}
           />
         )
+      case 'atendimento':
+        return (
+          <AffiliateAttendanceHub
+            ctx={appCtx}
+            onNavigate={(tab) => goTab(tabFromPath(`/${tab}`, '/'))}
+          />
+        )
+      case 'ao-vivo':
+        return <AffiliateLiveDispatchPanel ctx={appCtx} onConnectWhatsApp={() => goTab('conexoes')} onNavigate={(path) => goTab(tabFromPath(path, base))} />
       case 'vendas': return <AffiliateOrdersHub ctx={appCtx} />
       case 'financeiro':
         return (
@@ -971,7 +1437,7 @@ export function AffiliateAppPage() {
       case 'materiais': return <AffiliateMaterialsPanel ctx={appCtx} />
       case 'links': return <AffiliateLinksHub ctx={appCtx} active={activeTab === 'links'} />
       case 'contatos':
-        return <AffiliateOpportunitiesPanel ctx={appCtx} />
+        return <AffiliateContactsPage ctx={appCtx} initialFocusRefId={oppHubFocusFromSearch(location.search)} onConnectWhatsApp={() => goTab('conexoes')} />
       case 'mercado':
         // Dentro do programa: mercado de outros programas fica no perfil geral
         if (isPartnersProgram) {
@@ -996,42 +1462,37 @@ export function AffiliateAppPage() {
         return <AffiliateMarketplace ctx={appCtx} />
       case 'alertas':
         return (
-          <div className="pb-2">
-            <NotificationCenter
-              getHeaders={getAffiliateHeaders}
-              appContext="affiliate"
-              onNavigate={(path) => goTab(tabFromPath(path, base))}
-            />
-          </div>
+          <AffiliateAlertsPanel
+            onNavigate={(path) => goTab(tabFromPath(path, base))}
+          />
         )
       case 'clientes':
         return <AffiliateCustomersPanel ctx={appCtx} />
       case 'aprendizado': return <AffiliateLearningPanel ctx={appCtx} />
       case 'produtos': return <AffiliateProductsPanel ctx={appCtx} />
       case 'perfil':
-        // Perfil global fica no app de parceiros; no programa mostra só conexões/dados operacionais
-        if (isPartnersProgram) {
-          return (
-            <div className="space-y-3 pb-2">
-              <div className="affiliate-card p-4">
-                <p className="text-sm font-bold text-[#1c1c1e]">Dados do programa</p>
-                <p className="text-xs text-[#8e8e93] mt-1 leading-relaxed">
-                  Seu perfil global fica no início do LeadCapture Parceiros. Aqui você gerencia WhatsApp e preferências deste programa.
-                </p>
+        return (
+          <div className="space-y-3 pb-2">
+            {isPartnersProgram && (
+              <div className="affiliate-card p-3.5 flex items-start gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-gray-900">Perfil neste programa</p>
+                  <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">
+                    Dados do afiliado nesta marca. Sua conta global de parceiros fica no início do LeadCapture Parceiros.
+                  </p>
+                </div>
                 <button
                   type="button"
                   onClick={exitProgram}
-                  className="mt-3 inline-flex items-center gap-1.5 text-xs font-bold"
-                  style={{ color: appCtx.primary }}
+                  className="shrink-0 text-xs font-semibold text-gray-700 underline-offset-2 hover:underline"
                 >
-                  <Home size={14} /> Ir ao perfil geral
+                  Conta global
                 </button>
               </div>
-              <AffiliateConnections ctx={appCtx} reloadToken={connectionsReload} />
-            </div>
-          )
-        }
-        return <AffiliateProfile ctx={appCtx} onOpenConnections={() => goTab('conexoes')} />
+            )}
+            <AffiliateProfilePanel ctx={appCtx} />
+          </div>
+        )
       case 'conexoes':
         return (
           <div className="pb-2">
@@ -1095,12 +1556,14 @@ export function AffiliateAppPage() {
               />
               {!isPartnersProgram && (
                 <>
-                  <NotificationBellButton
-                    getHeaders={getAffiliateHeaders}
-                    appContext="affiliate"
-                    onNavigate={(path) => goTab(tabFromPath(path, base))}
-                    className="bg-white/15 hover:bg-white/25 active:scale-95 transition text-white"
-                  />
+                  <button
+                    type="button"
+                    onClick={() => goTab('alertas')}
+                    className="w-10 h-10 rounded-xl bg-white/15 grid place-items-center hover:bg-white/25 active:scale-95 transition text-white"
+                    aria-label="Notificações"
+                  >
+                    <Bell size={17} />
+                  </button>
                   <button
                     type="button"
                     onClick={logout}

@@ -81,7 +81,9 @@ export function mensagemStepsToWhatsAppBlocks(steps: MensagemStep[]): WhatsAppTe
           : 1,
         delaySeconds: step.delaySegundos || 0,
         ctaLabel: step.ctaLabel,
-        deliveryMode: ['botoes', 'lista'].includes(step.tipo) ? 'native_only' : undefined,
+        // auto = tenta botão nativo e se falhar envia 1) 2) 3) (recomendado no teste)
+        deliveryMode: ['botoes', 'lista'].includes(step.tipo) ? 'auto' : undefined,
+        interactiveStrategy: ['botoes', 'lista'].includes(step.tipo) ? 'auto' : undefined,
       },
     }
   })
@@ -123,6 +125,8 @@ export function WhatsAppCompositionTest({ blocks, sourceLabel, className = '' }:
     ),
     [blocks],
   )
+  const [forceNativeOnly, setForceNativeOnly] = useState(false)
+
   const testBlocks = useMemo(
     () => usefulBlocks.map((block) => {
       const actionType = String(block.actionType || '').toLowerCase()
@@ -132,10 +136,15 @@ export function WhatsAppCompositionTest({ blocks, sourceLabel, className = '' }:
       return {
         ...block,
         content,
-        config: { ...(block.config || {}), deliveryMode: 'native_only' },
+        config: {
+          ...(block.config || {}),
+          // Default auto: nativo + fallback numerado. native_only só se o operador forçar.
+          deliveryMode: forceNativeOnly ? 'native_only' : 'auto',
+          interactiveStrategy: forceNativeOnly ? 'native_only' : 'auto',
+        },
       }
     }),
-    [usefulBlocks],
+    [usefulBlocks, forceNativeOnly],
   )
 
   const selectedInstance = useMemo(
@@ -212,12 +221,21 @@ export function WhatsAppCompositionTest({ blocks, sourceLabel, className = '' }:
       if (!response.ok) throw new Error(data?.error || 'Não foi possível enviar o teste')
       localStorage.setItem(storageKey(), normalizedPhone)
       setPhone(normalizedPhone)
+      const modes = Array.isArray(data?.blockResults)
+        ? data.blockResults
+            .map((b: any) => `${b.actionType || '?'}=${b.mode || (b.ok ? 'ok' : 'fail')}`)
+            .join(' · ')
+        : ''
+      const modeHint = modes
+        ? ` Modo: ${modes}.`
+        : ''
       const ownHint = data?.sameAsInstancePhone || testingOwnNumber
         ? ' Atenção: no próprio número os botões ficam cinza/desativados — teste em outro WhatsApp para clicar.'
-        : ' Confira no celular de DESTINO se os botões estão clicáveis.'
+        : ' Confira no celular de DESTINO se os botões estão clicáveis (ou se veio como 1) 2) 3)).'
+      const warn = data?.warning ? ` ${data.warning}` : ''
       setFeedback({
         ok: true,
-        text: `${data.blockCount} bloco(s) interativos confirmados para +${data.sentTo}.${ownHint}`,
+        text: `${data.blockCount} bloco(s) enviados para +${data.sentTo}.${modeHint}${ownHint}${warn}`,
       })
     } catch (error: any) {
       setFeedback({ ok: false, text: error?.message || 'Falha no envio de teste.' })
@@ -291,6 +309,20 @@ export function WhatsAppCompositionTest({ blocks, sourceLabel, className = '' }:
           Enviar teste
         </button>
       </div>
+
+      <label className="mt-2 flex items-start gap-2 cursor-pointer select-none">
+        <input
+          type="checkbox"
+          checked={forceNativeOnly}
+          onChange={(e) => setForceNativeOnly(e.target.checked)}
+          className="mt-0.5 rounded border-gray-300"
+        />
+        <span className="text-[11px] leading-relaxed text-gray-600">
+          <strong className="font-semibold text-gray-800">Só botão nativo</strong>
+          {' '}(sem fallback 1) 2) 3)). Use para depurar; se falhar, o teste mostra erro.
+          Padrão: tenta nativo e, se o WhatsApp não aceitar, envia opções numeradas.
+        </span>
+      </label>
 
       {feedback && (
         <p className={`mt-2 flex items-center gap-1.5 text-[11px] font-medium ${feedback.ok ? 'text-emerald-700' : 'text-red-600'}`}>

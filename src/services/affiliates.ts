@@ -51,6 +51,9 @@ export type AffiliateProfile = {
   document: string | null;
   pix_key: string | null;
   region: string | null;
+  city: string | null;
+  bio: string | null;
+  avatar_url: string | null;
   social_instagram: string | null;
   social_whatsapp: string | null;
   status: string;
@@ -61,6 +64,8 @@ export type AffiliateProfile = {
   total_sales: number;
   total_commission: number;
   rank_position: number | null;
+  /** Preenchido via join com credentials/users quando disponível */
+  email?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -132,6 +137,9 @@ async function initializeAffiliateSchema(): Promise<void> {
   await query(
     `ALTER TABLE affiliates ADD COLUMN commission_value DECIMAL(12,4) NULL`
   ).catch(() => undefined);
+  await query(`ALTER TABLE affiliates ADD COLUMN city VARCHAR(120) NULL`).catch(() => undefined);
+  await query(`ALTER TABLE affiliates ADD COLUMN bio TEXT NULL`).catch(() => undefined);
+  await query(`ALTER TABLE affiliates ADD COLUMN avatar_url VARCHAR(500) NULL`).catch(() => undefined);
   await query(`
     CREATE TABLE IF NOT EXISTS affiliates (
       id VARCHAR(36) PRIMARY KEY,
@@ -1255,16 +1263,31 @@ export class AffiliatesService {
     document: string;
     pix_key: string;
     region: string;
+    city: string;
+    bio: string;
+    avatar_url: string;
     social_instagram: string;
     social_whatsapp: string;
   }>) {
     await ensureAffiliateSchema();
+    const allowed = new Set([
+      "display_name",
+      "phone",
+      "document",
+      "pix_key",
+      "region",
+      "city",
+      "bio",
+      "avatar_url",
+      "social_instagram",
+      "social_whatsapp",
+    ]);
     const fields: string[] = [];
     const values: any[] = [];
     for (const [key, value] of Object.entries(payload)) {
-      if (value === undefined) continue;
+      if (value === undefined || !allowed.has(key)) continue;
       fields.push(`${key} = ?`);
-      values.push(value);
+      values.push(typeof value === "string" ? value.trim() || null : value);
     }
     if (fields.length > 0) {
       fields.push("updated_at = NOW()");
@@ -2363,6 +2386,12 @@ export class AffiliatesService {
     await ensureAffiliateSchema();
     const config = await this.getOrCreateProgramConfig(ownerUserId, brandId);
 
+    await query(`CREATE TABLE IF NOT EXISTS affiliate_manual_actions (
+      id VARCHAR(36) PRIMARY KEY, owner_user_id VARCHAR(36) NOT NULL, brand_id VARCHAR(36) NOT NULL,
+      affiliate_id VARCHAR(36) NOT NULL, ref_type VARCHAR(30) NOT NULL, ref_id VARCHAR(36) NOT NULL,
+      action VARCHAR(40) NOT NULL, message_text TEXT NULL, note TEXT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`).catch(() => undefined);
+
     const affiliateAgg = await queryOne<any>(
       `SELECT
          COUNT(*) AS total,
@@ -2413,6 +2442,66 @@ export class AffiliatesService {
       [ownerUserId, brandId]
     );
 
+    const activityAgg = await queryOne<any>(
+      `SELECT
+         COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE) AS actions_today,
+         COUNT(*) FILTER (WHERE created_at >= CURRENT_TIMESTAMP - INTERVAL '7 day') AS actions_7d,
+         COUNT(DISTINCT affiliate_id) FILTER (WHERE created_at >= CURRENT_DATE) AS active_affiliates_today,
+         COUNT(DISTINCT (ref_type || ':' || ref_id)) FILTER (
+           WHERE action IN ('sent', 'followup') AND created_at >= CURRENT_DATE
+         ) AS contacts_sent_today,
+         COUNT(*) FILTER (WHERE action = 'sent' AND created_at >= CURRENT_DATE) AS messages_sent_today,
+         COUNT(*) FILTER (WHERE action = 'followup' AND created_at >= CURRENT_DATE) AS followups_today,
+         COUNT(*) FILTER (WHERE action = 'replied' AND created_at >= CURRENT_DATE) AS replies_today,
+         COUNT(*) FILTER (WHERE action = 'negotiating' AND created_at >= CURRENT_DATE) AS negotiations_today,
+         COUNT(*) FILTER (WHERE action = 'convert' AND created_at >= CURRENT_DATE) AS conversions_today,
+         COUNT(DISTINCT (ref_type || ':' || ref_id)) FILTER (
+           WHERE action IN ('sent', 'followup') AND created_at >= CURRENT_TIMESTAMP - INTERVAL '7 day'
+         ) AS contacts_sent_7d,
+         COUNT(*) FILTER (WHERE action = 'replied' AND created_at >= CURRENT_TIMESTAMP - INTERVAL '7 day') AS replies_7d,
+         COUNT(*) FILTER (WHERE action = 'convert' AND created_at >= CURRENT_TIMESTAMP - INTERVAL '7 day') AS conversions_7d
+       FROM affiliate_manual_actions
+       WHERE owner_user_id = ? AND brand_id = ?`,
+      [ownerUserId, brandId],
+    ).catch(() => null);
+
+    const activityByAffiliate = await query<any[]>(
+      `SELECT a.affiliate_id, f.display_name, f.code,
+              COUNT(*) AS actions,
+              COUNT(DISTINCT (a.ref_type || ':' || a.ref_id)) FILTER (WHERE a.action IN ('sent', 'followup')) AS contacts_sent,
+              COUNT(*) FILTER (WHERE a.action = 'replied') AS replies,
+              COUNT(*) FILTER (WHERE a.action = 'followup') AS followups,
+              COUNT(*) FILTER (WHERE a.action = 'convert') AS conversions,
+              MAX(a.created_at) AS last_activity_at
+       FROM affiliate_manual_actions a
+       INNER JOIN affiliates f ON f.id = a.affiliate_id
+       WHERE a.owner_user_id = ? AND a.brand_id = ?
+         AND a.created_at >= CURRENT_TIMESTAMP - INTERVAL '7 day'
+       GROUP BY a.affiliate_id, f.display_name, f.code
+       ORDER BY contacts_sent DESC, replies DESC, actions DESC
+       LIMIT 10`,
+      [ownerUserId, brandId],
+    ).catch(() => []);
+
+    const recentActivity = await query<any[]>(
+      `SELECT a.id, a.affiliate_id, f.display_name, a.action, a.ref_type, a.ref_id,
+              a.message_text, a.note, a.created_at,
+              COALESCE(pa.prospect_name, al.customer_name, 'Contato') AS contact_name
+       FROM affiliate_manual_actions a
+       INNER JOIN affiliates f ON f.id = a.affiliate_id
+       LEFT JOIN prospect_assignments pa ON a.ref_type = 'assignment' AND pa.id = a.ref_id
+       LEFT JOIN affiliate_leads al ON a.ref_type = 'affiliate_lead' AND al.id = a.ref_id
+       WHERE a.owner_user_id = ? AND a.brand_id = ?
+       ORDER BY a.created_at DESC
+       LIMIT 30`,
+      [ownerUserId, brandId],
+    ).catch(() => []);
+
+    const sentToday = Number(activityAgg?.contacts_sent_today || 0);
+    const repliesToday = Number(activityAgg?.replies_today || 0);
+    const sent7d = Number(activityAgg?.contacts_sent_7d || 0);
+    const replies7d = Number(activityAgg?.replies_7d || 0);
+
     return {
       program: config,
       affiliates_total: Number(affiliateAgg?.total || 0),
@@ -2429,6 +2518,50 @@ export class AffiliatesService {
       payouts_requested_amount: Number(payoutsAgg?.requested_amount || 0),
       materials_count: Number(materialsCount?.total || 0),
       top_affiliates: topAffiliates,
+      activity: {
+        today: {
+          actions: Number(activityAgg?.actions_today || 0),
+          active_affiliates: Number(activityAgg?.active_affiliates_today || 0),
+          contacts_sent: sentToday,
+          messages_sent: Number(activityAgg?.messages_sent_today || 0),
+          followups: Number(activityAgg?.followups_today || 0),
+          replies: repliesToday,
+          negotiations: Number(activityAgg?.negotiations_today || 0),
+          conversions: Number(activityAgg?.conversions_today || 0),
+          response_rate: sentToday > 0 ? Math.round((repliesToday / sentToday) * 100) : null,
+        },
+        last_7_days: {
+          actions: Number(activityAgg?.actions_7d || 0),
+          contacts_sent: sent7d,
+          replies: replies7d,
+          conversions: Number(activityAgg?.conversions_7d || 0),
+          response_rate: sent7d > 0 ? Math.round((replies7d / sent7d) * 100) : null,
+        },
+        by_affiliate: activityByAffiliate.map((row) => ({
+          affiliate_id: String(row.affiliate_id),
+          display_name: String(row.display_name || 'Afiliado'),
+          code: row.code ? String(row.code) : null,
+          actions: Number(row.actions || 0),
+          contacts_sent: Number(row.contacts_sent || 0),
+          replies: Number(row.replies || 0),
+          followups: Number(row.followups || 0),
+          conversions: Number(row.conversions || 0),
+          response_rate: Number(row.contacts_sent || 0) > 0
+            ? Math.round((Number(row.replies || 0) / Number(row.contacts_sent || 0)) * 100)
+            : null,
+          last_activity_at: row.last_activity_at || null,
+        })),
+        recent: recentActivity.map((row) => ({
+          id: String(row.id),
+          affiliate_id: String(row.affiliate_id),
+          affiliate_name: String(row.display_name || 'Afiliado'),
+          contact_name: String(row.contact_name || 'Contato'),
+          action: String(row.action || 'note'),
+          message: row.message_text ? String(row.message_text) : null,
+          note: row.note ? String(row.note) : null,
+          created_at: row.created_at || null,
+        })),
+      },
     };
   }
 

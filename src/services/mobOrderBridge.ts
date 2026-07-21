@@ -206,10 +206,10 @@ export async function ensureMobDeliveryForOrder(input: {
         ownerUserId: input.ownerUserId,
         brandId,
         eventKey: "mob_delivery_created",
-        title: "Entrega Mob do pedido",
+        title: "Corrida Mob do pedido",
         body: input.customerName
-          ? `Pedido gerou entrega para ${input.customerName}`
-          : `Pedido ${input.orderId.slice(0, 8)} virou entrega Mob`,
+          ? `Pedido gerou corrida para ${input.customerName}`
+          : `Pedido ${input.orderId.slice(0, 8)} virou corrida Mob`,
         deliveryId: finalDelivery.id,
       });
     } catch {

@@ -4,7 +4,7 @@
  * reply tasks when any definition matched the event.
  */
 
-import { query } from "../config/database";
+import { query, queryOne } from "../config/database";
 import { logger } from "../utils/logger";
 import { brandAutomationsService } from "./brandAutomations";
 import { automationDefinitionsService } from "./automationDefinitions";
@@ -51,9 +51,32 @@ function parseConfig(value: any): Record<string, any> {
   }
 }
 
+/**
+ * Se a brand já tem automações (definitions) para o evento IG, o catálogo legado
+ * NÃO deve responder em fallback — senão desligar todas na UI ainda deixa o
+ * ig-webhook-dm-reply ativo mandando DM.
+ */
+async function brandHasEventDefinitions(brandId: string, evento: string): Promise<boolean> {
+  try {
+    const row = await queryOne<any>(
+      `SELECT id FROM automation_definitions
+       WHERE brand_id = ?
+         AND trigger_json->>'tipo' = 'evento'
+         AND trigger_json->>'plataforma' = 'instagram'
+         AND trigger_json->>'evento' = ?
+       LIMIT 1`,
+      [brandId, evento],
+    );
+    return Boolean(row?.id);
+  } catch {
+    return false;
+  }
+}
+
 async function runCatalogWebhookMatches(
   input: DispatchInstagramEventInput,
 ): Promise<Array<{ slug: string; status: string; error?: string }>> {
+  // Só roda automação de catálogo com status = active (nunca global genérico)
   const rows = (await query<any[]>(
     `SELECT ba.*, ac.task_type, ac.name AS catalog_name
      FROM brand_automations ba
@@ -206,20 +229,37 @@ export async function dispatchInstagramEvent(
 
   // Only skip catalog when a definition actually SENT successfully
   const defSuccessCount = results.filter((r) => r.source === "definition" && r.status === "success").length;
+  const hasEventDefs = await brandHasEventDefinitions(input.brandId, input.evento);
+
+  // Regra de produto: resposta só por automação específica.
+  // Se existem definitions para o evento (mesmo todas inativas), NÃO usar fallback
+  // do catálogo legado — senão "desligar todas" ainda responde via ig-webhook-dm-reply.
   skippedCatalog =
     mode === "definitions" ||
+    hasEventDefs ||
     (mode === "hybrid" && defSuccessCount > 0) ||
     shouldSkipCatalogWebhookReplies(mode, defSuccessCount);
 
-  // --- Catalog path ---
-  if (mode === "definitions") {
-    skippedCatalog = true;
-  } else if (mode === "hybrid" && skippedCatalog) {
+  // --- Catalog path (legado: só brands sem definitions para o evento) ---
+  if (skippedCatalog) {
     logger.info(
-      `[IG Dispatcher] skip catalog webhooks brand=${input.brandId} evento=${input.evento} defSuccess=${defSuccessCount}`,
+      `[IG Dispatcher] skip catalog brand=${input.brandId} evento=${input.evento} mode=${mode} hasEventDefs=${hasEventDefs} defSuccess=${defSuccessCount} defMatched=${defMatchCount}`,
     );
+    // Desliga zumbis de catálogo quando o controle já é por definitions
+    if (hasEventDefs) {
+      if (input.evento === "resposta_padrao_dm" || input.evento === "dm_keyword") {
+        void brandAutomationsService
+          .pauseSlugForBrand(input.brandId, "ig-webhook-dm-reply")
+          .catch(() => undefined);
+      }
+      if (input.evento === "comentario_keyword") {
+        void brandAutomationsService
+          .pauseSlugForBrand(input.brandId, "ig-webhook-comment-keyword")
+          .catch(() => undefined);
+      }
+    }
   } else {
-    // catalog mode OR hybrid with zero successful defs → catalog fallback
+    // Apenas brand_automations com status='active' (filtro em runCatalogWebhookMatches)
     const catalogResults = await runCatalogWebhookMatches(input);
     matched += catalogResults.length;
     for (const r of catalogResults) {

@@ -6,9 +6,10 @@ import { pushContextLabel, resolvePushAppContext } from '@/lib/push/context'
 type Props = {
   className?: string
   onActivated?: () => void
+  compact?: boolean
 }
 
-export function PushActivationCard({ className = '', onActivated }: Props) {
+export function PushActivationCard({ className = '', onActivated, compact = false }: Props) {
   const [perm, setPerm] = useState(pushPermission())
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
@@ -50,6 +51,28 @@ export function PushActivationCard({ className = '', onActivated }: Props) {
   }
 
   const denied = perm === 'denied'
+
+  if (compact) {
+    return (
+      <div className={`rounded-2xl border border-neutral-200 bg-white p-4 ${className}`}>
+        <div className="flex items-center gap-3">
+          <span className="w-10 h-10 rounded-xl bg-neutral-100 grid place-items-center text-neutral-700 shrink-0">
+            {denied ? <BellOff size={17} /> : <Bell size={17} />}
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-neutral-900">Notificações neste aparelho</p>
+            <p className="text-xs text-neutral-500 mt-0.5">{denied ? 'Permissão bloqueada no navegador' : 'Receba avisos mesmo com o app fechado'}</p>
+          </div>
+          {!denied && (
+            <button type="button" onClick={activate} disabled={busy} className="h-10 px-3 rounded-xl bg-neutral-900 text-white text-xs font-semibold shrink-0 disabled:opacity-50">
+              {busy ? <Loader2 size={14} className="animate-spin" /> : 'Ativar'}
+            </button>
+          )}
+        </div>
+        {msg && <p className="text-xs text-red-600 mt-2">{msg}</p>}
+      </div>
+    )
+  }
 
   return (
     <div

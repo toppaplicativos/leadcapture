@@ -76,7 +76,7 @@
         --splash-tile: #78350f;
       }
       #app-splash[data-view='affiliate'] {
-        --splash-bg: #ecfdf5;
+        --splash-bg: #f5f5f5;
         --splash-fg: #14532d;
         --splash-tile: #14532d;
       }
@@ -169,23 +169,29 @@
             ? partnersBrandMatch[1]
             : ''
         var isPartnersHost = isPartnersGlobalHost || !!partnersBrandSlug
+        // Home do painel e rotas do AdminShell (inclui /assistente pós-login)
         var adminPaths = {
-          admin: true, dashboard: true, login: true, leads: true, clientes: true,
-          busca: true, mensagens: true, notificacoes: true, campanhas: true,
+          admin: true, dashboard: true, login: true, assistente: true, leads: true, clientes: true,
+          busca: true, mensagens: true, notificacoes: true, campanhas: true, campanha: true,
           automacoes: true, fluxos: true, habilidades: true, skills: true,
           criativos: true, creative: true, integracoes: true, galeria: true,
-          'video-studio': true, produtos: true, pedidos: true, design: true,
+          'video-studio': true, produtos: true, pedidos: true, design: true, loja: true,
           whatsapp: true, instagram: true, facebook: true, pagamentos: true,
           frete: true, dominio: true, agente: true, atendente: true,
           configuracoes: true, emails: true, 'provedores-ia': true,
           afiliados: true, cupons: true, avaliacoes: true,
-          'tirar-pedido': true,
+          'tirar-pedido': true, estoque: true,
         }
-        var splashView = 'store'
-        var appKind = 'store'
+        // Default: storefront em domínio customizado. Em app.leadcapture.* o default é admin.
+        var isAppLeadcaptureHost =
+          host === 'app.leadcapture.online'
+          || host === 'leadcapture.online'
+          || host === 'www.leadcapture.online'
+        var splashView = isAppLeadcaptureHost ? 'admin' : 'store'
+        var appKind = isAppLeadcaptureHost ? 'admin' : 'store'
         var surface = '' // partners = app global LeadCapture Parceiros
 
-        if (isMobHost || firstPath === 'mob' || firstPath === 'rastreio') {
+        if (isMobHost || firstPath === 'mob' || firstPath === 'rastreio' || firstPath === 'entrar') {
           // App do entregador (Lead Capture Mob)
           appKind = 'mob'
           splashView = 'mob'
@@ -200,6 +206,7 @@
           splashView = 'affiliate'
           slug = partnersBrandSlug
         } else if ((pathParts[0] === 'catalogo' || pathParts[0] === 'loja') && pathParts[1]) {
+          // /loja/:slug = vitrine pública; /loja sozinho = Studio no admin
           slug = decodeURIComponent(pathParts[1])
           channel = pathParts[0]
           splashView = 'store'
@@ -212,16 +219,7 @@
           if (pathParts[1]) slug = decodeURIComponent(pathParts[1])
           appKind = 'stock'
           splashView = 'stock'
-        } else if (adminPaths[firstPath] || firstPath === 'estoque') {
-          // /estoque no admin é módulo, não app-estoque
-          if (firstPath === 'estoque' && !pathParts[1]) {
-            splashView = 'admin'
-            appKind = 'admin'
-          } else if (adminPaths[firstPath]) {
-            splashView = 'admin'
-            appKind = 'admin'
-          }
-        } else if (!firstPath || firstPath === 'inicio') {
+        } else if (adminPaths[firstPath] || !firstPath || firstPath === 'inicio') {
           splashView = 'admin'
           appKind = 'admin'
         }
@@ -256,7 +254,7 @@
           store: '#f1f5f9',
           admin: '#f3f3f3',
           stock: '#fffbeb',
-          affiliate: '#ecfdf5',
+          affiliate: '#f5f5f5',
           mob: '#f5f5f5',
         }
 
@@ -314,6 +312,53 @@
           name: brandLabel,
           themeColor: themeColors[splashView] || '#0a0a0a',
           iconUrl: splashIcon,
+        }
+      })()
+    </script>
+    <!--
+      PWA install: capturar beforeinstallprompt O MAIS CEDO possível.
+      No Android o Chrome pode disparar o evento antes do React montar;
+      se perder, o botão "Instalar" nunca chama prompt() nativo.
+    -->
+    <script>
+      (function () {
+        window.__LC_DEFERRED_INSTALL__ = null
+        window.__LC_INSTALL_READY__ = false
+        window.addEventListener('beforeinstallprompt', function (e) {
+          try { e.preventDefault() } catch (_) {}
+          window.__LC_DEFERRED_INSTALL__ = e
+          window.__LC_INSTALL_READY__ = true
+          try {
+            window.dispatchEvent(new CustomEvent('lc:beforeinstallprompt', { detail: e }))
+          } catch (_) {}
+        })
+        window.addEventListener('appinstalled', function () {
+          window.__LC_DEFERRED_INSTALL__ = null
+          window.__LC_INSTALL_READY__ = false
+          try {
+            window.dispatchEvent(new CustomEvent('lc:appinstalled'))
+          } catch (_) {}
+        })
+
+        // Registrar SW cedo (sem esperar window.load) para o Chrome marcar instalável mais rápido
+        var host = (location.hostname || '').toLowerCase()
+        var isLocal = host === 'localhost' || host === '127.0.0.1' || host === '::1'
+        if (!isLocal && location.protocol === 'https:' && 'serviceWorker' in navigator) {
+          var parts = location.pathname.split('/').filter(Boolean)
+          var first = parts[0] || ''
+          var scope = '/'
+          if ((first === 'catalogo' || first === 'loja') && parts[1]) {
+            scope = '/' + first + '/' + encodeURIComponent(parts[1]) + '/'
+          } else if (first === 'app-estoque' && parts[1]) {
+            scope = '/app-estoque/' + encodeURIComponent(parts[1]) + '/'
+          } else if (first === 'central-afiliado' && parts[1]) {
+            scope = '/central-afiliado/' + encodeURIComponent(parts[1]) + '/'
+          } else if (first === 'parceiros') {
+            scope = '/parceiros/'
+          } else if (first === 'mob' && host !== 'mob.leadcapture.online') {
+            scope = '/mob/'
+          }
+          navigator.serviceWorker.register('/service-worker.js', { scope: scope }).catch(function () {})
         }
       })()
     </script>

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   Handshake, LayoutDashboard, Users, Wallet, Image, Plus, Layers,
   ExternalLink, ToggleLeft, ToggleRight, ChevronRight, CheckCircle2,
-  Clock, DollarSign, BookOpen, Package, Share2, Sparkles,
+  Clock, DollarSign, BookOpen, Package, Share2, Sparkles, BarChart3, Send, MessageCircle,
 } from 'lucide-react'
 import { AffiliateDistributionSection } from '@/pages/admin/affiliates/AffiliateDistributionSection'
 import { AffiliateMaterialsSection } from '@/pages/admin/affiliates/AffiliateMaterialsSection'
@@ -24,6 +24,7 @@ import { useAffiliatesBridgeOptional, type AffiliatesTabKey } from '@/lib/agent/
 
 const TABS = [
   { key: 'overview' as const, label: 'Visão geral', icon: LayoutDashboard },
+  { key: 'analytics' as const, label: 'Análises', icon: BarChart3 },
   { key: 'distribution' as const, label: 'Distribuição', icon: Share2 },
   { key: 'programs' as const, label: 'Programas', icon: Layers },
   { key: 'partners' as const, label: 'Afiliados', icon: Users },
@@ -488,6 +489,91 @@ export function AffiliatesPage({ showToast = () => {}, embedded = false, initial
                 catalogProductsCount={catalogProducts.length}
                 onGoTab={(t) => setTab(t as TabKey)}
               />
+            </div>
+          )}
+
+          {tab === 'analytics' && (
+            <div className="space-y-4">
+              <section className="rounded-2xl border border-border-light bg-white overflow-hidden">
+                <div className="p-4 sm:p-5 border-b border-border-light">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">Desempenho operacional</p>
+                  <div className="mt-1 flex flex-wrap items-end justify-between gap-3">
+                    <div>
+                      <h2 className="text-[18px] font-semibold text-gray-900">Atividade dos afiliados</h2>
+                      <p className="mt-1 text-[12px] text-gray-500">Envios, retornos, follow-ups e conversões registrados no atendimento.</p>
+                    </div>
+                    <span className="rounded-full bg-gray-100 px-3 py-1.5 text-[11px] font-semibold text-gray-600">Hoje e últimos 7 dias</span>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 lg:grid-cols-4 divide-x divide-y lg:divide-y-0 divide-border-light">
+                  {[
+                    { label: 'Contatos enviados', value: stats?.activity?.today?.contacts_sent ?? 0, Icon: Send },
+                    { label: 'Retornos', value: stats?.activity?.today?.replies ?? 0, Icon: MessageCircle },
+                    { label: 'Follow-ups', value: stats?.activity?.today?.followups ?? 0, Icon: Clock },
+                    { label: 'Conversões', value: stats?.activity?.today?.conversions ?? 0, Icon: CheckCircle2 },
+                  ].map((item) => (
+                    <div key={item.label} className="p-4">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">{item.label}</span>
+                        <item.Icon size={14} className="text-gray-400" />
+                      </div>
+                      <p className="mt-2 text-[24px] font-bold tabular-nums text-gray-900">{item.value}</p>
+                    </div>
+                  ))}
+                </div>
+                <div className="grid sm:grid-cols-3 border-t border-border-light bg-gray-50">
+                  <div className="p-3.5"><span className="text-[10px] text-gray-500">Taxa de retorno hoje</span><p className="mt-1 text-sm font-semibold tabular-nums text-gray-900">{stats?.activity?.today?.response_rate ?? '—'}{stats?.activity?.today?.response_rate != null ? '%' : ''}</p></div>
+                  <div className="p-3.5 sm:border-l border-border-light"><span className="text-[10px] text-gray-500">Contatos em 7 dias</span><p className="mt-1 text-sm font-semibold tabular-nums text-gray-900">{stats?.activity?.last_7_days?.contacts_sent ?? 0}</p></div>
+                  <div className="p-3.5 sm:border-l border-border-light"><span className="text-[10px] text-gray-500">Afiliados atuantes hoje</span><p className="mt-1 text-sm font-semibold tabular-nums text-gray-900">{stats?.activity?.today?.active_affiliates ?? 0}</p></div>
+                </div>
+              </section>
+
+              <div className="grid lg:grid-cols-[1.2fr_.8fr] gap-4">
+                <section className="rounded-2xl border border-border-light bg-white overflow-hidden">
+                  <div className="p-4 border-b border-border-light">
+                    <h3 className="text-sm font-semibold text-gray-900">Resultado por afiliado</h3>
+                    <p className="mt-0.5 text-[11px] text-gray-500">Últimos sete dias, ordenado por contatos trabalhados.</p>
+                  </div>
+                  {!stats?.activity?.by_affiliate?.length ? (
+                    <div className="p-8 text-center text-xs text-gray-500">Nenhuma atividade registrada no período.</div>
+                  ) : (
+                    <div className="divide-y divide-border-light">
+                      {stats.activity.by_affiliate.map((row: any) => (
+                        <div key={row.affiliate_id} className="p-4">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0"><p className="text-sm font-semibold text-gray-900 truncate">{row.display_name}</p><p className="mt-0.5 text-[10px] text-gray-500">{row.contacts_sent} contatos · {row.followups} follow-ups</p></div>
+                            <span className="rounded-full bg-gray-100 px-2.5 py-1 text-[10px] font-semibold text-gray-700">{row.response_rate == null ? 'Sem taxa' : `${row.response_rate}% retorno`}</span>
+                          </div>
+                          <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+                            <div className="rounded-xl bg-gray-50 p-2"><strong className="block text-sm tabular-nums text-gray-900">{row.replies}</strong><span className="text-[9px] text-gray-500">Retornos</span></div>
+                            <div className="rounded-xl bg-gray-50 p-2"><strong className="block text-sm tabular-nums text-gray-900">{row.conversions}</strong><span className="text-[9px] text-gray-500">Conversões</span></div>
+                            <div className="rounded-xl bg-gray-50 p-2"><strong className="block text-sm tabular-nums text-gray-900">{row.actions}</strong><span className="text-[9px] text-gray-500">Ações</span></div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </section>
+
+                <section className="rounded-2xl border border-border-light bg-white overflow-hidden">
+                  <div className="p-4 border-b border-border-light"><h3 className="text-sm font-semibold text-gray-900">Atividade recente</h3><p className="mt-0.5 text-[11px] text-gray-500">Últimas movimentações da rede.</p></div>
+                  {!stats?.activity?.recent?.length ? (
+                    <div className="p-8 text-center text-xs text-gray-500">Nenhuma movimentação recente.</div>
+                  ) : (
+                    <div className="divide-y divide-border-light max-h-[34rem] overflow-y-auto">
+                      {stats.activity.recent.map((item: any) => {
+                        const labels: Record<string, string> = { sent: 'enviou uma mensagem', followup: 'fez um follow-up', replied: 'registrou um retorno', negotiating: 'iniciou negociação', convert: 'converteu um contato', no_answer: 'registrou ausência de resposta', waiting: 'agendou um retorno', note: 'adicionou uma nota' }
+                        return (
+                          <div key={item.id} className="p-3.5">
+                            <p className="text-[12px] leading-relaxed text-gray-700"><strong className="text-gray-900">{item.affiliate_name}</strong> {labels[item.action] || 'atualizou o atendimento'} de <strong className="text-gray-900">{item.contact_name}</strong>.</p>
+                            <p className="mt-1 text-[10px] text-gray-400">{item.created_at ? new Date(item.created_at).toLocaleString('pt-BR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'Agora'}</p>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </section>
+              </div>
             </div>
           )}
 

@@ -8,7 +8,6 @@ import {
   Navigation,
   Package,
   Power,
-  Building2,
   Loader2,
   LogOut,
   Check,
@@ -16,7 +15,6 @@ import {
   ChevronRight,
   AlertTriangle,
   Phone,
-  Bell,
   Timer,
   Camera,
   Route as RouteIcon,
@@ -30,17 +28,28 @@ import {
   ScanLine,
   Box,
   WifiOff,
+  Menu,
+  Building2,
+  Bell,
 } from 'lucide-react'
 import { Button, Badge } from '@/components/ui'
-import { PushNotificationSettings } from '@/components/push/PushNotificationSettings'
 import { MobCourierRouteMap } from '@/components/mob/MobCourierRouteMap'
 import { SignaturePad } from '@/components/mob/SignaturePad'
+import { MobCourierProfilePanel } from '@/components/mob/MobCourierProfilePanel'
+import { MobCourierVehiclesPanel } from '@/components/mob/MobCourierVehiclesPanel'
+import { MobMoreMenu, type MobMorePage } from '@/components/mob/MobMoreMenu'
+import { MobPageShell } from '@/components/mob/MobPageShell'
+import { MobWalletPage } from '@/components/mob/MobWalletPage'
+import { MobNotificationsPage } from '@/components/mob/MobNotificationsPage'
+import { MobAlertsPage, getMobSoundEnabled, getMobVibrateEnabled } from '@/components/mob/MobAlertsPage'
+import { MobOrgsPage } from '@/components/mob/MobOrgsPage'
 import {
   clearMobAuth,
   clearPendingMobInvite,
   COURIER_NEXT,
   getMobToken,
   getPendingMobInvite,
+  isMobAuthError,
   mobApi,
   money,
   STATUS_LABELS,
@@ -118,6 +127,10 @@ export function MobAppPage() {
   const [myVehicles, setMyVehicles] = useState<any[]>([])
   const [activeShift, setActiveShift] = useState<any | null>(null)
   const [showCheckin, setShowCheckin] = useState(false)
+  const [moreOpen, setMoreOpen] = useState(false)
+  const [morePage, setMorePage] = useState<MobMorePage | null>(null)
+  const [onboarding, setOnboarding] = useState<any | null>(null)
+  const [localToast, setLocalToast] = useState('')
   const [checkin, setCheckin] = useState({
     confirm_identity: true,
     confirm_gps: true,
@@ -139,14 +152,44 @@ export function MobAppPage() {
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const proofInputRef = useRef<HTMLInputElement | null>(null)
 
+  const forceMobLogin = useCallback(() => {
+    clearMobAuth()
+    setActiveShift(null)
+    setData(null)
+    navigate('/mob/entrar', { replace: true })
+  }, [navigate])
+
   const load = useCallback(async () => {
     if (!getMobToken()) {
-      navigate('/mob/entrar', { replace: true })
+      forceMobLogin()
+      setLoading(false)
       return
     }
     try {
       const me = await mobApi.me()
       setData(me)
+      /* Só após sessão válida: shift + extras (evita 401 paralelo no console) */
+      try {
+        const shiftRes = await mobApi.shift()
+        setActiveShift(shiftRes.shift || null)
+      } catch (se) {
+        if (isMobAuthError(se)) {
+          forceMobLogin()
+          return
+        }
+        setActiveShift(null)
+      }
+      mobApi
+        .onboarding()
+        .then((s) => setOnboarding(s))
+        .catch((e) => {
+          if (isMobAuthError(e)) forceMobLogin()
+          else setOnboarding(null)
+        })
+      mobApi
+        .myVehicles()
+        .then((r) => setMyVehicles(r.vehicles || []))
+        .catch(() => setMyVehicles([]))
 
       const invite = getPendingMobInvite() || params.get('invite')
       if (invite) {
@@ -155,29 +198,28 @@ export function MobAppPage() {
           clearPendingMobInvite()
           const refreshed = await mobApi.me()
           setData(refreshed)
+          mobApi
+            .onboarding()
+            .then((s) => setOnboarding(s))
+            .catch(() => undefined)
         } catch {
           /* ignore invalid */
         }
       }
     } catch (e: any) {
-      if (String(e.message || '').includes('401') || /token|credencial/i.test(e.message || '')) {
-        clearMobAuth()
-        navigate('/mob/entrar', { replace: true })
+      if (isMobAuthError(e)) {
+        forceMobLogin()
         return
       }
       setError(e.message || 'Falha ao carregar')
     } finally {
       setLoading(false)
     }
-  }, [navigate, params])
+  }, [forceMobLogin, params])
 
   useEffect(() => {
     document.title = 'Lead Capture Mob'
-    load()
-    mobApi
-      .shift()
-      .then((r) => setActiveShift(r.shift || null))
-      .catch(() => setActiveShift(null))
+    void load()
     startOfflineSyncLoop()
     setNetOnline(isOnline())
     setPendingSync(offlinePendingCount())
@@ -202,11 +244,16 @@ export function MobAppPage() {
       const msg = event.data || {}
       if (msg.type !== 'MOB_PLAY_SOUND') return
       try {
-        const url = String(msg.url || '/sounds/mob-offer.wav')
-        if (!audioRef.current) audioRef.current = new Audio(url)
-        else audioRef.current.src = url
-        audioRef.current.currentTime = 0
-        void audioRef.current.play().catch(() => undefined)
+        if (getMobSoundEnabled()) {
+          const url = String(msg.url || '/sounds/mob-offer.wav')
+          if (!audioRef.current) audioRef.current = new Audio(url)
+          else audioRef.current.src = url
+          audioRef.current.currentTime = 0
+          void audioRef.current.play().catch(() => undefined)
+        }
+        if (getMobVibrateEnabled() && navigator.vibrate) {
+          navigator.vibrate([280, 120, 280, 120, 400])
+        }
       } catch {
         /* autoplay */
       }
@@ -365,6 +412,11 @@ export function MobAppPage() {
       setCheckin((c) => ({ ...c, vehicle_id: myVehicles[0].id }))
     }
     setShowCheckin(true)
+  }
+
+  function showToast(msg: string, _type?: 'ok' | 'err') {
+    setLocalToast(msg)
+    window.setTimeout(() => setLocalToast(''), 3200)
   }
 
   async function confirmCheckin() {
@@ -547,10 +599,27 @@ export function MobAppPage() {
         badge: active.length || undefined,
       },
       { key: 'history' as Tab, icon: History, label: 'Histórico' },
-      { key: 'orgs' as Tab, icon: Building2, label: 'Mais' },
+      { key: 'orgs' as Tab, icon: Menu, label: 'Mais' },
     ],
     [data?.available_count, active.length],
   )
+
+  function openMoreMenu() {
+    setTab('orgs')
+    setMorePage(null)
+    setMoreOpen(true)
+  }
+
+  function goMorePage(page: MobMorePage) {
+    setTab('orgs')
+    setMorePage(page)
+    setMoreOpen(false)
+  }
+
+  function backFromMorePage() {
+    setMorePage(null)
+    setMoreOpen(true)
+  }
 
   if (loading) {
     return (
@@ -569,7 +638,7 @@ export function MobAppPage() {
     courier?.ops_status === 'available'
       ? 'Disponível'
       : courier?.ops_status === 'busy'
-        ? 'Em entrega'
+        ? 'Em corrida'
         : 'Offline'
 
   return (
@@ -694,7 +763,7 @@ export function MobAppPage() {
                   ['confirm_gps', 'GPS ativo e permitido'],
                   ['confirm_internet', 'Internet funcionando'],
                   ['confirm_notifications', 'Notificações ativas'],
-                  ['confirm_kit', 'Kit de entrega ok'],
+                  ['confirm_kit', 'Kit da corrida ok'],
                   ['vehicle_ok', 'Veículo em condições'],
                 ] as const
               ).map(([key, label]) => (
@@ -846,7 +915,7 @@ export function MobAppPage() {
               <div className="mob-stats__cell">
                 <span className="mob-stats__label">Hoje</span>
                 <span className="mob-stats__value">{data?.today?.completed ?? 0}</span>
-                <span className="mob-stats__sub">entregas</span>
+                <span className="mob-stats__sub">corridas</span>
               </div>
               <div className="mob-stats__cell">
                 <span className="mob-stats__label">Ganhos</span>
@@ -883,11 +952,11 @@ export function MobAppPage() {
             ) : (
               <MobEmpty
                 icon={online ? Package : Power}
-                title={online ? 'Aguardando ofertas' : 'Turno offline'}
+                title={online ? 'Aguardando corridas' : 'Turno offline'}
                 hint={
                   online
-                    ? 'Quando a loja liberar uma entrega, ela aparece na Fila. Mantenha o GPS ligado.'
-                    : 'Inicie o turno para receber ofertas e enviar localização.'
+                    ? 'Quando a loja liberar uma corrida, ela aparece na Fila. Mantenha o GPS ligado.'
+                    : 'Inicie o turno para receber corridas e enviar localização.'
                 }
                 action={
                   Number(data?.available_count) > 0 ? (
@@ -943,7 +1012,7 @@ export function MobAppPage() {
         {tab === 'offers' && (
           <div className="mob-stack">
             <div className="mob-section-head">
-              <h2>Fila de ofertas</h2>
+              <h2>Fila de corridas</h2>
               {offers.length > 0 && (
                 <span className="text-[12px] font-semibold text-gray-600 tabular-nums">
                   {offers.length} disponível{offers.length > 1 ? 'is' : ''}
@@ -954,10 +1023,10 @@ export function MobAppPage() {
             {!offers.length ? (
               <MobEmpty
                 icon={Package}
-                title="Nenhuma oferta agora"
+                title="Nenhuma corrida agora"
                 hint={
                   online
-                    ? 'Fique online e com o app aberto. Ofertas expiram rápido — ative as notificações em Mais.'
+                    ? 'Fique online e com o app aberto. Corridas expiram rápido — ative as notificações em Mais.'
                     : 'Inicie o turno na tela Início para entrar na fila das lojas.'
                 }
                 action={
@@ -1059,7 +1128,7 @@ export function MobAppPage() {
         {tab === 'active' && (
           <div className="mob-stack">
             <div className="mob-section-head">
-              <h2>Entrega ativa</h2>
+              <h2>Corrida ativa</h2>
               {active.length > 1 && (
                 <Button
                   size="sm"
@@ -1158,8 +1227,8 @@ export function MobAppPage() {
             {!current ? (
               <MobEmpty
                 icon={Navigation}
-                title="Nenhuma entrega em andamento"
-                hint="Aceite uma oferta na Fila ou aguarde a loja atribuir uma entrega a você."
+                title="Nenhuma corrida em andamento"
+                hint="Aceite uma corrida na Fila ou aguarde a loja atribuir uma corrida a você."
                 action={
                   <Button fullWidth onClick={() => setTab('offers')} iconLeft={<Package size={16} strokeWidth={ICON} />}>
                     Ver fila
@@ -1481,7 +1550,7 @@ export function MobAppPage() {
 
                   {COURIER_NEXT[current.status]?.status === 'delivered' && (
                     <div className="space-y-3 pt-1 border-t border-border">
-                      <p className="text-[13px] font-bold text-gray-900 pt-2">Confirmar entrega</p>
+                      <p className="text-[13px] font-bold text-gray-900 pt-2">Concluir corrida</p>
 
                       {current.otp_required && (
                         <div className="space-y-2">
@@ -1663,8 +1732,8 @@ export function MobAppPage() {
             {!history.length ? (
               <MobEmpty
                 icon={History}
-                title="Sem entregas ainda"
-                hint="Quando você concluir entregas, elas aparecem aqui com valor e status."
+                title="Sem corridas ainda"
+                hint="Quando você concluir corridas, elas aparecem aqui com valor e status."
                 action={
                   <Button fullWidth variant="secondary" onClick={() => setTab('offers')}>
                     Ir para a fila
@@ -1712,142 +1781,127 @@ export function MobAppPage() {
 
         {tab === 'orgs' && (
           <div className="mob-stack">
-            <div className="mob-section-head">
-              <div>
-                <h2>Organizações</h2>
-                <p className="text-[11px] text-gray-600 mt-0.5">
-                  Uma conta · vínculo por loja
+            {localToast && morePage ? (
+              <div className="rounded-xl bg-emerald-50 border border-emerald-200 px-3 py-2 text-[12px] text-emerald-900">
+                {localToast}
+              </div>
+            ) : null}
+
+            {onboarding && !onboarding.can_go_online && !morePage ? (
+              <div className="rounded-2xl bg-amber-50 border border-amber-200 px-3.5 py-3">
+                <p className="text-[13px] font-bold text-amber-950 m-0">Cadastro pendente</p>
+                <p className="text-[11px] text-amber-900 mt-1 mb-2 m-0 leading-snug">
+                  {(onboarding.blockers || []).join(' · ') ||
+                    'Complete perfil e veículo para iniciar turno e receber corridas.'}
                 </p>
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={() => goMorePage('profile')}>
+                    Perfil
+                  </Button>
+                  <Button size="sm" variant="secondary" onClick={() => goMorePage('vehicles')}>
+                    Veículos
+                  </Button>
+                </div>
               </div>
-            </div>
+            ) : null}
 
-            {!(data?.memberships || []).length ? (
-              <MobEmpty
-                icon={Building2}
-                title="Nenhum vínculo ainda"
-                hint="Peça à loja um convite por link ou QR Code e abra no celular."
+            {!morePage ? (
+              <div className="mob-panel mob-panel--pad text-center">
+                <div className="mob-app__mark mx-auto mb-3">
+                  <Menu size={18} strokeWidth={ICON} />
+                </div>
+                <p className="text-[15px] font-bold text-gray-900 m-0">Menu Mais</p>
+                <p className="text-[12px] text-gray-600 mt-1 mb-3 m-0 leading-snug">
+                  Perfil, veículos, carteira, notificações e alertas — cada um em sua página.
+                </p>
+                <Button fullWidth onClick={() => setMoreOpen(true)}>
+                  Abrir menu
+                </Button>
+              </div>
+            ) : null}
+
+            {morePage === 'profile' ? (
+              <MobPageShell title="Perfil" subtitle="Dados e documentos" onBack={backFromMorePage}>
+                <MobCourierProfilePanel
+                  onToast={showToast}
+                  onChanged={() => {
+                    void load()
+                    mobApi.onboarding().then(setOnboarding).catch(() => undefined)
+                  }}
+                />
+              </MobPageShell>
+            ) : null}
+
+            {morePage === 'vehicles' ? (
+              <MobPageShell title="Veículos" subtitle="Cadastro e aprovação" onBack={backFromMorePage}>
+                <MobCourierVehiclesPanel
+                  onToast={showToast}
+                  onChanged={() => {
+                    void load()
+                    mobApi
+                      .myVehicles()
+                      .then((r) => setMyVehicles(r.vehicles || []))
+                      .catch(() => undefined)
+                    mobApi.onboarding().then(setOnboarding).catch(() => undefined)
+                  }}
+                />
+              </MobPageShell>
+            ) : null}
+
+            {morePage === 'wallet' ? (
+              <MobWalletPage onBack={backFromMorePage} onToast={showToast} />
+            ) : null}
+
+            {morePage === 'notifications' ? (
+              <MobNotificationsPage onBack={backFromMorePage} />
+            ) : null}
+
+            {morePage === 'alerts' ? (
+              <MobAlertsPage onBack={backFromMorePage} onToast={showToast} />
+            ) : null}
+
+            {morePage === 'orgs' ? (
+              <MobOrgsPage
+                memberships={data?.memberships || []}
+                onBack={backFromMorePage}
+                onToast={showToast}
+                onChanged={() => void load()}
               />
-            ) : (
-              <div className="mob-panel overflow-hidden">
-                {(data.memberships as any[]).map((m) => (
-                  <div key={m.id} className="mob-row">
-                    {m.logo_url ? (
-                      <img
-                        src={m.logo_url}
-                        alt=""
-                        className="w-9 h-9 rounded-[10px] object-cover border border-border"
-                      />
-                    ) : (
-                      <div className="mob-row__icon">
-                        <Building2 size={16} strokeWidth={ICON} />
-                      </div>
-                    )}
-                    <div className="mob-row__body">
-                      <p className="mob-row__title">
-                        {m.brand_name || m.operation_name || 'Organização'}
-                      </p>
-                      <p className="mob-row__meta capitalize">
-                        {m.status} · {m.bond_type || 'autônomo'}
-                      </p>
-                    </div>
-                    <Badge
-                      variant={
-                        m.status === 'approved'
-                          ? 'success'
-                          : m.status === 'pending'
-                            ? 'warning'
-                            : 'neutral'
-                      }
-                    >
-                      {m.status === 'approved' ? 'Ativo' : m.status}
-                    </Badge>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div className="mob-panel overflow-hidden">
-              <div className="px-3.5 py-2.5 border-b border-border flex items-center gap-2">
-                <Truck size={15} strokeWidth={ICON} className="text-gray-800" />
-                <div>
-                  <h3 className="text-[13px] font-bold text-gray-900 m-0">Meus veículos</h3>
-                  <p className="text-[11px] text-gray-600 m-0">Vinculados pelas lojas</p>
-                </div>
-              </div>
-              {!myVehicles.length ? (
-                <div className="px-3.5 py-4">
-                  <p className="text-[12px] text-gray-600 m-0 leading-snug">
-                    Nenhuma loja vinculou um veículo a você ainda. A frota é cadastrada pela organização.
-                  </p>
-                </div>
-              ) : (
-                myVehicles.map((v) => (
-                  <div key={v.id} className="mob-row">
-                    <div className="mob-row__icon">
-                      <Truck size={16} strokeWidth={ICON} />
-                    </div>
-                    <div className="mob-row__body">
-                      <p className="mob-row__title">
-                        {v.label || [v.make, v.model].filter(Boolean).join(' ') || v.type?.name || 'Veículo'}
-                      </p>
-                      <p className="mob-row__meta">
-                        {v.type?.name || 'Tipo'}
-                        {v.plate ? ` · ${v.plate}` : ''}
-                        {v.org_name ? ` · ${v.org_name}` : ''}
-                      </p>
-                    </div>
-                    <Badge
-                      variant={
-                        v.status === 'available'
-                          ? 'success'
-                          : v.status === 'in_use'
-                            ? 'info'
-                            : v.status === 'docs_expired' || v.status === 'blocked'
-                              ? 'danger'
-                              : 'neutral'
-                      }
-                    >
-                      {v.status === 'available'
-                        ? 'OK'
-                        : v.status === 'in_use'
-                          ? 'Em uso'
-                          : v.status}
-                    </Badge>
-                  </div>
-                ))
-              )}
-            </div>
-
-            <div className="mob-panel mob-panel--pad">
-              <div className="flex items-center gap-2 mb-1">
-                <div className="mob-row__icon !w-8 !h-8">
-                  <Bell size={15} strokeWidth={ICON} />
-                </div>
-                <div>
-                  <h3 className="text-[13px] font-bold text-gray-900 m-0">Notificações</h3>
-                  <p className="text-[11px] text-gray-600 m-0">
-                    Ofertas e cancelamentos em segundo plano
-                  </p>
-                </div>
-              </div>
-              <div className="mt-3">
-                <PushNotificationSettings />
-              </div>
-            </div>
+            ) : null}
           </div>
         )}
       </main>
+
+      <MobMoreMenu
+        open={moreOpen}
+        onClose={() => setMoreOpen(false)}
+        onNavigate={goMorePage}
+        onLogout={() => {
+          clearMobAuth()
+          navigate('/mob/entrar', { replace: true })
+        }}
+        profileStatus={onboarding?.courier?.cadastro_status || data?.courier?.cadastro_status}
+        vehicleCount={myVehicles.length}
+      />
 
       <nav className="mob-app__nav" aria-label="Navegação principal">
         <div className="mob-app__nav-inner">
           {navItems.map((item) => {
             const Icon = item.icon
-            const activeTab = tab === item.key
+            const activeTab = tab === item.key || (item.key === 'orgs' && !!morePage)
             return (
               <button
                 key={item.key}
                 type="button"
-                onClick={() => setTab(item.key)}
+                onClick={() => {
+                  if (item.key === 'orgs') {
+                    openMoreMenu()
+                    return
+                  }
+                  setMoreOpen(false)
+                  setMorePage(null)
+                  setTab(item.key)
+                }}
                 className={`mob-app__nav-item ${activeTab ? 'is-active' : ''}`}
                 aria-current={activeTab ? 'page' : undefined}
               >

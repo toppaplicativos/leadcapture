@@ -78,7 +78,7 @@ export function InstagramCreateTab({
 
   const {
     postType, caption, mediaItems, when, scheduledAt,
-    locationId, locationName, userTags, altText, shareToFeed, coverUrl, collaborators,
+    locationId, locationName, userTags, altText, shareToFeed, coverUrl, audioName, collaborators,
   } = form
   const isEditing = Boolean(editingId)
 
@@ -409,6 +409,7 @@ export function InstagramCreateTab({
           altText={altText}
           shareToFeed={shareToFeed}
           coverUrl={coverUrl}
+          audioName={audioName}
           collaborators={collaborators}
           onChange={(patch) => patchForm(patch)}
         />
@@ -556,8 +557,11 @@ export function InstagramCreateTab({
                 </>
               ) : (
                 <>
-                  <li>Reels: 9:16, até 90 segundos</li>
-                  <li>Vídeo no feed: até 60 segundos, máximo de 100MB</li>
+                  <li>Reels: 9:16, até 90 segundos (MP4/MOV)</li>
+                  <li>
+                    Vídeo no feed: a API do Instagram publica como Reels com
+                    compartilhamento no feed (mesma regra de formato, até ~100MB)
+                  </li>
                 </>
               )}
               <li>A URL pública deve estar acessível para o Instagram</li>

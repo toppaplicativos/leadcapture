@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Lead Capture Mob — multi-objective routing engine (spec §6–8).
  * Optimizes stop order by distance / time / cost / punctuality / urgency.
  * Reoptimization preserves completed stops and explains changes.
@@ -576,7 +576,7 @@ export const mobRoutingService = {
     const route = await mobLogisticsService.getRouteById(input.routeId);
     if (!route || route.owner_user_id !== input.ownerUserId) throw new Error("Rota não encontrada");
     const delivery = await mobLogisticsService.getDeliveryById(input.deliveryId);
-    if (!delivery) throw new Error("Entrega não encontrada");
+    if (!delivery) throw new Error("Corrida não encontrada");
 
     const existing: RouteStopInput[] = (route.stops || []).map((s: any) => ({
       delivery_id: String(s.delivery_id),
@@ -604,8 +604,8 @@ export const mobRoutingService = {
       reasons: [
         ...plan.reasons,
         firstNew >= 0
-          ? `Nova entrega entra na posição ${firstNew + 1} da sequência`
-          : "Não foi possível posicionar a nova entrega",
+          ? `Nova corrida entra na posição ${firstNew + 1} da sequência`
+          : "Não foi possível posicionar a nova corrida",
       ],
     };
   },

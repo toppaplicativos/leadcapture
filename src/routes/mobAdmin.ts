@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Lead Capture Mob — organization admin API (settings, couriers, map, deliveries).
  */
 import { Router, Response } from "express";
@@ -157,6 +157,136 @@ router.patch("/couriers/:membershipId", async (req: BrandRequest, res: Response)
   }
 });
 
+/** Full courier detail for review: profile + personal docs + vehicles in this org */
+router.get("/couriers/:membershipId", async (req: BrandRequest, res: Response) => {
+  try {
+    const userId = ownerId(req);
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    if (!req.brandId) return res.status(400).json({ error: "brand_id obrigatório" });
+
+    const memberships = await mobLogisticsService.listMembershipsForOrg(userId, req.brandId);
+    const membership = (memberships || []).find(
+      (m: any) => m.id === String(req.params.membershipId)
+    );
+    if (!membership) return res.status(404).json({ error: "Vínculo não encontrado" });
+
+    const courier = await mobLogisticsService.getCourierById(String(membership.courier_id));
+    const { mobCourierProfileService } = await import("../services/mobCourierProfile");
+    const documents = await mobCourierProfileService.listDocuments(String(membership.courier_id));
+
+    const { mobFleetService } = await import("../services/mobFleet");
+    const vehicles = await mobFleetService.listVehicles(userId, req.brandId, {
+      courier_id: String(membership.courier_id),
+    });
+    const vehiclesWithDocs = [];
+    for (const v of vehicles) {
+      const vdocs = await mobFleetService.listDocuments(userId, req.brandId, v.id);
+      vehiclesWithDocs.push({ ...v, documents: vdocs });
+    }
+
+    res.json({
+      success: true,
+      membership,
+      courier,
+      documents,
+      vehicles: vehiclesWithDocs,
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.post("/couriers/:membershipId/cadastro", async (req: BrandRequest, res: Response) => {
+  try {
+    const userId = ownerId(req);
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    if (!req.brandId) return res.status(400).json({ error: "brand_id obrigatório" });
+
+    const action = String(req.body?.action || "").trim() as
+      | "approve"
+      | "reject"
+      | "request_changes";
+    if (!["approve", "reject", "request_changes"].includes(action)) {
+      return res.status(400).json({ error: "action deve ser approve|reject|request_changes" });
+    }
+
+    const memberships = await mobLogisticsService.listMembershipsForOrg(userId, req.brandId);
+    const membership = (memberships || []).find(
+      (m: any) => m.id === String(req.params.membershipId)
+    );
+    if (!membership) return res.status(404).json({ error: "Vínculo não encontrado" });
+
+    const { mobCourierProfileService } = await import("../services/mobCourierProfile");
+    const courier = await mobCourierProfileService.adminSetCadastro(
+      String(membership.courier_id),
+      action,
+      { notes: req.body?.notes ? String(req.body.notes) : undefined, actorUserId: userId }
+    );
+
+    try {
+      const { notifyCourierCadastro } = await import("../services/mobPush");
+      const pushAction =
+        action === "approve"
+          ? "approved"
+          : action === "reject"
+            ? "rejected"
+            : "request_changes";
+      notifyCourierCadastro({
+        courierId: String(membership.courier_id),
+        action: pushAction,
+        notes: req.body?.notes ? String(req.body.notes) : undefined,
+      });
+    } catch {
+      /* non-blocking */
+    }
+
+    res.json({ success: true, courier });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+router.post(
+  "/couriers/:membershipId/documents/:docId/validate",
+  async (req: BrandRequest, res: Response) => {
+    try {
+      const userId = ownerId(req);
+      if (!userId) return res.status(401).json({ error: "Unauthorized" });
+      if (!req.brandId) return res.status(400).json({ error: "brand_id obrigatório" });
+
+      const status = String(req.body?.status || "").trim() as
+        | "approved"
+        | "rejected"
+        | "needs_resubmit";
+      if (!["approved", "rejected", "needs_resubmit"].includes(status)) {
+        return res.status(400).json({ error: "status deve ser approved|rejected|needs_resubmit" });
+      }
+
+      const memberships = await mobLogisticsService.listMembershipsForOrg(userId, req.brandId);
+      const membership = (memberships || []).find(
+        (m: any) => m.id === String(req.params.membershipId)
+      );
+      if (!membership) return res.status(404).json({ error: "Vínculo não encontrado" });
+
+      const { mobCourierProfileService } = await import("../services/mobCourierProfile");
+      const document = await mobCourierProfileService.validateDocument(
+        String(membership.courier_id),
+        String(req.params.docId),
+        {
+          status,
+          validated_by: userId,
+          rejection_reason: req.body?.rejection_reason
+            ? String(req.body.rejection_reason)
+            : undefined,
+        }
+      );
+      res.json({ success: true, document });
+    } catch (e: any) {
+      res.status(400).json({ error: e.message });
+    }
+  }
+);
+
 router.get("/invites", async (req: BrandRequest, res: Response) => {
   try {
     const userId = ownerId(req);
@@ -279,10 +409,10 @@ router.post("/deliveries", async (req: BrandRequest, res: Response) => {
         ownerUserId: userId,
         brandId: req.brandId,
         eventKey: "mob_delivery_created",
-        title: "Entrega Mob criada",
+        title: "Corrida Mob criada",
         body: delivery.customer_name
-          ? `Entrega para ${delivery.customer_name}`
-          : "Nova entrega na operação logística",
+          ? `Corrida para ${delivery.customer_name}`
+          : "Nova corrida na operação logística",
         deliveryId: delivery.id,
       });
     } catch {
@@ -307,7 +437,7 @@ router.get("/deliveries/:id", async (req: BrandRequest, res: Response) => {
 
     const delivery = await mobLogisticsService.getDeliveryById(String(req.params.id));
     if (!delivery || delivery.owner_user_id !== userId || delivery.brand_id !== req.brandId) {
-      return res.status(404).json({ error: "Entrega não encontrada" });
+      return res.status(404).json({ error: "Corrida não encontrada" });
     }
     const events = await mobLogisticsService.listEvents(delivery.id);
     res.json({
@@ -435,7 +565,7 @@ router.post("/deliveries/:id/unlock-pin", async (req: BrandRequest, res: Respons
     if (!req.brandId) return res.status(400).json({ error: "brand_id obrigatório" });
     const existing = await mobLogisticsService.getDeliveryById(String(req.params.id));
     if (!existing || existing.owner_user_id !== userId || existing.brand_id !== req.brandId) {
-      return res.status(404).json({ error: "Entrega não encontrada" });
+      return res.status(404).json({ error: "Corrida não encontrada" });
     }
     const delivery = await mobLogisticsService.unlockDeliveryPin(existing.id, userId);
     res.json({ success: true, delivery });
@@ -452,7 +582,7 @@ router.post("/deliveries/:id/status", async (req: BrandRequest, res: Response) =
 
     const existing = await mobLogisticsService.getDeliveryById(String(req.params.id));
     if (!existing || existing.owner_user_id !== userId || existing.brand_id !== req.brandId) {
-      return res.status(404).json({ error: "Entrega não encontrada" });
+      return res.status(404).json({ error: "Corrida não encontrada" });
     }
 
     const toStatus = String(req.body?.status || "").trim() as DeliveryStatus;
@@ -509,10 +639,10 @@ router.post("/deliveries/:id/status", async (req: BrandRequest, res: Response) =
           ownerUserId: userId,
           brandId: req.brandId,
           eventKey: "mob_delivery_completed",
-          title: "Entrega concluída",
+          title: "Corrida concluída",
           body: delivery.customer_name
-            ? `${delivery.customer_name} · entrega finalizada`
-            : "Uma entrega Mob foi concluída",
+            ? `${delivery.customer_name} · corrida finalizada`
+            : "Uma corrida Mob foi concluída",
           deliveryId: delivery.id,
         });
       }
@@ -587,7 +717,7 @@ router.post("/dispatch/assign", async (req: BrandRequest, res: Response) => {
     const vehicleId = req.body?.vehicle_id ? String(req.body.vehicle_id).trim() : "";
     const existing = await mobLogisticsService.getDeliveryById(deliveryId);
     if (!existing || existing.owner_user_id !== userId || existing.brand_id !== req.brandId) {
-      return res.status(404).json({ error: "Entrega não encontrada" });
+      return res.status(404).json({ error: "Corrida não encontrada" });
     }
 
     let vehicleCheck: any = null;
@@ -842,7 +972,7 @@ router.post("/routes/plan", async (req: BrandRequest, res: Response) => {
     for (const id of deliveryIds) {
       const d = await mobLogisticsService.getDeliveryById(id);
       if (!d || d.owner_user_id !== userId || d.brand_id !== req.brandId) {
-        return res.status(400).json({ error: `Entrega inválida: ${id}` });
+        return res.status(400).json({ error: `Corrida inválida: ${id}` });
       }
       deliveries.push(d);
     }
@@ -878,7 +1008,7 @@ router.post("/deliveries/:id/dispatch", async (req: BrandRequest, res: Response)
     if (!req.brandId) return res.status(400).json({ error: "brand_id obrigatório" });
     const existing = await mobLogisticsService.getDeliveryById(String(req.params.id));
     if (!existing || existing.owner_user_id !== userId || existing.brand_id !== req.brandId) {
-      return res.status(404).json({ error: "Entrega não encontrada" });
+      return res.status(404).json({ error: "Corrida não encontrada" });
     }
     const dispatched = await mobLogisticsService.dispatchOffers(existing.id);
     try {
@@ -1106,6 +1236,68 @@ router.post("/fleet/documents/:id/validate", async (req: BrandRequest, res: Resp
   }
 });
 
+router.post("/fleet/vehicles/:id/approve", async (req: BrandRequest, res: Response) => {
+  try {
+    const userId = ownerId(req);
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    if (!req.brandId) return res.status(400).json({ error: "brand_id obrigatório" });
+    const { mobFleetService } = await import("../services/mobFleet");
+    const vehicle = await mobFleetService.approveVehicle(
+      userId,
+      req.brandId,
+      String(req.params.id),
+      { notes: req.body?.notes ? String(req.body.notes) : undefined }
+    );
+    if (vehicle.courier_id) {
+      try {
+        const { notifyCourierVehicleReview } = await import("../services/mobPush");
+        notifyCourierVehicleReview({
+          courierId: vehicle.courier_id,
+          action: "approved",
+          plate: vehicle.plate,
+        });
+      } catch {
+        /* non-blocking */
+      }
+    }
+    res.json({ success: true, vehicle });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+router.post("/fleet/vehicles/:id/reject", async (req: BrandRequest, res: Response) => {
+  try {
+    const userId = ownerId(req);
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    if (!req.brandId) return res.status(400).json({ error: "brand_id obrigatório" });
+    const reason = req.body?.reason ? String(req.body.reason) : undefined;
+    const { mobFleetService } = await import("../services/mobFleet");
+    const vehicle = await mobFleetService.rejectVehicle(
+      userId,
+      req.brandId,
+      String(req.params.id),
+      { reason }
+    );
+    if (vehicle.courier_id) {
+      try {
+        const { notifyCourierVehicleReview } = await import("../services/mobPush");
+        notifyCourierVehicleReview({
+          courierId: vehicle.courier_id,
+          action: "rejected",
+          plate: vehicle.plate,
+          reason,
+        });
+      } catch {
+        /* non-blocking */
+      }
+    }
+    res.json({ success: true, vehicle });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
 router.post("/fleet/compatibility", async (req: BrandRequest, res: Response) => {
   try {
     const userId = ownerId(req);
@@ -1158,7 +1350,7 @@ router.get("/deliveries/:id/packages", async (req: BrandRequest, res: Response) 
     if (!req.brandId) return res.status(400).json({ error: "brand_id obrigatório" });
     const delivery = await mobLogisticsService.getDeliveryById(String(req.params.id));
     if (!delivery || delivery.owner_user_id !== userId || delivery.brand_id !== req.brandId) {
-      return res.status(404).json({ error: "Entrega não encontrada" });
+      return res.status(404).json({ error: "Corrida não encontrada" });
     }
     const { mobPackagesService } = await import("../services/mobPackages");
     const conference = await mobPackagesService.getConference(delivery.id);
@@ -1175,7 +1367,7 @@ router.post("/deliveries/:id/packages", async (req: BrandRequest, res: Response)
     if (!req.brandId) return res.status(400).json({ error: "brand_id obrigatório" });
     const delivery = await mobLogisticsService.getDeliveryById(String(req.params.id));
     if (!delivery || delivery.owner_user_id !== userId || delivery.brand_id !== req.brandId) {
-      return res.status(404).json({ error: "Entrega não encontrada" });
+      return res.status(404).json({ error: "Corrida não encontrada" });
     }
     const { mobPackagesService } = await import("../services/mobPackages");
     const packages = await mobPackagesService.createPackages({

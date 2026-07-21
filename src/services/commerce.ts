@@ -978,6 +978,20 @@ export class CommerceService {
 
     if (status === "pago" && found.order.status_pedido !== "pago") {
       try {
+        const { notifyStockManagers } = await import("./stockPush");
+        void notifyStockManagers({
+          ownerUserId: userId,
+          brandId,
+          eventKey: "order_ready_delivery",
+          title: "Pedido liberado para expedição",
+          body: `${found.order.customer_name || "Cliente"} · pedido #${orderId.slice(0, 8)} pago`,
+          url: "/app-estoque?view=expedition",
+          metadata: { order_id: orderId },
+        });
+      } catch {
+        /* push não bloqueia a confirmação do pagamento */
+      }
+      try {
         const { emailTriggers } = await import("./emailTriggers");
         emailTriggers.orderPaid({
           userId,

@@ -64,6 +64,18 @@ export type PublicStoreMarketing = {
     promo_ends_at?: string | null
     promo_label?: string
   } | null
+  /** Card "Instalar app" no catálogo (whitelabel) — copy e toggles da marca */
+  pwa_install?: {
+    enabled?: boolean
+    title?: string
+    subtitle?: string
+    benefit_1?: string
+    benefit_2?: string
+    benefit_3?: string
+    benefit_4?: string
+    cta_label?: string
+    dismiss_label?: string
+  } | null
 }
 
 export const WA_GREEN = '#25D366'

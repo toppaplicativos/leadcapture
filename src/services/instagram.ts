@@ -43,12 +43,13 @@ export type InstagramUserTag = {
 
 /**
  * Metadados de publicação suportados pela Content Publishing API (Graph).
- * - location_id / location_name: local (Page place id)
+ * - location_id / location_name: local (Facebook Page place id com location)
  * - user_tags: marcar pessoas
  * - alt_text: acessibilidade (feed imagem)
  * - share_to_feed: Reels também no feed
- * - cover_url: capa do Reels
+ * - cover_url: capa do Reels (URL pública da imagem enviada)
  * - collaborators: usernames convidados (collab) — best-effort se a API aceitar
+ * - audio_name: só Reels — renomeia o áudio original (não adiciona trilha da biblioteca IG)
  */
 export type InstagramPublishMeta = {
   location_id?: string;
@@ -58,6 +59,8 @@ export type InstagramPublishMeta = {
   share_to_feed?: boolean;
   cover_url?: string;
   collaborators?: string[];
+  /** Reels only: rename original audio (not Instagram Music catalog). */
+  audio_name?: string;
 };
 
 export type InstagramPost = {
@@ -529,20 +532,68 @@ function normalizeMediaItemsInput(
   return [{ url, type, order: 0 }];
 }
 
+function isInvalidLocationError(err: any): boolean {
+  const code = String(err?.error_user_title || err?.message || err?.error_subcode || "");
+  const msg = `${err?.message || ""} ${err?.error_user_msg || ""} ${err?.error_user_title || ""}`;
+  return (
+    /INVALID_LOCATION|invalid.?location|location_id/i.test(msg) ||
+    /INSTAGRAM_PLATFORM_API__INVALID_LOCATION/i.test(code) ||
+    Number(err?.error_subcode) === 2207013
+  );
+}
+
 async function createIgMediaContainer(
   accessToken: string,
-  payload: Record<string, unknown>
-): Promise<{ id?: string; error?: string; raw?: any }> {
-  const resp = await fetch(`${IG_GRAPH_URL}/me/media`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ...payload, access_token: accessToken }),
-  });
-  const data: any = await resp.json();
-  if (data?.id) return { id: data.id };
-  const errMsg = data?.error?.message || "Falha ao criar container de midia";
+  payload: Record<string, unknown>,
+  opts?: { retryWithoutLocation?: boolean }
+): Promise<{ id?: string; error?: string; raw?: any; locationDropped?: boolean }> {
+  const attempt = async (body: Record<string, unknown>) => {
+    const resp = await fetch(`${IG_GRAPH_URL}/me/media`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...body, access_token: accessToken }),
+    });
+    const data: any = await resp.json();
+    return { resp, data };
+  };
+
+  let { data } = await attempt(payload);
+  let locationDropped = false;
+
+  // location_id inválido (Page sem location física) — republica sem local para não bloquear o post
+  if (
+    !data?.id &&
+    payload.location_id &&
+    opts?.retryWithoutLocation !== false &&
+    isInvalidLocationError(data?.error)
+  ) {
+    const { location_id: _drop, ...withoutLoc } = payload;
+    logger.warn(
+      `[Instagram] location_id=${payload.location_id} rejeitado pela Meta; republicando sem localização`
+    );
+    const retry = await attempt(withoutLoc);
+    data = retry.data;
+    locationDropped = true;
+  }
+
+  if (data?.id) return { id: data.id, locationDropped, raw: data };
+  const err = data?.error || {};
+  const userMsg = String(err.error_user_msg || "").trim();
+  const baseMsg = String(err.message || "").trim();
+  const subcode = err.error_subcode != null ? ` (#${err.error_subcode})` : "";
+  let errMsg = userMsg || baseMsg || "Falha ao criar container de midia";
+  // Mensagem amigável quando alguém ainda manda VIDEO standalone (legado / bugs)
+  if (
+    /media_type=VIDEO is a carousel item|use media_type=REELS instead/i.test(`${baseMsg} ${userMsg}`)
+    || Number(err.error_subcode) === 2207089
+  ) {
+    errMsg =
+      "A API do Instagram não publica mais vídeo avulso com media_type=VIDEO. " +
+      "Use Reels (ou o tipo Vídeo no feed, que publica como Reels no feed).";
+  }
+  if (subcode && !errMsg.includes(subcode)) errMsg = `${errMsg}${subcode}`;
   logger.error(
-    `[Instagram] createIgMediaContainer failed: ${errMsg} | response=${JSON.stringify(data?.error || data)}`
+    `[Instagram] createIgMediaContainer failed: ${errMsg} | response=${JSON.stringify(err || data)}`
   );
   return { error: errMsg, raw: data };
 }
@@ -630,6 +681,7 @@ function parsePublishMeta(raw: unknown): InstagramPublishMeta | null {
     share_to_feed: obj.share_to_feed === undefined ? undefined : Boolean(obj.share_to_feed),
     cover_url: obj.cover_url ? String(obj.cover_url).trim() : undefined,
     collaborators: collaborators?.length ? collaborators.slice(0, 3) : undefined,
+    audio_name: obj.audio_name ? String(obj.audio_name).trim().slice(0, 100) : undefined,
   };
   if (
     !meta.location_id &&
@@ -638,7 +690,8 @@ function parsePublishMeta(raw: unknown): InstagramPublishMeta | null {
     !meta.alt_text &&
     meta.share_to_feed === undefined &&
     !meta.cover_url &&
-    !meta.collaborators
+    !meta.collaborators &&
+    !meta.audio_name
   ) {
     return null;
   }
@@ -665,12 +718,14 @@ function applyPublishMetaToContainer(
   const allowAlt = opts?.allowAlt !== false;
 
   if (allowLocation && meta.location_id) {
-    payload.location_id = meta.location_id;
+    // Meta exige Facebook Page ID com dados de location física
+    payload.location_id = String(meta.location_id).trim();
   }
   if (allowAlt && meta.alt_text) {
     payload.alt_text = meta.alt_text;
   }
   if (allowUserTags && meta.user_tags?.length) {
+    // Graph espera JSON string em form-urlencoded; em JSON body array funciona
     payload.user_tags = meta.user_tags.map((t) => ({
       username: t.username,
       x: Math.min(1, Math.max(0, t.x ?? 0.5)),
@@ -678,8 +733,11 @@ function applyPublishMetaToContainer(
     }));
   }
   if (meta.collaborators?.length) {
-    // Best-effort: algumas contas/API usam collaborators como lista de usernames
+    // Docs: list of up to 3 usernames — enviar como JSON array
     payload.collaborators = meta.collaborators;
+  }
+  if (meta.audio_name) {
+    payload.audio_name = meta.audio_name;
   }
 }
 
@@ -1696,21 +1754,39 @@ class InstagramService {
     return this.getAiSettings(brandId);
   }
 
+  /**
+   * Flags globais auto_reply_* são legado de produto.
+   * NÃO ativam mais automações (resposta só por automação específica ativa).
+   * Quando desligadas, apenas pausam webhooks de catálogo “zumbi” que ainda
+   * respondiam mesmo com todas as automações desativadas na UI.
+   */
   async syncAiAutomations(
     brandId: string,
-    userId: string,
+    _userId: string,
     autoReplyDm: boolean,
     autoReplyComments: boolean,
   ): Promise<void> {
     try {
       const { brandAutomationsService } = await import("./brandAutomations");
-      if (autoReplyDm) {
-        await brandAutomationsService.activateSlug(userId, brandId, "ig-webhook-dm-reply");
-        await this.subscribeWebhooks(brandId);
+      // Nunca auto-ativar catalog webhooks a partir do toggle global.
+      if (!autoReplyDm) {
+        const n = await brandAutomationsService.pauseSlugForBrand(brandId, "ig-webhook-dm-reply");
+        if (n > 0) {
+          logger.info(
+            `[Instagram] paused catalog ig-webhook-dm-reply brand=${brandId} rows=${n} (per-automation only)`,
+          );
+        }
       }
-      if (autoReplyComments) {
-        await brandAutomationsService.activateSlug(userId, brandId, "ig-webhook-comment-keyword");
-        await this.subscribeWebhooks(brandId);
+      if (!autoReplyComments) {
+        const n = await brandAutomationsService.pauseSlugForBrand(
+          brandId,
+          "ig-webhook-comment-keyword",
+        );
+        if (n > 0) {
+          logger.info(
+            `[Instagram] paused catalog ig-webhook-comment-keyword brand=${brandId} rows=${n}`,
+          );
+        }
       }
     } catch (err: any) {
       logger.warn(`[Instagram] syncAiAutomations: ${err.message}`);
@@ -1800,7 +1876,8 @@ class InstagramService {
       last_webhook_type: lastEvent?.event_type || null,
       notify_whatsapp: settings.notify_whatsapp,
       notify_phone: settings.notify_phone,
-      note: "Respostas sob hybrid/definitions usam toggle de cada automação — não os toggles globais legados.",
+      note:
+        "Resposta em DM/comentário só ocorre se a automação específica estiver ativa (toggle individual). Não há interruptor global que force envio.",
     };
   }
 
@@ -2156,30 +2233,56 @@ class InstagramService {
           allowUserTags: false,
           allowAlt: false,
         });
+        if (meta.audio_name) reelsPayload.audio_name = meta.audio_name;
+        logger.info(
+          `[Instagram] REELS create postId=${postId} location_id=${meta.location_id || "-"} cover=${meta.cover_url ? "yes" : "no"}`
+        );
         const created = await createIgMediaContainer(conn.access_token, reelsPayload);
         containerId = created.id;
         if (!containerId) {
           return this.failPublish(postId, created.error || "Falha ao criar Reels");
+        }
+        if (created.locationDropped) {
+          logger.warn(`[Instagram] REELS postId=${postId} publicado sem localização (id inválido)`);
         }
         const ready = await waitForMediaContainer(conn.access_token, containerId, 30);
         if (!ready.ok) {
           return this.failPublish(postId, ready.error || "Reels ainda em processamento ou com erro");
         }
       } else if (post.media_type === "VIDEO") {
+        // Meta Graph API (2024+): media_type=VIDEO só serve como item de carrossel
+        // (is_carousel_item=true). Publicar vídeo standalone com VIDEO retorna:
+        // "Invalid parameter" / subcode 2207089 — "use media_type=REELS instead".
+        // "Vídeo no feed" no produto = REELS com share_to_feed forçado true.
+        // Posts agendados com media_type=VIDEO continuam válidos e saem no feed.
         const videoUrl = resolveInstagramVideoUrl(mediaItems[0].url);
+        const meta = post.publish_meta || {};
         const videoPayload: Record<string, unknown> = {
-          media_type: "VIDEO",
+          media_type: "REELS",
           video_url: videoUrl,
           caption: post.caption || "",
+          share_to_feed: true,
         };
-        applyPublishMetaToContainer(videoPayload, post.publish_meta, {
+        if (meta.cover_url) {
+          videoPayload.cover_url = resolveInstagramImageUrl(meta.cover_url);
+        }
+        applyPublishMetaToContainer(videoPayload, meta, {
           allowUserTags: false,
           allowAlt: false,
         });
+        if (meta.audio_name) videoPayload.audio_name = meta.audio_name;
+        // Garantir feed mesmo se publish_meta sobrescrever via campo residual
+        videoPayload.share_to_feed = true;
+        logger.info(
+          `[Instagram] VIDEO→REELS+share_to_feed postId=${postId} url=${videoUrl} location_id=${meta.location_id || "-"}`
+        );
         const created = await createIgMediaContainer(conn.access_token, videoPayload);
         containerId = created.id;
         if (!containerId) {
-          return this.failPublish(postId, created.error || "Falha ao criar video no feed");
+          return this.failPublish(
+            postId,
+            created.error || "Falha ao criar video no feed (via Reels)"
+          );
         }
         const ready = await waitForMediaContainer(conn.access_token, containerId, 30);
         if (!ready.ok) {
@@ -2215,12 +2318,15 @@ class InstagramService {
         }
       } else {
         const imageUrl = resolveInstagramImageUrl(mediaItems[0].url);
-        logger.info(`[Instagram] Publishing image postId=${postId} url=${imageUrl}`);
+        const imgMeta = post.publish_meta || {};
+        logger.info(
+          `[Instagram] Publishing image postId=${postId} url=${imageUrl} location_id=${imgMeta.location_id || "-"}`
+        );
         const imagePayload: Record<string, unknown> = {
           image_url: imageUrl,
           caption: post.caption || "",
         };
-        applyPublishMetaToContainer(imagePayload, post.publish_meta);
+        applyPublishMetaToContainer(imagePayload, imgMeta);
         const created = await createIgMediaContainer(conn.access_token, imagePayload);
         containerId = created.id;
         if (!containerId) {
@@ -2228,6 +2334,9 @@ class InstagramService {
             ? " O Instagram nao conseguiu baixar a imagem. Verifique se a URL publica esta acessivel."
             : "";
           return this.failPublish(postId, `${created.error || "Falha ao criar container de imagem"}${hint}`);
+        }
+        if (created.locationDropped) {
+          logger.warn(`[Instagram] IMAGE postId=${postId} publicado sem localização (id inválido)`);
         }
         const ready = await waitForMediaContainer(conn.access_token, containerId, 15);
         if (!ready.ok) {
@@ -2378,35 +2487,130 @@ class InstagramService {
   }
 
   /**
-   * Search for locations using Facebook Pages Search API.
+   * Search locations for IG location_id tagging.
+   * Meta exige Facebook Page IDs com dados de location física (Pages Search / place search).
+   * Tokens de Instagram Login (IGxxx) NÃO funcionam em graph.facebook.com/pages/search —
+   * usamos app access token (app_id|app_secret) como principal.
    */
-  async searchLocations(brandId: string, searchQuery: string): Promise<{ id: string; name: string; address?: string }[]> {
+  async searchLocations(
+    brandId: string,
+    searchQuery: string
+  ): Promise<{ id: string; name: string; address?: string; has_location?: boolean }[]> {
     const conn = await this.getConnection(brandId);
-    if (!conn?.access_token) return [];
+    const q = String(searchQuery || "").trim();
+    if (q.length < 2) return [];
 
     try {
-      const params = new URLSearchParams({
-        q: searchQuery,
-        fields: "id,name,location",
-        type: "place",
-        limit: "10",
-        access_token: conn.access_token,
-      });
-      // Location search uses the Facebook Graph API (not Instagram)
-      const resp = await fetch(`https://graph.facebook.com/v21.0/pages/search?${params}`);
-      if (!resp.ok) {
-        const err: any = await resp.json().catch(() => ({}));
-        logger.warn(`[Instagram] Location search failed: ${err?.error?.message || resp.status}`);
+      const tokens: Array<{ label: string; token: string }> = [];
+      const { getMetaAppIdAndSecret } = await import("./metaAppCredentials");
+      const creds = await getMetaAppIdAndSecret();
+
+      // 1) App token — Pages Search aceita app access token (IG Login token NÃO serve)
+      const appId = (creds.appId || conn?.app_id || "").trim();
+      const secret = (creds.secret || conn?.app_secret || "").trim();
+      if (appId && secret) {
+        tokens.push({ label: "app", token: `${appId}|${secret}` });
+      }
+      if (conn?.app_id && conn?.app_secret) {
+        const t = `${String(conn.app_id).trim()}|${String(conn.app_secret).trim()}`;
+        if (!tokens.some((x) => x.token === t)) {
+          tokens.push({ label: "conn_app", token: t });
+        }
+      }
+
+      // 2) User/Page token só se NÃO for Instagram Login (IGxxx)
+      const userTok = String(conn?.access_token || "").trim();
+      if (userTok && !/^IG/i.test(userTok) && !userTok.includes("|")) {
+        tokens.push({ label: "user", token: userTok });
+      }
+
+      if (!tokens.length) {
+        logger.warn(
+          `[Instagram] Location search: sem token Facebook/app. Configure META_APP_ID/SECRET.`
+        );
         return [];
       }
-      const data: any = await resp.json();
-      return (data.data || []).map((p: any) => ({
-        id: p.id,
-        name: p.name,
-        address: p.location
-          ? [p.location.street, p.location.city, p.location.state, p.location.country].filter(Boolean).join(", ")
-          : undefined,
-      }));
+
+      type LocHit = { id: string; name: string; address?: string; has_location: boolean };
+      const mapPlace = (p: any): LocHit | null => {
+        if (!p?.id || !p?.name) return null;
+        const loc = p.location;
+        const hasLoc = Boolean(
+          loc &&
+            (loc.latitude != null ||
+              loc.longitude != null ||
+              loc.city ||
+              loc.street ||
+              loc.country ||
+              loc.zip)
+        );
+        // Meta rejeita Page sem location física no publish (INVALID_LOCATION_ID)
+        if (!hasLoc) return null;
+        const address = loc
+          ? [loc.street, loc.city, loc.state, loc.country].filter(Boolean).join(", ")
+          : undefined;
+        return {
+          id: String(p.id),
+          name: String(p.name),
+          address: address || undefined,
+          has_location: true,
+        };
+      };
+
+      const endpoints = (token: string) => [
+        // Pages Search API (oficial para location_id do IG)
+        `https://graph.facebook.com/v21.0/pages/search?${new URLSearchParams({
+          q,
+          type: "place",
+          fields: "id,name,location{latitude,longitude,street,city,state,country,zip}",
+          limit: "15",
+          access_token: token,
+        })}`,
+        // Graph place search (fallback)
+        `https://graph.facebook.com/v21.0/search?${new URLSearchParams({
+          type: "place",
+          q,
+          fields: "id,name,location",
+          limit: "15",
+          access_token: token,
+        })}`,
+      ];
+
+      const seen = new Set<string>();
+      const results: LocHit[] = [];
+      let lastError = "";
+
+      for (const { label, token } of tokens) {
+        for (const url of endpoints(token)) {
+          try {
+            const resp = await fetch(url);
+            const data: any = await resp.json().catch(() => ({}));
+            if (!resp.ok) {
+              lastError = data?.error?.message || `HTTP ${resp.status}`;
+              logger.warn(`[Instagram] Location search ${label} failed: ${lastError}`);
+              continue;
+            }
+            for (const p of data.data || []) {
+              const hit = mapPlace(p);
+              if (!hit || seen.has(hit.id)) continue;
+              seen.add(hit.id);
+              results.push(hit);
+            }
+            if (results.length >= 10) break;
+          } catch (e: any) {
+            lastError = e?.message || "fetch_error";
+          }
+        }
+        if (results.length) break;
+      }
+
+      if (!results.length && lastError) {
+        logger.warn(`[Instagram] Location search empty for q="${q}": ${lastError}`);
+      } else {
+        logger.info(`[Instagram] Location search q="${q}" hits=${results.length}`);
+      }
+
+      return results.slice(0, 10);
     } catch (err: any) {
       logger.error(`[Instagram] Location search error: ${err.message}`);
       return [];

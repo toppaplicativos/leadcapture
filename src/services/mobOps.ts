@@ -277,6 +277,14 @@ export const mobOpsService = {
       blockers.push("Veículo reportado com problema — informe a central");
     }
 
+    // Cadastro + veículo aprovado
+    try {
+      const { mobCourierProfileService } = await import("./mobCourierProfile");
+      await mobCourierProfileService.assertCanGoOnline(courierId);
+    } catch (e: any) {
+      blockers.push(e?.message || "Cadastro incompleto para iniciar turno");
+    }
+
     // Fleet vehicle status if provided
     if (checkin.vehicle_id && checkin.owner_user_id && checkin.brand_id) {
       try {
@@ -286,7 +294,12 @@ export const mobOpsService = {
           checkin.brand_id,
           checkin.vehicle_id
         );
-        if (v && ["blocked", "docs_expired", "maintenance", "inactive"].includes(v.status)) {
+        if (
+          v &&
+          ["blocked", "docs_expired", "maintenance", "inactive", "pending_approval"].includes(
+            v.status
+          )
+        ) {
           blockers.push(`Veículo indisponível (status: ${v.status})`);
         }
       } catch {

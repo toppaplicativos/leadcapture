@@ -745,6 +745,40 @@ export function MobFleetPanel({
                       </dl>
 
                       <div className="flex flex-wrap gap-1.5">
+                        {(detail.status === 'pending_approval' || detail.status === 'blocked') && (
+                          <>
+                            <Button
+                              size="sm"
+                              onClick={() =>
+                                mobAdminApi
+                                  .approveVehicle(detail.id)
+                                  .then(() => openDetail(detail.id))
+                                  .then(() => load())
+                                  .then(() => showToast('Veículo aprovado'))
+                                  .catch((e: any) => showToast(e.message, 'err'))
+                              }
+                              iconLeft={<Check size={14} strokeWidth={2.25} />}
+                            >
+                              Aprovar envio
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="danger"
+                              onClick={() => {
+                                const reason = window.prompt('Motivo da recusa') || 'Recusado'
+                                mobAdminApi
+                                  .rejectVehicle(detail.id, { reason })
+                                  .then(() => openDetail(detail.id))
+                                  .then(() => load())
+                                  .then(() => showToast('Veículo recusado'))
+                                  .catch((e: any) => showToast(e.message, 'err'))
+                              }}
+                              iconLeft={<X size={14} strokeWidth={2.25} />}
+                            >
+                              Recusar envio
+                            </Button>
+                          </>
+                        )}
                         {detail.status !== 'available' && (
                           <Button size="sm" variant="secondary" onClick={() => setVehicleStatus(detail.id, 'available')}>
                             Disponível

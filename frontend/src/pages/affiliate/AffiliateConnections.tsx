@@ -31,10 +31,10 @@ export function AffiliateConnections({
 
         <div className="mb-4 rounded-xl bg-[#f0fdf4] border border-emerald-100 px-3 py-2.5">
           <p className="text-[11px] text-emerald-900 leading-relaxed">
-            Cada sessão recebe um <strong>código automático</strong> (ex.: marca-WA-001) e
-            fica amarrada a <strong>{brandName || 'esta organização'}</strong>.
-            Contatos enviados para este WhatsApp ficam rastreados como seus enquanto a sessão
-            estiver ativa — em outro programa, use outra sessão.
+            Cada sessão recebe um <strong>código sequencial global</strong> da organização
+            (ex.: marca-WA-001, 002, 003…) — a fila não reinicia por afiliado.
+            Fica amarrada a <strong>{brandName || 'esta organização'}</strong> e ao seu perfil.
+            Contatos deste WhatsApp ficam rastreados como seus enquanto a sessão estiver ativa.
           </p>
         </div>
 

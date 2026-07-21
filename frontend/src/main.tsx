@@ -7,7 +7,10 @@ import { isCustomDomain, storeSlug } from './lib/store-context'
 
 /* Apply cached brand colors synchronously before React renders — prevents FOUC (blue flash) */
 try {
-  const cached = localStorage.getItem('lead-system:brand-colors')
+  const pathParts = window.location.pathname.split('/').filter(Boolean)
+  const isStoreSurface = isCustomDomain || pathParts[0] === 'catalogo' || pathParts[0] === 'loja'
+  const storeColorKey = `lead-system:store-brand-colors:${window.location.hostname}:${storeSlug || pathParts[1] || ''}`
+  const cached = localStorage.getItem(isStoreSurface ? storeColorKey : 'lead-system:brand-colors')
   if (cached) {
     const { primary, secondary } = JSON.parse(cached)
     const root = document.documentElement
@@ -17,6 +20,13 @@ try {
       root.style.setProperty('--brand-secondary-soft', secondary + '1a')
       root.style.setProperty('--brand-secondary-light', secondary + '26')
     }
+  } else if (isStoreSurface) {
+    const root = document.documentElement
+    root.style.setProperty('--brand-primary', '#525252')
+    root.style.setProperty('--brand-secondary', '#737373')
+    root.style.setProperty('--brand-primary-light', '#f5f5f5')
+    root.style.setProperty('--brand-secondary-light', '#f3f3f3')
+    root.style.setProperty('--brand-secondary-soft', '#e5e5e5')
   }
 } catch { /* ignore */ }
 
@@ -112,66 +122,78 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator) {
     window.location.reload()
   })
 
+  const setupRegistration = (registration: ServiceWorkerRegistration) => {
+    void registration.update().catch(() => undefined)
+
+    // Se já há SW waiting (deploy), ativa na hora
+    if (registration.waiting) {
+      registration.waiting.postMessage({ type: 'SKIP_WAITING' })
+    }
+    registration.addEventListener('updatefound', () => {
+      const installing = registration.installing
+      if (!installing) return
+      installing.addEventListener('statechange', () => {
+        if (installing.state === 'installed' && navigator.serviceWorker.controller) {
+          installing.postMessage({ type: 'SKIP_WAITING' })
+        }
+      })
+    })
+
+    // Warm cache: scripts/CSS já no DOM + modulepreload → navegação PWA mais rápida
+    const warm = () => {
+      const urls = new Set<string>()
+      document.querySelectorAll('script[src], link[rel="stylesheet"], link[rel="modulepreload"], link[rel="preload"]').forEach((el) => {
+        const href = (el as HTMLScriptElement).src || (el as HTMLLinkElement).href
+        if (href && href.startsWith(window.location.origin)) urls.add(href)
+      })
+      try {
+        performance.getEntriesByType('resource').forEach((entry) => {
+          const name = (entry as PerformanceResourceTiming).name
+          if (name && name.includes('/assets/') && name.startsWith(window.location.origin)) {
+            urls.add(name)
+          }
+        })
+      } catch {
+        /* ignore */
+      }
+      const list = [...urls]
+      if (!list.length) return
+      const post = (sw: ServiceWorker | null | undefined) => {
+        sw?.postMessage({ type: 'WARM_URLS', urls: list })
+      }
+      post(registration.active)
+      post(navigator.serviceWorker.controller)
+    }
+    const w = window as Window & {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number
+    }
+    if (typeof w.requestIdleCallback === 'function') {
+      w.requestIdleCallback(warm, { timeout: 4000 })
+    } else {
+      window.setTimeout(warm, 1200)
+    }
+  }
+
+  // Registrar o quanto antes (index.html já tenta; aqui garante scope correto + warm cache)
+  // Esperar window.load atrasa o beforeinstallprompt no Android/tablets baratos.
+  const registerNow = () => {
+    navigator.serviceWorker
+      .register('/service-worker.js', { scope: baseScope })
+      .then(setupRegistration)
+      .catch(() => undefined)
+  }
+  registerNow()
+
   window.addEventListener('load', () => {
     // limpa flag na carga estável (próximo deploy pode recarregar de novo)
     window.setTimeout(() => {
       try { sessionStorage.removeItem('lead-system:sw-controller-reloaded') } catch { /* ignore */ }
     }, 8000)
-
-    navigator.serviceWorker
-      .register('/service-worker.js', { scope: baseScope })
-      .then((registration) => {
-        void registration.update().catch(() => undefined)
-
-        // Se já há SW waiting (deploy), ativa na hora
-        if (registration.waiting) {
-          registration.waiting.postMessage({ type: 'SKIP_WAITING' })
-        }
-        registration.addEventListener('updatefound', () => {
-          const installing = registration.installing
-          if (!installing) return
-          installing.addEventListener('statechange', () => {
-            if (installing.state === 'installed' && navigator.serviceWorker.controller) {
-              installing.postMessage({ type: 'SKIP_WAITING' })
-            }
-          })
-        })
-
-        // Warm cache: scripts/CSS já no DOM + modulepreload → navegação PWA mais rápida
-        const warm = () => {
-          const urls = new Set<string>()
-          document.querySelectorAll('script[src], link[rel="stylesheet"], link[rel="modulepreload"], link[rel="preload"]').forEach((el) => {
-            const href = (el as HTMLScriptElement).src || (el as HTMLLinkElement).href
-            if (href && href.startsWith(window.location.origin)) urls.add(href)
-          })
-          try {
-            performance.getEntriesByType('resource').forEach((entry) => {
-              const name = (entry as PerformanceResourceTiming).name
-              if (name && name.includes('/assets/') && name.startsWith(window.location.origin)) {
-                urls.add(name)
-              }
-            })
-          } catch {
-            /* ignore */
-          }
-          const list = [...urls]
-          if (!list.length) return
-          const post = (sw: ServiceWorker | null | undefined) => {
-            sw?.postMessage({ type: 'WARM_URLS', urls: list })
-          }
-          post(registration.active)
-          post(navigator.serviceWorker.controller)
-        }
-        const w = window as Window & {
-          requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number
-        }
-        if (typeof w.requestIdleCallback === 'function') {
-          w.requestIdleCallback(warm, { timeout: 4000 })
-        } else {
-          window.setTimeout(warm, 1200)
-        }
-      })
-      .catch(() => undefined)
+    // reforça update pós-load
+    void navigator.serviceWorker.getRegistration(baseScope).then((reg) => {
+      if (reg) void reg.update().catch(() => undefined)
+      else registerNow()
+    }).catch(() => undefined)
   })
 }
 

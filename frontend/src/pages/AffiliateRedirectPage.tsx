@@ -34,8 +34,16 @@ export function AffiliateRedirectPage() {
         if (data.display_name) {
           try { sessionStorage.setItem('lc_affiliate_name', String(data.display_name)) } catch { /* ignore */ }
         }
-        const dest = data.redirect_url || `/catalogo/${data.store_slug || 'alhopronto'}?ref=${encodeURIComponent(code)}`
-        navigate(dest, { replace: true })
+        const dest = String(
+          data.redirect_url
+          || `/catalogo/${data.store_slug || 'alhopronto'}?ref=${encodeURIComponent(code)}`,
+        )
+        /* Domínio customizado absoluto → hard navigate; path relativo → SPA */
+        if (/^https?:\/\//i.test(dest)) {
+          window.location.replace(dest)
+        } else {
+          navigate(dest, { replace: true })
+        }
       })
       .catch((e: Error) => setError(e.message || 'Link inválido'))
   }, [code, navigate])

@@ -27,8 +27,8 @@ if (IS_LOCAL_DEV) {
     );
   });
 } else {
-const SHELL_CACHE_NAME = "lead-system-shell-v271-20260721-stock-push";
-const RUNTIME_CACHE_NAME = "lead-system-runtime-v262-20260721-stock-push";
+const SHELL_CACHE_NAME = "lead-system-shell-v272-20260721-stock-push";
+const RUNTIME_CACHE_NAME = "lead-system-runtime-v263-20260721-stock-push";
 
 function getBasePath() {
   try {

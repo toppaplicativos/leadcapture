@@ -643,6 +643,8 @@ export function AffiliateTaskWorkspace({
           initialProductName={String(contact.product_name || '').trim()}
           initialValueProposition={String(ctx.brand?.slogan || '').trim()}
           initialTemplateId={templateId}
+          /* trackedLinks vazio: o modal auto-carrega links do afiliado e restaura preferência. */
+          trackedLinks={{}}
           onClose={() => setShowComposer(false)}
           onAiPersonalize={async ({ lead: l, currentMessage, templateId: tid }) => {
             const [refType, refId] = String(l.id || '').split(':')

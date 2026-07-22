@@ -15,6 +15,7 @@ import {
   X, Copy, ExternalLink, ChevronLeft, ChevronRight,
   CheckCircle2, Smartphone, Monitor,
   Edit3, RotateCcw, Phone, AlertCircle, Sparkles, Loader2,
+  Link2, Package, Store,
 } from 'lucide-react'
 import { WhatsAppIcon } from '@/components/icons'
 
@@ -44,7 +45,7 @@ interface WhatsAppSendModalProps {
   leads: WaSendLead[]
   onClose: () => void
   /** Called when user opens WhatsApp for a lead (optional — e.g. mark as contacted) */
-  onSent?: (lead: WaSendLead) => void
+  onSent?: (lead: WaSendLead, message?: string) => void
   /** Opens the queue on a specific lead instead of always starting at the first. */
   initialIndex?: number
   /** White-label proposition supplied by another app context (for example, affiliate). */
@@ -55,13 +56,35 @@ interface WhatsAppSendModalProps {
   initialProductName?: string
   /** Template inicial (ex.: optin | followup). Default: optin */
   initialTemplateId?: string
+  /** Operational context that explains why this message is being prepared. */
+  messageContext?: WaMessageContext
+  /** Affiliate-tracked destinations that can be appended to the final message. */
+  trackedLinks?: {
+    catalogUrl?: string
+    products?: Array<{ id: string; name: string; url: string; priceLabel?: string }>
+    /** Legacy single-product fallback. */
+    productUrl?: string
+    productLabel?: string
+  }
   /** Lets another app reuse the same composer with its own authenticated AI endpoint. */
   onAiPersonalize?: (input: {
     lead: WaSendLead
     currentMessage: string
     templateId: string
     senderName: string
+    context?: WaMessageContext
   }) => Promise<string>
+}
+
+export interface WaMessageContext {
+  previousAction?: string | null
+  previousChannel?: string | null
+  previousMessage?: string | null
+  previousNote?: string | null
+  taskType?: string | null
+  taskInstruction?: string | null
+  campaignTemplate?: string | null
+  campaignIntent?: string | null
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -142,6 +165,38 @@ Tem alguma dúvida ou posso ajudar com algo?`,
     body: '',
   },
 ]
+
+function contextualTemplate(templateId: string, context?: WaMessageContext): string | null {
+  if (!context || !['followup', 'reativacao', 'proposta'].includes(templateId)) return null
+  const action = String(context.previousAction || '').toLowerCase()
+  const channel = String(context.previousChannel || '').toLowerCase()
+
+  if (action === 'no_answer') {
+    return `Oi, {{nome}}! Tudo bem?\n\nPassando novamente porque talvez minha primeira mensagem tenha chegado em um momento corrido.\n\nA {{marca}} trabalha com {{produto_ou_servico}} para {{nicho_regiao}}. Posso te enviar os formatos e condições por aqui?`
+  }
+  if (action === 'auto_reply') {
+    return `Oi, {{nome}}! Na minha primeira mensagem recebi uma resposta automática.\n\nQueria apresentar a {{marca}} e {{produto_ou_servico}}. Consigo falar por aqui com a pessoa responsável pelas compras?`
+  }
+  if (action === 'busy') {
+    return `Oi, {{nome}}! Tentei ligar há pouco, mas a linha estava ocupada.\n\nFalo pela {{marca}} sobre {{produto_ou_servico}}. Qual seria um bom horário para conversarmos rapidamente?`
+  }
+  if (action === 'voicemail') {
+    return `Oi, {{nome}}! Tentei contato por telefone e deixei um recado.\n\nSou da {{marca}} e queria apresentar {{produto_ou_servico}}. Posso te explicar por aqui em uma mensagem breve?`
+  }
+  if (action === 'callback_requested' || action === 'waiting') {
+    return `Oi, {{nome}}! Como combinado, estou retornando nosso contato sobre {{produto_ou_servico}} da {{marca}}.\n\nEste ainda é um bom momento para continuarmos?`
+  }
+  if (action === 'sent') {
+    return `Oi, {{nome}}! Passando novamente sobre a apresentação que enviei da {{marca}}.\n\nTalvez a mensagem anterior tenha chegado em um momento corrido. Posso resumir em duas linhas como {{produto_ou_servico}} pode ajudar a {{empresa}}?`
+  }
+  if (action === 'replied' || action === 'negotiating') {
+    return `Oi, {{nome}}! Dando sequência ao nosso contato sobre {{produto_ou_servico}} da {{marca}}.\n\n{{proposta}} Qual informação você precisa para avançarmos?`
+  }
+  if (channel === 'phone') {
+    return `Oi, {{nome}}! Estou dando sequência à nossa tentativa de contato por telefone.\n\nFalo pela {{marca}} sobre {{produto_ou_servico}}. Posso te apresentar os detalhes por aqui?`
+  }
+  return null
+}
 
 /* ─────────────────────────────────────────────────────────────
    Helpers
@@ -311,11 +366,64 @@ async function copyToClipboard(text: string): Promise<boolean> {
 }
 
 /* ─────────────────────────────────────────────────────────────
-   Sender name persistence
+   Sender name + affiliate link preferences (persistência)
    ───────────────────────────────────────────────────────────── */
 const SENDER_KEY = 'wa-sender-name'
 function getSenderName() { return localStorage.getItem(SENDER_KEY) || '' }
 function setSenderName(v: string) { localStorage.setItem(SENDER_KEY, v) }
+
+/** Preferências do afiliado: incluir link na mensagem, tipo e produto. */
+const AFF_LINK_INCLUDE_KEY = 'lead-system:affiliate-wa:include-link'
+const AFF_LINK_KIND_KEY = 'lead-system:affiliate-wa:link-kind'
+const AFF_LINK_PRODUCT_KEY = 'lead-system:affiliate-wa:product-id'
+
+function isAffiliateComposerContext(): boolean {
+  if (typeof window === 'undefined') return false
+  const path = window.location.pathname || ''
+  if (path.startsWith('/central-afiliado')) return true
+  if (path.startsWith('/parceiros/') && path.includes('/painel')) return true
+  if (path.includes('/programa/') && path.includes('/painel')) return true
+  return !!localStorage.getItem('lead-system-token-afiliado') && !localStorage.getItem('lead-system-token')
+}
+
+function readIncludeLinkPref(affiliate: boolean): boolean {
+  try {
+    const raw = localStorage.getItem(AFF_LINK_INCLUDE_KEY)
+    if (raw === '1' || raw === 'true') return true
+    if (raw === '0' || raw === 'false') return false
+  } catch { /* ignore */ }
+  /* Afiliado: default ligado (enviar links). Admin: default desligado. */
+  return affiliate
+}
+
+function readLinkKindPref(): 'product' | 'catalog' {
+  try {
+    const raw = localStorage.getItem(AFF_LINK_KIND_KEY)
+    if (raw === 'product' || raw === 'catalog') return raw
+  } catch { /* ignore */ }
+  return 'catalog'
+}
+
+function readSelectedProductPref(): string {
+  try {
+    return String(localStorage.getItem(AFF_LINK_PRODUCT_KEY) || '').trim()
+  } catch {
+    return ''
+  }
+}
+
+function persistIncludeLinkPref(value: boolean) {
+  try { localStorage.setItem(AFF_LINK_INCLUDE_KEY, value ? '1' : '0') } catch { /* ignore */ }
+}
+function persistLinkKindPref(value: 'product' | 'catalog') {
+  try { localStorage.setItem(AFF_LINK_KIND_KEY, value) } catch { /* ignore */ }
+}
+function persistSelectedProductPref(value: string) {
+  try {
+    if (value) localStorage.setItem(AFF_LINK_PRODUCT_KEY, value)
+    else localStorage.removeItem(AFF_LINK_PRODUCT_KEY)
+  } catch { /* ignore */ }
+}
 
 /* ─────────────────────────────────────────────────────────────
    Variables legend chip
@@ -368,6 +476,8 @@ export function WhatsAppSendModal({
   initialBrandName = '',
   initialProductName = '',
   initialTemplateId = 'optin',
+  messageContext,
+  trackedLinks,
   onAiPersonalize,
 }: WhatsAppSendModalProps) {
   const [queueIdx, setQueueIdx] = useState(() => Math.min(Math.max(initialIndex, 0), Math.max(leads.length - 1, 0)))
@@ -386,6 +496,109 @@ export function WhatsAppSendModal({
     () => initialBrandName || localStorage.getItem('lead-system:active-brand-name') || '',
   )
   const [defaultProduct, setDefaultProduct] = useState(initialProductName)
+  const affiliateComposer = useMemo(() => isAffiliateComposerContext(), [])
+  const [includeLink, setIncludeLink] = useState(() => readIncludeLinkPref(affiliateComposer))
+  /** Links resolvidos (prop + auto-load no contexto afiliado). */
+  const [resolvedLinks, setResolvedLinks] = useState(() => trackedLinks || {})
+  const [linksLoading, setLinksLoading] = useState(false)
+  const [linksError, setLinksError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!trackedLinks) return
+    if (trackedLinks.catalogUrl || trackedLinks.productUrl || (trackedLinks.products && trackedLinks.products.length > 0)) {
+      setResolvedLinks(trackedLinks)
+    }
+  }, [trackedLinks])
+
+  /* Auto-carrega links rastreáveis do afiliado quando a prop vem vazia. */
+  useEffect(() => {
+    if (!affiliateComposer) return
+    const has =
+      !!resolvedLinks?.catalogUrl
+      || !!resolvedLinks?.productUrl
+      || (resolvedLinks?.products && resolvedLinks.products.length > 0)
+    if (has) return
+
+    let cancelled = false
+    setLinksLoading(true)
+    setLinksError(null)
+    const headers = getHeaders()
+    fetch('/api/affiliate-app/links?days=30', { headers })
+      .then(async (r) => {
+        const data = await r.json().catch(() => ({}))
+        if (!r.ok) throw new Error(data?.error || `HTTP ${r.status}`)
+        return data
+      })
+      .then((result) => {
+        if (cancelled) return
+        const products = Array.isArray(result?.products) ? result.products : []
+        const wanted = String(initialProductName || leads[0]?.product_name || '').trim().toLowerCase()
+        const mappedProducts = products
+          .filter((product: any) => String(product?.product_url || '').trim())
+          .map((product: any) => ({
+            id: String(product.id || product.slug || product.product_url),
+            name: String(product.name || 'Produto'),
+            url: String(product.product_url),
+            priceLabel: Number(product.promo_price || product.price) > 0
+              ? Number(product.promo_price || product.price).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+              : undefined,
+          }))
+          .sort((a: { name: string }, b: { name: string }) => {
+            const aMatch = wanted && a.name.toLowerCase().includes(wanted) ? 1 : 0
+            const bMatch = wanted && b.name.toLowerCase().includes(wanted) ? 1 : 0
+            return bMatch - aMatch || a.name.localeCompare(b.name, 'pt-BR')
+          })
+        const catalogUrl =
+          String(result?.links?.catalog_url || result?.share?.catalog?.url || '').trim() || undefined
+        setResolvedLinks({
+          catalogUrl,
+          products: mappedProducts,
+        })
+        if (!catalogUrl && mappedProducts.length === 0) {
+          setLinksError('Nenhum link liberado ainda. Conclua o solicitado do programa para liberar link e cupom.')
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setLinksError('Não foi possível carregar seus links. Tente de novo em instantes.')
+      })
+      .finally(() => {
+        if (!cancelled) setLinksLoading(false)
+      })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [affiliateComposer])
+
+  const productOptions = useMemo(() => {
+    if (resolvedLinks?.products?.length) return resolvedLinks.products.filter((product) => product.url)
+    if (resolvedLinks?.productUrl) {
+      return [{ id: 'default', name: resolvedLinks.productLabel || 'Produto selecionado', url: resolvedLinks.productUrl }]
+    }
+    return []
+  }, [resolvedLinks])
+
+  const [linkKind, setLinkKind] = useState<'product' | 'catalog'>(() => {
+    const pref = readLinkKindPref()
+    if (pref === 'product' && productOptions.length > 0) return 'product'
+    if (pref === 'catalog') return 'catalog'
+    return productOptions.length ? 'product' : 'catalog'
+  })
+  const [selectedProductId, setSelectedProductId] = useState(() => readSelectedProductPref())
+
+  /* Persiste preferências do afiliado ao alterar. */
+  useEffect(() => {
+    if (!affiliateComposer) return
+    persistIncludeLinkPref(includeLink)
+  }, [includeLink, affiliateComposer])
+
+  useEffect(() => {
+    if (!affiliateComposer) return
+    persistLinkKindPref(linkKind)
+  }, [linkKind, affiliateComposer])
+
+  useEffect(() => {
+    if (!affiliateComposer) return
+    persistSelectedProductPref(selectedProductId)
+  }, [selectedProductId, affiliateComposer])
 
   /* Fetch brand profile on mount to get value_proposition + brand context */
   useEffect(() => {
@@ -449,23 +662,53 @@ export function WhatsAppSendModal({
     () => buildVars(lead, senderName, valueProposition, brandName, defaultProduct),
     [lead, senderName, valueProposition, brandName, defaultProduct],
   )
+  useEffect(() => {
+    if (!productOptions.length) {
+      setSelectedProductId('')
+      if (linkKind === 'product') setLinkKind('catalog')
+      return
+    }
+    /* Quando produtos chegam e a preferência salva é "produto", restaura. */
+    if (linkKind === 'catalog' && readLinkKindPref() === 'product') {
+      setLinkKind('product')
+    }
+    if (!productOptions.some((product) => product.id === selectedProductId)) {
+      const preferred = readSelectedProductPref()
+      const match = preferred && productOptions.find((p) => p.id === preferred)
+      setSelectedProductId(match ? match.id : productOptions[0].id)
+    }
+  }, [productOptions, selectedProductId, linkKind])
+
+  const selectedProduct = productOptions.find((product) => product.id === selectedProductId) || productOptions[0]
+  const selectedLink = linkKind === 'product' ? selectedProduct?.url : resolvedLinks?.catalogUrl
+  const hasAnyTrackedLink = productOptions.length > 0 || !!resolvedLinks?.catalogUrl
+  /** Painel de links: sempre no fluxo afiliado; nos demais, só se houver destino. */
+  const showLinkPanel = affiliateComposer || hasAnyTrackedLink
+  const finalMessage = useMemo(() => {
+    const clean = message.trim()
+    const link = String(selectedLink || '').trim()
+    if (!includeLink || !link || clean.includes(link)) return clean
+    const label = linkKind === 'product' ? 'Veja este produto' : 'Veja nosso catálogo'
+    return `${clean}\n\n${label}: ${link}`
+  }, [message, includeLink, selectedLink, linkKind])
 
   /* When template or lead changes, rebuild message from template */
   useEffect(() => {
     const tpl = TEMPLATES.find(t => t.id === templateId)
     if (!tpl) return
-    setMessage(applyVars(tpl.body, vars))
+    const contextual = contextualTemplate(templateId, messageContext)
+    setMessage(applyVars(contextual || tpl.body, vars))
     // Intentionally not depending on full `vars` object identity every render —
     // rebuild when lead, template or brand context that feeds vars changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [templateId, queueIdx, valueProposition, brandName, defaultProduct, senderName, lead?.id, lead?.name, lead?.phone, lead?.category, lead?.niche, lead?.product_name, lead?.brand_name, lead?.city])
+  }, [templateId, queueIdx, valueProposition, brandName, defaultProduct, senderName, lead?.id, lead?.name, lead?.phone, lead?.category, lead?.niche, lead?.product_name, lead?.brand_name, lead?.city, messageContext?.previousAction, messageContext?.previousChannel, messageContext?.taskType])
 
   /* Re-apply vars when sender name changes (only if message still matches template pattern) */
   const applyCurrentTemplate = useCallback(() => {
     const tpl = TEMPLATES.find(t => t.id === templateId)
     if (!tpl) return
-    setMessage(applyVars(tpl.body, vars))
-  }, [templateId, vars])
+    setMessage(applyVars(contextualTemplate(templateId, messageContext) || tpl.body, vars))
+  }, [templateId, vars, messageContext])
 
   /* ── AI personalize ── */
   async function aiPersonalize() {
@@ -478,6 +721,7 @@ export function WhatsAppSendModal({
           currentMessage: message,
           templateId,
           senderName,
+          context: messageContext,
         })
         if (personalized) setMessage(personalized)
         return
@@ -524,16 +768,16 @@ export function WhatsAppSendModal({
   /* ── Send actions ── */
   async function handleSend(platform: 'auto' | 'web' | 'app') {
     if (!hasPhone) return
-    await copyToClipboard(message)
-    openWhatsApp(phone, message, platform)
+    await copyToClipboard(finalMessage)
+    openWhatsApp(phone, finalMessage, platform)
     setSentIdx(prev => new Set([...prev, queueIdx]))
-    onSent?.(lead)
+    onSent?.(lead, finalMessage)
     setCopied(true)
     setTimeout(() => setCopied(false), 2500)
   }
 
   async function handleCopyOnly() {
-    const ok = await copyToClipboard(message)
+    const ok = await copyToClipboard(finalMessage)
     if (ok) {
       setCopied(true)
       setTimeout(() => setCopied(false), 2500)
@@ -669,7 +913,7 @@ export function WhatsAppSendModal({
           {/* Template selector */}
           <div className="px-4 pt-3 lg:pt-4 pb-3 lg:pb-4">
             <p className="text-[11px] font-semibold text-neutral-600 mb-2">Escolha um ponto de partida</p>
-            <div className="flex lg:grid lg:grid-cols-1 gap-2 overflow-x-auto snap-x pb-1 -mx-4 px-4 lg:mx-0 lg:px-0 lg:overflow-visible">
+            <div className="flex lg:grid lg:grid-cols-1 gap-2 overflow-x-auto snap-x scroll-pl-0 pb-1 pr-4 lg:pr-0 lg:overflow-visible">
               {TEMPLATES.map(t => {
                 const isOptIn = t.id === 'optin'
                 const selected = templateId === t.id
@@ -743,8 +987,77 @@ export function WhatsAppSendModal({
               placeholder="Escreva ou selecione um modelo acima..."
               className="w-full min-h-[210px] lg:min-h-[250px] px-4 py-4 rounded-[20px] border border-neutral-200 bg-neutral-50 text-[14px] text-neutral-900 placeholder-neutral-400 focus:outline-none focus:ring-4 focus:ring-neutral-900/5 focus:border-neutral-900 focus:bg-white transition resize-y leading-relaxed font-[Inter,system-ui,sans-serif]"
             />
-            <p className="mt-1 text-[10px] text-gray-400 text-right">{message.length} chars</p>
+            <p className="mt-1 text-[10px] text-gray-400 text-right">{finalMessage.length} chars</p>
           </div>
+
+          {showLinkPanel && (
+            <div className="mx-4 lg:mx-7 mb-4 rounded-[20px] border border-neutral-200 bg-neutral-50 p-3.5">
+              <button
+                type="button"
+                onClick={() => setIncludeLink((value) => !value)}
+                className="flex min-h-11 w-full items-center gap-3 text-left"
+                aria-pressed={includeLink}
+                disabled={linksLoading || (!hasAnyTrackedLink && !linksLoading)}
+              >
+                <span className={`grid h-9 w-9 place-items-center rounded-xl ${includeLink && hasAnyTrackedLink ? 'bg-neutral-950 text-white' : 'bg-white text-neutral-500 border border-neutral-200'}`}>
+                  {linksLoading ? <Loader2 size={15} className="animate-spin" /> : <Link2 size={15} />}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[12px] font-semibold text-neutral-900">Incluir meus links</span>
+                  <span className="block text-[10px] text-neutral-500">
+                    {linksLoading
+                      ? 'Carregando seus links de afiliado…'
+                      : hasAnyTrackedLink
+                        ? (includeLink
+                          ? 'Seus links serão anexados à mensagem (preferência salva).'
+                          : 'Links desligados — a mensagem vai sem catálogo/produto (preferência salva).')
+                        : (linksError || 'Links ainda não disponíveis para este programa.')}
+                  </span>
+                </span>
+                <span className={`relative h-6 w-10 shrink-0 rounded-full transition ${includeLink && hasAnyTrackedLink ? 'bg-emerald-600' : 'bg-neutral-300'}`}>
+                  <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition ${includeLink && hasAnyTrackedLink ? 'left-5' : 'left-1'}`} />
+                </span>
+              </button>
+              {includeLink && hasAnyTrackedLink && (
+                <div className="mt-3 grid grid-cols-2 gap-2 border-t border-neutral-200 pt-3">
+                  {productOptions.length > 0 && (
+                    <button type="button" onClick={() => setLinkKind('product')} className={`min-h-11 rounded-2xl border px-3 text-left ${linkKind === 'product' ? 'border-neutral-950 bg-white text-neutral-950' : 'border-neutral-200 bg-white text-neutral-600'}`}>
+                      <span className="flex items-center gap-1.5 text-[11px] font-semibold"><Package size={13} /> Produto</span>
+                      <span className="mt-0.5 block truncate text-[9px] text-neutral-500">Escolher item específico</span>
+                    </button>
+                  )}
+                  {resolvedLinks?.catalogUrl && (
+                    <button type="button" onClick={() => setLinkKind('catalog')} className={`min-h-11 rounded-2xl border px-3 text-left ${linkKind === 'catalog' ? 'border-neutral-950 bg-white text-neutral-950' : 'border-neutral-200 bg-white text-neutral-600'}`}>
+                      <span className="flex items-center gap-1.5 text-[11px] font-semibold"><Store size={13} /> Catálogo</span>
+                      <span className="mt-0.5 block truncate text-[9px] text-neutral-500">Todos os produtos</span>
+                    </button>
+                  )}
+                </div>
+              )}
+              {includeLink && hasAnyTrackedLink && linkKind === 'catalog' && resolvedLinks?.catalogUrl && (
+                <p className="mt-3 border-t border-neutral-200 pt-3 text-[10px] text-neutral-500 truncate">
+                  Link do catálogo: {resolvedLinks.catalogUrl}
+                </p>
+              )}
+              {includeLink && hasAnyTrackedLink && linkKind === 'product' && productOptions.length > 0 && (
+                <label className="mt-3 block border-t border-neutral-200 pt-3">
+                  <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.06em] text-neutral-500">Qual produto será enviado?</span>
+                  <select
+                    value={selectedProductId}
+                    onChange={(event) => setSelectedProductId(event.target.value)}
+                    className="h-11 w-full rounded-2xl border border-neutral-200 bg-white px-3 text-[12px] font-semibold text-neutral-900 outline-none focus:border-neutral-950 focus:ring-4 focus:ring-neutral-900/5"
+                  >
+                    {productOptions.map((product) => (
+                      <option key={product.id} value={product.id}>
+                        {product.name}{product.priceLabel ? ` · ${product.priceLabel}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="mt-1.5 block truncate text-[10px] text-neutral-500">Link selecionado: {selectedProduct?.url}</span>
+                </label>
+              )}
+            </div>
+          )}
 
           {/* Variables legend */}
           <details className="mx-4 lg:mx-7 mb-4 lg:mb-5 rounded-2xl border border-neutral-200 bg-neutral-50 group">
@@ -807,7 +1120,7 @@ export function WhatsAppSendModal({
               <button
                 type="button"
                 onClick={() => handleSend('auto')}
-                disabled={!hasPhone || !message.trim()}
+                disabled={!hasPhone || !finalMessage.trim()}
                 className={`w-full flex items-center justify-center gap-2.5 h-12 rounded-[18px] text-[14px] font-semibold transition active:scale-[0.98] disabled:opacity-40 ${
                   currentSent
                     ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
@@ -826,7 +1139,7 @@ export function WhatsAppSendModal({
                 <button
                   type="button"
                   onClick={() => handleSend('web')}
-                  disabled={!hasPhone || !message.trim()}
+                  disabled={!hasPhone || !finalMessage.trim()}
                   title="Abrir no WhatsApp Web (navegador)"
                   className="flex items-center justify-center gap-1.5 h-11 px-2 sm:px-3.5 rounded-2xl bg-neutral-100 hover:bg-neutral-200 text-neutral-700 text-[12px] font-medium disabled:opacity-40 transition"
                 >
@@ -835,7 +1148,7 @@ export function WhatsAppSendModal({
                 <button
                   type="button"
                   onClick={() => handleSend('app')}
-                  disabled={!hasPhone || !message.trim()}
+                  disabled={!hasPhone || !finalMessage.trim()}
                   title="Abrir no app WhatsApp"
                   className="flex items-center justify-center gap-1.5 h-11 px-2 sm:px-3.5 rounded-2xl bg-neutral-100 hover:bg-neutral-200 text-neutral-700 text-[12px] font-medium disabled:opacity-40 transition"
                 >
@@ -844,7 +1157,7 @@ export function WhatsAppSendModal({
                 <button
                   type="button"
                   onClick={handleCopyOnly}
-                  disabled={!message.trim()}
+                  disabled={!finalMessage.trim()}
                   className="flex items-center justify-center gap-1.5 h-11 px-2 sm:px-3.5 rounded-2xl bg-neutral-100 hover:bg-neutral-200 text-neutral-700 text-[12px] font-medium disabled:opacity-40 transition"
                 >
                   {copied ? <CheckCircle2 size={13} strokeWidth={2} className="text-emerald-600" /> : <Copy size={13} strokeWidth={2} />}

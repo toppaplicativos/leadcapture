@@ -27,9 +27,17 @@ type CompatPool = {
 let pgPool: Pool;
 let compatPool: CompatPool;
 
+/** Supabase session pooler (5432) esgota com "EMAXCONNSESSION" — NÃO recriar pool nisso. */
+function isMaxClientsError(error: any): boolean {
+  const msg = String(error?.message || error?.code || "");
+  return /EMAXCONNSESSION|max clients reached|too many clients|remaining connection slots/i.test(msg);
+}
+
 function isTransientDbError(error: any): boolean {
   const code = String(error?.code || "");
   const msg = String(error?.message || "");
+  /* Esgotamento de slots: retry com backoff, sem recreate (recreate piora o limite). */
+  if (isMaxClientsError(error)) return true;
   return (
     code === "PROTOCOL_CONNECTION_LOST" ||
     code === "ECONNRESET" ||
@@ -40,14 +48,22 @@ function isTransientDbError(error: any): boolean {
     code === "08006" ||
     code === "08000" ||
     code === "08003" ||
-    /* Supabase Pooler/PgBouncer derruba conexao com "Internal error (authenticated): :closed"
-       (XX000). Tratamos como transiente pra evitar erro fatal por causa de churn de pool. */
-    code === "XX000" ||
+    /* Supabase Pooler/PgBouncer: ":closed" (XX000) — recrear pool só quando NÃO for max clients. */
+    (code === "XX000" && !isMaxClientsError(error)) ||
     /:closed/i.test(msg) ||
     /* Quando o pool foi encerrado por recreatePool e alguma query concorrente ainda
        segura uma referencia velha, o pg-pool lanca essa msg. Retry vai recriar o pool. */
     /Cannot use a pool after calling end/i.test(msg)
   );
+}
+
+function shouldRecreatePool(error: any): boolean {
+  if (isMaxClientsError(error)) return false;
+  return isTransientDbError(error);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function normalizeSchemaSql(sql: string): string {
@@ -76,10 +92,15 @@ function normalizeSchemaSql(sql: string): string {
     .replace(/\bBOOLEAN\s+NOT\s+NULL\s+DEFAULT\s+0\b/gi, "BOOLEAN NOT NULL DEFAULT FALSE")
     .replace(/\bBOOLEAN\s+DEFAULT\s+1\b/gi, "BOOLEAN DEFAULT TRUE")
     .replace(/\bBOOLEAN\s+DEFAULT\s+0\b/gi, "BOOLEAN DEFAULT FALSE")
-    .replace(/\bis_read\s*=\s*1\b/gi, "is_read = TRUE")
-    .replace(/\bis_read\s*=\s*0\b/gi, "is_read = FALSE")
-    .replace(/\bis_active\s*=\s*1\b/gi, "is_active = TRUE")
-    .replace(/\bis_active\s*=\s*0\b/gi, "is_active = FALSE")
+    /* Booleanos MySQL (0/1) → PG TRUE/FALSE — evita "operator does not exist: boolean = integer" */
+    .replace(
+      /\b(is_read|is_archived|is_active|is_enabled|is_default|is_required|is_public|is_published|is_verified|is_system|resources_unlocked)\s*=\s*1\b/gi,
+      "$1 = TRUE",
+    )
+    .replace(
+      /\b(is_read|is_archived|is_active|is_enabled|is_default|is_required|is_public|is_published|is_verified|is_system|resources_unlocked)\s*=\s*0\b/gi,
+      "$1 = FALSE",
+    )
     .replace(/\s+AFTER\s+[\w"`]+/gi, "")
     .replace(/\bNOW\(\)/gi, "CURRENT_TIMESTAMP")
     .replace(/\bCURDATE\(\)/gi, "CURRENT_DATE")
@@ -384,14 +405,72 @@ function buildCompatClient(client: PoolClient): CompatClient {
   };
 }
 
-function createPgPool(): Pool {
-  const connectionString = String(config.postgres.connectionString || "").trim();
+/**
+ * Supabase:
+ * - :5432 session mode → limite baixo (ex.: 15) e cada cliente Node ocupa 1 slot.
+ * - :6543 transaction mode → multiplexa melhor sob carga (recomendado p/ API).
+ * Preferimos transaction mode no pooler, a menos que POSTGRES_FORCE_SESSION=true.
+ */
+function resolveConnectionString(raw: string): { connectionString: string; max: number; mode: string } {
+  let connectionString = String(raw || "").trim();
+  let max = Math.max(1, Number(config.postgres.max) || 10);
+  let mode = "direct";
 
-  if (connectionString) {
+  const isSupabasePooler = /pooler\.supabase\.com/i.test(connectionString);
+  const forceSession = String(process.env.POSTGRES_FORCE_SESSION || "").toLowerCase() === "true";
+
+  if (isSupabasePooler) {
+    const isSessionPort = /:(5432)(\/|\?|$)/.test(connectionString);
+    const isTxnPort = /:(6543)(\/|\?|$)/.test(connectionString);
+
+    if (isSessionPort && !forceSession) {
+      connectionString = connectionString.replace(/:5432(\/|\?|$)/, ":6543$1");
+      mode = "supabase-transaction";
+    } else if (isTxnPort || (!isSessionPort && !forceSession)) {
+      mode = "supabase-transaction";
+    } else {
+      mode = "supabase-session";
+    }
+
+    if (mode === "supabase-transaction") {
+      if (!/[?&]pgbouncer=true/i.test(connectionString)) {
+        connectionString += (connectionString.includes("?") ? "&" : "?") + "pgbouncer=true";
+      }
+      /* Cap razoável: transaction mode aguenta mais, mas não dispare dezenas de sockets. */
+      const cap = Math.max(2, parseInt(process.env.POSTGRES_POOL_MAX_CAP || "12", 10) || 12);
+      max = Math.min(max, cap);
+    } else {
+      /* Session mode: NUNCA encher o pool remoto de 15 — deixa margem pro health/admin. */
+      const cap = Math.max(2, parseInt(process.env.POSTGRES_POOL_MAX_CAP || "6", 10) || 6);
+      max = Math.min(max, cap);
+    }
+  }
+
+  return { connectionString, max, mode };
+}
+
+function createPgPool(): Pool {
+  const rawConnectionString = String(config.postgres.connectionString || "").trim();
+  const ssl = config.postgres.ssl ? { rejectUnauthorized: false } : false;
+  const poolOpts = {
+    /* Libera idle rápido sob churn; evita segurar slots do Supabase. */
+    idleTimeoutMillis: Math.max(1_000, parseInt(process.env.POSTGRES_IDLE_TIMEOUT_MS || "10000", 10) || 10_000),
+    /* Falha em ~8s em vez de enfileirar até o Caddy devolver 504 (300s). */
+    connectionTimeoutMillis: Math.max(1_000, parseInt(process.env.POSTGRES_CONNECT_TIMEOUT_MS || "8000", 10) || 8_000),
+    allowExitOnIdle: false,
+  };
+
+  if (rawConnectionString) {
+    const resolved = resolveConnectionString(rawConnectionString);
+    logger.info(
+      { pool_max: resolved.max, pool_mode: resolved.mode },
+      "PostgreSQL pool config",
+    );
     return new Pool({
-      connectionString,
-      max: config.postgres.max,
-      ssl: config.postgres.ssl ? { rejectUnauthorized: false } : false,
+      connectionString: resolved.connectionString,
+      max: resolved.max,
+      ssl,
+      ...poolOpts,
     });
   }
 
@@ -402,14 +481,25 @@ function createPgPool(): Pool {
     );
   }
 
+  const host = String(config.postgres.host);
+  let port = Number(config.postgres.port) || 5432;
+  let max = Math.max(1, Number(config.postgres.max) || 10);
+  if (/pooler\.supabase\.com/i.test(host)) {
+    if (port === 5432 && String(process.env.POSTGRES_FORCE_SESSION || "").toLowerCase() !== "true") {
+      port = 6543;
+    }
+    max = Math.min(max, port === 6543 ? 12 : 6);
+  }
+
   return new Pool({
-    host: config.postgres.host,
-    port: config.postgres.port,
+    host,
+    port,
     user: config.postgres.user,
     password: config.postgres.password,
     database: config.postgres.database,
-    max: config.postgres.max,
-    ssl: config.postgres.ssl ? { rejectUnauthorized: false } : false,
+    max,
+    ssl,
+    ...poolOpts,
   });
 }
 
@@ -471,21 +561,43 @@ async function recreatePool(): Promise<void> {
   return recreateInFlight;
 }
 
-export async function query<T = any>(sql: string, params?: any[]): Promise<T> {
-  const p = getPool();
-  try {
-    const [rows] = await p.execute(sql, params || []);
-    return rows as T;
-  } catch (error: any) {
-    if (!isTransientDbError(error)) {
+async function withDbRetry<T>(fn: () => Promise<T>): Promise<T> {
+  const maxAttempts = 3;
+  let lastError: any;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (error: any) {
+      lastError = error;
+      if (!isTransientDbError(error)) throw error;
+
+      if (isMaxClientsError(error)) {
+        /* Sem recreate: espera o pool liberar slots e tenta de novo. */
+        logger.warn(
+          { attempt, maxAttempts, err: String(error?.message || error) },
+          "PostgreSQL max clients — retry sem recriar pool",
+        );
+        await sleep(80 * attempt + Math.floor(Math.random() * 120));
+        continue;
+      }
+
+      if (shouldRecreatePool(error) && attempt < maxAttempts) {
+        await recreatePool();
+        await sleep(40 * attempt);
+        continue;
+      }
       throw error;
     }
-
-    await recreatePool();
-    const retryPool = getPool();
-    const [rows] = await retryPool.execute(sql, params || []);
-    return rows as T;
   }
+  throw lastError;
+}
+
+export async function query<T = any>(sql: string, params?: any[]): Promise<T> {
+  return withDbRetry(async () => {
+    const p = getPool();
+    const [rows] = await p.execute(sql, params || []);
+    return rows as T;
+  });
 }
 
 export async function queryOne<T = any>(sql: string, params?: any[]): Promise<T | null> {
@@ -494,31 +606,19 @@ export async function queryOne<T = any>(sql: string, params?: any[]): Promise<T 
 }
 
 export async function insert(sql: string, params?: any[]): Promise<number> {
-  try {
+  return withDbRetry(async () => {
     const p = getPool();
     const [result] = await p.execute(sql, params || []);
     return (result as any).insertId;
-  } catch (error: any) {
-    if (!isTransientDbError(error)) throw error;
-    await recreatePool();
-    const retryPool = getPool();
-    const [result] = await retryPool.execute(sql, params || []);
-    return (result as any).insertId;
-  }
+  });
 }
 
 export async function update(sql: string, params?: any[]): Promise<number> {
-  try {
+  return withDbRetry(async () => {
     const p = getPool();
     const [result] = await p.execute(sql, params || []);
     return (result as any).affectedRows;
-  } catch (error: any) {
-    if (!isTransientDbError(error)) throw error;
-    await recreatePool();
-    const retryPool = getPool();
-    const [result] = await retryPool.execute(sql, params || []);
-    return (result as any).affectedRows;
-  }
+  });
 }
 
 export async function testConnection(): Promise<boolean> {

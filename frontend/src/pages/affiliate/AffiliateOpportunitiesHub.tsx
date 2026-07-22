@@ -280,7 +280,34 @@ function PoolPanel({
 
   const filtered = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
+    const isSearching = q.length > 0
     return items.filter((item) => {
+      /* Com busca: ignora canal/nicho/região — match dinâmico */
+      if (isSearching) {
+        const phoneDigits = String(item.channels?.whatsapp || item.phone || '').replace(/\D/g, '')
+        const qDigits = searchQuery.replace(/\D/g, '')
+        if (qDigits.length >= 4 && phoneDigits.includes(qDigits)) return true
+        const hay = [
+          item.name, item.phone, item.niche, item.search_query, item.place_type,
+          item.vertical, item.city, item.region, item.email,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+        const tokens = q
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .split(/\s+/)
+          .filter(Boolean)
+        return tokens.every((t) => {
+          if (hay.includes(t)) return true
+          const td = t.replace(/\D/g, '')
+          return td.length >= 3 && phoneDigits.includes(td)
+        })
+      }
+
       const phone = item.channels?.whatsapp || item.phone
       const hasWa = item.has_whatsapp ?? String(phone || '').replace(/\D/g, '').length >= 8
       const hasEmail = !!(item.channels?.email || item.email)
@@ -297,16 +324,6 @@ function PoolPanel({
       if (region) {
         const place = `${item.city || ''} ${item.region || ''}`.toLowerCase()
         if (!place.includes(region.toLowerCase())) return false
-      }
-      if (q) {
-        const hay = [
-          item.name, item.phone, item.niche, item.search_query, item.place_type,
-          item.vertical, item.city, item.region, item.email,
-        ]
-          .filter(Boolean)
-          .join(' ')
-          .toLowerCase()
-        if (!hay.includes(q)) return false
       }
       return true
     })
@@ -656,7 +673,7 @@ function PoolPanel({
             <div className="px-4 pt-2 pb-3 border-b border-border flex items-start gap-3">
               <div className="min-w-0 flex-1">
                 <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">
-                  Detalhe · pool aberto
+                  Nova oportunidade
                 </p>
                 <h2 id="pool-detail-title" className="text-[17px] font-semibold text-gray-900 tracking-tight">
                   {detail.name}
@@ -681,7 +698,7 @@ function PoolPanel({
             </div>
 
             <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-              <div className="grid grid-cols-2 gap-2">
+              <div className="hidden">
                 <div className={[
                   'rounded-2xl border p-3 min-h-[72px]',
                   (detail.channels?.whatsapp || detail.phone)
@@ -753,19 +770,27 @@ function PoolPanel({
                 </div>
               </div>
 
-              <div className="rounded-xl bg-neutral-50 border border-border px-3 py-2.5 text-xs text-neutral-700 leading-relaxed space-y-1">
-                <p><strong>Nicho:</strong> {detail.niche || 'não informado'}</p>
-                <p><strong>Região:</strong> {[detail.city, detail.region].filter(Boolean).join(' · ') || 'não informada'}</p>
-                <p><strong>Fonte:</strong> {detail.source_label || 'Organização'}</p>
+              <div className="rounded-[18px] border border-neutral-200 bg-neutral-50 p-3.5">
+                <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-neutral-500">Contato disponível</p>
+                <p className="mt-1 text-[15px] font-bold text-neutral-950">{detail.channels?.whatsapp || detail.phone || 'Telefone não informado'}</p>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {(detail.channels?.whatsapp || detail.phone) && <span className="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-800">WhatsApp</span>}
+                  {(detail.channels?.email || detail.email) && <span className="rounded-full bg-white px-2 py-1 text-[10px] font-bold text-neutral-600">E-mail</span>}
+                  {(detail.channels?.instagram || detail.instagram) && <span className="rounded-full bg-white px-2 py-1 text-[10px] font-bold text-neutral-600">Instagram</span>}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 rounded-[18px] border border-neutral-200 bg-white p-3.5 text-xs">
+                <div><p className="text-[10px] font-semibold text-neutral-500">Segmento</p><p className="mt-0.5 font-semibold text-neutral-900">{detail.niche || 'Não informado'}</p></div>
+                <div><p className="text-[10px] font-semibold text-neutral-500">Região</p><p className="mt-0.5 font-semibold text-neutral-900">{[detail.city, detail.region].filter(Boolean).join(' · ') || 'Não informada'}</p></div>
               </div>
 
               <div className="rounded-xl bg-sky-50 border border-sky-100 px-3 py-2.5 text-[11px] text-sky-950 leading-relaxed">
-                <strong>Exclusividade:</strong> ao confirmar, o contato some do pool e fica só com você
-                por ~{ttl} min de janela. Depois avance na <strong>Fila</strong>.
+                Ao assumir, este contato fica reservado para você por aproximadamente {ttl} minutos.
               </div>
               {claimConfirm && (
                 <div className="rounded-xl bg-amber-50 border border-amber-100 px-3 py-2.5 text-[11px] text-amber-950 leading-relaxed">
-                  Confirme: você assume <strong>{detail.name}</strong> e ele sai dos Disponíveis dos outros.
+                  Confirme o atendimento de <strong>{detail.name}</strong>. Ele será removido da lista dos outros afiliados.
                 </div>
               )}
             </div>
@@ -808,26 +833,6 @@ function PoolPanel({
                   {claimConfirm ? 'Confirmar exclusividade' : 'Assumir e atender'}
                 </button>
               </div>
-              {!claimConfirm && (
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    disabled={skippingId === detail.id}
-                    onClick={() => void skip(detail.id, 'not_matching')}
-                    className="h-10 rounded-xl text-xs font-semibold text-amber-900 bg-amber-50 border border-amber-100"
-                  >
-                    Não correspondente
-                  </button>
-                  <button
-                    type="button"
-                    disabled={skippingId === detail.id}
-                    onClick={() => void skip(detail.id, 'channel_unavailable')}
-                    className="h-10 rounded-xl text-xs font-semibold text-amber-900 bg-amber-50 border border-amber-100"
-                  >
-                    Canal indisponível
-                  </button>
-                </div>
-              )}
             </div>
           </div>
         </div>

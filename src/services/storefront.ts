@@ -169,6 +169,53 @@ export function defaultStoreSettings(): Record<string, any> {
       token_prefix: "DEL",
       confirm_base_url: null,
       require_delivery_token: true,
+      shipping_mode: "delivery",
+      delivery_fee: null,
+      delivery_radius_km: 40,
+      free_shipping_above: null,
+      delivery_time_text: null,
+      frete_texto: null,
+      expedition_phone: null,
+      cep_provider: "auto",
+      origin: {
+        cep: null,
+        address: null,
+        city: null,
+        state: null,
+        lat: null,
+        lng: null,
+      },
+      tiers: [
+        {
+          id: "short",
+          label: "Curta distância",
+          mode: "fixed",
+          from_km: 0,
+          to_km: 5,
+          fixed_fee: 12,
+          eta_minutes: 60,
+        },
+        {
+          id: "medium",
+          label: "Média distância",
+          mode: "per_km",
+          from_km: 5,
+          to_km: 15,
+          base_fee: 10,
+          price_per_km: 2.5,
+          eta_minutes: 120,
+        },
+        {
+          id: "long",
+          label: "Longa distância",
+          mode: "per_km",
+          from_km: 15,
+          to_km: 40,
+          base_fee: 15,
+          price_per_km: 3.2,
+          eta_minutes: 180,
+        },
+      ],
     },
     automation: {
       order_flow: {
@@ -399,6 +446,13 @@ function mergeStoreSettings(input: Record<string, any> | null | undefined): Reco
     logistics: {
       ...base.logistics,
       ...(next.logistics || {}),
+      origin: {
+        ...(base.logistics?.origin || {}),
+        ...((next.logistics || {}).origin || {}),
+      },
+      tiers: Array.isArray((next.logistics || {}).tiers)
+        ? (next.logistics || {}).tiers
+        : base.logistics.tiers,
     },
     automation: {
       ...base.automation,
@@ -452,6 +506,8 @@ function mergeStoreSettingsWithPatch(
 ): Record<string, any> {
   const current = mergeStoreSettings(currentSettings || {});
   const patch = patchSettings || {};
+  const patchLogistics = patch.logistics || {};
+  const currentLogistics = current.logistics || {};
   return mergeStoreSettings({
     ...current,
     ...patch,
@@ -464,8 +520,16 @@ function mergeStoreSettingsWithPatch(
       ...(patch.notifications || {}),
     },
     logistics: {
-      ...(current.logistics || {}),
-      ...(patch.logistics || {}),
+      ...currentLogistics,
+      ...patchLogistics,
+      origin: {
+        ...(currentLogistics.origin || {}),
+        ...(patchLogistics.origin || {}),
+      },
+      // tiers: se o patch manda array, substitui; senão mantém o atual
+      tiers: Array.isArray(patchLogistics.tiers)
+        ? patchLogistics.tiers
+        : currentLogistics.tiers,
     },
     automation: {
       ...(current.automation || {}),

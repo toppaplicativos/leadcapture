@@ -642,6 +642,30 @@ export const affiliateApi = {
     }),
 
   distributionStatus: () => affiliateFetch<any>('/api/affiliate-app/distribution/status'),
+  /** Simulador de frete (Atendimento) — CEP real + faixas da loja */
+  freightQuote: (payload: {
+    cep?: string
+    address?: string
+    city?: string
+    state?: string
+    cart_total?: number
+  }) =>
+    affiliateFetch<{
+      success: boolean
+      quote: any
+      configured?: boolean
+      store_id?: string | null
+    }>('/api/affiliate-app/freight/quote', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      timeoutMs: 25_000,
+      retries: 0,
+    }),
+  freightLookupCep: (cep: string) =>
+    affiliateFetch<{ success: boolean; place: any }>(
+      `/api/affiliate-app/freight/cep/${encodeURIComponent(cep.replace(/\D/g, ''))}`,
+      { timeoutMs: 12_000, retries: 0 },
+    ),
   /** Registra aceite de termos do programa (elegibilidade Ao Vivo) */
   acceptDistributionTerms: (accepted = true) =>
     affiliateFetch<any>('/api/affiliate-app/distribution/accept-terms', {

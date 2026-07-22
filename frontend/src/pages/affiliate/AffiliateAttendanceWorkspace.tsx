@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   Ban, Bot, Check, ChevronDown, ChevronRight, Clock3, History, Loader2, Mail, MapPin,
-  MessageCircle, Phone, PhoneOff, Send, StickyNote, UserX, Voicemail, Wifi, WifiOff, X, Zap,
+  MessageCircle, Phone, PhoneOff, Send, StickyNote, UserX, Voicemail, WifiOff, X, Zap,
 } from 'lucide-react'
 import { affiliateApi } from '@/lib/api-affiliate'
 import type { AppContext } from '@/pages/affiliate/types'
@@ -34,7 +34,6 @@ import {
   type OpsNextTask,
   normalizeNextTask,
 } from '@/lib/affiliate-contact-ops'
-import { ContactOpsStrip } from '@/pages/affiliate/ContactOpsStrip'
 import { ContactChannelAttempts } from '@/pages/affiliate/ContactChannelAttempts'
 
 export type AttendanceOpportunity = {
@@ -117,12 +116,12 @@ const PHASE_UI: Record<string, string> = {
   closed: 'Excluído',
 }
 
-const STEPS: { key: Step; label: string }[] = [
-  { key: 'lead', label: 'Lead' },
-  { key: 'message', label: 'Contato' },
-  { key: 'result', label: 'Resultado' },
-  { key: 'status', label: 'Estado' },
-]
+const FLOW_META: Record<Step, { eyebrow: string; title: string; progress: number }> = {
+  lead: { eyebrow: 'Próxima ação', title: 'Escolha como falar com este contato', progress: 1 },
+  message: { eyebrow: 'Contato iniciado', title: 'Conclua a conversa e volte ao resultado', progress: 2 },
+  result: { eyebrow: 'Depois do contato', title: 'Registre o que aconteceu', progress: 3 },
+  status: { eyebrow: 'Atendimento atualizado', title: 'Confira o próximo passo', progress: 3 },
+}
 
 /** Templates rápidos por fase (ids do WhatsAppSendModal). */
 const QUICK_TEMPLATES: Array<{
@@ -296,7 +295,7 @@ export function AffiliateAttendanceWorkspace({
   )
   const [history, setHistory] = useState<HistoryEvent[]>([])
   const [historyLoading, setHistoryLoading] = useState(true)
-  const [showHistory, setShowHistory] = useState(true)
+  const [showHistory, setShowHistory] = useState(false)
   const [lastAction, setLastAction] = useState<string | null>(null)
   const [lastActionAt, setLastActionAt] = useState<string | null>(null)
   const [lastChannel, setLastChannel] = useState<ContactChannel | null>(null)
@@ -547,7 +546,7 @@ export function AffiliateAttendanceWorkspace({
     [item, whatsappPhone, ctx.brand?.name],
   )
 
-  const stepIndex = step === 'status' ? 3 : STEPS.findIndex((s) => s.key === step)
+  const flowMeta = FLOW_META[step]
 
   async function markSent(message?: string) {
     setSaving('sent')
@@ -694,8 +693,8 @@ export function AffiliateAttendanceWorkspace({
       dismiss: 'Oculto pelo afiliado',
     }
     const exitToasts: Partial<Record<ProgressAction, string>> = {
-      channel_unavailable: 'Canal indisponível · contato excluído da fila',
-      not_matching: 'Não correspondente · contato excluído da fila',
+      channel_unavailable: 'Canal morto · removido da rede (não volta a outros afiliados)',
+      not_matching: 'Não correspondente · removido da rede (não volta a outros afiliados)',
       lost: 'Excluído · contato saiu da fila',
       dismiss: 'Oculto · removido da sua lista',
     }
@@ -909,21 +908,6 @@ export function AffiliateAttendanceWorkspace({
                 {place ? ` · ${place}` : ''}
                 {item.niche ? ` · ${item.niche}` : ''}
               </p>
-              <div className="mt-2">
-                <ContactOpsStrip
-                  ops={ops}
-                  onExecuteTask={
-                    ops.can_execute_task && onExecutePendingTask
-                      ? () => onExecutePendingTask()
-                      : undefined
-                  }
-                  onUpdateResult={
-                    (ops.can_update_result || ops.can_register_result)
-                      ? () => setStep('result')
-                      : undefined
-                  }
-                />
-              </div>
             </div>
             <button
               type="button"
@@ -935,79 +919,42 @@ export function AffiliateAttendanceWorkspace({
             </button>
           </header>
 
-          {/* 3-step progress — Lead · Mensagem · Resultado */}
-          <div className="border-b border-neutral-100 px-4 py-3 sm:px-5">
-            <div className="flex items-center gap-1.5" aria-label="Progresso">
-              {STEPS.map((entry, i) => {
-                const done = i < stepIndex || (entry.key === 'message' && sentOk)
-                const current = i === stepIndex
-                return (
-                  <div key={entry.key} className="min-w-0 flex-1">
-                    <div
-                      className={[
-                        'h-1.5 rounded-full transition-colors duration-200',
-                        done || current ? 'bg-neutral-950' : 'bg-neutral-200',
-                      ].join(' ')}
-                    />
-                    <p
-                      className={[
-                        'mt-1.5 text-center text-[10px] font-semibold',
-                        current ? 'text-neutral-950' : done ? 'text-neutral-600' : 'text-neutral-400',
-                      ].join(' ')}
-                    >
-                      {entry.label}
-                    </p>
-                  </div>
-                )
-              })}
+          <div className="border-b border-neutral-100 bg-neutral-50/70 px-4 py-3 sm:px-5">
+            <div className="flex items-center justify-between gap-4">
+              <div className="min-w-0">
+                <p className="text-[10px] font-bold uppercase tracking-[0.09em] text-neutral-500">{flowMeta.eyebrow}</p>
+                <p className="mt-0.5 truncate text-[13px] font-semibold text-neutral-950">{flowMeta.title}</p>
+              </div>
+              <div className="flex shrink-0 items-center gap-1.5" aria-label={`Etapa ${flowMeta.progress} de 3`}>
+                {[1, 2, 3].map((position) => <span key={position} className={['h-1.5 w-7 rounded-full', position <= flowMeta.progress ? 'bg-neutral-950' : 'bg-neutral-200'].join(' ')} />)}
+              </div>
             </div>
-            {contactRegistered && (
-              <p className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-800">
-                <Check size={12} strokeWidth={2.5} />
-                {lastChannel === 'phone' || lastAction === 'called'
-                  ? 'Ligação registrada · registre o resultado'
-                  : 'Contato registrado · registre o resultado'}
-              </p>
-            )}
           </div>
 
           <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-5">
-            {/* Saúde WhatsApp — informativo (automação). Atendimento manual NÃO exige conexão. */}
-            {waHealth !== 'loading' && waHealth !== 'unknown' && (
+            {step === 'lead' && activeChannel === 'whatsapp' && waHealth !== 'loading' && waHealth !== 'unknown' && waHealth !== 'connected' && (
               <div
                 className={[
                   'mb-3 flex items-center gap-2.5 rounded-xl border px-3 py-2.5 text-xs',
-                  waHealth === 'connected'
-                    ? 'border-emerald-100 bg-emerald-50 text-emerald-900'
-                    : waHealth === 'unstable'
+                  waHealth === 'unstable'
                       ? 'border-amber-100 bg-amber-50 text-amber-950'
                       : 'border-neutral-200 bg-neutral-50 text-neutral-800',
                 ].join(' ')}
               >
                 <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-white/80">
-                  {waHealth === 'connected' ? (
-                    <Wifi size={15} className="text-emerald-700" />
-                  ) : (
-                    <WifiOff size={15} className={waHealth === 'unstable' ? 'text-amber-700' : 'text-neutral-500'} />
-                  )}
+                  <WifiOff size={15} className={waHealth === 'unstable' ? 'text-amber-700' : 'text-neutral-500'} />
                 </span>
                 <div className="min-w-0 flex-1">
                   <p className="font-semibold">
-                    {waHealth === 'connected'
-                      ? 'Sessão sincronizada (automação)'
-                      : waHealth === 'unstable'
+                    {waHealth === 'unstable'
                         ? 'Sessão instável'
-                        : 'Sessão offline (opcional)'}
+                        : 'Automação offline'}
                   </p>
                   <p className="mt-0.5 text-[11px] opacity-80 leading-snug">
-                    {waHealth === 'connected'
-                      ? (waLabel
-                        ? `Automação ativa · ${waLabel}`
-                        : 'Automação e recebimento automático ativos')
-                      : 'Não impede atendimento. Envie pelo celular e registre o resultado. Cadastre o número em Conexões/Perfil para atribuição do 1º contato.'}
+                    O contato manual pelo celular continua disponível.
                   </p>
                 </div>
-                {waHealth !== 'connected' && onConnectWhatsApp && (
+                {onConnectWhatsApp && (
                   <button
                     type="button"
                     onClick={onConnectWhatsApp}
@@ -1027,150 +974,94 @@ export function AffiliateAttendanceWorkspace({
             )}
 
             {step === 'status' && (
-              <div className="space-y-4">
-                <div>
-                  <h3 className="text-[17px] font-bold tracking-[-0.02em] text-neutral-950">
-                    Situação do contato
-                  </h3>
-                  <p className="mt-1 text-sm text-neutral-600">
-                    Veja o que já foi feito e o próximo passo. Não re-registre o mesmo resultado.
-                  </p>
-                </div>
-
-                {lastAction && (
-                  <div className="rounded-2xl border border-emerald-100 bg-emerald-50/80 px-3.5 py-3">
-                    <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-800/80">
-                      Último resultado
-                    </p>
-                    <p className="mt-1 text-[14px] font-bold text-emerald-950">
-                      {actionLabel(lastAction)}
-                    </p>
-                    {lastActionAt && (
-                      <p className="mt-0.5 text-[11px] text-emerald-900/80">
-                        {formatDueAt(lastActionAt)}
+              <div className="space-y-3">
+                <section className="overflow-hidden rounded-[20px] border border-neutral-200 bg-white">
+                  <div className="flex items-start gap-3 px-4 py-3.5">
+                    <span className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-emerald-50 text-emerald-700">
+                      <Check size={17} strokeWidth={2.4} />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-neutral-500">Último resultado</p>
+                      <p className="mt-0.5 text-sm font-bold text-neutral-950">
+                        {lastAction ? actionLabel(lastAction) : 'Atendimento atualizado'}
                       </p>
-                    )}
+                      {lastActionAt && <p className="mt-0.5 text-[11px] text-neutral-500">{formatDueAt(lastActionAt)}</p>}
+                    </div>
                   </div>
-                )}
 
-                {nextTask && (
                   <div className={[
-                    'rounded-2xl border px-3.5 py-3',
-                    nextTask.is_due ? 'border-amber-200 bg-amber-50' : 'border-neutral-200 bg-neutral-50',
+                    'border-t px-4 py-3.5',
+                    nextTask?.is_due ? 'border-amber-100 bg-amber-50/70' : 'border-neutral-100 bg-neutral-50/70',
                   ].join(' ')}>
-                    <p className="text-[10px] font-bold uppercase tracking-wide text-neutral-500">
-                      Próxima tarefa
-                    </p>
-                    <p className="mt-1 text-[13px] font-semibold text-neutral-950">
-                      {nextTask.instruction || nextTask.task_type}
-                    </p>
-                    <p className="mt-1 text-[11px] font-semibold text-neutral-600">
-                      {nextTask.is_due
-                        ? 'Liberada · execute agora'
-                        : `Libera ${formatDueAt(nextTask.due_at)} · ${formatCountdown(nextTask.due_at)}`}
-                    </p>
-                    {nextTask.is_due && onExecutePendingTask && (
-                      <button
-                        type="button"
-                        onClick={onExecutePendingTask}
-                        className="mt-2 flex min-h-11 w-full items-center justify-center rounded-xl bg-neutral-950 text-xs font-bold text-white"
-                      >
-                        Executar tarefa
+                    <div className="flex items-start gap-3">
+                      <span className={[
+                        'mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-xl',
+                        nextTask?.is_due ? 'bg-amber-100 text-amber-800' : 'bg-white text-neutral-600',
+                      ].join(' ')}>
+                        <Clock3 size={17} />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-neutral-500">Próximo passo</p>
+                        <p className="mt-0.5 text-sm font-semibold leading-snug text-neutral-950">
+                          {nextTask ? (nextTask.instruction || nextTask.task_type) : 'Nenhuma tarefa pendente'}
+                        </p>
+                        <p className="mt-1 text-[11px] leading-snug text-neutral-500">
+                          {nextTask
+                            ? (nextTask.is_due ? 'Disponível para executar agora' : `${formatDueAt(nextTask.due_at)} · ${formatCountdown(nextTask.due_at)}`)
+                            : 'O atendimento está em dia.'}
+                        </p>
+                      </div>
+                    </div>
+
+                    {nextTask?.is_due && onExecutePendingTask ? (
+                      <button type="button" onClick={onExecutePendingTask} className="mt-3 flex min-h-11 w-full items-center justify-center rounded-[16px] bg-neutral-950 text-sm font-bold text-white">
+                        Executar próxima tarefa
+                      </button>
+                    ) : (ops.can_update_result || ops.can_register_result) ? (
+                      <button type="button" onClick={() => setStep('result')} className="mt-3 flex min-h-11 w-full items-center justify-center rounded-[16px] bg-neutral-950 text-sm font-bold text-white">
+                        {ops.can_register_result && isInitiatingAction(lastAction) ? 'Registrar resultado' : 'Atualizar resultado'}
+                      </button>
+                    ) : null}
+                  </div>
+                </section>
+
+                {(hasWa && ops.can_send_message) || (phoneDigits.length >= 8 && ops.can_call) ? (
+                  <div className="grid grid-cols-2 gap-2">
+                    {hasWa && ops.can_send_message && (
+                      <button type="button" onClick={() => { setActiveChannel('whatsapp'); openWithTemplate(composerTemplateId || defaultTemplate) }} className="flex min-h-11 items-center justify-center gap-2 rounded-[16px] border border-neutral-200 bg-white px-3 text-xs font-semibold text-neutral-800">
+                        <WhatsAppIcon size={15} /> WhatsApp
+                      </button>
+                    )}
+                    {phoneDigits.length >= 8 && ops.can_call && (
+                      <button type="button" onClick={() => startPhoneCall()} className="flex min-h-11 items-center justify-center gap-2 rounded-[16px] border border-neutral-200 bg-white px-3 text-xs font-semibold text-neutral-800">
+                        <Phone size={15} /> Ligar
                       </button>
                     )}
                   </div>
-                )}
-
-                {!nextTask && !isClosed && (
-                  <p className="text-xs text-neutral-500">
-                    Sem tarefa agendada. Você pode reenviar mensagem ou atualizar o resultado se algo mudou.
-                  </p>
-                )}
+                ) : null}
 
                 {channelSummary.length > 0 && (
-                  <ContactChannelAttempts
-                    summary={channelSummary}
-                    activeChannel={activeChannel}
-                    onSelectChannel={(ch) => {
-                      setActiveChannel(ch)
-                      setStep('lead')
-                    }}
-                  />
+                  <details className="rounded-2xl border border-neutral-200 bg-white">
+                    <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between px-3.5 text-xs font-semibold text-neutral-700">
+                      Histórico por canal
+                      <ChevronDown size={15} className="text-neutral-400" />
+                    </summary>
+                    <div className="border-t border-neutral-100 p-3">
+                      <ContactChannelAttempts summary={channelSummary} activeChannel={activeChannel} onSelectChannel={(ch) => { setActiveChannel(ch); setStep('lead') }} />
+                    </div>
+                  </details>
                 )}
 
-                <div className="grid gap-2">
-                  {hasWa && ops.can_send_message && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveChannel('whatsapp')
-                        openWithTemplate(composerTemplateId || defaultTemplate)
-                      }}
-                      className="flex min-h-11 w-full items-center justify-center gap-2 rounded-[16px] border border-neutral-200 text-sm font-semibold text-neutral-800"
-                    >
-                      <Send size={15} />
-                      Nova mensagem WhatsApp
-                    </button>
-                  )}
-                  {phoneDigits.length >= 8 && ops.can_call && (
-                    <button
-                      type="button"
-                      onClick={() => startPhoneCall()}
-                      className="flex min-h-11 w-full items-center justify-center gap-2 rounded-[16px] border border-sky-200 bg-sky-50 text-sm font-bold text-sky-950"
-                    >
-                      <Phone size={15} />
-                      Ligar agora
-                    </button>
-                  )}
-                  {(ops.can_update_result || ops.can_register_result) && (
-                    <button
-                      type="button"
-                      onClick={() => setStep('result')}
-                      className="flex min-h-11 w-full items-center justify-center rounded-[16px] bg-neutral-100 text-sm font-bold text-neutral-800"
-                    >
-                      {ops.can_register_result && isInitiatingAction(lastAction)
-                        ? 'Registrar resultado'
-                        : 'Atualizar resultado'}
-                    </button>
-                  )}
-                  {hasWa && (
-                    <button
-                      type="button"
-                      onClick={() => window.open(`https://wa.me/${whatsappDigits}`, '_blank', 'noopener,noreferrer')}
-                      className="flex min-h-11 w-full items-center justify-center gap-2 rounded-[16px] bg-[#25D366] text-sm font-bold text-white"
-                    >
-                      Conferir conversa
-                    </button>
-                  )}
-                </div>
+                {hasWa && (
+                  <button type="button" onClick={() => window.open(`https://wa.me/${whatsappDigits}`, '_blank', 'noopener,noreferrer')} className="flex min-h-11 w-full items-center justify-center gap-2 rounded-[16px] text-xs font-semibold text-neutral-600">
+                    <WhatsAppIcon size={15} /> Abrir conversa no WhatsApp
+                  </button>
+                )}
               </div>
             )}
 
             {step === 'lead' && (
               <div className="space-y-4">
-                <div>
-                  <h3 className="text-[17px] font-bold tracking-[-0.02em] text-neutral-950">
-                    {phase === 'contacted' || phase === 'engaged'
-                      ? (item.followup_due ? 'Retomar contato' : 'Continuar conversa')
-                      : (item.next_action || 'Preparar contato')}
-                  </h3>
-                  <p className="mt-1 text-sm text-neutral-600 leading-relaxed">
-                    {phase === 'new' || phase === 'to_contact'
-                      ? 'Escolha o canal: WhatsApp ou ligação. Depois registre o resultado da tentativa.'
-                      : phase === 'contacted'
-                        ? 'Já houve contato. Retome por mensagem ou telefone, ou registre o resultado.'
-                        : phase === 'engaged'
-                          ? 'Há conversa. Qualifique, envie proposta ou registre o resultado.'
-                          : 'Confira os canais e avance o atendimento.'}
-                  </p>
-                </div>
-
-                <ContactChannelAttempts
-                  summary={channelSummary}
-                  activeChannel={activeChannel}
-                  onSelectChannel={setActiveChannel}
-                />
-
                 <div className="rounded-2xl border border-neutral-200 bg-neutral-50/70 p-3.5">
                   <div className="flex items-start justify-between gap-3">
                     <div>
@@ -1218,7 +1109,61 @@ export function AffiliateAttendanceWorkspace({
                   </button>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2">
+                {/* Saída rápida na fase inicial — negativos de rede */}
+                <div className="space-y-2 rounded-2xl border border-neutral-200 bg-white p-3">
+                  <p className="text-[11px] font-semibold text-neutral-500">
+                    Contato inválido? (remove da rede)
+                  </p>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <button
+                      type="button"
+                      disabled={!!saving}
+                      onClick={() => void applyOutcome('not_matching')}
+                      className="flex min-h-12 items-center gap-2.5 rounded-xl border border-amber-200 bg-amber-50/70 px-3 text-left active:scale-[0.99] disabled:opacity-50"
+                    >
+                      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-white text-amber-800">
+                        {saving === 'not_matching' ? (
+                          <Loader2 size={16} className="animate-spin" />
+                        ) : (
+                          <UserX size={16} />
+                        )}
+                      </span>
+                      <span className="min-w-0">
+                        <strong className="block text-[12px] text-neutral-950">Não correspondente</strong>
+                        <span className="block text-[10px] text-neutral-600 leading-snug">
+                          Nicho errado ou não é o público — some para todos
+                        </span>
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!!saving}
+                      onClick={() => void applyOutcome('channel_unavailable')}
+                      className="flex min-h-12 items-center gap-2.5 rounded-xl border border-red-200 bg-red-50/60 px-3 text-left active:scale-[0.99] disabled:opacity-50"
+                    >
+                      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-white text-red-700">
+                        {saving === 'channel_unavailable' ? (
+                          <Loader2 size={16} className="animate-spin" />
+                        ) : (
+                          <PhoneOff size={16} />
+                        )}
+                      </span>
+                      <span className="min-w-0">
+                        <strong className="block text-[12px] text-neutral-950">Canal morto</strong>
+                        <span className="block text-[10px] text-neutral-600 leading-snug">
+                          Número não existe / fora de área — some para todos
+                        </span>
+                      </span>
+                    </button>
+                  </div>
+                </div>
+
+                <details className="rounded-2xl border border-neutral-200 bg-white">
+                  <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between px-3.5 text-xs font-semibold text-neutral-700">
+                    Dados e outros canais
+                    <ChevronDown size={15} className="text-neutral-400" />
+                  </summary>
+                  <div className="grid grid-cols-2 gap-2 border-t border-neutral-100 p-3">
                   <ChannelTile
                     label="WhatsApp"
                     value={whatsappPhone || '—'}
@@ -1262,7 +1207,8 @@ export function AffiliateAttendanceWorkspace({
                     active={!!address}
                     icon={<MapPin size={16} />}
                   />
-                </div>
+                  </div>
+                </details>
 
                 {waDoubtful && (
                   <p className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
@@ -1340,7 +1286,7 @@ export function AffiliateAttendanceWorkspace({
                       className="flex min-h-12 w-full items-center justify-center gap-2 rounded-[18px] bg-sky-700 px-4 text-sm font-bold text-white active:scale-[0.99] disabled:opacity-40"
                     >
                       <Phone size={16} />
-                      Ligar {phoneDigits.length >= 8 ? `· ${phoneDigits.slice(-4)}` : ''}
+                      Ligar agora
                     </button>
                     <label className="block">
                       <span className="mb-1 block text-[11px] font-semibold text-sky-900/80">
@@ -1440,19 +1386,8 @@ export function AffiliateAttendanceWorkspace({
                   )}
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => setStep('result')}
-                  className="min-h-11 w-full rounded-[18px] bg-neutral-100 text-sm font-bold text-neutral-800"
-                >
-                  Já contatei · registrar resultado
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setStep('result')}
-                  className="min-h-11 w-full rounded-[18px] text-sm font-semibold text-neutral-500"
-                >
-                  Só anotar / sair da fila
+                <button type="button" onClick={() => setStep('result')} className="min-h-11 w-full rounded-[18px] text-sm font-semibold text-neutral-500">
+                  Registrar um resultado já ocorrido
                 </button>
               </div>
             )}

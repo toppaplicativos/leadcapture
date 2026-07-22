@@ -148,7 +148,7 @@ export function AffiliateLearningSection({ modules, onRefresh, showToast, saving
               </label>
               <label className="affiliates-page__check">
                 <input type="checkbox" checked={!!draft.is_required} onChange={(e) => setDraft((d) => ({ ...d, is_required: e.target.checked }))} />
-                Obrigatório no onboarding
+                Obrigatório no início
               </label>
             </div>
             <button type="button" className="affiliates-page__btn affiliates-page__btn--primary" disabled={saving} onClick={saveModule}>

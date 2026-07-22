@@ -91,7 +91,7 @@ export const NAV_ITEMS: NavItem[] = [
   { key: 'avaliacoes', path: '/avaliacoes', icon: Star, label: 'Avaliações', group: 'loja' },
   { key: 'loja', path: '/loja', icon: Store, label: 'Loja', group: 'loja' },
   { key: 'pagamentos', path: '/pagamentos', icon: CreditCard, label: 'Pagamentos', group: 'loja' },
-  { key: 'frete', path: '/frete', icon: Truck, label: 'Frete', group: 'loja' },
+  { key: 'frete', path: '/frete', icon: Truck, label: 'Frete & entrega', group: 'loja' },
   { key: 'entregas', path: '/entregas', icon: Bike, label: 'Lead Capture Mob', group: 'loja', badge: 'Novo' },
   { key: 'dominio', path: '/dominio', icon: Globe, label: 'Dominio', group: 'loja' },
   { key: 'whatsapp', path: '/whatsapp', icon: WhatsAppIcon, label: 'WhatsApp', group: 'config' },

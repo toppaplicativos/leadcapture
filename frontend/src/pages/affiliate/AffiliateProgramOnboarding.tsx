@@ -26,7 +26,7 @@ export function AffiliateProgramOnboarding({ ctx, enrollmentId, onClose }: Props
       const res = await affiliateApi.onboarding(enrollmentId)
       setData(res)
     } catch (e: unknown) {
-      ctx.showToast(e instanceof Error ? e.message : 'Erro ao carregar onboarding', 'err')
+      ctx.showToast(e instanceof Error ? e.message : 'Erro ao carregar o que falta concluir', 'err')
     } finally {
       setLoading(false)
     }
@@ -97,11 +97,11 @@ export function AffiliateProgramOnboarding({ ctx, enrollmentId, onClose }: Props
   return (
     <div className="affiliate-onboard pb-2">
       <button type="button" onClick={onClose} className="affiliate-hub__back">
-        <ChevronLeft size={14} /> Mercado
+        <ChevronLeft size={14} /> Voltar
       </button>
 
       <div className="affiliate-card p-4 mb-3">
-        <p className="text-[10px] font-bold uppercase tracking-wider text-[#8e8e93]">Onboarding</p>
+        <p className="text-[10px] font-bold uppercase tracking-wider text-[#8e8e93]">Concluir o solicitado</p>
         <h2 className="font-extrabold text-base text-[#1c1c1e]">{enrollment.program_name}</h2>
         <p className="text-xs text-[#636366] mt-1">Comissão deste programa: <strong>{commission}</strong></p>
       </div>

@@ -108,7 +108,7 @@ export function MasterEmails() {
     <>
       <MasterPageHeader
         title="Emails transacionais"
-        subtitle="Catálogo com design system — onboarding, billing, pedidos, afiliados e recuperação. Envios já conectados aos eventos."
+        subtitle="Catálogo com design system — boas-vindas, billing, pedidos, afiliados e recuperação. Envios já conectados aos eventos."
         action={
           <button
             onClick={() => setShowLogs(true)}

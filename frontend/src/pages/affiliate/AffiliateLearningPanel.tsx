@@ -132,7 +132,7 @@ export function AffiliateLearningPanel({ ctx }: Props) {
         <div className="min-w-0">
           <p className="text-sm font-bold text-[#1c1c1e]">Central de conhecimento</p>
           <p className="text-xs text-[#8e8e93]">
-            {requiredDone ? 'Onboarding completo!' : 'Complete os módulos obrigatórios'}
+            {requiredDone ? 'Tudo concluído!' : 'Complete os módulos obrigatórios'}
           </p>
         </div>
       </div>

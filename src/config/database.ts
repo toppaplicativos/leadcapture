@@ -454,15 +454,18 @@ let recreateInFlight: Promise<void> | null = null;
 async function recreatePool(): Promise<void> {
   if (recreateInFlight) return recreateInFlight;
   recreateInFlight = (async () => {
-    /* CRITICAL: reatribui as referencias de modulo ANTES de tentar encerrar o
-       pool antigo. Queries concorrentes que ja entraram em run()/connect()
-       vao ler `pgPool`/`compatPool` dinamicamente e pegam o NOVO pool.
-       NAO chamamos end() no pool antigo — isso mataria queries em voo e
-       dispararia mais erros "Cannot use a pool after calling end" em cascata.
-       O pool antigo e abandonado e vai ser GC-coletado; conexoes sao
-       encerradas pelo OS via TCP timeout. */
+    /* Publica o pool novo primeiro. O anterior precisa ser drenado: apenas
+       abandonar a referência mantém suas sessões vivas no PgBouncer e, após
+       algumas recuperações, esgota o limite remoto de conexões. `end()` espera
+       os clientes em voo voltarem e evita o vazamento sem bloquear o retry. */
+    const previousPool = pgPool;
     pgPool = createPgPool();
     compatPool = createCompatPool();
+    if (previousPool) {
+      void previousPool.end().catch((error: any) => {
+        logger.warn({ error: error?.message || String(error) }, "Falha ao drenar pool PostgreSQL anterior");
+      });
+    }
     logger.warn("PostgreSQL pool recreated after transient connection error");
   })().finally(() => { recreateInFlight = null; });
   return recreateInFlight;

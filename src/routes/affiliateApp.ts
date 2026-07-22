@@ -1206,7 +1206,7 @@ router.get("/programs/enrollments/:enrollmentId/onboarding", async (req: AuthReq
     if (!onboarding) return res.status(404).json({ error: "Inscrição não encontrada" });
     res.json({ success: true, ...onboarding });
   } catch (e: any) {
-    res.status(500).json({ error: e.message || "Falha ao carregar onboarding" });
+    res.status(500).json({ error: e.message || "Falha ao carregar o que falta concluir" });
   }
 });
 
@@ -1531,6 +1531,7 @@ async function resolveAffiliateOpportunity(ctx: AffiliateContext, affiliateId: s
     return {
       ref_type: "assignment",
       ref_id: refId,
+      prospect_id: row.prospect_id ? String(row.prospect_id) : null,
       name: override?.responsible_name || row.prospect_name,
       phone: override?.contact_phone || row.prospect_phone,
       source_phone: override?.source_phone || row.prospect_phone,
@@ -1952,7 +1953,7 @@ router.patch("/opportunities/:refType/:refId/progress", async (req: AuthRequest,
         } else if (effect.clearFollowup || effect.archive) {
           sets.push("next_followup_at = NULL");
         }
-        if (effect.archive && reason) {
+        if (effect.archive) {
           sets.push("removed_reason = ?");
           params.push(String(reason || action).slice(0, 80));
         }
@@ -2075,6 +2076,31 @@ router.patch("/opportunities/:refType/:refId/progress", async (req: AuthRequest,
       durationSec: durationSecBody,
       meta: { channel },
     });
+
+    /**
+     * Negativos de rede: não correspondente / canal morto.
+     * Sai da fila de TODOS os afiliados e não reaparece no pool.
+     */
+    if (
+      action === "not_matching"
+      || action === "channel_unavailable"
+    ) {
+      try {
+        await affiliateDistributionService.suppressProspectFromNetwork({
+          ownerUserId: ctx.ownerUserId,
+          brandId: ctx.brandId,
+          reason: action,
+          prospectId: (item as any).prospect_id || null,
+          phone: (item as any).source_phone || (item as any).phone || null,
+          affiliateId: String(affiliate.id),
+          sourceRefType: refType,
+          sourceRefId: refId,
+          note: combinedNote,
+        });
+      } catch (supErr: any) {
+        console.warn("[affiliate] network suppress failed:", supErr?.message || supErr);
+      }
+    }
 
     /* Aprendizado: captação → resultado (positivo/negativo). Ligação conta como "sent". */
     const feedbackAction: CaptureFeedbackEvent | null =
@@ -2454,6 +2480,77 @@ router.get("/distribution/status", async (req: AuthRequest, res: Response) => {
     res.json({ success: true, ...snapshot });
   } catch (e: any) {
     res.status(500).json({ error: e.message || "Falha ao carregar status de distribuição" });
+  }
+});
+
+/**
+ * Simulador de frete no Atendimento do afiliado.
+ * Usa logistics da loja da marca (faixas km + CEP real).
+ */
+router.post("/freight/quote", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = await requireAffiliateCredential(req, res);
+    if (!ctx) return;
+    const affiliate = await getAffiliateProfile(ctx);
+    if (!affiliate) return res.status(404).json({ error: "Perfil de afiliado não encontrado" });
+
+    const store = await queryOne<any>(
+      `SELECT id, settings_json, brand_id FROM storefront_stores
+       WHERE brand_id = ? AND owner_user_id = ?
+       ORDER BY (status = 'active') DESC, updated_at DESC LIMIT 1`,
+      [ctx.brandId, ctx.ownerUserId],
+    ).catch(() => null);
+
+    let logistics: Record<string, any> = {};
+    if (store?.settings_json) {
+      try {
+        const s = typeof store.settings_json === "string"
+          ? JSON.parse(store.settings_json)
+          : store.settings_json;
+        logistics = s?.logistics || {};
+      } catch {
+        logistics = {};
+      }
+    }
+
+    const { quoteFreight, isFreightPolicyConfigured } = await import("../services/freightCalculator");
+    const quote = await quoteFreight({
+      logistics,
+      destination: {
+        cep: req.body?.cep,
+        address: req.body?.address,
+        city: req.body?.city,
+        state: req.body?.state,
+      },
+      cartTotal: req.body?.cart_total != null ? Number(req.body.cart_total) : null,
+      userId: ctx.ownerUserId,
+      brandId: ctx.brandId,
+    });
+
+    res.json({
+      success: true,
+      quote,
+      store_id: store?.id || null,
+      configured: isFreightPolicyConfigured(logistics),
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Falha ao calcular frete" });
+  }
+});
+
+router.get("/freight/cep/:cep", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = await requireAffiliateCredential(req, res);
+    if (!ctx) return;
+    const { resolveCepOrAddress } = await import("../services/freightCalculator");
+    const place = await resolveCepOrAddress(
+      { cep: String(req.params.cep || "") },
+      { provider: "auto", userId: ctx.ownerUserId, brandId: ctx.brandId },
+    );
+    if (!place) return res.status(404).json({ error: "CEP não encontrado" });
+    res.json({ success: true, place });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Falha ao consultar CEP" });
   }
 });
 

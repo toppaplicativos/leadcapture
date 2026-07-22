@@ -15,7 +15,7 @@ const ADMIN_PAGE_TITLES: Record<string, string> = {
   '/assistente': 'Assistente',
   '/estoque/app': 'Inventário',
   '/inventario': 'Inventário',
-  '/brand-onboarding': 'Onboarding',
+  '/brand-onboarding': 'Configuração inicial',
 }
 
 for (const item of NAV_ITEMS) {

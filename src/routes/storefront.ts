@@ -1208,6 +1208,53 @@ router.patch("/stores/:storeId", async (req: BrandRequest, res) => {
   }
 });
 
+/** Simula frete por CEP/endereço usando logistics da loja (faixas km + CEP real). */
+router.post("/stores/:storeId/freight/quote", async (req: BrandRequest, res) => {
+  try {
+    const userId = requireUserId(req);
+    const bundle = await storefront.exportStoreAdminBundle(userId, String(req.params.storeId), req.brandId);
+    if (!bundle?.store) return res.status(404).json({ error: "Store not found" });
+    const settings =
+      bundle.store.settings && typeof bundle.store.settings === "object"
+        ? (bundle.store.settings as Record<string, any>)
+        : {};
+    // Preferir logistics cru do settings (já mergeado no mapStore) — inclui tiers/radius salvos
+    const logistics = { ...(settings.logistics || {}) };
+    const { quoteFreight } = await import("../services/freightCalculator");
+    const quote = await quoteFreight({
+      logistics,
+      destination: {
+        cep: req.body?.cep,
+        address: req.body?.address,
+        city: req.body?.city,
+        state: req.body?.state,
+      },
+      cartTotal: req.body?.cart_total != null ? Number(req.body.cart_total) : null,
+      userId,
+      brandId: req.brandId || bundle.store.brand_id,
+    });
+    res.json({ success: true, quote });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || "Falha ao calcular frete" });
+  }
+});
+
+/** Resolve CEP (BrasilAPI / ViaCEP) para preenchimento do formulário. */
+router.get("/freight/cep/:cep", async (req: BrandRequest, res) => {
+  try {
+    requireUserId(req);
+    const { resolveCepOrAddress } = await import("../services/freightCalculator");
+    const place = await resolveCepOrAddress(
+      { cep: String(req.params.cep || "") },
+      { provider: "auto", userId: req.userId, brandId: req.brandId },
+    );
+    if (!place) return res.status(404).json({ error: "CEP não encontrado" });
+    res.json({ success: true, place });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || "Falha ao consultar CEP" });
+  }
+});
+
 router.get("/stores/:storeId/domains", async (req: BrandRequest, res) => {
   try {
     const userId = requireUserId(req);

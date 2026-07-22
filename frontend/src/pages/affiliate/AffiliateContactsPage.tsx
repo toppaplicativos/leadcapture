@@ -1,5 +1,4 @@
 import { useCallback, useState } from 'react'
-import { Users } from 'lucide-react'
 import type { AppContext } from '@/pages/affiliate/types'
 import { AffiliateOpportunitiesPanel } from '@/pages/affiliate/AffiliateOpportunitiesPanel'
 import {
@@ -58,20 +57,6 @@ export function AffiliateContactsPage({
 
   return (
     <div className="space-y-4 pb-2">
-      <header className="rounded-[20px] border border-neutral-200 bg-white p-4 shadow-[0_1px_2px_rgba(0,0,0,0.03)]">
-        <div className="flex items-center gap-3">
-          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-neutral-100 text-neutral-800">
-            <Users size={20} strokeWidth={2.1} />
-          </span>
-          <div className="min-w-0">
-            <h2 className="text-[16px] font-bold tracking-tight text-neutral-950">Contatos</h2>
-            <p className="mt-0.5 text-[12px] leading-relaxed text-neutral-500">
-              Estado, próxima tarefa e histórico de cada pessoa.
-            </p>
-          </div>
-        </div>
-      </header>
-
       <AffiliateOpportunitiesPanel
         ctx={ctx}
         focusRefId={initialFocusRefId}

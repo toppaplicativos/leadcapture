@@ -195,6 +195,52 @@ function inPhase(item: Opportunity, phase: Phase): boolean {
   return op === phase
 }
 
+/** Busca livre: tokens AND, telefone por dígitos, sem depender de fase/filtro. */
+function contactMatchesQuery(item: Opportunity, query: string): boolean {
+  const raw = String(query || '').trim()
+  if (!raw) return true
+  const q = stripAccents(raw)
+  const phoneDigits = String(item.channels?.whatsapp || item.phone || '').replace(/\D/g, '')
+  const qDigits = raw.replace(/\D/g, '')
+  if (qDigits.length >= 4 && phoneDigits.includes(qDigits)) return true
+
+  const hay = stripAccents(
+    [
+      item.name,
+      item.phone,
+      item.email,
+      item.instagram,
+      item.niche,
+      item.city,
+      item.region,
+      item.next_action,
+      item.product_name,
+      item.brand_name,
+      item.source_label,
+      item.notes,
+      item.message,
+      (item as any).search_query,
+      (item as any).place_type,
+      (item as any).vertical,
+      item.channels?.whatsapp,
+      item.channels?.email,
+      item.channels?.instagram,
+      item.channels?.address,
+    ]
+      .filter(Boolean)
+      .join(' '),
+  )
+
+  const tokens = q.split(/\s+/).filter((t) => t.length > 0)
+  if (!tokens.length) return true
+  return tokens.every((token) => {
+    if (hay.includes(token)) return true
+    const td = token.replace(/\D/g, '')
+    if (td.length >= 3 && phoneDigits.includes(td)) return true
+    return false
+  })
+}
+
 function hasChannel(item: Opportunity, channel: ChannelFilter): boolean {
   if (channel === 'all') return true
   const phone = item.channels?.whatsapp || item.phone
@@ -443,6 +489,16 @@ export function AffiliateOpportunitiesPanel({
     }
   }, [phase, loading, load])
 
+  const activeQuery = (externalSearch || q).trim()
+  const isSearching = activeQuery.length > 0
+
+  /* Busca precisa varrer abertos + excluídos — carrega arquivo se ainda não veio */
+  useEffect(() => {
+    if (!isSearching) return
+    if (closedLoaded.current) return
+    void load({ silent: true, withClosed: true })
+  }, [isSearching, load])
+
   const niches = useMemo(() => {
     if (facets?.niches?.length) return facets.niches
     return Array.from(
@@ -489,9 +545,24 @@ export function AffiliateOpportunitiesPanel({
     return openItems.filter((i) => inPhase(i, phase))
   }, [phase, openItems, closedItems])
 
+  /** Universe da lista: na busca, TODOS os contatos (filtros de fase/canal/nicho anulados). */
+  const listUniverse = useMemo(() => {
+    if (isSearching) {
+      const map = new Map<string, Opportunity>()
+      for (const i of [...openItems, ...closedItems]) {
+        map.set(`${i.ref_type}:${i.ref_id}`, i)
+      }
+      return Array.from(map.values())
+    }
+    return phasePool
+  }, [isSearching, openItems, closedItems, phasePool])
+
   const filtered = useMemo(() => {
-    const query = (externalSearch || q).trim()
-    const list = phasePool.filter((item) => {
+    const query = activeQuery
+    const list = listUniverse.filter((item) => {
+      /* Com busca ativa: ignora fase, canal, nicho e região — só texto/telefone */
+      if (query) return contactMatchesQuery(item, query)
+
       if (!hasChannel(item, channel)) return false
       if (niche && !nicheMatches({
         niche: item.niche,
@@ -503,25 +574,9 @@ export function AffiliateOpportunitiesPanel({
         const place = stripAccents(`${item.city || ''} ${item.region || ''}`)
         if (!place.includes(stripAccents(region))) return false
       }
-      if (query) {
-        const hay = stripAccents(
-          [item.name, item.phone, item.email, item.niche, item.city, item.region, item.next_action]
-            .filter(Boolean)
-            .join(' '),
-        )
-        if (!hay.includes(stripAccents(query))) return false
-      }
       return true
     })
 
-    /* Fila inteligente: follow-up atrasado → sem contato → com WA → mais recente */
-    const phaseRank = (item: Opportunity) => {
-      const op = phaseOf(item)
-      if (op === 'new' || op === 'to_contact') return 0
-      if (op === 'contacted') return 1
-      if (op === 'engaged') return 2
-      return 3
-    }
     const hasWaItem = (item: Opportunity) => {
       const phone = item.channels?.whatsapp || item.phone
       return item.has_whatsapp ?? String(phone || '').replace(/\D/g, '').length >= 8
@@ -532,6 +587,34 @@ export function AffiliateOpportunitiesPanel({
       return Number.isFinite(t) ? t : 0
     }
 
+    /* Busca: relevância (nome começa com → contém → resto) + recente */
+    if (query) {
+      const qn = stripAccents(query)
+      const score = (item: Opportunity) => {
+        const name = stripAccents(item.name || '')
+        if (name.startsWith(qn)) return 0
+        if (name.includes(qn)) return 1
+        const phoneDigits = String(item.channels?.whatsapp || item.phone || '').replace(/\D/g, '')
+        const qd = query.replace(/\D/g, '')
+        if (qd.length >= 4 && phoneDigits.includes(qd)) return 2
+        return 3
+      }
+      return list.slice().sort((a, b) => {
+        const s = score(a) - score(b)
+        if (s !== 0) return s
+        return ts(b) - ts(a)
+      })
+    }
+
+    /* Fila inteligente: follow-up atrasado → sem contato → com WA → mais recente */
+    const phaseRank = (item: Opportunity) => {
+      const op = phaseOf(item)
+      if (op === 'new' || op === 'to_contact') return 0
+      if (op === 'contacted') return 1
+      if (op === 'engaged') return 2
+      return 3
+    }
+
     return list.slice().sort((a, b) => {
       if (!!a.followup_due !== !!b.followup_due) return a.followup_due ? -1 : 1
       const pr = phaseRank(a) - phaseRank(b)
@@ -540,7 +623,7 @@ export function AffiliateOpportunitiesPanel({
       if (wa !== 0) return wa
       return ts(b) - ts(a)
     })
-  }, [phasePool, channel, niche, region, q, externalSearch])
+  }, [listUniverse, channel, niche, region, activeQuery])
 
   const phaseCount = useCallback(
     (key: Phase) => {
@@ -567,9 +650,10 @@ export function AffiliateOpportunitiesPanel({
     (channel !== 'all' ? 1 : 0)
     + (niche ? 1 : 0)
     + (region ? 1 : 0)
-    + ((externalSearch || q).trim() ? 1 : 0)
 
-  const hiddenByFilter = Math.max(0, phasePool.length - filtered.length)
+  const hiddenByFilter = isSearching
+    ? Math.max(0, listUniverse.length - filtered.length)
+    : Math.max(0, phasePool.length - filtered.length)
 
   function clearFilters() {
     setChannel('all')
@@ -609,10 +693,16 @@ export function AffiliateOpportunitiesPanel({
               </h2>
             </div>
             <p className="mt-0.5 text-[11px] leading-snug text-neutral-500">
-              {phasePool.length} na fase
-              {activeFilterCount > 0 ? ` · ${filtered.length} com filtros` : ` · ${filtered.length} listados`}
-              {stats?.followup_due ? ` · ${stats.followup_due} follow-up` : ''}
-              {phase === 'inbox' || phase === 'all' ? ' · prioritários no topo' : ''}
+              {isSearching
+                ? `${filtered.length} resultado${filtered.length === 1 ? '' : 's'} em todos os contatos`
+                : `${phasePool.length} na fase${
+                    activeFilterCount > 0
+                      ? ` · ${filtered.length} com filtros`
+                      : ` · ${filtered.length} listados`
+                  }`}
+              {!isSearching && stats?.followup_due ? ` · ${stats.followup_due} follow-up` : ''}
+              {!isSearching && (phase === 'inbox' || phase === 'all') ? ' · prioritários no topo' : ''}
+              {isSearching && activeFilterCount > 0 ? ' · filtros de fase/canal pausados' : ''}
               {fromCache ? ' · offline' : ''}
             </p>
           </div>
@@ -653,7 +743,7 @@ export function AffiliateOpportunitiesPanel({
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Buscar nome, telefone, nicho…"
+              placeholder="Buscar em todos: nome, telefone, cidade…"
               className="h-10 w-full rounded-xl border border-neutral-200 bg-neutral-50 pl-9 pr-9 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-neutral-900 focus:bg-white focus:outline-none focus:ring-4 focus:ring-neutral-900/5"
             />
             {q ? (
@@ -668,12 +758,22 @@ export function AffiliateOpportunitiesPanel({
             ) : null}
           </div>
         )}
+        {isSearching && (
+          <p className="mt-2 rounded-xl border border-sky-100 bg-sky-50 px-2.5 py-1.5 text-[10px] font-semibold leading-snug text-sky-950">
+            Busca em todos os contatos (Fila, Enviado, Conversa e Excluídos).
+            {activeFilterCount > 0 ? ' Filtros de canal/nicho/região pausados enquanto busca.' : ''}
+          </p>
+        )}
       </header>
 
-      {/* Fases — navegação primária, contagens independentes de filtro */}
+      {/* Fases — navegação primária (dimmed na busca, contagens independentes) */}
       <nav
-        className="grid grid-cols-5 gap-1 rounded-2xl border border-neutral-200/90 bg-neutral-100/80 p-1"
+        className={[
+          'grid grid-cols-5 gap-1 rounded-2xl border border-neutral-200/90 bg-neutral-100/80 p-1',
+          isSearching ? 'opacity-55' : '',
+        ].join(' ')}
         aria-label="Fase do atendimento"
+        aria-disabled={isSearching}
       >
         {PHASES.map((opt) => {
           const n = phaseCount(opt.key)
@@ -885,14 +985,31 @@ export function AffiliateOpportunitiesPanel({
 
       {filtered.length === 0 && !loadError ? (
         <div className="rounded-2xl border border-neutral-200 bg-white px-5 py-8 text-center">
-          {phasePool.length > 0 && activeFilterCount > 0 ? (
+          {isSearching ? (
+            <>
+              <Search size={24} className="mx-auto text-neutral-300 mb-3" />
+              <p className="text-sm font-semibold text-neutral-900">
+                Nenhum contato para “{activeQuery}”
+              </p>
+              <p className="mt-1.5 text-xs leading-relaxed text-neutral-500 max-w-[16rem] mx-auto">
+                Buscamos em Fila, Enviado, Conversa e Excluídos. Tente outro nome, telefone ou cidade.
+              </p>
+              <button
+                type="button"
+                onClick={() => setQ('')}
+                className="mt-4 min-h-11 rounded-xl bg-neutral-900 px-5 text-xs font-bold text-white"
+              >
+                Limpar busca
+              </button>
+            </>
+          ) : phasePool.length > 0 && activeFilterCount > 0 ? (
             <>
               <Filter size={24} className="mx-auto text-neutral-300 mb-3" />
               <p className="text-sm font-semibold text-neutral-900">
                 {phasePool.length} na {PHASES.find((p) => p.key === phase)?.label || 'fase'}, nenhum com estes filtros
               </p>
               <p className="mt-1.5 text-xs leading-relaxed text-neutral-500 max-w-[16rem] mx-auto">
-                Os filtros de canal, nicho ou busca estão escondendo a lista. Limpe para ver a fila completa.
+                Os filtros de canal, nicho ou região estão escondendo a lista. Limpe para ver a fase completa.
               </p>
               <button
                 type="button"

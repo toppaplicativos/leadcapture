@@ -26,7 +26,7 @@ export function PartnersProgramOnboarding({ enrollmentId, primary = '#16a34a', o
       const res = await partnersApi.onboarding(enrollmentId)
       setData(res)
     } catch (e: unknown) {
-      showToast(e instanceof Error ? e.message : 'Erro ao carregar onboarding', 'err')
+      showToast(e instanceof Error ? e.message : 'Erro ao carregar o que falta concluir', 'err')
     } finally {
       setLoading(false)
     }
@@ -101,7 +101,7 @@ export function PartnersProgramOnboarding({ enrollmentId, primary = '#16a34a', o
       </button>
 
       <div className="affiliate-card p-4 mb-3">
-        <p className="text-[10px] font-bold uppercase tracking-wider text-[#8e8e93]">Onboarding</p>
+        <p className="text-[10px] font-bold uppercase tracking-wider text-[#8e8e93]">Concluir o solicitado</p>
         <h2 className="font-extrabold text-base text-[#1c1c1e]">{enrollment.program_name}</h2>
         <p className="text-xs text-[#636366] mt-1">Comissão deste programa: <strong>{commission}</strong></p>
       </div>

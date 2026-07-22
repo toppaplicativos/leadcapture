@@ -156,14 +156,14 @@ export function AffiliateReadinessPanel({
       },
       {
         id: 'orientation',
-        label: 'Orientação / preparação do onboarding',
+        label: 'Orientação / preparação do afiliado',
         ok: hasText(p?.orientation_html, 80),
         critical: true,
         tab: 'programs',
       },
       {
         id: 'steps',
-        label: `Etapas de onboarding (${steps.length})`,
+        label: `Etapas obrigatórias (${steps.length})`,
         ok: steps.length >= 3,
         critical: true,
         tab: 'programs',

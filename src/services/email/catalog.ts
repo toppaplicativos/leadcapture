@@ -345,7 +345,7 @@ export const TENANT_TEMPLATES: CatalogTemplate[] = [
       ${emailP(`Parabéns, <strong>{{affiliate_name}}</strong>! Sua entrada no programa <strong>{{program_name}}</strong> da <strong>{{brand_name}}</strong> foi aprovada.`)}
       ${emailCard(emailKvTable([
         ["Programa", "{{program_name}}"],
-        ["Status", "Ativo / onboarding"],
+        ["Status", "Ativo / a concluir"],
         ["Comissão", "{{commission_rate}}"],
       ]))}
       ${emailP("Conclua o onboarding no app (termos e treinamentos, se houver), copie seu link e comece a divulgar com os materiais oficiais.")}

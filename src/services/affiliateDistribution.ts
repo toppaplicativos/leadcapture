@@ -310,6 +310,30 @@ async function initializeDistributionSchema(): Promise<void> {
     }
   }
 
+  /**
+   * Supressão de rede: negativos (não correspondente / canal morto) não voltam
+   * para pool nem para novos afiliados da mesma marca.
+   */
+  await query(`
+    CREATE TABLE IF NOT EXISTS affiliate_prospect_suppressions (
+      id VARCHAR(36) PRIMARY KEY,
+      owner_user_id VARCHAR(36) NOT NULL,
+      brand_id VARCHAR(36) NOT NULL,
+      prospect_id VARCHAR(36) NULL,
+      phone_digits VARCHAR(30) NULL,
+      reason VARCHAR(40) NOT NULL,
+      source_ref_type VARCHAR(30) NULL,
+      source_ref_id VARCHAR(36) NULL,
+      suppressed_by_affiliate_id VARCHAR(36) NULL,
+      note TEXT NULL,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      KEY idx_aff_suppress_brand_prospect (brand_id, prospect_id, is_active),
+      KEY idx_aff_suppress_brand_phone (brand_id, phone_digits, is_active)
+    )
+  `).catch(() => undefined);
+
   for (const ddl of [
     `ALTER TABLE lead_distribution_rules ADD COLUMN auto_send_initial_message BOOLEAN NOT NULL DEFAULT TRUE`,
     `ALTER TABLE lead_distribution_rules ADD COLUMN initial_message_template TEXT NULL`,
@@ -917,7 +941,9 @@ export class AffiliateDistributionService {
     );
     const requireTerms = rules?.require_terms_accepted !== 0 && rules?.require_terms_accepted !== false;
     const requireTraining = rules?.require_training_complete !== 0 && rules?.require_training_complete !== false;
-    const requireWhatsapp = rules?.require_whatsapp_connected !== 0 && rules?.require_whatsapp_connected !== false;
+    // TEMP: sessão WhatsApp online NÃO é exigida (automação fica opcional).
+    // Número cadastrado continua contando no checklist de claim.
+    // (rules.require_whatsapp_connected ignorado de propósito neste momento)
     const requirePix = rules?.require_pix_key === true || rules?.require_pix_key === 1;
 
     const health = await getHealthSnapshot({
@@ -938,6 +964,8 @@ export class AffiliateDistributionService {
     const onboardingDone = Boolean(
       enrollment?.onboarding_completed_at || enrollment?.resources_unlocked_at
     );
+    // Onboarding concluído libera programa mesmo se o status ainda não flipou para active
+    const programOk = enrollmentActive || onboardingDone;
 
     // Termos: timestamps de aceite + progresso da etapa terms_accept do onboarding.
     // Se o programa não tem terms_html e não tem etapa de termos, não bloqueia.
@@ -1006,31 +1034,39 @@ export class AffiliateDistributionService {
     );
     const registeredWhatsapp = registeredNumbers[0] || null;
     const registeredWhatsappOk = registeredNumbers.length > 0;
-    const whatsappSessionOk = !requireWhatsapp || whatsappStatus === "connected";
-    const whatsappOk = whatsappSessionOk;
+    // Sessão online: informativa apenas (não bloqueia elegibilidade neste momento)
+    const whatsappSessionOk = whatsappStatus === "connected";
     const hasPix = Boolean(String(affiliate?.pix_key || "").trim());
     const pixOk = !requirePix || hasPix;
 
     const enrollmentStatus = String(enrollment?.status || "").toLowerCase();
-    // "programa ativo" para checklist: enrollment active. Onboarding incompleto tem ação dedicada.
+    // "programa ok" para checklist: active OU onboarding concluído.
     let programAction: string | null = null;
     let programCta: string | null = null;
     let programPath: string | null = null;
-    if (enrollmentActive) {
+    // Fluxo real do programa (mesma tela de "Concluir o solicitado" no Mercado/Parceiros).
+    // NÃO usar /aprendizado — esse painel é conteúdo auxiliar e não marca enrollment.
+    const enrollmentOnboardingPath = enrollment?.id
+      ? `/onboarding/${encodeURIComponent(String(enrollment.id))}`
+      : null;
+    if (programOk) {
       programAction = null;
-    } else if (enrollmentStatus === "onboarding") {
-      programAction = "Conclua as etapas do onboarding do programa";
-      programCta = "Abrir onboarding";
-      programPath = enrollment?.id ? `/aprendizado?onboarding=${encodeURIComponent(String(enrollment.id))}` : "/aprendizado";
+    } else if (enrollmentStatus === "onboarding" || (enrollment?.id && !onboardingDone)) {
+      programAction = "Conclua o que o programa solicita (termos, etapas e treinamentos)";
+      programCta = "Concluir o solicitado";
+      programPath = enrollmentOnboardingPath || "/mercado";
     } else if (enrollment) {
-      programAction = "Aguarde a ativação do programa ou conclua o onboarding";
-      programCta = "Ver programa";
-      programPath = "/mercado";
+      programAction = "Aguarde a ativação do programa ou conclua o que ainda falta";
+      programCta = "Concluir o solicitado";
+      programPath = enrollmentOnboardingPath || "/mercado";
     } else {
       programAction = "Entre em um programa no Mercado";
       programCta = "Abrir Mercado";
       programPath = "/mercado";
     }
+
+    // Sessão online: sempre ok no checklist (não exige, não naga). Status real segue em whatsapp_status.
+    const whatsappSessionRequiredOk = true;
 
     const checklist: EligibilityChecklistItem[] = [
       {
@@ -1043,8 +1079,10 @@ export class AffiliateDistributionService {
       },
       {
         key: "program_active",
-        label: enrollmentStatus === "onboarding" ? "Onboarding do programa" : "Programa aprovado e ativo",
-        ok: enrollmentActive,
+        label: !programOk && enrollmentStatus === "onboarding"
+          ? "Requisitos do programa"
+          : "Programa aprovado e ativo",
+        ok: programOk,
         action: programAction,
         cta: programCta,
         action_path: programPath,
@@ -1061,9 +1099,13 @@ export class AffiliateDistributionService {
         key: "training",
         label: "Treinamento concluído",
         ok: trainingOk,
-        action: trainingOk ? null : "Conclua o treinamento em Aprender",
-        cta: trainingOk ? null : "Abrir Aprender",
-        action_path: trainingOk ? null : "/aprendizado",
+        action: trainingOk
+          ? null
+          : "Conclua os treinamentos que o programa solicita",
+        cta: trainingOk ? null : "Concluir treinamento",
+        action_path: trainingOk
+          ? null
+          : (enrollmentOnboardingPath || "/mercado"),
       },
       {
         key: "whatsapp_number",
@@ -1073,19 +1115,18 @@ export class AffiliateDistributionService {
         ok: registeredWhatsappOk,
         action: registeredWhatsappOk
           ? null
-          : "Cadastre o(s) número(s) que você usa para contactar (atribuição 1º contato / cookie ~60 dias). Não precisa manter a sessão online.",
+          : "Cadastre o número que você usa para contatar leads (atribuição de 1º contato).",
         cta: registeredWhatsappOk ? null : "Cadastrar número",
         action_path: registeredWhatsappOk ? null : "/conexoes",
       },
+      // Sessão Baileys: omitida do checklist de bloqueio (ok sempre) — não aparece no banner.
       {
         key: "whatsapp",
         label: "Sessão sincronizada (automação)",
-        ok: whatsappSessionOk,
-        action: whatsappSessionOk
-          ? null
-          : "Opcional e temporariamente indisponível: sessão online só para automação/recebimento automático. Atendimento manual e pool não dependem disso.",
-        cta: whatsappSessionOk ? null : "Conectar sessão (opcional)",
-        action_path: whatsappSessionOk ? null : "/conexoes",
+        ok: whatsappSessionRequiredOk,
+        action: null,
+        cta: null,
+        action_path: null,
       },
       {
         key: "pix",
@@ -1101,9 +1142,8 @@ export class AffiliateDistributionService {
     const claimBlockers = checklist
       .filter((c) => !c.ok && c.key !== "whatsapp")
       .map((c) => c.label);
-    // blockers de elegibilidade base (sem sessão): se só falta sessão, ainda é elegível p/ pool
     const baseBlockers = claimBlockers;
-    const blockers = checklist.filter((c) => !c.ok).map((c) => c.label);
+    const blockers = claimBlockers;
     let distributionStatus: DistributionStatusValue = "ineligible";
     let pauseReason: string | null = null;
 
@@ -1111,27 +1151,17 @@ export class AffiliateDistributionService {
       distributionStatus = "blocked";
       pauseReason = "Conta bloqueada ou inativa";
     } else if (baseBlockers.length) {
-      /* Falta número cadastrado / termos / etc. — não pode pool nem auto */
       distributionStatus = "ineligible";
       pauseReason = baseBlockers[0] || null;
     } else {
       distributionStatus = "available";
     }
 
-    // Sessão offline: só pausa AUTO-recebimento; claim/manual com número cadastrado seguem ok
-    if (
-      requireWhatsapp
-      && whatsappStatus !== "connected"
-      && distributionStatus === "available"
-    ) {
-      distributionStatus = "paused";
-      pauseReason =
-        "Sessão WhatsApp offline — automação pausada. Com número cadastrado você ainda assume contatos e atende manualmente.";
-    }
+    // (TEMP) não pausar por sessão offline — automação é opcional
 
     const canClaim =
       affiliateActive
-      && enrollmentActive
+      && programOk
       && termsOk
       && trainingOk
       && pixOk
@@ -1179,35 +1209,46 @@ export class AffiliateDistributionService {
       ]
     );
 
-    if (
-      requireWhatsapp
-      && (whatsappStatus === "disconnected" || whatsappStatus === "none")
-      && (distributionStatus === "paused" || distributionStatus === "ineligible")
-    ) {
+    // Alerta persistente quando termos bloqueiam (some quando aceitar)
+    if (!termsOk && programRequiresTerms && requireTerms) {
       await this.ensureAlert({
         ownerUserId: input.ownerUserId,
         brandId: input.brandId,
         affiliateId: input.affiliateId,
         affiliateUserId: input.affiliateUserId,
-        alertType: "whatsapp_disconnected",
+        alertType: "terms_required",
         severity: "warning",
-        title: "Sessão WhatsApp offline",
-        body: "Automação pausada. Com o número cadastrado, pool e atendimento manual seguem liberados. Reconecte a sessão só se quiser automação.",
-        actionPath: "/conexoes",
+        title: "Aceite os termos do programa",
+        body: enrollment?.program_name
+          ? `Para liberar contatos do programa ${enrollment.program_name}, leia e aceite os termos no Início do app.`
+          : "Para liberar contatos e distribuição, leia e aceite os termos do programa no Início do app.",
+        actionPath: "/",
       });
-    } else if (whatsappStatus === "connected") {
-      // Limpa alerta de desconexão quando já reconectou
+    } else {
       try {
         await query(
           `UPDATE affiliate_alerts
            SET is_read = TRUE, updated_at = NOW()
            WHERE affiliate_id = ? AND brand_id = ?
-             AND alert_type = 'whatsapp_disconnected' AND is_read = FALSE`,
+             AND alert_type = 'terms_required' AND is_read = FALSE`,
           [input.affiliateId, input.brandId],
         );
       } catch {
-        /* coluna/tabela opcional */
+        /* opcional */
       }
+    }
+
+    // TEMP: sem alertas de “sessão offline” — conexão não é exigida no momento.
+    try {
+      await query(
+        `UPDATE affiliate_alerts
+         SET is_read = TRUE, updated_at = NOW()
+         WHERE affiliate_id = ? AND brand_id = ?
+           AND alert_type = 'whatsapp_disconnected' AND is_read = FALSE`,
+        [input.affiliateId, input.brandId],
+      );
+    } catch {
+      /* opcional */
     }
 
     const stats = await this.loadAffiliateStats(input.affiliateId, input.brandId, input.ownerUserId);
@@ -1221,7 +1262,7 @@ export class AffiliateDistributionService {
       registered_whatsapp: registeredWhatsapp || null,
       registered_whatsapp_ok: registeredWhatsappOk,
       registered_whatsapp_numbers: registeredNumbers,
-      whatsapp_session_required_for_auto: !!requireWhatsapp,
+      whatsapp_session_required_for_auto: false,
       whatsapp_session_ok: whatsappSessionOk,
       open_pool_enabled: rules?.open_pool_enabled !== 0 && rules?.open_pool_enabled !== false,
       claim_ttl_minutes: Math.max(15, Number(rules?.claim_ttl_minutes) || 90),
@@ -1326,6 +1367,156 @@ export class AffiliateDistributionService {
         }
       }
     }
+  }
+
+  /** Negativos de rede: não voltam para pool nem auto-distribuição. */
+  static readonly NETWORK_SUPPRESS_REASONS = new Set([
+    "not_matching",
+    "channel_unavailable",
+  ]);
+
+  async isProspectNetworkSuppressed(input: {
+    brandId: string;
+    prospectId?: string | null;
+    phone?: string | null;
+  }): Promise<boolean> {
+    await this.ensureSchema();
+    const pid = String(input.prospectId || "").trim();
+    const phone = normalizePhoneDigits(input.phone);
+    if (!pid && phone.length < 8) return false;
+    try {
+      if (pid) {
+        const byId = await queryOne<any>(
+          `SELECT id FROM affiliate_prospect_suppressions
+           WHERE brand_id = ? AND is_active = TRUE AND prospect_id = ?
+           LIMIT 1`,
+          [input.brandId, pid],
+        );
+        if (byId?.id) return true;
+      }
+      if (phone.length >= 8) {
+        const byPhone = await queryOne<any>(
+          `SELECT id FROM affiliate_prospect_suppressions
+           WHERE brand_id = ? AND is_active = TRUE AND phone_digits = ?
+           LIMIT 1`,
+          [input.brandId, phone],
+        );
+        if (byPhone?.id) return true;
+      }
+    } catch {
+      return false;
+    }
+    return false;
+  }
+
+  /**
+   * Marca prospect como inválido para toda a rede da marca.
+   * - remove da fila pending
+   * - impede re-enqueue / pool para outros afiliados
+   */
+  async suppressProspectFromNetwork(input: {
+    ownerUserId: string;
+    brandId: string;
+    reason: string;
+    prospectId?: string | null;
+    phone?: string | null;
+    affiliateId?: string | null;
+    sourceRefType?: string | null;
+    sourceRefId?: string | null;
+    note?: string | null;
+  }): Promise<{ suppressed: boolean }> {
+    await this.ensureSchema();
+    const reason = String(input.reason || "").trim().toLowerCase();
+    if (!AffiliateDistributionService.NETWORK_SUPPRESS_REASONS.has(reason)) {
+      return { suppressed: false };
+    }
+    const prospectId = String(input.prospectId || "").trim() || null;
+    const phoneDigits = normalizePhoneDigits(input.phone);
+    if (!prospectId && phoneDigits.length < 8) {
+      return { suppressed: false };
+    }
+
+    /* Evita duplicata ativa */
+    const existing = await queryOne<any>(
+      prospectId
+        ? `SELECT id FROM affiliate_prospect_suppressions
+           WHERE brand_id = ? AND is_active = TRUE AND prospect_id = ? LIMIT 1`
+        : `SELECT id FROM affiliate_prospect_suppressions
+           WHERE brand_id = ? AND is_active = TRUE AND phone_digits = ? LIMIT 1`,
+      prospectId ? [input.brandId, prospectId] : [input.brandId, phoneDigits],
+    ).catch(() => null);
+
+    if (!existing?.id) {
+      await query(
+        `INSERT INTO affiliate_prospect_suppressions
+         (id, owner_user_id, brand_id, prospect_id, phone_digits, reason,
+          source_ref_type, source_ref_id, suppressed_by_affiliate_id, note, is_active)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)`,
+        [
+          randomUUID(),
+          input.ownerUserId,
+          input.brandId,
+          prospectId,
+          phoneDigits.length >= 8 ? phoneDigits : null,
+          reason,
+          input.sourceRefType || null,
+          input.sourceRefId || null,
+          input.affiliateId || null,
+          input.note ? String(input.note).slice(0, 2000) : null,
+        ],
+      ).catch((e: any) => {
+        logger.warn(`[distribution] suppress insert failed: ${e?.message || e}`);
+      });
+    }
+
+    /* Tira da fila aberta da marca (não volta para outros afiliados) */
+    try {
+      if (prospectId) {
+        await query(
+          `UPDATE lead_distribution_queue
+           SET queue_status = 'filtered_out',
+               error_message = ?
+           WHERE brand_id = ? AND prospect_id = ?
+             AND queue_status IN ('pending', 'processing')`,
+          [`network_suppress:${reason}`, input.brandId, prospectId],
+        );
+      }
+      if (phoneDigits.length >= 8) {
+        await query(
+          `UPDATE lead_distribution_queue
+           SET queue_status = 'filtered_out',
+               error_message = ?
+           WHERE brand_id = ? AND queue_status IN ('pending', 'processing')
+             AND REGEXP_REPLACE(COALESCE(prospect_phone, ''), '[^0-9]', '', 'g') = ?`,
+          [`network_suppress:${reason}`, input.brandId, phoneDigits],
+        ).catch(async () => {
+          /* MySQL / fallback sem REGEXP_REPLACE — filtra em app se necessário */
+          const pending = await query<any[]>(
+            `SELECT id, prospect_phone FROM lead_distribution_queue
+             WHERE brand_id = ? AND queue_status IN ('pending', 'processing')
+             LIMIT 500`,
+            [input.brandId],
+          ).catch(() => []);
+          for (const row of pending || []) {
+            if (normalizePhoneDigits(row.prospect_phone) === phoneDigits) {
+              await query(
+                `UPDATE lead_distribution_queue
+                 SET queue_status = 'filtered_out', error_message = ?
+                 WHERE id = ?`,
+                [`network_suppress:${reason}`, row.id],
+              ).catch(() => undefined);
+            }
+          }
+        });
+      }
+    } catch (e: any) {
+      logger.warn(`[distribution] suppress queue filter failed: ${e?.message || e}`);
+    }
+
+    logger.info(
+      `[distribution] network suppress brand=${input.brandId} prospect=${prospectId || "-"} phone=${phoneDigits || "-"} reason=${reason}`,
+    );
+    return { suppressed: true };
   }
 
   /** Aceite explícito de termos a partir do app (Ao Vivo / elegibilidade). */
@@ -1488,6 +1679,7 @@ export class AffiliateDistributionService {
   /** Alertas de infraestrutura: dedupe por tipo. Comerciais: por assignment. */
   private static readonly INFRA_ALERT_TYPES = new Set([
     "whatsapp_disconnected",
+    "terms_required",
   ]);
 
   async ensureAlert(input: {
@@ -1736,6 +1928,18 @@ export class AffiliateDistributionService {
     }
     if (!prospect) {
       return { queued: false, reason: "Prospect não encontrado" };
+    }
+
+    const phoneDigits = normalizePhoneDigits(prospect.phone);
+    if (await this.isProspectNetworkSuppressed({
+      brandId: input.brandId,
+      prospectId: input.prospectId,
+      phone: phoneDigits,
+    })) {
+      return {
+        queued: false,
+        reason: "Prospect suprimido da rede (não correspondente / canal inválido)",
+      };
     }
 
     const dup = await queryOne<any>(
@@ -2260,8 +2464,33 @@ export class AffiliateDistributionService {
       /* tabela pode não existir ainda */
     }
 
+    const suppressedProspectIds = new Set<string>();
+    const suppressedPhones = new Set<string>();
+    try {
+      const sups = await query<any[]>(
+        `SELECT prospect_id, phone_digits FROM affiliate_prospect_suppressions
+         WHERE brand_id = ? AND is_active = TRUE
+         LIMIT 5000`,
+        [input.brandId],
+      );
+      for (const s of sups || []) {
+        if (s?.prospect_id) suppressedProspectIds.add(String(s.prospect_id));
+        const ph = normalizePhoneDigits(s?.phone_digits);
+        if (ph.length >= 8) suppressedPhones.add(ph);
+      }
+    } catch {
+      /* tabela pode não existir */
+    }
+
     const items = (rows || [])
-      .filter((row) => !skippedIds.has(String(row.id)))
+      .filter((row) => {
+        if (skippedIds.has(String(row.id))) return false;
+        const pid = row.prospect_id ? String(row.prospect_id) : "";
+        if (pid && suppressedProspectIds.has(pid)) return false;
+        const ph = normalizePhoneDigits(row.prospect_phone);
+        if (ph.length >= 8 && suppressedPhones.has(ph)) return false;
+        return true;
+      })
       .slice(0, limit)
       .map((row) => {
       let metadata: Record<string, any> = {};
@@ -2465,6 +2694,20 @@ export class AffiliateDistributionService {
     );
     if (!item) {
       throw new Error("Oportunidade não encontrada");
+    }
+
+    if (await this.isProspectNetworkSuppressed({
+      brandId: input.brandId,
+      prospectId: item.prospect_id,
+      phone: item.prospect_phone,
+    })) {
+      await query(
+        `UPDATE lead_distribution_queue
+         SET queue_status = 'filtered_out', error_message = 'network_suppress'
+         WHERE id = ?`,
+        [input.queueId],
+      );
+      throw new Error("Este contato foi marcado como inválido e saiu da rede");
     }
 
     // Evita dupla atribuição aberta do mesmo prospect

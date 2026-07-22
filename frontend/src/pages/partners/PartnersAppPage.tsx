@@ -36,7 +36,7 @@ const STATUS_LABEL: Record<string, { label: string; color: string }> = {
   not_applied: { label: 'Disponível', color: '#007aff' },
   pending: { label: 'Em análise', color: '#f59e0b' },
   pending_application: { label: 'Em análise', color: '#f59e0b' },
-  onboarding: { label: 'Onboarding', color: '#0ea5e9' },
+  onboarding: { label: 'A concluir', color: '#0ea5e9' },
   pre_approved: { label: 'Pré-aprovado', color: '#0ea5e9' },
   approved: { label: 'Ativo', color: '#16a34a' },
   active: { label: 'Ativo', color: '#16a34a' },
@@ -73,7 +73,7 @@ function navTabFromView(view: PartnersView): TabId {
 
 function headerTitle(view: PartnersView): string {
   if (view.kind === 'program') return 'Detalhe do programa'
-  if (view.kind === 'onboarding') return 'Onboarding'
+  if (view.kind === 'onboarding') return 'Concluir o solicitado'
   if (view.kind === 'tab') {
     const titles: Record<TabId, string> = {
       resumo: 'Página inicial',
@@ -517,7 +517,7 @@ export function PartnersAppPage() {
                               style={{ color: brandColor, borderColor: `${brandColor}40` }}
                               onClick={() => openOnboarding(op.enrollment.id)}
                             >
-                              Continuar onboarding
+                              Concluir o solicitado
                             </button>
                           )}
                           {op.participation_status === 'pending' && (
@@ -598,7 +598,7 @@ export function PartnersAppPage() {
                           className="text-xs font-bold text-sky-600 flex items-center gap-1"
                           onClick={() => openOnboarding(m.enrollment_id)}
                         >
-                          Continuar onboarding <ChevronRight size={12} />
+                          Concluir o solicitado <ChevronRight size={12} />
                         </button>
                       )}
                       {canEnter && (

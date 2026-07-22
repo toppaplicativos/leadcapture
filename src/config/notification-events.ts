@@ -150,7 +150,7 @@ export const NOTIFICATION_EVENT_REGISTRY: NotificationEventDefinition[] = [
     }),
   def("affiliate", "onboarding", "affiliate.program.application_approved", "informational",
     "Candidatura aprovada",
-    "Você foi aceito no programa {{program_name}}. Conclua o onboarding e comece a divulgar.",
+    "Você foi aceito no programa {{program_name}}. Conclua o solicitado e comece a divulgar.",
     {
       default_priority: "high",
       cta_label: "Abrir programa",

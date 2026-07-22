@@ -22,7 +22,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   inventory: 'Estoque',
   orders: 'Pedidos e entregas',
   system: 'Sistema',
-  onboarding: 'Onboarding e programas',
+  onboarding: 'Programas e requisitos',
   reports: 'Relatórios',
 }
 

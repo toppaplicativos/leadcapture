@@ -14,7 +14,7 @@ const STATUS_LABEL: Record<string, { label: string; color: string; icon: typeof 
   not_applied: { label: 'Disponível', color: '#16a34a', icon: Sparkles },
   pending: { label: 'Em análise', color: '#f59e0b', icon: Clock },
   rejected: { label: 'Não aprovado', color: '#ef4444', icon: Ban },
-  onboarding: { label: 'Onboarding', color: '#0ea5e9', icon: Briefcase },
+  onboarding: { label: 'A concluir', color: '#0ea5e9', icon: Briefcase },
   active: { label: 'Ativo', color: '#16a34a', icon: CheckCircle2 },
   suspended: { label: 'Suspenso', color: '#ef4444', icon: Ban },
 }
@@ -36,12 +36,13 @@ type Props = {
 export function AffiliateMarketplace({ ctx }: Props) {
   const [searchParams] = useSearchParams()
   const programRef = String(searchParams.get('program') || '').trim()
+  const onboardingFromQuery = String(searchParams.get('onboarding') || '').trim()
   const handledProgramRef = useRef(false)
 
   const [loading, setLoading] = useState(true)
   const [items, setItems] = useState<MarketplaceOpportunity[]>([])
   const [applying, setApplying] = useState<string | null>(null)
-  const [onboardingId, setOnboardingId] = useState<string | null>(null)
+  const [onboardingId, setOnboardingId] = useState<string | null>(onboardingFromQuery || null)
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<FilterKey>('all')
 
@@ -72,6 +73,11 @@ export function AffiliateMarketplace({ ctx }: Props) {
   }
 
   useEffect(() => { void load() }, [ctx.cacheVersion])
+
+  // Deep link do gate de liberação: /mercado?onboarding=<enrollmentId>
+  useEffect(() => {
+    if (onboardingFromQuery) setOnboardingId(onboardingFromQuery)
+  }, [onboardingFromQuery])
 
   useEffect(() => {
     if (!programRef || handledProgramRef.current || loading || !items.length) return
@@ -266,7 +272,7 @@ export function AffiliateMarketplace({ ctx }: Props) {
                         style={{ color: ctx.primary, borderColor: `${ctx.primary}40` }}
                         onClick={() => setOnboardingId(op.enrollment!.id)}
                       >
-                        Continuar onboarding <ChevronRight size={14} />
+                        Concluir o solicitado <ChevronRight size={14} />
                       </button>
                     )}
                     {op.participation_status === 'active' && (

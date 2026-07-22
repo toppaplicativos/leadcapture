@@ -59,7 +59,7 @@ const DETAIL_TABS: Array<{ key: ProgramDetailTab; label: string; icon: typeof Se
   { key: 'config', label: 'Configurações', icon: Settings },
   { key: 'materials', label: 'Materiais', icon: Image },
   { key: 'offers', label: 'Ofertas', icon: Package },
-  { key: 'onboarding', label: 'Onboarding', icon: GraduationCap },
+  { key: 'onboarding', label: 'Requisitos', icon: GraduationCap },
   { key: 'people', label: 'Pessoas', icon: Users },
 ]
 
@@ -919,7 +919,7 @@ export function AffiliateProgramsSection({
               {detailTab === 'onboarding' && bundle && (
                 <>
                   <div className="affiliate-card p-4">
-                    <p className="font-bold text-sm flex items-center gap-2 mb-2"><Layers size={14} /> Etapas de onboarding ({bundle.steps?.length || 0})</p>
+                    <p className="font-bold text-sm flex items-center gap-2 mb-2"><Layers size={14} /> Etapas obrigatórias ({bundle.steps?.length || 0})</p>
                     <ul className="space-y-2 mb-3">
                       {(bundle.steps || []).map((s: any, idx: number) => (
                         <li key={s.id} className="text-xs text-gray-600 flex items-center justify-between gap-2 border-b border-gray-100 pb-2">
@@ -1000,7 +1000,7 @@ export function AffiliateProgramsSection({
                     {[
                       { label: 'No programa', value: peopleCounts.total, tone: 'text-gray-900' },
                       { label: 'Ativos', value: peopleCounts.active, tone: 'text-emerald-700' },
-                      { label: 'Em onboarding', value: peopleCounts.onboarding, tone: 'text-sky-700' },
+                      { label: 'A concluir', value: peopleCounts.onboarding, tone: 'text-sky-700' },
                       { label: 'Precisam atenção', value: peopleCounts.attention + pendingApplications.length, tone: 'text-amber-700' },
                     ].map((stat) => (
                       <div key={stat.label} className="affiliate-card p-4">
@@ -1024,7 +1024,7 @@ export function AffiliateProgramsSection({
                         <select className="wa-instances__input" value={peopleStatus} onChange={(event) => setPeopleStatus(event.target.value as typeof peopleStatus)}>
                           <option value="all">Todos os status</option>
                           <option value="active">Ativos</option>
-                          <option value="onboarding">Em onboarding</option>
+                          <option value="onboarding">A concluir</option>
                           <option value="suspended">Suspensos</option>
                           <option value="revoked">Revogados</option>
                         </select>
@@ -1109,7 +1109,7 @@ export function AffiliateProgramsSection({
                             </span>
                             <span className="flex items-center justify-between sm:justify-end gap-2 shrink-0">
                               <span className={`rounded-full px-2 py-1 text-[10px] font-bold ${e.status === 'active' ? 'bg-emerald-50 text-emerald-700' : e.status === 'onboarding' ? 'bg-sky-50 text-sky-700' : e.status === 'suspended' ? 'bg-amber-50 text-amber-700' : 'bg-gray-100 text-gray-500'}`}>
-                                {e.status === 'active' ? 'Ativo' : e.status === 'onboarding' ? 'Onboarding' : e.status === 'suspended' ? 'Suspenso' : 'Revogado'}
+                                {e.status === 'active' ? 'Ativo' : e.status === 'onboarding' ? 'A concluir' : e.status === 'suspended' ? 'Suspenso' : 'Revogado'}
                               </span>
                               {e.status === 'active' && (
                                 <button type="button" title="Suspender" className="affiliates-page__btn affiliates-page__btn--ghost" onClick={() => updateEnrollment(e.id, 'suspended')}><Ban size={12} /> Suspender</button>

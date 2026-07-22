@@ -118,7 +118,7 @@ export function PartnersProgramDetail({ programRef, onBack, onOnboarding, showTo
   const statusMeta: Record<string, { label: string; tone: string }> = {
     not_applied: { label: 'Disponível', tone: 'info' },
     pending: { label: 'Em análise', tone: 'warn' },
-    onboarding: { label: 'Onboarding', tone: 'info' },
+    onboarding: { label: 'A concluir', tone: 'info' },
     active: { label: 'Você participa', tone: 'ok' },
     rejected: { label: 'Não aprovado', tone: 'danger' },
     suspended: { label: 'Suspenso', tone: 'danger' },
@@ -234,7 +234,7 @@ export function PartnersProgramDetail({ programRef, onBack, onOnboarding, showTo
           </div>
         ) : (
           <p className="partners-program__muted">
-            Detalhes de apuração são confirmados no onboarding e nos termos.
+            Detalhes de apuração são confirmados nos termos e no que a marca solicita.
           </p>
         )}
       </Section>
@@ -337,8 +337,8 @@ export function PartnersProgramDetail({ programRef, onBack, onOnboarding, showTo
         </Section>
       )}
 
-      {/* ── Onboarding ── */}
-      <Section icon={GraduationCap} title="Onboarding e preparação">
+      {/* ── O que precisa concluir ── */}
+      <Section icon={GraduationCap} title="O que você precisa concluir">
         <div className="partners-program__onboard-grid">
           <div className="partners-program__onboard-chip">
             <Layers size={14} />
@@ -423,7 +423,7 @@ export function PartnersProgramDetail({ programRef, onBack, onOnboarding, showTo
             style={{ backgroundColor: primary }}
             onClick={() => onOnboarding(program.enrollment.id)}
           >
-            Continuar onboarding <ChevronRight size={16} />
+            Concluir o solicitado <ChevronRight size={16} />
           </button>
         )}
 

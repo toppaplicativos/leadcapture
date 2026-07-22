@@ -339,7 +339,7 @@ export function AffiliateDistributionSection({ showToast, saving, setSaving }: P
             className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm"
             onClick={() => setRulesForm((f) => ({ ...f, require_training_complete: !f.require_training_complete }))}
           >
-            <span>Exigir treinamento / onboarding</span>
+            <span>Exigir treinamento concluído</span>
             {rulesForm.require_training_complete
               ? <ToggleRight size={22} className="text-emerald-600" />
               : <ToggleLeft size={22} className="text-gray-400" />}

@@ -7,9 +7,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import {
   Bot, Check, ChevronRight, ClipboardPaste, Copy, ImagePlus, Link2, Loader2,
-  MessageCircle, Package, Radio, Search, Send, Sparkles, Target, Trash2, X,
+  MessageCircle, Package, Radio, Search, Send, Sparkles, Target, Trash2, Truck, X,
 } from 'lucide-react'
 import { affiliateApi, getAffiliateBrandRef } from '@/lib/api-affiliate'
+import { FreightSimulator } from '@/components/freight/FreightSimulator'
 import { affiliateAppCache } from '@/lib/affiliate-app-cache'
 import {
   buildAffiliateCatalogUrl,
@@ -589,6 +590,29 @@ export function AffiliateAttendanceHub({ ctx, onNavigate }: Props) {
             Gerar resposta
           </button>
         </div>
+      </section>
+
+      {/* Gerador de frete — CEP real + faixas da loja */}
+      <section className="space-y-2" aria-label="Simulador de frete">
+        <div className="affiliate-attendance__section-head">
+          <h3>
+            <Truck size={15} style={{ color: ctx.primary }} />
+            Frete para o cliente
+          </h3>
+        </div>
+        <FreightSimulator
+          surface="affiliate"
+          accent={ctx.primary || '#171717'}
+          showToast={(msg, tp) => ctx.showToast(msg, tp === 'err' ? 'err' : 'ok')}
+          onLookupCep={async (cep) => {
+            const res = await affiliateApi.freightLookupCep(cep)
+            return { place: res.place }
+          }}
+          onQuote={async (payload) => {
+            const res = await affiliateApi.freightQuote(payload)
+            return { quote: res.quote, configured: res.configured, store_id: res.store_id }
+          }}
+        />
       </section>
 
       {/* Links de conversão */}

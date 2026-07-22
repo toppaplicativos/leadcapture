@@ -204,7 +204,7 @@ export function AffiliateLinksHub({ ctx, active = true }: Props) {
                 onClick={() => setSelectedProgramId(en.program_id)}
               >
                 {en.program_name}
-                {!en.resources_unlocked ? ' · onboarding' : ''}
+                {!en.resources_unlocked ? ' · pendente' : ''}
               </button>
             ))}
           </div>
@@ -213,7 +213,7 @@ export function AffiliateLinksHub({ ctx, active = true }: Props) {
 
       {hub && hub.resources_unlocked === false && (
         <div className="affiliate-card p-3 mb-2 border border-amber-200 bg-amber-50/60 text-xs text-amber-800">
-          Conclua o onboarding de <strong>{hub.program_name || 'este programa'}</strong> para liberar link e cupom exclusivos.
+          Conclua o solicitado em <strong>{hub.program_name || 'este programa'}</strong> para liberar link e cupom exclusivos.
         </div>
       )}
 

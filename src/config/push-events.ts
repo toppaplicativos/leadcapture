@@ -49,7 +49,7 @@ const CATEGORY_LABELS: Record<PushEventCategory, string> = {
   inventory: "Estoque",
   orders: "Pedidos e entregas",
   system: "Sistema e integrações",
-  onboarding: "Treinamentos e onboarding",
+  onboarding: "Treinamentos e requisitos",
   reports: "Relatórios e resumos",
 }
 
@@ -99,7 +99,7 @@ export const PUSH_EVENT_SEED: PushEventDefinition[] = [
   ev("admin", "sales", "order_canceled", "Pedido cancelado", { default_priority: "high", sort_order: 32 }),
   ev("admin", "onboarding", "affiliate_registered", "Novo afiliado cadastrado", { default_priority: "normal", sort_order: 40 }),
   ev("admin", "onboarding", "affiliate_application_received", "Nova candidatura recebida", { default_priority: "high", sort_order: 41 }),
-  ev("admin", "onboarding", "affiliate_onboarding_done", "Afiliado concluiu onboarding", { default_priority: "normal", sort_order: 42 }),
+  ev("admin", "onboarding", "affiliate_onboarding_done", "Afiliado concluiu o solicitado", { default_priority: "normal", sort_order: 42 }),
   ev("admin", "onboarding", "affiliate_whatsapp_offline", "Afiliado com WhatsApp desconectado", { default_priority: "high", sort_order: 43 }),
   ev("admin", "onboarding", "affiliate_high_performance", "Afiliado com alta performance", { default_priority: "normal", sort_order: 44 }),
   ev("admin", "onboarding", "affiliate_auto_blocked", "Afiliado bloqueado por regra", { default_priority: "critical", sort_order: 45 }),

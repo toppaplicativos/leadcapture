@@ -545,7 +545,7 @@ function Marketplace() {
             </p>
             <p className="mt-1 text-[16px] font-bold">Alho Pronto</p>
             <p className="text-[13px] text-white/60 mt-1">
-              Programa regional de afiliados · comissão por conversão · onboarding com treino
+              Programa regional de afiliados · comissão por conversão · treino e requisitos
             </p>
           </div>
         </div>
@@ -905,7 +905,7 @@ function Journey() {
     'Conexão do WhatsApp',
     'Acesso ao dashboard',
     'Busca ou aceite de programas',
-    'Onboarding e termos',
+    'Termos e treinamento',
     'Recebimento de oportunidades',
     'Acompanhamento de prospects',
     'Conversões',

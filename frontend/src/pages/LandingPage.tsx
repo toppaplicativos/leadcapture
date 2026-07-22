@@ -959,7 +959,7 @@ function AffiliateMarketplace() {
     {
       n: '01',
       title: 'Publique a oferta',
-      desc: 'Programa com comissão, termos, onboarding e produtos — em minutos.',
+      desc: 'Programa com comissão, termos, treino e produtos — em minutos.',
     },
     {
       n: '02',
@@ -977,7 +977,7 @@ function AffiliateMarketplace() {
     { Icon: Network, label: 'Não monta a rede do zero' },
     { Icon: HandCoins, label: 'Comissão e PIX estruturados' },
     { Icon: Package, label: 'Catálogo + checkout da loja' },
-    { Icon: Sparkles, label: 'Onboarding e aprendizado prontos' },
+    { Icon: Sparkles, label: 'Treinamento e aprendizado prontos' },
   ]
 
   return (
@@ -1001,7 +1001,7 @@ function AffiliateMarketplace() {
           </H2>
           <Lead dark className="text-pretty">
             No LeadCapture o dono da loja não precisa recrutar afiliado por afiliado no escuro.
-            Você publica a oportunidade e conta com uma <strong className="text-white font-semibold">estrutura vasta de parceiros</strong> já ativos na plataforma — mercado, candidatura, onboarding e repasse.
+            Você publica a oportunidade e conta com uma <strong className="text-white font-semibold">estrutura vasta de parceiros</strong> já ativos na plataforma — mercado, candidatura, treino e repasse.
           </Lead>
 
           <ul className="landing-align-block landing-align-block--wide mt-7 sm:mt-8 grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -1902,7 +1902,7 @@ function FAQ() {
     },
     {
       q: 'Como funciona o plano Custom?',
-      a: 'Custom é para operações grandes ou com integração específica (ERP, BI, fluxos próprios). Modelamos o volume de leads, número de brands, SLA e onboarding pra sua operação. Tem gerente de sucesso dedicado e implantação assistida.',
+      a: 'Custom é para operações grandes ou com integração específica (ERP, BI, fluxos próprios). Modelamos o volume de leads, número de brands, SLA e implantação pra sua operação. Tem gerente de sucesso dedicado e implantação assistida.',
     },
     {
       q: 'Preciso saber programar?',
@@ -1922,7 +1922,7 @@ function FAQ() {
     },
     {
       q: 'O que é o mercado de afiliados?',
-      a: 'É a rede de parceiros já presentes na plataforma. O dono da loja publica o programa (comissão, termos, produtos) e afiliados ativos no LeadCapture veem a campanha, se candidatam e vendem com link/cupom. Você não monta a estrutura do zero: onboarding, aprendizado, comissão e PIX já estão no sistema.',
+      a: 'É a rede de parceiros já presentes na plataforma. O dono da loja publica o programa (comissão, termos, produtos) e afiliados ativos no LeadCapture veem a campanha, se candidatam e vendem com link/cupom. Você não monta a estrutura do zero: treino, aprendizado, comissão e PIX já estão no sistema.',
     },
   ]
 

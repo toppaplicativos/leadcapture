@@ -268,7 +268,7 @@ router.get("/onboarding/:enrollmentId", async (req: AuthRequest, res: Response) 
     if (!data) return res.status(404).json({ error: "Inscrição não encontrada" });
     res.json({ success: true, ...data });
   } catch (e: any) {
-    res.status(500).json({ error: e.message || "Falha ao carregar onboarding" });
+    res.status(500).json({ error: e.message || "Falha ao carregar o que falta concluir" });
   }
 });
 

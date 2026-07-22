@@ -201,7 +201,7 @@ export function AffiliateLiveDispatchPanel({
           html = onboarding?.enrollment?.terms_html || null
         }
       }
-      setTermsHtml(html || '<p>Não encontramos o texto dos termos. Contate a marca ou conclua o onboarding em Aprender.</p>')
+      setTermsHtml(html || '<p>Não encontramos o texto dos termos. Contate a marca ou conclua o solicitado no programa.</p>')
     } catch {
       setTermsHtml('<p>Não foi possível carregar os termos agora. Tente novamente.</p>')
     } finally {

@@ -18,7 +18,7 @@ type PipelineStep = {
 const PIPELINE: PipelineStep[] = [
   { id: 'brief', label: 'Lendo a oferta', detail: 'Entendendo oportunidade e prazos' },
   { id: 'legal', label: 'Termos e políticas', detail: 'Redigindo regras e conduta em HTML' },
-  { id: 'onboard', label: 'Onboarding', detail: 'Orientação e treinamentos' },
+  { id: 'onboard', label: 'Requisitos', detail: 'Orientação e treinamentos' },
   { id: 'learn', label: 'Área de aprendizado', detail: '6 módulos da aba Aprender' },
   { id: 'materials', label: 'Materiais e leads', detail: 'Copies e mensagens de distribuição' },
   { id: 'save', label: 'Salvando no programa', detail: 'Configurações, campanha e publicação' },

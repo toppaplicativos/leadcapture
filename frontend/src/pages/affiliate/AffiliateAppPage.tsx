@@ -12,6 +12,7 @@ import { AffiliateMaterialsPanel } from '@/pages/affiliate/AffiliateMaterialsPan
 import { AffiliatePixSettings } from '@/pages/affiliate/AffiliatePixSettings'
 import { AffiliateLinksHub } from '@/pages/affiliate/AffiliateLinksHub'
 import { AffiliateMarketplace } from '@/pages/affiliate/AffiliateMarketplace'
+import { AffiliateProgramOnboarding } from '@/pages/affiliate/AffiliateProgramOnboarding'
 import { AffiliateLearningPanel } from '@/pages/affiliate/AffiliateLearningPanel'
 import {
   affiliateApi,
@@ -141,6 +142,8 @@ const MORE_MENU_BASE: MoreMenuItem[] = [
 function tabFromPath(pathname: string, base: string): TabId {
   const rest = pathname.startsWith(base) ? pathname.slice(base.length).replace(/^\//, '') : ''
   if (!rest) return 'resumo'
+  // Onboarding do programa usa tela dedicada (não é aba)
+  if (rest.startsWith('onboarding')) return 'resumo'
   if (rest === 'ao-vivo') return 'ao-vivo'
   if (rest.startsWith('oportunidades')) return 'oportunidades'
   if (rest === 'atendimento' || rest === 'suporte' || rest === 'copiloto') return 'atendimento'
@@ -156,6 +159,14 @@ function tabFromPath(pathname: string, base: string): TabId {
   if (rest === 'comissoes' || rest === 'saques' || rest === 'pagamentos' || rest === 'financeiro') return 'financeiro'
   const hit = Object.entries(TAB_PATHS).find(([, path]) => path === rest)
   return (hit?.[0] as TabId | undefined) || 'resumo'
+}
+
+/** ID do enrollment no path `/…/onboarding/:enrollmentId` (fluxo real do programa). */
+function programOnboardingIdFromPath(pathname: string, base: string): string | null {
+  const rest = pathname.startsWith(base) ? pathname.slice(base.length).replace(/^\//, '') : ''
+  if (!rest.startsWith('onboarding/')) return null
+  const id = decodeURIComponent(rest.slice('onboarding/'.length).split(/[/?#]/)[0] || '').trim()
+  return id || null
 }
 
 function oppHubTabFromSearch(search: string): OppHubTab {
@@ -504,6 +515,7 @@ function PremiumAffiliateDashboard({
   onViewOpportunities,
   onOpenAttendance,
   onOpenWallet,
+  onNavigate,
 }: {
   ctx: AppContext
   onOpenLinks?: () => void
@@ -512,6 +524,7 @@ function PremiumAffiliateDashboard({
   onViewOpportunities?: () => void
   onOpenAttendance?: () => void
   onOpenWallet?: () => void
+  onNavigate?: (path: string) => void
 }) {
   const snap = affiliateAppCache.get()
   const [stats, setStats] = useState<any>(snap.dashboard)
@@ -664,6 +677,14 @@ function PremiumAffiliateDashboard({
           ) : null}
         </div>
       </section>
+
+      {/* Gate principal: termos, onboarding, número, Pix — com CTA de aceite inline */}
+      <AffiliateDistributionBanner
+        ctx={ctx}
+        onConnectWhatsApp={onConnectWhatsApp}
+        onViewOpportunities={onViewOpportunities}
+        onNavigate={onNavigate}
+      />
 
       <AttendanceMetricsStrip ctx={ctx} onOpenAttendance={onOpenAttendance || onViewOpportunities} />
 
@@ -1213,6 +1234,30 @@ export function AffiliateAppPage() {
   }, [boot?.brand?.name, boot?.brand?.logo_url, location.pathname, location.search])
 
   const financeiroMode = financeiroModeFromPath(location.pathname, base)
+  const programOnboardingId = programOnboardingIdFromPath(location.pathname, base)
+
+  function goProgramOnboarding(enrollmentId: string) {
+    const id = String(enrollmentId || '').trim()
+    if (!id) return
+    setMoreOpen(false)
+    // No shell de parceiros: fluxo canônico de requisitos no app raiz (mesmo do "Concluir o solicitado")
+    if (isPartnersProgram) {
+      navigate(`/parceiros/painel/onboarding/${encodeURIComponent(id)}`, { replace: false })
+      return
+    }
+    navigate(`${base}/onboarding/${encodeURIComponent(id)}`, { replace: false })
+  }
+
+  function closeProgramOnboarding() {
+    navigate(base || '/', { replace: true })
+    setCacheVersion((v) => v + 1)
+  }
+
+  // No shell de parceiros, onboarding canônico fica no app raiz
+  useEffect(() => {
+    if (!programOnboardingId || !isPartnersProgram) return
+    navigate(`/parceiros/painel/onboarding/${encodeURIComponent(programOnboardingId)}`, { replace: true })
+  }, [programOnboardingId, isPartnersProgram, navigate])
 
   function goFinanceiro(mode: FinanceiroMode) {
     const dest = mode === 'saques'
@@ -1346,6 +1391,28 @@ export function AffiliateAppPage() {
 
   const appCtx = ctx
 
+  // Fluxo real de requisitos do programa (mesmo do botão "Concluir o solicitado")
+  if (programOnboardingId) {
+    if (isPartnersProgram) {
+      return (
+        <div className="affiliate-app grid place-items-center">
+          <Loader2 size={28} className="animate-spin text-[#c7c7cc]" />
+        </div>
+      )
+    }
+    return (
+      <WhatsAppConnectProvider>
+        <div className="affiliate-app min-h-dvh bg-[#f5f5f5]">
+          <AffiliateProgramOnboarding
+            ctx={appCtx}
+            enrollmentId={programOnboardingId}
+            onClose={closeProgramOnboarding}
+          />
+        </div>
+      </WhatsAppConnectProvider>
+    )
+  }
+
   function renderPanel(tab: TabId) {
     switch (tab) {
       case 'resumo':
@@ -1358,6 +1425,22 @@ export function AffiliateAppPage() {
             onViewOpportunities={() => goTab('oportunidades')}
             onOpenAttendance={() => goTab('atendimento')}
             onOpenWallet={() => goTab('financeiro')}
+            onNavigate={(path) => {
+              const raw = String(path || '')
+              const clean = raw.replace(/^\//, '').split('?')[0]
+              if (clean.startsWith('onboarding/')) {
+                const id = decodeURIComponent(clean.slice('onboarding/'.length).split('/')[0] || '')
+                if (id) return goProgramOnboarding(id)
+              }
+              if (clean === 'onboarding') return goTab('mercado')
+              if (clean === 'conexoes') return goTab('conexoes')
+              if (clean === 'perfil') return goTab('perfil')
+              if (clean === 'aprendizado') return goTab('aprendizado')
+              if (clean === 'pagamentos') return goFinanceiro('pagamentos')
+              if (clean === 'mercado') return goTab('mercado')
+              if (clean === 'oportunidades') return goTab('oportunidades')
+              goTab(tabFromPath(path, base))
+            }}
           />
         )
       case 'oportunidades':

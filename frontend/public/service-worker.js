@@ -27,8 +27,8 @@ if (IS_LOCAL_DEV) {
     );
   });
 } else {
-const SHELL_CACHE_NAME = "lead-system-shell-v285-20260722-stock-push";
-const RUNTIME_CACHE_NAME = "lead-system-runtime-v276-20260722-stock-push";
+const SHELL_CACHE_NAME = "lead-system-shell-v309-20260724-stock-push";
+const RUNTIME_CACHE_NAME = "lead-system-runtime-v300-20260724-stock-push";
 
 function getBasePath() {
   try {
@@ -172,8 +172,20 @@ async function handleNavigationRequest(event) {
   const { request } = event;
 
   try {
-    // Sempre rede fresca no navigate (evita PWA/HTML antigo após deploy)
-    const networkResponse = await fetch(request, { cache: "no-store" });
+    /* Com navigationPreload.enabled, o browser já iniciou o GET da navegação.
+       Precisamos consumir event.preloadResponse (senão o Chrome cancela e avisa).
+       Fallback: fetch normal se preload não existir/falhar. */
+    let networkResponse = null;
+    if (event.preloadResponse) {
+      try {
+        networkResponse = await event.preloadResponse;
+      } catch {
+        networkResponse = null;
+      }
+    }
+    if (!networkResponse) {
+      networkResponse = await fetch(request, { cache: "no-store" });
+    }
 
     if (networkResponse && networkResponse.ok) {
       const shellCache = await caches.open(SHELL_CACHE_NAME);

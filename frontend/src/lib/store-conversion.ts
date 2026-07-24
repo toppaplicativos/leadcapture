@@ -126,7 +126,7 @@ export function pickBestSellers(products: Product[], limit = 8): Product[] {
     .slice(0, limit)
 }
 
-export type ProductBadgeKind = 'sale' | 'new' | 'bestseller' | 'low_stock' | 'sold_out'
+export type ProductBadgeKind = 'sale' | 'new' | 'bestseller' | 'low_stock' | 'sold_out' | 'volume'
 
 export function resolveProductBadges(
   product: Product,
@@ -149,6 +149,12 @@ export function resolveProductBadges(
     return badges
   }
   if (discount > 0) badges.push({ kind: 'sale', label: `−${discount}%` })
+  {
+    const volume = (product.metadata as { volume_pricing?: { enabled?: boolean; tiers?: unknown[] } } | undefined)?.volume_pricing
+    if (volume?.enabled && Array.isArray(volume.tiers) && volume.tiers.length > 0) {
+      badges.push({ kind: 'volume', label: 'Mais compra, mais barato' })
+    }
+  }
   if (opts?.bestSellerIds?.has(product.id)) {
     badges.push({ kind: 'bestseller', label: 'Mais vendido' })
   }

@@ -3,6 +3,13 @@ import { Minus, Plus, ShoppingBag } from 'lucide-react'
 import type { Product } from '@/lib/api'
 import type { AddItemPayload } from '@/lib/store'
 import { money } from '@/lib/store-context'
+import {
+  getProductVolumePricingFromPrice,
+  isProductVolumePricingEnabled,
+  PRICING_MEASURE_LABELS,
+  resolveProductVolumePrice,
+} from '@/lib/product-volume-pricing'
+import { ProductVolumePricingLadder } from '@/components/product/ProductVolumePricingLadder'
 
 function chipClass(active: boolean, disabled = false) {
   if (disabled) return 'store-chip store-chip--filter opacity-40 line-through cursor-not-allowed'
@@ -119,8 +126,10 @@ export function useProductPurchase(product: Product | null) {
       }
     }
 
-    const finalUnitPrice = Math.max(0, displayedPrice + configPriceDelta)
-    const hasCompare = displayedCompare != null && configPriceDelta === 0
+    const volumePricing = resolveProductVolumePrice(product, qty)
+    const effectiveVolumeUnitPrice = volumePricing?.itemUnitPrice ?? displayedPrice
+    const finalUnitPrice = Math.max(0, effectiveVolumeUnitPrice + configPriceDelta)
+    const hasCompare = displayedCompare != null && configPriceDelta === 0 && !volumePricing
     const discount =
       hasCompare && displayedCompare
         ? Math.round((1 - displayedPrice / displayedCompare) * 100)
@@ -141,8 +150,9 @@ export function useProductPurchase(product: Product | null) {
       configPriceDelta,
       stock: resolveStock(product),
       variantImage: selectedVariant?.image_url || null,
+      volumePricing,
     }
-  }, [product, selectedVariantId, configSelections])
+  }, [product, selectedVariantId, configSelections, qty])
 
   return {
     qty,
@@ -189,10 +199,13 @@ export function ProductPurchasePanel({
     configPriceDelta,
     displayedPrice,
     stock,
+    volumePricing,
   } = pricing
 
   const subtotal = finalUnitPrice * qty
   const isCard = layout === 'card'
+  const volumeEnabled = isProductVolumePricingEnabled(product)
+  const volumeFromPrice = volumeEnabled ? getProductVolumePricingFromPrice(product) : null
 
   function handleAdd() {
     if (stock.isOutOfStock || (configEnabled && configErrors.length > 0)) return
@@ -268,11 +281,14 @@ export function ProductPurchasePanel({
         <div className="product-purchase__price-block">
           <div className="flex items-baseline gap-2.5 flex-wrap">
             <span className="product-purchase__price tabular-nums">{money(finalUnitPrice)}</span>
-            {displayedCompare != null && configPriceDelta === 0 && (
+            {displayedCompare != null && configPriceDelta === 0 && !volumeEnabled && (
               <span className="product-purchase__compare tabular-nums">{money(displayedCompare)}</span>
             )}
-            {discount > 0 && (
+            {discount > 0 && !volumeEnabled && (
               <span className="product-purchase__discount">−{discount}%</span>
+            )}
+            {volumeEnabled && (
+              <span className="product-purchase__volume-pill">Preço por volume</span>
             )}
           </div>
           {configPriceDelta !== 0 && (
@@ -281,7 +297,29 @@ export function ProductPurchasePanel({
               {configPriceDelta > 0 ? ` + ${money(configPriceDelta)} opções` : ` ${money(configPriceDelta)} opções`}
             </p>
           )}
+          {volumePricing && (
+            <p className="mt-1 text-[12px] font-semibold text-emerald-800">
+              Nesta qtde: {volumePricing.measureQuantity.toLocaleString('pt-BR')}{' '}
+              {PRICING_MEASURE_LABELS[volumePricing.measure].short}
+              {' · '}
+              {money(volumePricing.pricePerMeasure)}/{PRICING_MEASURE_LABELS[volumePricing.measure].short}
+            </p>
+          )}
+          {volumeFromPrice != null && volumeFromPrice < finalUnitPrice - 0.001 && (
+            <p className="mt-0.5 text-[12px] text-gray-600">
+              A partir de <strong className="tabular-nums text-gray-900">{money(volumeFromPrice)}</strong> por item na maior faixa
+            </p>
+          )}
         </div>
+      )}
+
+      {volumeEnabled && isCard && (
+        <ProductVolumePricingLadder
+          product={product}
+          quantity={qty}
+          onSelectQuantity={(n) => setQty(Math.min(stock.stockCap, Math.max(1, n)))}
+          density="comfortable"
+        />
       )}
 
       {variants.length > 0 && (
@@ -395,6 +433,15 @@ export function ProductPurchasePanel({
               ? `Últimas ${stock.displayQty} unidades`
               : `${stock.displayQty} em estoque`}
         </div>
+      )}
+
+      {volumeEnabled && !isCard && (
+        <ProductVolumePricingLadder
+          product={product}
+          quantity={qty}
+          onSelectQuantity={(n) => setQty(Math.min(stock.stockCap, Math.max(1, n)))}
+          density="compact"
+        />
       )}
 
       {showActions && (

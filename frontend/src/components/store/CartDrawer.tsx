@@ -6,6 +6,7 @@ import { useCartStore } from '@/lib/store'
 import { money, storeUrl } from '@/lib/store-context'
 import { productPath } from '@/lib/product-url'
 import type { Product } from '@/lib/api'
+import { getProductVolumePricingOpportunity, PRICING_MEASURE_LABELS, resolveProductVolumePrice } from '@/lib/product-volume-pricing'
 
 export function CartDrawer({
   products = [],
@@ -35,10 +36,10 @@ export function CartDrawer({
       .filter(([, it]) => it && it.quantity > 0)
       .map(([key, it]) => {
         const p = productMap.get(String(it.productId))
-        const unit =
-          typeof it.unitPrice === 'number' && it.unitPrice > 0
-            ? it.unitPrice
-            : Number(p?.price || 0)
+        const volumePrice = p ? resolveProductVolumePrice(p, it.quantity) : null
+        const unit = volumePrice?.itemUnitPrice ?? (
+          typeof it.unitPrice === 'number' && it.unitPrice > 0 ? it.unitPrice : Number(p?.price || 0)
+        )
         return {
           key,
           it,
@@ -55,6 +56,15 @@ export function CartDrawer({
   const subtotal = lines.reduce((s, l) => s + l.lineTotal, 0)
   const cartIds = new Set(lines.map((l) => String(l.it.productId)))
   const itemCount = lines.reduce((n, l) => n + l.it.quantity, 0)
+  const volumeOpportunity = useMemo(() => {
+    return lines
+      .flatMap((line) => {
+        if (!line.product) return []
+        const opportunity = getProductVolumePricingOpportunity(line.product, line.it.quantity)
+        return opportunity ? [{ line, opportunity }] : []
+      })
+      .sort((a, b) => a.opportunity.remainingItems - b.opportunity.remainingItems)[0] || null
+  }, [lines])
 
   const upsell = useMemo(() => {
     if (!enableUpsell || lines.length === 0) return null
@@ -207,6 +217,40 @@ export function CartDrawer({
                 </li>
               ))}
             </ul>
+          )}
+
+          {volumeOpportunity && lines.length > 0 && (
+            <div className="mx-4 mt-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-3.5">
+              <div className="flex items-start gap-3">
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-emerald-600 text-white">
+                  <Plus size={16} strokeWidth={2.25} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[12px] font-bold text-emerald-900 tracking-tight">
+                    Quanto mais comprar, mais barato
+                  </p>
+                  <p className="mt-1 text-[13px] font-semibold leading-snug text-gray-900">
+                    Adicione{' '}
+                    {volumeOpportunity.opportunity.remainingMeasure.toLocaleString('pt-BR', {
+                      maximumFractionDigits: 2,
+                    })}{' '}
+                    {PRICING_MEASURE_LABELS[volumeOpportunity.opportunity.measure].short} e pague{' '}
+                    {money(volumeOpportunity.opportunity.next.price_per_measure)}/
+                    {PRICING_MEASURE_LABELS[volumeOpportunity.opportunity.measure].short}.
+                  </p>
+                  <p className="mt-1 text-[11px] text-emerald-900/70">
+                    Economia estimada de {money(volumeOpportunity.opportunity.savingsAtTarget)} nessa quantidade.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => updateQty(volumeOpportunity.line.key, volumeOpportunity.opportunity.remainingItems)}
+                className="mt-3 h-10 w-full rounded-xl bg-emerald-700 px-4 text-[12px] font-bold text-white transition hover:bg-emerald-800 active:scale-[0.99]"
+              >
+                Completar para {volumeOpportunity.opportunity.targetQuantity} itens
+              </button>
+            </div>
           )}
 
           {upsell && lines.length > 0 && (

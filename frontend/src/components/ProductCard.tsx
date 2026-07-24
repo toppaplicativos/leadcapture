@@ -6,6 +6,10 @@ import { money } from '@/lib/store-context'
 import { productUrl } from '@/lib/product-url'
 import { optimizedImage, optimizedSrcset } from '@/lib/image'
 import { resolveProductBadges } from '@/lib/store-conversion'
+import {
+  getProductVolumePricingFromPrice,
+  isProductVolumePricingEnabled,
+} from '@/lib/product-volume-pricing'
 
 interface ProductCardProps {
   product: Product
@@ -42,6 +46,12 @@ export function ProductCard({
   const preorderOpen = availabilityMode === 'preorder' && (!preorderStart || preorderStart <= now) && (!preorderEnd || preorderEnd >= now)
   const isOutOfStock = !preorderOpen && (availabilityMode !== 'standard' || stockStatus === 'out_of_stock' || (stockQty !== null && stockQty <= 0))
   const badges = resolveProductBadges(product, { bestSellerIds, showBadges })
+  const volumeEnabled = isProductVolumePricingEnabled(product)
+  const volumeFrom = volumeEnabled ? getProductVolumePricingFromPrice(product) : null
+  const displayPrice =
+    volumeFrom != null && Number.isFinite(volumeFrom)
+      ? volumeFrom
+      : Number(product.price || 0)
 
   return (
     <Link
@@ -117,15 +127,29 @@ export function ProductCard({
         </h3>
 
         <div className="flex items-baseline gap-1.5 flex-wrap">
-          <span className="text-[15px] font-bold text-gray-900 tabular-nums tracking-tight">
-            {money(product.price)}
-          </span>
-          {hasCompare && (
+          {volumeEnabled && volumeFrom != null ? (
+            <>
+              <span className="text-[11px] font-semibold text-emerald-800">A partir de</span>
+              <span className="text-[15px] font-bold text-gray-900 tabular-nums tracking-tight">
+                {money(displayPrice)}
+              </span>
+            </>
+          ) : (
+            <span className="text-[15px] font-bold text-gray-900 tabular-nums tracking-tight">
+              {money(product.price)}
+            </span>
+          )}
+          {hasCompare && !volumeEnabled && (
             <span className="text-[11px] font-medium text-gray-500 line-through tabular-nums">
               {money(product.compare_at_price)}
             </span>
           )}
         </div>
+        {volumeEnabled && (
+          <p className="text-[11px] font-medium text-emerald-800/90 leading-snug">
+            Preço progressivo · mais volume, menos por unidade
+          </p>
+        )}
 
         {Number(product.reviews_count || 0) > 0 && Number(product.reviews_avg || 0) > 0 && (
           <div className="flex items-center gap-1 text-[11px] text-gray-600">

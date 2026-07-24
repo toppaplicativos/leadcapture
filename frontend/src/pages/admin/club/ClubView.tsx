@@ -284,54 +284,69 @@ export function ClubView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'er
 
   /**
    * showToast costuma ser função inline no canvas/rotas (nova a cada render).
-   * Se entrar nas deps de useCallback/useEffect, vira loop infinito de fetch
-   * e o browser cai em net::ERR_INSUFFICIENT_RESOURCES.
+   * Nunca usar em deps de useEffect — causa loop de fetch e
+   * net::ERR_INSUFFICIENT_RESOURCES no browser.
    */
   const showToastRef = useRef(showToast)
-  useEffect(() => {
-    showToastRef.current = showToast
-  }, [showToast])
+  showToastRef.current = showToast
 
-  const loadConfig = useCallback(async () => {
+  const loadConfig = useCallback(async (signal?: AbortSignal) => {
     setLoading(true)
     try {
-      const r = await fetch('/api/subscriber-club/config', { headers: getHeaders() })
+      const r = await fetch('/api/subscriber-club/config', {
+        headers: getHeaders(),
+        signal,
+      })
+      if (signal?.aborted) return
       const d = await r.json().catch(() => ({}))
       if (!r.ok) throw new Error(d.error || `Erro ${r.status}`)
       setConfig(d.config)
       setStats(d.stats || { total: 0, active: 0, with_affiliate: 0, joined_7d: 0 })
       setDirty(false)
     } catch (e: any) {
+      if (e?.name === 'AbortError' || signal?.aborted) return
       showToastRef.current(e.message || 'Erro ao carregar clube', 'err')
     } finally {
-      setLoading(false)
+      if (!signal?.aborted) setLoading(false)
     }
   }, [])
 
-  const loadMembers = useCallback(async () => {
+  const loadMembers = useCallback(async (signal?: AbortSignal) => {
     setMembersLoading(true)
     try {
       const params = new URLSearchParams()
       if (memberFilter !== 'all') params.set('status', memberFilter)
       if (memberSearch.trim()) params.set('search', memberSearch.trim())
       params.set('limit', '100')
-      const r = await fetch(`/api/subscriber-club/members?${params}`, { headers: getHeaders() })
+      const r = await fetch(`/api/subscriber-club/members?${params}`, {
+        headers: getHeaders(),
+        signal,
+      })
+      if (signal?.aborted) return
       const d = await r.json().catch(() => ({}))
       if (!r.ok) throw new Error(d.error || `Erro ${r.status}`)
       setMembers(d.members || [])
     } catch (e: any) {
+      if (e?.name === 'AbortError' || signal?.aborted) return
       showToastRef.current(e.message || 'Erro ao carregar membros', 'err')
     } finally {
-      setMembersLoading(false)
+      if (!signal?.aborted) setMembersLoading(false)
     }
   }, [memberFilter, memberSearch])
 
+  /* Mount-only: deps vazias. Abort cancela se o canvas desmontar. */
   useEffect(() => {
-    void loadConfig()
-  }, [loadConfig])
+    const ac = new AbortController()
+    void loadConfig(ac.signal)
+    return () => ac.abort()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount only
+  }, [])
 
   useEffect(() => {
-    if (tab === 'members') void loadMembers()
+    if (tab !== 'members') return
+    const ac = new AbortController()
+    void loadMembers(ac.signal)
+    return () => ac.abort()
   }, [tab, loadMembers])
 
   function patchConfig(partial: Partial<ClubConfig> | ((c: ClubConfig) => ClubConfig)) {

@@ -27,8 +27,8 @@ if (IS_LOCAL_DEV) {
     );
   });
 } else {
-const SHELL_CACHE_NAME = "lead-system-shell-v310-20260724-stock-push";
-const RUNTIME_CACHE_NAME = "lead-system-runtime-v301-20260724-stock-push";
+const SHELL_CACHE_NAME = "lead-system-shell-v313-20260724-stock-push";
+const RUNTIME_CACHE_NAME = "lead-system-runtime-v304-20260724-stock-push";
 
 function getBasePath() {
   try {
@@ -206,14 +206,41 @@ async function handleNavigationRequest(event) {
 
 async function handleRuntimeRequest(request) {
   const runtimeCache = await caches.open(RUNTIME_CACHE_NAME);
+  const url = new URL(request.url);
+  // Hashed /assets/* must be network-first. Stale-while-revalidate kept serving
+  // old ClubView/index bundles after deploy → infinite loops + 404 zombies.
+  const isHashedAsset = url.pathname.startsWith("/assets/");
+
+  if (isHashedAsset) {
+    try {
+      const response = await fetch(request, { cache: "no-store" });
+      if (response && response.ok) {
+        await runtimeCache.put(request, response.clone());
+        return response;
+      }
+      if (response && (response.status === 404 || response.status === 410)) {
+        await runtimeCache.delete(request);
+      }
+      const cachedMiss = await runtimeCache.match(request);
+      if (cachedMiss) return cachedMiss;
+      return response;
+    } catch (_error) {
+      const cachedOffline = await runtimeCache.match(request);
+      if (cachedOffline) return cachedOffline;
+      return new Response("Offline - recurso nao disponivel", { status: 503 });
+    }
+  }
+
   const cached = await runtimeCache.match(request);
 
   if (cached) {
-    // Stale-while-revalidate: responde do cache, atualiza em background
+    // Stale-while-revalidate for fonts/css/etc.
     fetch(request)
       .then((response) => {
         if (response && response.ok) {
           runtimeCache.put(request, response.clone());
+        } else if (response && (response.status === 404 || response.status === 410)) {
+          runtimeCache.delete(request);
         }
       })
       .catch(() => Promise.resolve());

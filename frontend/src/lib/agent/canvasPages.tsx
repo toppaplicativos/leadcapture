@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useState, type ReactNode } from 'react'
 import { PageSplash, canvasSplashLabel } from '@/components/PageSplash'
 import { useToast } from '@/components/Toast'
 import { useAgentShellOptional } from '@/lib/agent/AgentShellContext'
@@ -40,6 +40,7 @@ const loadFrete = () => import('@/pages/admin/frete/FreteView').then(m => ({ def
 const loadMob = () => import('@/pages/admin/mob/MobLogisticsView').then(m => ({ default: m.MobLogisticsView }))
 const loadEstoque = () => import('@/pages/admin/estoque/EstoqueAccessView').then(m => ({ default: m.EstoqueAccessView }))
 const loadCoupons = () => import('@/pages/admin/coupons/CouponsView').then(m => ({ default: m.CouponsView }))
+const loadClub = () => import('@/pages/admin/club/ClubView').then(m => ({ default: m.ClubView }))
 const loadReviews = () => import('@/pages/admin/reviews/ReviewsView').then(m => ({ default: m.ReviewsView }))
 const loadPayments = () => import('@/pages/admin/payments/PaymentConfigView').then(m => ({ default: m.PaymentConfigView }))
 const loadAIProviders = () => import('@/pages/AIProvidersPage').then(m => ({ default: m.AIProvidersPage }))
@@ -75,10 +76,22 @@ const FreteView = lazy(loadFrete)
 const MobLogisticsView = lazy(loadMob)
 const EstoqueAccessView = lazy(loadEstoque)
 const CouponsView = lazy(loadCoupons)
+const ClubView = lazy(loadClub)
 const ReviewsView = lazy(loadReviews)
 const PaymentConfigView = lazy(loadPayments)
 const AIProvidersPage = lazy(loadAIProviders)
 const AdminEmailsPage = lazy(loadEmails)
+
+function ClubCanvas() {
+  const { showToast } = useToast()
+  const toast = useCallback(
+    (msg: string, tp?: 'ok' | 'err') => {
+      showToast(tp === 'err' ? msg : msg, tp === 'err' ? 'error' : 'success')
+    },
+    [showToast],
+  )
+  return <ClubView showToast={toast} />
+}
 
 function InstagramCanvas() {
   const bridge = useInstagramBridgeOptional()
@@ -177,6 +190,7 @@ const CANVAS_PAGE_MAP: Record<string, () => ReactNode> = {
   '/mob': () => <MobLogisticsView showToast={noop} />,
   '/estoque': () => <EstoqueAccessView showToast={noop} />,
   '/cupons': () => <CouponsView showToast={noop} />,
+  '/clube': () => <ClubCanvas />,
   '/avaliacoes': () => <ReviewsView showToast={noop} />,
   '/pagamentos': () => <PaymentConfigView showToast={noop} />,
   '/provedores-ia': () => <AIProvidersPage />,
@@ -235,6 +249,7 @@ const CANVAS_PRELOADERS: Record<string, () => Promise<unknown>> = {
   '/video-studio': loadVideoStudio,
   '/notificacoes': loadNotifications,
   '/cupons': loadCoupons,
+  '/clube': loadClub,
   '/frete': loadFrete,
   '/entregas': loadMob,
   '/mob': loadMob,

@@ -446,8 +446,8 @@ export function ClubView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'er
             size="sm"
             iconLeft={<RefreshCw size={14} />}
             onClick={() => {
-              loadConfig()
-              if (tab === 'members') loadMembers()
+              void loadConfig()
+              if (tab === 'members') void loadMembers()
             }}
           >
             Atualizar
@@ -982,7 +982,7 @@ export function ClubView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'er
                 onChange={(e) => setMemberSearch(e.target.value)}
                 placeholder="Buscar por nome, telefone ou e-mail…"
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') loadMembers()
+                  if (e.key === 'Enter') void loadMembers()
                 }}
               />
             </div>
@@ -996,7 +996,7 @@ export function ClubView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'er
               <option value="paused">Pausados</option>
               <option value="cancelled">Cancelados</option>
             </Select>
-            <Button type="button" variant="secondary" size="md" onClick={loadMembers}>
+            <Button type="button" variant="secondary" size="md" onClick={() => void loadMembers()}>
               Filtrar
             </Button>
           </div>

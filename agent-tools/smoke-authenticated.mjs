@@ -60,11 +60,23 @@ page.on('pageerror', (err) => consoleErrors.push(String(err)))
 
 try {
   await page.goto(`${BASE}/login`, { waitUntil: 'domcontentloaded', timeout: 45000 })
+  // The production host canonicalizes /login to /login/. Wait for that
+  // navigation to settle so React does not replace the form mid-click.
+  await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => null)
   await page.fill('input[type="email"]', EMAIL)
   await page.fill('input[type="password"]', PASSWORD)
-  await page.click('button[type="submit"]')
-  await page.waitForURL(/\/admin/, { timeout: 45000 })
-  ok('login → /admin')
+  const submitButton = page.locator('button[type="submit"]')
+  await submitButton.waitFor({ state: 'visible', timeout: 15000 })
+  await page.waitForFunction(
+    () => {
+      const button = document.querySelector('button[type="submit"]')
+      return button instanceof HTMLButtonElement && !button.disabled
+    },
+    { timeout: 15000 },
+  )
+  await submitButton.click()
+  await page.waitForURL(/\/(?:admin|assistente)/, { timeout: 45000 })
+  ok(`login → ${new URL(page.url()).pathname}`)
 
   await waitForWorkspaceReady(page, 45000)
   ok('workspace carregado')

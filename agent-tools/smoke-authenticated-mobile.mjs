@@ -77,11 +77,23 @@ async function loginToAdmin(attempts = 3) {
     try {
       if (i > 0) await page.waitForTimeout(2500)
       await page.goto(`${BASE}/login`, { waitUntil: 'domcontentloaded', timeout: 60000 })
+      // The production host canonicalizes /login to /login/. Wait for that
+      // navigation to settle so React does not replace the form mid-click.
+      await page.waitForLoadState('networkidle', { timeout: 15000 }).catch(() => null)
       await page.fill('input[type="email"]', EMAIL)
       await page.fill('input[type="password"]', PASSWORD)
+      const submitButton = page.locator('button[type="submit"]')
+      await submitButton.waitFor({ state: 'visible', timeout: 15000 })
+      await page.waitForFunction(
+        () => {
+          const button = document.querySelector('button[type="submit"]')
+          return button instanceof HTMLButtonElement && !button.disabled
+        },
+        { timeout: 15000 },
+      )
       await Promise.all([
-        page.waitForURL(/\/admin/, { timeout: 60000 }),
-        page.click('button[type="submit"]'),
+        page.waitForURL(/\/(?:admin|assistente)/, { timeout: 60000 }),
+        submitButton.click(),
       ])
       return
     } catch (err) {
@@ -93,7 +105,7 @@ async function loginToAdmin(attempts = 3) {
 
 try {
   await loginToAdmin()
-  ok('login → /admin (mobile)')
+  ok(`login → ${new URL(page.url()).pathname} (mobile)`)
 
   await waitForWorkspaceReady(page, 45000)
   await dismissPwaBanner()

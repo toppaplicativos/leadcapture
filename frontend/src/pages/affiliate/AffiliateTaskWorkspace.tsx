@@ -122,7 +122,7 @@ const TASK_META: Record<string, { title: string; tone: 'due' | 'ok' | 'warn'; de
 }
 
 const DESTRUCTIVE_ACTIONS = new Set(['lost', 'not_matching', 'dismiss'])
-const CONFIRM_ACTIONS = new Set([...DESTRUCTIVE_ACTIONS, 'channel_unavailable'])
+const CONFIRM_ACTIONS = new Set([...DESTRUCTIVE_ACTIONS, 'channel_unavailable', 'release_phone_pool'])
 
 function isPersistedTaskId(id: string) {
   return Boolean(id)
@@ -283,6 +283,12 @@ export function AffiliateTaskWorkspace({
     return () => { cancelled = true }
   }, [task.id, task.ref_id, task.ref_type, task.contact_name, task.instruction, task.due_at, templateId, meta.title, task.task_type])
 
+  useEffect(() => {
+    if (contact?.phone_only || contact?.contact_mode === 'phone_only' || contact?.has_whatsapp === false) {
+      setTaskChannel('phone')
+    }
+  }, [contact?.contact_mode, contact?.has_whatsapp, contact?.phone_only])
+
   const lead: WaSendLead | null = useMemo(() => {
     if (!contact) return null
     return {
@@ -299,8 +305,13 @@ export function AffiliateTaskWorkspace({
     }
   }, [contact, ctx.brand?.name, task.instruction])
 
-  const phoneDigits = String(contact?.phone || contact?.channels?.whatsapp || '').replace(/\D/g, '')
-  const hasWa = phoneDigits.length >= 8
+  const phoneDigits = String(contact?.channels?.phone || contact?.phone || contact?.channels?.whatsapp || '').replace(/\D/g, '')
+  const hasWa = contact?.has_whatsapp ?? (
+    contact?.contact_mode !== 'phone_only'
+    && !contact?.phone_only
+    && phoneDigits.length >= 8
+  )
+  const hasPhone = phoneDigits.length >= 8
   const persistedTaskId = isPersistedTaskId(task.id) ? task.id : undefined
   const executable = isTaskDue(task.due_at)
 
@@ -363,6 +374,26 @@ export function AffiliateTaskWorkspace({
     setSaving(action)
     setError(null)
     setConfirmAction(null)
+    if (action === 'release_phone_pool') {
+      try {
+        const res = await affiliateApi.releaseOpportunityToPhonePool(contact.ref_type, contact.ref_id)
+        const patch = patchFromAction(contact.ref_type, contact.ref_id, 'dismiss', {
+          note: 'Liberado para a rede · somente telefone',
+        })
+        patchOpportunitiesCache(patch)
+        onChanged?.(patch)
+        setDoneMsg(res.toast)
+        setPhase('done')
+        ctx.showToast(res.toast)
+        window.setTimeout(() => onClose(), 900)
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Falha ao liberar para a rede')
+        ctx.showToast(e instanceof Error ? e.message : 'Falha ao liberar para a rede', 'err')
+      } finally {
+        setSaving(null)
+      }
+      return
+    }
     const channel =
       extra?.channel
       || (action === 'called' || action === 'voicemail' || action === 'busy' || action === 'callback_requested'
@@ -457,7 +488,8 @@ export function AffiliateTaskWorkspace({
         { action: 'busy', label: 'Ocupado', desc: 'Tentar amanhã' },
         { action: 'voicemail', label: 'Caixa postal', desc: 'Retomar em 2 dias' },
         { action: 'callback_requested', label: 'Pediu retorno', desc: 'Amanhã' },
-        { action: 'channel_unavailable', label: 'Telefone morto', desc: 'Excluir da fila' },
+        { action: 'channel_unavailable', label: 'Telefone inválido', desc: 'Remover definitivamente' },
+        { action: 'release_phone_pool', label: 'Liberar para a rede', desc: 'Outro afiliado tenta ligar · sem pontos' },
         { action: 'lost', label: 'Sem interesse', desc: 'Excluir da fila' },
       ]
     }
@@ -473,7 +505,8 @@ export function AffiliateTaskWorkspace({
       { action: 'replied', label: 'Respondeu', desc: 'Vai para conversa' },
       { action: 'no_answer', label: 'Sem resposta', desc: 'Follow-up em 3 dias' },
       { action: 'auto_reply', label: 'Foi bot', desc: 'Retomar em 2 dias' },
-      { action: 'channel_unavailable', label: 'Canal morto', desc: 'Excluir da fila' },
+      { action: 'channel_unavailable', label: 'Sem WhatsApp', desc: 'Manter comigo para ligar' },
+      { action: 'release_phone_pool', label: 'Liberar para ligações', desc: 'Outro afiliado assume · sem pontos' },
       { action: 'lost', label: 'Sem interesse', desc: 'Excluir da fila' },
     ]
   }, [task.task_type, taskChannel])
@@ -484,8 +517,14 @@ export function AffiliateTaskWorkspace({
       body: 'O contato sai da sua fila. Fica no histórico só para consulta e para não voltar à toa.',
     },
     channel_unavailable: {
-      title: 'Marcar canal indisponível?',
-      body: 'Exclui este atendimento da sua fila. Use se o número não existe ou não tem WhatsApp.',
+      title: taskChannel === 'phone' ? 'Telefone realmente inválido?' : 'WhatsApp indisponível?',
+      body: taskChannel === 'phone'
+        ? 'Remove definitivamente este contato da rede. Use apenas se o telefone não existe ou está inválido.'
+        : 'O contato continua com você e a próxima tentativa será por ligação.',
+    },
+    release_phone_pool: {
+      title: 'Liberar para outro afiliado?',
+      body: 'O contato sai da sua fila e entra em Disponíveis como “Só telefone”. Esta liberação não gera pontos no ranking.',
     },
     not_matching: {
       title: 'Marcar como não correspondente?',
@@ -663,6 +702,7 @@ export function AffiliateTaskWorkspace({
                     type="button"
                     role="tab"
                     aria-selected={taskChannel === 'whatsapp'}
+                    disabled={contact.phone_only || contact.contact_mode === 'phone_only'}
                     onClick={() => setTaskChannel('whatsapp')}
                     className={[
                       'min-h-9 rounded-lg text-[12px] font-semibold transition',
@@ -726,7 +766,7 @@ export function AffiliateTaskWorkspace({
 
                     {!hasWa && (
                       <p className="text-[12px] leading-relaxed text-amber-900">
-                        Sem número neste contato.
+                        WhatsApp indisponível para este contato. Use Telefone ou libere para a rede.
                         {onConnectWhatsApp ? (
                           <>
                             {' '}
@@ -742,7 +782,7 @@ export function AffiliateTaskWorkspace({
                   <div className="space-y-2">
                     <button
                       type="button"
-                      disabled={!hasWa || !!saving || !executable}
+                      disabled={!hasPhone || !!saving || !executable}
                       onClick={() => {
                         const d = phoneDigits
                         if (d.length < 8) return
@@ -755,7 +795,7 @@ export function AffiliateTaskWorkspace({
                     </button>
                     <button
                       type="button"
-                      disabled={!hasWa || !!saving || !executable}
+                      disabled={!hasPhone || !!saving || !executable}
                       onClick={() => void runProgress('called', { channel: 'phone', stayOpen: true })}
                       className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-neutral-200 bg-white text-sm font-semibold text-neutral-800 disabled:opacity-40"
                     >

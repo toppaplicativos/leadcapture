@@ -432,6 +432,8 @@ export class AffiliateCrmService {
         .trim()
         .replace(/^@/, "") || null;
       const address = String(metadata.address || metadata.endereco || "").trim() || null;
+      const phoneOnly =
+        String(metadata.contact_mode || metadata.channel_mode || "").toLowerCase() === "phone_only";
       return {
         id: `assignment:${row.id}`,
         ref_type: "assignment" as const,
@@ -442,7 +444,8 @@ export class AffiliateCrmService {
         instagram,
         address,
         channels: {
-          whatsapp: phone,
+          whatsapp: phoneOnly ? null : phone,
+          phone,
           email,
           instagram,
           address,
@@ -501,7 +504,9 @@ export class AffiliateCrmService {
         followup_due: followupDue,
         followup_count: Number(row.followup_count || 0),
         cta_type: null as string | null,
-        has_whatsapp: normalizePhone(phone).length >= 8,
+        has_whatsapp: !phoneOnly && normalizePhone(phone).length >= 8,
+        contact_mode: phoneOnly ? "phone_only" as const : "any" as const,
+        phone_only: phoneOnly,
       };
     }).map((item) => {
       const operational_phase = classifyOperationalPhase({
@@ -512,8 +517,12 @@ export class AffiliateCrmService {
       return {
         ...item,
         operational_phase,
-        next_action: nextActionForPhase(operational_phase, item.followup_due),
-        suggested_template:
+        next_action: item.phone_only
+          ? "Realizar contato por telefone"
+          : nextActionForPhase(operational_phase, item.followup_due),
+        suggested_template: item.phone_only
+          ? null
+          :
           operational_phase === "new" || operational_phase === "to_contact"
             ? "optin"
             : operational_phase === "contacted" || item.followup_due

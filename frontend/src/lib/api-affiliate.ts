@@ -427,6 +427,19 @@ export const affiliateApi = {
       method: 'POST',
       body: JSON.stringify({}),
     }),
+  releaseOpportunityToPhonePool: (refType: string, refId: string) =>
+    affiliateFetch<{
+      success: boolean
+      queue_id: string
+      removed_from_queue: boolean
+      ranking_eligible: false
+      toast: string
+    }>(`/api/affiliate-app/opportunities/${encodeURIComponent(refType)}/${encodeURIComponent(refId)}/release-phone`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+      timeoutMs: 20_000,
+      retries: 0,
+    }),
   assistOpportunity: (refType: string, refId: string, payload?: { intent?: string; instruction?: string }) =>
     affiliateFetch<any>(`/api/affiliate-app/opportunities/${encodeURIComponent(refType)}/${encodeURIComponent(refId)}/assist`, {
       method: 'POST', body: JSON.stringify(payload || {}),

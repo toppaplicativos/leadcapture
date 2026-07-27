@@ -2286,6 +2286,25 @@ export class AffiliateDistributionService {
         continue;
       }
 
+      let queueMetadata: Record<string, any> = {};
+      try {
+        queueMetadata = typeof item.metadata_json === "string"
+          ? JSON.parse(item.metadata_json || "{}")
+          : (item.metadata_json || {});
+      } catch {
+        queueMetadata = {};
+      }
+      if (String(queueMetadata.contact_mode || queueMetadata.channel_mode || "").toLowerCase() === "phone_only") {
+        await query(
+          `UPDATE lead_distribution_queue
+           SET queue_status = 'pending', error_message = NULL
+           WHERE id = ? AND queue_status = 'processing'`,
+          [item.id],
+        );
+        results.push({ queue_id: item.id, assigned: false, reason: "phone_only_open_pool" });
+        continue;
+      }
+
       const readySections = await this.listReadyDistributionSections(
         ownerUserId,
         brandId,
@@ -2689,7 +2708,24 @@ export class AffiliateDistributionService {
       });
 
       const phone = row.prospect_phone ? String(row.prospect_phone) : null;
-      const hasWhatsapp = normalizePhoneDigits(phone).length >= 8;
+      const validationStatus = String(
+        sourceDetails?.whatsapp_validation_status
+        || sourceDetails?.whatsapp_validation?.status
+        || metadata.whatsapp_validation_status
+        || "",
+      ).toLowerCase();
+      const validationSaysNo =
+        sourceDetails?.has_whatsapp === false
+        || String(sourceDetails?.has_whatsapp || "").toLowerCase() === "false"
+        || sourceDetails?.whatsapp_validation?.has_whatsapp === false
+        || String(sourceDetails?.whatsapp_validation?.has_whatsapp || "").toLowerCase() === "false"
+        || /not[_ -]?found|unavailable|invalid|not[_ -]?on[_ -]?whatsapp|sem[_ -]?whatsapp/.test(validationStatus);
+      const contactMode = String(
+        metadata.contact_mode
+        || metadata.channel_mode
+        || (validationSaysNo ? "phone_only" : "any"),
+      ).toLowerCase() === "phone_only" ? "phone_only" : "any";
+      const hasWhatsapp = contactMode !== "phone_only" && normalizePhoneDigits(phone).length >= 8;
       return {
         id: String(row.id),
         prospect_id: String(row.prospect_id),
@@ -2720,9 +2756,12 @@ export class AffiliateDistributionService {
         claim_window_minutes_left: windowLeft,
         claim_window_active: windowLeft > 0,
         has_whatsapp: hasWhatsapp,
-        preview_action: "optin" as const,
+        contact_mode: contactMode,
+        phone_only: contactMode === "phone_only",
+        preview_action: contactMode === "phone_only" ? "call" as const : "optin" as const,
         channels: {
-          whatsapp: phone,
+          whatsapp: hasWhatsapp ? phone : null,
+          phone,
           email,
           instagram,
           address: addressParts.length ? addressParts.join(", ") : null,
@@ -2735,6 +2774,7 @@ export class AffiliateDistributionService {
     const placeTypeSet = new Set<string>();
     const regionSet = new Set<string>();
     let waCount = 0;
+    let phoneOnlyCount = 0;
     let emailCount = 0;
     let igCount = 0;
     let addrCount = 0;
@@ -2745,6 +2785,7 @@ export class AffiliateDistributionService {
       if (i.city) regionSet.add(String(i.city));
       if (i.region) regionSet.add(String(i.region));
       if (i.has_whatsapp) waCount += 1;
+      if (i.phone_only) phoneOnlyCount += 1;
       if (i.email) emailCount += 1;
       if (i.instagram) igCount += 1;
       if (i.address) addrCount += 1;
@@ -2770,6 +2811,7 @@ export class AffiliateDistributionService {
         regions: Array.from(regionSet).sort((a, b) => a.localeCompare(b, "pt-BR")),
         channels: {
           whatsapp: waCount,
+          phone_only: phoneOnlyCount,
           email: emailCount,
           instagram: igCount,
           address: addrCount,
@@ -2794,12 +2836,6 @@ export class AffiliateDistributionService {
       affiliateId: input.affiliateId,
       affiliateUserId: input.affiliateUserId,
     });
-    if (!eligibility.can_claim) {
-      const reason = (eligibility.claim_blockers || eligibility.blockers || [])[0]
-        || "Você ainda não pode assumir contatos";
-      throw new Error(reason);
-    }
-
     const locked = await query<any>(
       `UPDATE lead_distribution_queue
        SET queue_status = 'processing', error_message = NULL
@@ -2816,6 +2852,29 @@ export class AffiliateDistributionService {
     );
     if (!item) {
       throw new Error("Oportunidade não encontrada");
+    }
+
+    let itemMeta: Record<string, any> = {};
+    try {
+      itemMeta = typeof item.metadata_json === "string"
+        ? JSON.parse(item.metadata_json || "{}")
+        : (item.metadata_json || {});
+    } catch {
+      itemMeta = {};
+    }
+    const phoneOnly =
+      String(itemMeta.contact_mode || itemMeta.channel_mode || "").toLowerCase() === "phone_only";
+    const claimBlockers = (eligibility.claim_blockers || eligibility.blockers || []).filter(
+      (blocker: string) => !phoneOnly || !/whatsapp|número.*cadastr/i.test(String(blocker)),
+    );
+    if (claimBlockers.length) {
+      await query(
+        `UPDATE lead_distribution_queue
+         SET queue_status = 'pending', error_message = NULL
+         WHERE id = ?`,
+        [input.queueId],
+      ).catch(() => undefined);
+      throw new Error(claimBlockers[0] || "Você ainda não pode assumir contatos");
     }
 
     const claimPhone = normalizePhoneDigits(item.prospect_phone);
@@ -2862,21 +2921,14 @@ export class AffiliateDistributionService {
       throw new Error("Esse contato já está em atendimento");
     }
 
-    let meta: Record<string, any> = {};
-    try {
-      meta = typeof item.metadata_json === "string"
-        ? JSON.parse(item.metadata_json || "{}")
-        : (item.metadata_json || {});
-    } catch {
-      meta = {};
-    }
+    const meta: Record<string, any> = { ...itemMeta };
     meta.claimed_by_affiliate_id = input.affiliateId;
     meta.claimed_at = new Date().toISOString();
     meta.claim_mode = "open_pool";
     meta.selling_whatsapp_e164 = eligibility.registered_whatsapp || null;
 
     const assignmentId = randomUUID();
-    const instanceId = eligibility.connected_instance_id || null;
+    const instanceId = phoneOnly ? null : eligibility.connected_instance_id || null;
     const rules = await this.getOrCreateRules(
       input.ownerUserId,
       input.brandId,
@@ -2977,7 +3029,9 @@ export class AffiliateDistributionService {
       exclusive: true,
       claim_ttl_minutes: claimTtl,
       exclusive_minutes: claimTtl,
-      message: `Contato exclusivo com você (~${claimTtl} min de janela).`,
+      message: phoneOnly
+        ? `Contato por telefone exclusivo com você (~${claimTtl} min de janela).`
+        : `Contato exclusivo com você (~${claimTtl} min de janela).`,
       /** Opportunity shape for abrir workspace imediatamente após claim */
       opportunity: {
         id: `assignment:${assignmentId}`,
@@ -2989,12 +3043,15 @@ export class AffiliateDistributionService {
         instagram: null as string | null,
         address: null as string | null,
         channels: {
-          whatsapp: phone,
+          whatsapp: phoneOnly ? null : phone,
+          phone,
           email: null,
           instagram: null,
           address: null,
         },
-        has_whatsapp: normalizePhoneDigits(phone).length >= 8,
+        has_whatsapp: !phoneOnly && normalizePhoneDigits(phone).length >= 8,
+        contact_mode: phoneOnly ? "phone_only" : "any",
+        phone_only: phoneOnly,
         pipeline_type: "prospect" as const,
         commercial_status: "Atribuído a você",
         status_code: "assigned_to_affiliate",
@@ -3007,8 +3064,8 @@ export class AffiliateDistributionService {
         product_name: null as string | null,
         niche: String(meta.niche || meta.keyword || meta.segment || "").trim() || null,
         message: null as string | null,
-        next_action: "Preparar opt-in LGPD",
-        suggested_template: "optin",
+        next_action: phoneOnly ? "Realizar primeira ligação" : "Preparar opt-in LGPD",
+        suggested_template: phoneOnly ? null : "optin",
         received_at: new Date().toISOString(),
         followup_due: false,
       },

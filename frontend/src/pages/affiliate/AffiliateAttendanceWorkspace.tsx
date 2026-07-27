@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   Ban, Bot, Check, ChevronDown, ChevronRight, Clock3, History, Loader2, Mail, MapPin,
-  MessageCircle, Phone, PhoneOff, Send, StickyNote, UserX, Voicemail, WifiOff, X, Zap,
+  MessageCircle, Phone, PhoneOff, Send, StickyNote, Users, UserX, Voicemail, WifiOff, X, Zap,
 } from 'lucide-react'
 import { affiliateApi } from '@/lib/api-affiliate'
 import type { AppContext } from '@/pages/affiliate/types'
@@ -56,6 +56,8 @@ export type AttendanceOpportunity = {
     address?: string | null
   }
   has_whatsapp?: boolean
+  contact_mode?: 'any' | 'phone_only'
+  phone_only?: boolean
   city?: string | null
   region?: string | null
   niche?: string | null
@@ -91,6 +93,7 @@ type ProgressAction =
   | 'voicemail'
   | 'busy'
   | 'callback_requested'
+  | 'release_phone_pool'
 
 type Props = {
   item: AttendanceOpportunity
@@ -191,6 +194,7 @@ function outcomeGroupsForChannel(channel: ContactChannel): Array<{ title: string
         items: [
           { action: 'not_matching', title: 'Número errado', desc: 'Não é o contato certo', tone: 'warn', icon: UserX },
           { action: 'channel_unavailable', title: 'Telefone indisponível', desc: 'Tentar outro canal disponível', tone: 'warn', icon: PhoneOff },
+          { action: 'release_phone_pool', title: 'Liberar para a rede', desc: 'Outro afiliado tenta ligar · sem pontos', tone: 'neutral', icon: Users },
           { action: 'lost', title: 'Sem interesse', desc: 'Excluir da fila', tone: 'danger', icon: Ban },
           { action: 'dismiss', title: 'Ocultar para mim', desc: 'Some da sua lista', tone: 'danger', icon: X },
         ],
@@ -230,6 +234,7 @@ function outcomeGroupsForChannel(channel: ContactChannel): Array<{ title: string
           icon: UserX,
         },
         { action: 'channel_unavailable', title: 'WhatsApp indisponível', desc: 'Tentar outro canal disponível', tone: 'warn', icon: PhoneOff },
+        { action: 'release_phone_pool', title: 'Liberar para ligações', desc: 'Outro afiliado assume · sem pontos', tone: 'neutral', icon: Users },
         { action: 'lost', title: 'Sem interesse', desc: 'Excluir da fila', tone: 'danger', icon: Ban },
         { action: 'dismiss', title: 'Ocultar para mim', desc: 'Some da sua lista', tone: 'danger', icon: X },
       ],
@@ -786,6 +791,30 @@ export function AffiliateAttendanceWorkspace({
   const EXIT_ACTIONS = new Set(['lost', 'not_matching', 'dismiss'])
 
   async function applyOutcome(action: ProgressAction) {
+    if (action === 'release_phone_pool') {
+      if (!window.confirm(
+        'Liberar este contato para outro afiliado realizar a ligação? Ele sairá da sua fila, aparecerá como “Só telefone” e esta ação não gera pontos.',
+      )) return
+      setSaving(action)
+      setError(null)
+      try {
+        const res = await affiliateApi.releaseOpportunityToPhonePool(item.ref_type, item.ref_id)
+        const patch = patchFromAction(item.ref_type, item.ref_id, 'dismiss', {
+          note: 'Liberado para a rede · somente telefone',
+        })
+        patchOpportunitiesCache(patch)
+        ctx.showToast(res.toast)
+        onChanged(patch)
+        onClose()
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'Falha ao liberar para a rede'
+        setError(msg)
+        ctx.showToast(msg, 'err')
+      } finally {
+        setSaving(null)
+      }
+      return
+    }
     const channelWillExhaust = action === 'channel_unavailable' && activeChannelIsLast
     const isExit = EXIT_ACTIONS.has(action) || channelWillExhaust
     if (
@@ -1329,6 +1358,28 @@ export function AffiliateAttendanceWorkspace({
                         </span>
                       </span>
                     </button>
+                    {phoneDigits.length >= 8 && (
+                      <button
+                        type="button"
+                        disabled={!!saving}
+                        onClick={() => void applyOutcome('release_phone_pool')}
+                        className="flex min-h-12 items-center gap-2.5 rounded-xl border border-neutral-200 bg-neutral-50 px-3 text-left active:scale-[0.99] disabled:opacity-50 sm:col-span-2"
+                      >
+                        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-white text-neutral-800">
+                          {saving === 'release_phone_pool' ? (
+                            <Loader2 size={16} className="animate-spin" />
+                          ) : (
+                            <Users size={16} />
+                          )}
+                        </span>
+                        <span className="min-w-0">
+                          <strong className="block text-[12px] text-neutral-950">Liberar para outro afiliado ligar</strong>
+                          <span className="block text-[10px] leading-snug text-neutral-600">
+                            Vai para Disponíveis como Só telefone · esta ação não gera pontos
+                          </span>
+                        </span>
+                      </button>
+                    )}
                   </div>
                 </div>
 

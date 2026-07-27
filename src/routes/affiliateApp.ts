@@ -28,6 +28,7 @@ import { affiliateTrackingDomainsService } from "../services/affiliateTrackingDo
 import {
   applyCadenceAfterProgress,
   completeAttendanceTask,
+  cancelOpenTasks,
   ensureAttendanceTasksSchema,
   getNextPendingTask,
   listDueAttendanceTasks,
@@ -1657,6 +1658,9 @@ router.get("/opportunities/pool", async (req: AuthRequest, res: Response) => {
       success: true,
       ...pool,
       can_claim: eligibility.can_claim !== false,
+      can_claim_phone_only: (eligibility.claim_blockers || []).every(
+        (blocker: string) => /whatsapp|número.*cadastr/i.test(String(blocker)),
+      ),
       claim_blockers: eligibility.claim_blockers || [],
       registered_whatsapp_ok: !!eligibility.registered_whatsapp_ok,
       registered_whatsapp: eligibility.registered_whatsapp || null,
@@ -1713,6 +1717,9 @@ async function resolveAffiliateOpportunity(ctx: AffiliateContext, affiliateId: s
     return {
       ref_type: "assignment",
       ref_id: refId,
+      program_id: row.program_id || null,
+      prospect_ref_table: row.prospect_ref_table || "customers",
+      priority_score: Number(row.priority_score || 50),
       prospect_id: row.prospect_id ? String(row.prospect_id) : null,
       name: override?.responsible_name || row.prospect_name,
       phone: override?.contact_phone || row.prospect_phone,
@@ -1746,6 +1753,10 @@ async function resolveAffiliateOpportunity(ctx: AffiliateContext, affiliateId: s
     return {
       ref_type: "affiliate_lead",
       ref_id: refId,
+      program_id: row.program_id || null,
+      prospect_id: row.customer_id ? String(row.customer_id) : refId,
+      prospect_ref_table: "affiliate_leads",
+      priority_score: 50,
       name: override?.responsible_name || row.customer_name,
       phone: override?.contact_phone || row.phone,
       source_phone: override?.source_phone || row.phone,
@@ -1857,6 +1868,150 @@ async function recordAffiliateManualAction(input: {
     ],
   );
 }
+
+/**
+ * Devolve um contato à rede exclusivamente para ligação.
+ * A liberação não conta como tentativa, entrega ou ponto de ranking.
+ */
+router.post("/opportunities/:refType/:refId/release-phone", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = await requireAffiliateCredential(req, res);
+    if (!ctx) return;
+    const affiliate = await getAffiliateProfile(ctx);
+    if (!affiliate) return res.status(404).json({ error: "Perfil de afiliado não encontrado" });
+
+    const refType = String(req.params.refType || "").trim();
+    const refId = String(req.params.refId || "").trim();
+    const affiliateId = String(affiliate.id);
+    const item = await resolveAffiliateOpportunity(ctx, affiliateId, refType, refId);
+    if (!item) return res.status(404).json({ error: "Contato não encontrado nesta fila" });
+
+    const phone = String(item.contact_phone || item.source_phone || item.phone || "").trim();
+    if (phone.replace(/\D/g, "").length < 10) {
+      return res.status(400).json({ error: "Este contato não possui telefone válido para ligação" });
+    }
+
+    const prospectId = String(item.prospect_id || refId);
+    const existing = await queryOne<any>(
+      `SELECT id FROM lead_distribution_queue
+       WHERE owner_user_id = ? AND brand_id = ? AND prospect_id = ?
+         AND queue_status IN ('pending', 'processing')
+       ORDER BY queued_at DESC LIMIT 1`,
+      [ctx.ownerUserId, ctx.brandId, prospectId],
+    );
+    const queueId = existing?.id ? String(existing.id) : randomUUID();
+    const metadata = {
+      contact_mode: "phone_only",
+      released_to_network: true,
+      released_at: new Date().toISOString(),
+      released_by_affiliate_id: affiliateId,
+      source_ref_type: refType,
+      source_ref_id: refId,
+      niche: item.niche || null,
+      product_name: item.product_name || null,
+      ranking_eligible: false,
+    };
+
+    if (!existing?.id) {
+      await query(
+        `INSERT INTO lead_distribution_queue
+         (id, owner_user_id, brand_id, program_id, prospect_id, prospect_ref_table,
+          prospect_name, prospect_phone, prospect_city, prospect_region, source,
+          priority_score, queue_status, metadata_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'affiliate_phone_release', ?, 'processing', ?)`,
+        [
+          queueId,
+          ctx.ownerUserId,
+          ctx.brandId,
+          item.program_id || null,
+          prospectId,
+          item.prospect_ref_table || (refType === "assignment" ? "customers" : "affiliate_leads"),
+          item.name || null,
+          phone,
+          item.city || null,
+          item.region || null,
+          Number(item.priority_score || 50),
+          JSON.stringify(metadata),
+        ],
+      );
+    } else {
+      await query(
+        `UPDATE lead_distribution_queue
+         SET prospect_phone = ?, source = 'affiliate_phone_release',
+             metadata_json = ?, error_message = NULL
+         WHERE id = ? AND owner_user_id = ? AND brand_id = ?`,
+        [phone, JSON.stringify(metadata), queueId, ctx.ownerUserId, ctx.brandId],
+      );
+    }
+
+    await cancelOpenTasks({ affiliateId, brandId: ctx.brandId, refType, refId });
+    if (refType === "assignment") {
+      await query(
+        `UPDATE prospect_assignments
+         SET assignment_status = 'recycled', current_stage = 'released_phone_pool',
+             next_followup_at = NULL, removed_reason = 'released_phone_pool',
+             last_interaction_at = CURRENT_TIMESTAMP
+         WHERE id = ? AND affiliate_id = ? AND brand_id = ?`,
+        [refId, affiliateId, ctx.brandId],
+      );
+    } else {
+      await query(
+        `UPDATE affiliate_leads
+         SET affiliate_status = 'recycled', next_followup_at = NULL,
+             removed_reason = 'released_phone_pool', updated_at = CURRENT_TIMESTAMP
+         WHERE id = ? AND affiliate_id = ? AND brand_id = ?`,
+        [refId, affiliateId, ctx.brandId],
+      );
+    }
+
+    await query(`CREATE TABLE IF NOT EXISTS affiliate_pool_skips (
+      id VARCHAR(36) PRIMARY KEY,
+      affiliate_id VARCHAR(36) NOT NULL,
+      brand_id VARCHAR(36) NOT NULL,
+      queue_id VARCHAR(36) NOT NULL,
+      reason VARCHAR(80) NULL,
+      note TEXT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE (affiliate_id, brand_id, queue_id)
+    )`);
+    await query(
+      `INSERT INTO affiliate_pool_skips
+       (id, affiliate_id, brand_id, queue_id, reason, note)
+       VALUES (?, ?, ?, ?, 'released_by_affiliate', ?)
+       ON CONFLICT (affiliate_id, brand_id, queue_id) DO UPDATE SET
+         reason = EXCLUDED.reason, note = EXCLUDED.note, created_at = CURRENT_TIMESTAMP`,
+      [randomUUID(), affiliateId, ctx.brandId, queueId, "Liberado para outro afiliado realizar ligação"],
+    );
+    await query(
+      `UPDATE lead_distribution_queue
+       SET queue_status = 'pending', queued_at = CURRENT_TIMESTAMP,
+           assigned_at = NULL, assignment_id = NULL, error_message = NULL
+       WHERE id = ? AND owner_user_id = ? AND brand_id = ?`,
+      [queueId, ctx.ownerUserId, ctx.brandId],
+    );
+
+    await recordAffiliateManualAction({
+      ctx,
+      affiliateId,
+      refType,
+      refId,
+      action: "released_phone_pool",
+      channel: "phone",
+      note: "Liberado para outro afiliado realizar contato somente por telefone",
+      meta: { queue_id: queueId, ranking_eligible: false, contact_mode: "phone_only" },
+    });
+
+    res.json({
+      success: true,
+      queue_id: queueId,
+      removed_from_queue: true,
+      ranking_eligible: false,
+      toast: "Liberado para a rede · somente telefone · sem pontuação",
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Falha ao liberar contato para ligações" });
+  }
+});
 
 /** Timeline de ações manuais do afiliado neste contato */
 router.get("/opportunities/:refType/:refId/history", async (req: AuthRequest, res: Response) => {

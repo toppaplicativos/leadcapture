@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle, Ban, CalendarCheck, CheckCircle2, ChevronRight, Clock3, Filter, Hand, History,
-  Loader2, Mail, MapPin, Radio, RefreshCw, Search, Target, Users, X, Zap,
+  Loader2, Mail, MapPin, Phone, Radio, RefreshCw, Search, Target, Users, X, Zap,
 } from 'lucide-react'
 import { affiliateApi } from '@/lib/api-affiliate'
 import type { AppContext } from '@/pages/affiliate/types'
@@ -49,9 +49,12 @@ type PoolItem = {
   claim_window_minutes_left?: number
   claim_window_active?: boolean
   has_whatsapp?: boolean
+  contact_mode?: 'any' | 'phone_only'
+  phone_only?: boolean
   preview_action?: string
   channels?: {
     whatsapp?: string | null
+    phone?: string | null
     email?: string | null
     instagram?: string | null
     address?: string | null
@@ -90,7 +93,7 @@ function formatMinutes(mins?: number) {
 }
 
 function ChannelIconRow({ item }: { item: PoolItem }) {
-  const phone = item.channels?.whatsapp || item.phone
+  const phone = item.channels?.phone || item.channels?.whatsapp || item.phone
   const email = item.channels?.email || item.email
   const ig = item.channels?.instagram || item.instagram
   const address = item.channels?.address || item.address
@@ -109,6 +112,14 @@ function ChannelIconRow({ item }: { item: PoolItem }) {
       >
         <WhatsAppIcon size={15} />
       </span>
+      {item.phone_only && (
+        <span
+          title="Disponível somente para ligação"
+          className="grid h-8 w-8 place-items-center rounded-xl border border-neutral-900 bg-neutral-900 text-white"
+        >
+          <Phone size={14} />
+        </span>
+      )}
       <span
         title={email ? 'E-mail' : 'Sem e-mail'}
         className={[
@@ -174,9 +185,10 @@ function loadPoolFilters() {
     if (!raw) return { channel: 'all' as const, niche: '', region: '' }
     const p = JSON.parse(raw)
     return {
-      channel: (['all', 'whatsapp', 'email', 'instagram'].includes(p.channel) ? p.channel : 'all') as
+      channel: (['all', 'whatsapp', 'phone_only', 'email', 'instagram'].includes(p.channel) ? p.channel : 'all') as
         | 'all'
         | 'whatsapp'
+        | 'phone_only'
         | 'email'
         | 'instagram',
       niche: String(p.niche || ''),
@@ -205,6 +217,7 @@ function PoolPanel({
   const [claimingId, setClaimingId] = useState<string | null>(null)
   const [skippingId, setSkippingId] = useState<string | null>(null)
   const [canClaim, setCanClaim] = useState(true)
+  const [canClaimPhoneOnly, setCanClaimPhoneOnly] = useState(true)
   const [claimBlockers, setClaimBlockers] = useState<string[]>([])
   const [ttl, setTtl] = useState(90)
   const [openPool, setOpenPool] = useState(true)
@@ -213,7 +226,7 @@ function PoolPanel({
   const [claimConfirm, setClaimConfirm] = useState(false)
   const [lastClaimMsg, setLastClaimMsg] = useState<string | null>(null)
   const [showFilters, setShowFilters] = useState(false)
-  const [channel, setChannel] = useState<'all' | 'whatsapp' | 'email' | 'instagram'>(initialFilters.channel)
+  const [channel, setChannel] = useState<'all' | 'whatsapp' | 'phone_only' | 'email' | 'instagram'>(initialFilters.channel)
   const [niche, setNiche] = useState(initialFilters.niche)
   const [region, setRegion] = useState(initialFilters.region)
   const [facets, setFacets] = useState<{
@@ -251,6 +264,7 @@ function PoolPanel({
         setFacets(r.facets || null)
       }
       setCanClaim(r.can_claim !== false)
+      setCanClaimPhoneOnly(r.can_claim_phone_only !== false)
       setClaimBlockers(Array.isArray(r.claim_blockers) ? r.claim_blockers : [])
       setTtl(Number(r.claim_ttl_minutes) || 90)
       setOpenPool(r.open_pool_enabled !== false)
@@ -331,6 +345,7 @@ function PoolPanel({
       const hasEmail = !!(item.channels?.email || item.email)
       const hasIg = !!(item.channels?.instagram || item.instagram)
       if (channel === 'whatsapp' && !hasWa) return false
+      if (channel === 'phone_only' && !item.phone_only && item.contact_mode !== 'phone_only') return false
       if (channel === 'email' && !hasEmail) return false
       if (channel === 'instagram' && !hasIg) return false
       if (niche && !nicheMatches({
@@ -487,6 +502,7 @@ function PoolPanel({
             [
               { key: 'all' as const, label: 'Todos', icon: null },
               { key: 'whatsapp' as const, label: 'WhatsApp', icon: 'wa' as const },
+              { key: 'phone_only' as const, label: 'Só telefone', icon: 'phone' as const },
               { key: 'instagram' as const, label: 'Instagram', icon: 'ig' as const },
               { key: 'email' as const, label: 'E-mail', icon: 'mail' as const },
             ]
@@ -507,6 +523,7 @@ function PoolPanel({
                 ].join(' ')}
               >
                 {opt.icon === 'wa' && <WhatsAppIcon size={14} />}
+                {opt.icon === 'phone' && <Phone size={14} />}
                 {opt.icon === 'ig' && <InstagramIcon size={14} />}
                 {opt.icon === 'mail' && <Mail size={14} />}
                 {opt.label}
@@ -599,6 +616,11 @@ function PoolPanel({
                     </p>
                     <div className="mt-1.5 flex items-center gap-2">
                       <ChannelIconRow item={item} />
+                      {item.phone_only && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-neutral-900 px-2 py-1 text-[9px] font-bold text-white">
+                          <Phone size={10} /> Só telefone
+                        </span>
+                      )}
                       {item.claim_window_active ? (
                         <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-sky-800">
                           <Clock3 size={11} />
@@ -743,9 +765,13 @@ function PoolPanel({
 
               <div className="rounded-[18px] border border-neutral-200 bg-neutral-50 p-3.5">
                 <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-neutral-500">Contato disponível</p>
-                <p className="mt-1 text-[15px] font-bold text-neutral-950">{detail.channels?.whatsapp || detail.phone || 'Telefone não informado'}</p>
+                <p className="mt-1 text-[15px] font-bold text-neutral-950">{detail.channels?.phone || detail.channels?.whatsapp || detail.phone || 'Telefone não informado'}</p>
                 <div className="mt-2 flex flex-wrap gap-1.5">
-                  {(detail.channels?.whatsapp || detail.phone) && <span className="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-800">WhatsApp</span>}
+                  {detail.phone_only ? (
+                    <span className="rounded-full bg-neutral-900 px-2 py-1 text-[10px] font-bold text-white">Somente ligação</span>
+                  ) : (detail.channels?.whatsapp || detail.phone) ? (
+                    <span className="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-800">WhatsApp</span>
+                  ) : null}
                   {(detail.channels?.email || detail.email) && <span className="rounded-full bg-white px-2 py-1 text-[10px] font-bold text-neutral-600">E-mail</span>}
                   {(detail.channels?.instagram || detail.instagram) && <span className="rounded-full bg-white px-2 py-1 text-[10px] font-bold text-neutral-600">Instagram</span>}
                 </div>
@@ -767,7 +793,7 @@ function PoolPanel({
             </div>
 
             <div className="border-t border-border px-4 py-3 space-y-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-              {!canClaim && claimBlockers.length > 0 ? (
+              {!(detail.phone_only ? canClaimPhoneOnly : canClaim) && claimBlockers.length > 0 ? (
                 <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-[11px] leading-relaxed text-amber-950">
                   <p className="font-bold">Não é possível assumir agora</p>
                   <ul className="mt-1 list-disc space-y-0.5 pl-4">
@@ -777,7 +803,7 @@ function PoolPanel({
                   </ul>
                 </div>
               ) : null}
-              {!canClaim && claimBlockers.length === 0 ? (
+              {!(detail.phone_only ? canClaimPhoneOnly : canClaim) && claimBlockers.length === 0 ? (
                 <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-[11px] leading-relaxed text-amber-950">
                   Liberação em verificação. Atualize a lista ou cadastre seu número em Conexões.
                 </div>
@@ -804,7 +830,7 @@ function PoolPanel({
                 </button>
                 <button
                   type="button"
-                  disabled={!canClaim || claimingId === detail.id}
+                  disabled={!(detail.phone_only ? canClaimPhoneOnly : canClaim) || claimingId === detail.id}
                   onClick={() => void claim(detail.id)}
                   className={[
                     'flex-1 h-11 rounded-xl text-white text-sm font-semibold inline-flex items-center justify-center gap-2 disabled:opacity-40',
@@ -816,7 +842,7 @@ function PoolPanel({
                   ) : (
                     <Hand size={16} />
                   )}
-                  {!canClaim
+                  {!(detail.phone_only ? canClaimPhoneOnly : canClaim)
                     ? 'Bloqueado'
                     : claimConfirm
                       ? 'Confirmar exclusividade'

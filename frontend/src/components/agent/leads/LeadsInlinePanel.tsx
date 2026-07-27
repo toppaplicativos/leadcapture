@@ -34,6 +34,9 @@ function getHeaders(): Record<string, string> {
 
 const STATUS_LABEL: Record<string, { label: string; tone: string }> = {
   new: { label: 'Novo', tone: 'is-new' },
+  assigned: { label: 'A contatar', tone: 'is-contacted' },
+  contact_attempted: { label: 'Tentativa realizada', tone: 'is-contacted' },
+  phone_only: { label: 'Só telefone', tone: 'is-contacted' },
   contacted: { label: 'Contatado', tone: 'is-contacted' },
   replied: { label: 'Respondeu', tone: 'is-replied' },
   negotiating: { label: 'Negociando', tone: 'is-negotiating' },

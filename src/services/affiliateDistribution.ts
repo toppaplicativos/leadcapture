@@ -2372,6 +2372,14 @@ export class AffiliateDistributionService {
          WHERE id = ?`,
         [assignmentId, item.id]
       );
+      if (String(item.prospect_ref_table || "customers").toLowerCase() === "customers") {
+        await query(
+          `UPDATE customers
+           SET status = 'assigned', updated_at = CURRENT_TIMESTAMP
+           WHERE id = ? AND owner_user_id = ? AND brand_id = ?`,
+          [item.prospect_id, ownerUserId, brandId],
+        );
+      }
 
       const initialSend = await this.dispatchInitialProspectMessage({
         assignmentId,
@@ -2968,6 +2976,14 @@ export class AffiliateDistributionService {
        WHERE id = ?`,
       [assignmentId, input.queueId]
     );
+    if (String(item.prospect_ref_table || "customers").toLowerCase() === "customers") {
+      await query(
+        `UPDATE customers
+         SET status = 'assigned', updated_at = CURRENT_TIMESTAMP
+         WHERE id = ? AND owner_user_id = ? AND brand_id = ?`,
+        [item.prospect_id, input.ownerUserId, input.brandId],
+      );
+    }
 
     const today = todayDateOnly();
     const statusRow = await queryOne<any>(

@@ -1780,6 +1780,22 @@ async function resolveAffiliateOpportunity(ctx: AffiliateContext, affiliateId: s
   return null;
 }
 
+async function syncRootCustomerStatus(input: {
+  ctx: AffiliateContext;
+  item: any;
+  status: "assigned" | "phone_only" | "contacted" | "replied" | "negotiating" | "converted" | "lost";
+}) {
+  const prospectId = String(input.item?.prospect_id || "").trim();
+  const refTable = String(input.item?.prospect_ref_table || "customers").toLowerCase();
+  if (!prospectId || refTable !== "customers") return;
+  await query(
+    `UPDATE customers
+     SET status = ?, updated_at = CURRENT_TIMESTAMP
+     WHERE id = ? AND owner_user_id = ? AND brand_id = ?`,
+    [input.status, prospectId, input.ctx.ownerUserId, input.ctx.brandId],
+  );
+}
+
 async function getContactOverride(affiliateId: string, brandId: string, refType: string, refId: string) {
   await ensureAffiliateContactOverridesSchema();
   return queryOne<any>(
@@ -1963,6 +1979,7 @@ router.post("/opportunities/:refType/:refId/release-phone", async (req: AuthRequ
         [refId, affiliateId, ctx.brandId],
       );
     }
+    await syncRootCustomerStatus({ ctx, item, status: "phone_only" });
 
     await query(`CREATE TABLE IF NOT EXISTS affiliate_pool_skips (
       id VARCHAR(36) PRIMARY KEY,
@@ -2459,6 +2476,29 @@ router.patch("/opportunities/:refType/:refId/progress", async (req: AuthRequest,
          WHERE id = ? AND affiliate_id = ? AND brand_id = ?`,
         params,
       );
+    }
+
+    const rootStatus =
+      action === "convert" || action === "post_sale_completed"
+        ? "converted"
+        : action === "replied"
+          ? "replied"
+          : action === "negotiating"
+            ? "negotiating"
+            : action === "not_matching"
+              || action === "lost"
+              || (action === "channel_unavailable" && channelExhausted)
+              ? "lost"
+              : action === "channel_unavailable" && remainingChannels.includes("phone")
+                ? "phone_only"
+                : [
+                  "sent", "followup", "called", "voicemail", "busy",
+                  "callback_requested", "auto_reply", "no_answer", "waiting",
+                ].includes(action)
+                  ? "contacted"
+                  : null;
+    if (rootStatus) {
+      await syncRootCustomerStatus({ ctx, item, status: rootStatus });
     }
 
     /* Anti-loop: mesmo resultado em <10 min no mesmo canal → não duplica activity */

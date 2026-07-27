@@ -39,6 +39,9 @@ const catLabel = (v: string) => CAT_LABEL[v] || v.replace(/_/g, ' ')
 
 const STATUS_LABEL: Record<string, { label: string; color: string }> = {
   new: { label: 'Novo', color: 'bg-gray-900 text-white' },
+  assigned: { label: 'A contatar', color: 'bg-orange-100 text-orange-800' },
+  contact_attempted: { label: 'Tentativa realizada', color: 'bg-sky-100 text-sky-800' },
+  phone_only: { label: 'Só telefone', color: 'bg-neutral-200 text-neutral-800' },
   contacted: { label: 'Contatado', color: 'bg-amber-100 text-amber-700' },
   replied: { label: 'Respondeu', color: 'bg-emerald-100 text-emerald-700' },
   negotiating: { label: 'Negociando', color: 'bg-gray-200 text-gray-800' },

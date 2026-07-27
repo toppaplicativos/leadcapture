@@ -168,6 +168,18 @@ export const mobApi = {
       body: JSON.stringify(payload),
     }),
 
+  forgotPassword: (email: string) =>
+    mobFetch<{ success: boolean; message?: string; reset_url?: string }>('/api/mob/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    }),
+
+  resetPassword: (token: string, password: string) =>
+    mobFetch<{ success: boolean; message?: string }>('/api/mob/reset-password', {
+      method: 'POST',
+      body: JSON.stringify({ token, password }),
+    }),
+
   invitePreview: (code: string) =>
     fetch(`/api/mob/invite/${encodeURIComponent(code)}`)
       .then(async (r) => {

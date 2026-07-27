@@ -7,6 +7,10 @@ import { AffiliatesService } from "../services/affiliates";
 import { affiliateProductLearningService } from "../services/affiliateProductLearning";
 import { affiliateDistributionService } from "../services/affiliateDistribution";
 import { affiliateProgramAiFillService } from "../services/affiliateProgramAiFill";
+import { affiliateMessageTemplatesService } from "../services/affiliateMessageTemplates";
+import { affiliateRankingAwardsService } from "../services/affiliateRankingAwards";
+import { affiliatePushCenterService } from "../services/affiliatePushCenter";
+import { affiliateTrackingDomainsService } from "../services/affiliateTrackingDomains";
 
 const router = Router();
 const affiliatesService = new AffiliatesService();
@@ -20,44 +24,92 @@ function resolveBrandId(req: AuthRequest): string {
   ).trim();
 }
 
-/** Dono da brand (config de afiliados) — pode diferir do user logado se for membro da equipe */
+/** Dono da brand (config de afiliados) — sempre o user_id da brand_units quando a marca existe */
 async function resolveAffiliateOwner(req: AuthRequest): Promise<{ ownerUserId: string; brandId: string } | null> {
   const userId = String(req.user?.userId || "").trim();
   const brandId = resolveBrandId(req);
   if (!userId || !brandId) return null;
 
-  const owned = await queryOne<{ id: string; user_id: string }>(
-    `SELECT id, user_id FROM brand_units WHERE id = ? AND user_id = ? LIMIT 1`,
-    [brandId, userId],
+  const brand = await queryOne<{ id: string; user_id: string }>(
+    `SELECT id, user_id FROM brand_units WHERE id = ? LIMIT 1`,
+    [brandId],
   );
-  if (owned) return { ownerUserId: String(owned.user_id), brandId };
+  if (!brand?.user_id) return null;
 
+  const ownerUserId = String(brand.user_id);
+
+  // Dono da marca
+  if (ownerUserId === userId) return { ownerUserId, brandId };
+
+  // Membro da equipe com acesso à marca
   const member = await queryOne<{ brand_id: string }>(
     `SELECT brand_id FROM user_brand_roles
      WHERE user_id = ? AND brand_id = ? AND COALESCE(is_blocked, FALSE) = FALSE
      LIMIT 1`,
     [userId, brandId],
   ).catch(() => null);
-  if (member) {
-    const brand = await queryOne<{ user_id: string }>(
-      `SELECT user_id FROM brand_units WHERE id = ? LIMIT 1`,
-      [brandId],
-    );
-    if (brand?.user_id) return { ownerUserId: String(brand.user_id), brandId };
+  if (member) return { ownerUserId, brandId };
+
+  // Admin / super_admin da plataforma (org multi-tenant / suporte)
+  const role = String((req.user as any)?.role || "").toLowerCase();
+  if (role === "super_admin" || role === "master" || role === "admin") {
+    return { ownerUserId, brandId };
   }
 
-  // Fallback: user logado como owner (cria config sob a conta dele se for dono implícito)
-  return { ownerUserId: userId, brandId };
+  // Sem acesso — não inventar owner com o userId logado (causava 500 duplicate key no program config)
+  return null;
 }
 
 router.get("/stats", async (req: AuthRequest, res: Response) => {
   try {
     const ctx = await resolveAffiliateOwner(req);
-    if (!ctx) return res.status(400).json({ error: "brand_id obrigatório" });
-    const stats = await affiliatesService.getProgramStats(ctx.ownerUserId, ctx.brandId);
+    if (!ctx) return res.status(400).json({ error: "brand_id obrigatório ou sem acesso à marca" });
+    const light =
+      String(req.query.light || "").toLowerCase() === "1" ||
+      String(req.query.light || "").toLowerCase() === "true" ||
+      String(req.query.include_activity || "1") === "0";
+    const stats = await affiliatesService.getProgramStats(ctx.ownerUserId, ctx.brandId, {
+      includeActivity: !light,
+    });
     res.json({ success: true, stats });
   } catch (e: any) {
     res.status(500).json({ error: e.message || "Falha ao carregar estatísticas" });
+  }
+});
+
+router.get("/message-templates", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = await resolveAffiliateOwner(req);
+    if (!ctx) return res.status(400).json({ error: "brand_id obrigatório" });
+    const templates = await affiliateMessageTemplatesService.list(ctx.ownerUserId, ctx.brandId);
+    res.json({ success: true, templates });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Falha ao carregar templates" });
+  }
+});
+
+router.put("/message-templates/:id", requireRole(["admin", "operator"]), async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = await resolveAffiliateOwner(req);
+    if (!ctx) return res.status(400).json({ error: "brand_id obrigatório" });
+    const template = await affiliateMessageTemplatesService.save(ctx.ownerUserId, ctx.brandId, {
+      ...req.body,
+      id: req.params.id === "new" ? undefined : req.params.id,
+    });
+    res.json({ success: true, template });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message || "Falha ao salvar template" });
+  }
+});
+
+router.delete("/message-templates/:id", requireRole(["admin", "operator"]), async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = await resolveAffiliateOwner(req);
+    if (!ctx) return res.status(400).json({ error: "brand_id obrigatório" });
+    await affiliateMessageTemplatesService.remove(ctx.ownerUserId, ctx.brandId, String(req.params.id));
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Falha ao remover template" });
   }
 });
 
@@ -107,6 +159,7 @@ router.get("/program", async (req: AuthRequest, res: Response) => {
       ctx.brandId,
       config,
     );
+    const trackingDomains = await affiliateTrackingDomainsService.list(ctx.ownerUserId, ctx.brandId);
     res.json({
       success: true,
       program: {
@@ -114,11 +167,76 @@ router.get("/program", async (req: AuthRequest, res: Response) => {
         app_subdomain: partners.app_subdomain,
       },
       partners,
+      tracking_domains: trackingDomains,
       affiliates,
       total: affiliates.length,
     });
   } catch (e: any) {
     res.status(500).json({ error: e.message || "Falha ao carregar programa" });
+  }
+});
+
+/** Domínios extras de rastreio (sites institucionais / landings). */
+router.get("/tracking-domains", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = await resolveAffiliateOwner(req);
+    if (!ctx) return res.status(400).json({ error: "brand_id obrigatório" });
+    const domains = await affiliateTrackingDomainsService.list(ctx.ownerUserId, ctx.brandId);
+    res.json({ success: true, domains });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Falha ao listar domínios" });
+  }
+});
+
+router.post("/tracking-domains", requireRole(["admin", "operator"]), async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = await resolveAffiliateOwner(req);
+    if (!ctx) return res.status(400).json({ error: "brand_id obrigatório" });
+    const domain = await affiliateTrackingDomainsService.create(ctx.ownerUserId, ctx.brandId, {
+      domain: req.body?.domain,
+      label: req.body?.label,
+      path_template: req.body?.path_template,
+      store_handoff_url: req.body?.store_handoff_url,
+      is_active: req.body?.is_active,
+      sort_order: req.body?.sort_order,
+    });
+    res.json({ success: true, domain });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message || "Falha ao criar domínio" });
+  }
+});
+
+router.put("/tracking-domains/:id", requireRole(["admin", "operator"]), async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = await resolveAffiliateOwner(req);
+    if (!ctx) return res.status(400).json({ error: "brand_id obrigatório" });
+    const domain = await affiliateTrackingDomainsService.update(
+      ctx.ownerUserId,
+      ctx.brandId,
+      String(req.params.id),
+      {
+        domain: req.body?.domain,
+        label: req.body?.label,
+        path_template: req.body?.path_template,
+        store_handoff_url: req.body?.store_handoff_url,
+        is_active: req.body?.is_active,
+        sort_order: req.body?.sort_order,
+      }
+    );
+    res.json({ success: true, domain });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message || "Falha ao atualizar domínio" });
+  }
+});
+
+router.delete("/tracking-domains/:id", requireRole(["admin", "operator"]), async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = await resolveAffiliateOwner(req);
+    if (!ctx) return res.status(400).json({ error: "brand_id obrigatório" });
+    await affiliateTrackingDomainsService.remove(ctx.ownerUserId, ctx.brandId, String(req.params.id));
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Falha ao remover domínio" });
   }
 });
 
@@ -396,9 +514,9 @@ router.get("/payouts", async (req: AuthRequest, res: Response) => {
       `SELECT p.*, a.display_name, a.code, a.coupon_code
        FROM affiliate_payouts p
        INNER JOIN affiliates a ON a.id = p.affiliate_id
-       WHERE p.owner_user_id = ? AND p.brand_id = ?
+       WHERE p.brand_id = ?
        ORDER BY p.created_at DESC`,
-      [ctx.ownerUserId, ctx.brandId]
+      [ctx.brandId]
     );
     res.json({ success: true, payouts: rows });
   } catch (e: any) {
@@ -615,6 +733,307 @@ router.post("/distribution/process", requireRole(["admin", "operator"]), async (
     res.json({ success: true, processed });
   } catch (e: any) {
     res.status(500).json({ error: e.message || "Falha ao processar fila" });
+  }
+});
+
+// ─── Ranking + Premiações (admin) ───────────────────────────────────
+
+router.get("/ranking", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = await resolveAffiliateOwner(req);
+    if (!ctx) return res.status(400).json({ error: "brand_id obrigatório" });
+    const period = String(req.query.period || "month") as any;
+    const board = await affiliateRankingAwardsService.getLeaderboard({
+      ownerUserId: ctx.ownerUserId,
+      brandId: ctx.brandId,
+      period,
+      limit: Math.min(Number(req.query.limit) || 50, 100),
+    });
+    res.json({ success: true, ...board });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Falha ao carregar ranking" });
+  }
+});
+
+router.get("/challenges", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = await resolveAffiliateOwner(req);
+    if (!ctx) return res.status(400).json({ error: "brand_id obrigatório" });
+    const challenges = await affiliateRankingAwardsService.listChallenges({
+      ownerUserId: ctx.ownerUserId,
+      brandId: ctx.brandId,
+      status: req.query.status ? String(req.query.status) : null,
+    });
+    res.json({ success: true, challenges });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Falha ao listar premiações" });
+  }
+});
+
+router.get("/challenges/:id", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = await resolveAffiliateOwner(req);
+    if (!ctx) return res.status(400).json({ error: "brand_id obrigatório" });
+    const challenge = await affiliateRankingAwardsService.getChallenge(String(req.params.id), ctx.brandId);
+    if (!challenge) return res.status(404).json({ error: "Premiação não encontrada" });
+    res.json({ success: true, challenge });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Falha ao carregar premiação" });
+  }
+});
+
+router.post("/challenges", requireRole(["admin", "operator"]), async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = await resolveAffiliateOwner(req);
+    if (!ctx) return res.status(400).json({ error: "brand_id obrigatório" });
+    const body = req.body || {};
+    const challenge = await affiliateRankingAwardsService.createChallenge({
+      ownerUserId: ctx.ownerUserId,
+      brandId: ctx.brandId,
+      programId: body.program_id || null,
+      title: String(body.title || ""),
+      description: body.description ?? null,
+      rulesText: body.rules_text ?? body.rulesText ?? null,
+      coverUrl: body.cover_url ?? body.coverUrl ?? null,
+      challengeType: body.challenge_type || body.challengeType || "first_to",
+      metric: body.metric || "sales_gmv",
+      targetValue: Number(body.target_value ?? body.targetValue) || 1,
+      prizeLabel: body.prize_label ?? body.prizeLabel ?? null,
+      prizeDescription: body.prize_description ?? body.prizeDescription ?? null,
+      maxWinners: Number(body.max_winners ?? body.maxWinners) || 1,
+      requiresAcceptance: body.requires_acceptance !== false && body.requiresAcceptance !== false,
+      eligibility: body.eligibility || {},
+      status: body.status || "draft",
+      startsAt: body.starts_at ?? body.startsAt ?? null,
+      endsAt: body.ends_at ?? body.endsAt ?? null,
+    });
+    res.json({ success: true, challenge });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message || "Falha ao criar premiação" });
+  }
+});
+
+router.put("/challenges/:id", requireRole(["admin", "operator"]), async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = await resolveAffiliateOwner(req);
+    if (!ctx) return res.status(400).json({ error: "brand_id obrigatório" });
+    const body = req.body || {};
+    const challenge = await affiliateRankingAwardsService.updateChallenge(
+      String(req.params.id),
+      ctx.brandId,
+      ctx.ownerUserId,
+      {
+        title: body.title,
+        description: body.description,
+        rulesText: body.rules_text ?? body.rulesText,
+        coverUrl: body.cover_url ?? body.coverUrl,
+        challengeType: body.challenge_type || body.challengeType,
+        metric: body.metric,
+        targetValue: body.target_value ?? body.targetValue,
+        prizeLabel: body.prize_label ?? body.prizeLabel,
+        prizeDescription: body.prize_description ?? body.prizeDescription,
+        maxWinners: body.max_winners ?? body.maxWinners,
+        requiresAcceptance: body.requires_acceptance ?? body.requiresAcceptance,
+        eligibility: body.eligibility,
+        status: body.status,
+        startsAt: body.starts_at ?? body.startsAt,
+        endsAt: body.ends_at ?? body.endsAt,
+        programId: body.program_id ?? body.programId,
+      },
+    );
+    res.json({ success: true, challenge });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message || "Falha ao atualizar premiação" });
+  }
+});
+
+router.delete("/challenges/:id", requireRole(["admin", "operator"]), async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = await resolveAffiliateOwner(req);
+    if (!ctx) return res.status(400).json({ error: "brand_id obrigatório" });
+    const result = await affiliateRankingAwardsService.deleteChallenge(
+      String(req.params.id),
+      ctx.brandId,
+      ctx.ownerUserId,
+    );
+    res.json({ success: true, ...result });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message || "Falha ao excluir premiação" });
+  }
+});
+
+router.post("/challenges/:id/evaluate", requireRole(["admin", "operator"]), async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = await resolveAffiliateOwner(req);
+    if (!ctx) return res.status(400).json({ error: "brand_id obrigatório" });
+    const result = await affiliateRankingAwardsService.evaluateChallenge(String(req.params.id), ctx.brandId);
+    res.json({ success: true, ...result });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message || "Falha ao avaliar premiação" });
+  }
+});
+
+router.post("/challenges/:id/notify", requireRole(["admin", "operator"]), async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = await resolveAffiliateOwner(req);
+    if (!ctx) return res.status(400).json({ error: "brand_id obrigatório" });
+    const result = await affiliateRankingAwardsService.notifyChallengeAvailable(
+      String(req.params.id),
+      ctx.brandId,
+    );
+    res.json({ success: true, ...result });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message || "Falha ao notificar afiliados" });
+  }
+});
+
+// ─── Central de Push do programa (marca) ────────────────────────────
+
+router.get("/push/presets", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = await resolveAffiliateOwner(req);
+    if (!ctx) return res.status(400).json({ error: "brand_id obrigatório" });
+    res.json({
+      success: true,
+      deep_links: affiliatePushCenterService.deepLinkPresets(),
+      brand_id: ctx.brandId,
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Falha" });
+  }
+});
+
+router.get("/push/catalog", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = await resolveAffiliateOwner(req);
+    if (!ctx) return res.status(400).json({ error: "brand_id obrigatório" });
+    const catalog = await affiliatePushCenterService.listCatalog(ctx.brandId);
+    res.json({ success: true, catalog });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Falha ao carregar catálogo de push" });
+  }
+});
+
+router.put("/push/overrides/:eventKey", requireRole(["admin", "operator"]), async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = await resolveAffiliateOwner(req);
+    if (!ctx) return res.status(400).json({ error: "brand_id obrigatório" });
+    const override = await affiliatePushCenterService.upsertOverride({
+      ownerUserId: ctx.ownerUserId,
+      brandId: ctx.brandId,
+      eventKey: String(req.params.eventKey || ""),
+      title_template: req.body?.title_template,
+      body_template: req.body?.body_template,
+      image_url: req.body?.image_url,
+      deep_link: req.body?.deep_link,
+      is_enabled: req.body?.is_enabled,
+      priority: req.body?.priority,
+    });
+    res.json({ success: true, override });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message || "Falha ao salvar override" });
+  }
+});
+
+router.get("/push/campaigns", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = await resolveAffiliateOwner(req);
+    if (!ctx) return res.status(400).json({ error: "brand_id obrigatório" });
+    const campaigns = await affiliatePushCenterService.listCampaigns(ctx.brandId);
+    res.json({ success: true, campaigns });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Falha ao listar campanhas" });
+  }
+});
+
+router.post("/push/campaigns", requireRole(["admin", "operator"]), async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = await resolveAffiliateOwner(req);
+    if (!ctx) return res.status(400).json({ error: "brand_id obrigatório" });
+    const body = req.body || {};
+    const campaign = await affiliatePushCenterService.createCampaign({
+      ownerUserId: ctx.ownerUserId,
+      brandId: ctx.brandId,
+      title: String(body.title || ""),
+      body: String(body.body || ""),
+      image_url: body.image_url ?? null,
+      deep_link: body.deep_link ?? "ranking",
+      cta_label: body.cta_label ?? null,
+      target: body.target || "all_active",
+      program_id: body.program_id ?? null,
+      trigger_type: body.trigger_type || "manual",
+      trigger_config: body.trigger_config || {},
+      scheduled_at: body.scheduled_at ?? null,
+      status: body.status,
+    });
+    res.json({ success: true, campaign });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message || "Falha ao criar campanha" });
+  }
+});
+
+router.put("/push/campaigns/:id", requireRole(["admin", "operator"]), async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = await resolveAffiliateOwner(req);
+    if (!ctx) return res.status(400).json({ error: "brand_id obrigatório" });
+    const campaign = await affiliatePushCenterService.updateCampaign(
+      String(req.params.id),
+      ctx.brandId,
+      req.body || {},
+    );
+    res.json({ success: true, campaign });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message || "Falha ao atualizar campanha" });
+  }
+});
+
+router.post("/push/campaigns/:id/send", requireRole(["admin", "operator"]), async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = await resolveAffiliateOwner(req);
+    if (!ctx) return res.status(400).json({ error: "brand_id obrigatório" });
+    const result = await affiliatePushCenterService.sendCampaign(String(req.params.id), ctx.brandId);
+    res.json({ success: true, ...result });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message || "Falha ao enviar campanha" });
+  }
+});
+
+router.post("/push/campaigns/:id/schedule", requireRole(["admin", "operator"]), async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = await resolveAffiliateOwner(req);
+    if (!ctx) return res.status(400).json({ error: "brand_id obrigatório" });
+    const at = req.body?.scheduled_at || req.body?.at;
+    if (!at) return res.status(400).json({ error: "scheduled_at obrigatório" });
+    const campaign = await affiliatePushCenterService.updateCampaign(String(req.params.id), ctx.brandId, {
+      trigger_type: "schedule",
+      scheduled_at: new Date(at).toISOString(),
+      status: "scheduled",
+    });
+    res.json({ success: true, campaign });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message || "Falha ao agendar" });
+  }
+});
+
+router.delete("/push/campaigns/:id", requireRole(["admin", "operator"]), async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = await resolveAffiliateOwner(req);
+    if (!ctx) return res.status(400).json({ error: "brand_id obrigatório" });
+    await affiliatePushCenterService.deleteCampaign(String(req.params.id), ctx.brandId);
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Falha ao excluir" });
+  }
+});
+
+router.post("/push/process-scheduled", requireRole(["admin", "operator"]), async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = await resolveAffiliateOwner(req);
+    if (!ctx) return res.status(400).json({ error: "brand_id obrigatório" });
+    const results = await affiliatePushCenterService.processDueSchedules(20);
+    res.json({ success: true, results });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Falha ao processar agenda" });
   }
 });
 

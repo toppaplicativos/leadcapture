@@ -60,6 +60,15 @@ const ICON_BY_KEY: Record<string, typeof FileText> = {
   affiliate_active: Store,
 }
 
+const PENDING_TITLE_BY_KEY: Record<string, string> = {
+  terms: 'Aceitar termos do programa',
+  training: 'Concluir preparação',
+  whatsapp_number: 'Cadastrar número de WhatsApp',
+  pix: 'Cadastrar chave Pix',
+  program_active: 'Concluir entrada no programa',
+  affiliate_active: 'Regularizar acesso ao programa',
+}
+
 export function AffiliateDistributionBanner({
   ctx,
   onConnectWhatsApp,
@@ -85,6 +94,7 @@ export function AffiliateDistributionBanner({
       const r = await affiliateApi.distributionStatus()
       setData(r)
     } catch {
+      /* Falha/timeout: some o banner — não trava o Início em “Verificando…” */
       if (!quiet) setData(null)
     } finally {
       if (!quiet) setLoading(false)
@@ -93,6 +103,14 @@ export function AffiliateDistributionBanner({
 
   useEffect(() => {
     void refresh(false)
+    /* Safety: nunca ficar em loading eterno se a API travar */
+    const failSafe = window.setTimeout(() => {
+      setLoading((prev) => {
+        if (prev) setData((d) => d)
+        return false
+      })
+    }, 8_000)
+    return () => window.clearTimeout(failSafe)
   }, [refresh, ctx.cacheVersion])
 
   useEffect(() => {
@@ -100,7 +118,8 @@ export function AffiliateDistributionBanner({
       void refresh(true)
     }
     window.addEventListener('focus', onFocus)
-    const t = window.setInterval(onFocus, 60_000)
+    /* Intervalo maior — evita martelar distribution/status e saturar o pool */
+    const t = window.setInterval(onFocus, 180_000)
     return () => {
       window.removeEventListener('focus', onFocus)
       window.clearInterval(t)
@@ -233,63 +252,72 @@ export function AffiliateDistributionBanner({
   /* Liberado: some do home */
   if (ready || pending.length === 0) return null
 
-  const primary = termsPending || pending[0]
-  const PrimaryIcon = ICON_BY_KEY[primary.key] || FileText
-  const remaining = Math.max(0, pending.length - 1)
+  const orderedPending = termsPending
+    ? [termsPending, ...pending.filter((item) => item.key !== termsPending.key)]
+    : pending
 
   return (
     <>
       <div
-        className="rounded-2xl border border-neutral-200 bg-white p-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
+        className="overflow-hidden rounded-[20px] border border-neutral-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
         role="region"
         aria-label="Pendências de liberação"
       >
-        <div className="flex items-center gap-3">
-          <span
-            className="grid h-10 w-10 shrink-0 place-items-center rounded-xl"
-            style={{ backgroundColor: `${ctx.primary}14`, color: ctx.primary }}
-          >
-            <PrimaryIcon size={18} />
-          </span>
-          <div className="min-w-0 flex-1">
-            <p className="text-[13px] font-bold leading-snug text-neutral-950">
-              {primary.label}
-            </p>
-            <p className="mt-0.5 text-[11px] leading-snug text-neutral-500">
-              {remaining > 0
-                ? `Próximo passo · +${remaining} pendência${remaining > 1 ? 's' : ''}`
-                : primary.action || 'Complete para liberar oportunidades'}
+        <div className="flex items-center justify-between gap-3 border-b border-neutral-100 px-4 py-3">
+          <div className="min-w-0">
+            <p className="text-[13px] font-bold text-neutral-950">Complete para continuar</p>
+            <p className="mt-0.5 text-[10px] leading-snug text-neutral-500">
+              {pending.length} {pending.length === 1 ? 'item precisa' : 'itens precisam'} da sua atenção
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => handleItemAction(primary)}
-            className="inline-flex min-h-10 shrink-0 items-center gap-1 rounded-xl px-3 text-[12px] font-bold text-white"
-            style={{ backgroundColor: ctx.primary }}
+          <span
+            className="inline-flex h-7 shrink-0 items-center rounded-full px-2.5 text-[10px] font-bold"
+            style={{ backgroundColor: `${ctx.primary}12`, color: ctx.primary }}
           >
-            {primary.cta || (termsPending ? 'Aceitar' : 'Abrir')}
-            <ChevronRight size={14} />
-          </button>
+            {pending.length} {pending.length === 1 ? 'pendência' : 'pendências'}
+          </span>
         </div>
 
-        {pending.length > 1 ? (
-          <div className="mt-2.5 flex flex-wrap gap-1.5 border-t border-neutral-100 pt-2.5">
-            {pending.slice(1).map((item) => {
-              const Icon = ICON_BY_KEY[item.key] || FileText
-              return (
-                <button
-                  key={item.key}
-                  type="button"
-                  onClick={() => handleItemAction(item)}
-                  className="inline-flex min-h-8 items-center gap-1.5 rounded-full border border-neutral-200 bg-neutral-50 px-2.5 text-[11px] font-semibold text-neutral-700"
+        <div className="divide-y divide-neutral-100">
+          {orderedPending.map((item, index) => {
+            const Icon = ICON_BY_KEY[item.key] || FileText
+            const isPrimary = index === 0
+            return (
+              <button
+                key={item.key}
+                type="button"
+                onClick={() => handleItemAction(item)}
+                className="block w-full px-3.5 py-3 text-left transition active:bg-neutral-50"
+              >
+                <span className="flex items-start gap-3">
+                  <span
+                    className="grid h-9 w-9 shrink-0 place-items-center rounded-xl"
+                    style={isPrimary
+                      ? { backgroundColor: `${ctx.primary}14`, color: ctx.primary }
+                      : { backgroundColor: '#f5f5f5', color: '#737373' }}
+                  >
+                    <Icon size={16} />
+                  </span>
+                  <span className="min-w-0 flex-1 pt-0.5">
+                    <span className="block text-[12px] font-bold leading-snug text-neutral-900">
+                      {PENDING_TITLE_BY_KEY[item.key] || item.label}
+                    </span>
+                    <span className="mt-1 block text-[10px] leading-relaxed text-neutral-500">
+                      {item.action || (item.key === 'terms' ? 'Leia e confirme os termos do programa' : 'Toque para concluir esta etapa')}
+                    </span>
+                  </span>
+                </span>
+                <span
+                  className={`mt-2.5 inline-flex min-h-11 w-full items-center justify-center gap-1 rounded-[14px] px-3 text-[11px] font-bold ${isPrimary ? 'text-white' : 'bg-neutral-100 text-neutral-800'}`}
+                  style={isPrimary ? { backgroundColor: ctx.primary } : undefined}
                 >
-                  <Icon size={12} className="text-neutral-500" />
-                  {item.label}
-                </button>
-              )
-            })}
-          </div>
-        ) : null}
+                  {item.cta || (item.key === 'terms' ? 'Aceitar' : 'Abrir')}
+                  <ChevronRight size={12} />
+                </span>
+              </button>
+            )
+          })}
+        </div>
       </div>
 
       {termsOpen ? (

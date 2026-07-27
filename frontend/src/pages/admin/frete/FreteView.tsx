@@ -65,6 +65,8 @@ export function FreteView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'e
   const [fee, setFee] = useState('')
   const [radius, setRadius] = useState('40')
   const [freeAbove, setFreeAbove] = useState('')
+  const [freeMinWeightKg, setFreeMinWeightKg] = useState('')
+  const [freeMaxDistanceKm, setFreeMaxDistanceKm] = useState('')
   const [eta, setEta] = useState('120')
   const [deliveryText, setDeliveryText] = useState('')
   const [freteTexto, setFreteTexto] = useState('')
@@ -90,6 +92,8 @@ export function FreteView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'e
         setFee(lg.delivery_fee != null ? String(lg.delivery_fee) : '')
         setRadius(lg.delivery_radius_km != null ? String(lg.delivery_radius_km) : '40')
         setFreeAbove(lg.free_shipping_above != null ? String(lg.free_shipping_above) : '')
+        setFreeMinWeightKg(lg.free_shipping_min_weight_kg != null ? String(lg.free_shipping_min_weight_kg) : '')
+        setFreeMaxDistanceKm(lg.free_shipping_max_distance_km != null ? String(lg.free_shipping_max_distance_km) : '')
         setEta(lg.default_eta_minutes != null ? String(lg.default_eta_minutes) : '120')
         setDeliveryText(lg.delivery_time_text || '')
         setFreteTexto(lg.frete_texto || '')
@@ -160,6 +164,8 @@ export function FreteView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'e
               delivery_fee: fee ? parseFloat(fee) : null,
               delivery_radius_km: radiusNum,
               free_shipping_above: freeAbove ? parseFloat(freeAbove) : null,
+              free_shipping_min_weight_kg: freeMinWeightKg ? parseFloat(freeMinWeightKg) : null,
+              free_shipping_max_distance_km: freeMaxDistanceKm ? parseFloat(freeMaxDistanceKm) : null,
               default_eta_minutes: eta ? parseInt(eta, 10) : null,
               delivery_time_text: deliveryText || null,
               frete_texto: freteTexto || null,
@@ -219,6 +225,7 @@ export function FreteView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'e
   if (loading) return <Skeleton rows={8} />
 
   const hasFreeShipping = freeAbove && Number(freeAbove) > 0
+  const hasWeightFreeShipping = freeMinWeightKg && Number(freeMinWeightKg) > 0
 
   const modes = [
     { key: 'delivery', label: 'Entrega', desc: 'Leva ao endereço', Icon: Truck },
@@ -376,6 +383,51 @@ export function FreteView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'e
               onChange={(e) => setEta(e.target.value)}
               placeholder="120"
             />
+          </div>
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50/50 p-4">
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-gray-900">Frete grátis por volume</p>
+                <p className="mt-0.5 text-[11px] leading-relaxed text-gray-600">
+                  A gratuidade só é aplicada quando o pedido atinge o peso e permanece dentro da distância definida.
+                </p>
+              </div>
+              {hasWeightFreeShipping ? (
+                <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-bold text-emerald-700">
+                  REGRA ATIVA
+                </span>
+              ) : null}
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Input
+                label="Peso mínimo do pedido (kg)"
+                type="number"
+                min="0"
+                step="0.1"
+                value={freeMinWeightKg}
+                onChange={(e) => setFreeMinWeightKg(e.target.value)}
+                placeholder="Ex.: 20"
+                hint="A partir deste peso"
+              />
+              <Input
+                label="Distância máxima grátis (km)"
+                type="number"
+                min="0"
+                step="0.1"
+                value={freeMaxDistanceKm}
+                onChange={(e) => setFreeMaxDistanceKm(e.target.value)}
+                placeholder="Ex.: 30"
+                hint="Mesmo que a entrega cubra uma área maior"
+              />
+            </div>
+            {hasWeightFreeShipping ? (
+              <p className="mt-3 text-xs font-medium text-emerald-800">
+                A partir de {Number(freeMinWeightKg).toLocaleString('pt-BR')} kg
+                {freeMaxDistanceKm && Number(freeMaxDistanceKm) > 0
+                  ? `, em até ${Number(freeMaxDistanceKm).toLocaleString('pt-BR')} km, o frete será grátis.`
+                  : ', o frete será grátis em toda a área atendida.'}
+              </p>
+            ) : null}
           </div>
           <Input
             label="Texto de prazo (catálogo)"
@@ -553,7 +605,7 @@ export function FreteView({ showToast }: { showToast: (t: string, tp?: 'ok' | 'e
             })
             const d = await r.json().catch(() => ({}))
             if (!r.ok) throw new Error(d.error || 'Falha ao calcular')
-            return { quote: d.quote }
+            return { quote: d.quote, club: d.club || null }
           }}
         />
       ) : null}

@@ -75,6 +75,7 @@ import collectionsRoutes from "./routes/collections";
 import attributeDefinitionsRoutes from "./routes/attributeDefinitions";
 import bookingsRoutes from "./routes/bookings";
 import couponsRoutes from "./routes/coupons";
+import subscriberClubRoutes from "./routes/subscriberClub";
 import reviewsRoutes from "./routes/reviews";
 import priceTablesRoutes from "./routes/pricetables";
 import expeditionRoutes from "./routes/expedition";
@@ -118,7 +119,7 @@ import { emailService } from "./services/email";
 import { InboxService } from "./services/inbox";
 import { AutomationRuntimeService } from "./services/automationRuntime";
 import { InstanceRotationService } from "./services/instanceRotation";
-import { query, queryOne, getPool } from "./config/database";
+import { query, queryOne, getPool, getPoolStats } from "./config/database";
 import { extractIncomingMessageData } from "./utils/whatsappMessage";
 import { createCampaignRoutes } from "./routes/campaigns";
 import { CampaignEngineService } from "./services/campaignEngine";
@@ -542,6 +543,7 @@ app.get("/api/health", async (req, res) => {
   }
 
   const ready = dbOk;
+  const pool = getPoolStats();
   const body = {
     status: ready ? "ok" : "degraded",
     ready,
@@ -549,6 +551,7 @@ app.get("/api/health", async (req, res) => {
       database: dbOk ? "up" : "down",
       database_error: dbError,
       whatsapp_instances: instanceManager.getAllInstances().length,
+      db_pool: pool,
     },
     version,
     uptime: process.uptime(),
@@ -772,6 +775,7 @@ app.use("/api/collections", collectionsRoutes);
 app.use("/api/attribute-definitions", attributeDefinitionsRoutes);
 app.use("/api/bookings", bookingsRoutes);
 app.use("/api/coupons", couponsRoutes);
+app.use("/api/subscriber-club", subscriberClubRoutes);
 app.use("/api/reviews", reviewsRoutes);
 /* LGPD (Fase 15) — public opt-out is NO-AUTH on purpose. Admin views require auth. */
 app.use("/api/lgpd", lgpdPublicRoutes);
@@ -891,16 +895,22 @@ app.use("/api/whatsapp/eligibility", authMiddleware, whatsappEligibilityRoutes);
 const inboxService = new InboxService();
 inboxService.setMediaDownloader((instanceId, msg) => instanceManager.downloadIncomingMedia(instanceId, msg));
 inboxService.setMessageSender((instanceId, jid, message) => instanceManager.sendMessageByJid(instanceId, jid, message));
-instagramService.setWhatsappNotifier(async (userId, phone, message) => {
-  const result = await instanceRotation.sendTextWithFailover({
-    userId,
-    phone,
-    message,
-    automationCode: "ig_publish_failed",
-    maxAttempts: 2,
+/* Guard: deploys parciais / circular import já derrubaram o boot com
+   "setWhatsappNotifier is not a function" e geraram restart storm no PM2. */
+if (typeof (instagramService as any)?.setWhatsappNotifier === "function") {
+  instagramService.setWhatsappNotifier(async (userId, phone, message) => {
+    const result = await instanceRotation.sendTextWithFailover({
+      userId,
+      phone,
+      message,
+      automationCode: "ig_publish_failed",
+      maxAttempts: 2,
+    });
+    return result.ok;
   });
-  return result.ok;
-});
+} else {
+  logger.warn("instagramService.setWhatsappNotifier unavailable — WA notify hook skipped");
+}
 instanceManager.onGlobalMessage(async (instanceId, msg) => {
   await inboxService.handleIncomingMessage(instanceId, msg);
   try {
@@ -2421,22 +2431,34 @@ app.post("/api/leads/capture-batch", authMiddleware, async (req: any, res) => {
       { skipMetadataUpdate: true }
     );
 
-    // Distribuição em lote (fire-and-forget por prospect novo)
-    if (brandId && (persisted.createdLeadIds || []).length > 0) {
+    // Distribuição em lote: novos + re-captura (só quem tem telefone entra no pool)
+    const distProspectIds = Array.from(
+      new Set([
+        ...((persisted.createdLeadIds || []).map(String)),
+        ...((persisted.existingLeadIds || []).map(String)),
+      ].filter(Boolean)),
+    );
+    if (brandId && distProspectIds.length > 0) {
       void (async () => {
         try {
           const { affiliateDistributionService } = await import("./services/affiliateDistribution");
           const rules = await affiliateDistributionService.getOrCreateRules(userId, brandId);
           if (!rules?.auto_enqueue_capture) return;
-          for (const prospectId of persisted.createdLeadIds) {
+          const createdSet = new Set((persisted.createdLeadIds || []).map(String));
+          for (const prospectId of distProspectIds) {
             try {
+              const isNew = createdSet.has(String(prospectId));
               await affiliateDistributionService.enqueueProspect({
                 ownerUserId: userId,
                 brandId,
                 prospectId: String(prospectId),
-                source: "panfleteiro_capture_batch",
-                priorityScore: 55,
-                metadata: { query: captureQuery, location: captureLocation },
+                source: isNew ? "panfleteiro_capture_batch" : "panfleteiro_recapture_batch",
+                priorityScore: isNew ? 55 : 50,
+                metadata: {
+                  query: captureQuery,
+                  location: captureLocation,
+                  recapture: !isNew,
+                },
               });
             } catch { /* ignore single */ }
           }
@@ -3838,4 +3860,14 @@ process.on("SIGTERM", () => {
 
 process.on("SIGINT", () => {
   automationRuntime.stop();
+});
+
+/* Evita crash silencioso / dump gigante de Client do pg em unhandledRejection. */
+process.on("unhandledRejection", (reason: any) => {
+  const msg = reason?.message || String(reason || "unknown");
+  logger.error({ err: msg, stack: reason?.stack }, "unhandledRejection");
+});
+
+process.on("uncaughtException", (err: any) => {
+  logger.error({ err: err?.message || String(err), stack: err?.stack }, "uncaughtException");
 });

@@ -435,7 +435,12 @@ function hasPendingQr(id: string): boolean {
 
 /* ═══════════════════════════════════════════════════════════════════
    getHealthSnapshot — usado pelo endpoint /api/instances/health
+   Cache curto evita saturar o pool PG quando várias rotas pedem health
+   ao mesmo tempo (pool de oportunidades + distribution/status + IG).
    ═══════════════════════════════════════════════════════════════════ */
+
+const healthSnapCache = new Map<string, { at: number; value: any }>();
+const HEALTH_SNAP_TTL_MS = Math.max(3_000, parseInt(process.env.WA_HEALTH_SNAP_TTL_MS || "12000", 10) || 12_000);
 
 export async function getHealthSnapshot(opts?: {
   userId?: string;
@@ -453,6 +458,17 @@ export async function getHealthSnapshot(opts?: {
     has_critical: boolean;
   };
 }> {
+  const cacheKey = [
+    opts?.userId || "",
+    opts?.brandId || "",
+    opts?.isAffiliate ? "1" : "0",
+    opts?.ownerActorId || "",
+  ].join("|");
+  const hit = healthSnapCache.get(cacheKey);
+  if (hit && Date.now() - hit.at < HEALTH_SNAP_TTL_MS) {
+    return hit.value;
+  }
+
   const conds: string[] = [];
   const params: any[] = [];
   if (opts?.userId) {
@@ -545,7 +561,7 @@ export async function getHealthSnapshot(opts?: {
   const critical = instances.filter((i) => i.criticality === "critical").length;
   const warning = instances.filter((i) => i.criticality === "warning").length;
 
-  return {
+  const value = {
     instances,
     summary: {
       total: instances.length,
@@ -556,4 +572,11 @@ export async function getHealthSnapshot(opts?: {
       has_critical: critical > 0,
     },
   };
+  healthSnapCache.set(cacheKey, { at: Date.now(), value });
+  /* Evita crescer sem limite sob muitos afiliados */
+  if (healthSnapCache.size > 200) {
+    const oldest = healthSnapCache.keys().next().value;
+    if (oldest != null) healthSnapCache.delete(oldest);
+  }
+  return value;
 }

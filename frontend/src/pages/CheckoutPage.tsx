@@ -2,13 +2,14 @@ import { useEffect, useState, useCallback } from 'react'
 import { Minus, Plus, Trash2, ShoppingBag, ArrowLeft, ArrowRight, CreditCard, ImageOff, User, MapPin, CheckCircle2, QrCode, FileText, Banknote, Truck, Clock, PartyPopper, Ticket, X as XIcon, Loader2 } from 'lucide-react'
 import { WhatsAppIcon } from '@/components/icons'
 import { useNavigate } from 'react-router-dom'
-import { fetchCatalog, createOrder, validateCoupon, fetchPublicClientTypes, type Product, type PublicClientType } from '@/lib/api'
+import { fetchCatalog, createOrder, validateCoupon, fetchPublicClientTypes, quotePublicFreight, type Product, type PublicClientType, type PublicFreightQuote } from '@/lib/api'
 import { useCartStore } from '@/lib/store'
 import { getCustomer, setCustomer } from '@/lib/store'
-import { money, storeUrl, normalizePhone } from '@/lib/store-context'
+import { money, storeUrl, normalizePhone, getStoreSlug } from '@/lib/store-context'
 import { useToast } from '@/components/Toast'
 import { getAffiliateCoupon, getAffiliateOrderMeta } from '@/lib/affiliate-tracking'
 import { ClientTypePicker } from '@/components/store/ClientTypePicker'
+import { productCartWeightKg, resolveProductVolumePrice } from '@/lib/product-volume-pricing'
 
 type Step = 'cart' | 'customer' | 'delivery' | 'payment'
 
@@ -36,6 +37,10 @@ export function CheckoutPage() {
   const [notes, setNotes] = useState('')
   const [whatsappNotify, setWhatsappNotify] = useState(true)
   const [storeProfile, setStoreProfile] = useState<any>({})
+  const [cep, setCep] = useState('')
+  const [freightQuote, setFreightQuote] = useState<PublicFreightQuote | null>(null)
+  const [freightLoading, setFreightLoading] = useState(false)
+  const [freightError, setFreightError] = useState('')
 
   /* Fase 13 — coupon state. `applied` lives until the user clears it explicitly
    * or the cart subtotal moves below the min and we re-validate. */
@@ -46,6 +51,11 @@ export function CheckoutPage() {
     code: string
     discount_amount: number
     description: string | null
+  } | null>(null)
+  const [clubBenefit, setClubBenefit] = useState<{
+    club_name: string
+    discount_amount: number
+    shipping_note?: string
   } | null>(null)
 
   useEffect(() => {
@@ -72,21 +82,68 @@ export function CheckoutPage() {
   }, [])
 
   const cartKeys = Object.keys(items).filter((k) => (items[k]?.quantity || 0) > 0)
-  /** Effective unit price: prefer item.unitPrice (set when a variant is selected) over product base price. */
+  /** Preço efetivo recalculado pela quantidade; o servidor repete a mesma regra ao criar o pedido. */
   function priceFor(key: string): number {
     const it = items[key]
     if (!it) return 0
-    if (typeof it.unitPrice === 'number' && it.unitPrice > 0) return it.unitPrice
     const p = products.get(it.productId)
+    const volumePrice = p ? resolveProductVolumePrice(p, it.quantity) : null
+    if (volumePrice) return volumePrice.itemUnitPrice
+    if (typeof it.unitPrice === 'number' && it.unitPrice > 0) return it.unitPrice
     return p ? Number(p.price) : 0
   }
   const total = cartKeys.reduce((sum, key) => {
     const it = items[key]
     return sum + priceFor(key) * (it?.quantity || 0)
   }, 0)
-  /* Fase 13 — final figures with coupon */
-  const discount = couponApplied ? Math.min(couponApplied.discount_amount, total) : 0
+  const totalWeightKg = cartKeys.reduce((sum, key) => {
+    const it = items[key]
+    const product = it ? products.get(it.productId) : null
+    return sum + (it && product ? productCartWeightKg(product, it.quantity) : 0)
+  }, 0)
+  /* Fase 13 — final figures with coupon; clube aplica se não houver cupom */
+  const clubDiscount =
+    !couponApplied && clubBenefit ? Math.min(clubBenefit.discount_amount, total) : 0
+  const discount = couponApplied
+    ? Math.min(couponApplied.discount_amount, total)
+    : clubDiscount
   const finalTotal = Math.max(0, total - discount)
+
+  /* Consulta benefícios do clube quando o telefone for informado */
+  useEffect(() => {
+    const digits = String(phone || '').replace(/\D/g, '')
+    if (digits.length < 10 || total <= 0) {
+      setClubBenefit(null)
+      return
+    }
+    let cancelled = false
+    const slug = getStoreSlug()
+    const timer = window.setTimeout(() => {
+      fetch(
+        `/api/storefront/public/stores/${encodeURIComponent(slug)}/club/lookup?phone=${encodeURIComponent(digits)}&subtotal=${encodeURIComponent(String(total))}`,
+      )
+        .then((r) => r.json())
+        .then((d) => {
+          if (cancelled) return
+          if (d?.member && d?.benefits?.discount?.eligible) {
+            setClubBenefit({
+              club_name: d.benefits.club_name || 'Clube',
+              discount_amount: Number(d.benefits.discount.discount_amount || 0),
+              shipping_note: d.benefits.shipping?.note || undefined,
+            })
+          } else {
+            setClubBenefit(null)
+          }
+        })
+        .catch(() => {
+          if (!cancelled) setClubBenefit(null)
+        })
+    }, 400)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [phone, total])
 
   /* If the cart subtotal drops below what the applied coupon needs, the server
    * will reject the order. Re-validate when total changes to clear stale state. */
@@ -175,6 +232,36 @@ export function CheckoutPage() {
     setCouponApplied(null)
     setCouponInput('')
     setCouponError('')
+  }
+
+  async function calculateFreight() {
+    const normalizedCep = cep.replace(/\D/g, '')
+    if (normalizedCep.length !== 8) {
+      setFreightError('Informe um CEP válido com 8 números.')
+      return
+    }
+    setFreightLoading(true)
+    setFreightError('')
+    try {
+      const result = await quotePublicFreight({
+        cep: normalizedCep,
+        address: address || undefined,
+        cart_total: finalTotal,
+        order_weight_kg: totalWeightKg,
+        customer_phone: phone || undefined,
+      })
+      setFreightQuote(result.quote)
+      if (!result.quote.ok) setFreightError(result.quote.error || 'Não foi possível calcular a entrega.')
+      else if (result.quote.destination?.label && !address) setAddress(result.quote.destination.label)
+      if (result.club?.club_applied && result.club.club_label) {
+        showToast(result.club.club_label)
+      }
+    } catch (err: any) {
+      setFreightQuote(null)
+      setFreightError(err.message || 'Não foi possível calcular a entrega.')
+    } finally {
+      setFreightLoading(false)
+    }
   }
 
   async function handleSubmit() {
@@ -413,7 +500,20 @@ export function CheckoutPage() {
                 )}
               </div>
 
-              {couponApplied && (
+              {!couponApplied && clubBenefit && clubBenefit.discount_amount > 0 && (
+                <div className="flex items-center justify-between bg-gray-900 text-white rounded-xl px-3 py-2.5">
+                  <div className="min-w-0">
+                    <p className="text-[12px] font-bold truncate">Desconto {clubBenefit.club_name}</p>
+                    <p className="text-[10px] text-white/70">
+                      Benefício de membro · −{money(clubBenefit.discount_amount)}
+                      {clubBenefit.shipping_note ? ` · ${clubBenefit.shipping_note}` : ''}
+                    </p>
+                  </div>
+                  <span className="text-sm font-extrabold tabular-nums shrink-0">−{money(clubBenefit.discount_amount)}</span>
+                </div>
+              )}
+
+              {(couponApplied || (clubBenefit && clubDiscount > 0)) && (
                 <div className="flex justify-between items-center pt-3 border-t border-gray-100">
                   <span className="text-sm font-semibold text-gray-700">Total com desconto</span>
                   <span className="text-xl font-extrabold text-emerald-700 tabular-nums">{money(finalTotal)}</span>
@@ -503,6 +603,50 @@ export function CheckoutPage() {
           {step === 'delivery' && (
             <section className="space-y-4">
               <h2 className="text-lg font-bold text-gray-900">Entrega</h2>
+              <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+                <div className="flex items-start gap-3">
+                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[var(--brand-secondary)]/10 text-[var(--brand-secondary)]">
+                    <Truck size={19} strokeWidth={1.8} />
+                  </span>
+                  <div>
+                    <p className="text-sm font-bold text-gray-900">Calcule sua entrega</p>
+                    <p className="mt-0.5 text-[11px] leading-relaxed text-gray-500">
+                      Cotação para {totalWeightKg.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} kg, considerando distância e regras do pedido.
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-3 flex gap-2">
+                  <input
+                    value={cep}
+                    onChange={(e) => { setCep(e.target.value.replace(/\D/g, '').slice(0, 8)); setFreightQuote(null); setFreightError('') }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); calculateFreight() } }}
+                    inputMode="numeric"
+                    placeholder="CEP de entrega"
+                    aria-label="CEP de entrega"
+                    className={inputCls}
+                  />
+                  <button type="button" onClick={calculateFreight} disabled={freightLoading}
+                    className="min-w-[104px] rounded-xl bg-gray-900 px-4 text-[12px] font-bold text-white transition hover:bg-gray-800 disabled:opacity-60">
+                    {freightLoading ? <Loader2 size={16} className="mx-auto animate-spin" /> : 'Calcular'}
+                  </button>
+                </div>
+                {freightError && <p className="mt-2 text-[11px] font-medium text-red-600">{freightError}</p>}
+                {freightQuote?.ok && (
+                  <div className={`mt-3 rounded-xl border px-3.5 py-3 ${freightQuote.free_shipping ? 'border-emerald-200 bg-emerald-50' : 'border-gray-200 bg-gray-50'}`}>
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className={`text-[12px] font-bold ${freightQuote.free_shipping ? 'text-emerald-800' : 'text-gray-900'}`}>
+                          {freightQuote.free_shipping ? 'Frete gratuito liberado' : 'Frete calculado'}
+                        </p>
+                        <p className="mt-0.5 text-[10px] leading-relaxed text-gray-600">{freightQuote.copy}</p>
+                      </div>
+                      <span className={`shrink-0 text-sm font-extrabold ${freightQuote.free_shipping ? 'text-emerald-700' : 'text-gray-900'}`}>
+                        {freightQuote.free_shipping ? 'Grátis' : money(freightQuote.fee || 0)}
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
               <div>
                 <label className={labelCls}>Endereco de entrega</label>
                 <textarea value={address} onChange={e => setAddress(e.target.value)} rows={3}

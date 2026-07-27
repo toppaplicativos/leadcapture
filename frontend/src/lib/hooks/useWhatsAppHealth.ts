@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { getWhatsAppHeaders } from '@/lib/whatsapp/headers'
+import { clearAdminAuth, isHardAuthFailure } from '@/lib/admin/helpers'
 
 export interface InstanceHealth {
   id: string
@@ -33,17 +34,32 @@ const POLL_INTERVAL_MS = 60_000
 export function useWhatsAppHealth(enabled = true) {
   const [health, setHealth] = useState<HealthResponse | null>(null)
   const [loading, setLoading] = useState(true)
+  const authDeadRef = useRef(false)
 
   useEffect(() => {
     if (!enabled) return
     let alive = true
+    authDeadRef.current = false
 
     const fetchHealth = async () => {
+      if (authDeadRef.current) return
       try {
         const headers = getWhatsAppHeaders()
-        if (!headers.Authorization) return
+        if (!headers.Authorization) {
+          if (alive) setLoading(false)
+          return
+        }
         const r = await fetch('/api/instances/health', { headers })
-        if (!r.ok) return
+        if (!r.ok) {
+          let body: any = {}
+          try { body = await r.json() } catch { /* ignore */ }
+          if (isHardAuthFailure(r.status, body)) {
+            authDeadRef.current = true
+            clearAdminAuth()
+          }
+          if (alive) setLoading(false)
+          return
+        }
         const d = await r.json()
         if (alive) {
           setHealth(d)
@@ -55,7 +71,9 @@ export function useWhatsAppHealth(enabled = true) {
     }
 
     fetchHealth()
-    const interval = setInterval(fetchHealth, POLL_INTERVAL_MS)
+    const interval = setInterval(() => {
+      if (!authDeadRef.current) void fetchHealth()
+    }, POLL_INTERVAL_MS)
     return () => {
       alive = false
       clearInterval(interval)

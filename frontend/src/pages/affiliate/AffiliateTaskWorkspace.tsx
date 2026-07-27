@@ -1,11 +1,14 @@
 /**
- * Modal de TAREFA — diretor central de execução.
- * Diferente do modal de contato (detalhes/histórico): aqui se executa o que o dia pede
- * (follow-up, qualificar, proposta, pós-venda…), com template e resultado.
+ * Modal de TAREFA — fluxo em fases (product register / Impeccable).
+ *
+ * 1. overview  → visão da tarefa + "O que fazer" + seguir
+ * 2. contact   → mensagem (template certo) ou ligação
+ * 3. result    → registrar resultado da tarefa
+ * 4. done      → feedback + próxima tarefa
  */
 import { useEffect, useMemo, useState } from 'react'
 import {
-  CalendarCheck, Check, ChevronRight, Clock3, Loader2, Send, X, Zap, MessageCircle, Ban, Phone,
+  ArrowLeft, Check, ChevronRight, Clock3, Loader2, MessageCircle, Phone, Send, X,
 } from 'lucide-react'
 import { affiliateApi } from '@/lib/api-affiliate'
 import type { AppContext } from '@/pages/affiliate/types'
@@ -41,24 +44,85 @@ type Props = {
   onConnectWhatsApp?: () => void
 }
 
-const TASK_META: Record<string, { title: string; tone: 'due' | 'ok' | 'warn'; defaultTemplate: string }> = {
-  first_contact: { title: 'Primeiro contato', tone: 'due', defaultTemplate: 'optin' },
-  followup_1: { title: 'Follow-up', tone: 'warn', defaultTemplate: 'followup' },
-  followup_2: { title: '2º follow-up', tone: 'warn', defaultTemplate: 'followup' },
-  qualify: { title: 'Qualificar interesse', tone: 'ok', defaultTemplate: 'followup' },
-  proposal: { title: 'Enviar proposta', tone: 'ok', defaultTemplate: 'proposta' },
-  close: { title: 'Fechar / decidir', tone: 'ok', defaultTemplate: 'proposta' },
-  post_sale: { title: 'Pós-venda', tone: 'ok', defaultTemplate: 'followup' },
+type Phase = 'overview' | 'contact' | 'result' | 'done'
+
+const TASK_META: Record<string, { title: string; tone: 'due' | 'ok' | 'warn'; defaultTemplate: string; blurb: string }> = {
+  first_contact: {
+    title: 'C1 · Abertura',
+    tone: 'due',
+    defaultTemplate: 'optin',
+    blurb: 'Bate porta — Grande Ideia + Problema 1. Registre se houve resposta.',
+  },
+  followup_1: {
+    title: 'C2 · Check-in',
+    tone: 'warn',
+    defaultTemplate: 'followup',
+    blurb: 'Outro ângulo (D+2). Retome e registre o resultado.',
+  },
+  followup_2: {
+    title: 'C3 · Consciência',
+    tone: 'warn',
+    defaultTemplate: 'followup',
+    blurb: 'Implicação + futuro positivo (D+5).',
+  },
+  followup_3: {
+    title: 'C4 · Prova',
+    tone: 'warn',
+    defaultTemplate: 'followup',
+    blurb: 'Prova social e números (D+8).',
+  },
+  followup_4: {
+    title: 'C5 · Educação',
+    tone: 'warn',
+    defaultTemplate: 'followup',
+    blurb: 'Ensina conceito sem pressão (D+12).',
+  },
+  followup_5: {
+    title: 'C6 · Caso real',
+    tone: 'warn',
+    defaultTemplate: 'followup',
+    blurb: 'Storytelling de transformação (D+16).',
+  },
+  followup_6: {
+    title: 'C7 · Valor puro',
+    tone: 'warn',
+    defaultTemplate: 'followup',
+    blurb: 'Presente / conteúdo gratuito (D+20).',
+  },
+  followup_7: {
+    title: 'C8 · Break-up',
+    tone: 'warn',
+    defaultTemplate: 'followup',
+    blurb: 'Última chance com dignidade (D+25).',
+  },
+  qualify: {
+    title: 'Qualificar interesse',
+    tone: 'ok',
+    defaultTemplate: 'followup',
+    blurb: 'Saiu da régua cold — confirme fit e interesse real.',
+  },
+  proposal: {
+    title: 'Enviar proposta',
+    tone: 'ok',
+    defaultTemplate: 'proposta',
+    blurb: 'Envie a proposta e anote a reação.',
+  },
+  close: {
+    title: 'Fechar / decidir',
+    tone: 'ok',
+    defaultTemplate: 'proposta',
+    blurb: 'Empurre a decisão e registre o desfecho.',
+  },
+  post_sale: {
+    title: 'Pós-venda',
+    tone: 'ok',
+    defaultTemplate: 'followup',
+    blurb: 'Toque de pós-venda e encerramento.',
+  },
 }
 
-/** Templates sugeridos no compositor conforme tipo de tarefa */
-const TEMPLATE_CHIPS: { id: string; label: string }[] = [
-  { id: 'optin', label: '1ª mensagem' },
-  { id: 'followup', label: 'Follow-up' },
-  { id: 'proposta', label: 'Proposta' },
-]
-
-const DESTRUCTIVE_ACTIONS = new Set(['lost', 'channel_unavailable', 'not_matching', 'dismiss'])
+const DESTRUCTIVE_ACTIONS = new Set(['lost', 'not_matching', 'dismiss'])
+const CONFIRM_ACTIONS = new Set([...DESTRUCTIVE_ACTIONS, 'channel_unavailable'])
 
 function isPersistedTaskId(id: string) {
   return Boolean(id)
@@ -84,6 +148,13 @@ function formatDue(iso: string) {
   }
 }
 
+const PHASE_LABEL: Record<Phase, string> = {
+  overview: 'Visão',
+  contact: 'Mensagem',
+  result: 'Resultado',
+  done: 'Concluído',
+}
+
 export function AffiliateTaskWorkspace({
   task,
   ctx,
@@ -96,20 +167,30 @@ export function AffiliateTaskWorkspace({
     title: 'Tarefa',
     tone: 'due' as const,
     defaultTemplate: task.template_id || 'followup',
+    blurb: 'Execute o contato e registre o resultado.',
   }
+
   const [templateId, setTemplateId] = useState(
     () => task.template_id || meta.defaultTemplate,
   )
-
+  const [phase, setPhase] = useState<Phase>('overview')
   const [contact, setContact] = useState<AttendanceOpportunity | null>(null)
   const [loading, setLoading] = useState(true)
   const [showComposer, setShowComposer] = useState(false)
   const [saving, setSaving] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [doneMsg, setDoneMsg] = useState<string | null>(null)
-  const [sentRegistered, setSentRegistered] = useState(false)
+  const [nextTaskFeedback, setNextTaskFeedback] = useState<{ due_at: string; instruction?: string | null } | null>(null)
   const [confirmAction, setConfirmAction] = useState<string | null>(null)
   const [taskChannel, setTaskChannel] = useState<'whatsapp' | 'phone'>('whatsapp')
+  const [managedTemplates, setManagedTemplates] = useState<Array<{
+    program_id?: string | null
+    message_step: number
+    trigger_result: string
+    title: string
+    body: string
+  }>>([])
+  const [managedProgramId, setManagedProgramId] = useState<string | null>(null)
 
   useEffect(() => {
     const prev = document.body.style.overflow
@@ -119,17 +200,38 @@ export function AffiliateTaskWorkspace({
 
   useEffect(() => {
     setTemplateId(task.template_id || meta.defaultTemplate)
+    setPhase('overview')
+    setDoneMsg(null)
+    setNextTaskFeedback(null)
+    setError(null)
+    setConfirmAction(null)
+    setShowComposer(false)
+    setTaskChannel('whatsapp')
   }, [task.id, task.template_id, meta.defaultTemplate])
+
+  useEffect(() => {
+    let cancelled = false
+    affiliateApi.messageTemplates()
+      .then((result) => {
+        if (cancelled) return
+        setManagedTemplates(Array.isArray(result.templates) ? result.templates : [])
+        setManagedProgramId(String(result.program_id || '').trim() || null)
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setManagedTemplates([])
+          setManagedProgramId(null)
+        }
+      })
+    return () => { cancelled = true }
+  }, [task.id, ctx.cacheVersion])
 
   useEffect(() => {
     let cancelled = false
     setLoading(true)
     setError(null)
-    setSentRegistered(false)
-    setDoneMsg(null)
-    setConfirmAction(null)
     affiliateApi
-      .opportunities('all', 1, 400, { includeClosed: true })
+      .opportunities('all', 1, 150, { includeClosed: true })
       .then((r) => {
         if (cancelled) return
         const open = Array.isArray(r.all_open) ? r.all_open : []
@@ -202,6 +304,53 @@ export function AffiliateTaskWorkspace({
   const persistedTaskId = isPersistedTaskId(task.id) ? task.id : undefined
   const executable = isTaskDue(task.due_at)
 
+  const managedTemplate = useMemo(() => {
+    /* C1–C8: task_type followup_N → mensagem N+1; first_contact → C1 (ou opt-in) */
+    const stepByTask: Record<string, number> = {
+      first_contact: templateId === 'optin' ? 0 : 1,
+      followup_1: 2,
+      followup_2: 3,
+      followup_3: 4,
+      followup_4: 5,
+      followup_5: 6,
+      followup_6: 7,
+      followup_7: 8,
+      qualify: 3,
+      proposal: 4,
+      close: 4,
+      post_sale: 3,
+    }
+    const triggerByTask: Record<string, string> = {
+      first_contact: templateId === 'optin' ? 'optin' : 'start',
+      followup_1: 'no_answer',
+      followup_2: 'no_answer',
+      followup_3: 'no_answer',
+      followup_4: 'no_answer',
+      followup_5: 'no_answer',
+      followup_6: 'no_answer',
+      followup_7: 'no_answer',
+      qualify: 'replied',
+      proposal: 'negotiating',
+      close: 'negotiating',
+      post_sale: 'replied',
+    }
+    const step = stepByTask[task.task_type] ?? (templateId === 'optin' ? 0 : 1)
+    const trigger = triggerByTask[task.task_type] || (step === 0 ? 'optin' : step === 1 ? 'start' : 'no_answer')
+    const candidates = managedTemplates
+      .filter((item) => Number(item.message_step) === step)
+      .sort((left, right) => {
+        const leftRank = managedProgramId && left.program_id === managedProgramId ? 0 : 1
+        const rightRank = managedProgramId && right.program_id === managedProgramId ? 0 : 1
+        return leftRank - rightRank
+      })
+    const selected = candidates.find((item) => item.trigger_result === trigger)
+      || candidates.find((item) => item.trigger_result === 'no_answer')
+      || candidates.find((item) => item.trigger_result === 'start')
+    return selected
+      ? { body: selected.body, title: selected.title, source: selected.program_id ? 'Programa' : 'Marca' }
+      : null
+  }, [managedProgramId, managedTemplates, task.task_type, templateId])
+
   async function runProgress(
     action: string,
     extra?: { message?: string; note?: string; stayOpen?: boolean; channel?: 'whatsapp' | 'phone' },
@@ -230,25 +379,22 @@ export function AffiliateTaskWorkspace({
     const patch = patchFromAction(contact.ref_type, contact.ref_id, action, {
       note: payload.note,
     })
-    patchOpportunitiesCache(patch)
-    /* Enviado no meio da tarefa: atualiza lista mas NÃO fecha o modal */
-    if (action === 'sent' || action === 'called' || extra?.stayOpen) {
-      onChanged?.({ ...patch, action: action === 'called' ? 'called' : 'sent' })
-    } else {
-      onChanged?.(patch)
-    }
     try {
       const res = await affiliateApi.progressOpportunity(contact.ref_type, contact.ref_id, payload)
+      patchOpportunitiesCache(patch)
+
       if (action === 'sent' || action === 'called' || extra?.stayOpen) {
-        setSentRegistered(true)
+        onChanged?.({ ...patch, action: action === 'called' ? 'called' : 'sent' })
+        setPhase('result')
         setDoneMsg(null)
         ctx.showToast(
           res.toast
           || (action === 'called'
-            ? 'Ligação registrada · agora o resultado'
-            : 'Mensagem registrada · agora o resultado'),
+            ? 'Ligação registrada · escolha o resultado'
+            : 'Mensagem registrada · escolha o resultado'),
         )
       } else {
+        onChanged?.(patch)
         const exitMsg: Record<string, string> = {
           lost: 'Excluído · contato saiu da fila',
           channel_unavailable: 'Canal indisponível · contato excluído',
@@ -257,22 +403,28 @@ export function AffiliateTaskWorkspace({
         }
         const toast = exitMsg[action] || res.toast || 'Tarefa concluída'
         setDoneMsg(toast)
+        setNextTaskFeedback(res.next_task ? {
+          due_at: res.next_task.due_at,
+          instruction: res.next_task.instruction,
+        } : null)
+        setPhase('done')
         ctx.showToast(toast)
-        /* Exclusão: fecha na hora; demais resultados: breve feedback */
-        if (DESTRUCTIVE_ACTIONS.has(action)) {
-          onClose()
-        } else {
-          window.setTimeout(() => onClose(), 450)
+        if (DESTRUCTIVE_ACTIONS.has(action) || (res.removed_from_queue && action !== 'post_sale_completed')) {
+          /* Destrutivos: feedback breve e fecha */
+          window.setTimeout(() => onClose(), 700)
         }
       }
     } catch (e) {
       if (isNetworkLikeError(e)) {
         enqueueProgress(contact.ref_type, contact.ref_id, payload)
+        patchOpportunitiesCache(patch)
         ctx.showToast('Salvo no aparelho — sincroniza depois')
         if (action === 'sent' || action === 'called' || extra?.stayOpen) {
-          setSentRegistered(true)
+          setPhase('result')
         } else {
-          onClose()
+          onChanged?.(patch)
+          setPhase('done')
+          setDoneMsg('Salvo offline')
         }
       } else {
         setError(e instanceof Error ? e.message : 'Falha ao concluir')
@@ -284,18 +436,17 @@ export function AffiliateTaskWorkspace({
   }
 
   function requestOutcome(action: string) {
-    if (DESTRUCTIVE_ACTIONS.has(action)) {
+    if (CONFIRM_ACTIONS.has(action)) {
       setConfirmAction(action)
       return
     }
     void runProgress(action)
   }
 
-  /** Ações rápidas de resultado conforme tipo de tarefa + canal */
   const quickOutcomes = useMemo(() => {
     if (task.task_type === 'post_sale') {
       return [
-        { action: 'note', label: 'Pós-venda feito', desc: 'Marcar como concluído' },
+        { action: 'post_sale_completed', label: 'Pós-venda concluído', desc: 'Encerrar esta tarefa' },
         { action: 'waiting', label: 'Lembrar depois', desc: 'Outro toque amanhã' },
       ]
     }
@@ -346,6 +497,26 @@ export function AffiliateTaskWorkspace({
     },
   }
 
+  const contactName = contact?.name || task.contact_name || 'Contato'
+  const whatToDo = task.instruction || contact?.next_action || meta.blurb
+
+  const primaryMessageLabel =
+    task.task_type === 'proposal' || templateId === 'proposta'
+      ? 'Enviar proposta'
+      : task.task_type === 'first_contact' || templateId === 'optin'
+        ? 'Enviar 1ª mensagem'
+        : task.task_type === 'post_sale'
+          ? 'Enviar pós-venda'
+          : 'Enviar follow-up'
+
+  function goBackPhase() {
+    if (phase === 'contact') setPhase('overview')
+    else if (phase === 'result') setPhase('contact')
+    else onClose()
+  }
+
+  const stepIndex = phase === 'overview' ? 0 : phase === 'contact' ? 1 : phase === 'result' ? 2 : 3
+
   return (
     <>
       <div
@@ -356,110 +527,162 @@ export function AffiliateTaskWorkspace({
         onMouseDown={onClose}
       >
         <div
-          className="relative flex max-h-[min(96dvh,820px)] w-full flex-col overflow-hidden rounded-t-[22px] bg-white shadow-2xl sm:max-w-lg sm:rounded-[22px]"
+          className="relative flex max-h-[min(94dvh,720px)] w-full flex-col overflow-hidden rounded-t-[22px] bg-white shadow-2xl sm:max-w-md sm:rounded-[22px]"
           onMouseDown={(e) => e.stopPropagation()}
         >
           <div className="flex justify-center py-2 sm:hidden" aria-hidden>
-            <span className="h-1 w-10 rounded-full bg-neutral-300" />
+            <span className="h-1 w-9 rounded-full bg-neutral-300" />
           </div>
 
-          <header className="border-b border-neutral-200 px-4 pb-3 pt-1 sm:px-5 sm:pt-4">
-            <div className="flex items-start gap-3">
-              <span
-                className={[
-                  'grid h-11 w-11 shrink-0 place-items-center rounded-2xl',
-                  meta.tone === 'warn' ? 'bg-amber-50 text-amber-800' : meta.tone === 'ok' ? 'bg-emerald-50 text-emerald-800' : 'bg-red-50 text-red-700',
-                ].join(' ')}
-              >
-                <CalendarCheck size={20} />
-              </span>
+          {/* Top bar */}
+          <header className="shrink-0 border-b border-neutral-100 px-4 pb-3 pt-0.5 sm:px-5 sm:pt-4">
+            <div className="flex items-center gap-2">
+              {phase !== 'overview' && phase !== 'done' ? (
+                <button
+                  type="button"
+                  aria-label="Voltar"
+                  onClick={goBackPhase}
+                  className="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-neutral-600 active:bg-neutral-100"
+                >
+                  <ArrowLeft size={18} />
+                </button>
+              ) : (
+                <span className="w-0 sm:w-0" />
+              )}
               <div className="min-w-0 flex-1">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400">Tarefa de hoje</p>
-                <h2 className="mt-0.5 text-[17px] font-bold tracking-[-0.02em] text-neutral-950">
+                <p className="text-[11px] font-semibold text-neutral-500">
+                  {PHASE_LABEL[phase]}
+                  {phase !== 'done' ? ` · ${stepIndex + 1}/3` : ''}
+                </p>
+                <h2 className="truncate text-[16px] font-bold tracking-tight text-neutral-950">
                   {meta.title}
                 </h2>
-                <p className="mt-0.5 truncate text-xs text-neutral-600">
-                  {contact?.name || task.contact_name || 'Contato'}
-                </p>
-                <p className="mt-1 text-[11px] font-semibold text-amber-800">
-                  <Clock3 size={12} className="mr-1 inline" />
-                  {formatDue(task.due_at)}
-                </p>
               </div>
               <button
                 type="button"
                 aria-label="Fechar"
                 onClick={onClose}
-                className="grid h-11 w-11 place-items-center rounded-2xl text-neutral-500 active:bg-neutral-100"
+                className="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-neutral-500 active:bg-neutral-100"
               >
                 <X size={18} />
               </button>
             </div>
-            {(task.instruction || contact?.next_action) && (
-              <div className="mt-3 rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2.5 text-[12px] leading-snug text-neutral-800">
-                <p className="font-bold text-neutral-950">O que fazer</p>
-                <p className="mt-0.5">{task.instruction || contact?.next_action}</p>
-              </div>
-            )}
-            {sentRegistered && (
-              <div className="mt-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-[11px] font-semibold text-emerald-900">
-                Contato registrado · escolha o resultado abaixo (modal permanece aberto)
+
+            {/* Step dots */}
+            {phase !== 'done' && (
+              <div className="mt-3 flex gap-1.5" aria-hidden>
+                {[0, 1, 2].map((i) => (
+                  <span
+                    key={i}
+                    className={[
+                      'h-1 flex-1 rounded-full transition-colors',
+                      i <= stepIndex ? 'bg-neutral-900' : 'bg-neutral-200',
+                    ].join(' ')}
+                  />
+                ))}
               </div>
             )}
           </header>
 
-          <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-5">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-5">
             {loading && (
-              <div className="flex items-center gap-2 py-8 text-sm text-neutral-500">
-                <Loader2 size={16} className="animate-spin" /> Carregando contato…
+              <div className="flex items-center justify-center gap-2 py-14 text-sm text-neutral-500">
+                <Loader2 size={16} className="animate-spin" /> Carregando…
               </div>
             )}
 
             {error && (
-              <div className="mb-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+              <div className="mb-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-800">
                 {error}
               </div>
             )}
 
-            {doneMsg && (
-              <div className="mb-3 flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-xs font-semibold text-emerald-900">
-                <Check size={14} /> {doneMsg}
-              </div>
-            )}
+            {!loading && contact && phase === 'overview' && (
+              <div className="space-y-5">
+                <div>
+                  <p className="text-[13px] font-semibold text-neutral-950">{contactName}</p>
+                  <p className="mt-1 inline-flex items-center gap-1 text-[12px] font-medium text-neutral-600">
+                    <Clock3 size={13} />
+                    {formatDue(task.due_at)}
+                  </p>
+                </div>
 
-            {!loading && contact && (
-              <div className="space-y-4">
+                <section className="rounded-2xl border border-neutral-200 bg-neutral-50 px-4 py-3.5">
+                  <p className="text-[11px] font-bold text-neutral-500">O que fazer</p>
+                  <p className="mt-1.5 text-[14px] font-medium leading-snug text-neutral-950">
+                    {whatToDo}
+                  </p>
+                  <p className="mt-2 text-[12px] leading-relaxed text-neutral-600">
+                    {meta.blurb}
+                  </p>
+                </section>
+
                 {!executable && (
-                  <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3.5 py-3 text-amber-950">
-                    <p className="text-[13px] font-bold">Tarefa ainda não liberada</p>
-                    <p className="mt-1 text-[12px] leading-relaxed">
-                      Disponível {formatDueAt(task.due_at)} · {formatCountdown(task.due_at)}.
-                      Envio e resultado ficam bloqueados até o horário.
-                    </p>
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-[12px] leading-relaxed text-amber-950">
+                    Disponível {formatDueAt(task.due_at)} ({formatCountdown(task.due_at)}).
                   </div>
                 )}
 
-                <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  disabled={!executable}
+                  onClick={() => setPhase('contact')}
+                  className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-neutral-900 text-sm font-bold text-white active:scale-[0.99] disabled:opacity-40"
+                >
+                  Seguir para mensagem
+                  <ChevronRight size={17} />
+                </button>
+
+                {onOpenContact && (
                   <button
                     type="button"
+                    onClick={() => onOpenContact(contact)}
+                    className="flex min-h-10 w-full items-center justify-center text-[12px] font-semibold text-neutral-500"
+                  >
+                    Ver ficha e histórico
+                  </button>
+                )}
+              </div>
+            )}
+
+            {!loading && contact && phase === 'contact' && (
+              <div className="space-y-5">
+                <div>
+                  <p className="text-[13px] font-semibold text-neutral-950">{contactName}</p>
+                  <p className="mt-0.5 text-[12px] text-neutral-500">
+                    Envie a mensagem (ou ligue) para avançar ao resultado.
+                  </p>
+                </div>
+
+                <div
+                  className="grid grid-cols-2 gap-1 rounded-xl bg-neutral-100 p-1"
+                  role="tablist"
+                  aria-label="Canal"
+                >
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={taskChannel === 'whatsapp'}
                     onClick={() => setTaskChannel('whatsapp')}
                     className={[
-                      'min-h-10 rounded-xl border text-[11px] font-bold',
+                      'min-h-9 rounded-lg text-[12px] font-semibold transition',
                       taskChannel === 'whatsapp'
-                        ? 'border-neutral-900 bg-neutral-900 text-white'
-                        : 'border-neutral-200 bg-white text-neutral-700',
+                        ? 'bg-white text-neutral-950 shadow-sm'
+                        : 'text-neutral-600',
                     ].join(' ')}
                   >
                     WhatsApp
                   </button>
                   <button
                     type="button"
+                    role="tab"
+                    aria-selected={taskChannel === 'phone'}
                     onClick={() => setTaskChannel('phone')}
                     className={[
-                      'min-h-10 rounded-xl border text-[11px] font-bold',
+                      'min-h-9 rounded-lg text-[12px] font-semibold transition',
                       taskChannel === 'phone'
-                        ? 'border-sky-700 bg-sky-700 text-white'
-                        : 'border-neutral-200 bg-white text-neutral-700',
+                        ? 'bg-white text-neutral-950 shadow-sm'
+                        : 'text-neutral-600',
                     ].join(' ')}
                   >
                     Telefone
@@ -467,30 +690,27 @@ export function AffiliateTaskWorkspace({
                 </div>
 
                 {taskChannel === 'whatsapp' ? (
-                  <>
-                    <div>
-                      <p className="mb-1.5 text-[11px] font-semibold text-neutral-500">Template da mensagem</p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {TEMPLATE_CHIPS.map((chip) => {
-                          const on = templateId === chip.id
-                          return (
-                            <button
-                              key={chip.id}
-                              type="button"
-                              disabled={!executable}
-                              onClick={() => setTemplateId(chip.id)}
-                              className={[
-                                'h-9 rounded-full border px-3 text-[11px] font-semibold transition',
-                                on
-                                  ? 'border-neutral-900 bg-neutral-900 text-white'
-                                  : 'border-neutral-200 bg-white text-neutral-700 active:bg-neutral-50',
-                                !executable ? 'opacity-40' : '',
-                              ].join(' ')}
-                            >
-                              {chip.label}
-                            </button>
-                          )
-                        })}
+                  <div className="space-y-3">
+                    <div className="rounded-2xl border border-neutral-200 bg-white px-4 py-3.5">
+                      <div className="flex items-start gap-3">
+                        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-neutral-100 text-neutral-700">
+                          <MessageCircle size={16} />
+                        </span>
+                        <div className="min-w-0">
+                          <p className="text-[11px] font-semibold text-neutral-500">Template desta tarefa</p>
+                          <p className="mt-0.5 text-[14px] font-semibold text-neutral-950">
+                            {managedTemplate?.title || primaryMessageLabel}
+                          </p>
+                          {managedTemplate?.source ? (
+                            <p className="mt-0.5 text-[11px] text-neutral-500">
+                              Base: {managedTemplate.source}
+                            </p>
+                          ) : (
+                            <p className="mt-0.5 text-[11px] text-neutral-500">
+                              Modelo padrão da etapa
+                            </p>
+                          )}
+                        </div>
                       </div>
                     </div>
 
@@ -498,32 +718,26 @@ export function AffiliateTaskWorkspace({
                       type="button"
                       disabled={!hasWa || !!saving || !executable}
                       onClick={() => setShowComposer(true)}
-                      className="flex min-h-12 w-full items-center justify-center gap-2 rounded-[18px] bg-neutral-950 px-4 text-sm font-bold text-white active:scale-[0.99] disabled:opacity-40"
+                      className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-neutral-900 text-sm font-bold text-white active:scale-[0.99] disabled:opacity-40"
                     >
                       <Send size={16} />
-                      {task.task_type === 'proposal' || templateId === 'proposta'
-                        ? 'Abrir mensagem de proposta'
-                        : task.task_type === 'first_contact' || templateId === 'optin'
-                          ? 'Abrir 1ª mensagem'
-                          : task.task_type === 'post_sale'
-                            ? 'Abrir mensagem de pós-venda'
-                            : 'Abrir follow-up de hoje'}
+                      {primaryMessageLabel}
                     </button>
 
                     {!hasWa && (
-                      <p className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
-                        Sem WhatsApp neste contato. Use telefone ou marque canal indisponível.
+                      <p className="text-[12px] leading-relaxed text-amber-900">
+                        Sem número neste contato.
                         {onConnectWhatsApp ? (
                           <>
                             {' '}
                             <button type="button" className="font-bold underline" onClick={onConnectWhatsApp}>
-                              Conectar WhatsApp
+                              Abrir conexões
                             </button>
                           </>
                         ) : null}
                       </p>
                     )}
-                  </>
+                  </div>
                 ) : (
                   <div className="space-y-2">
                     <button
@@ -535,74 +749,93 @@ export function AffiliateTaskWorkspace({
                         window.location.href = `tel:+${d.startsWith('55') ? d : d}`
                         ctx.showToast('Discando… registre a ligação ao voltar')
                       }}
-                      className="flex min-h-12 w-full items-center justify-center gap-2 rounded-[18px] bg-sky-700 px-4 text-sm font-bold text-white active:scale-[0.99] disabled:opacity-40"
+                      className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-neutral-900 text-sm font-bold text-white active:scale-[0.99] disabled:opacity-40"
                     >
-                      <Phone size={16} />
-                      Ligar agora
+                      <Phone size={16} /> Ligar agora
                     </button>
                     <button
                       type="button"
                       disabled={!hasWa || !!saving || !executable}
                       onClick={() => void runProgress('called', { channel: 'phone', stayOpen: true })}
-                      className="flex min-h-11 w-full items-center justify-center gap-2 rounded-[16px] border border-sky-200 bg-sky-50 text-sm font-bold text-sky-950 disabled:opacity-40"
+                      className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-neutral-200 bg-white text-sm font-semibold text-neutral-800 disabled:opacity-40"
                     >
                       {saving === 'called' ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
-                      Já liguei · registrar tentativa
+                      Já liguei · registrar e seguir
                     </button>
                   </div>
                 )}
+              </div>
+            )}
 
+            {!loading && contact && phase === 'result' && (
+              <div className="space-y-4">
                 <div>
-                  <p className="mb-1.5 text-[11px] font-semibold text-neutral-500">
-                    {sentRegistered ? 'Registrar resultado (próximo passo)' : 'Registrar resultado da tarefa'}
+                  <p className="text-[13px] font-semibold text-neutral-950">{contactName}</p>
+                  <p className="mt-0.5 text-[12px] text-neutral-500">
+                    Contato feito. Como foi o resultado desta tarefa?
                   </p>
-                  <ul className="space-y-1.5">
-                    {quickOutcomes.map((o) => (
-                      <li key={o.action}>
-                        <button
-                          type="button"
-                          disabled={!!saving || !executable}
-                          onClick={() => requestOutcome(o.action)}
-                          className="flex min-h-12 w-full items-center gap-3 rounded-xl border border-neutral-200 bg-white px-3 text-left active:bg-neutral-50 disabled:opacity-50"
-                        >
-                          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-neutral-100 text-neutral-700">
-                            {o.action === 'replied' || o.action === 'negotiating' ? (
-                              taskChannel === 'phone' ? <Phone size={16} /> : <MessageCircle size={16} />
-                            ) : o.action === 'lost' || o.action === 'channel_unavailable' ? (
-                              <Ban size={16} />
-                            ) : (
-                              <Zap size={16} />
-                            )}
-                          </span>
-                          <span className="min-w-0 flex-1">
-                            <strong className="block text-[13px] text-neutral-950">{o.label}</strong>
-                            <span className="block text-[11px] text-neutral-500">{o.desc}</span>
-                          </span>
-                          {saving === o.action ? (
-                            <Loader2 size={16} className="animate-spin text-neutral-400" />
-                          ) : (
-                            <ChevronRight size={16} className="text-neutral-300" />
-                          )}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
                 </div>
 
-                {onOpenContact && (
-                  <button
-                    type="button"
-                    onClick={() => onOpenContact(contact)}
-                    className="flex min-h-11 w-full items-center justify-center gap-1.5 rounded-xl border border-neutral-200 text-xs font-semibold text-neutral-700 active:bg-neutral-50"
-                  >
-                    Ver ficha do contato (histórico)
-                  </button>
+                <ul className="divide-y divide-neutral-100 overflow-hidden rounded-2xl border border-neutral-200">
+                  {quickOutcomes.map((o) => (
+                    <li key={o.action}>
+                      <button
+                        type="button"
+                        disabled={!!saving || !executable}
+                        onClick={() => requestOutcome(o.action)}
+                        className="flex min-h-[54px] w-full items-center gap-3 px-3.5 py-2.5 text-left active:bg-neutral-50 disabled:opacity-45"
+                      >
+                        <span className="min-w-0 flex-1">
+                          <strong className="block text-[13px] font-semibold text-neutral-950">
+                            {o.label}
+                          </strong>
+                          <span className="block text-[11px] text-neutral-500">{o.desc}</span>
+                        </span>
+                        {saving === o.action ? (
+                          <Loader2 size={16} className="shrink-0 animate-spin text-neutral-400" />
+                        ) : (
+                          <ChevronRight size={16} className="shrink-0 text-neutral-300" />
+                        )}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {!loading && phase === 'done' && (
+              <div className="py-6 text-center">
+                <span className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-emerald-100 text-emerald-700">
+                  <Check size={22} />
+                </span>
+                <h3 className="mt-3 text-base font-bold text-neutral-950">Tarefa concluída</h3>
+                <p className="mt-1 text-sm text-neutral-600">{doneMsg || 'Registrado com sucesso.'}</p>
+                {nextTaskFeedback ? (
+                  <div className="mt-4 rounded-2xl border border-neutral-200 bg-neutral-50 p-3.5 text-left">
+                    <p className="text-[11px] font-semibold text-neutral-500">Próxima tarefa</p>
+                    <p className="mt-1 text-sm font-semibold text-neutral-900">
+                      {nextTaskFeedback.instruction || 'Continuar o atendimento'}
+                    </p>
+                    <p className="mt-0.5 text-xs text-neutral-600">
+                      {formatDueAt(nextTaskFeedback.due_at)}
+                    </p>
+                  </div>
+                ) : (
+                  <p className="mt-4 text-[12px] text-neutral-500">
+                    Nenhuma nova tarefa necessária agora.
+                  </p>
                 )}
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="mt-5 flex min-h-11 w-full items-center justify-center rounded-xl bg-neutral-900 text-sm font-bold text-white"
+                >
+                  {nextTaskFeedback ? 'Próxima' : 'Voltar para tarefas'}
+                </button>
               </div>
             )}
           </div>
 
-          {/* Confirmação de saída destrutiva */}
           {confirmAction && (
             <div className="absolute inset-0 z-10 flex items-end justify-center bg-black/40 p-4 sm:items-center">
               <div className="w-full max-w-sm rounded-2xl bg-white p-4 shadow-xl">
@@ -641,9 +874,10 @@ export function AffiliateTaskWorkspace({
           leads={[lead]}
           initialBrandName={String(ctx.brand?.name || contact.brand_name || '')}
           initialProductName={String(contact.product_name || '').trim()}
+          initialSenderName={String(ctx.affiliate?.display_name || '').trim()}
           initialValueProposition={String(ctx.brand?.slogan || '').trim()}
           initialTemplateId={templateId}
-          /* trackedLinks vazio: o modal auto-carrega links do afiliado e restaura preferência. */
+          managedTemplate={managedTemplate}
           trackedLinks={{}}
           onClose={() => setShowComposer(false)}
           onAiPersonalize={async ({ lead: l, currentMessage, templateId: tid }) => {
@@ -655,10 +889,10 @@ export function AffiliateTaskWorkspace({
             })
             return String(result.message || currentMessage)
           }}
-          onSent={async () => {
+          onSent={async (_lead, finalMessage) => {
             setShowComposer(false)
-            /* Marca enviado; modal de tarefa permanece para registrar o resultado */
-            await runProgress('sent', { stayOpen: true })
+            /* Enviar → avança para fase de resultado */
+            await runProgress('sent', { message: finalMessage, stayOpen: true })
           }}
         />
       )}

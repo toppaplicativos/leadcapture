@@ -102,6 +102,7 @@ export const NAV_MODULE_MAP: Record<string, keyof PlatformModules | null> = {
   estoque: "catalog",
   afiliados: "affiliates",
   cupons: "catalog",
+  clube: "catalog",
   avaliacoes: "catalog",
   loja: "catalog",
   pagamentos: "catalog",

@@ -37,6 +37,7 @@ const OPERATIONAL_EXACT = new Set([
   '/mob',
   '/estoque',
   '/cupons',
+  '/clube',
   '/avaliacoes',
   '/pagamentos',
   '/provedores-ia',

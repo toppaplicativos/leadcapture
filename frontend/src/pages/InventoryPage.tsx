@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   LayoutDashboard, Package, ArrowLeftRight, Truck, AlertTriangle, BarChart3,
-  RefreshCw, LogOut, Menu, X, Users,
+  RefreshCw, LogOut, Menu, X, Users, ShoppingCart, UserRound,
 } from 'lucide-react'
 import {
   inventoryApi,
@@ -22,6 +22,8 @@ import { ExpeditionView } from './stock/views/ExpeditionView'
 import { AlertsView } from './stock/views/AlertsView'
 import { ClientsView } from './stock/views/ClientsView'
 import { ReportsView } from './stock/views/ReportsView'
+import { PosView } from './stock/views/PosView'
+import { ProfileView } from './stock/views/ProfileView'
 import { resolveStockDeepLink } from './stock/deepLink'
 import { ensurePushSubscription, pushPermission } from '@/lib/push/client'
 
@@ -213,15 +215,17 @@ export function InventoryPage() {
   const navItems: { key: ViewKey; icon: typeof LayoutDashboard; label: string; short: string; badge?: number }[] = [
     { key: 'overview', icon: LayoutDashboard, label: 'Início', short: 'Início' },
     { key: 'products', icon: Package, label: 'Produtos', short: 'Produtos' },
+    { key: 'pos', icon: ShoppingCart, label: 'PDV', short: 'PDV' },
     { key: 'expedition', icon: Truck, label: 'Expedição', short: 'Expedir' },
     { key: 'movements', icon: ArrowLeftRight, label: 'Movimentações', short: 'Mov.' },
     { key: 'alerts', icon: AlertTriangle, label: 'Alertas', short: 'Alertas', badge: alertCount },
     { key: 'clients', icon: Users, label: 'Clientes', short: 'Clientes' },
     { key: 'reports', icon: BarChart3, label: 'Relatórios', short: 'Relat.' },
+    { key: 'profile', icon: UserRound, label: 'Minha conta', short: 'Conta' },
   ]
   /** Thumb zone: jobs do chão de loja — Início, Produtos, Expedir, Alertas, Clientes */
   const bottomItems = navItems.filter((n) =>
-    ['overview', 'products', 'expedition', 'alerts', 'clients'].includes(n.key),
+    ['overview', 'products', 'pos', 'expedition', 'alerts'].includes(n.key),
   )
 
   return (
@@ -263,11 +267,12 @@ export function InventoryPage() {
               <RefreshCw size={16} strokeWidth={1.75} />
             </button>
             <button
-              onClick={logout}
-              aria-label="Sair"
-              className="w-11 h-11 grid place-items-center rounded-xl text-gray-500 hover:bg-gray-100 hover:text-gray-900 active:scale-95 transition"
+              onClick={() => switchView('profile')}
+              aria-label="Abrir meu perfil"
+              aria-current={view === 'profile' ? 'page' : undefined}
+              className={`w-11 h-11 grid place-items-center rounded-xl active:scale-95 transition ${view === 'profile' ? 'bg-gray-900 text-white' : 'text-gray-500 hover:bg-gray-100 hover:text-gray-900'}`}
             >
-              <LogOut size={16} strokeWidth={1.75} />
+              <UserRound size={17} strokeWidth={1.75} />
             </button>
           </div>
         </header>
@@ -382,6 +387,7 @@ export function InventoryPage() {
               />
             )}
             {view === 'movements' && <MovementsView showToast={showToast} />}
+            {view === 'pos' && <PosView showToast={showToast} onFinished={() => setRefreshKey((k) => k + 1)} />}
             {view === 'expedition' && <ExpeditionView showToast={showToast} />}
             {view === 'alerts' && (
               <AlertsView
@@ -392,6 +398,7 @@ export function InventoryPage() {
             )}
             {view === 'clients' && <ClientsView showToast={showToast} />}
             {view === 'reports' && <ReportsView showToast={showToast} />}
+            {view === 'profile' && <ProfileView showToast={showToast} />}
           </div>
         </main>
       </div>

@@ -187,10 +187,10 @@ function outcomeGroupsForChannel(channel: ContactChannel): Array<{ title: string
         ],
       },
       {
-        title: 'Sair da fila',
+        title: 'Canal e encerramento',
         items: [
           { action: 'not_matching', title: 'Número errado', desc: 'Não é o contato certo', tone: 'warn', icon: UserX },
-          { action: 'channel_unavailable', title: 'Telefone morto', desc: 'Não existe / fora de área', tone: 'warn', icon: PhoneOff },
+          { action: 'channel_unavailable', title: 'Telefone indisponível', desc: 'Tentar outro canal disponível', tone: 'warn', icon: PhoneOff },
           { action: 'lost', title: 'Sem interesse', desc: 'Excluir da fila', tone: 'danger', icon: Ban },
           { action: 'dismiss', title: 'Ocultar para mim', desc: 'Some da sua lista', tone: 'danger', icon: X },
         ],
@@ -220,7 +220,7 @@ function outcomeGroupsForChannel(channel: ContactChannel): Array<{ title: string
       ],
     },
     {
-      title: 'Sair da fila',
+      title: 'Canal e encerramento',
       items: [
         {
           action: 'not_matching',
@@ -229,7 +229,7 @@ function outcomeGroupsForChannel(channel: ContactChannel): Array<{ title: string
           tone: 'warn',
           icon: UserX,
         },
-        { action: 'channel_unavailable', title: 'Canal indisponível', desc: 'WA/telefone não funciona', tone: 'warn', icon: PhoneOff },
+        { action: 'channel_unavailable', title: 'WhatsApp indisponível', desc: 'Tentar outro canal disponível', tone: 'warn', icon: PhoneOff },
         { action: 'lost', title: 'Sem interesse', desc: 'Excluir da fila', tone: 'danger', icon: Ban },
         { action: 'dismiss', title: 'Ocultar para mim', desc: 'Some da sua lista', tone: 'danger', icon: X },
       ],
@@ -305,6 +305,19 @@ export function AffiliateAttendanceWorkspace({
   const [nextTask, setNextTask] = useState<OpsNextTask | null>(null)
   const [localPhase, setLocalPhase] = useState(phase)
   const [contactRegistered, setContactRegistered] = useState(alreadySent)
+  const [trackedLinks, setTrackedLinks] = useState<{
+    catalogUrl?: string
+    products?: Array<{ id: string; name: string; url: string; priceLabel?: string }>
+  }>({})
+  const [managedTemplates, setManagedTemplates] = useState<Array<{
+    id: string
+    program_id?: string | null
+    message_step: number
+    trigger_result: string
+    title: string
+    body: string
+  }>>([])
+  const [managedProgramId, setManagedProgramId] = useState<string | null>(null)
 
   const defaultTemplate =
     item.suggested_template
@@ -321,6 +334,56 @@ export function AffiliateAttendanceWorkspace({
     document.body.style.overflow = 'hidden'
     return () => { document.body.style.overflow = prev }
   }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    affiliateApi.messageTemplates()
+      .then((result) => {
+        if (!cancelled) {
+          setManagedTemplates(Array.isArray(result.templates) ? result.templates : [])
+          setManagedProgramId(String(result.program_id || '').trim() || null)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setManagedTemplates([])
+          setManagedProgramId(null)
+        }
+      })
+    return () => { cancelled = true }
+  }, [ctx.cacheVersion])
+
+  const managedTemplate = useMemo(() => {
+    if (!managedTemplates.length) return null
+    /* Régua C1–C8: conta envios outbound e escolhe template pelo resultado anterior */
+    const sentCount = history.filter((event) =>
+      ['sent', 'followup', 'called'].includes(String(event.action || '').toLowerCase()),
+    ).length
+    const requestedStep = composerTemplateId === 'optin'
+      ? 0
+      : Math.min(8, Math.max(1, sentCount + 1))
+    const rawTrigger = String(lastAction || (composerTemplateId === 'followup' ? 'no_answer' : 'start')).toLowerCase()
+    const trigger = requestedStep === 0
+      ? 'optin'
+      : requestedStep === 1
+        ? 'start'
+        : ['no_answer', 'auto_reply', 'replied', 'waiting', 'negotiating', 'busy', 'voicemail', 'callback_requested'].includes(rawTrigger)
+          ? rawTrigger
+          : 'no_answer'
+    const candidates = managedTemplates
+      .filter((template) => Number(template.message_step) === requestedStep)
+      .sort((left, right) => {
+        const leftProgram = managedProgramId && left.program_id === managedProgramId ? 0 : 1
+        const rightProgram = managedProgramId && right.program_id === managedProgramId ? 0 : 1
+        return leftProgram - rightProgram
+      })
+    const exact = candidates.find((template) => template.trigger_result === trigger)
+    const fallback = candidates.find((template) => template.trigger_result === (requestedStep === 0 ? 'optin' : requestedStep === 1 ? 'start' : 'no_answer'))
+      || candidates.find((template) => template.trigger_result === 'no_answer')
+      || candidates.find((template) => template.trigger_result === 'start')
+    const selected = exact || fallback || null
+    return selected ? { body: selected.body, title: selected.title, source: selected.program_id ? 'Programa' : 'Marca', step: requestedStep } : null
+  }, [managedTemplates, managedProgramId, history, composerTemplateId, lastAction])
 
   /* Histórico do contato + última ação + próxima tarefa (agenda) */
   useEffect(() => {
@@ -426,6 +489,29 @@ export function AffiliateAttendanceWorkspace({
   )
 
   const resultGroups = useMemo(() => outcomeGroupsForChannel(activeChannel), [activeChannel])
+  const unavailableChannels = useMemo(
+    () => new Set(
+      channelSummary
+        .filter((row) => row.last_action === 'channel_unavailable')
+        .map((row) => row.channel),
+    ),
+    [channelSummary],
+  )
+  const contactChannels = useMemo(() => {
+    const channels: ContactChannel[] = []
+    if (hasWa) channels.push('whatsapp')
+    if (phoneDigits.length >= 8) channels.push('phone')
+    if (String(item.channels?.instagram || item.instagram || '').replace(/^@/, '').trim()) channels.push('instagram')
+    return channels
+  }, [hasWa, phoneDigits.length, item.channels?.instagram, item.instagram])
+  const remainingContactChannels = contactChannels.filter((channel) => !unavailableChannels.has(channel))
+  const activeChannelIsLast = remainingContactChannels.length <= 1 && remainingContactChannels.includes(activeChannel)
+
+  useEffect(() => {
+    if (!unavailableChannels.has(activeChannel)) return
+    const next = remainingContactChannels.find((channel) => channel === 'whatsapp' || channel === 'phone')
+    if (next) setActiveChannel(next)
+  }, [activeChannel, remainingContactChannels, unavailableChannels])
 
   /* Saúde do WhatsApp (instância do afiliado) */
   useEffect(() => {
@@ -472,6 +558,38 @@ export function AffiliateAttendanceWorkspace({
     })
     return () => { cancelled = true }
   }, [ctx.cacheVersion])
+
+  useEffect(() => {
+    if (!hasWa) return
+    let cancelled = false
+    affiliateApi.links(30)
+      .then((result) => {
+        if (cancelled) return
+        const products = Array.isArray(result?.products) ? result.products : []
+        const wanted = String(item.product_name || '').trim().toLowerCase()
+        const mappedProducts = products
+          .filter((product: any) => String(product?.product_url || '').trim())
+          .map((product: any) => ({
+            id: String(product.id || product.slug || product.product_url),
+            name: String(product.name || 'Produto'),
+            url: String(product.product_url),
+            priceLabel: Number(product.promo_price || product.price) > 0
+              ? Number(product.promo_price || product.price).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+              : undefined,
+          }))
+          .sort((a: any, b: any) => {
+            const aMatch = wanted && a.name.toLowerCase().includes(wanted) ? 1 : 0
+            const bMatch = wanted && b.name.toLowerCase().includes(wanted) ? 1 : 0
+            return bMatch - aMatch || a.name.localeCompare(b.name, 'pt-BR')
+          })
+        setTrackedLinks({
+          catalogUrl: String(result?.links?.catalog_url || '').trim() || undefined,
+          products: mappedProducts,
+        })
+      })
+      .catch(() => setTrackedLinks({}))
+    return () => { cancelled = true }
+  }, [hasWa, item.product_name, ctx.cacheVersion])
 
   function emitOptimistic(action: string, noteOut?: string, channel: ContactChannel = activeChannel) {
     const patch = patchFromAction(item.ref_type, item.ref_id, action, { note: noteOut })
@@ -525,7 +643,7 @@ export function AffiliateAttendanceWorkspace({
   const unavailable =
     localPhase === 'closed'
     || isClosed
-    || ['lost', 'channel_unavailable', 'not_matching', 'dismiss', 'converted', 'recycled'].includes(
+    || ['lost', 'not_matching', 'dismiss', 'converted', 'recycled'].includes(
       String(item.status_code || lastAction || '').toLowerCase(),
     )
 
@@ -665,15 +783,18 @@ export function AffiliateAttendanceWorkspace({
     }
   }
 
-  const EXIT_ACTIONS = new Set(['lost', 'channel_unavailable', 'not_matching', 'dismiss'])
+  const EXIT_ACTIONS = new Set(['lost', 'not_matching', 'dismiss'])
 
   async function applyOutcome(action: ProgressAction) {
-    const isExit = EXIT_ACTIONS.has(action)
+    const channelWillExhaust = action === 'channel_unavailable' && activeChannelIsLast
+    const isExit = EXIT_ACTIONS.has(action) || channelWillExhaust
     if (
-      isExit
+      (isExit || action === 'channel_unavailable')
       && !window.confirm(
         action === 'channel_unavailable'
-          ? 'Marcar canal indisponível e remover este contato da sua fila?'
+          ? channelWillExhaust
+            ? `Marcar ${channelLabel(activeChannel)} indisponível? Este é o último canal disponível e o contato será encerrado.`
+            : `Marcar ${channelLabel(activeChannel)} indisponível e continuar pelo próximo canal?`
           : action === 'not_matching'
             ? 'Marcar como não correspondente e remover da sua fila?'
             : action === 'dismiss'
@@ -720,7 +841,7 @@ export function AffiliateAttendanceWorkspace({
     }
 
     /* Otimista: contato avança de fase; onChanged no hub fecha e volta à Fila. */
-    emitOptimistic(action, noteOut, channel)
+    if (action !== 'channel_unavailable') emitOptimistic(action, noteOut, channel)
     setLastChannel(channel)
     if (action === 'note') {
       ctx.showToast('Anotação salva')
@@ -732,7 +853,30 @@ export function AffiliateAttendanceWorkspace({
       setLastActionAt(new Date().toISOString())
       if (res.phase) setLocalPhase(res.phase)
 
-      if (isExit) {
+      if (action === 'channel_unavailable' && !res.removed_from_queue) {
+        const now = new Date().toISOString()
+        setChannelSummary((current) => [
+          {
+            channel,
+            label: channelLabel(channel),
+            attempts: (current.find((row) => row.channel === channel)?.attempts || 0) + 1,
+            last_action: action,
+            last_action_label: actionLabel(action, channel),
+            last_at: now,
+          },
+          ...current.filter((row) => row.channel !== channel),
+        ])
+        const next = (res.remaining_channels || []).find((candidate) => candidate === 'whatsapp' || candidate === 'phone')
+        if (next) setActiveChannel(next)
+        setLocalPhase(res.phase || 'to_contact')
+        setNextTask(res.next_task ? normalizeNextTask({ ...res.next_task, is_due: res.next_task.is_due }) : null)
+        setStep('lead')
+        ctx.showToast(res.toast || `${channelLabel(channel)} indisponível · tente outro canal`)
+        onChanged()
+        return
+      }
+
+      if (res.removed_from_queue || isExit) {
         ctx.showToast(exitToasts[action] || res.toast || 'Contato removido da fila')
         /* Fecha de imediato — exclusão não deixa ficha “viva” */
         onClose()
@@ -1053,7 +1197,17 @@ export function AffiliateAttendanceWorkspace({
                 )}
 
                 {hasWa && (
-                  <button type="button" onClick={() => window.open(`https://wa.me/${whatsappDigits}`, '_blank', 'noopener,noreferrer')} className="flex min-h-11 w-full items-center justify-center gap-2 rounded-[16px] text-xs font-semibold text-neutral-600">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      window.open(`https://wa.me/${whatsappDigits}`, '_blank', 'noopener,noreferrer')
+                      /* Marca contatado ao abrir WA (antes só o envio pelo composer fazia isso) */
+                      if (!sentOk && (ops.phase === 'new' || ops.phase === 'to_contact' || !ops.phase)) {
+                        void markSent()
+                      }
+                    }}
+                    className="flex min-h-11 w-full items-center justify-center gap-2 rounded-[16px] text-xs font-semibold text-neutral-600"
+                  >
                     <WhatsAppIcon size={15} /> Abrir conversa no WhatsApp
                   </button>
                 )}
@@ -1082,37 +1236,57 @@ export function AffiliateAttendanceWorkspace({
                 </div>
 
                 {/* Seletor de canal de ação */}
+                {unavailableChannels.size > 0 && remainingContactChannels.length > 0 && (
+                  <div className="flex items-start gap-2.5 rounded-2xl border border-amber-200 bg-amber-50 px-3.5 py-3">
+                    <PhoneOff size={17} className="mt-0.5 shrink-0 text-amber-800" />
+                    <div className="min-w-0">
+                      <p className="text-[12px] font-bold text-amber-950">Ainda há outro caminho</p>
+                      <p className="mt-0.5 text-[11px] leading-relaxed text-amber-900">
+                        {Array.from(unavailableChannels).map((channel) => channelLabel(channel)).join(' e ')} indisponível.
+                        {' '}Continue por {remainingContactChannels.map((channel) => channelLabel(channel)).join(' ou ')}.
+                      </p>
+                    </div>
+                  </div>
+                )}
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
+                    disabled={unavailableChannels.has('whatsapp')}
                     onClick={() => setActiveChannel('whatsapp')}
                     className={[
                       'flex min-h-12 items-center justify-center gap-2 rounded-2xl border text-sm font-bold transition',
                       activeChannel === 'whatsapp'
                         ? 'border-neutral-900 bg-neutral-900 text-white'
-                        : 'border-neutral-200 bg-white text-neutral-800',
+                        : unavailableChannels.has('whatsapp')
+                          ? 'cursor-not-allowed border-neutral-200 bg-neutral-100 text-neutral-400'
+                          : 'border-neutral-200 bg-white text-neutral-800',
                     ].join(' ')}
                   >
                     <WhatsAppIcon size={16} /> WhatsApp
+                    {unavailableChannels.has('whatsapp') && <span className="text-[10px] font-semibold opacity-75">Indisponível</span>}
                   </button>
                   <button
                     type="button"
+                    disabled={unavailableChannels.has('phone')}
                     onClick={() => setActiveChannel('phone')}
                     className={[
                       'flex min-h-12 items-center justify-center gap-2 rounded-2xl border text-sm font-bold transition',
                       activeChannel === 'phone'
                         ? 'border-sky-700 bg-sky-700 text-white'
-                        : 'border-neutral-200 bg-white text-neutral-800',
+                        : unavailableChannels.has('phone')
+                          ? 'cursor-not-allowed border-neutral-200 bg-neutral-100 text-neutral-400'
+                          : 'border-neutral-200 bg-white text-neutral-800',
                     ].join(' ')}
                   >
                     <Phone size={16} /> Telefone
+                    {unavailableChannels.has('phone') && <span className="text-[10px] font-semibold opacity-75">Indisponível</span>}
                   </button>
                 </div>
 
                 {/* Saída rápida na fase inicial — negativos de rede */}
                 <div className="space-y-2 rounded-2xl border border-neutral-200 bg-white p-3">
                   <p className="text-[11px] font-semibold text-neutral-500">
-                    Contato inválido? (remove da rede)
+                    Verificação do contato
                   </p>
                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                     <button
@@ -1149,9 +1323,9 @@ export function AffiliateAttendanceWorkspace({
                         )}
                       </span>
                       <span className="min-w-0">
-                        <strong className="block text-[12px] text-neutral-950">Canal morto</strong>
+                        <strong className="block text-[12px] text-neutral-950">{channelLabel(activeChannel)} indisponível</strong>
                         <span className="block text-[10px] text-neutral-600 leading-snug">
-                          Número não existe / fora de área — some para todos
+                          {activeChannelIsLast ? 'Último canal · encerra o contato' : 'Mantém o contato e libera o próximo canal'}
                         </span>
                       </span>
                     </button>
@@ -1615,23 +1789,41 @@ export function AffiliateAttendanceWorkspace({
           leads={[lead]}
           initialBrandName={String(ctx.brand?.name || item.brand_name || '')}
           initialProductName={String(item.product_name || '').trim()}
+          initialSenderName={String(ctx.affiliate?.display_name || '').trim()}
           initialValueProposition={String(ctx.brand?.slogan || '').trim()}
           initialTemplateId={composerTemplateId || defaultTemplate}
+          managedTemplate={managedTemplate}
+          messageContext={{
+            previousAction: lastAction,
+            previousChannel: lastChannel,
+            previousMessage: history.find((event) => event.message)?.message || null,
+            previousNote: history.find((event) => event.note)?.note || null,
+            taskType: nextTask?.task_type || null,
+            taskInstruction: nextTask?.instruction || item.next_action || null,
+          }}
+          autoPersonalize
+          trackedLinks={trackedLinks}
           onClose={() => {
             setShowComposer(false)
             if (step === 'message' && !sentOk) setStep('lead')
           }}
-          onAiPersonalize={async ({ lead: l, currentMessage, templateId }) => {
+          onAiPersonalize={async ({ lead: l, currentMessage, templateId, context, customFields }) => {
             const [refType, refId] = String(l.id || '').split(':')
             const result = await affiliateApi.assistOpportunity(refType, refId, {
               intent: templateId === 'optin' ? 'optin_authorization' : templateId,
-              instruction: currentMessage.slice(0, 600),
+              instruction: [
+                context?.taskInstruction,
+                Object.keys(customFields || {}).length
+                  ? `Informações extras: ${Object.entries(customFields || {}).map(([key, value]) => `${key}: ${value}`).join('; ')}`
+                  : null,
+                `Base atual: ${currentMessage}`,
+              ].filter(Boolean).join('\n').slice(0, 600),
             })
             return String(result.message || currentMessage)
           }}
-          onSent={async () => {
+          onSent={async (_lead, finalMessage) => {
             setShowComposer(false)
-            await markSent()
+            await markSent(finalMessage)
           }}
         />
       )}

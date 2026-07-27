@@ -7,6 +7,7 @@ import {
   UserCheck, Trash2, Edit3, ChevronUp, Sparkles,
 } from 'lucide-react'
 import { InstagramIcon, WhatsAppIcon } from '@/components/icons'
+import { resolveProductVolumePrice } from '@/lib/product-volume-pricing'
 
 /* ═══════════════════════════════════════════
    TYPES
@@ -14,11 +15,12 @@ import { InstagramIcon, WhatsAppIcon } from '@/components/icons'
 interface Product {
   id: string; name: string; price: number; promoPrice?: number
   imageUrl?: string; image?: string; unit?: string
+  metadata?: Record<string, any>
   stock_available?: number; category?: string; sku?: string
 }
 interface CartItem {
-  product_id: string; name: string; price: number; qty: number
-  unit: string; image?: string
+  product_id: string; name: string; price: number; basePrice: number; qty: number
+  unit: string; image?: string; metadata?: Record<string, any>
 }
 interface Customer {
   id?: string; name: string; phone: string; email?: string
@@ -220,10 +222,10 @@ export function AgentPDVPage() {
       ? p.promoPrice : p.price
     setCart(prev => {
       const ex = prev.find(c => c.product_id === p.id)
-      if (ex) return prev.map(c => c.product_id === p.id ? { ...c, qty: c.qty + 1 } : c)
+      if (ex) return prev.map(c => { if(c.product_id!==p.id)return c; const qty=c.qty+1; return {...c,qty,price:resolveProductVolumePrice(c,qty)?.itemUnitPrice??c.basePrice} })
       return [...prev, {
-        product_id: p.id, name: p.name, price, qty: 1,
-        unit: p.unit || 'un', image: p.imageUrl || p.image || '',
+        product_id: p.id, name: p.name, price: resolveProductVolumePrice(p,1)?.itemUnitPrice??price, basePrice:price, qty: 1,
+        unit: p.unit || 'un', image: p.imageUrl || p.image || '', metadata:p.metadata,
       }]
     })
     setProductSearch('')
@@ -234,14 +236,14 @@ export function AgentPDVPage() {
 
   function updateQty(pid: string, delta: number) {
     setCart(prev =>
-      prev.map(c => c.product_id === pid ? { ...c, qty: Math.max(0, c.qty + delta) } : c)
+      prev.map(c => { if(c.product_id!==pid)return c; const qty=Math.max(0,c.qty+delta); return {...c,qty,price:resolveProductVolumePrice(c,qty)?.itemUnitPrice??c.basePrice} })
           .filter(c => c.qty > 0)
     )
   }
   function setQtyDirect(pid: string, v: string) {
     const n = parseFloat(v.replace(',', '.'))
     if (!v || isNaN(n) || n <= 0) { setCart(prev => prev.filter(c => c.product_id !== pid)); return }
-    setCart(prev => prev.map(c => c.product_id === pid ? { ...c, qty: n } : c))
+    setCart(prev => prev.map(c => c.product_id === pid ? { ...c, qty: n, price: resolveProductVolumePrice(c,n)?.itemUnitPrice??c.basePrice } : c))
   }
   function removeItem(pid: string) {
     setCart(prev => prev.filter(c => c.product_id !== pid))

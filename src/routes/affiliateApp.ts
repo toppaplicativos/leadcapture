@@ -17,12 +17,14 @@ import {
 } from "../services/affiliateCommission";
 import { affiliateDistributionService } from "../services/affiliateDistribution";
 import { affiliateCrmService } from "../services/affiliateCrm";
+import { affiliateRankingAwardsService } from "../services/affiliateRankingAwards";
 import { CommerceService } from "../services/commerce";
 import { getHealthSnapshot } from "../services/whatsappHealth";
 import { aiRouter } from "../services/aiRouter";
 import { runAffiliateAttendanceAssist } from "../services/affiliateAttendanceAssist";
 import { buildAffiliatePublicLinks } from "../services/storefrontPageMeta";
 import { buildAffiliateSharePack } from "../services/affiliateSharePack";
+import { affiliateTrackingDomainsService } from "../services/affiliateTrackingDomains";
 import {
   applyCadenceAfterProgress,
   completeAttendanceTask,
@@ -34,6 +36,7 @@ import {
 } from "../services/attendanceCadence";
 import {
   actionLabel as multiChannelActionLabel,
+  CHANNEL_LABELS,
   defaultChannelForAction,
   ensureManualActionsChannelSchema,
   isInitiatingAction,
@@ -42,6 +45,7 @@ import {
   type ContactChannel,
 } from "../services/affiliateContactChannel";
 import { recordCaptureFeedback, type CaptureFeedbackEvent } from "../services/captureFeedback";
+import { affiliateMessageTemplatesService } from "../services/affiliateMessageTemplates";
 import { resolveOpportunityTaxonomy } from "../services/nicheTaxonomy";
 import { randomUUID } from "crypto";
 import bcrypt from "bcryptjs";
@@ -151,6 +155,23 @@ async function getAffiliateProfile(ctx: AffiliateContext) {
 }
 
 /** Comissão da inscrição/programa multi (R$/kg etc.) — não o mock 10% da config legada */
+router.get("/message-templates", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = await requireAffiliateCredential(req, res);
+    if (!ctx) return;
+    const affiliate = await getAffiliateProfile(ctx);
+    if (!affiliate) return res.status(404).json({ error: "Perfil de afiliado não encontrado" });
+    const result = await affiliateMessageTemplatesService.listForAffiliate(
+      ctx.ownerUserId,
+      ctx.brandId,
+      String(affiliate.id),
+    );
+    res.json({ success: true, ...result });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Falha ao carregar templates" });
+  }
+});
+
 async function resolveBrandCommissionDisplay(
   ctx: AffiliateContext,
   affiliate: any,
@@ -305,6 +326,80 @@ router.get("/dashboard", async (req: AuthRequest, res: Response) => {
   }
 });
 
+/** Ranking real da rede (métricas compostas no período). */
+router.get("/ranking", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = await requireAffiliateCredential(req, res);
+    if (!ctx) return;
+    const affiliate = await getAffiliateProfile(ctx);
+    if (!affiliate) return res.status(404).json({ error: "Perfil de afiliado não encontrado" });
+    const period = String(req.query.period || "month") as any;
+    const board = await affiliateRankingAwardsService.getLeaderboard({
+      ownerUserId: String(affiliate.owner_user_id || ctx.ownerUserId || ""),
+      brandId: ctx.brandId,
+      period,
+      limit: Math.min(Number(req.query.limit) || 40, 80),
+      highlightAffiliateId: String(affiliate.id),
+    });
+    res.json({ success: true, ...board });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Falha ao carregar ranking" });
+  }
+});
+
+/** Premiações / desafios ativos para o afiliado. */
+router.get("/challenges", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = await requireAffiliateCredential(req, res);
+    if (!ctx) return;
+    const affiliate = await getAffiliateProfile(ctx);
+    if (!affiliate) return res.status(404).json({ error: "Perfil de afiliado não encontrado" });
+    // Atualiza progresso/vencedores em background leve
+    void affiliateRankingAwardsService.evaluateAllActive(ctx.brandId).catch(() => null);
+    const challenges = await affiliateRankingAwardsService.listChallengesForAffiliate({
+      brandId: ctx.brandId,
+      affiliateId: String(affiliate.id),
+    });
+    res.json({ success: true, challenges });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Falha ao carregar premiações" });
+  }
+});
+
+router.post("/challenges/:id/accept", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = await requireAffiliateCredential(req, res);
+    if (!ctx) return;
+    const affiliate = await getAffiliateProfile(ctx);
+    if (!affiliate) return res.status(404).json({ error: "Perfil de afiliado não encontrado" });
+    const result = await affiliateRankingAwardsService.acceptChallenge({
+      challengeId: String(req.params.id),
+      brandId: ctx.brandId,
+      affiliateId: String(affiliate.id),
+    });
+    res.json({ success: true, ...result });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message || "Falha ao aceitar premiação" });
+  }
+});
+
+router.post("/challenges/:id/decline", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = await requireAffiliateCredential(req, res);
+    if (!ctx) return;
+    const affiliate = await getAffiliateProfile(ctx);
+    if (!affiliate) return res.status(404).json({ error: "Perfil de afiliado não encontrado" });
+    const result = await affiliateRankingAwardsService.declineChallenge({
+      challengeId: String(req.params.id),
+      brandId: ctx.brandId,
+      affiliateId: String(affiliate.id),
+    });
+    res.json({ success: true, ...result });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message || "Falha ao recusar premiação" });
+  }
+});
+
 router.get("/sales", async (req: AuthRequest, res: Response) => {
   try {
     const ctx = await requireAffiliateCredential(req, res);
@@ -448,6 +543,19 @@ router.get("/links", async (req: AuthRequest, res: Response) => {
       console.error("[affiliate-app/links] share pack:", packErr?.message || packErr);
     }
 
+    let supportDomains: any[] = [];
+    try {
+      const domainRows = await affiliateTrackingDomainsService.listActiveByBrand(ctx.brandId);
+      supportDomains = affiliateTrackingDomainsService.buildAffiliateDomainLinks({
+        domains: domainRows,
+        code,
+        couponCode: coupon,
+      });
+    } catch (supportErr: any) {
+      console.error("[affiliate-app/links] support_domains:", supportErr?.message || supportErr);
+      supportDomains = [];
+    }
+
     res.json({
       success: true,
       code,
@@ -467,6 +575,8 @@ router.get("/links", async (req: AuthRequest, res: Response) => {
         catalog_url: publicLinks.catalog_url,
         origin: publicLinks.origin,
       },
+      /** Sites institucionais / landings cadastrados pela org */
+      support_domains: supportDomains,
       /** Preview OG + mensagem estruturada (WhatsApp visual) */
       share: {
         catalog: catalogPack,
@@ -964,14 +1074,40 @@ router.get("/orders", async (req: AuthRequest, res: Response) => {
       [ctx.brandId, String(affiliate.coupon_code || "")]
     ).catch(() => []);
 
+    /* Itens do pedido (até 5 primeiros por pedido para preview no app) */
+    const orderIds = (orders || []).map((o) => String(o.id)).slice(0, 40);
+    let itemsByOrder = new Map<string, any[]>();
+    if (orderIds.length) {
+      const ph = orderIds.map(() => "?").join(",");
+      const itemRows = await query<any[]>(
+        `SELECT order_id, nome, quantidade, valor_unitario, valor_total, product_id
+         FROM commerce_order_items
+         WHERE order_id IN (${ph})
+         ORDER BY id ASC`,
+        orderIds,
+      ).catch(() => []);
+      for (const row of itemRows || []) {
+        const oid = String(row.order_id);
+        const list = itemsByOrder.get(oid) || [];
+        if (list.length < 8) list.push(row);
+        itemsByOrder.set(oid, list);
+      }
+    }
+
+    const enriched = (orders || []).map((o) => ({
+      ...o,
+      items: itemsByOrder.get(String(o.id)) || [],
+      checkout_url: o.payment_link || (o.checkout_token ? `${req.protocol}://${req.get("host")}/pedido/${o.checkout_token}` : null),
+    }));
+
     const summary = {
-      total: orders.length,
-      open: orders.filter((o) => !["entregue", "cancelado", "estornado", "abandonado"].includes(String(o.status_pedido))).length,
-      awaiting_payment: orders.filter((o) => ["criado", "aguardando_pagamento"].includes(String(o.status_pedido))).length,
-      completed: orders.filter((o) => String(o.status_pedido) === "entregue").length,
-      revenue: orders.filter((o) => !["cancelado", "estornado", "abandonado"].includes(String(o.status_pedido))).reduce((sum, o) => sum + Number(o.valor_total || 0), 0),
+      total: enriched.length,
+      open: enriched.filter((o) => !["entregue", "cancelado", "estornado", "abandonado"].includes(String(o.status_pedido))).length,
+      awaiting_payment: enriched.filter((o) => ["criado", "aguardando_pagamento"].includes(String(o.status_pedido))).length,
+      completed: enriched.filter((o) => String(o.status_pedido) === "entregue").length,
+      revenue: enriched.filter((o) => !["cancelado", "estornado", "abandonado"].includes(String(o.status_pedido))).reduce((sum, o) => sum + Number(o.valor_total || 0), 0),
     };
-    res.json({ success: true, orders, summary });
+    res.json({ success: true, orders: enriched, summary });
   } catch (e: any) {
     res.status(500).json({ error: e.message || "Falha ao listar pedidos" });
   }
@@ -999,9 +1135,17 @@ router.post("/orders", async (req: AuthRequest, res: Response) => {
       customer_phone: String(payload.customer_phone).trim(),
       cupom_codigo: String(affiliate.coupon_code || "").trim() || undefined,
       checkout_base_url: origin,
-      itens: items.map((item: any) => ({ product_id: String(item.product_id || ""), quantidade: Math.max(1, Number(item.quantity || 1)) })),
+      itens: items.map((item: any) => ({
+        product_id: String(item.product_id || ""),
+        quantidade: Math.max(0.001, Math.min(100000, Number(item.quantity || 1))),
+      })),
     });
-    res.status(201).json({ success: true, ...created });
+    res.status(201).json({
+      success: true,
+      ...created,
+      checkout_url: created.checkout_url || null,
+      coupon_code: affiliate.coupon_code || null,
+    });
   } catch (e: any) {
     const status = e?.code === "INSUFFICIENT_STOCK" ? 409 : 400;
     res.status(status).json({ error: e.message || "Falha ao criar pedido", shortages: e?.shortages || undefined });
@@ -1321,8 +1465,8 @@ router.get("/opportunities", async (req: AuthRequest, res: Response) => {
 
     const segment = String(req.query.segment || "all").trim() as any;
     const page = Math.max(1, Number(req.query.page) || 1);
-    /* Cap 500 — payloads gigantes derrubam mobile (Failed to fetch / timeout) */
-    const limit = Math.min(Math.max(Number(req.query.limit) || 200, 1), 500);
+    /* Cap 200 sob pressão de pool PG — payloads grandes + EMAXCONNSESSION derrubam a aba */
+    const limit = Math.min(Math.max(Number(req.query.limit) || 120, 1), 200);
     const includeClosedRaw = String(req.query.include_closed ?? "").trim().toLowerCase();
     const includeClosed =
       includeClosedRaw === "0" || includeClosedRaw === "false"
@@ -1375,12 +1519,26 @@ router.get("/opportunities", async (req: AuthRequest, res: Response) => {
           warning: String(inner?.message || "stats_degraded"),
         });
       } catch (fallbackErr: any) {
+        const msg = String(fallbackErr?.message || inner?.message || "");
+        if (/EMAXCONNSESSION|max clients/i.test(msg)) {
+          return res.status(503).json({
+            error: "Servidor ocupado no momento. Tente de novo em instantes.",
+            code: "db_busy",
+          });
+        }
         return res.status(500).json({
           error: fallbackErr?.message || inner?.message || "Falha ao listar oportunidades",
         });
       }
     }
   } catch (e: any) {
+    const msg = String(e?.message || "");
+    if (/EMAXCONNSESSION|max clients/i.test(msg)) {
+      return res.status(503).json({
+        error: "Servidor ocupado no momento. Tente de novo em instantes.",
+        code: "db_busy",
+      });
+    }
     res.status(500).json({ error: e.message || "Falha ao listar oportunidades" });
   }
 });
@@ -1429,9 +1587,26 @@ router.get("/opportunities/pool", async (req: AuthRequest, res: Response) => {
     const affiliate = await getAffiliateProfile(ctx);
     if (!affiliate) return res.status(404).json({ error: "Perfil de afiliado não encontrado" });
 
-    const limit = Math.min(Math.max(Number(req.query.limit) || 80, 1), 150);
+    /* Cap menor sob pressão de pool PG — FE já pagina/filtra no client */
+    const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 80);
 
-    // Pool primeiro; elegibilidade não pode derrubar a listagem
+    // Pool e elegibilidade rodam juntos; nenhum precisa esperar o outro.
+    const eligibilityPromise = affiliateDistributionService.getQuickClaimEligibility({
+      ownerUserId: ctx.ownerUserId,
+      brandId: ctx.brandId,
+      affiliateId: String(affiliate.id),
+      affiliateUserId: ctx.affiliateUserId,
+    }).catch((eligErr: any) => {
+      console.warn("[affiliate] quick eligibility failed (pool still returned):", eligErr?.message || eligErr);
+      return {
+        can_claim: true,
+        claim_blockers: [] as string[],
+        registered_whatsapp_ok: false,
+        registered_whatsapp: null,
+        whatsapp_status: null,
+      };
+    });
+
     let pool: any = {
       items: [],
       open_pool_enabled: true,
@@ -1447,7 +1622,9 @@ router.get("/opportunities/pool", async (req: AuthRequest, res: Response) => {
         limit,
       });
     } catch (poolErr: any) {
-      console.warn("[affiliate] pool list failed:", poolErr?.message || poolErr);
+      const msg = String(poolErr?.message || poolErr || "");
+      console.warn("[affiliate] pool list failed:", msg);
+      const busy = /EMAXCONNSESSION|max clients|timeout|ETIMEDOUT/i.test(msg);
       return res.status(200).json({
         success: true,
         items: [],
@@ -1455,28 +1632,26 @@ router.get("/opportunities/pool", async (req: AuthRequest, res: Response) => {
         claim_ttl_minutes: 90,
         total: 0,
         can_claim: false,
-        claim_blockers: ["Não foi possível carregar o pool agora. Tente de novo."],
-        error_soft: String(poolErr?.message || "pool_failed"),
+        claim_blockers: [
+          busy
+            ? "Servidor ocupado no momento. Puxe para atualizar em alguns segundos."
+            : "Não foi possível carregar o pool agora. Tente de novo.",
+        ],
+        error_soft: busy ? "db_busy" : String(poolErr?.message || "pool_failed"),
       });
     }
 
-    let eligibility: any = {
-      can_claim: true,
-      claim_blockers: [] as string[],
-      registered_whatsapp_ok: false,
-      registered_whatsapp: null,
-      whatsapp_status: null,
-    };
-    try {
-      eligibility = await affiliateDistributionService.syncAffiliateDistributionStatus({
+    const eligibility: any = await eligibilityPromise;
+
+    /* Atualiza status completo fora do caminho crítico (não await) */
+    void affiliateDistributionService
+      .syncAffiliateDistributionStatus({
         ownerUserId: ctx.ownerUserId,
         brandId: ctx.brandId,
         affiliateId: String(affiliate.id),
         affiliateUserId: ctx.affiliateUserId,
-      });
-    } catch (eligErr: any) {
-      console.warn("[affiliate] eligibility failed (pool still returned):", eligErr?.message || eligErr);
-    }
+      })
+      .catch(() => undefined);
 
     res.json({
       success: true,
@@ -1488,6 +1663,13 @@ router.get("/opportunities/pool", async (req: AuthRequest, res: Response) => {
       whatsapp_status: eligibility.whatsapp_status,
     });
   } catch (e: any) {
+    const msg = String(e?.message || "");
+    if (/EMAXCONNSESSION|max clients/i.test(msg)) {
+      return res.status(503).json({
+        error: "Servidor ocupado no momento. Tente de novo em instantes.",
+        code: "db_busy",
+      });
+    }
     res.status(500).json({ error: e.message || "Falha ao carregar oportunidades disponíveis" });
   }
 });
@@ -1788,6 +1970,12 @@ router.post("/opportunities/:refType/:refId/assist", async (req: AuthRequest, re
     const intent = String(req.body?.intent || "primeiro_contato").trim();
     const instruction = String(req.body?.instruction || "").trim().slice(0, 600);
     const firstName = String(item.name || "").trim().split(/\s+/)[0] || "tudo bem";
+    const affiliateName = String(affiliate.display_name || "").trim() || "afiliado";
+    const affiliateRegion = [affiliate.city, affiliate.region]
+      .map((value: unknown) => String(value || "").trim())
+      .filter(Boolean)
+      .join(" / ");
+    const affiliateBio = String(affiliate.bio || "").trim().slice(0, 500);
 
     // Contexto comercial da MARCA (cliente final) — nunca do programa de afiliados
     const brandRow = await queryOne<any>(
@@ -1818,6 +2006,51 @@ router.post("/opportunities/:refType/:refId/assist", async (req: AuthRequest, re
       || brandSlogan
       || "produtos e soluções da marca";
 
+    const recentActions = await query<any[]>(
+      `SELECT action, message_text, note, channel, created_at
+         FROM affiliate_manual_actions
+        WHERE affiliate_id = ? AND brand_id = ? AND ref_type = ? AND ref_id = ?
+        ORDER BY created_at DESC
+        LIMIT 12`,
+      [String(affiliate.id), ctx.brandId, item.ref_type, item.ref_id],
+    ).catch(() => []);
+    const latestOperationalAction = (recentActions || []).find((row) =>
+      !["ai_draft", "note"].includes(String(row.action || "").toLowerCase()),
+    );
+    const historySummary = (recentActions || [])
+      .slice(0, 8)
+      .reverse()
+      .map((row) => {
+        const detail = String(row.message_text || row.note || "").trim().slice(0, 240);
+        return `${row.channel || "sistema"}: ${row.action}${detail ? ` — ${detail}` : ""}`;
+      })
+      .join("\n");
+
+    const campaign = await queryOne<any>(
+      `SELECT name, message_template, ai_prompt, settings, status
+         FROM campaign_history
+        WHERE user_id = ? AND brand_id = ?
+          AND status IN ('running', 'active', 'scheduled', 'draft', 'paused')
+        ORDER BY CASE status WHEN 'running' THEN 0 WHEN 'active' THEN 1 WHEN 'scheduled' THEN 2 ELSE 3 END,
+                 updated_at DESC
+        LIMIT 1`,
+      [ctx.ownerUserId, ctx.brandId],
+    ).catch(() => null);
+    let campaignSettings: any = {};
+    try {
+      campaignSettings = typeof campaign?.settings === "string" ? JSON.parse(campaign.settings) : (campaign?.settings || {});
+    } catch { campaignSettings = {}; }
+    const campaignComposer = campaignSettings?.composer || {};
+    const campaignStrategy = [
+      campaign?.ai_prompt,
+      campaignComposer?.intentText,
+      ...(Array.isArray(campaignComposer?.actionBlocks)
+        ? campaignComposer.actionBlocks
+          .filter((block: any) => !block?.channel || String(block.channel).toLowerCase() === "whatsapp")
+          .map((block: any) => block?.aiInstruction || block?.content)
+        : []),
+    ].map((value) => String(value || "").trim()).filter(Boolean).join("\n").slice(0, 2400);
+
     const isOptIn =
       /optin|opt-in|autoriza|consentimento|lgpd/i.test(intent)
       || /optin|opt-in|autoriza|consentimento|lgpd/i.test(instruction);
@@ -1837,14 +2070,24 @@ Regras:
 - NÃO mencione "programa de afiliados", comissão, ser parceiro, ganhar com indicação, ou recrutamento.
 - Peça autorização para enviar apresentação comercial; se não autorizar, diga que remove o contato.
 - Tom humano, respeitoso, sem pressão. Responda SOMENTE com a mensagem pronta.`
-      : `Você é o copiloto comercial de um afiliado da marca "${brandName}" (venda ao cliente final).
+      : `Você é o copiloto comercial de ${affiliateName}, afiliado da marca "${brandName}" (venda ao cliente final).
 Crie UMA mensagem de WhatsApp humana, curta, respeitosa e personalizada para ${firstName}.
+Contexto do afiliado que fará o contato: nome ${affiliateName}; região ${affiliateRegion || "não informada"}; apresentação ${affiliateBio || "não informada"}.
 Objetivo: ${intent}. Nicho/contexto: ${item.niche || "não informado"}. Cidade: ${item.city || item.region || "não informada"}.
 Produto/serviço da marca (NÃO use nome de programa de afiliados): ${productLine}.
-Histórico/observação: ${item.incoming_message || item.notes || "sem histórico"}.
+Resultado que originou esta continuação: ${latestOperationalAction?.action || "não informado"} pelo canal ${latestOperationalAction?.channel || "não informado"}.
+Histórico cronológico real:\n${historySummary || item.incoming_message || item.notes || "sem histórico"}.
+Estratégia configurada pela organização na campanha "${campaign?.name || "padrão da marca"}":\n${campaignStrategy || campaign?.message_template || "nenhuma configuração específica"}.
 Instrução do afiliado: ${instruction || "nenhuma"}.
 Não invente preço, promoção ou benefício. Não fale de comissão ou programa de parceiros.
-Se for primeiro contato, identifique a marca e dê uma saída educada. Termine com uma pergunta simples. Responda somente com a mensagem pronta.`;
+Escreva com naturalidade na voz de ${affiliateName}, mas só assine com o nome quando isso ajudar a conversa.
+REGRA CRÍTICA: nunca diga "como conversamos", "como combinado", "você pensou?" ou equivalente se o histórico não comprovar resposta do prospect.
+REGRA CRÍTICA de etapa (régua Reev C1–C8):
+- Se o último resultado foi "no_answer"/"auto_reply", avance o ângulo (não repita a mesma mensagem): C2 outro ângulo, C3 implicação, C4 prova social, C5 educação, C6 caso real, C7 valor puro/conteúdo, C8 break-up educado com pesquisa de saída.
+- Se houve callback_requested ou waiting, aí sim trate como retorno combinado.
+- Se respondeu (replied/negotiating), saia da régua cold e qualifique / avance comercial.
+- Nunca invente que o lead respondeu se o histórico não comprovar.
+Use a estratégia da campanha como posicionamento, mas adapte a abertura à etapa real do relacionamento. Termine com uma pergunta simples. Responda somente com a mensagem pronta.`;
 
     const generated = await aiRouter.generateText(prompt, { userId: ctx.ownerUserId, brandId: ctx.brandId }, {
       temperature: 0.55, functionKey: "text.affiliate.manual_assist",
@@ -1859,6 +2102,8 @@ Se for primeiro contato, identifique a marca e dê uma saída educada. Termine c
         brand_name: brandName,
         product_line: productLine,
         catalog_products: catalogNames,
+        previous_action: latestOperationalAction?.action || null,
+        campaign_name: campaign?.name || null,
       },
       provider: generated.provider,
     });
@@ -1898,11 +2143,66 @@ router.patch("/opportunities/:refType/:refId/progress", async (req: AuthRequest,
     await ensureAttendanceTasksSchema();
     await ensureManualActionsChannelSchema();
 
-    const effect = resolveCadence(action, {
+    /* Régua C1–C8: quantas mensagens/ligações outbound já foram registradas neste contato */
+    const outboundRow = await queryOne<{ c: number }>(
+      `SELECT COUNT(*) AS c FROM affiliate_manual_actions
+       WHERE affiliate_id = ? AND brand_id = ? AND ref_type = ? AND ref_id = ?
+         AND action IN ('sent', 'followup', 'called')`,
+      [String(affiliate.id), ctx.brandId, refType, refId],
+    ).catch(() => null);
+    const completedMessageStep = Math.max(0, Math.min(8, Number(outboundRow?.c || 0)));
+
+    let effect = resolveCadence(action, {
       followupDaysOverride:
         action === "waiting" || action === "callback_requested" ? followupDaysBody : null,
+      completedMessageStep,
     });
     if (!effect) return res.status(400).json({ error: "Etapa inválida" });
+
+    let channelExhausted = false;
+    let remainingChannels: ContactChannel[] = [];
+    if (action === "channel_unavailable") {
+      const available = new Set<ContactChannel>();
+      const phoneDigits = (value: unknown) => String(value || "").replace(/\D/g, "");
+      const whatsappValue = (item as any)?.channels?.whatsapp
+        || ((item as any)?.has_whatsapp ? (item as any)?.source_phone || (item as any)?.phone : null);
+      const phoneValue = (item as any)?.contact_phone || (item as any)?.channels?.phone || (item as any)?.phone;
+      const instagramValue = (item as any)?.channels?.instagram || (item as any)?.instagram;
+      if (phoneDigits(whatsappValue).length >= 8) available.add("whatsapp");
+      if (phoneDigits(phoneValue).length >= 8) available.add("phone");
+      if (String(instagramValue || "").replace(/^@/, "").trim()) available.add("instagram");
+      available.add(channel);
+
+      const unavailableRows = await query<any[]>(
+        `SELECT channel FROM affiliate_manual_actions
+         WHERE affiliate_id = ? AND brand_id = ? AND ref_type = ? AND ref_id = ?
+           AND action = 'channel_unavailable'`,
+        [String(affiliate.id), ctx.brandId, refType, refId],
+      ).catch(() => []);
+      const unavailable = new Set<ContactChannel>(
+        (unavailableRows || []).map((row) => normalizeChannel(row.channel, "channel_unavailable")),
+      );
+      unavailable.add(channel);
+      remainingChannels = Array.from(available).filter((candidate) => !unavailable.has(candidate));
+      channelExhausted = remainingChannels.length === 0;
+
+      if (!channelExhausted) {
+        const nextLabel = remainingChannels.map((candidate) => CHANNEL_LABELS[candidate]).join(" ou ");
+        effect = {
+          phase: "to_contact",
+          leadStatus: "contact_attempted",
+          assignmentStage: "contact_attempted",
+          assignmentStatus: "active",
+          archive: false,
+          followupDays: 0,
+          clearFollowup: false,
+          taskType: "first_contact",
+          instruction: `Tentar contato por ${nextLabel}`,
+          templateId: remainingChannels.includes("whatsapp") ? "optin" : null,
+          toast: `${CHANNEL_LABELS[channel]} indisponível · tente ${nextLabel}`,
+        };
+      }
+    }
 
     /* Conclui a tarefa específica do modal (idempotente se já done). */
     if (taskId && action !== "note") {
@@ -2034,6 +2334,8 @@ router.patch("/opportunities/:refType/:refId/progress", async (req: AuthRequest,
           action,
           reason: reason || null,
           removed_from_queue: effect.archive,
+          channel_exhausted: action === "channel_unavailable" ? channelExhausted : undefined,
+          remaining_channels: action === "channel_unavailable" ? remainingChannels : undefined,
           phase: effect.phase,
           instruction: effect.instruction,
           toast: "Resultado já registrado · sem alteração",
@@ -2062,6 +2364,8 @@ router.patch("/opportunities/:refType/:refId/progress", async (req: AuthRequest,
       action,
       followupDaysOverride:
         action === "waiting" || action === "callback_requested" ? followupDaysBody : null,
+      completedMessageStep,
+      effectOverride: effect,
     });
 
     await recordAffiliateManualAction({
@@ -2083,7 +2387,7 @@ router.patch("/opportunities/:refType/:refId/progress", async (req: AuthRequest,
      */
     if (
       action === "not_matching"
-      || action === "channel_unavailable"
+      || (action === "channel_unavailable" && channelExhausted)
     ) {
       try {
         await affiliateDistributionService.suppressProspectFromNetwork({
@@ -2106,6 +2410,8 @@ router.patch("/opportunities/:refType/:refId/progress", async (req: AuthRequest,
     const feedbackAction: CaptureFeedbackEvent | null =
       action === "called"
         ? "sent"
+        : action === "channel_unavailable" && !channelExhausted
+          ? null
         : (
           [
             "not_matching",
@@ -2154,6 +2460,8 @@ router.patch("/opportunities/:refType/:refId/progress", async (req: AuthRequest,
       channel,
       reason: reason || null,
       removed_from_queue: effect.archive,
+      channel_exhausted: action === "channel_unavailable" ? channelExhausted : undefined,
+      remaining_channels: action === "channel_unavailable" ? remainingChannels : undefined,
       phase: effect.phase,
       instruction: effect.instruction,
       toast: effect.toast,
@@ -2471,14 +2779,105 @@ router.get("/distribution/status", async (req: AuthRequest, res: Response) => {
     const affiliate = await getAffiliateProfile(ctx);
     if (!affiliate) return res.status(404).json({ error: "Perfil de afiliado não encontrado" });
 
-    const snapshot = await affiliateDistributionService.syncAffiliateDistributionStatus({
+    const input = {
       ownerUserId: ctx.ownerUserId,
       brandId: ctx.brandId,
       affiliateId: String(affiliate.id),
       affiliateUserId: ctx.affiliateUserId,
-    });
+    };
+
+    /* Caminho rápido pro Início (evita “Verificando liberação…” por 30–70s) */
+    const quick = await affiliateDistributionService.getQuickClaimEligibility(input).catch(() => null);
+
+    /* Sync completo em background — não bloqueia a home */
+    void affiliateDistributionService.syncAffiliateDistributionStatus(input).catch(() => undefined);
+
+    if (quick) {
+      const blockers = quick.claim_blockers || [];
+      const checklist = [
+        {
+          key: "affiliate_active",
+          label: "Conta de afiliado ativa",
+          ok: !blockers.some((b) => /inativa|pendente/i.test(b)),
+          action: null,
+          cta: null,
+          action_path: null,
+        },
+        {
+          key: "program_active",
+          label: "Programa / onboarding",
+          ok: !blockers.some((b) => /onboarding|programa|Mercado/i.test(b)),
+          action: blockers.find((b) => /onboarding|programa|Mercado/i.test(b)) || null,
+          cta: blockers.some((b) => /onboarding/i.test(b)) ? "Continuar onboarding" : null,
+          action_path: blockers.some((b) => /onboarding|Mercado/i.test(b)) ? "/mercado" : null,
+        },
+        {
+          key: "whatsapp_number",
+          label: "Número WhatsApp cadastrado",
+          ok: !!quick.registered_whatsapp_ok,
+          action: quick.registered_whatsapp_ok ? null : "Cadastre o número em Conexões",
+          cta: quick.registered_whatsapp_ok ? null : "Cadastrar",
+          action_path: quick.registered_whatsapp_ok ? null : "/conexoes",
+        },
+        {
+          key: "terms",
+          label: "Termos aceitos",
+          ok: true,
+          action: null,
+          cta: null,
+          action_path: null,
+        },
+        {
+          key: "training",
+          label: "Treinamento / onboarding concluído",
+          ok: !blockers.some((b) => /onboarding/i.test(b)),
+          action: null,
+          cta: null,
+          action_path: null,
+        },
+        {
+          key: "whatsapp",
+          label: "Sessão sincronizada (automação)",
+          ok: true,
+          action: null,
+          cta: null,
+          action_path: null,
+        },
+        {
+          key: "pix",
+          label: "Chave Pix cadastrada",
+          ok: true,
+          action: null,
+          cta: null,
+          action_path: null,
+        },
+      ];
+      return res.json({
+        success: true,
+        can_claim: quick.can_claim,
+        can_receive: quick.distribution_status === "available",
+        claim_blockers: blockers,
+        blockers,
+        checklist,
+        distribution_status: quick.distribution_status,
+        whatsapp_status: quick.whatsapp_status,
+        registered_whatsapp_ok: quick.registered_whatsapp_ok,
+        registered_whatsapp: quick.registered_whatsapp,
+        whatsapp_session_required_for_auto: false,
+      });
+    }
+
+    /* Fallback: sync completo se o quick falhar */
+    const snapshot = await affiliateDistributionService.syncAffiliateDistributionStatus(input);
     res.json({ success: true, ...snapshot });
   } catch (e: any) {
+    const msg = String(e?.message || "");
+    if (/EMAXCONNSESSION|max clients/i.test(msg)) {
+      return res.status(503).json({
+        error: "Servidor ocupado. Tente de novo em instantes.",
+        code: "db_busy",
+      });
+    }
     res.status(500).json({ error: e.message || "Falha ao carregar status de distribuição" });
   }
 });
@@ -2513,8 +2912,9 @@ router.post("/freight/quote", async (req: AuthRequest, res: Response) => {
       }
     }
 
+    const cartTotal = req.body?.cart_total != null ? Number(req.body.cart_total) : null;
     const { quoteFreight, isFreightPolicyConfigured } = await import("../services/freightCalculator");
-    const quote = await quoteFreight({
+    let quote = await quoteFreight({
       logistics,
       destination: {
         cep: req.body?.cep,
@@ -2522,14 +2922,40 @@ router.post("/freight/quote", async (req: AuthRequest, res: Response) => {
         city: req.body?.city,
         state: req.body?.state,
       },
-      cartTotal: req.body?.cart_total != null ? Number(req.body.cart_total) : null,
+      cartTotal,
+      orderWeightKg: req.body?.order_weight_kg != null ? Number(req.body.order_weight_kg) : null,
       userId: ctx.ownerUserId,
       brandId: ctx.brandId,
     });
 
+    /* Frete do clube: membro real (telefone) ou simulação forçada para testes do afiliado */
+    let clubMeta: any = null;
+    try {
+      const { subscriberClubService } = await import("../services/subscriberClub");
+      const forceAsMember =
+        req.body?.as_club_member === true ||
+        req.body?.force_club_member === true ||
+        req.body?.simulate_club === true;
+      const customerPhone = String(
+        req.body?.customer_phone || req.body?.phone || ""
+      ).trim();
+      const resolved = await subscriberClubService.applyClubToFreightQuote({
+        brandId: ctx.brandId,
+        quote,
+        cartTotal,
+        customerPhone: customerPhone || null,
+        forceAsMember,
+      });
+      quote = resolved.quote as typeof quote;
+      clubMeta = resolved.club;
+    } catch (clubErr: any) {
+      /* não bloqueia frete base */
+    }
+
     res.json({
       success: true,
       quote,
+      club: clubMeta,
       store_id: store?.id || null,
       configured: isFreightPolicyConfigured(logistics),
     });

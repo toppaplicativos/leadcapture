@@ -129,6 +129,41 @@ router.post(
   }
 );
 
+router.post(
+  "/forgot-password",
+  rateLimit({ name: "mob-forgot", max: 8, windowMs: 60_000 }),
+  async (req: Request, res: Response) => {
+    try {
+      const email = String(req.body?.email || "").trim().toLowerCase();
+      if (!email) return res.status(400).json({ error: "Informe o e-mail" });
+      const result = await mobLogisticsService.requestCourierPasswordReset(email);
+      res.json({
+        success: true,
+        message: "Se esse e-mail existir no Mob, enviamos um link para redefinir a senha.",
+        // só em dev sem SMTP — nunca expor em prod com e-mail ok
+        ...(result.resetUrl ? { reset_url: result.resetUrl } : {}),
+      });
+    } catch (e: any) {
+      res.status(400).json({ error: e.message || "Falha ao solicitar recuperação" });
+    }
+  },
+);
+
+router.post(
+  "/reset-password",
+  rateLimit({ name: "mob-reset", max: 10, windowMs: 60_000 }),
+  async (req: Request, res: Response) => {
+    try {
+      const token = String(req.body?.token || "").trim();
+      const password = String(req.body?.password || req.body?.new_password || "").trim();
+      await mobLogisticsService.resetCourierPassword(token, password);
+      res.json({ success: true, message: "Senha atualizada" });
+    } catch (e: any) {
+      res.status(400).json({ error: e.message || "Não foi possível redefinir a senha" });
+    }
+  },
+);
+
 router.get("/invite/:code", async (req: Request, res: Response) => {
   try {
     const invite = await mobLogisticsService.getInviteByCode(String(req.params.code || ""));

@@ -1,5 +1,6 @@
 import { query, queryOne } from "../config/database";
 import { resolveOpportunityNiche } from "./affiliateDistribution";
+import { resolveOpportunityTaxonomy } from "./nicheTaxonomy";
 
 export type OpportunitySegment =
   | "all"
@@ -30,6 +31,7 @@ const LEAD_STAGES = new Set([
 
 const PROSPECT_STAGES = new Set([
   "assigned_to_affiliate",
+  "contact_attempted",
   "initial_message_sent",
   "awaiting_response",
 ]);
@@ -66,7 +68,10 @@ function classifyAssignmentTemperature(stage: string): Temperature {
 
 function mapLeadStatusLabel(status: string): string {
   const labels: Record<string, string> = {
-    new: "Novo contato",
+    /* Nesta listagem o lead já possui affiliate_id; portanto já está associado. */
+    new: "A contatar",
+    assigned: "A contatar",
+    contact_attempted: "Tentativa realizada",
     contacted: "Contatado",
     negotiating: "Em negociação",
     lost: "Perdido",
@@ -76,7 +81,9 @@ function mapLeadStatusLabel(status: string): string {
 
 function mapStageLabel(stage: string): string {
   const labels: Record<string, string> = {
-    assigned_to_affiliate: "Atribuído a você",
+    assigned_to_affiliate: "A contatar",
+    assigned: "A contatar",
+    contact_attempted: "Tentativa realizada",
     initial_message_sent: "Mensagem inicial enviada",
     awaiting_response: "Aguardando resposta",
     engaged: "Em conversa",
@@ -95,6 +102,7 @@ function mapSourceType(sourceType: string): string {
     distribution: "Organização",
     panfleteiro_capture: "Panfleteiro",
     panfleteiro_capture_batch: "Prospecção da organização",
+    panfleteiro_recapture: "Recuperação · a contatar",
   };
   return labels[String(sourceType || "").toLowerCase()] || sourceType;
 }
@@ -106,24 +114,61 @@ function isFollowupDue(nextFollowupAt?: string | null): boolean {
   return due <= Date.now() + 24 * 60 * 60 * 1000;
 }
 
+/** Ações que comprovam que o afiliado já entrou em contato */
+const CONTACTED_ACTIONS = new Set([
+  "sent",
+  "followup",
+  "called",
+  "voicemail",
+  "busy",
+  "callback_requested",
+  "auto_reply",
+  "no_answer",
+  "waiting",
+  "replied",
+  "negotiating",
+]);
+
+const ENGAGED_ACTIONS = new Set(["replied", "negotiating"]);
+
 /** Fase do pipeline operacional (manual = espelho da campanha opt-in / follow-up). */
 export function classifyOperationalPhase(input: {
   ref_type: "affiliate_lead" | "assignment";
   status_code: string;
   followup_due?: boolean;
+  /** Última ação real de contato (quando status ainda está "new" por regressão) */
+  last_action?: string | null;
 }): OperationalPhase {
   const code = String(input.status_code || "").toLowerCase();
   if (code === "lost" || code === "converted" || code === "recycled") return "closed";
 
+  const last = String(input.last_action || "").toLowerCase();
+  if (ENGAGED_ACTIONS.has(last)) return "engaged";
+  if (CONTACTED_ACTIONS.has(last)) {
+    /* Ação real de contato prevalece sobre status "new" desatualizado */
+    if (input.ref_type === "affiliate_lead") {
+      if (code === "negotiating") return "engaged";
+      return "contacted";
+    }
+    if (code === "engaged" || code === "proposal_sent" || code === "needs_human_attention") {
+      return "engaged";
+    }
+    return "contacted";
+  }
+
   if (input.ref_type === "affiliate_lead") {
-    if (code === "new" || !code) return "new";
+    /* affiliate_leads desta consulta já pertencem ao afiliado. */
+    if (code === "new" || !code) return "to_contact";
+    if (code === "assigned" || code === "contact_attempted") return "to_contact";
     if (code === "contacted") return "contacted";
     if (code === "negotiating") return "engaged";
     return "to_contact";
   }
 
   // assignment stages
-  if (code === "assigned_to_affiliate" || code === "assigned") return "new";
+  /* Após a associação, o contato entra na fila "A contatar".
+     "Novo" fica reservado ao estágio anterior à associação. */
+  if (code === "assigned_to_affiliate" || code === "assigned" || code === "contact_attempted") return "to_contact";
   if (code === "initial_message_sent" || code === "awaiting_response") return "contacted";
   if (
     code === "engaged"
@@ -157,8 +202,11 @@ function buildFacets(items: Array<Record<string, any>>) {
   let instagram = 0;
   let address = 0;
   for (const i of items) {
-    const n = String(i.niche || "").trim();
-    if (n) niches.add(n);
+    /* Facetas de nicho: captura + tipo do lugar + rótulo (não só vertical colapsada) */
+    for (const key of ["search_query", "place_type", "niche", "vertical"] as const) {
+      const n = String((i as any)[key] || "").trim();
+      if (n && !/^validado$/i.test(n)) niches.add(n);
+    }
     for (const r of [i.city, i.region]) {
       const v = String(r || "").trim();
       if (v) regions.add(v);
@@ -265,20 +313,22 @@ export class AffiliateCrmService {
               c.subcategory AS customer_subcategory,
               c.city AS customer_city,
               c.state AS customer_state,
-              c.source_details AS customer_source_details
+              c.source_details AS customer_source_details,
+              c.tags AS customer_tags
        FROM prospect_assignments pa
        LEFT JOIN customers c ON c.id = pa.prospect_id
        WHERE ${assignmentClausesPa.join(" AND ")}
        ORDER BY pa.assigned_at DESC`,
       assignmentParams
     ).catch(async () => {
-      // fallback: join só com email (sem category/subcategory)
+      // fallback: join sem tags (schema legado)
       try {
         return await query<any[]>(
           `SELECT pa.id, pa.prospect_id, pa.prospect_name, pa.prospect_phone, pa.prospect_city, pa.prospect_region,
                   pa.source, pa.assignment_status, pa.current_stage, pa.conversion_status,
                   pa.assigned_at, pa.last_interaction_at, pa.next_followup_at, pa.notes, pa.followup_count, pa.metadata_json,
-                  c.email AS customer_email, c.category AS customer_category, c.subcategory AS customer_subcategory
+                  c.email AS customer_email, c.category AS customer_category, c.subcategory AS customer_subcategory,
+                  c.source_details AS customer_source_details
            FROM prospect_assignments pa
            LEFT JOIN customers c ON c.id = pa.prospect_id
            WHERE ${assignmentClausesPa.join(" AND ")}
@@ -416,7 +466,7 @@ export class AffiliateCrmService {
             ? String(row.customer_state)
             : null,
         product_name: null as string | null,
-        niche: (() => {
+        ...(() => {
           let sd: Record<string, any> = {};
           try {
             const raw = row.customer_source_details;
@@ -424,12 +474,24 @@ export class AffiliateCrmService {
           } catch {
             sd = {};
           }
-          return resolveOpportunityNiche({
+          const tax = resolveOpportunityTaxonomy({
             metadata,
             customerCategory: row.customer_category,
             customerSubcategory: row.customer_subcategory,
             sourceDetails: sd,
+            tags: row.customer_tags,
           });
+          return {
+            niche: tax.niche,
+            search_query: tax.search_query,
+            place_type: tax.place_type,
+            vertical: tax.vertical,
+            tags: Array.isArray(row.customer_tags)
+              ? row.customer_tags
+              : typeof row.customer_tags === "string"
+                ? row.customer_tags
+                : null,
+          };
         })(),
         message: row.notes ? String(row.notes) : null,
         notes: row.notes ? String(row.notes) : null,
@@ -466,7 +528,7 @@ export class AffiliateCrmService {
         .map((i) => normalizePhone(i.phone).slice(-9))
         .filter((p) => p.length >= 8)
     );
-    const items = [
+    let items = [
       ...assignmentItems,
       ...leadItems.filter((lead) => {
         const tail = normalizePhone(lead.phone).slice(-9);
@@ -474,6 +536,51 @@ export class AffiliateCrmService {
         return true;
       }),
     ];
+
+    /* Última ação real de contato: corrige fase quando status ficou "new" por bug antigo */
+    try {
+      const lastActions = await query<any[]>(
+        `SELECT DISTINCT ON (ref_type, ref_id) ref_type, ref_id, action
+         FROM affiliate_manual_actions
+         WHERE affiliate_id = ? AND brand_id = ?
+           AND action IN (
+             'sent','followup','called','voicemail','busy','callback_requested',
+             'auto_reply','no_answer','waiting','replied','negotiating'
+           )
+         ORDER BY ref_type, ref_id, created_at DESC`,
+        [affiliateId, brandId],
+      ).catch(() => []);
+      if (lastActions && lastActions.length) {
+        const map = new Map<string, string>();
+        for (const row of lastActions) {
+          map.set(`${row.ref_type}:${row.ref_id}`, String(row.action || "").toLowerCase());
+        }
+        items = items.map((item) => {
+          const last = map.get(`${item.ref_type}:${item.ref_id}`) || null;
+          if (!last) return item;
+          const operational_phase = classifyOperationalPhase({
+            ref_type: item.ref_type,
+            status_code: item.status_code,
+            followup_due: item.followup_due,
+            last_action: last,
+          });
+          return {
+            ...item,
+            last_action: last,
+            operational_phase,
+            next_action: nextActionForPhase(operational_phase, item.followup_due),
+            suggested_template:
+              operational_phase === "new" || operational_phase === "to_contact"
+                ? "optin"
+                : operational_phase === "contacted" || item.followup_due
+                  ? "followup"
+                  : "apresentacao",
+          };
+        });
+      }
+    } catch {
+      /* ignore — fase permanece a do status */
+    }
 
     const facets = buildFacets(items);
 
@@ -704,8 +811,10 @@ export class AffiliateCrmService {
     const niches = new Set<string>(Array.isArray(base?.niches) ? base.niches : []);
     const regions = new Set<string>(Array.isArray(base?.regions) ? base.regions : []);
     for (const i of extraItems || []) {
-      const n = String(i.niche || "").trim();
-      if (n) niches.add(n);
+      for (const key of ["search_query", "place_type", "niche", "vertical"] as const) {
+        const n = String((i as any)[key] || "").trim();
+        if (n && !/^validado$/i.test(n)) niches.add(n);
+      }
       for (const r of [i.city, i.region]) {
         const v = String(r || "").trim();
         if (v) regions.add(v);

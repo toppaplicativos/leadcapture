@@ -317,6 +317,9 @@ export const stockApi = {
 
   me: () => authFetch<any>('/api/stock-app/me', getStockHeaders()),
 
+  audit: (limit = 40) =>
+    authFetch<any>(`/api/stock-app/audit?limit=${limit}`, getStockHeaders()),
+
   overview: () => authFetch<any>('/api/stock-app/inventory/overview', getStockHeaders()),
 
   alerts: () => authFetch<any>('/api/stock-app/inventory/alerts', getStockHeaders()),
@@ -332,6 +335,18 @@ export const stockApi = {
 
   products: (limit = 200) =>
     authFetch<any>(`/api/stock-app/inventory/stock?limit=${limit}`, getStockHeaders()),
+
+  createPosOrder: (data: {
+    items: Array<{ product_id: string; product_name: string; quantity: number; unit_price: number }>
+    customer_name?: string
+    customer_phone?: string
+    payment_method: 'pix' | 'cartao' | 'dinheiro'
+    discount?: number
+    fulfillment?: 'retirada' | 'entrega'
+  }) => authFetch<any>('/api/stock-app/orders/pos', getStockHeaders(), {
+    method: 'POST',
+    body: JSON.stringify(data),
+  }),
 
   analytics: () => authFetch<any>('/api/stock-app/inventory/analytics', getStockHeaders()),
 

@@ -275,9 +275,42 @@ export function ProductPurchasePanel({
     </button>
   )
 
+  /* Barra sticky mobile: só qty + CTA (+ resumo de preço). Escada/variações ficam no card. */
+  if (!isCard) {
+    const measureShort = volumePricing
+      ? PRICING_MEASURE_LABELS[volumePricing.measure].short
+      : 'un'
+    const showSeparateUnit =
+      volumePricing != null
+      && Math.abs(volumePricing.pricePerMeasure - finalUnitPrice) > 0.009
+    return (
+      <div className="product-purchase product-purchase--bar">
+        {volumePricing && (
+          <p className="product-purchase__bar-volume tabular-nums" aria-live="polite">
+            <span className="product-purchase__bar-volume-label">Faixa ativa</span>
+            <span className="product-purchase__bar-volume-value">
+              {money(volumePricing.pricePerMeasure)}/{measureShort}
+            </span>
+            {showSeparateUnit && (
+              <span className="product-purchase__bar-volume-unit">
+                · {money(finalUnitPrice)}/un
+              </span>
+            )}
+          </p>
+        )}
+        {showActions && (
+          <div className="product-purchase__actions product-purchase__actions--bar">
+            {qtyBlock}
+            {ctaButton}
+          </div>
+        )}
+      </div>
+    )
+  }
+
   return (
-    <div className={isCard ? 'product-purchase product-purchase--card' : 'product-purchase product-purchase--bar'}>
-      {showPriceHeader && isCard && (
+    <div className="product-purchase product-purchase--card">
+      {showPriceHeader && (
         <div className="product-purchase__price-block">
           <div className="flex items-baseline gap-2.5 flex-wrap">
             <span className="product-purchase__price tabular-nums">{money(finalUnitPrice)}</span>
@@ -313,7 +346,7 @@ export function ProductPurchasePanel({
         </div>
       )}
 
-      {volumeEnabled && isCard && (
+      {volumeEnabled && (
         <ProductVolumePricingLadder
           product={product}
           quantity={qty}
@@ -435,27 +468,11 @@ export function ProductPurchasePanel({
         </div>
       )}
 
-      {volumeEnabled && !isCard && (
-        <ProductVolumePricingLadder
-          product={product}
-          quantity={qty}
-          onSelectQuantity={(n) => setQty(Math.min(stock.stockCap, Math.max(1, n)))}
-          density="compact"
-        />
-      )}
-
       {showActions && (
-        isCard ? (
-          <div className="product-purchase__actions product-purchase__actions--card">
-            {qtyBlock}
-            {ctaButton}
-          </div>
-        ) : (
-          <div className="product-purchase__actions product-purchase__actions--bar">
-            {qtyBlock}
-            {ctaButton}
-          </div>
-        )
+        <div className="product-purchase__actions product-purchase__actions--card">
+          {qtyBlock}
+          {ctaButton}
+        </div>
       )}
     </div>
   )

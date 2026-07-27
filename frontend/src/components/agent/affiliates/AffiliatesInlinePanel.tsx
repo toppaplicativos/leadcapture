@@ -27,6 +27,7 @@ function AffiliatesManagerEmbedded({ initialTab }: { initialTab: AffiliatesTabKe
 
 const TAB_CHIPS: { tab: AffiliatesTabKey; label: string }[] = [
   { tab: 'distribution', label: 'Distribuição' },
+  { tab: 'ranking', label: 'Ranking' },
   { tab: 'programs', label: 'Programas' },
   { tab: 'partners', label: 'Afiliados' },
   { tab: 'commissions', label: 'Comissões' },

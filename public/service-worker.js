@@ -27,8 +27,8 @@ if (IS_LOCAL_DEV) {
     );
   });
 } else {
-const SHELL_CACHE_NAME = "lead-system-shell-v313-20260724-affiliate-session";
-const RUNTIME_CACHE_NAME = "lead-system-runtime-v304-20260724-affiliate-session";
+const SHELL_CACHE_NAME = "lead-system-shell-v316-20260727-affiliate-session";
+const RUNTIME_CACHE_NAME = "lead-system-runtime-v307-20260727-affiliate-session";
 
 function getBasePath() {
   try {

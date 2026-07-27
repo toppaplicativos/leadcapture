@@ -5,7 +5,8 @@
 
 import { affiliateApi, AffiliateApiError } from '@/lib/api-affiliate'
 
-const CACHE_KEY = 'lc-affiliate-crm-opps-v1'
+/* v2: facetas de nicho por captura/tipo (não só vertical "Restaurante") */
+const CACHE_KEY = 'lc-affiliate-crm-opps-v2'
 const QUEUE_KEY = 'lc-affiliate-crm-progress-queue-v1'
 const MAX_QUEUE = 80
 const MAX_ATTEMPTS = 8

@@ -405,9 +405,9 @@ export function AffiliateOpportunitiesPanel({
 
     try {
       /* 1) Abertos primeiro (rápido) — desbloqueia Fila/Enviado/Conversa */
-      const openRes = await affiliateApi.opportunities('all', 1, 300, {
+      const openRes = await affiliateApi.opportunities('all', 1, 120, {
         includeClosed: false,
-        timeoutMs: 22_000,
+        timeoutMs: 35_000,
       })
       if (gen !== loadGen.current) return
       applyPayload(openRes, { keepClosed: true })
@@ -500,14 +500,20 @@ export function AffiliateOpportunitiesPanel({
   }, [isSearching, load])
 
   const niches = useMemo(() => {
-    if (facets?.niches?.length) return facets.niches
-    return Array.from(
-      new Set(
-        [...openItems, ...closedItems]
-          .map((i) => String(i.niche || '').trim())
-          .filter(Boolean),
-      ),
-    ).sort((a, b) => a.localeCompare(b, 'pt-BR'))
+    const set = new Set<string>()
+    if (facets?.niches?.length) {
+      for (const n of facets.niches) {
+        const v = String(n || '').trim()
+        if (v && !/^validado$/i.test(v)) set.add(v)
+      }
+    }
+    for (const i of [...openItems, ...closedItems]) {
+      for (const key of ['search_query', 'place_type', 'niche', 'vertical'] as const) {
+        const v = String((i as any)[key] || '').trim()
+        if (v && !/^validado$/i.test(v)) set.add(v)
+      }
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'pt-BR'))
   }, [facets, openItems, closedItems])
 
   const regions = useMemo(() => {

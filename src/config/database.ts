@@ -33,11 +33,16 @@ function isMaxClientsError(error: any): boolean {
   return /EMAXCONNSESSION|max clients reached|too many clients|remaining connection slots/i.test(msg);
 }
 
+function dbErrorMessage(error: any): string {
+  return String(error?.message || error?.code || error || "unknown");
+}
+
 function isTransientDbError(error: any): boolean {
   const code = String(error?.code || "");
-  const msg = String(error?.message || "");
+  const msg = dbErrorMessage(error);
   /* Esgotamento de slots: retry com backoff, sem recreate (recreate piora o limite). */
   if (isMaxClientsError(error)) return true;
+  if (/timeout exceeded when trying to connect/i.test(msg)) return true;
   return (
     code === "PROTOCOL_CONNECTION_LOST" ||
     code === "ECONNRESET" ||
@@ -45,21 +50,33 @@ function isTransientDbError(error: any): boolean {
     code === "EPIPE" ||
     code === "57P01" ||
     code === "57P02" ||
+    code === "57P03" ||
     code === "08006" ||
     code === "08000" ||
     code === "08003" ||
-    /* Supabase Pooler/PgBouncer: ":closed" (XX000) — recrear pool só quando NÃO for max clients. */
+    code === "08001" ||
+    code === "08P01" ||
+    /* Supabase Pooler/PgBouncer: ":closed" (XX000) — retry; recreate só se o pool morreu. */
     (code === "XX000" && !isMaxClientsError(error)) ||
     /:closed/i.test(msg) ||
+    /Connection terminated/i.test(msg) ||
+    /Client has encountered a connection error/i.test(msg) ||
+    /server closed the connection/i.test(msg) ||
     /* Quando o pool foi encerrado por recreatePool e alguma query concorrente ainda
-       segura uma referencia velha, o pg-pool lanca essa msg. Retry vai recriar o pool. */
+       segura uma referencia velha, o pg-pool lanca essa msg. */
     /Cannot use a pool after calling end/i.test(msg)
   );
 }
 
+/**
+ * Recreate só quando o pool local está definitivamente inutilizável.
+ * Recriar em todo ECONNRESET/:closed causa thrashing → EMAXCONNSESSION no Supabase
+ * (históricos com 1000+ recreates em minutos).
+ */
 function shouldRecreatePool(error: any): boolean {
   if (isMaxClientsError(error)) return false;
-  return isTransientDbError(error);
+  const msg = dbErrorMessage(error);
+  return /Cannot use a pool after calling end/i.test(msg);
 }
 
 function sleep(ms: number): Promise<void> {
@@ -436,12 +453,12 @@ function resolveConnectionString(raw: string): { connectionString: string; max: 
       if (!/[?&]pgbouncer=true/i.test(connectionString)) {
         connectionString += (connectionString.includes("?") ? "&" : "?") + "pgbouncer=true";
       }
-      /* Cap razoável: transaction mode aguenta mais, mas não dispare dezenas de sockets. */
-      const cap = Math.max(2, parseInt(process.env.POSTGRES_POOL_MAX_CAP || "12", 10) || 12);
+      /* Cap conservador: vários deploys + crons compartilham o teto do projeto Supabase. */
+      const cap = Math.max(2, parseInt(process.env.POSTGRES_POOL_MAX_CAP || "8", 10) || 8);
       max = Math.min(max, cap);
     } else {
       /* Session mode: NUNCA encher o pool remoto de 15 — deixa margem pro health/admin. */
-      const cap = Math.max(2, parseInt(process.env.POSTGRES_POOL_MAX_CAP || "6", 10) || 6);
+      const cap = Math.max(2, parseInt(process.env.POSTGRES_POOL_MAX_CAP || "4", 10) || 4);
       max = Math.min(max, cap);
     }
   }
@@ -452,26 +469,47 @@ function resolveConnectionString(raw: string): { connectionString: string; max: 
 function createPgPool(): Pool {
   const rawConnectionString = String(config.postgres.connectionString || "").trim();
   const ssl = config.postgres.ssl ? { rejectUnauthorized: false } : false;
+  const idleTimeoutMillis = Math.max(
+    1_000,
+    parseInt(process.env.POSTGRES_IDLE_TIMEOUT_MS || "10000", 10) || 10_000,
+  );
+  const connectionTimeoutMillis = Math.max(
+    1_000,
+    parseInt(process.env.POSTGRES_CONNECT_TIMEOUT_MS || "8000", 10) || 8_000,
+  );
+  /* Recicla conexões longas no pooler — evita sockets "zumbis" no PgBouncer. */
+  const maxUses = Math.max(100, parseInt(process.env.POSTGRES_POOL_MAX_USES || "5000", 10) || 5000);
   const poolOpts = {
     /* Libera idle rápido sob churn; evita segurar slots do Supabase. */
-    idleTimeoutMillis: Math.max(1_000, parseInt(process.env.POSTGRES_IDLE_TIMEOUT_MS || "10000", 10) || 10_000),
+    idleTimeoutMillis,
     /* Falha em ~8s em vez de enfileirar até o Caddy devolver 504 (300s). */
-    connectionTimeoutMillis: Math.max(1_000, parseInt(process.env.POSTGRES_CONNECT_TIMEOUT_MS || "8000", 10) || 8_000),
+    connectionTimeoutMillis,
     allowExitOnIdle: false,
+    maxUses,
+    keepAlive: true,
+    keepAliveInitialDelayMillis: 10_000,
   };
 
   if (rawConnectionString) {
     const resolved = resolveConnectionString(rawConnectionString);
     logger.info(
-      { pool_max: resolved.max, pool_mode: resolved.mode },
+      {
+        pool_max: resolved.max,
+        pool_mode: resolved.mode,
+        idle_timeout_ms: idleTimeoutMillis,
+        connect_timeout_ms: connectionTimeoutMillis,
+        max_uses: maxUses,
+      },
       "PostgreSQL pool config",
     );
-    return new Pool({
+    const pool = new Pool({
       connectionString: resolved.connectionString,
       max: resolved.max,
       ssl,
       ...poolOpts,
     });
+    attachPoolDiagnostics(pool);
+    return pool;
   }
 
   if (!config.postgres.host || !config.postgres.user || !config.postgres.password) {
@@ -483,15 +521,15 @@ function createPgPool(): Pool {
 
   const host = String(config.postgres.host);
   let port = Number(config.postgres.port) || 5432;
-  let max = Math.max(1, Number(config.postgres.max) || 10);
+  let max = Math.max(1, Number(config.postgres.max) || 8);
   if (/pooler\.supabase\.com/i.test(host)) {
     if (port === 5432 && String(process.env.POSTGRES_FORCE_SESSION || "").toLowerCase() !== "true") {
       port = 6543;
     }
-    max = Math.min(max, port === 6543 ? 12 : 6);
+    max = Math.min(max, port === 6543 ? 8 : 4);
   }
 
-  return new Pool({
+  const pool = new Pool({
     host,
     port,
     user: config.postgres.user,
@@ -501,26 +539,39 @@ function createPgPool(): Pool {
     ssl,
     ...poolOpts,
   });
+  attachPoolDiagnostics(pool);
+  return pool;
+}
+
+function attachPoolDiagnostics(pool: Pool): void {
+  pool.on("error", (err) => {
+    /* Erros em clientes idle — logar curto; NÃO recriar o pool inteiro. */
+    logger.warn({ err: dbErrorMessage(err) }, "PostgreSQL idle client error");
+  });
+}
+
+async function runOnPool<T = any>(sql: string, params?: any[]): Promise<CompatQueryTuple<T>> {
+  const transformed = transformSql(sql, params || []);
+  const result = await pgPool.query(transformed.sql, transformed.params);
+  const meta = toCompatResult(result);
+
+  if (result.command === "SELECT") {
+    return [result.rows as T, meta];
+  }
+
+  return [meta as unknown as T, meta];
 }
 
 function createCompatPool(): CompatPool {
-  const run = async <T = any>(sql: string, params?: any[]): Promise<CompatQueryTuple<T>> => {
-    const transformed = transformSql(sql, params || []);
-    const result = await pgPool.query(transformed.sql, transformed.params);
-    const meta = toCompatResult(result);
-
-    if (result.command === "SELECT") {
-      return [result.rows as T, meta];
-    }
-
-    return [meta as unknown as T, meta];
-  };
+  /* Retry em TODAS as rotas que usam getPool().query/execute — não só query()/insert(). */
+  const run = <T = any>(sql: string, params?: any[]): Promise<CompatQueryTuple<T>> =>
+    withDbRetry(() => runOnPool<T>(sql, params));
 
   return {
     query: run,
     execute: run,
     getConnection: async () => {
-      const client = await pgPool.connect();
+      const client = await withDbRetry(() => pgPool.connect());
       return buildCompatClient(client);
     },
     end: async () => {
@@ -538,31 +589,46 @@ export function getPool(): CompatPool {
   return compatPool;
 }
 
-/* Guard contra recreate concorrente — varias queries falhando em sequencia podem
-   disparar recreatePool em paralelo. So o primeiro recria; demais aguardam. */
+/* Guard contra recreate concorrente + cooldown — thrashing esgota o pooler remoto. */
 let recreateInFlight: Promise<void> | null = null;
+let lastPoolRecreateAt = 0;
+const POOL_RECREATE_COOLDOWN_MS = Math.max(
+  5_000,
+  parseInt(process.env.POSTGRES_RECREATE_COOLDOWN_MS || "30000", 10) || 30_000,
+);
+
 async function recreatePool(): Promise<void> {
   if (recreateInFlight) return recreateInFlight;
+  const sinceLast = Date.now() - lastPoolRecreateAt;
+  if (lastPoolRecreateAt > 0 && sinceLast < POOL_RECREATE_COOLDOWN_MS) {
+    logger.warn(
+      { since_ms: sinceLast, cooldown_ms: POOL_RECREATE_COOLDOWN_MS },
+      "PostgreSQL pool recreate skipped (cooldown)",
+    );
+    return;
+  }
   recreateInFlight = (async () => {
     /* Publica o pool novo primeiro. O anterior precisa ser drenado: apenas
        abandonar a referência mantém suas sessões vivas no PgBouncer e, após
-       algumas recuperações, esgota o limite remoto de conexões. `end()` espera
-       os clientes em voo voltarem e evita o vazamento sem bloquear o retry. */
+       algumas recuperações, esgota o limite remoto de conexões. */
     const previousPool = pgPool;
     pgPool = createPgPool();
     compatPool = createCompatPool();
+    lastPoolRecreateAt = Date.now();
     if (previousPool) {
       void previousPool.end().catch((error: any) => {
-        logger.warn({ error: error?.message || String(error) }, "Falha ao drenar pool PostgreSQL anterior");
+        logger.warn({ error: dbErrorMessage(error) }, "Falha ao drenar pool PostgreSQL anterior");
       });
     }
-    logger.warn("PostgreSQL pool recreated after transient connection error");
-  })().finally(() => { recreateInFlight = null; });
+    logger.warn("PostgreSQL pool recreated after unusable-pool error");
+  })().finally(() => {
+    recreateInFlight = null;
+  });
   return recreateInFlight;
 }
 
 async function withDbRetry<T>(fn: () => Promise<T>): Promise<T> {
-  const maxAttempts = 3;
+  const maxAttempts = 4;
   let lastError: any;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
@@ -571,19 +637,33 @@ async function withDbRetry<T>(fn: () => Promise<T>): Promise<T> {
       lastError = error;
       if (!isTransientDbError(error)) throw error;
 
-      if (isMaxClientsError(error)) {
-        /* Sem recreate: espera o pool liberar slots e tenta de novo. */
+      const errMsg = dbErrorMessage(error);
+
+      if (isMaxClientsError(error) || /timeout exceeded when trying to connect/i.test(errMsg)) {
+        /* Sem recreate: espera o pool liberar slots e tenta de novo.
+           Backoff maior — sob EMAXCONNSESSION o recreate só piora. */
         logger.warn(
-          { attempt, maxAttempts, err: String(error?.message || error) },
-          "PostgreSQL max clients — retry sem recriar pool",
+          { attempt, maxAttempts, err: errMsg },
+          "PostgreSQL capacity pressure — retry sem recriar pool",
         );
-        await sleep(80 * attempt + Math.floor(Math.random() * 120));
+        await sleep(400 * attempt + Math.floor(Math.random() * 400));
         continue;
       }
 
       if (shouldRecreatePool(error) && attempt < maxAttempts) {
         await recreatePool();
-        await sleep(40 * attempt);
+        await sleep(80 * attempt);
+        continue;
+      }
+
+      /* Erros transitórios de conexão (:closed, ECONNRESET, etc.): retry simples.
+         O pg-pool descarta o client ruim sozinho — não precisa recriar o pool. */
+      if (attempt < maxAttempts) {
+        logger.warn(
+          { attempt, maxAttempts, err: errMsg },
+          "PostgreSQL transient error — retry",
+        );
+        await sleep(60 * attempt + Math.floor(Math.random() * 80));
         continue;
       }
       throw error;
@@ -593,11 +673,10 @@ async function withDbRetry<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 export async function query<T = any>(sql: string, params?: any[]): Promise<T> {
-  return withDbRetry(async () => {
-    const p = getPool();
-    const [rows] = await p.execute(sql, params || []);
-    return rows as T;
-  });
+  /* getPool().execute já aplica withDbRetry — não aninhar outro loop. */
+  const p = getPool();
+  const [rows] = await p.execute(sql, params || []);
+  return rows as T;
 }
 
 export async function queryOne<T = any>(sql: string, params?: any[]): Promise<T | null> {
@@ -606,19 +685,15 @@ export async function queryOne<T = any>(sql: string, params?: any[]): Promise<T 
 }
 
 export async function insert(sql: string, params?: any[]): Promise<number> {
-  return withDbRetry(async () => {
-    const p = getPool();
-    const [result] = await p.execute(sql, params || []);
-    return (result as any).insertId;
-  });
+  const p = getPool();
+  const [result] = await p.execute(sql, params || []);
+  return (result as any).insertId;
 }
 
 export async function update(sql: string, params?: any[]): Promise<number> {
-  return withDbRetry(async () => {
-    const p = getPool();
-    const [result] = await p.execute(sql, params || []);
-    return (result as any).affectedRows;
-  });
+  const p = getPool();
+  const [result] = await p.execute(sql, params || []);
+  return (result as any).affectedRows;
 }
 
 export async function testConnection(): Promise<boolean> {
@@ -628,8 +703,22 @@ export async function testConnection(): Promise<boolean> {
     logger.info("PostgreSQL connection verified");
     return true;
   } catch (error: any) {
-    logger.error(`PostgreSQL connection failed: ${error.message}`);
+    logger.error(`PostgreSQL connection failed: ${dbErrorMessage(error)}`);
     return false;
   }
+}
+
+/** Snapshot leve para health/diagnóstico — não abre conexão extra se o pool existir. */
+export function getPoolStats(): {
+  total: number;
+  idle: number;
+  waiting: number;
+} | null {
+  if (!pgPool) return null;
+  return {
+    total: pgPool.totalCount,
+    idle: pgPool.idleCount,
+    waiting: pgPool.waitingCount,
+  };
 }
 

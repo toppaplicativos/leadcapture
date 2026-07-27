@@ -436,6 +436,7 @@ export class InventoryService {
               COALESCE(p.preco, p2.price, 0) AS product_price,
               COALESCE(p.imagem, p2.image_url) AS product_image,
               COALESCE(p2.unit, 'unidade') AS product_unit,
+              p2.metadata_json AS product_metadata,
               COALESCE(p.tipo, 'fisico') AS product_type
        FROM inventory i
        LEFT JOIN commerce_products p ON p.id = i.product_id
@@ -455,6 +456,7 @@ export class InventoryService {
       cost_price: Number(r.cost_price || 0),
       product_price: Number(r.product_price || 0),
       product_unit: String(r.product_unit || 'unidade'),
+      metadata: typeof r.product_metadata === 'string' ? JSON.parse(r.product_metadata || '{}') : (r.product_metadata || {}),
       product_type: String(r.product_type || 'fisico'),
       status: this.computeStatus(
         Number(r.stock_available || 0),
@@ -487,6 +489,7 @@ export class InventoryService {
               COALESCE(p.preco, p2.price, 0) AS product_price,
               COALESCE(p.imagem, p2.image_url) AS product_image,
               COALESCE(p2.unit, 'unidade') AS product_unit,
+              p2.metadata_json AS product_metadata,
               COALESCE(p.tipo, 'fisico') AS product_type
        FROM inventory i
        LEFT JOIN commerce_products p ON p.id = i.product_id
@@ -507,6 +510,7 @@ export class InventoryService {
       cost_price: Number(row.cost_price || 0),
       product_price: Number(row.product_price || 0),
       product_unit: String(row.product_unit || 'unidade'),
+      metadata: typeof row.product_metadata === 'string' ? JSON.parse(row.product_metadata || '{}') : (row.product_metadata || {}),
       product_type: String(row.product_type || 'fisico'),
       status: this.computeStatus(
         Number(row.stock_available || 0),

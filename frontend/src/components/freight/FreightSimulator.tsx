@@ -1,9 +1,10 @@
 /**
  * Simulador de frete — product register (Operations Console).
  * Admin (Frete) e Atendimento afiliado. Primitives: Button, Input, Card.
+ * Suporta frete do Clube de Assinantes (telefone do membro ou simulação).
  */
 import { useId, useState } from 'react'
-import { Check, Copy, MapPin, Navigation, Search, Truck } from 'lucide-react'
+import { Check, Copy, Crown, MapPin, Navigation, Search, Truck } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Card, CardBody } from '@/components/ui/Card'
@@ -27,6 +28,15 @@ export type FreightQuoteResult = {
   policy_text?: string | null
 }
 
+export type ClubFreightMeta = {
+  club_applied?: boolean
+  club_label?: string | null
+  club_name?: string | null
+  member_matched?: boolean
+  forced?: boolean
+  enabled?: boolean
+} | null
+
 type Props = {
   /** Accent da marca (afiliado) ou ink do sistema */
   accent?: string
@@ -37,9 +47,21 @@ type Props = {
     city?: string
     state?: string
     cart_total?: number
-  }) => Promise<{ quote: FreightQuoteResult; configured?: boolean; store_id?: string | null }>
+    order_weight_kg?: number
+    customer_phone?: string
+    as_club_member?: boolean
+  }) => Promise<{
+    quote: FreightQuoteResult
+    configured?: boolean
+    store_id?: string | null
+    club?: ClubFreightMeta
+  }>
   onLookupCep?: (cep: string) => Promise<{ place: any } | null>
   showCartTotal?: boolean
+  /** Exibe telefone + toggle do clube (afiliado/admin testes) */
+  showClubOptions?: boolean
+  /** Prefill do telefone do cliente em atendimento */
+  defaultCustomerPhone?: string
   showToast?: (msg: string, type?: 'ok' | 'err') => void
 }
 
@@ -52,6 +74,8 @@ export function FreightSimulator({
   onQuote,
   onLookupCep,
   showCartTotal = true,
+  showClubOptions = true,
+  defaultCustomerPhone = '',
   showToast,
 }: Props) {
   const baseId = useId()
@@ -60,9 +84,15 @@ export function FreightSimulator({
   const [city, setCity] = useState('')
   const [state, setState] = useState('')
   const [cartTotal, setCartTotal] = useState('')
+  const [orderWeightKg, setOrderWeightKg] = useState('')
+  const [customerPhone, setCustomerPhone] = useState(
+    String(defaultCustomerPhone || '').replace(/\D/g, ''),
+  )
+  const [asClubMember, setAsClubMember] = useState(false)
   const [loading, setLoading] = useState(false)
   const [lookupBusy, setLookupBusy] = useState(false)
   const [quote, setQuote] = useState<FreightQuoteResult | null>(null)
+  const [clubMeta, setClubMeta] = useState<ClubFreightMeta>(null)
   const [error, setError] = useState<string | null>(null)
 
   async function lookupCep() {
@@ -97,19 +127,27 @@ export function FreightSimulator({
     setLoading(true)
     setError(null)
     setQuote(null)
+    setClubMeta(null)
     try {
+      const phoneDigits = customerPhone.replace(/\D/g, '')
       const res = await onQuote({
         cep: digits.length === 8 ? digits : undefined,
         address: address.trim() || undefined,
         city: city.trim() || undefined,
         state: state.trim() || undefined,
         cart_total: cartTotal ? Number(cartTotal) : undefined,
+        order_weight_kg: orderWeightKg ? Number(orderWeightKg) : undefined,
+        customer_phone: phoneDigits.length >= 10 ? phoneDigits : undefined,
+        as_club_member: asClubMember || undefined,
       })
       setQuote(res.quote)
+      setClubMeta(res.club || null)
       if (res.configured === false) {
         setError('A organização ainda não concluiu a política de frete desta loja.')
       } else if (!res.quote?.ok) {
         setError(res.quote?.error || 'Não foi possível calcular')
+      } else if (res.club?.club_applied && res.club.club_label) {
+        showToast?.(res.club.club_label)
       }
     } catch (e: any) {
       setError(e?.message || 'Falha ao calcular frete')
@@ -190,7 +228,7 @@ export function FreightSimulator({
         />
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-3 sm:grid-cols-3">
         <Input
           id={`${baseId}-state`}
           label="UF"
@@ -211,7 +249,71 @@ export function FreightSimulator({
             placeholder="Opcional"
           />
         ) : null}
+        <Input
+          id={`${baseId}-weight`}
+          label="Peso do pedido (kg)"
+          hint="Usado nas regras por volume"
+          type="number"
+          min="0"
+          step="0.1"
+          value={orderWeightKg}
+          onChange={(e) => setOrderWeightKg(e.target.value)}
+          placeholder="Ex.: 20"
+        />
       </div>
+
+      {showClubOptions ? (
+        <div className="space-y-2.5 rounded-xl border border-border bg-gray-50/80 p-3">
+          <div className="flex items-center gap-2 text-[12px] font-semibold text-gray-800">
+            <Crown size={14} className="text-gray-700" strokeWidth={2.25} />
+            Clube de Assinantes
+          </div>
+          <Input
+            id={`${baseId}-phone`}
+            label="WhatsApp do cliente"
+            hint="Se for membro ativo, o frete especial do clube é aplicado"
+            type="tel"
+            inputMode="tel"
+            value={customerPhone}
+            onChange={(e) => setCustomerPhone(e.target.value.replace(/\D/g, '').slice(0, 13))}
+            placeholder="5531999999999"
+          />
+          <button
+            type="button"
+            role="switch"
+            aria-checked={asClubMember}
+            onClick={() => setAsClubMember((v) => !v)}
+            className={cn(
+              'w-full flex items-start gap-3 text-left rounded-xl border px-3 py-2.5 transition-colors duration-150',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2',
+              asClubMember ? 'border-gray-900 bg-white' : 'border-border bg-white hover:bg-gray-50',
+            )}
+          >
+            <span
+              className={cn(
+                'mt-0.5 relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors duration-150',
+                asClubMember ? 'bg-gray-900' : 'bg-gray-200',
+              )}
+              aria-hidden
+            >
+              <span
+                className={cn(
+                  'absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-150',
+                  asClubMember && 'translate-x-4',
+                )}
+              />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-[12px] font-semibold text-gray-900">
+                Simular como membro do clube
+              </span>
+              <span className="block text-[11px] text-gray-500 mt-0.5 leading-snug">
+                Use para testar frete especial mesmo sem cadastro real do cliente.
+              </span>
+            </span>
+          </button>
+        </div>
+      ) : null}
 
       <Button
         type="button"
@@ -257,6 +359,33 @@ export function FreightSimulator({
               <Check size={18} strokeWidth={2.4} aria-hidden />
             </span>
           </div>
+
+          {clubMeta?.club_applied ? (
+            <div className="flex items-start gap-2 rounded-xl border border-gray-900/10 bg-white px-3 py-2.5">
+              <Crown size={14} className="mt-0.5 shrink-0 text-gray-800" strokeWidth={2.25} />
+              <div className="min-w-0">
+                <p className="text-[12px] font-semibold text-gray-900">
+                  {clubMeta.club_name || 'Clube de Assinantes'}
+                </p>
+                <p className="text-[11px] text-gray-600 mt-0.5">
+                  {clubMeta.club_label || 'Frete especial aplicado'}
+                  {clubMeta.forced
+                    ? ' · simulação'
+                    : clubMeta.member_matched
+                      ? ' · membro confirmado'
+                      : ''}
+                </p>
+              </div>
+            </div>
+          ) : null}
+
+          {clubMeta && !clubMeta.club_applied && clubMeta.enabled && (asClubMember || customerPhone.length >= 10) ? (
+            <p className="text-[11px] text-gray-500">
+              {customerPhone.length >= 10 && !clubMeta.member_matched && !asClubMember
+                ? 'Este telefone não está como membro ativo do clube — frete padrão da loja.'
+                : 'Clube ativo, mas sem regra de frete especial configurada para este pedido.'}
+            </p>
+          ) : null}
 
           {quote.destination?.label ? (
             <p className="text-[11px] leading-relaxed text-gray-600">

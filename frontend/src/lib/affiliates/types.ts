@@ -59,6 +59,7 @@ export type AffiliateProductCatalogItem = {
   price: number
   promo_price?: number | null
   unit?: string
+  metadata?: Record<string, any>
   image_url?: string | null
   features?: string[]
   guide_status?: string | null

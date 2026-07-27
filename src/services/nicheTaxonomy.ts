@@ -55,6 +55,9 @@ const PLACE_TYPE_LABELS: Record<string, string> = {
   meal_delivery: "Delivery",
   store: "Loja",
   food: "Alimentação",
+  family_restaurant: "Restaurante familiar",
+  bar_and_grill: "Bar e grill",
+  health_food_store: "Loja de naturais",
   // raw english leftovers
   barbecue: "Churrascaria",
   steakhouse: "Churrascaria",
@@ -125,12 +128,40 @@ export function humanizePlaceType(raw: unknown): string | null {
   return pretty.slice(0, 60) || null;
 }
 
+function extractBuscaTag(tags: unknown): string | null {
+  let list: string[] = [];
+  if (Array.isArray(tags)) list = tags.map(String);
+  else if (typeof tags === "string" && tags.trim()) {
+    try {
+      const parsed = JSON.parse(tags);
+      if (Array.isArray(parsed)) list = parsed.map(String);
+    } catch {
+      list = tags.split(/[,;|]/).map((t) => t.trim());
+    }
+  }
+  for (const t of list) {
+    const s = String(t || "").trim();
+    const m = s.match(/^(?:busca|query|nicho|segmento|fonte_busca)\s*[:|#]\s*(.+)$/i);
+    if (m?.[1]) {
+      const v = m[1].trim();
+      if (v.length >= 2 && v.length <= 80) return v.slice(0, 60);
+    }
+  }
+  return null;
+}
+
 export function extractCaptureQuery(
   metadata?: Record<string, any> | null,
   sourceDetails?: Record<string, any> | null,
+  tags?: unknown,
 ): string | null {
   const m = metadata && typeof metadata === "object" ? metadata : {};
   const sd = sourceDetails && typeof sourceDetails === "object" ? sourceDetails : {};
+  const captureQueries = Array.isArray(sd.capture_queries)
+    ? sd.capture_queries
+    : Array.isArray(m.capture_queries)
+      ? m.capture_queries
+      : [];
   const candidates = [
     m.search_query,
     m.capture_query,
@@ -142,6 +173,7 @@ export function extractCaptureQuery(
     m.segment,
     m.termo,
     sd.search_query,
+    sd.last_capture_query,
     sd.keyword,
     sd.query,
     sd.palavra_chave,
@@ -150,6 +182,10 @@ export function extractCaptureQuery(
     m.campaign?.query,
     m.campaign?.niche,
     sd.campaign?.keyword,
+    ...captureQueries,
+    extractBuscaTag(tags),
+    extractBuscaTag(sd.tags),
+    extractBuscaTag(m.tags),
   ];
   for (const c of candidates) {
     const v = String(c || "").trim();
@@ -157,6 +193,8 @@ export function extractCaptureQuery(
       // ignora tipos Google técnicos
       if (/^[a-z]+(_[a-z]+)+$/.test(v)) continue;
       if (PLACE_TYPE_LABELS[v.toLowerCase().replace(/[\s-]+/g, "_")]) continue;
+      /* ignora tag de validação WA — não é nicho */
+      if (/^validado$/i.test(v)) continue;
       return v.slice(0, 60);
     }
   }
@@ -205,19 +243,41 @@ export function resolveVertical(label?: string | null): string | null {
   return null;
 }
 
+/** Capitaliza termo de busca para faceta legível (restaurante → Restaurante). */
+export function prettifyNicheLabel(raw?: string | null): string | null {
+  const s = String(raw || "").trim();
+  if (!s) return null;
+  // se já parece título, mantém
+  if (/[A-ZÀ-Ú]/.test(s.slice(0, 1)) && s.length > 1) return s.slice(0, 60);
+  return s
+    .split(/\s+/)
+    .map((w) => (w.length <= 2 ? w.toLowerCase() : w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()))
+    .join(" ")
+    .slice(0, 60);
+}
+
 export function resolveOpportunityTaxonomy(input: {
   metadata?: Record<string, any> | null;
   customerCategory?: string | null;
   customerSubcategory?: string | null;
   sourceDetails?: Record<string, any> | null;
+  tags?: unknown;
 }): NicheTaxonomy {
-  const search_query = extractCaptureQuery(input.metadata, input.sourceDetails);
+  const search_query = prettifyNicheLabel(
+    extractCaptureQuery(input.metadata, input.sourceDetails, input.tags),
+  );
   const place_type = extractPlaceType(input);
   const vertical =
     resolveVertical(search_query)
     || resolveVertical(place_type)
     || null;
-  const niche = vertical || search_query || place_type || null;
+  /**
+   * Rótulo de filtro: prioriza o termo de CAPTURA (o que a campanha buscou)
+   * e o tipo do lugar, NÃO a família vertical genérica.
+   * Antes: vertical primeiro → tudo virava "Restaurante" e o filtro do afiliado
+   * só listava 1 opção mesmo com pizzaria/hamburgueria/supermercado.
+   */
+  const niche = search_query || place_type || vertical || null;
   return { search_query, place_type, vertical, niche };
 }
 
@@ -227,6 +287,7 @@ export function resolveOpportunityNiche(input: {
   customerCategory?: string | null;
   customerSubcategory?: string | null;
   sourceDetails?: Record<string, any> | null;
+  tags?: unknown;
 }): string | null {
   return resolveOpportunityTaxonomy(input).niche;
 }

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   Handshake, LayoutDashboard, Users, Wallet, Image, Plus, Layers,
   ExternalLink, ToggleLeft, ToggleRight, ChevronRight, CheckCircle2,
-  Clock, DollarSign, BookOpen, Package, Share2, Sparkles, BarChart3, Send, MessageCircle,
+  Clock, DollarSign, BookOpen, Package, Share2, Sparkles, BarChart3, Send, MessageCircle, Trophy, Bell,
 } from 'lucide-react'
 import { AffiliateDistributionSection } from '@/pages/admin/affiliates/AffiliateDistributionSection'
 import { AffiliateMaterialsSection } from '@/pages/admin/affiliates/AffiliateMaterialsSection'
@@ -11,6 +11,11 @@ import { AffiliateProductsSection } from '@/pages/admin/affiliates/AffiliateProd
 import { AffiliateProgramsSection } from '@/pages/admin/affiliates/AffiliateProgramsSection'
 import { AffiliateReadinessPanel } from '@/pages/admin/affiliates/AffiliateReadinessPanel'
 import { AffiliateAiFillModal } from '@/pages/admin/affiliates/AffiliateAiFillModal'
+import { AffiliateMessageTemplatesSection } from '@/pages/admin/affiliates/AffiliateMessageTemplatesSection'
+import { AffiliateRankingAwardsSection } from '@/pages/admin/affiliates/AffiliateRankingAwardsSection'
+import { AffiliatePushCenterSection } from '@/pages/admin/affiliates/AffiliatePushCenterSection'
+import { AffiliateTrackingDomainsSection } from '@/pages/admin/affiliates/AffiliateTrackingDomainsSection'
+import { AffiliateNetworkActivityPanel } from '@/components/admin/AffiliateNetworkActivityPanel'
 import type { AffiliateLearningModule, AffiliateMaterial, AffiliateProductCatalogItem } from '@/lib/affiliates/types'
 import { getHeaders, pickStockBrandSlug, buildAffiliateAppUrl } from '@/lib/admin/helpers'
 import {
@@ -25,7 +30,11 @@ import { useAffiliatesBridgeOptional, type AffiliatesTabKey } from '@/lib/agent/
 const TABS = [
   { key: 'overview' as const, label: 'Visão geral', icon: LayoutDashboard },
   { key: 'analytics' as const, label: 'Análises', icon: BarChart3 },
+  { key: 'domains' as const, label: 'Domínios', icon: ExternalLink },
   { key: 'distribution' as const, label: 'Distribuição', icon: Share2 },
+  { key: 'ranking' as const, label: 'Ranking & Premiações', icon: Trophy },
+  { key: 'push' as const, label: 'Central de Push', icon: Bell },
+  { key: 'templates' as const, label: 'Templates', icon: MessageCircle },
   { key: 'programs' as const, label: 'Programas', icon: Layers },
   { key: 'partners' as const, label: 'Afiliados', icon: Users },
   { key: 'commissions' as const, label: 'Comissões', icon: DollarSign },
@@ -119,6 +128,42 @@ export function AffiliatesPage({ showToast = () => {}, embedded = false, initial
     brand_slug?: string | null
   } | null>(null)
 
+  function applyProgramPayload(progData: any) {
+    setProgram(progData.program)
+    setPartnersUrls(progData.partners || null)
+    if (!progData.program) return
+    const slugHint = String(progData.partners?.brand_slug || brandSlug || '').toLowerCase()
+    let sub = String(
+      progData.program.app_subdomain
+      || progData.partners?.app_subdomain
+      || 'parceiros.leadcapture.online',
+    ).trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '')
+    if (/alhopronto/i.test(sub) && slugHint !== 'alhopronto') {
+      sub = 'parceiros.leadcapture.online'
+    }
+    if (!sub) sub = 'parceiros.leadcapture.online'
+    setSettingsForm({
+      is_enabled: !!progData.program.is_enabled,
+      accept_new_affiliates: progData.program.accept_new_affiliates !== false,
+      auto_approve_affiliates: progData.program.auto_approve_affiliates !== false,
+      default_commission_pct: Number(progData.program.default_commission_pct ?? 10),
+      default_commission_mode: normalizeCommissionMode(progData.program.default_commission_mode),
+      default_commission_value: Number(progData.program.default_commission_value ?? progData.program.default_commission_pct ?? 10),
+      commission_rules: progData.program.commission_rules || '',
+      cookie_days: Number(progData.program.cookie_days || 30),
+      min_withdrawal: Number(progData.program.min_withdrawal || 50),
+      payment_days: Number(progData.program.payment_days || 15),
+      app_subdomain: sub,
+      training_html: progData.program.training_html || '',
+      terms_html: progData.program.terms_html || '',
+      share_title: progData.program.share_title || '',
+      share_description: progData.program.share_description || '',
+      share_image_url: progData.program.share_image_url || '',
+      promotion_tone: progData.program.promotion_tone || '',
+    })
+  }
+
+  /** Carga essencial (rápida): program + stats light + credentials. Restante sob demanda por aba. */
   async function loadData(activeBrandId?: string) {
     setLoading(true)
     setLoadError('')
@@ -132,75 +177,54 @@ export function AffiliatesPage({ showToast = () => {}, embedded = false, initial
     }
 
     try {
-      const [progRes, credRes, statsRes, salesRes, payoutsRes, materialsRes, learningRes, productsRes] = await Promise.all([
+      const [progRes, credRes, statsRes] = await Promise.all([
         fetch(`/api/affiliates/program?brand_id=${encodeURIComponent(brandId)}`, { headers }),
         fetch(`/api/auth/affiliate-access?brand_id=${encodeURIComponent(brandId)}`, { headers }),
-        fetch(`/api/affiliates/stats?brand_id=${encodeURIComponent(brandId)}`, { headers }),
-        fetch(`/api/affiliates/sales?brand_id=${encodeURIComponent(brandId)}`, { headers }),
-        fetch(`/api/affiliates/payouts?brand_id=${encodeURIComponent(brandId)}`, { headers }),
-        fetch(`/api/affiliates/materials?brand_id=${encodeURIComponent(brandId)}`, { headers }),
-        fetch(`/api/affiliates/learning-modules?brand_id=${encodeURIComponent(brandId)}`, { headers }),
-        fetch(`/api/affiliates/products?brand_id=${encodeURIComponent(brandId)}`, { headers }),
+        // light=1: sem activity pesada (Análises carrega depois)
+        fetch(`/api/affiliates/stats?brand_id=${encodeURIComponent(brandId)}&light=1`, { headers }),
       ])
-      const progData = await progRes.json()
-      const credData = await credRes.json()
-      const statsData = await statsRes.json()
-      const salesData = await salesRes.json()
-      const payoutsData = await payoutsRes.json()
-      const materialsData = await materialsRes.json()
-      const learningData = await learningRes.json()
-      const productsData = await productsRes.json()
+      const progData = await progRes.json().catch(() => ({}))
+      const credData = await credRes.json().catch(() => ({}))
+      const statsData = await statsRes.json().catch(() => ({}))
 
       if (!progRes.ok) throw new Error(progData.error || `Erro ${progRes.status}`)
-      if (!credRes.ok) throw new Error(credData.error || `Erro ${credRes.status}`)
 
-      setProgram(progData.program)
-      setCredentials(credData.credentials || [])
-      setStats(statsData.stats || null)
-      setSales(salesData.sales || [])
-      setPayouts(payoutsData.payouts || [])
-      setMaterials(materialsData.materials || [])
-      setLearningModules(learningData.modules || [])
-      setCatalogProducts(productsData.products || [])
-      setPartnersUrls(progData.partners || null)
+      applyProgramPayload(progData)
+      if (credRes.ok) setCredentials(credData.credentials || [])
+      else setCredentials([])
+      if (statsRes.ok) setStats(statsData.stats || null)
 
-      if (progData.program) {
-        const slugHint = String(progData.partners?.brand_slug || brandSlug || '').toLowerCase()
-        let sub = String(
-          progData.program.app_subdomain
-          || progData.partners?.app_subdomain
-          || 'parceiros.leadcapture.online',
-        ).trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '')
-        // Legado alho em marca alheia → raiz da plataforma
-        if (/alhopronto/i.test(sub) && slugHint !== 'alhopronto') {
-          sub = 'parceiros.leadcapture.online'
-        }
-        if (!sub) sub = 'parceiros.leadcapture.online'
-        setSettingsForm({
-          is_enabled: !!progData.program.is_enabled,
-          accept_new_affiliates: progData.program.accept_new_affiliates !== false,
-          auto_approve_affiliates: progData.program.auto_approve_affiliates !== false,
-          default_commission_pct: Number(progData.program.default_commission_pct ?? 10),
-          default_commission_mode: normalizeCommissionMode(progData.program.default_commission_mode),
-          default_commission_value: Number(progData.program.default_commission_value ?? progData.program.default_commission_pct ?? 10),
-          commission_rules: progData.program.commission_rules || '',
-          cookie_days: Number(progData.program.cookie_days || 30),
-          min_withdrawal: Number(progData.program.min_withdrawal || 50),
-          payment_days: Number(progData.program.payment_days || 15),
-          app_subdomain: sub,
-          training_html: progData.program.training_html || '',
-          terms_html: progData.program.terms_html || '',
-          share_title: progData.program.share_title || '',
-          share_description: progData.program.share_description || '',
-          share_image_url: progData.program.share_image_url || '',
-          promotion_tone: progData.program.promotion_tone || '',
-        })
-      }
+      // Prefetch em background (não bloqueia a UI)
+      void Promise.all([
+        fetch(`/api/affiliates/sales?brand_id=${encodeURIComponent(brandId)}`, { headers })
+          .then((r) => r.json().catch(() => ({}))).then((d) => { if (d.sales) setSales(d.sales) }),
+        fetch(`/api/affiliates/payouts?brand_id=${encodeURIComponent(brandId)}`, { headers })
+          .then((r) => r.json().catch(() => ({}))).then((d) => { if (d.payouts) setPayouts(d.payouts) }),
+        fetch(`/api/affiliates/materials?brand_id=${encodeURIComponent(brandId)}`, { headers })
+          .then((r) => r.json().catch(() => ({}))).then((d) => { if (d.materials) setMaterials(d.materials) }),
+        fetch(`/api/affiliates/learning-modules?brand_id=${encodeURIComponent(brandId)}`, { headers })
+          .then((r) => r.json().catch(() => ({}))).then((d) => { if (d.modules) setLearningModules(d.modules) }),
+        fetch(`/api/affiliates/products?brand_id=${encodeURIComponent(brandId)}`, { headers })
+          .then((r) => r.json().catch(() => ({}))).then((d) => { if (d.products) setCatalogProducts(d.products) }),
+      ])
     } catch (e: unknown) {
       setLoadError(e instanceof Error ? e.message : 'Erro ao carregar')
     } finally {
       setLoading(false)
     }
+  }
+
+  /** Carrega activity completa só na aba Análises */
+  async function loadAnalytics(brandId?: string) {
+    const id = String(brandId || localStorage.getItem('lead-system:active-brand-id') || '').trim()
+    if (!id) return
+    const headers = getHeaders()
+    if (!headers['x-brand-id']) headers['x-brand-id'] = id
+    try {
+      const r = await fetch(`/api/affiliates/stats?brand_id=${encodeURIComponent(id)}`, { headers })
+      const d = await r.json().catch(() => ({}))
+      if (r.ok && d.stats) setStats(d.stats)
+    } catch { /* soft */ }
   }
 
   useEffect(() => {
@@ -239,6 +263,13 @@ export function AffiliatesPage({ showToast = () => {}, embedded = false, initial
     // Configurações migraram para dentro de cada programa
     setTab(initialTab === 'settings' ? 'programs' : initialTab)
   }, [initialTab])
+
+  useEffect(() => {
+    if (tab === 'analytics') {
+      void loadAnalytics()
+    }
+  }, [tab])
+
   useEffect(() => {
     const active = bridge?.snapshot.activeTab
     if (!active) return
@@ -423,10 +454,15 @@ export function AffiliatesPage({ showToast = () => {}, embedded = false, initial
         <div className="affiliates-page__error">{loadError}</div>
       )}
 
-      {loading ? (
+      {/* Ranking e abas independentes não ficam presas no skeleton global */}
+      {loading && tab !== 'ranking' && tab !== 'distribution' && tab !== 'templates' && tab !== 'push' && tab !== 'domains' ? (
         <Skeleton rows={4} />
       ) : (
         <div className="affiliates-page__body">
+          {tab === 'domains' && (
+            <AffiliateTrackingDomainsSection showToast={showToast} />
+          )}
+
           {tab === 'overview' && (
             <div className="affiliates-page__overview">
               <div className="affiliates-page__hero">
@@ -494,39 +530,10 @@ export function AffiliatesPage({ showToast = () => {}, embedded = false, initial
 
           {tab === 'analytics' && (
             <div className="space-y-4">
-              <section className="rounded-2xl border border-border-light bg-white overflow-hidden">
-                <div className="p-4 sm:p-5 border-b border-border-light">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">Desempenho operacional</p>
-                  <div className="mt-1 flex flex-wrap items-end justify-between gap-3">
-                    <div>
-                      <h2 className="text-[18px] font-semibold text-gray-900">Atividade dos afiliados</h2>
-                      <p className="mt-1 text-[12px] text-gray-500">Envios, retornos, follow-ups e conversões registrados no atendimento.</p>
-                    </div>
-                    <span className="rounded-full bg-gray-100 px-3 py-1.5 text-[11px] font-semibold text-gray-600">Hoje e últimos 7 dias</span>
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 lg:grid-cols-4 divide-x divide-y lg:divide-y-0 divide-border-light">
-                  {[
-                    { label: 'Contatos enviados', value: stats?.activity?.today?.contacts_sent ?? 0, Icon: Send },
-                    { label: 'Retornos', value: stats?.activity?.today?.replies ?? 0, Icon: MessageCircle },
-                    { label: 'Follow-ups', value: stats?.activity?.today?.followups ?? 0, Icon: Clock },
-                    { label: 'Conversões', value: stats?.activity?.today?.conversions ?? 0, Icon: CheckCircle2 },
-                  ].map((item) => (
-                    <div key={item.label} className="p-4">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">{item.label}</span>
-                        <item.Icon size={14} className="text-gray-400" />
-                      </div>
-                      <p className="mt-2 text-[24px] font-bold tabular-nums text-gray-900">{item.value}</p>
-                    </div>
-                  ))}
-                </div>
-                <div className="grid sm:grid-cols-3 border-t border-border-light bg-gray-50">
-                  <div className="p-3.5"><span className="text-[10px] text-gray-500">Taxa de retorno hoje</span><p className="mt-1 text-sm font-semibold tabular-nums text-gray-900">{stats?.activity?.today?.response_rate ?? '—'}{stats?.activity?.today?.response_rate != null ? '%' : ''}</p></div>
-                  <div className="p-3.5 sm:border-l border-border-light"><span className="text-[10px] text-gray-500">Contatos em 7 dias</span><p className="mt-1 text-sm font-semibold tabular-nums text-gray-900">{stats?.activity?.last_7_days?.contacts_sent ?? 0}</p></div>
-                  <div className="p-3.5 sm:border-l border-border-light"><span className="text-[10px] text-gray-500">Afiliados atuantes hoje</span><p className="mt-1 text-sm font-semibold tabular-nums text-gray-900">{stats?.activity?.today?.active_affiliates ?? 0}</p></div>
-                </div>
-              </section>
+              <AffiliateNetworkActivityPanel
+                activity={stats?.activity}
+                variant="full"
+              />
 
               <div className="grid lg:grid-cols-[1.2fr_.8fr] gap-4">
                 <section className="rounded-2xl border border-border-light bg-white overflow-hidden">
@@ -541,10 +548,11 @@ export function AffiliatesPage({ showToast = () => {}, embedded = false, initial
                       {stats.activity.by_affiliate.map((row: any) => (
                         <div key={row.affiliate_id} className="p-4">
                           <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0"><p className="text-sm font-semibold text-gray-900 truncate">{row.display_name}</p><p className="mt-0.5 text-[10px] text-gray-500">{row.contacts_sent} contatos · {row.followups} follow-ups</p></div>
+                            <div className="min-w-0"><p className="text-sm font-semibold text-gray-900 truncate">{row.display_name}</p><p className="mt-0.5 text-[10px] text-gray-500">{row.clicks ?? 0} cliques · {row.contacts_sent} contatos · {row.followups} follow-ups</p></div>
                             <span className="rounded-full bg-gray-100 px-2.5 py-1 text-[10px] font-semibold text-gray-700">{row.response_rate == null ? 'Sem taxa' : `${row.response_rate}% retorno`}</span>
                           </div>
-                          <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+                          <div className="mt-3 grid grid-cols-4 gap-2 text-center">
+                            <div className="rounded-xl bg-gray-50 p-2"><strong className="block text-sm tabular-nums text-gray-900">{row.clicks ?? 0}</strong><span className="text-[9px] text-gray-500">Cliques</span></div>
                             <div className="rounded-xl bg-gray-50 p-2"><strong className="block text-sm tabular-nums text-gray-900">{row.replies}</strong><span className="text-[9px] text-gray-500">Retornos</span></div>
                             <div className="rounded-xl bg-gray-50 p-2"><strong className="block text-sm tabular-nums text-gray-900">{row.conversions}</strong><span className="text-[9px] text-gray-500">Conversões</span></div>
                             <div className="rounded-xl bg-gray-50 p-2"><strong className="block text-sm tabular-nums text-gray-900">{row.actions}</strong><span className="text-[9px] text-gray-500">Ações</span></div>
@@ -728,6 +736,18 @@ export function AffiliatesPage({ showToast = () => {}, embedded = false, initial
 
           {tab === 'distribution' && (
             <AffiliateDistributionSection showToast={showToast} saving={saving} setSaving={setSaving} />
+          )}
+
+          {tab === 'ranking' && (
+            <AffiliateRankingAwardsSection showToast={showToast} />
+          )}
+
+          {tab === 'push' && (
+            <AffiliatePushCenterSection showToast={showToast} />
+          )}
+
+          {tab === 'templates' && (
+            <AffiliateMessageTemplatesSection showToast={showToast} />
           )}
 
           {tab === 'programs' && (

@@ -6,6 +6,8 @@ export type ViewKey =
   | 'alerts'
   | 'reports'
   | 'clients'
+  | 'pos'
+  | 'profile'
 
 export type ShowToast = (t: string, tp?: 'success' | 'error') => void
 
@@ -20,6 +22,7 @@ export interface InventoryProduct {
   image?: string
   product_unit?: string
   unit?: string
+  metadata?: Record<string, any>
   product_type?: string
   product_price?: number
   price?: number

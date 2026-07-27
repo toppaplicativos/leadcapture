@@ -2,17 +2,24 @@
  * Motor de cadência do atendimento manual do afiliado.
  * Cada ação de Resultado → fase + tarefa (due) + instrução de UI.
  *
+ * Régua Reev (8 mensagens / C1–C8):
+ *   new → [C1] → … → [C8] · cada etapa considera a anterior e o resultado.
+ * Saídas a qualquer hora: replied · opt_out/lost · convert.
+ *
  * Política de saída (confirmada):
  * - canal indisponível / não correspondente / lost / dismiss → arquivar (lost), sem block hard.
- * Cadências: pós-envio D+2 · sem resposta D+3 · lembrar D+1 · pós-venda D+2.
  */
 import { randomUUID } from "crypto";
 import { query, queryOne } from "../config/database";
+import {
+  getRulerStep,
+  nextColdStep,
+  rulerStepLabel,
+  type ContactRulerTaskType,
+} from "./contactMessageRuler";
 
 export type AttendanceTaskType =
-  | "first_contact"
-  | "followup_1"
-  | "followup_2"
+  | ContactRulerTaskType
   | "qualify"
   | "proposal"
   | "close"
@@ -33,6 +40,7 @@ export type ProgressActionId =
   | "dismiss"
   | "note"
   | "convert"
+  | "post_sale_completed"
   /** Telefone: tentativa de ligação (paralelo a `sent`) */
   | "called"
   /** Caixa postal / recado */
@@ -60,7 +68,24 @@ export type CadenceEffect = {
   instruction: string;
   templateId: string | null;
   toast: string;
+  /** Etapa cold concluída (1–8) quando aplicável */
+  completedMessageStep?: number;
+  /** Próxima etapa cold agendada (1–8) */
+  nextMessageStep?: number | null;
+  /** Tag de sistema da etapa concluída (fuN_enviada) */
+  addTag?: string | null;
 };
+
+/** Ações que avançam a régua cold (sem resposta humana engajada). */
+const COLD_PROGRESS_ACTIONS = new Set<ProgressActionId>([
+  "sent",
+  "followup",
+  "no_answer",
+  "auto_reply",
+  "called",
+  "voicemail",
+  "busy",
+]);
 
 const EFFECTS: Record<ProgressActionId, CadenceEffect> = {
   sent: {
@@ -100,7 +125,8 @@ const EFFECTS: Record<ProgressActionId, CadenceEffect> = {
     taskType: "qualify",
     instruction: "Qualificar interesse e avançar a conversa",
     templateId: "followup",
-    toast: "Conversa aberta · qualificar até amanhã",
+    toast: "Respondeu · sai da régua cold · qualificar até amanhã",
+    addTag: "respondeu",
   },
   negotiating: {
     phase: "engaged",
@@ -114,6 +140,7 @@ const EFFECTS: Record<ProgressActionId, CadenceEffect> = {
     instruction: "Enviar proposta / link de produto e fechar",
     templateId: "proposta",
     toast: "Negociação · proposta/follow-up em 1 dia",
+    addTag: "respondeu",
   },
   auto_reply: {
     phase: "contacted",
@@ -137,9 +164,9 @@ const EFFECTS: Record<ProgressActionId, CadenceEffect> = {
     followupDays: 3,
     clearFollowup: false,
     taskType: "followup_2",
-    instruction: "2º contato — sem resposta no primeiro envio",
+    instruction: "Próximo toque da régua — sem resposta no envio anterior",
     templateId: "followup",
-    toast: "Sem resposta · tarefa em 3 dias",
+    toast: "Sem resposta · próxima etapa da régua",
   },
   waiting: {
     phase: "contacted",
@@ -192,6 +219,7 @@ const EFFECTS: Record<ProgressActionId, CadenceEffect> = {
     instruction: "Sem interesse — excluído da sua fila",
     templateId: null,
     toast: "Excluído · sem interesse",
+    addTag: "opt_out",
   },
   dismiss: {
     phase: "closed",
@@ -231,6 +259,20 @@ const EFFECTS: Record<ProgressActionId, CadenceEffect> = {
     instruction: "Pós-venda: agradecer e oferecer próximo pedido",
     templateId: "followup",
     toast: "Cliente registrado · pós-venda em 2 dias",
+    addTag: "convertido",
+  },
+  post_sale_completed: {
+    phase: "closed",
+    leadStatus: "converted",
+    assignmentStage: "converted",
+    assignmentStatus: "converted",
+    archive: true,
+    followupDays: null,
+    clearFollowup: true,
+    taskType: null,
+    instruction: "Pós-venda concluído",
+    templateId: null,
+    toast: "Pós-venda concluído",
   },
   called: {
     phase: "contacted",
@@ -286,26 +328,107 @@ const EFFECTS: Record<ProgressActionId, CadenceEffect> = {
   },
 };
 
+/**
+ * Aplica a régua Reev C1–C8 sobre o efeito base.
+ * `completedMessageStep` = última mensagem cold já enviada (0 se nenhuma).
+ * Em ações de envio (`sent`/`followup`/`called`), a etapa concluída = completed + 1.
+ */
+function applyReevColdProgress(
+  key: ProgressActionId,
+  base: CadenceEffect,
+  completedMessageStep: number,
+): CadenceEffect {
+  if (!COLD_PROGRESS_ACTIONS.has(key)) return { ...base };
+
+  const isOutbound =
+    key === "sent" || key === "followup" || key === "called";
+  const justCompleted = isOutbound
+    ? Math.min(8, Math.max(1, completedMessageStep + 1))
+    : Math.max(0, Math.min(8, completedMessageStep));
+
+  const completedDef = justCompleted > 0 ? getRulerStep(justCompleted) : null;
+  const next = nextColdStep(justCompleted);
+
+  if (!next) {
+    return {
+      ...base,
+      followupDays: null,
+      clearFollowup: true,
+      taskType: null,
+      instruction: "Régua completa (C8) — sem novos toques automáticos. Handoff ou arquivar.",
+      templateId: null,
+      toast: "Fim da régua · C8 concluído",
+      completedMessageStep: justCompleted,
+      nextMessageStep: null,
+      addTag: completedDef?.addTag || null,
+    };
+  }
+
+  const days =
+    key === "busy" || key === "waiting"
+      ? 1
+      : next.delayDaysFromPrev;
+
+  return {
+    ...base,
+    followupDays: days,
+    clearFollowup: false,
+    taskType: next.taskType,
+    instruction: `${next.code} · ${next.title} (${next.framework}) em ${days} dia${days > 1 ? "s" : ""} se não houver resposta`,
+    templateId: "followup",
+    toast: `${completedDef ? `${completedDef.code} ok` : "Contato"} · próximo: ${rulerStepLabel(next.step)}`,
+    completedMessageStep: justCompleted,
+    nextMessageStep: next.step,
+    addTag: completedDef?.addTag || null,
+  };
+}
+
 export function resolveCadence(
   action: string,
-  opts?: { followupDaysOverride?: number | null },
+  opts?: {
+    followupDaysOverride?: number | null;
+    /** Última etapa cold já enviada (0–8). Usado para avançar C1→C8. */
+    completedMessageStep?: number | null;
+  },
 ): CadenceEffect | null {
   const key = String(action || "").trim() as ProgressActionId;
   const base = EFFECTS[key];
   if (!base) return null;
-  if (
-    (key === "waiting" || key === "callback_requested")
-    && opts?.followupDaysOverride != null
-  ) {
-    const days = Math.max(0, Math.min(30, Number(opts.followupDaysOverride)));
+
+  const completed = Math.max(0, Math.min(8, Number(opts?.completedMessageStep ?? 0) || 0));
+
+  if (key === "waiting" || key === "callback_requested") {
+    const next = nextColdStep(Math.max(0, completed));
+    const days =
+      opts?.followupDaysOverride != null
+        ? Math.max(0, Math.min(30, Number(opts.followupDaysOverride)))
+        : (base.followupDays ?? 1);
     return {
       ...base,
       followupDays: days,
-      instruction: days === 0 ? "Retomar hoje" : `Retomar em ${days} dia${days > 1 ? "s" : ""}`,
-      toast: days === 0 ? "Lembrete para hoje" : `Lembrete em ${days} dia${days > 1 ? "s" : ""}`,
+      taskType: next?.taskType || base.taskType,
+      instruction:
+        days === 0
+          ? `Retomar hoje${next ? ` · ${next.code} ${next.title}` : ""}`
+          : `Retomar em ${days} dia${days > 1 ? "s" : ""}${next ? ` · ${next.code} ${next.title}` : ""}`,
+      toast:
+        days === 0
+          ? "Lembrete para hoje"
+          : `Lembrete em ${days} dia${days > 1 ? "s" : ""}`,
+      completedMessageStep: completed,
+      nextMessageStep: next?.step ?? null,
     };
   }
-  return { ...base };
+
+  if (COLD_PROGRESS_ACTIONS.has(key)) {
+    return applyReevColdProgress(key, base, completed);
+  }
+
+  return {
+    ...base,
+    completedMessageStep: completed,
+    nextMessageStep: null,
+  };
 }
 
 export function instructionForPhase(
@@ -649,12 +772,16 @@ export async function applyCadenceAfterProgress(input: {
   refId: string;
   action: string;
   followupDaysOverride?: number | null;
+  /** Última etapa cold já enviada (0–8) — alimenta régua C1–C8 */
+  completedMessageStep?: number | null;
+  effectOverride?: CadenceEffect | null;
 }): Promise<{
   effect: CadenceEffect;
   next_task: AttendanceTaskRow | null;
 }> {
-  const effect = resolveCadence(input.action, {
+  const effect = input.effectOverride || resolveCadence(input.action, {
     followupDaysOverride: input.followupDaysOverride,
+    completedMessageStep: input.completedMessageStep,
   });
   if (!effect) {
     throw new Error("Ação inválida");

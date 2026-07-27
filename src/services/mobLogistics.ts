@@ -1059,6 +1059,146 @@ export class MobLogisticsService {
     return { courier, userId: String(user.id) };
   }
 
+  private async ensurePasswordResetSchema(): Promise<void> {
+    await query(`
+      CREATE TABLE IF NOT EXISTS mob_password_resets (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) NOT NULL,
+        email VARCHAR(255) NOT NULL,
+        token_hash VARCHAR(128) NOT NULL,
+        expires_at TIMESTAMP NOT NULL,
+        used_at TIMESTAMP NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `).catch(() => undefined);
+    await query(
+      `CREATE INDEX IF NOT EXISTS idx_mob_pw_reset_email ON mob_password_resets (email)`,
+    ).catch(() => undefined);
+  }
+
+  /**
+   * Solicita recuperação de senha do entregador.
+   * Sempre retorna ok genérico (não revela se o e-mail existe).
+   */
+  async requestCourierPasswordReset(email: string): Promise<{ ok: true; resetUrl?: string; emailed: boolean }> {
+    await this.ensureSchema();
+    await this.ensurePasswordResetSchema();
+    const emailNorm = email.trim().toLowerCase();
+    if (!emailNorm || !emailNorm.includes("@")) {
+      throw new Error("Informe um e-mail válido");
+    }
+
+    const courier = await this.getCourierByEmail(emailNorm);
+    if (!courier) {
+      return { ok: true, emailed: false };
+    }
+
+    const user = await queryOne<any>(
+      `SELECT id FROM users WHERE LOWER(email) = ? LIMIT 1`,
+      [emailNorm],
+    );
+    if (!user?.id) {
+      return { ok: true, emailed: false };
+    }
+
+    const rawToken = randomBytes(32).toString("hex");
+    const tokenHash = await bcrypt.hash(rawToken, 10);
+    const id = randomUUID();
+    const expires = new Date(Date.now() + 60 * 60 * 1000); // 1h
+
+    await insert(
+      `INSERT INTO mob_password_resets (id, user_id, email, token_hash, expires_at)
+       VALUES (?, ?, ?, ?, ?)`,
+      [id, String(user.id), emailNorm, tokenHash, expires.toISOString()],
+    ).catch(async () => {
+      await insert(
+        `INSERT INTO mob_password_resets (id, user_id, email, token_hash, expires_at)
+         VALUES (?, ?, ?, ?, ?)`,
+        [id, String(user.id), emailNorm, tokenHash, expires],
+      );
+    });
+
+    const base =
+      String(process.env.MOB_PUBLIC_URL || process.env.PUBLIC_APP_URL || "https://mob.leadcapture.online")
+        .replace(/\/$/, "");
+    const resetUrl = `${base}/mob/entrar?reset=${encodeURIComponent(rawToken)}`;
+
+    let emailed = false;
+    try {
+      const { emailService } = await import("./email");
+      const result = await emailService.send({
+        to: emailNorm,
+        subject: "Redefinir senha — Lead Capture Mob",
+        html: `
+          <div style="font-family:system-ui,sans-serif;max-width:420px;margin:0 auto;color:#171717">
+            <h2 style="margin:0 0 12px;font-size:18px">Redefinir senha</h2>
+            <p style="margin:0 0 16px;font-size:14px;line-height:1.5;color:#404040">
+              Recebemos um pedido para redefinir a senha da sua conta de entregador no Lead Capture Mob.
+            </p>
+            <p style="margin:0 0 20px">
+              <a href="${resetUrl}" style="display:inline-block;background:#171717;color:#fff;text-decoration:none;padding:12px 18px;border-radius:12px;font-weight:600;font-size:14px">
+                Escolher nova senha
+              </a>
+            </p>
+            <p style="margin:0;font-size:12px;color:#6b6b6b;line-height:1.4">
+              O link expira em 1 hora. Se você não pediu isso, ignore este e-mail.
+            </p>
+          </div>
+        `,
+        text: `Redefinir senha Mob: ${resetUrl}\n\nO link expira em 1 hora.`,
+      });
+      emailed = Boolean(result.ok);
+      if (!result.ok) {
+        logger.warn({ email: emailNorm, msg: result.message }, "mob password reset email failed");
+      }
+    } catch (err: any) {
+      logger.warn({ err: err?.message }, "mob password reset email error");
+    }
+
+    // Em dev sem SMTP, devolve URL para o front/logs (nunca em produção com SMTP ok)
+    return {
+      ok: true,
+      emailed,
+      ...(!emailed && process.env.NODE_ENV !== "production" ? { resetUrl } : {}),
+    };
+  }
+
+  async resetCourierPassword(token: string, newPassword: string): Promise<void> {
+    await this.ensureSchema();
+    await this.ensurePasswordResetSchema();
+    const raw = String(token || "").trim();
+    if (!raw || raw.length < 20) throw new Error("Link inválido ou expirado");
+    if (!newPassword || newPassword.length < 6) {
+      throw new Error("Senha deve ter pelo menos 6 caracteres");
+    }
+
+    const rows = await query<any[]>(
+      `SELECT id, user_id, token_hash, expires_at, used_at
+       FROM mob_password_resets
+       WHERE used_at IS NULL
+         AND expires_at > NOW()
+       ORDER BY created_at DESC
+       LIMIT 40`,
+    );
+
+    let match: any = null;
+    for (const row of rows || []) {
+      const ok = await bcrypt.compare(raw, String(row.token_hash || ""));
+      if (ok) {
+        match = row;
+        break;
+      }
+    }
+    if (!match) throw new Error("Link inválido ou expirado");
+
+    const passwordHash = await bcrypt.hash(newPassword, 12);
+    await update(`UPDATE users SET password_hash = ?, updated_at = NOW() WHERE id = ?`, [
+      passwordHash,
+      match.user_id,
+    ]);
+    await update(`UPDATE mob_password_resets SET used_at = NOW() WHERE id = ?`, [match.id]);
+  }
+
   async updateCourierProfile(
     courierId: string,
     patch: Record<string, any>

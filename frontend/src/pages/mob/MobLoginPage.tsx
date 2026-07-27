@@ -1,6 +1,6 @@
 import { useState, useEffect, FormEvent } from 'react'
-import { useNavigate, useSearchParams, Link } from 'react-router-dom'
-import { Eye, EyeOff, Bike, Loader2, Mail, Lock, User, Phone, Ticket } from 'lucide-react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Eye, EyeOff, Bike, Mail, Lock, User, Phone, Ticket, ArrowRight, KeyRound, CheckCircle2 } from 'lucide-react'
 import { Button, Input } from '@/components/ui'
 import {
   getMobToken,
@@ -9,34 +9,44 @@ import {
   setPendingMobInvite,
 } from '@/lib/api-mob'
 
-type Mode = 'login' | 'register'
+type Mode = 'login' | 'register' | 'forgot' | 'reset'
 
-const ICON = 2.25
+const ICON = 1.85
 
 export function MobLoginPage() {
   const navigate = useNavigate()
-  const [params] = useSearchParams()
+  const [params, setParams] = useSearchParams()
   const inviteCode = String(params.get('invite') || '').trim()
+  const resetTokenFromUrl = String(params.get('reset') || params.get('token') || '').trim()
 
-  const [mode, setMode] = useState<Mode>(
-    params.get('modo') === 'cadastro' || inviteCode ? 'register' : 'login',
-  )
+  const initialMode = (): Mode => {
+    if (resetTokenFromUrl) return 'reset'
+    if (params.get('modo') === 'cadastro' || inviteCode) return 'register'
+    if (params.get('modo') === 'recuperar') return 'forgot'
+    return 'login'
+  }
+
+  const [mode, setMode] = useState<Mode>(initialMode)
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
   const [password, setPassword] = useState('')
+  const [confirmPw, setConfirmPw] = useState('')
   const [showPw, setShowPw] = useState(false)
+  const [showConfirmPw, setShowConfirmPw] = useState(false)
   const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
   const [loading, setLoading] = useState(false)
   const [inviteLabel, setInviteLabel] = useState('')
+  const [resetToken, setResetToken] = useState(resetTokenFromUrl)
 
   useEffect(() => {
     document.title = 'Lead Capture Mob'
-    if (getMobToken()) {
+    if (getMobToken() && mode !== 'reset' && mode !== 'forgot') {
       if (inviteCode) setPendingMobInvite(inviteCode)
       navigate('/mob/app', { replace: true })
     }
-  }, [navigate, inviteCode])
+  }, [navigate, inviteCode, mode])
 
   useEffect(() => {
     if (!inviteCode) return
@@ -48,11 +58,61 @@ export function MobLoginPage() {
       .catch(() => setInviteLabel(''))
   }, [inviteCode])
 
+  useEffect(() => {
+    if (resetTokenFromUrl) {
+      setMode('reset')
+      setResetToken(resetTokenFromUrl)
+    }
+  }, [resetTokenFromUrl])
+
+  function switchMode(next: Mode) {
+    setMode(next)
+    setError('')
+    setSuccess('')
+    setPassword('')
+    setConfirmPw('')
+    setShowPw(false)
+    setShowConfirmPw(false)
+    if (next !== 'reset') {
+      const nextParams = new URLSearchParams(params)
+      nextParams.delete('reset')
+      nextParams.delete('token')
+      if (next === 'forgot') nextParams.set('modo', 'recuperar')
+      else if (next === 'register') nextParams.set('modo', 'cadastro')
+      else nextParams.delete('modo')
+      setParams(nextParams, { replace: true })
+    }
+  }
+
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
     setError('')
+    setSuccess('')
     setLoading(true)
     try {
+      if (mode === 'forgot') {
+        await mobApi.forgotPassword(email.trim())
+        setSuccess('Se esse e-mail existir no Mob, enviamos um link para redefinir a senha.')
+        return
+      }
+
+      if (mode === 'reset') {
+        if (password.length < 6) throw new Error('Senha deve ter pelo menos 6 caracteres')
+        if (password !== confirmPw) throw new Error('As senhas não coincidem')
+        if (!resetToken) throw new Error('Link de recuperação inválido ou expirado')
+        await mobApi.resetPassword(resetToken, password)
+        setSuccess('Senha atualizada. Entre com a nova senha.')
+        setPassword('')
+        setConfirmPw('')
+        setMode('login')
+        const nextParams = new URLSearchParams(params)
+        nextParams.delete('reset')
+        nextParams.delete('token')
+        nextParams.delete('modo')
+        setParams(nextParams, { replace: true })
+        return
+      }
+
       if (mode === 'register') {
         const res = await mobApi.register({
           full_name: name,
@@ -84,129 +144,213 @@ export function MobLoginPage() {
     }
   }
 
+  const title =
+    mode === 'forgot'
+      ? 'Recuperar senha'
+      : mode === 'reset'
+        ? 'Nova senha'
+        : mode === 'register'
+          ? 'Criar conta'
+          : 'Entrar'
+
+  const subtitle =
+    mode === 'forgot'
+      ? 'Informe o e-mail da sua conta de entregador.'
+      : mode === 'reset'
+        ? 'Defina uma nova senha para continuar.'
+        : mode === 'register'
+          ? inviteLabel
+            ? `Cadastro para ${inviteLabel}`
+            : 'Crie sua conta de entregador.'
+          : inviteLabel
+            ? `Entrar e aceitar convite de ${inviteLabel}`
+            : 'Acesse sua conta de entregador.'
+
+  const submitLabel =
+    mode === 'forgot'
+      ? 'Enviar link'
+      : mode === 'reset'
+        ? 'Salvar senha'
+        : mode === 'register'
+          ? 'Criar conta'
+          : inviteCode
+            ? 'Entrar e aceitar convite'
+            : 'Entrar'
+
   return (
-    <div className="mob-app min-h-dvh flex flex-col">
-      <div className="flex-1 flex flex-col justify-center px-5 py-10 max-w-md mx-auto w-full">
-        <div className="mb-7">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-[12px] bg-gray-900 text-white mb-4">
-            <Bike size={22} strokeWidth={ICON} />
-          </div>
-          <h1 className="text-[1.375rem] font-bold text-gray-900 tracking-tight m-0">
-            Lead Capture Mob
-          </h1>
-          <p className="text-[13px] text-gray-600 mt-1.5 m-0 leading-snug">
-            App do entregador — multiempresa, uma conta
-          </p>
-        </div>
-
-        {inviteLabel && (
-          <div className="mb-4 rounded-[12px] border border-border bg-white px-3.5 py-3 flex items-start gap-2.5">
-            <div className="w-9 h-9 rounded-[10px] bg-gray-100 border border-border grid place-items-center shrink-0">
-              <Ticket size={16} strokeWidth={ICON} className="text-gray-700" />
+    <div className="mob-auth">
+      <div className="mob-auth__shell">
+        <div className="mob-auth__card">
+          <header className="mob-auth__brand">
+            <div className="mob-auth__mark" aria-hidden>
+              <Bike size={22} strokeWidth={ICON} />
             </div>
-            <div className="min-w-0">
-              <p className="text-[11px] font-semibold text-gray-600 m-0">Convite de</p>
-              <p className="text-[14px] font-bold text-gray-900 m-0 truncate">{inviteLabel}</p>
+            <p className="mob-auth__product">Lead Capture Mob</p>
+          </header>
+
+          {inviteLabel && mode !== 'forgot' && mode !== 'reset' && (
+            <div className="mob-auth__invite">
+              <div className="mob-auth__invite-icon">
+                <Ticket size={16} strokeWidth={ICON} />
+              </div>
+              <div className="mob-auth__invite-body">
+                <span>Convite</span>
+                <strong>{inviteLabel}</strong>
+              </div>
             </div>
-          </div>
-        )}
-
-        <div className="flex rounded-[12px] bg-gray-100 p-1 mb-4">
-          {(['login', 'register'] as Mode[]).map((m) => (
-            <button
-              key={m}
-              type="button"
-              onClick={() => {
-                setMode(m)
-                setError('')
-              }}
-              className={`flex-1 h-10 rounded-[10px] text-[13px] font-bold transition-colors ${
-                mode === m ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-800'
-              }`}
-            >
-              {m === 'login' ? 'Entrar' : 'Cadastrar'}
-            </button>
-          ))}
-        </div>
-
-        <form onSubmit={onSubmit} className="space-y-3">
-          {mode === 'register' && (
-            <>
-              <Input
-                label="Nome completo"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                required
-                iconLeft={<User size={16} strokeWidth={ICON} />}
-                autoComplete="name"
-              />
-              <Input
-                label="WhatsApp"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                iconLeft={<Phone size={16} strokeWidth={ICON} />}
-                placeholder="DDD + número"
-                autoComplete="tel"
-              />
-            </>
           )}
-          <Input
-            label="E-mail"
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-            iconLeft={<Mail size={16} strokeWidth={ICON} />}
-            autoComplete="email"
-          />
-          <div className="relative">
-            <Input
-              label="Senha"
-              type={showPw ? 'text' : 'password'}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              minLength={6}
-              iconLeft={<Lock size={16} strokeWidth={ICON} />}
-              autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-            />
-            <button
-              type="button"
-              onClick={() => setShowPw((v) => !v)}
-              className="absolute right-3 top-[38px] h-8 w-8 grid place-items-center rounded-lg text-gray-600 hover:bg-gray-100 hover:text-gray-900"
-              aria-label={showPw ? 'Ocultar senha' : 'Mostrar senha'}
-            >
-              {showPw ? <EyeOff size={18} strokeWidth={ICON} /> : <Eye size={18} strokeWidth={ICON} />}
-            </button>
+
+          {(mode === 'login' || mode === 'register') && (
+            <div className="mob-auth__tabs" role="tablist" aria-label="Modo de acesso">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={mode === 'login'}
+                className={mode === 'login' ? 'is-active' : undefined}
+                onClick={() => switchMode('login')}
+              >
+                Entrar
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={mode === 'register'}
+                className={mode === 'register' ? 'is-active' : undefined}
+                onClick={() => switchMode('register')}
+              >
+                Cadastrar
+              </button>
+            </div>
+          )}
+
+          <div className="mob-auth__heading">
+            <h1>{title}</h1>
+            <p>{subtitle}</p>
           </div>
+
+          {success && (
+            <div className="mob-auth__alert mob-auth__alert--ok" role="status">
+              <CheckCircle2 size={16} strokeWidth={ICON} />
+              <span>{success}</span>
+            </div>
+          )}
 
           {error && (
-            <p className="text-[13px] text-red-700 bg-red-50 border border-red-100 rounded-[10px] px-3 py-2 m-0" role="alert">
+            <div className="mob-auth__alert mob-auth__alert--err" role="alert">
               {error}
-            </p>
+            </div>
           )}
 
-          <Button type="submit" fullWidth size="lg" loading={loading} className="mt-1">
-            {loading ? <Loader2 className="animate-spin" size={18} strokeWidth={ICON} /> : null}
-            {mode === 'login' ? 'Entrar no Mob' : 'Criar conta'}
-          </Button>
-        </form>
+          <form onSubmit={onSubmit} className="mob-auth__form" noValidate>
+            {mode === 'register' && (
+              <>
+                <Input
+                  label="Nome completo"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  required
+                  autoComplete="name"
+                  autoFocus
+                  iconLeft={<User size={16} strokeWidth={ICON} />}
+                />
+                <Input
+                  label="WhatsApp"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  autoComplete="tel"
+                  inputMode="tel"
+                  placeholder="DDD + número"
+                  iconLeft={<Phone size={16} strokeWidth={ICON} />}
+                />
+              </>
+            )}
 
-        <p className="text-center text-[11px] text-gray-500 mt-8 m-0 leading-relaxed">
-          <Link
-            to="/login"
-            className="text-gray-700 font-semibold underline-offset-2 hover:underline"
-          >
-            Outros tipos de acesso
-          </Link>
-          <span aria-hidden> · </span>
-          <Link
-            to="/rastreio"
-            className="text-gray-700 font-semibold underline-offset-2 hover:underline"
-          >
-            Acompanhar corrida como cliente
-          </Link>
-        </p>
+            {(mode === 'login' || mode === 'register' || mode === 'forgot') && (
+              <Input
+                label="E-mail"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                autoComplete="email"
+                autoFocus={mode === 'login' || mode === 'forgot'}
+                iconLeft={<Mail size={16} strokeWidth={ICON} />}
+              />
+            )}
+
+            {(mode === 'login' || mode === 'register' || mode === 'reset') && (
+              <Input
+                label={mode === 'reset' ? 'Nova senha' : 'Senha'}
+                type={showPw ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                minLength={6}
+                autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                autoFocus={mode === 'reset'}
+                iconLeft={<Lock size={16} strokeWidth={ICON} />}
+                iconRight={
+                  <button
+                    type="button"
+                    className="mob-auth__eye"
+                    onClick={() => setShowPw((v) => !v)}
+                    aria-label={showPw ? 'Ocultar senha' : 'Mostrar senha'}
+                  >
+                    {showPw ? <EyeOff size={17} strokeWidth={ICON} /> : <Eye size={17} strokeWidth={ICON} />}
+                  </button>
+                }
+              />
+            )}
+
+            {mode === 'reset' && (
+              <Input
+                label="Confirmar senha"
+                type={showConfirmPw ? 'text' : 'password'}
+                value={confirmPw}
+                onChange={(e) => setConfirmPw(e.target.value)}
+                required
+                minLength={6}
+                autoComplete="new-password"
+                iconLeft={<KeyRound size={16} strokeWidth={ICON} />}
+                iconRight={
+                  <button
+                    type="button"
+                    className="mob-auth__eye"
+                    onClick={() => setShowConfirmPw((v) => !v)}
+                    aria-label={showConfirmPw ? 'Ocultar senha' : 'Mostrar senha'}
+                  >
+                    {showConfirmPw ? <EyeOff size={17} strokeWidth={ICON} /> : <Eye size={17} strokeWidth={ICON} />}
+                  </button>
+                }
+              />
+            )}
+
+            {mode === 'login' && (
+              <div className="mob-auth__row">
+                <button type="button" className="mob-auth__link" onClick={() => switchMode('forgot')}>
+                  Esqueci a senha
+                </button>
+              </div>
+            )}
+
+            <Button
+              type="submit"
+              size="lg"
+              fullWidth
+              loading={loading}
+              className="mob-auth__submit"
+              iconRight={!loading ? <ArrowRight size={16} strokeWidth={2} /> : undefined}
+            >
+              {submitLabel}
+            </Button>
+          </form>
+
+          {(mode === 'forgot' || mode === 'reset') && (
+            <button type="button" className="mob-auth__back" onClick={() => switchMode('login')}>
+              Voltar para entrar
+            </button>
+          )}
+        </div>
       </div>
     </div>
   )

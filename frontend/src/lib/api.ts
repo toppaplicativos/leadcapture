@@ -254,6 +254,36 @@ export function fetchCatalog(storeSlugOverride?: string): Promise<StoreData & { 
   return apiFetch(`${storeApiBase(storeSlugOverride)}/catalog`)
 }
 
+export type PublicFreightQuote = {
+  ok: boolean
+  error?: string
+  distance_km: number | null
+  fee: number | null
+  free_shipping: boolean
+  eta_text: string | null
+  copy: string | null
+  destination?: { label?: string; city?: string; state?: string } | null
+}
+
+export function quotePublicFreight(payload: {
+  cep: string
+  address?: string
+  cart_total: number
+  order_weight_kg: number
+  /** Telefone do cliente — aplica frete especial do clube se for membro */
+  customer_phone?: string
+}): Promise<{
+  success: boolean
+  quote: PublicFreightQuote
+  club?: { club_applied: boolean; club_label: string | null } | null
+}> {
+  return apiFetch(`${storeApiBase()}/freight/quote`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
 export function fetchProduct(
   productSlug: string,
   storeSlugOverride?: string,

@@ -494,30 +494,52 @@ export class AffiliatesService {
 
   async getOrCreateProgramConfig(ownerUserId: string, brandId: string): Promise<AffiliateProgramConfig> {
     await ensureAffiliateSchema();
-    const existing = await queryOne<AffiliateProgramConfig>(
-      `SELECT * FROM affiliate_program_config WHERE owner_user_id = ? AND brand_id = ? LIMIT 1`,
-      [ownerUserId, brandId]
-    );
-    if (existing) {
+
+    const sanitize = async (row: AffiliateProgramConfig) => {
       // Sanitiza app_subdomain legado alheio ao devolver
       const slug = await this.resolveBrandSlug(brandId);
-      const clean = this.sanitizeAppSubdomain(existing.app_subdomain, slug);
-      if (existing.app_subdomain && !clean) {
-        (existing as any).app_subdomain = null;
+      const clean = this.sanitizeAppSubdomain(row.app_subdomain, slug);
+      if (row.app_subdomain && !clean) {
+        (row as any).app_subdomain = null;
       } else if (clean) {
-        (existing as any).app_subdomain = clean;
+        (row as any).app_subdomain = clean;
       }
-      return existing;
-    }
+      return row;
+    };
+
+    /**
+     * brand_id é UNIQUE em affiliate_program_config.
+     * Lookup SEMPRE por brand_id — nunca só por (owner, brand).
+     * Caso contrário um user da equipe / admin com outro userId tenta INSERT
+     * e estoura: duplicate key "affiliate_program_config_brand_id_key" (500 na UI).
+     */
+    const byBrand = await queryOne<AffiliateProgramConfig>(
+      `SELECT * FROM affiliate_program_config WHERE brand_id = ? LIMIT 1`,
+      [brandId]
+    );
+    if (byBrand) return sanitize(byBrand);
 
     const id = randomUUID();
     // Padrão da plataforma: parceiros.leadcapture.online (não alhopronto)
-    await query(
-      `INSERT INTO affiliate_program_config
-       (id, owner_user_id, brand_id, is_enabled, default_commission_pct, cookie_days, min_withdrawal, payment_days, app_subdomain, accept_new_affiliates, auto_approve_affiliates)
-       VALUES (?, ?, ?, TRUE, 10, 30, 50, 15, ?, TRUE, TRUE)`,
-      [id, ownerUserId, brandId, AffiliatesService.PLATFORM_PARTNERS_HOST]
-    );
+    try {
+      await query(
+        `INSERT INTO affiliate_program_config
+         (id, owner_user_id, brand_id, is_enabled, default_commission_pct, cookie_days, min_withdrawal, payment_days, app_subdomain, accept_new_affiliates, auto_approve_affiliates)
+         VALUES (?, ?, ?, TRUE, 10, 30, 50, 15, ?, TRUE, TRUE)`,
+        [id, ownerUserId, brandId, AffiliatesService.PLATFORM_PARTNERS_HOST]
+      );
+    } catch (err: any) {
+      const msg = String(err?.message || err || "");
+      // Corrida / unique brand_id — re-lê a linha existente
+      if (/duplicate|unique|affiliate_program_config_brand_id/i.test(msg)) {
+        const raced = await queryOne<AffiliateProgramConfig>(
+          `SELECT * FROM affiliate_program_config WHERE brand_id = ? LIMIT 1`,
+          [brandId]
+        );
+        if (raced) return sanitize(raced);
+      }
+      throw err;
+    }
 
     const created = (await queryOne<AffiliateProgramConfig>(
       `SELECT * FROM affiliate_program_config WHERE id = ? LIMIT 1`,
@@ -533,7 +555,7 @@ export class AffiliatesService {
       console.error("[affiliates] sync marketplace on create config:", err?.message || err);
     }
 
-    return created;
+    return sanitize(created);
   }
 
   async bumpContentVersion(ownerUserId: string, brandId: string): Promise<number> {
@@ -542,12 +564,12 @@ export class AffiliatesService {
     await query(
       `UPDATE affiliate_program_config
        SET content_version = COALESCE(content_version, 0) + 1, updated_at = NOW()
-       WHERE owner_user_id = ? AND brand_id = ?`,
-      [ownerUserId, brandId]
+       WHERE brand_id = ?`,
+      [brandId]
     );
     const row = await queryOne<any>(
-      `SELECT content_version FROM affiliate_program_config WHERE owner_user_id = ? AND brand_id = ? LIMIT 1`,
-      [ownerUserId, brandId]
+      `SELECT content_version FROM affiliate_program_config WHERE brand_id = ? LIMIT 1`,
+      [brandId]
     );
     return Number(row?.content_version || 1);
   }
@@ -639,9 +661,9 @@ export class AffiliatesService {
       const bumpsContent = ["terms_html", "training_html", "commission_rules"].some((k) => k in normalized);
       if (bumpsContent) fields.push("content_version = COALESCE(content_version, 0) + 1");
       fields.push("updated_at = NOW()");
-      values.push(ownerUserId, brandId);
+      values.push(brandId);
       await query(
-        `UPDATE affiliate_program_config SET ${fields.join(", ")} WHERE owner_user_id = ? AND brand_id = ?`,
+        `UPDATE affiliate_program_config SET ${fields.join(", ")} WHERE brand_id = ?`,
         values
       );
     }
@@ -655,21 +677,23 @@ export class AffiliatesService {
     }
 
     return (await queryOne<AffiliateProgramConfig>(
-      `SELECT * FROM affiliate_program_config WHERE owner_user_id = ? AND brand_id = ? LIMIT 1`,
-      [ownerUserId, brandId]
+      `SELECT * FROM affiliate_program_config WHERE brand_id = ? LIMIT 1`,
+      [brandId]
     ))!;
   }
 
   async listAffiliates(ownerUserId: string, brandId: string) {
     await ensureAffiliateSchema();
+    // brand_id é a chave da rede; owner_user_id no param mantém assinatura da API
+    void ownerUserId;
     return query<any[]>(
       `SELECT a.*, u.email, u.name AS user_name, c.is_active AS credential_active
        FROM affiliates a
        INNER JOIN affiliate_app_credentials c ON c.id = a.credential_id
        INNER JOIN users u ON u.id = a.affiliate_user_id
-       WHERE a.owner_user_id = ? AND a.brand_id = ?
+       WHERE a.brand_id = ?
        ORDER BY a.created_at DESC`,
-      [ownerUserId, brandId]
+      [brandId]
     );
   }
 
@@ -1010,6 +1034,16 @@ export class AffiliatesService {
       amount: commission,
       entityId: input.orderId,
     });
+
+    /* Atualiza progresso de premiações / ranking após venda */
+    void (async () => {
+      try {
+        const { affiliateRankingAwardsService } = await import("./affiliateRankingAwards");
+        await affiliateRankingAwardsService.evaluateAllActive(input.brandId);
+      } catch {
+        /* ignore */
+      }
+    })();
   }
 
   private async emitAffiliateFinanceEvent(
@@ -1156,12 +1190,29 @@ export class AffiliatesService {
       [affiliateId]
     );
 
-    const rank = await queryOne<any>(
-      `SELECT COUNT(*) + 1 AS position
-       FROM affiliates
-       WHERE brand_id = ? AND total_commission > ?`,
-      [brandId, affiliate.total_commission || 0]
-    );
+    /* Ranking real (métricas compostas) — evita todos em #1 quando comissão = 0 */
+    let rankPosition = Number(affiliate.rank_position || 0);
+    let rankOf = 0;
+    try {
+      const { affiliateRankingAwardsService } = await import("./affiliateRankingAwards");
+      const rankInfo = await affiliateRankingAwardsService.getAffiliateRank(brandId, affiliateId, "all");
+      rankPosition = Number(rankInfo.rank || 0);
+      rankOf = Number(rankInfo.of || 0);
+    } catch {
+      // fallback legado: só quem tem comissão maior
+      const rank = await queryOne<any>(
+        `SELECT COUNT(*) + 1 AS position
+         FROM affiliates
+         WHERE brand_id = ? AND COALESCE(total_commission, 0) > ?`,
+        [brandId, affiliate.total_commission || 0],
+      );
+      rankPosition = Number(rank?.position || 0);
+      const totalAff = await queryOne<any>(
+        `SELECT COUNT(*) AS c FROM affiliates WHERE brand_id = ? AND COALESCE(status,'active') = 'active'`,
+        [brandId],
+      );
+      rankOf = Number(totalAff?.c || 0);
+    }
 
     return {
       affiliate,
@@ -1177,7 +1228,8 @@ export class AffiliatesService {
       clicks: Number(affiliate.total_clicks || 0),
       conversions: Number(conversions?.total || 0),
       orders_in_progress: Number(inProgress?.total || 0),
-      rank: Number(rank?.position || 0),
+      rank: rankPosition,
+      rank_of: rankOf,
     };
   }
 
@@ -1802,14 +1854,20 @@ export class AffiliatesService {
     productId?: string | null;
     productSlug?: string | null;
     landingPath?: string | null;
+    sourceDomain?: string | null;
+    sourceHost?: string | null;
   }) {
     await ensureAffiliateSchema();
+    await query(`ALTER TABLE affiliate_clicks ADD COLUMN source_domain VARCHAR(190) NULL`).catch(() => undefined);
+    await query(`ALTER TABLE affiliate_clicks ADD COLUMN source_host VARCHAR(190) NULL`).catch(() => undefined);
     const linkType = String(input.linkType || "catalog").trim().toLowerCase() || "catalog";
+    const sourceDomain = input.sourceDomain ? String(input.sourceDomain).trim().slice(0, 190) : null;
+    const sourceHost = input.sourceHost ? String(input.sourceHost).trim().slice(0, 190) : null;
     await query(
       `INSERT INTO affiliate_clicks
        (id, owner_user_id, brand_id, affiliate_id, ip_hash, user_agent, referrer,
-        link_type, product_id, product_slug, landing_path)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        link_type, product_id, product_slug, landing_path, source_domain, source_host)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         randomUUID(),
         input.ownerUserId,
@@ -1822,6 +1880,8 @@ export class AffiliatesService {
         input.productId || null,
         input.productSlug || null,
         input.landingPath || null,
+        sourceDomain,
+        sourceHost,
       ]
     );
     await query(
@@ -2382,8 +2442,13 @@ export class AffiliatesService {
     return { phone: null, source: null, instance_id: null };
   }
 
-  async getProgramStats(ownerUserId: string, brandId: string) {
+  async getProgramStats(
+    ownerUserId: string,
+    brandId: string,
+    opts?: { includeActivity?: boolean }
+  ) {
     await ensureAffiliateSchema();
+    const includeActivity = opts?.includeActivity !== false;
     const config = await this.getOrCreateProgramConfig(ownerUserId, brandId);
 
     await query(`CREATE TABLE IF NOT EXISTS affiliate_manual_actions (
@@ -2392,115 +2457,59 @@ export class AffiliatesService {
       action VARCHAR(40) NOT NULL, message_text TEXT NULL, note TEXT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`).catch(() => undefined);
 
-    const affiliateAgg = await queryOne<any>(
-      `SELECT
-         COUNT(*) AS total,
-         SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending,
-         SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) AS active,
-         COALESCE(SUM(total_clicks), 0) AS clicks,
-         COALESCE(SUM(total_sales), 0) AS sales,
-         COALESCE(SUM(total_commission), 0) AS commission_total
-       FROM affiliates
-       WHERE owner_user_id = ? AND brand_id = ?`,
-      [ownerUserId, brandId]
-    );
+    /* Agregações leves em paralelo — brand_id é a chave operacional da rede */
+    const [affiliateAgg, salesAgg, payoutsAgg, materialsCount, topAffiliates] = await Promise.all([
+      queryOne<any>(
+        `SELECT
+           COUNT(*) AS total,
+           SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending,
+           SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) AS active,
+           COALESCE(SUM(total_clicks), 0) AS clicks,
+           COALESCE(SUM(total_sales), 0) AS sales,
+           COALESCE(SUM(total_commission), 0) AS commission_total
+         FROM affiliates
+         WHERE brand_id = ?`,
+        [brandId]
+      ),
+      queryOne<any>(
+        `SELECT
+           COUNT(*) AS total_sales,
+           COALESCE(SUM(commission_amount), 0) AS commission_all,
+           COALESCE(SUM(CASE WHEN commission_status = 'pending' THEN commission_amount ELSE 0 END), 0) AS commission_pending,
+           COALESCE(SUM(CASE WHEN commission_status = 'approved' THEN commission_amount ELSE 0 END), 0) AS commission_approved,
+           COALESCE(SUM(CASE WHEN commission_status = 'pending' THEN 1 ELSE 0 END), 0) AS pending_count
+         FROM affiliate_sales
+         WHERE brand_id = ?`,
+        [brandId]
+      ),
+      queryOne<any>(
+        `SELECT
+           COALESCE(SUM(CASE WHEN status = 'requested' THEN 1 ELSE 0 END), 0) AS requested,
+           COALESCE(SUM(CASE WHEN status = 'requested' THEN amount ELSE 0 END), 0) AS requested_amount
+         FROM affiliate_payouts
+         WHERE brand_id = ?`,
+        [brandId]
+      ),
+      queryOne<any>(
+        `SELECT COUNT(*) AS total
+         FROM affiliate_materials
+         WHERE brand_id = ? AND is_active = TRUE`,
+        [brandId]
+      ),
+      query<any[]>(
+        `SELECT id, display_name, code, coupon_code, status, total_clicks, total_sales, total_commission
+         FROM affiliates
+         WHERE brand_id = ?
+         ORDER BY total_commission DESC, total_sales DESC
+         LIMIT 5`,
+        [brandId]
+      ),
+    ]);
 
-    const salesAgg = await queryOne<any>(
-      `SELECT
-         COUNT(*) AS total_sales,
-         COALESCE(SUM(commission_amount), 0) AS commission_all,
-         COALESCE(SUM(CASE WHEN commission_status = 'pending' THEN commission_amount ELSE 0 END), 0) AS commission_pending,
-         COALESCE(SUM(CASE WHEN commission_status = 'approved' THEN commission_amount ELSE 0 END), 0) AS commission_approved,
-         COALESCE(SUM(CASE WHEN commission_status = 'pending' THEN 1 ELSE 0 END), 0) AS pending_count
-       FROM affiliate_sales
-       WHERE owner_user_id = ? AND brand_id = ?`,
-      [ownerUserId, brandId]
-    );
-
-    const payoutsAgg = await queryOne<any>(
-      `SELECT
-         COALESCE(SUM(CASE WHEN status = 'requested' THEN 1 ELSE 0 END), 0) AS requested,
-         COALESCE(SUM(CASE WHEN status = 'requested' THEN amount ELSE 0 END), 0) AS requested_amount
-       FROM affiliate_payouts
-       WHERE owner_user_id = ? AND brand_id = ?`,
-      [ownerUserId, brandId]
-    );
-
-    const materialsCount = await queryOne<any>(
-      `SELECT COUNT(*) AS total
-       FROM affiliate_materials
-       WHERE owner_user_id = ? AND brand_id = ? AND is_active = TRUE`,
-      [ownerUserId, brandId]
-    );
-
-    const topAffiliates = await query<any[]>(
-      `SELECT id, display_name, code, coupon_code, status, total_clicks, total_sales, total_commission
-       FROM affiliates
-       WHERE owner_user_id = ? AND brand_id = ?
-       ORDER BY total_commission DESC, total_sales DESC
-       LIMIT 5`,
-      [ownerUserId, brandId]
-    );
-
-    const activityAgg = await queryOne<any>(
-      `SELECT
-         COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE) AS actions_today,
-         COUNT(*) FILTER (WHERE created_at >= CURRENT_TIMESTAMP - INTERVAL '7 day') AS actions_7d,
-         COUNT(DISTINCT affiliate_id) FILTER (WHERE created_at >= CURRENT_DATE) AS active_affiliates_today,
-         COUNT(DISTINCT (ref_type || ':' || ref_id)) FILTER (
-           WHERE action IN ('sent', 'followup') AND created_at >= CURRENT_DATE
-         ) AS contacts_sent_today,
-         COUNT(*) FILTER (WHERE action = 'sent' AND created_at >= CURRENT_DATE) AS messages_sent_today,
-         COUNT(*) FILTER (WHERE action = 'followup' AND created_at >= CURRENT_DATE) AS followups_today,
-         COUNT(*) FILTER (WHERE action = 'replied' AND created_at >= CURRENT_DATE) AS replies_today,
-         COUNT(*) FILTER (WHERE action = 'negotiating' AND created_at >= CURRENT_DATE) AS negotiations_today,
-         COUNT(*) FILTER (WHERE action = 'convert' AND created_at >= CURRENT_DATE) AS conversions_today,
-         COUNT(DISTINCT (ref_type || ':' || ref_id)) FILTER (
-           WHERE action IN ('sent', 'followup') AND created_at >= CURRENT_TIMESTAMP - INTERVAL '7 day'
-         ) AS contacts_sent_7d,
-         COUNT(*) FILTER (WHERE action = 'replied' AND created_at >= CURRENT_TIMESTAMP - INTERVAL '7 day') AS replies_7d,
-         COUNT(*) FILTER (WHERE action = 'convert' AND created_at >= CURRENT_TIMESTAMP - INTERVAL '7 day') AS conversions_7d
-       FROM affiliate_manual_actions
-       WHERE owner_user_id = ? AND brand_id = ?`,
-      [ownerUserId, brandId],
-    ).catch(() => null);
-
-    const activityByAffiliate = await query<any[]>(
-      `SELECT a.affiliate_id, f.display_name, f.code,
-              COUNT(*) AS actions,
-              COUNT(DISTINCT (a.ref_type || ':' || a.ref_id)) FILTER (WHERE a.action IN ('sent', 'followup')) AS contacts_sent,
-              COUNT(*) FILTER (WHERE a.action = 'replied') AS replies,
-              COUNT(*) FILTER (WHERE a.action = 'followup') AS followups,
-              COUNT(*) FILTER (WHERE a.action = 'convert') AS conversions,
-              MAX(a.created_at) AS last_activity_at
-       FROM affiliate_manual_actions a
-       INNER JOIN affiliates f ON f.id = a.affiliate_id
-       WHERE a.owner_user_id = ? AND a.brand_id = ?
-         AND a.created_at >= CURRENT_TIMESTAMP - INTERVAL '7 day'
-       GROUP BY a.affiliate_id, f.display_name, f.code
-       ORDER BY contacts_sent DESC, replies DESC, actions DESC
-       LIMIT 10`,
-      [ownerUserId, brandId],
-    ).catch(() => []);
-
-    const recentActivity = await query<any[]>(
-      `SELECT a.id, a.affiliate_id, f.display_name, a.action, a.ref_type, a.ref_id,
-              a.message_text, a.note, a.created_at,
-              COALESCE(pa.prospect_name, al.customer_name, 'Contato') AS contact_name
-       FROM affiliate_manual_actions a
-       INNER JOIN affiliates f ON f.id = a.affiliate_id
-       LEFT JOIN prospect_assignments pa ON a.ref_type = 'assignment' AND pa.id = a.ref_id
-       LEFT JOIN affiliate_leads al ON a.ref_type = 'affiliate_lead' AND al.id = a.ref_id
-       WHERE a.owner_user_id = ? AND a.brand_id = ?
-       ORDER BY a.created_at DESC
-       LIMIT 30`,
-      [ownerUserId, brandId],
-    ).catch(() => []);
-
-    const sentToday = Number(activityAgg?.contacts_sent_today || 0);
-    const repliesToday = Number(activityAgg?.replies_today || 0);
-    const sent7d = Number(activityAgg?.contacts_sent_7d || 0);
-    const replies7d = Number(activityAgg?.replies_7d || 0);
+    /* Atividade da rede é pesada (várias queries + joins) — só sob demanda (aba Análises) */
+    const networkActivity = includeActivity
+      ? await this.buildNetworkActivityMetrics(ownerUserId, brandId)
+      : null;
 
     return {
       program: config,
@@ -2517,64 +2526,388 @@ export class AffiliatesService {
       payouts_requested: Number(payoutsAgg?.requested || 0),
       payouts_requested_amount: Number(payoutsAgg?.requested_amount || 0),
       materials_count: Number(materialsCount?.total || 0),
-      top_affiliates: topAffiliates,
-      activity: {
-        today: {
-          actions: Number(activityAgg?.actions_today || 0),
-          active_affiliates: Number(activityAgg?.active_affiliates_today || 0),
-          contacts_sent: sentToday,
-          messages_sent: Number(activityAgg?.messages_sent_today || 0),
-          followups: Number(activityAgg?.followups_today || 0),
-          replies: repliesToday,
-          negotiations: Number(activityAgg?.negotiations_today || 0),
-          conversions: Number(activityAgg?.conversions_today || 0),
-          response_rate: sentToday > 0 ? Math.round((repliesToday / sentToday) * 100) : null,
-        },
-        last_7_days: {
-          actions: Number(activityAgg?.actions_7d || 0),
-          contacts_sent: sent7d,
-          replies: replies7d,
-          conversions: Number(activityAgg?.conversions_7d || 0),
-          response_rate: sent7d > 0 ? Math.round((replies7d / sent7d) * 100) : null,
-        },
-        by_affiliate: activityByAffiliate.map((row) => ({
-          affiliate_id: String(row.affiliate_id),
-          display_name: String(row.display_name || 'Afiliado'),
+      top_affiliates: topAffiliates || [],
+      activity: networkActivity,
+    };
+  }
+
+  /**
+   * Atividade operacional da rede de afiliados.
+   *
+   * - new_contacts: contatos distintos com entrega real (sent/followup/called),
+   *   sem exclusões (lost/pool_skip/dismiss/not_matching).
+   * - attempts: todas as tentativas de contato (inclui claim/aceite e outcomes).
+   * - messages: mensagens do sistema (sent + followup + tarefas com texto).
+   * - replies: afirmações de retorno (replied/auto_reply/callback_requested).
+   * - followups: follow-ups de ação + tarefas de atendimento concluídas.
+   * - clicks: acessos a links afiliados (affiliate_clicks).
+   * - active_affiliates: afiliados com qualquer ação no período.
+   */
+  private async buildNetworkActivityMetrics(ownerUserId: string, brandId: string) {
+    await query(`CREATE TABLE IF NOT EXISTS affiliate_manual_actions (
+      id VARCHAR(36) PRIMARY KEY, owner_user_id VARCHAR(36) NOT NULL, brand_id VARCHAR(36) NOT NULL,
+      affiliate_id VARCHAR(36) NOT NULL, ref_type VARCHAR(30) NOT NULL, ref_id VARCHAR(36) NOT NULL,
+      action VARCHAR(40) NOT NULL, message_text TEXT NULL, note TEXT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`).catch(() => undefined);
+
+    const DELIVERED = `('sent', 'followup', 'called')`;
+    const EXCLUDE = `('lost', 'pool_skip', 'dismiss', 'not_matching', 'channel_unavailable')`;
+    const ATTEMPT = `('sent', 'followup', 'called', 'claim', 'waiting', 'busy', 'no_answer', 'voicemail', 'callback_requested', 'received')`;
+    const MESSAGE = `('sent', 'followup')`;
+    const REPLY = `('replied', 'auto_reply', 'callback_requested')`;
+
+    const activityAgg = await queryOne<any>(
+      `SELECT
+         COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE) AS actions_today,
+         COUNT(*) FILTER (WHERE created_at >= CURRENT_TIMESTAMP - INTERVAL '7 day') AS actions_7d,
+         COUNT(DISTINCT affiliate_id) FILTER (WHERE created_at >= CURRENT_DATE) AS active_affiliates_today,
+         COUNT(DISTINCT affiliate_id) FILTER (
+           WHERE created_at >= CURRENT_TIMESTAMP - INTERVAL '7 day'
+         ) AS active_affiliates_7d,
+
+         /* Novos contatos: entrega real (sent/followup/called), 1 por prospect.
+            Exclusões (lost/pool_skip/…) não entram — só ações de entrega. */
+         COUNT(DISTINCT (ref_type || ':' || ref_id)) FILTER (
+           WHERE action IN ${DELIVERED} AND created_at >= CURRENT_DATE
+         ) AS new_contacts_today,
+         COUNT(DISTINCT (ref_type || ':' || ref_id)) FILTER (
+           WHERE action IN ${DELIVERED}
+             AND created_at >= CURRENT_TIMESTAMP - INTERVAL '7 day'
+         ) AS new_contacts_7d,
+
+         /* Compat: contacts_sent = novos contatos com entrega */
+         COUNT(DISTINCT (ref_type || ':' || ref_id)) FILTER (
+           WHERE action IN ${DELIVERED} AND created_at >= CURRENT_DATE
+         ) AS contacts_sent_today,
+         COUNT(DISTINCT (ref_type || ':' || ref_id)) FILTER (
+           WHERE action IN ${DELIVERED}
+             AND created_at >= CURRENT_TIMESTAMP - INTERVAL '7 day'
+         ) AS contacts_sent_7d,
+
+         /* Tentativas: volume bruto de ações de contato */
+         COUNT(*) FILTER (
+           WHERE action IN ${ATTEMPT} AND created_at >= CURRENT_DATE
+         ) AS attempts_today,
+         COUNT(*) FILTER (
+           WHERE action IN ${ATTEMPT}
+             AND created_at >= CURRENT_TIMESTAMP - INTERVAL '7 day'
+         ) AS attempts_7d,
+
+         /* Mensagens (sent + followup); message_text reforça contagem de tarefas */
+         COUNT(*) FILTER (
+           WHERE (
+             action IN ${MESSAGE}
+             OR (message_text IS NOT NULL AND TRIM(message_text) <> '' AND action NOT IN ${EXCLUDE} AND action <> 'note')
+           ) AND created_at >= CURRENT_DATE
+         ) AS messages_sent_today,
+         COUNT(*) FILTER (
+           WHERE (
+             action IN ${MESSAGE}
+             OR (message_text IS NOT NULL AND TRIM(message_text) <> '' AND action NOT IN ${EXCLUDE} AND action <> 'note')
+           ) AND created_at >= CURRENT_TIMESTAMP - INTERVAL '7 day'
+         ) AS messages_sent_7d,
+
+         COUNT(*) FILTER (WHERE action = 'followup' AND created_at >= CURRENT_DATE) AS followups_action_today,
+         COUNT(*) FILTER (
+           WHERE action = 'followup' AND created_at >= CURRENT_TIMESTAMP - INTERVAL '7 day'
+         ) AS followups_action_7d,
+
+         COUNT(*) FILTER (WHERE action IN ${REPLY} AND created_at >= CURRENT_DATE) AS replies_today,
+         COUNT(*) FILTER (
+           WHERE action IN ${REPLY} AND created_at >= CURRENT_TIMESTAMP - INTERVAL '7 day'
+         ) AS replies_7d,
+         COUNT(*) FILTER (WHERE action = 'negotiating' AND created_at >= CURRENT_DATE) AS negotiations_today,
+         COUNT(*) FILTER (WHERE action = 'convert' AND created_at >= CURRENT_DATE) AS conversions_today,
+         COUNT(*) FILTER (
+           WHERE action = 'convert' AND created_at >= CURRENT_TIMESTAMP - INTERVAL '7 day'
+         ) AS conversions_7d
+       FROM affiliate_manual_actions
+       WHERE owner_user_id = ? AND brand_id = ?`,
+      [ownerUserId, brandId],
+    ).catch(() => null);
+
+    /* Tarefas de follow-up concluídas (attendance) */
+    const tasksAgg = await queryOne<any>(
+      `SELECT
+         COUNT(*) FILTER (WHERE status = 'done' AND completed_at >= CURRENT_DATE) AS tasks_done_today,
+         COUNT(*) FILTER (
+           WHERE status = 'done' AND completed_at >= CURRENT_TIMESTAMP - INTERVAL '7 day'
+         ) AS tasks_done_7d
+       FROM affiliate_attendance_tasks
+       WHERE owner_user_id = ? AND brand_id = ?`,
+      [ownerUserId, brandId],
+    ).catch(() => null);
+
+    /* Cliques em links afiliados (acessos ao catálogo / tracking) */
+    const clicksAgg = await queryOne<any>(
+      `SELECT
+         COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE) AS clicks_today,
+         COUNT(*) FILTER (
+           WHERE created_at >= CURRENT_TIMESTAMP - INTERVAL '7 day'
+         ) AS clicks_7d,
+         COUNT(DISTINCT affiliate_id) FILTER (WHERE created_at >= CURRENT_DATE) AS clickers_today
+       FROM affiliate_clicks
+       WHERE owner_user_id = ? AND brand_id = ?`,
+      [ownerUserId, brandId],
+    ).catch(() => null);
+
+    /* Série diária 7 dias para o chart */
+    const seriesRows = await query<any[]>(
+      `WITH days AS (
+         SELECT generate_series(
+           (CURRENT_DATE - INTERVAL '6 day')::date,
+           CURRENT_DATE::date,
+           '1 day'::interval
+         )::date AS day
+       ),
+       acts AS (
+         SELECT
+           created_at::date AS day,
+           action,
+           affiliate_id,
+           ref_type,
+           ref_id,
+           message_text
+         FROM affiliate_manual_actions
+         WHERE owner_user_id = ? AND brand_id = ?
+           AND created_at >= CURRENT_DATE - INTERVAL '6 day'
+       )
+       SELECT
+         d.day::text AS day,
+         COUNT(DISTINCT a.affiliate_id) AS active_affiliates,
+         COUNT(DISTINCT (a.ref_type || ':' || a.ref_id)) FILTER (
+           WHERE a.action IN ${DELIVERED}
+         ) AS new_contacts,
+         COUNT(*) FILTER (WHERE a.action IN ${ATTEMPT}) AS attempts,
+         COUNT(*) FILTER (
+           WHERE a.action IN ${MESSAGE}
+              OR (a.message_text IS NOT NULL AND TRIM(a.message_text) <> '' AND a.action NOT IN ${EXCLUDE} AND a.action <> 'note')
+         ) AS messages,
+         COUNT(*) FILTER (WHERE a.action IN ${REPLY}) AS replies,
+         COUNT(*) FILTER (WHERE a.action = 'followup') AS followups
+       FROM days d
+       LEFT JOIN acts a ON a.day = d.day
+       GROUP BY d.day
+       ORDER BY d.day ASC`,
+      [ownerUserId, brandId],
+    ).catch(() => []);
+
+    /* Merge task completions into series followups (best-effort) */
+    const taskByDay = await query<any[]>(
+      `SELECT completed_at::date::text AS day, COUNT(*)::int AS c
+       FROM affiliate_attendance_tasks
+       WHERE owner_user_id = ? AND brand_id = ?
+         AND status = 'done'
+         AND completed_at >= CURRENT_DATE - INTERVAL '6 day'
+       GROUP BY 1`,
+      [ownerUserId, brandId],
+    ).catch(() => []);
+    const taskMap = new Map((taskByDay || []).map((r) => [String(r.day).slice(0, 10), Number(r.c || 0)]));
+
+    const clicksByDay = await query<any[]>(
+      `SELECT created_at::date::text AS day, COUNT(*)::int AS c
+       FROM affiliate_clicks
+       WHERE owner_user_id = ? AND brand_id = ?
+         AND created_at >= CURRENT_DATE - INTERVAL '6 day'
+       GROUP BY 1`,
+      [ownerUserId, brandId],
+    ).catch(() => []);
+    const clicksMap = new Map((clicksByDay || []).map((r) => [String(r.day).slice(0, 10), Number(r.c || 0)]));
+
+    const activityByAffiliate = await query<any[]>(
+      `SELECT a.affiliate_id, f.display_name, f.code,
+              COUNT(*) AS actions,
+              COUNT(DISTINCT (a.ref_type || ':' || a.ref_id)) FILTER (WHERE a.action IN ${DELIVERED}) AS contacts_sent,
+              COUNT(*) FILTER (WHERE a.action IN ${ATTEMPT}) AS attempts,
+              COUNT(*) FILTER (WHERE a.action IN ${MESSAGE}) AS messages,
+              COUNT(*) FILTER (WHERE a.action IN ${REPLY}) AS replies,
+              COUNT(*) FILTER (WHERE a.action = 'followup') AS followups,
+              COUNT(*) FILTER (WHERE a.action = 'convert') AS conversions,
+              MAX(a.created_at) AS last_activity_at
+       FROM affiliate_manual_actions a
+       INNER JOIN affiliates f ON f.id = a.affiliate_id
+       WHERE a.owner_user_id = ? AND a.brand_id = ?
+         AND a.created_at >= CURRENT_TIMESTAMP - INTERVAL '7 day'
+       GROUP BY a.affiliate_id, f.display_name, f.code
+       ORDER BY contacts_sent DESC, replies DESC, actions DESC
+       LIMIT 10`,
+      [ownerUserId, brandId],
+    ).catch(() => []);
+
+    /* Cliques por afiliado (7d) — merge no ranking operacional */
+    const clicksByAffiliate = await query<any[]>(
+      `SELECT affiliate_id, COUNT(*)::int AS clicks
+       FROM affiliate_clicks
+       WHERE owner_user_id = ? AND brand_id = ?
+         AND created_at >= CURRENT_TIMESTAMP - INTERVAL '7 day'
+       GROUP BY affiliate_id`,
+      [ownerUserId, brandId],
+    ).catch(() => []);
+    const clicksAffMap = new Map(
+      (clicksByAffiliate || []).map((r) => [String(r.affiliate_id), Number(r.clicks || 0)]),
+    );
+
+    const recentActivity = await query<any[]>(
+      `SELECT a.id, a.affiliate_id, f.display_name, a.action, a.ref_type, a.ref_id,
+              a.message_text, a.note, a.created_at,
+              COALESCE(pa.prospect_name, al.customer_name, 'Contato') AS contact_name
+       FROM affiliate_manual_actions a
+       INNER JOIN affiliates f ON f.id = a.affiliate_id
+       LEFT JOIN prospect_assignments pa ON a.ref_type = 'assignment' AND pa.id = a.ref_id
+       LEFT JOIN affiliate_leads al ON a.ref_type = 'affiliate_lead' AND al.id = a.ref_id
+       WHERE a.owner_user_id = ? AND a.brand_id = ?
+       ORDER BY a.created_at DESC
+       LIMIT 30`,
+      [ownerUserId, brandId],
+    ).catch(() => []);
+
+    const newContactsToday = Number(
+      activityAgg?.new_contacts_today ?? activityAgg?.contacts_sent_today ?? 0,
+    );
+    const attemptsToday = Number(activityAgg?.attempts_today || 0);
+    const messagesToday = Number(activityAgg?.messages_sent_today || 0);
+    const repliesToday = Number(activityAgg?.replies_today || 0);
+    const followupsToday =
+      Number(activityAgg?.followups_action_today || 0) + Number(tasksAgg?.tasks_done_today || 0);
+    const activeToday = Number(activityAgg?.active_affiliates_today || 0);
+    const clicksToday = Number(clicksAgg?.clicks_today || 0);
+
+    const newContacts7d = Number(
+      activityAgg?.new_contacts_7d ?? activityAgg?.contacts_sent_7d ?? 0,
+    );
+    const attempts7d = Number(activityAgg?.attempts_7d || 0);
+    const messages7d = Number(activityAgg?.messages_sent_7d || 0);
+    const replies7d = Number(activityAgg?.replies_7d || 0);
+    const followups7d =
+      Number(activityAgg?.followups_action_7d || 0) + Number(tasksAgg?.tasks_done_7d || 0);
+    const clicks7d = Number(clicksAgg?.clicks_7d || 0);
+
+    const series = (seriesRows || []).map((r) => {
+      const day = String(r.day || "").slice(0, 10);
+      const fu = Number(r.followups || 0) + (taskMap.get(day) || 0);
+      return {
+        day,
+        new_contacts: Number(r.new_contacts || 0),
+        attempts: Number(r.attempts || 0),
+        messages: Number(r.messages || 0),
+        replies: Number(r.replies || 0),
+        followups: fu,
+        clicks: clicksMap.get(day) || 0,
+        active_affiliates: Number(r.active_affiliates || 0),
+      };
+    });
+
+    /* Se generate_series falhou, monta série vazia de 7 dias */
+    const finalSeries =
+      series.length > 0
+        ? series
+        : Array.from({ length: 7 }, (_, i) => {
+            const d = new Date();
+            d.setHours(0, 0, 0, 0);
+            d.setDate(d.getDate() - (6 - i));
+            const day = d.toISOString().slice(0, 10);
+            return {
+              day,
+              new_contacts: 0,
+              attempts: 0,
+              messages: 0,
+              replies: 0,
+              followups: 0,
+              clicks: clicksMap.get(day) || 0,
+              active_affiliates: 0,
+            };
+          });
+
+    return {
+      today: {
+        actions: Number(activityAgg?.actions_today || 0),
+        active_affiliates: activeToday,
+        new_contacts: newContactsToday,
+        contacts_sent: newContactsToday, // legado
+        clicks: clicksToday,
+        clickers: Number(clicksAgg?.clickers_today || 0),
+        attempts: attemptsToday,
+        messages_sent: messagesToday,
+        messages: messagesToday,
+        followups: followupsToday,
+        followups_actions: Number(activityAgg?.followups_action_today || 0),
+        followups_tasks: Number(tasksAgg?.tasks_done_today || 0),
+        replies: repliesToday,
+        negotiations: Number(activityAgg?.negotiations_today || 0),
+        conversions: Number(activityAgg?.conversions_today || 0),
+        response_rate:
+          newContactsToday > 0 ? Math.round((repliesToday / newContactsToday) * 100) : null,
+      },
+      last_7_days: {
+        actions: Number(activityAgg?.actions_7d || 0),
+        active_affiliates: Number(activityAgg?.active_affiliates_7d || 0),
+        new_contacts: newContacts7d,
+        contacts_sent: newContacts7d,
+        clicks: clicks7d,
+        attempts: attempts7d,
+        messages_sent: messages7d,
+        messages: messages7d,
+        followups: followups7d,
+        replies: replies7d,
+        conversions: Number(activityAgg?.conversions_7d || 0),
+        response_rate: newContacts7d > 0 ? Math.round((replies7d / newContacts7d) * 100) : null,
+      },
+      series_7d: finalSeries,
+      legend: {
+        new_contacts: "Contatos distintos com entrega real (sem exclusões)",
+        attempts: "Todas as tentativas de contato (aceite, envio, ligação…)",
+        messages: "Mensagens enviadas (incluindo follow-ups e tarefas com texto)",
+        replies: "Retornos afirmados (respondeu / bot / pediu retorno)",
+        followups: "Follow-ups + tarefas de atendimento concluídas",
+        clicks: "Acessos aos links de afiliados (catálogo, cupom, produto)",
+        active_affiliates: "Afiliados com ao menos uma ação no período",
+      },
+      by_affiliate: (activityByAffiliate || []).map((row) => {
+        const aid = String(row.affiliate_id);
+        return {
+          affiliate_id: aid,
+          display_name: String(row.display_name || "Afiliado"),
           code: row.code ? String(row.code) : null,
           actions: Number(row.actions || 0),
           contacts_sent: Number(row.contacts_sent || 0),
+          new_contacts: Number(row.contacts_sent || 0),
+          attempts: Number(row.attempts || 0),
+          messages: Number(row.messages || 0),
           replies: Number(row.replies || 0),
           followups: Number(row.followups || 0),
+          clicks: clicksAffMap.get(aid) || 0,
           conversions: Number(row.conversions || 0),
-          response_rate: Number(row.contacts_sent || 0) > 0
-            ? Math.round((Number(row.replies || 0) / Number(row.contacts_sent || 0)) * 100)
-            : null,
+          response_rate:
+            Number(row.contacts_sent || 0) > 0
+              ? Math.round((Number(row.replies || 0) / Number(row.contacts_sent || 0)) * 100)
+              : null,
           last_activity_at: row.last_activity_at || null,
-        })),
-        recent: recentActivity.map((row) => ({
-          id: String(row.id),
-          affiliate_id: String(row.affiliate_id),
-          affiliate_name: String(row.display_name || 'Afiliado'),
-          contact_name: String(row.contact_name || 'Contato'),
-          action: String(row.action || 'note'),
-          message: row.message_text ? String(row.message_text) : null,
-          note: row.note ? String(row.note) : null,
-          created_at: row.created_at || null,
-        })),
-      },
+        };
+      }),
+      recent: (recentActivity || []).map((row) => ({
+        id: String(row.id),
+        affiliate_id: String(row.affiliate_id),
+        affiliate_name: String(row.display_name || "Afiliado"),
+        contact_name: String(row.contact_name || "Contato"),
+        action: String(row.action || "note"),
+        message: row.message_text ? String(row.message_text) : null,
+        note: row.note ? String(row.note) : null,
+        created_at: row.created_at || null,
+      })),
     };
   }
 
   async listBrandSales(ownerUserId: string, brandId: string, limit = 50) {
     await ensureAffiliateSchema();
+    void ownerUserId;
     return query<any[]>(
       `SELECT s.*, a.display_name, a.code, a.coupon_code
        FROM affiliate_sales s
        INNER JOIN affiliates a ON a.id = s.affiliate_id
-       WHERE s.owner_user_id = ? AND s.brand_id = ?
+       WHERE s.brand_id = ?
        ORDER BY s.created_at DESC
        LIMIT ?`,
-      [ownerUserId, brandId, limit]
+      [brandId, limit]
     );
   }
 

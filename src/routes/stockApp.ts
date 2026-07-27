@@ -1,4 +1,5 @@
-import { Router, Response } from "express";
+import { Router, Response, NextFunction } from "express";
+import { randomUUID } from "crypto";
 import { AuthRequest } from "../middleware/auth";
 import { CommerceService } from "../services/commerce";
 import { InventoryService } from "../services/inventory";
@@ -11,6 +12,107 @@ const router = Router();
 const commerceService = new CommerceService();
 const inventoryService = new InventoryService();
 const clientsService = new ClientsService();
+let auditSchemaPromise: Promise<void> | null = null;
+
+function ensureStockAuditSchema(): Promise<void> {
+  if (!auditSchemaPromise) {
+    auditSchemaPromise = query(`
+      CREATE TABLE IF NOT EXISTS stock_app_audit_logs (
+        id VARCHAR(36) PRIMARY KEY,
+        owner_user_id VARCHAR(36) NOT NULL,
+        brand_id VARCHAR(36) NOT NULL,
+        manager_user_id VARCHAR(36) NOT NULL,
+        manager_email VARCHAR(190),
+        action VARCHAR(80) NOT NULL,
+        entity_type VARCHAR(60),
+        entity_id VARCHAR(80),
+        method VARCHAR(10) NOT NULL,
+        route VARCHAR(255) NOT NULL,
+        status_code INT NOT NULL,
+        success BOOLEAN NOT NULL DEFAULT TRUE,
+        metadata JSON,
+        ip_address VARCHAR(100),
+        user_agent VARCHAR(500),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `).then(async () => {
+      await query(`CREATE INDEX IF NOT EXISTS idx_stock_audit_brand_date ON stock_app_audit_logs (brand_id, created_at)`);
+      await query(`CREATE INDEX IF NOT EXISTS idx_stock_audit_manager_date ON stock_app_audit_logs (manager_user_id, created_at)`);
+    }).catch((error) => {
+      auditSchemaPromise = null;
+      throw error;
+    });
+  }
+  return auditSchemaPromise;
+}
+
+function classifyStockAction(method: string, path: string): { action: string; entityType: string } {
+  const value = `${method.toUpperCase()} ${path}`;
+  if (/orders\/pos/.test(value)) return { action: "pos_sale_created", entityType: "order" };
+  if (/\/add$/.test(path)) return { action: "stock_added", entityType: "product" };
+  if (/\/remove$/.test(path)) return { action: "stock_removed", entityType: "product" };
+  if (/\/adjust$/.test(path)) return { action: "stock_adjusted", entityType: "product" };
+  if (/\/settings$/.test(path)) return { action: "stock_settings_updated", entityType: "product" };
+  if (/inventory\/sync/.test(path)) return { action: "catalog_synced", entityType: "catalog" };
+  if (/expedition.*\/mob/.test(path)) return { action: "delivery_requested", entityType: "order" };
+  if (/expedition/.test(path)) return { action: "expedition_updated", entityType: "order" };
+  if (/clients/.test(path) && method === "DELETE") return { action: "client_deleted", entityType: "client" };
+  if (/clients.*\/status/.test(path)) return { action: "client_status_updated", entityType: "client" };
+  if (/clients/.test(path) && method === "POST") return { action: "client_created", entityType: "client" };
+  if (/clients/.test(path)) return { action: "client_updated", entityType: "client" };
+  if (/products/.test(path)) return { action: "product_updated", entityType: "product" };
+  return { action: "operation_updated", entityType: "operation" };
+}
+
+function safeAuditMetadata(body: any): Record<string, unknown> {
+  const source = body && typeof body === "object" ? body : {};
+  const result: Record<string, unknown> = {};
+  for (const key of ["quantity", "new_quantity", "reason", "source", "status", "payment_method", "fulfillment", "discount"]) {
+    const value = source[key];
+    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") result[key] = value;
+  }
+  if (Array.isArray(source.items)) result.items_count = source.items.length;
+  return result;
+}
+
+router.use(async (req: AuthRequest, res: Response, next: NextFunction) => {
+  if (!["POST", "PUT", "PATCH", "DELETE"].includes(req.method.toUpperCase())) return next();
+  if (String(req.user?.credential_type || "").trim().toLowerCase() !== "estoque") return next();
+
+  try {
+    await ensureStockAuditSchema();
+  } catch {
+    // Auditoria nunca deve interromper a operação principal; a falha será observável nos logs do servidor.
+    return next();
+  }
+
+  const ownerUserId = String(req.user?.owner_user_id || "").trim();
+  const brandId = String(req.user?.brand_id || "").trim();
+  const managerUserId = String(req.user?.userId || "").trim();
+  if (!ownerUserId || !brandId || !managerUserId) return next();
+
+  const route = req.path;
+  const classification = classifyStockAction(req.method, route);
+  const entityId = String(req.params?.orderId || req.params?.productId || req.params?.id || "").trim() || null;
+  const metadata = safeAuditMetadata(req.body);
+
+  res.once("finish", () => {
+    void query(
+      `INSERT INTO stock_app_audit_logs
+       (id, owner_user_id, brand_id, manager_user_id, manager_email, action, entity_type, entity_id,
+        method, route, status_code, success, metadata, ip_address, user_agent, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [
+        randomUUID(), ownerUserId, brandId, managerUserId, String(req.user?.email || "").trim() || null,
+        classification.action, classification.entityType, entityId, req.method.toUpperCase(), route,
+        res.statusCode, res.statusCode < 400, JSON.stringify(metadata),
+        String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "").slice(0, 100) || null,
+        String(req.headers["user-agent"] || "").slice(0, 500) || null,
+      ]
+    ).catch(() => undefined);
+  });
+  next();
+});
 
 function requireStockCredential(req: AuthRequest, res: Response): { ownerUserId: string; brandId: string; managerUserId: string } | null {
   const credentialType = String(req.user?.credential_type || "").trim().toLowerCase();
@@ -43,6 +145,14 @@ router.get("/me", async (req: AuthRequest, res: Response) => {
     [context.brandId]
   );
 
+  const manager = await queryOne<any>(
+    `SELECT name, email, phone, last_login_at
+     FROM users
+     WHERE id = ?
+     LIMIT 1`,
+    [context.managerUserId]
+  );
+
   if (!brand) {
     return res.status(403).json({ error: "Brand vinculada ao token de estoque não existe" });
   }
@@ -51,7 +161,10 @@ router.get("/me", async (req: AuthRequest, res: Response) => {
     success: true,
     user: {
       id: context.managerUserId,
-      email: String(req.user?.email || "").trim() || null,
+      name: String(manager?.name || "Gerente de estoque").trim(),
+      email: String(manager?.email || req.user?.email || "").trim() || null,
+      phone: String(manager?.phone || "").trim() || null,
+      last_login_at: manager?.last_login_at || null,
       role: "manager",
       credential_type: "estoque",
       owner_user_id: context.ownerUserId,
@@ -66,6 +179,26 @@ router.get("/me", async (req: AuthRequest, res: Response) => {
       secondary_color: String(brand.secondary_color || "").trim() || null,
     },
   });
+});
+
+router.get("/audit", async (req: AuthRequest, res: Response) => {
+  try {
+    const context = requireStockCredential(req, res);
+    if (!context) return;
+    await ensureStockAuditSchema();
+    const limit = Math.max(1, Math.min(Number(req.query.limit) || 40, 100));
+    const rows = await query<any[]>(
+      `SELECT id, action, entity_type, entity_id, method, route, status_code, success, metadata, created_at
+       FROM stock_app_audit_logs
+       WHERE owner_user_id = ? AND brand_id = ? AND manager_user_id = ?
+       ORDER BY created_at DESC
+       LIMIT ?`,
+      [context.ownerUserId, context.brandId, context.managerUserId, limit]
+    );
+    res.json({ success: true, items: rows, total: rows.length });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || "Falha ao carregar histórico de atividade" });
+  }
 });
 
 router.get("/products", async (req: AuthRequest, res: Response) => {
@@ -502,6 +635,66 @@ router.get("/inventory/expedition/pending", async (req: AuthRequest, res: Respon
     res.json({ success: true, orders: pending, total: pending.length });
   } catch (e: any) {
     res.status(500).json({ error: e.message || "Falha ao listar pedidos pendentes" });
+  }
+});
+
+/** Venda presencial: cria pedido real, reserva estoque e registra pagamento no caixa. */
+router.post("/orders/pos", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = requireStockCredential(req, res);
+    if (!ctx) return;
+    const body = req.body || {};
+    const rawItems = Array.isArray(body.items) ? body.items : [];
+    if (!rawItems.length) return res.status(400).json({ error: "Adicione ao menos um produto" });
+    const paymentRaw = String(body.payment_method || "").toLowerCase();
+    const paymentMethod = paymentRaw === "dinheiro" ? "desconhecido" : paymentRaw;
+    if (!["pix", "cartao", "desconhecido"].includes(paymentMethod)) {
+      return res.status(400).json({ error: "Forma de pagamento inválida" });
+    }
+
+    const created = await commerceService.createOrder(ctx.ownerUserId, ctx.brandId, {
+      origem: "whatsapp",
+      forma_pagamento: paymentMethod,
+      customer_name: String(body.customer_name || "Consumidor final").trim(),
+      customer_phone: String(body.customer_phone || "").trim() || undefined,
+      desconto: Math.max(0, Number(body.discount || 0)),
+      checkout_base_url: `${req.protocol}://${req.get("host") || ""}`,
+      itens: rawItems.map((item: any) => ({
+        product_id: String(item.product_id || "").trim(),
+        nome: String(item.product_name || "Produto").trim(),
+        quantidade: Number(item.quantity || 0),
+        valor_unitario: Number(item.unit_price || 0),
+      })),
+    });
+
+    await query(
+      `UPDATE commerce_orders
+          SET origem = 'pdv', status_pedido = 'pago', data_pagamento = NOW(), data_atualizacao = NOW()
+        WHERE id = ? AND user_id = ? AND brand_id = ?`,
+      [created.order.id, ctx.ownerUserId, ctx.brandId],
+    );
+    await query(
+      `INSERT INTO commerce_order_events (order_id, event_type, payload_json)
+       VALUES (?, 'venda_pdv_concluida', ?)`,
+      [created.order.id, JSON.stringify({
+        manager_user_id: ctx.managerUserId,
+        payment_method: paymentRaw,
+        fulfillment: body.fulfillment === "entrega" ? "entrega" : "retirada",
+      })],
+    ).catch(() => undefined);
+
+    res.status(201).json({
+      success: true,
+      order: { ...created.order, status_pedido: "pago", origem: "pdv" },
+      items: created.items,
+      receipt_number: String(created.order.id).slice(0, 8).toUpperCase(),
+    });
+  } catch (error: any) {
+    if (error?.code === "INSUFFICIENT_STOCK") {
+      return res.status(409).json({ error: error.message, code: error.code, shortages: error.shortages || [] });
+    }
+    const message = String(error?.message || "Falha ao concluir venda");
+    res.status(/obrigat|carrinho|inválid/i.test(message) ? 400 : 500).json({ error: message });
   }
 });
 

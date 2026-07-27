@@ -129,11 +129,14 @@ async function affiliateFetch<T>(url: string, options?: AffiliateFetchOptions): 
         continue
       }
       if (aborted) {
-        throw new AffiliateApiError('Tempo esgotado — tente de novo', 408)
+        throw new AffiliateApiError('Tempo esgotado — o servidor está lento. Tente de novo.', 408)
       }
       const msg = String(e?.message || '')
       if (/failed to fetch|networkerror|load failed|network request failed/i.test(msg)) {
-        throw new AffiliateApiError('Sem conexão com o servidor. Verifique a rede e tente de novo.', 0)
+        throw new AffiliateApiError(
+          'Sem conexão com o servidor (ou servidor ocupado). Aguarde e tente de novo.',
+          0,
+        )
       }
       throw e instanceof Error ? e : new AffiliateApiError(msg || 'Falha de rede', 0)
     } finally {
@@ -178,6 +181,19 @@ export const affiliateApi = {
 
   me: () => affiliateFetch<any>('/api/affiliate-app/me'),
   dashboard: () => affiliateFetch<any>('/api/affiliate-app/dashboard'),
+  ranking: (period = 'month', limit = 40) =>
+    affiliateFetch<any>(`/api/affiliate-app/ranking?period=${encodeURIComponent(period)}&limit=${limit}`),
+  challenges: () => affiliateFetch<any>('/api/affiliate-app/challenges'),
+  acceptChallenge: (id: string) =>
+    affiliateFetch<any>(`/api/affiliate-app/challenges/${encodeURIComponent(id)}/accept`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+  declineChallenge: (id: string) =>
+    affiliateFetch<any>(`/api/affiliate-app/challenges/${encodeURIComponent(id)}/decline`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
   sales: (page = 1, limit = 50, programId?: string) => {
     const qs = new URLSearchParams({ page: String(page), limit: String(limit) })
     if (programId) qs.set('program_id', programId)
@@ -358,8 +374,8 @@ export const affiliateApi = {
     if (opts?.includeClosed === false) qs.set('include_closed', '0')
     if (opts?.includeClosed === true) qs.set('include_closed', '1')
     return affiliateFetch<any>(`/api/affiliate-app/opportunities?${qs}`, {
-      timeoutMs: opts?.timeoutMs ?? 28_000,
-      retries: 1,
+      timeoutMs: opts?.timeoutMs ?? 35_000,
+      retries: 2,
     })
   },
   attendanceDigest: () =>
@@ -377,7 +393,7 @@ export const affiliateApi = {
       replied_today: number
       response_rate_today: number | null
       needs_attention: number
-    }>('/api/affiliate-app/opportunities/digest', { timeoutMs: 18_000, retries: 1 }),
+    }>('/api/affiliate-app/opportunities/digest', { timeoutMs: 20_000, retries: 1 }),
   opportunityActivity: (limit = 60) =>
     affiliateFetch<{
       success: boolean
@@ -398,11 +414,14 @@ export const affiliateApi = {
         at: string | null
       }>
     }>(`/api/affiliate-app/opportunities/activity?limit=${Math.min(Math.max(limit, 1), 100)}`, {
-      timeoutMs: 15_000,
+      timeoutMs: 18_000,
       retries: 1,
     }),
-  opportunitiesPool: (limit = 80) =>
-    affiliateFetch<any>(`/api/affiliate-app/opportunities/pool?limit=${Math.min(Math.max(limit, 1), 150)}`),
+  opportunitiesPool: (limit = 50) =>
+    affiliateFetch<any>(
+      `/api/affiliate-app/opportunities/pool?limit=${Math.min(Math.max(limit, 1), 80)}`,
+      { timeoutMs: 18_000, retries: 0 },
+    ),
   claimOpportunity: (queueId: string) =>
     affiliateFetch<any>(`/api/affiliate-app/opportunities/pool/${encodeURIComponent(queueId)}/claim`, {
       method: 'POST',
@@ -485,8 +504,9 @@ export const affiliateApi = {
         | 'voicemail'
         | 'busy'
         | 'callback_requested'
-      /** Canal da tentativa: whatsapp | phone | note */
-      channel?: 'whatsapp' | 'phone' | 'note' | 'system'
+        | 'post_sale_completed'
+      /** Canal da tentativa: whatsapp | phone | instagram | note */
+      channel?: 'whatsapp' | 'phone' | 'instagram' | 'note' | 'system'
       /** Duração da ligação em segundos (opcional) */
       duration_sec?: number
       message?: string
@@ -503,6 +523,8 @@ export const affiliateApi = {
       action: string
       channel?: string
       removed_from_queue?: boolean
+      channel_exhausted?: boolean
+      remaining_channels?: Array<'whatsapp' | 'phone' | 'instagram'>
       phase?: string
       instruction?: string
       toast?: string
@@ -641,20 +663,48 @@ export const affiliateApi = {
       body: JSON.stringify(payload),
     }),
 
-  distributionStatus: () => affiliateFetch<any>('/api/affiliate-app/distribution/status'),
-  /** Simulador de frete (Atendimento) — CEP real + faixas da loja */
+  distributionStatus: () =>
+    affiliateFetch<any>('/api/affiliate-app/distribution/status', {
+      timeoutMs: 10_000,
+      retries: 0,
+    }),
+  messageTemplates: () => affiliateFetch<{
+    success: boolean
+    program_id?: string | null
+    templates: Array<{
+      id: string
+      program_id?: string | null
+      message_step: number
+      trigger_result: string
+      title: string
+      body: string
+      is_active: boolean
+    }>
+  }>('/api/affiliate-app/message-templates'),
+  /** Simulador de frete (Atendimento) — CEP real + faixas da loja + clube */
   freightQuote: (payload: {
     cep?: string
     address?: string
     city?: string
     state?: string
     cart_total?: number
+    order_weight_kg?: number
+    customer_phone?: string
+    as_club_member?: boolean
   }) =>
     affiliateFetch<{
       success: boolean
       quote: any
       configured?: boolean
       store_id?: string | null
+      club?: {
+        club_applied?: boolean
+        club_label?: string | null
+        club_name?: string | null
+        member_matched?: boolean
+        forced?: boolean
+        enabled?: boolean
+      } | null
     }>('/api/affiliate-app/freight/quote', {
       method: 'POST',
       body: JSON.stringify(payload),

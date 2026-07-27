@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   Link2, Copy, Share2, QrCode, MousePointerClick, ShoppingBag,
-  TrendingUp, Search, BarChart3, Package, ChevronRight, Ticket,
+  TrendingUp, Search, BarChart3, Package, ChevronRight, Ticket, Globe2,
 } from 'lucide-react'
 import { affiliateApi, getAffiliateBrandRef } from '@/lib/api-affiliate'
 import { affiliateAppCache } from '@/lib/affiliate-app-cache'
@@ -340,6 +340,51 @@ export function AffiliateLinksHub({ ctx, active = true }: Props) {
               </button>
             </div>
           </article>
+
+          {/* Domínios institucionais cadastrados pela org (support_domains) */}
+          {(Array.isArray(hub?.support_domains) ? hub.support_domains : []).length > 0 ? (
+            <div className="space-y-2">
+              <p className="affiliate-links__section-label px-0.5">Sites de suporte · rastreio</p>
+              <p className="text-[11px] text-[#8e8e93] px-0.5 -mt-1 mb-1 leading-relaxed">
+                Compartilhe estas páginas com seu código. O preview do WhatsApp usa a imagem da página; o clique é rastreado.
+              </p>
+              {(hub.support_domains as Array<{ id: string; label: string; domain: string; url: string }>).map((d) => (
+                <article key={d.id || d.url} className="affiliate-card affiliate-links__card">
+                  <div className="affiliate-links__card-head">
+                    <span className="affiliate-links__card-icon" style={{ backgroundColor: `${ctx.primary}14`, color: ctx.primary }}>
+                      <Globe2 size={16} />
+                    </span>
+                    <div>
+                      <p className="affiliate-links__card-title">{d.label || d.domain}</p>
+                      <p className="affiliate-links__card-desc">
+                        Site com seu código · {d.domain}
+                      </p>
+                    </div>
+                  </div>
+                  <p className="affiliate-links__url">{d.url || '—'}</p>
+                  <div className="affiliate-links__actions">
+                    <button
+                      type="button"
+                      className="affiliate-links__action"
+                      style={{ color: ctx.primary }}
+                      onClick={() => copyText(d.url, 'Link do site copiado!')}
+                    >
+                      <Copy size={12} /> Copiar
+                    </button>
+                    <button
+                      type="button"
+                      className="affiliate-links__action text-emerald-600"
+                      onClick={() => shareWhatsApp(
+                        `Conheça a ${ctx.brand?.name || 'marca'} 👇\n\n${d.url}`,
+                      )}
+                    >
+                      <WhatsAppIcon size={12} /> WhatsApp
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : null}
 
           <div className="affiliate-card affiliate-links__funnel">
             <p className="affiliate-links__section-label">Funil do período</p>

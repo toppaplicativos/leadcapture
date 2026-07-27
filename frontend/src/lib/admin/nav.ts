@@ -1,7 +1,7 @@
 import {
   LayoutDashboard, Megaphone, ShoppingCart,
   Package, Palette, Search, Mail, Truck, Globe, Bot, Zap,
-  BarChart3, Receipt, Ticket, Star, Sparkles, Film, Images,
+  BarChart3, Receipt, Ticket, Star, Sparkles, Film, Images, Crown,
   GitBranch, Brain, Headphones, Bell, Settings, Handshake, Store,
   MessageSquare, ContactRound, UserRound, CreditCard, UserCog, Bike,
 } from 'lucide-react'
@@ -32,6 +32,7 @@ export const ROUTE_MAP: Record<string, string> = {
   '/estoque': 'estoque',
   '/afiliados': 'afiliados',
   '/cupons': 'cupons',
+  '/clube': 'clube',
   '/avaliacoes': 'avaliacoes',
   '/loja': 'loja',
   '/design': 'loja',
@@ -88,6 +89,7 @@ export const NAV_ITEMS: NavItem[] = [
   { key: 'estoque', path: '/estoque', icon: UserCog, label: 'Gestores de estoque', group: 'loja' },
   { key: 'afiliados', path: '/afiliados', icon: Handshake, label: 'Afiliados', group: 'loja', badge: 'Novo' },
   { key: 'cupons', path: '/cupons', icon: Ticket, label: 'Cupons', group: 'loja' },
+  { key: 'clube', path: '/clube', icon: Crown, label: 'Clube Assinantes', group: 'loja', badge: 'Novo' },
   { key: 'avaliacoes', path: '/avaliacoes', icon: Star, label: 'Avaliações', group: 'loja' },
   { key: 'loja', path: '/loja', icon: Store, label: 'Loja', group: 'loja' },
   { key: 'pagamentos', path: '/pagamentos', icon: CreditCard, label: 'Pagamentos', group: 'loja' },

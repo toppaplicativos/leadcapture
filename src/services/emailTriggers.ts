@@ -216,6 +216,40 @@ export const emailTriggers = {
     )
   },
 
+  /** Boas-vindas ao membro do Clube de Assinantes */
+  async welcomeClubMember(params: {
+    brandId: string
+    customer_name: string
+    customer_email: string
+    club_name: string
+    benefits_summary?: string
+    discount_label?: string
+    shipping_note?: string
+  }) {
+    if (!params.customer_email) return
+    const ctx = await brandContext("", params.brandId)
+    fire(
+      "welcome-club-member",
+      emailService.sendTemplate(
+        "welcome-club-member",
+        params.customer_email,
+        {
+          customer_name: params.customer_name,
+          brand_name: ctx.brand_name,
+          brand_color: ctx.brand_color,
+          brand_logo_url: ctx.brand_logo_url,
+          store_url: ctx.store_url,
+          whatsapp_url: ctx.whatsapp_url,
+          club_name: params.club_name || "Clube de Assinantes",
+          benefits_summary: params.benefits_summary || "Vantagens exclusivas em cada compra",
+          discount_label: params.discount_label || "Descontos de membro",
+          shipping_note: params.shipping_note || "Condições especiais de frete",
+        },
+        { scope: "tenant", brandId: ctx.brand_id, actorUserId: undefined },
+      ),
+    )
+  },
+
   async welcomeAffiliate(params: {
     userId: string
     brandId?: string | null

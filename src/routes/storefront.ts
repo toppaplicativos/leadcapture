@@ -159,9 +159,9 @@ function mapStorefrontProductRow(item: any, categoryName?: string) {
     images: mergedImages,
     images_json: JSON.stringify(mergedImages),
     sku: md.sku || null,
-    weight: md.weight || null,
-    weight_unit: md.weight_unit || null,
-    unit: md.unit || null,
+    weight: md.weight || item?.weight || null,
+    weight_unit: md.weight_unit || item?.weight_unit || null,
+    unit: md.unit || item?.unit || null,
     type: md.offer_type || "physical_product",
     cta_type: md.cta_type || "buy",
     attributes: md.attributes || {},
@@ -180,6 +180,7 @@ function mapStorefrontProductRow(item: any, categoryName?: string) {
     stock_threshold_low: Number(md.stock_threshold_low ?? 5),
     reviews_avg: Number(md.reviews_avg ?? 0),
     reviews_count: Number(md.reviews_count ?? 0),
+    metadata: md,
   };
 }
 
@@ -1220,8 +1221,10 @@ router.post("/stores/:storeId/freight/quote", async (req: BrandRequest, res) => 
         : {};
     // Preferir logistics cru do settings (já mergeado no mapStore) — inclui tiers/radius salvos
     const logistics = { ...(settings.logistics || {}) };
+    const cartTotal = req.body?.cart_total != null ? Number(req.body.cart_total) : null;
+    const brandId = String(req.brandId || bundle.store.brand_id || "").trim();
     const { quoteFreight } = await import("../services/freightCalculator");
-    const quote = await quoteFreight({
+    let quote = await quoteFreight({
       logistics,
       destination: {
         cep: req.body?.cep,
@@ -1229,11 +1232,38 @@ router.post("/stores/:storeId/freight/quote", async (req: BrandRequest, res) => 
         city: req.body?.city,
         state: req.body?.state,
       },
-      cartTotal: req.body?.cart_total != null ? Number(req.body.cart_total) : null,
+      cartTotal,
+      orderWeightKg: req.body?.order_weight_kg != null ? Number(req.body.order_weight_kg) : null,
       userId,
-      brandId: req.brandId || bundle.store.brand_id,
+      brandId: brandId || null,
     });
-    res.json({ success: true, quote });
+
+    let clubMeta: any = null;
+    if (brandId) {
+      try {
+        const { subscriberClubService } = await import("../services/subscriberClub");
+        const forceAsMember =
+          req.body?.as_club_member === true ||
+          req.body?.force_club_member === true ||
+          req.body?.simulate_club === true;
+        const customerPhone = String(
+          req.body?.customer_phone || req.body?.phone || ""
+        ).trim();
+        const resolved = await subscriberClubService.applyClubToFreightQuote({
+          brandId,
+          quote,
+          cartTotal,
+          customerPhone: customerPhone || null,
+          forceAsMember,
+        });
+        quote = resolved.quote as typeof quote;
+        clubMeta = resolved.club;
+      } catch {
+        /* ignore club errors in admin simulator */
+      }
+    }
+
+    res.json({ success: true, quote, club: clubMeta });
   } catch (error: any) {
     res.status(500).json({ error: error.message || "Falha ao calcular frete" });
   }
@@ -2732,6 +2762,64 @@ publicRouter.get("/stores/:slug/catalog", async (req, res) => {
   }
 });
 
+/** Cotação pública do catálogo: usa o peso real do carrinho e a política da loja. */
+publicRouter.post("/stores/:slug/freight/quote", async (req, res) => {
+  try {
+    const slug = String(req.params.slug || "").trim();
+    const bundle = await storefront.resolvePublicStore({ slug });
+    if (!bundle?.store) return res.status(404).json({ error: "Store not found" });
+    const settings = bundle.store.settings && typeof bundle.store.settings === "object"
+      ? bundle.store.settings as Record<string, any>
+      : {};
+    const cartTotal = req.body?.cart_total != null ? Number(req.body.cart_total) : null;
+    const { quoteFreight } = await import("../services/freightCalculator");
+    const quote = await quoteFreight({
+      logistics: { ...(settings.logistics || {}) },
+      destination: {
+        cep: req.body?.cep,
+        address: req.body?.address,
+        city: req.body?.city,
+        state: req.body?.state,
+      },
+      cartTotal,
+      orderWeightKg: req.body?.order_weight_kg != null ? Number(req.body.order_weight_kg) : null,
+      userId: String(bundle.store.owner_user_id || "") || null,
+      brandId: bundle.store.brand_id || null,
+    });
+
+    /* Frete especial do clube (membro real ou simulação) */
+    let clubMeta: any = null;
+    const brandId = bundle.store.brand_id ? String(bundle.store.brand_id) : "";
+    if (quote?.ok && brandId) {
+      try {
+        const { subscriberClubService } = await import("../services/subscriberClub");
+        const customerPhone = String(req.body?.customer_phone || req.body?.phone || "").trim();
+        const forceAsMember =
+          req.body?.as_club_member === true ||
+          req.body?.force_club_member === true ||
+          req.body?.simulate_club === true;
+        const resolved = await subscriberClubService.applyClubToFreightQuote({
+          brandId,
+          quote,
+          cartTotal,
+          customerPhone: customerPhone || null,
+          forceAsMember,
+        });
+        quote.fee = resolved.quote.fee ?? quote.fee;
+        quote.free_shipping = resolved.quote.free_shipping ?? quote.free_shipping;
+        quote.copy = resolved.quote.copy ?? quote.copy ?? null;
+        clubMeta = resolved.club;
+      } catch (clubFreightErr: any) {
+        logger.warn(`[storefront] club freight benefit skipped: ${clubFreightErr?.message || clubFreightErr}`);
+      }
+    }
+
+    res.json({ success: true, quote, club: clubMeta });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || "Falha ao calcular frete" });
+  }
+});
+
 /* ═══════════════════════════════════════════════════════
    Coupons (Fase 13) — validate a code against the cart BEFORE the user submits.
    POST /stores/:slug/coupons/validate
@@ -3085,7 +3173,7 @@ publicRouter.post("/stores/:slug/orders", async (req, res) => {
 
       const metadata = parseJson<Record<string, any>>(product.metadata_json, {});
       const sourceProductId = String(metadata?.source_product_id || product.id || "").trim();
-      const quantity = Math.max(1, Math.min(99, Number(rawItem?.quantity || 1)));
+      const quantity = Math.max(1, Math.min(100000, Number(rawItem?.quantity || 1)));
       const images = parseImageList(product.images_json);
 
       /* Variant-aware pricing (Fase 3.5): when a variant_id was selected, look it up and apply its price */
@@ -3099,7 +3187,14 @@ publicRouter.post("/stores/:slug/orders", async (req, res) => {
       const effectiveVariantPrice = variantPromo && variantPrice && variantPromo < variantPrice
         ? variantPromo
         : variantPrice;
-      const basePrice = effectiveVariantPrice != null ? effectiveVariantPrice : Number(product.price || 0);
+      let basePrice = effectiveVariantPrice != null ? effectiveVariantPrice : Number(product.price || 0);
+      const { resolveServerProductVolumePrice } = require("../services/productVolumePricing") as typeof import("../services/productVolumePricing");
+      const volumePrice = resolveServerProductVolumePrice({
+        unit: metadata?.unit,
+        metadata,
+        quantity,
+      });
+      if (!selectedVariant && volumePrice) basePrice = volumePrice.itemUnitPrice;
 
       /* Configurator (Fase 4) — resolve selections + apply price delta */
       const productMd = parseJson<Record<string, any>>(product.metadata_json, {});
@@ -3142,6 +3237,10 @@ publicRouter.post("/stores/:slug/orders", async (req, res) => {
         configurator_selections: configResolution.selections,
         configurator_summary: configResolution.summary || null,
         configurator_price_delta: configResolution.price_delta_total,
+        volume_measure: volumePrice?.measure || null,
+        volume_measure_quantity: volumePrice?.measureQuantity || null,
+        volume_price_per_measure: volumePrice?.pricePerMeasure || null,
+        volume_pricing_tier: volumePrice?.tier?.id || null,
       };
     });
 
@@ -3164,6 +3263,34 @@ publicRouter.post("/stores/:slug/orders", async (req, res) => {
       }
     }
 
+    /* Desconto do clube quando membro ativo e sem cupom no pedido */
+    let clubDesconto = 0;
+    let clubMemberId: string | null = null;
+    if (inventoryBrandId && customerPhone) {
+      try {
+        const { subscriberClubService } = await import("../services/subscriberClub");
+        const clubCfg = await subscriberClubService.getConfig(inventoryBrandId);
+        if (clubCfg.enabled) {
+          const member = await subscriberClubService.findActiveMemberByPhone(
+            inventoryBrandId,
+            customerPhone
+          );
+          if (member) {
+            clubMemberId = member.id;
+            const subtotalPreview = normalizedItems.reduce(
+              (acc: number, it: any) => acc + Number(it.valor_unitario || 0) * Number(it.quantidade || 0),
+              0
+            );
+            const disc = subscriberClubService.computeDiscount(clubCfg, subtotalPreview);
+            if (disc.eligible) clubDesconto = disc.discount_amount;
+          }
+        }
+      } catch (clubErr: any) {
+        logger.warn(`[storefront] club discount preview skipped: ${clubErr?.message || clubErr}`);
+      }
+    }
+
+    const couponCode = req.body?.cupom_codigo ? String(req.body.cupom_codigo).trim() : "";
     const created = await commerceService.createOrder(inventoryUserId, inventoryBrandId, {
       origem: "checkout_web",
       forma_pagamento: req.body?.payment_method,
@@ -3174,21 +3301,38 @@ publicRouter.post("/stores/:slug/orders", async (req, res) => {
       itens: normalizedItems,
       /* Fase 13 — forward coupon from the public cart. Validation happens inside
        * commerceService.createOrder and throws COUPON_INVALID on failure (caught below). */
-      cupom_codigo: req.body?.cupom_codigo ? String(req.body.cupom_codigo).trim() : undefined,
+      cupom_codigo: couponCode || undefined,
+      /* Clube: desconto só entra se não houver cupom (cupom tem prioridade no commerce) */
+      desconto: !couponCode && clubDesconto > 0 ? clubDesconto : undefined,
     });
 
-    /* Atribui venda ao afiliado quando ref/cupom de afiliado veio no pedido */
+    /* clubMemberId reserved for future order metadata annotation */
+    void clubMemberId;
+
+    /* Atribui venda ao afiliado: clube (lifetime) > ref/sessão > cupom afiliado */
     if (inventoryBrandId) {
       try {
         const { AffiliatesService } = await import("../services/affiliates");
+        const { subscriberClubService } = await import("../services/subscriberClub");
         const affSvc = new AffiliatesService();
         const affiliateRef = String(req.body?.affiliate_ref || req.body?.affiliate_code || "").trim();
         const affiliateId = String(req.body?.affiliate_id || "").trim();
-        let resolvedAffiliateId = affiliateId;
+
+        const clubAttr = await subscriberClubService.resolveOrderAffiliate({
+          brandId: inventoryBrandId,
+          customerPhone,
+          affiliateId,
+          affiliateRef,
+        });
+
+        let resolvedAffiliateId = clubAttr.affiliateId || "";
 
         if (!resolvedAffiliateId && affiliateRef) {
           const byCode = await affSvc.resolveAffiliateByCode(inventoryBrandId, affiliateRef);
           if (byCode) resolvedAffiliateId = String(byCode.id);
+        }
+        if (!resolvedAffiliateId && affiliateId) {
+          resolvedAffiliateId = affiliateId;
         }
         if (!resolvedAffiliateId && created.order?.cupom_codigo) {
           const byCoupon = await queryOne<any>(
@@ -3200,7 +3344,23 @@ publicRouter.post("/stores/:slug/orders", async (req, res) => {
           if (byCoupon) resolvedAffiliateId = String(byCoupon.id);
         }
 
+        /* Desconto do clube (quando membro ativo e sem cupom maior) */
+        let clubDiscount = 0;
+        if (clubAttr.memberId) {
+          try {
+            const clubCfg = await subscriberClubService.getConfig(inventoryBrandId);
+            const subtotal = Number((created.order as any)?.subtotal || created.order?.valor_total || 0);
+            const disc = subscriberClubService.computeDiscount(clubCfg, subtotal);
+            if (disc.eligible) clubDiscount = disc.discount_amount;
+          } catch { /* ignore club discount errors */ }
+        }
+
         if (resolvedAffiliateId) {
+          let orderTotal = Number(created.order.valor_total || 0);
+          if (clubDiscount > 0) {
+            orderTotal = Math.max(0, orderTotal - clubDiscount);
+          }
+          /* commission boost: aumenta base virtualmente via metadata no recordSale quando suportado */
           await affSvc.recordSale({
             ownerUserId: inventoryUserId,
             brandId: inventoryBrandId,
@@ -3209,7 +3369,7 @@ publicRouter.post("/stores/:slug/orders", async (req, res) => {
             customerName,
             customerPhone: customerPhone,
             customerEmail: String(req.body?.customer?.email || "").trim() || undefined,
-            orderTotal: Number(created.order.valor_total || 0),
+            orderTotal,
             orderItems: normalizedItems.map((item: any) => ({
               product_id: item.product_id,
               quantity: item.quantidade,
@@ -4032,6 +4192,20 @@ publicRouter.post("/delivery/confirm-token", async (req, res) => {
     const status = message === "Delivery token not found" ? 404 : message === "Delivery token expired" ? 400 : 500;
     res.status(status).json({ error: message || "Failed to confirm delivery token" });
   }
+});
+
+/* ── Clube de Assinantes (público no catálogo) ── */
+publicRouter.get("/stores/:slug/club", async (req, res) => {
+  const { handlePublicClubGet } = await import("./subscriberClub");
+  return handlePublicClubGet(req, res);
+});
+publicRouter.post("/stores/:slug/club/join", async (req, res) => {
+  const { handlePublicClubJoin } = await import("./subscriberClub");
+  return handlePublicClubJoin(req, res);
+});
+publicRouter.get("/stores/:slug/club/lookup", async (req, res) => {
+  const { handlePublicClubLookup } = await import("./subscriberClub");
+  return handlePublicClubLookup(req, res);
 });
 
 export default router;

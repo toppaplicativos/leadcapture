@@ -223,7 +223,7 @@ export function WhatsAppInstancesPanel({
 
       <div className="wa-instances__create">
         <p className="wa-instances__section-lbl">
-          {mode === 'affiliate' ? 'Nova sessão nesta organização' : 'Nova sessão'}
+          {mode === 'affiliate' ? 'Sincronização opcional' : 'Nova sessão'}
         </p>
         {mode === 'affiliate' ? (
           <>
@@ -236,7 +236,7 @@ export function WhatsAppInstancesPanel({
               {creating ? (
                 <><Loader2 size={14} className="animate-spin inline mr-1.5" /> Criando…</>
               ) : (
-                <><Plus size={14} className="inline mr-1.5" /> Criar sessão automática</>
+                <><Plus size={14} className="inline mr-1.5" /> Conectar WhatsApp</>
               )}
             </button>
             <p className="wa-instances__hint">
@@ -383,7 +383,7 @@ export function WhatsAppInstancesPanel({
         <div className="rounded-xl border border-dashed border-gray-200 bg-white px-4 py-6 text-center space-y-1">
           <p className="text-xs text-gray-500">
             {mode === 'affiliate'
-              ? 'Nenhuma sessão nesta organização. Crie uma para receber contatos.'
+              ? 'Nenhuma sessão conectada. Seus atendimentos manuais continuam liberados.'
               : 'Nenhuma sessão WhatsApp nesta marca.'}
           </p>
           {mode === 'admin' && (

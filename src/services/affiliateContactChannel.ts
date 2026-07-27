@@ -5,9 +5,9 @@
 import { query } from "../config/database";
 import { logger } from "../utils/logger";
 
-export type ContactChannel = "whatsapp" | "phone" | "note" | "system";
+export type ContactChannel = "whatsapp" | "phone" | "instagram" | "note" | "system";
 
-const CHANNELS = new Set<ContactChannel>(["whatsapp", "phone", "note", "system"]);
+const CHANNELS = new Set<ContactChannel>(["whatsapp", "phone", "instagram", "note", "system"]);
 
 /** Ações que abrem um ciclo de tentativa (paralelo a “enviei”) */
 export const INITIATING_ACTIONS = new Set([
@@ -52,6 +52,7 @@ export const ACTION_LABELS: Record<string, string> = {
 export const CHANNEL_LABELS: Record<ContactChannel, string> = {
   whatsapp: "WhatsApp",
   phone: "Telefone",
+  instagram: "Instagram",
   note: "Anotação",
   system: "Sistema",
 };
@@ -165,7 +166,7 @@ export function summarizeAttemptsByChannel(
     map.set(channel, prev);
   }
 
-  const order: ContactChannel[] = ["whatsapp", "phone"];
+  const order: ContactChannel[] = ["whatsapp", "phone", "instagram"];
   return order
     .filter((c) => map.has(c))
     .map((c) => {

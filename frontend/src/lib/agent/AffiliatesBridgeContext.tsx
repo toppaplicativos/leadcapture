@@ -4,9 +4,11 @@ import {
 
 /** `settings` é legado — redireciona para Programas (config fica dentro de cada programa). */
 export type AffiliatesTabKey =
+  | 'domains'
   | 'overview'
   | 'analytics'
   | 'distribution'
+  | 'templates'
   | 'programs'
   | 'partners'
   | 'commissions'
@@ -14,6 +16,8 @@ export type AffiliatesTabKey =
   | 'materials'
   | 'learning'
   | 'products'
+  | 'ranking'
+  | 'push'
   | 'settings'
 
 export type AffiliatesSnapshot = {

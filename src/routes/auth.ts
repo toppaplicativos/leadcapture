@@ -779,13 +779,28 @@ router.post("/stock-login", async (req: Request, res: Response) => {
 router.get("/affiliate-access", authMiddleware, requireRole(["admin", "operator"]), async (req: AuthRequest, res: Response) => {
   try {
     await ensureAffiliateCredentialSchema();
-    const ownerUserId = String(req.user?.userId || "").trim();
-    if (!ownerUserId) return res.status(401).json({ error: "Unauthorized" });
+    const userId = String(req.user?.userId || "").trim();
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
     const brandRef = resolveRequestedBrandId(req);
     if (!brandRef) return res.status(400).json({ error: "brand é obrigatório" });
 
-    const brand = await resolveBrandReference(brandRef, ownerUserId);
+    // Dono, membro da equipe ou admin da plataforma
+    let brand = await resolveBrandReference(brandRef, userId);
+    if (!brand) {
+      brand = await resolveBrandReference(brandRef, null);
+      if (brand) {
+        const role = String(req.user?.role || "").toLowerCase();
+        const isPlatform = role === "super_admin" || role === "master" || role === "admin";
+        const member = await queryOne<{ brand_id: string }>(
+          `SELECT brand_id FROM user_brand_roles
+           WHERE user_id = ? AND brand_id = ? AND COALESCE(is_blocked, FALSE) = FALSE
+           LIMIT 1`,
+          [userId, brand.id],
+        ).catch(() => null);
+        if (!isPlatform && !member) brand = null;
+      }
+    }
     if (!brand) return res.status(404).json({ error: "Brand não encontrada para este usuário" });
     const brandId = String(brand.id);
 
@@ -800,23 +815,34 @@ router.get("/affiliate-access", authMiddleware, requireRole(["admin", "operator"
        INNER JOIN users u ON u.id = c.affiliate_user_id
        INNER JOIN brand_units b ON b.id = c.brand_id
        LEFT JOIN affiliates a ON a.credential_id = c.id
-       WHERE c.owner_user_id = ? AND c.brand_id = ?
+       WHERE c.brand_id = ?
        ORDER BY c.created_at DESC`,
-      [ownerUserId, brandId]
+      [brandId]
     );
 
-    const credentials = await Promise.all(rows.map(async (item) => {
-      const program = item.affiliate_id
-        ? await queryOne<any>(
-            `SELECT p.id, p.name, p.commission_mode, p.commission_value
-             FROM affiliate_program_enrollments e
-             INNER JOIN affiliate_programs p ON p.id = e.program_id
-             WHERE e.affiliate_id = ? AND e.brand_id = ?
-             ORDER BY CASE WHEN e.status = 'active' THEN 0 ELSE 1 END, e.updated_at DESC
-             LIMIT 1`,
-            [item.affiliate_id, brandId]
-          ).catch(() => null)
-        : null;
+    // Enrollments em batch (evita N+1 que deixava a aba Afiliados lenta)
+    const affiliateIds = rows.map((r) => String(r.affiliate_id || "")).filter(Boolean);
+    const programByAffiliate = new Map<string, any>();
+    if (affiliateIds.length) {
+      const placeholders = affiliateIds.map(() => "?").join(",");
+      const enrollRows = await query<any[]>(
+        `SELECT DISTINCT ON (e.affiliate_id)
+                e.affiliate_id, p.id, p.name, p.commission_mode, p.commission_value
+         FROM affiliate_program_enrollments e
+         INNER JOIN affiliate_programs p ON p.id = e.program_id
+         WHERE e.brand_id = ? AND e.affiliate_id IN (${placeholders})
+         ORDER BY e.affiliate_id,
+                  CASE WHEN e.status = 'active' THEN 0 ELSE 1 END,
+                  e.updated_at DESC`,
+        [brandId, ...affiliateIds],
+      ).catch(() => []);
+      for (const er of enrollRows || []) {
+        programByAffiliate.set(String(er.affiliate_id), er);
+      }
+    }
+
+    const credentials = rows.map((item) => {
+      const program = item.affiliate_id ? programByAffiliate.get(String(item.affiliate_id)) || null : null;
       const effectiveCommission = resolveCommissionConfig({
         affiliate: item,
         program,
@@ -854,7 +880,7 @@ router.get("/affiliate-access", authMiddleware, requireRole(["admin", "operator"
         created_at: item.created_at,
         updated_at: item.updated_at,
       };
-    }));
+    });
 
     res.json({
       success: true,

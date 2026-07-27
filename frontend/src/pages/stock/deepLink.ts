@@ -107,6 +107,9 @@ function mapViewToken(token: string): ViewKey | null {
     home: 'overview',
     products: 'products',
     produtos: 'products',
+    pos: 'pos',
+    pdv: 'pos',
+    venda: 'pos',
     movements: 'movements',
     movimentacoes: 'movements',
     movimentações: 'movements',
@@ -121,6 +124,9 @@ function mapViewToken(token: string): ViewKey | null {
     reports: 'reports',
     relatorios: 'reports',
     relatórios: 'reports',
+    profile: 'profile',
+    perfil: 'profile',
+    conta: 'profile',
   }
   return map[token] || null
 }

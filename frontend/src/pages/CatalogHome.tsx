@@ -15,6 +15,7 @@ import { StoreCategoryCarousel } from '@/components/store/StoreCategoryCarousel'
 import { StoreAnnouncementBar } from '@/components/store/StoreAnnouncementBar'
 import { StoreTrustStrip } from '@/components/store/StoreTrustStrip'
 import { StorePromoCountdown } from '@/components/store/StorePromoCountdown'
+import { StoreClubBanner } from '@/components/store/StoreClubBanner'
 import { shouldShowCategoryCarousel, type StoreCatalogCategory } from '@/lib/store-design'
 import {
   captureAffiliateFromUrl,
@@ -525,6 +526,11 @@ export function CatalogHome({ onStoreLoaded, onProductsLoaded }: CatalogHomeProp
         <div className="max-w-[var(--store-max)] mx-auto px-4 -mt-1 mb-2">
           <StoreTrustStrip items={trustItems} />
         </div>
+      )}
+
+      {/* Clube de Assinantes — banner de convite (quando habilitado na organização) */}
+      {!loading && showHomeExtras && (
+        <StoreClubBanner className="-mt-0.5" />
       )}
 
       {affiliateBanner && (

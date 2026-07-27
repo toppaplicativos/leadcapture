@@ -26,6 +26,7 @@ export const WORKSPACE_MODULE_DEFS: WorkspaceModuleDef[] = [
   { id: 'facebook', label: 'Facebook', canvasRoute: '/facebook', skills: ['facebook.open', 'facebook.post.create', 'facebook.analyze'] },
   { id: 'automations', label: 'Automações', canvasRoute: '/automacoes', skills: ['automation.open', 'automation.create', 'flow.builder'] },
   { id: 'affiliates', label: 'Afiliados', canvasRoute: '/afiliados', skills: ['affiliate.open', 'affiliate.create', 'affiliate.config'] },
+  { id: 'club', label: 'Clube Assinantes', canvasRoute: '/clube', skills: ['nav.clube'] },
   { id: 'dashboard', label: 'Painel', canvasRoute: '/dashboard', skills: ['dashboard.overview', 'dashboard.show'] },
   { id: 'skills', label: 'Habilidades', canvasRoute: '/habilidades', skills: ['skills.list'] },
   { id: 'settings', label: 'Configurações', canvasRoute: '/configuracoes', skills: ['settings.open'] },

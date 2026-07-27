@@ -4,6 +4,7 @@ import type { InstanceManager } from "../core/instanceManager";
 import { AffiliatesService } from "./affiliates";
 import { affiliateGlobalService } from "./affiliateGlobal";
 import { affiliateProgramsService } from "./affiliatePrograms";
+import { affiliateMessageTemplatesService } from "./affiliateMessageTemplates";
 import { getHealthSnapshot } from "./whatsappHealth";
 import { logger } from "../utils/logger";
 import {
@@ -30,7 +31,8 @@ const DEFAULT_FOLLOWUP_TEMPLATE =
   "Oi {{prospect_name}}! Passando para saber se ainda posso te ajudar com informações da {{brand_name}}. "
   + "Fico à disposição quando quiser conversar.";
 
-const DEFAULT_FOLLOWUP_DELAYS_HOURS = [24, 48, 72];
+/** Régua Reev C2–C8: 2d, 3d, 3d, 4d, 4d, 4d, 5d (horas) */
+const DEFAULT_FOLLOWUP_DELAYS_HOURS = [48, 72, 72, 96, 96, 96, 120];
 
 function normalizePhoneDigits(phone?: string | null): string {
   return String(phone || "").replace(/\D/g, "");
@@ -450,6 +452,9 @@ export class AffiliateDistributionService {
       "{{affiliate_name}}": String(ctx.affiliate_name || "nossa equipe").trim(),
       "{{brand_name}}": String(ctx.brand_name || "nossa marca").trim(),
       "{{program_name}}": String(ctx.program_name || "").trim(),
+      "{{contact_name}}": firstName,
+      "{{company_name}}": String(ctx.prospect_name || "").trim(),
+      "{{city}}": String(ctx.prospect_city || "").trim(),
     };
     let out = template;
     for (const [token, value] of Object.entries(map)) {
@@ -513,7 +518,14 @@ export class AffiliateDistributionService {
         : Promise.resolve(null),
     ]);
 
-    const template = this.resolveInitialMessageTemplate(rules, program);
+    const managed = await affiliateMessageTemplatesService
+      .listForAffiliate(input.ownerUserId, input.brandId, input.affiliateId)
+      .catch(() => ({ templates: [] as any[], program_id: null }));
+    const managedInitial = managed.templates.find(
+      (item: any) => Number(item.message_step) === 1 && String(item.trigger_result) === "start",
+    );
+    const template = String(managedInitial?.body || "").trim()
+      || this.resolveInitialMessageTemplate(rules, program);
     const message = this.applyMessageTemplate(template, {
       prospect_name: input.prospectName,
       prospect_city: input.prospectCity,
@@ -724,7 +736,7 @@ export class AffiliateDistributionService {
     const eligible = await queryOne<{ total: number }>(
       `SELECT COUNT(*) AS total FROM affiliate_distribution_status
        WHERE owner_user_id = ? AND brand_id = ?
-         AND distribution_status = 'available' AND whatsapp_status = 'connected'`,
+         AND distribution_status = 'available'`,
       [ownerUserId, brandId]
     );
     const distStatus = await queryOne<any>(
@@ -1931,6 +1943,14 @@ export class AffiliateDistributionService {
     }
 
     const phoneDigits = normalizePhoneDigits(prospect.phone);
+    /* Só enfileira oportunidade com telefone acionável (BR: DDD+número).
+       Sem telefone continua no banco (customers), mas não entra no pool de afiliados. */
+    if (phoneDigits.length < 10) {
+      return {
+        queued: false,
+        reason: "Prospect sem telefone válido (mín. 10 dígitos) — não entra no pool",
+      };
+    }
     if (await this.isProspectNetworkSuppressed({
       brandId: input.brandId,
       prospectId: input.prospectId,
@@ -2020,7 +2040,7 @@ export class AffiliateDistributionService {
            FROM affiliates a
            INNER JOIN affiliate_distribution_status d ON d.affiliate_id = a.id AND d.brand_id = a.brand_id
            WHERE a.owner_user_id = ? AND a.brand_id = ? AND a.status = 'active'
-             AND d.distribution_status = 'available' AND d.whatsapp_status = 'connected'
+             AND d.distribution_status = 'available'
              AND EXISTS (
                SELECT 1 FROM affiliate_program_enrollments e
                WHERE e.affiliate_id = a.id AND e.brand_id = a.brand_id
@@ -2035,7 +2055,7 @@ export class AffiliateDistributionService {
            FROM affiliates a
            INNER JOIN affiliate_distribution_status d ON d.affiliate_id = a.id AND d.brand_id = a.brand_id
            WHERE a.owner_user_id = ? AND a.brand_id = ? AND a.status = 'active'
-             AND d.distribution_status = 'available' AND d.whatsapp_status = 'connected'
+             AND d.distribution_status = 'available'
            ORDER BY COALESCE(d.last_rotation_at, d.last_assigned_at, '1970-01-01') ASC`,
           [ownerUserId, brandId]
         );
@@ -2198,13 +2218,27 @@ export class AffiliateDistributionService {
        WHERE owner_user_id = ? AND brand_id = ? AND queue_status = 'pending'
        ORDER BY priority_score DESC, queued_at ASC
        LIMIT ?`,
-      [ownerUserId, brandId, Math.max(1, maxItems * 3)]
+      [ownerUserId, brandId, Math.max(1, maxItems * 4)]
     );
 
     const results: any[] = [];
     let assignedCount = 0;
     for (const item of pending || []) {
       if (assignedCount >= Math.max(1, maxItems)) break;
+
+      /* Sem telefone acionável: mantém registro histórico mas tira do pool/auto-assign. */
+      const itemPhone = normalizePhoneDigits(item.prospect_phone);
+      if (itemPhone.length < 10) {
+        await query(
+          `UPDATE lead_distribution_queue
+           SET queue_status = 'filtered_out', error_message = ?
+           WHERE id = ? AND queue_status = 'pending'`,
+          ["Sem telefone válido (mín. 10 dígitos) — não distribuir", item.id],
+        ).catch(() => null);
+        results.push({ queue_id: item.id, assigned: false, reason: "no_phone" });
+        continue;
+      }
+
       const rules = await this.getOrCreateRules(ownerUserId, brandId, item.program_id);
       const openPool = rules?.open_pool_enabled !== 0 && rules?.open_pool_enabled !== false;
       const claimTtl = Math.max(15, Number(rules?.claim_ttl_minutes) || 90);
@@ -2369,6 +2403,125 @@ export class AffiliateDistributionService {
   }
 
   /**
+   * Elegibilidade leve para listagem do pool — sem getHealthSnapshot / sync completo.
+   * O claim real ainda passa por syncAffiliateDistributionStatus.
+   */
+  async getQuickClaimEligibility(input: {
+    ownerUserId: string;
+    brandId: string;
+    affiliateId: string;
+    affiliateUserId: string;
+  }): Promise<{
+    can_claim: boolean;
+    claim_blockers: string[];
+    registered_whatsapp_ok: boolean;
+    registered_whatsapp: string | null;
+    whatsapp_status: string | null;
+    distribution_status: string | null;
+  }> {
+    await this.ensureSchema();
+    const affiliate = await queryOne<any>(
+      `SELECT id, status, phone, social_whatsapp, pix_key FROM affiliates
+       WHERE id = ? AND brand_id = ? LIMIT 1`,
+      [input.affiliateId, input.brandId],
+    ).catch(() => null);
+
+    const enrollment = await queryOne<any>(
+      `SELECT id, status, onboarding_completed_at, resources_unlocked_at, resources_unlocked
+       FROM affiliate_program_enrollments
+       WHERE affiliate_user_id = ? AND brand_id = ?
+         AND status IN ('active', 'onboarding')
+       ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END, updated_at DESC
+       LIMIT 1`,
+      [input.affiliateUserId, input.brandId],
+    ).catch(async () =>
+      /* schema sem resources_unlocked */
+      queryOne<any>(
+        `SELECT id, status, onboarding_completed_at, resources_unlocked_at
+         FROM affiliate_program_enrollments
+         WHERE affiliate_user_id = ? AND brand_id = ?
+           AND status IN ('active', 'onboarding')
+         ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END, updated_at DESC
+         LIMIT 1`,
+        [input.affiliateUserId, input.brandId],
+      ).catch(() => null),
+    );
+
+    const dist = await queryOne<any>(
+      `SELECT distribution_status, whatsapp_status, terms_accepted, training_complete,
+              pause_reason, updated_at
+       FROM affiliate_distribution_status
+       WHERE affiliate_id = ? AND brand_id = ?
+       LIMIT 1`,
+      [input.affiliateId, input.brandId],
+    ).catch(() => null);
+
+    /* Número: perfil + instâncias (mesmo offline) — sessão online NÃO é exigida */
+    const instancePhones = await query<any[]>(
+      `SELECT phone FROM whatsapp_instances
+       WHERE owner_type = 'affiliate' AND owner_actor_id = ?
+         AND (brand_id = ? OR brand_id IS NULL OR brand_id = '')
+       LIMIT 10`,
+      [input.affiliateUserId, input.brandId],
+    ).catch(() => []);
+
+    const phones = Array.from(
+      new Set(
+        [
+          normalizePhoneDigits(affiliate?.social_whatsapp),
+          normalizePhoneDigits(affiliate?.phone),
+          ...((instancePhones || []).map((r) => normalizePhoneDigits(r?.phone))),
+        ].filter((p) => p.length >= 10),
+      ),
+    );
+    const registeredWhatsappOk = phones.length > 0;
+    const affiliateActive = String(affiliate?.status || "").toLowerCase() === "active";
+    const enrollmentStatus = String(enrollment?.status || "").toLowerCase();
+    const enrollmentActive = enrollmentStatus === "active";
+    const onboardingDone = Boolean(
+      enrollment?.onboarding_completed_at
+      || enrollment?.resources_unlocked_at
+      || enrollment?.resources_unlocked === true
+      || enrollment?.resources_unlocked === 1
+      || enrollment?.resources_unlocked === "1",
+    );
+    const distStatus = dist?.distribution_status ? String(dist.distribution_status) : null;
+    const distSaysOk = distStatus === "available" || distStatus === "paused";
+    /* Active enrollment OU onboarding concluído OU último sync OK (contas que já operavam) */
+    const programOk =
+      enrollmentActive
+      || onboardingDone
+      || distSaysOk
+      || (enrollmentStatus === "onboarding" && distSaysOk);
+
+    const blockers: string[] = [];
+    if (!affiliateActive) {
+      blockers.push("Conta de afiliado inativa ou pendente de aprovação");
+    }
+    if (!programOk) {
+      if (enrollmentStatus === "onboarding") {
+        blockers.push("Conclua o onboarding do programa");
+      } else if (!enrollment) {
+        blockers.push("Entre em um programa no Mercado");
+      } else {
+        blockers.push("Programa ainda não liberado");
+      }
+    }
+    if (!registeredWhatsappOk) {
+      blockers.push("Cadastre o número de WhatsApp em Conexões");
+    }
+
+    return {
+      can_claim: blockers.length === 0,
+      claim_blockers: blockers,
+      registered_whatsapp_ok: registeredWhatsappOk,
+      registered_whatsapp: phones[0] || null,
+      whatsapp_status: dist?.whatsapp_status ? String(dist.whatsapp_status) : null,
+      distribution_status: distStatus,
+    };
+  }
+
+  /**
    * Pool aberto: todas as oportunidades ainda disponíveis para os afiliados assumirem.
    * Contato completo (telefone, e-mail, Instagram, endereço) para visita ou canal escolhido.
    */
@@ -2391,9 +2544,12 @@ export class AffiliateDistributionService {
     }
 
     const claimTtl = Math.max(15, Number(rules?.claim_ttl_minutes) || 90);
-    const limit = Math.min(Math.max(Number(input.limit) || 40, 1), 80);
-    /* Busca um pouco a mais e filtra skips do afiliado (recusas do pool). */
-    const fetchLimit = Math.min(limit + 40, 120);
+    const limit = Math.min(Math.max(Number(input.limit) || 40, 1), 60);
+    /* Busca a mais: filtra skips + sem telefone + supressões no app. */
+    const fetchLimit = Math.min(Math.max(limit * 3, limit + 40), 150);
+    /* Preferir itens com telefone acionável já no SQL (pool só com WA/fone). */
+    const phoneOkSql =
+      "LENGTH(REGEXP_REPLACE(COALESCE(q.prospect_phone, ''), '[^0-9]', '', 'g')) >= 10";
     const rows = await query<any[]>(
       `SELECT q.*,
               c.email AS customer_email,
@@ -2410,11 +2566,12 @@ export class AffiliateDistributionService {
        FROM lead_distribution_queue q
        LEFT JOIN customers c ON c.id = q.prospect_id
        WHERE q.owner_user_id = ? AND q.brand_id = ? AND q.queue_status = 'pending'
+         AND ${phoneOkSql}
        ORDER BY q.priority_score DESC, q.queued_at ASC
        LIMIT ?`,
       [input.ownerUserId, input.brandId, fetchLimit]
     ).catch(async () => {
-      // schemas antigos sem colunas extras de endereço/IG
+      // schemas antigos sem colunas extras de endereço/IG — ou REGEXP_REPLACE indisponível
       try {
         return await query<any[]>(
           `SELECT q.*, c.email AS customer_email, c.category AS customer_category, c.subcategory AS customer_subcategory
@@ -2450,36 +2607,31 @@ export class AffiliateDistributionService {
       }
     });
 
-    const skippedIds = new Set<string>();
-    try {
-      const skips = await query<any[]>(
+    const [skips, sups] = await Promise.all([
+      query<any[]>(
         `SELECT queue_id FROM affiliate_pool_skips
-         WHERE affiliate_id = ? AND brand_id = ?`,
+         WHERE affiliate_id = ? AND brand_id = ?
+         LIMIT 1000`,
         [input.affiliateId, input.brandId],
-      );
-      for (const s of skips || []) {
-        if (s?.queue_id) skippedIds.add(String(s.queue_id));
-      }
-    } catch {
-      /* tabela pode não existir ainda */
-    }
-
-    const suppressedProspectIds = new Set<string>();
-    const suppressedPhones = new Set<string>();
-    try {
-      const sups = await query<any[]>(
+      ).catch(() => []),
+      query<any[]>(
         `SELECT prospect_id, phone_digits FROM affiliate_prospect_suppressions
          WHERE brand_id = ? AND is_active = TRUE
-         LIMIT 5000`,
+         LIMIT 1500`,
         [input.brandId],
-      );
-      for (const s of sups || []) {
-        if (s?.prospect_id) suppressedProspectIds.add(String(s.prospect_id));
-        const ph = normalizePhoneDigits(s?.phone_digits);
-        if (ph.length >= 8) suppressedPhones.add(ph);
-      }
-    } catch {
-      /* tabela pode não existir */
+      ).catch(() => []),
+    ]);
+
+    const skippedIds = new Set<string>();
+    for (const s of skips || []) {
+      if (s?.queue_id) skippedIds.add(String(s.queue_id));
+    }
+    const suppressedProspectIds = new Set<string>();
+    const suppressedPhones = new Set<string>();
+    for (const s of sups || []) {
+      if (s?.prospect_id) suppressedProspectIds.add(String(s.prospect_id));
+      const ph = normalizePhoneDigits(s?.phone_digits);
+      if (ph.length >= 8) suppressedPhones.add(ph);
     }
 
     const items = (rows || [])
@@ -2488,7 +2640,9 @@ export class AffiliateDistributionService {
         const pid = row.prospect_id ? String(row.prospect_id) : "";
         if (pid && suppressedProspectIds.has(pid)) return false;
         const ph = normalizePhoneDigits(row.prospect_phone);
-        if (ph.length >= 8 && suppressedPhones.has(ph)) return false;
+        /* Pool aberto só com telefone acionável — sem phone não aparece como oportunidade. */
+        if (ph.length < 10) return false;
+        if (suppressedPhones.has(ph)) return false;
         return true;
       })
       .slice(0, limit)
@@ -2596,40 +2750,8 @@ export class AffiliateDistributionService {
       if (i.address) addrCount += 1;
     }
 
-    /* Facets da FILA INTEIRA — prioriza BUSCA da captação + vertical (não só Google type). */
-    try {
-      const facetRows = await query<any[]>(
-        `SELECT c.category, c.subcategory, q.metadata_json, q.prospect_city, q.prospect_region
-         FROM lead_distribution_queue q
-         LEFT JOIN customers c ON c.id = q.prospect_id
-         WHERE q.owner_user_id = ? AND q.brand_id = ? AND q.queue_status = 'pending'
-         LIMIT 800`,
-        [input.ownerUserId, input.brandId],
-      );
-      for (const r of facetRows || []) {
-        let m: Record<string, any> = {};
-        try {
-          m = typeof r.metadata_json === "string" ? JSON.parse(r.metadata_json || "{}") : (r.metadata_json || {});
-        } catch {
-          m = {};
-        }
-        const tax = resolveOpportunityTaxonomy({
-          metadata: m,
-          customerCategory: r.category,
-          customerSubcategory: r.subcategory,
-        });
-        if (tax.search_query) searchSet.add(tax.search_query);
-        if (tax.vertical) verticalSet.add(tax.vertical);
-        if (tax.place_type) placeTypeSet.add(tax.place_type);
-        if (r.prospect_city) regionSet.add(String(r.prospect_city).trim());
-        if (r.prospect_region) regionSet.add(String(r.prospect_region).trim());
-      }
-    } catch {
-      /* facets da página já preenchidos */
-    }
-
-    /* Chips principais = buscas da captação + verticais (ex.: Restaurante).
-       place_types fica separado (subfiltro), para não poluir com BARBECUE. */
+    /* Facets refletem exatamente os itens entregues. Isso evita opções sem resultado
+       e elimina uma varredura extra da fila inteira a cada abertura mobile. */
     const primaryNiches = Array.from(new Set([
       ...Array.from(searchSet),
       ...Array.from(verticalSet),
@@ -2694,6 +2816,17 @@ export class AffiliateDistributionService {
     );
     if (!item) {
       throw new Error("Oportunidade não encontrada");
+    }
+
+    const claimPhone = normalizePhoneDigits(item.prospect_phone);
+    if (claimPhone.length < 10) {
+      await query(
+        `UPDATE lead_distribution_queue
+         SET queue_status = 'filtered_out', error_message = ?
+         WHERE id = ?`,
+        ["Sem telefone válido (mín. 10 dígitos) — não distribuir", input.queueId],
+      );
+      throw new Error("Esta oportunidade não tem telefone válido para contato");
     }
 
     if (await this.isProspectNetworkSuppressed({

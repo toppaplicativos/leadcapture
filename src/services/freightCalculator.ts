@@ -35,6 +35,8 @@ export type FreightLogisticsConfig = {
   delivery_fee?: number | null;
   delivery_radius_km?: number | null;
   free_shipping_above?: number | null;
+  free_shipping_min_weight_kg?: number | null;
+  free_shipping_max_distance_km?: number | null;
   default_eta_minutes?: number | null;
   delivery_time_text?: string | null;
   frete_texto?: string | null;
@@ -392,6 +394,7 @@ export async function quoteFreight(input: {
     state?: string | null;
   };
   cartTotal?: number | null;
+  orderWeightKg?: number | null;
   userId?: string | null;
   brandId?: string | null;
 }): Promise<FreightQuote> {
@@ -569,11 +572,25 @@ export async function quoteFreight(input: {
   }
 
   const freeAbove = lg.free_shipping_above != null ? Number(lg.free_shipping_above) : null;
-  const free =
+  const freeByValue =
     freeAbove != null
     && input.cartTotal != null
     && !Number.isNaN(Number(input.cartTotal))
     && Number(input.cartTotal) >= freeAbove;
+  const minWeight = lg.free_shipping_min_weight_kg != null
+    ? Number(lg.free_shipping_min_weight_kg)
+    : null;
+  const freeMaxDistance = lg.free_shipping_max_distance_km != null
+    ? Number(lg.free_shipping_max_distance_km)
+    : null;
+  const freeByWeight =
+    minWeight != null
+    && Number.isFinite(minWeight)
+    && input.orderWeightKg != null
+    && Number.isFinite(Number(input.orderWeightKg))
+    && Number(input.orderWeightKg) >= minWeight
+    && (freeMaxDistance == null || !Number.isFinite(freeMaxDistance) || distanceKm <= freeMaxDistance);
+  const free = freeByValue || freeByWeight;
 
   const rawFee = feeForTier(distanceKm, tier, lg.delivery_fee);
   const fee = free ? 0 : rawFee;
@@ -588,8 +605,13 @@ export async function quoteFreight(input: {
     lg.delivery_time_text
     || (eta != null ? `Prazo estimado ≈ ${eta} min` : null);
 
+  const freeRuleCopy = freeByWeight && minWeight != null
+    ? `pedido a partir de ${minWeight.toLocaleString("pt-BR")} kg${freeMaxDistance != null && Number.isFinite(freeMaxDistance) ? ` em até ${freeMaxDistance.toLocaleString("pt-BR")} km` : ""}`
+    : freeAbove != null
+      ? `pedido acima de ${moneyBr(freeAbove)}`
+      : null;
   const copy = free
-    ? `Frete grátis para ${destination.city || "seu endereço"} (≈${distanceKm} km)${etaText ? ` · ${etaText}` : ""}.`
+    ? `Frete grátis para ${destination.city || "seu endereço"} (≈${distanceKm} km${freeRuleCopy ? ` · ${freeRuleCopy}` : ""})${etaText ? ` · ${etaText}` : ""}.`
     : `Entrega para ${destination.city || "seu endereço"}: ${moneyBr(fee)} (≈${distanceKm} km, faixa ${tier.label})${etaText ? ` · ${etaText}` : ""}.`;
 
   return {

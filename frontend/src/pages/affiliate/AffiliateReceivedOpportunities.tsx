@@ -4,7 +4,8 @@ import { affiliateApi } from '@/lib/api-affiliate'
 import type { AppContext } from '@/pages/affiliate/types'
 
 const STAGE_LABEL: Record<string, string> = {
-  assigned_to_affiliate: 'Atribuído a você',
+  assigned_to_affiliate: 'A contatar',
+  contact_attempted: 'Tentativa realizada',
   initial_message_sent: 'Mensagem inicial enviada',
   awaiting_response: 'Aguardando resposta',
   engaged: 'Em conversa',
@@ -123,7 +124,7 @@ export function AffiliateReceivedOpportunities({ ctx }: { ctx: AppContext }) {
           <Briefcase size={32} className="mx-auto text-[#c7c7cc] mb-3" />
           <p className="text-sm font-semibold text-[#1c1c1e]">Nenhuma oportunidade ainda</p>
           <p className="text-xs text-[#8e8e93] mt-1 max-w-xs mx-auto">
-            Conecte seu WhatsApp e fique ativo no programa. Quando a organização captar prospects, eles aparecem aqui.
+            Cadastre seu número de atendimento para ficar ativo no programa. A conexão do WhatsApp é opcional.
           </p>
         </div>
       ) : (

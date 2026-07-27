@@ -177,6 +177,7 @@ export class AffiliateProductLearningService {
           unit: p.unit,
           image_url: normalizeUploadUrl(p.imageUrl || p.image || (p.images?.[0] ?? null)),
           features: p.features || [],
+          metadata: p.metadata || {},
           guide_status: g?.status || null,
           has_guide: g?.status === "ready",
           guide_generated_at: g?.generated_at || null,

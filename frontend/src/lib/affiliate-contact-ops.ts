@@ -5,7 +5,7 @@
 
 export type OpsPhase = 'to_contact' | 'contacted' | 'engaged' | 'closed' | 'new'
 
-export type ContactChannel = 'whatsapp' | 'phone' | 'note' | 'system'
+export type ContactChannel = 'whatsapp' | 'phone' | 'instagram' | 'note' | 'system'
 
 export type OpsNextTask = {
   id: string
@@ -76,6 +76,7 @@ const PHASE_LABELS: Record<string, string> = {
 const CHANNEL_LABELS: Record<ContactChannel, string> = {
   whatsapp: 'WhatsApp',
   phone: 'Telefone',
+  instagram: 'Instagram',
   note: 'Anotação',
   system: 'Sistema',
 }
@@ -90,7 +91,7 @@ export function channelLabel(channel?: string | null): string {
 
 export function normalizeChannel(raw?: string | null, action?: string | null): ContactChannel {
   const c = String(raw || '').trim().toLowerCase() as ContactChannel
-  if (c === 'whatsapp' || c === 'phone' || c === 'note' || c === 'system') return c
+  if (c === 'whatsapp' || c === 'phone' || c === 'instagram' || c === 'note' || c === 'system') return c
   const a = String(action || '').toLowerCase()
   if (PHONE_ACTIONS.has(a)) return 'phone'
   if (a === 'note') return 'note'

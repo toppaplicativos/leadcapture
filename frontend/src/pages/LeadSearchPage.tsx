@@ -257,6 +257,9 @@ export function LeadSearchPage({ variant = 'page' }: { variant?: 'page' | 'canva
   /* Ref do autoCapture — usado no radarSearch para SEMPRE ler valor atual, mesmo
      quando o closure foi capturado com valor antigo (restore async). */
   const autoCaptureRef = useRef(false)
+  /** Após 429 do radar, não re-dispara até o cooldown (evita flood no console). */
+  const radarCooldownUntilRef = useRef(0)
+  const radarInFlightRef = useRef(false)
   /** Cancela radar antigo quando o user arrasta de novo (evita fila de N requests). */
   const radarAbortRef = useRef<AbortController | null>(null)
   const radarSeqRef = useRef(0)
@@ -643,11 +646,21 @@ export function LeadSearchPage({ variant = 'page' }: { variant?: 'page' | 'canva
   // Abort + seq id: só a última busca vale. Cap de pins. Auto-capture via batch.
   const radarSearch = useCallback(async (lat: number, lng: number) => {
     if (!query.trim()) return
+    const now = Date.now()
+    if (now < radarCooldownUntilRef.current) {
+      setRadarMeta({
+        throttled: true,
+        message: 'Limite do mapa — aguarde alguns segundos (áreas já buscadas usam cache)',
+      })
+      return
+    }
+    if (radarInFlightRef.current) return
     const seq = ++radarSeqRef.current
     radarAbortRef.current?.abort()
     const ac = new AbortController()
     radarAbortRef.current = ac
     const t0 = performance.now()
+    radarInFlightRef.current = true
     setRadarLoading(true)
     setProspecting(true)
     setRadarMeta(null)
@@ -671,11 +684,18 @@ export function LeadSearchPage({ variant = 'page' }: { variant?: 'page' | 'canva
       const d = await r.json().catch(() => ({}))
       if (seq !== radarSeqRef.current) return // stale
       if (r.status === 429 || d?.rate_limited) {
+        const retryMs = Math.max(3000, Number(d?.retry_after_ms) || 8000)
+        radarCooldownUntilRef.current = Date.now() + retryMs
         setRadarMeta({
           throttled: true,
-          message: d.error || 'Limite do mapa — aguarde ~45s (áreas já buscadas usam cache)',
+          message: d.error || 'Limite do mapa — aguarde ~8s (áreas já buscadas usam cache)',
         })
         // Não zera o mapa: mantém pins existentes
+        return
+      }
+      if (r.status === 401) {
+        // sessão morta — não spamma radar
+        radarCooldownUntilRef.current = Date.now() + 60_000
         return
       }
       if (!r.ok) {
@@ -794,6 +814,7 @@ export function LeadSearchPage({ variant = 'page' }: { variant?: 'page' | 'canva
       if (e?.name === 'AbortError') return
       setRadarMeta({ message: e?.message || 'Falha no radar' })
     } finally {
+      radarInFlightRef.current = false
       if (seq === radarSeqRef.current) {
         setRadarLoading(false)
         setTimeout(() => setProspecting(false), 400)

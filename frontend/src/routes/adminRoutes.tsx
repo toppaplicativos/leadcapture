@@ -17,6 +17,7 @@ const MobLogisticsView = lazy(() => import('@/pages/admin/mob/MobLogisticsView')
 const EstoqueAccessView = lazy(() => import('@/pages/admin/estoque/EstoqueAccessView').then(m => ({ default: m.EstoqueAccessView })))
 const AffiliatesView = lazy(() => import('@/pages/admin/affiliates/AffiliatesView').then(m => ({ default: m.AffiliatesView })))
 const CouponsView = lazy(() => import('@/pages/admin/coupons/CouponsView').then(m => ({ default: m.CouponsView })))
+const ClubView = lazy(() => import('@/pages/admin/club/ClubView').then(m => ({ default: m.ClubView })))
 const ReviewsView = lazy(() => import('@/pages/admin/reviews/ReviewsView').then(m => ({ default: m.ReviewsView })))
 const PaymentConfigView = lazy(() => import('@/pages/admin/payments/PaymentConfigView').then(m => ({ default: m.PaymentConfigView })))
 const WhatsAppManagerView = lazy(() => import('@/pages/admin/whatsapp/WhatsAppManagerView').then(m => ({ default: m.WhatsAppManagerView })))
@@ -70,6 +71,15 @@ function CampaignsInline() {
   )
 }
 
+function ClubInline() {
+  const { showToast } = useToast()
+  return (
+    <ClubView
+      showToast={(msg: string, tp?: 'ok' | 'err') => showToast(tp === 'err' ? `Erro: ${msg}` : msg)}
+    />
+  )
+}
+
 function OrdersInline() {
   return <OrdersView showToast={noop} />
 }
@@ -116,6 +126,7 @@ export const adminRouteElements = (
       <Route path="/estoque" element={<AdminPage><EstoqueAccessView showToast={noop} /></AdminPage>} />
       <Route path="/afiliados" element={<AdminPage><AffiliatesView showToast={noop} /></AdminPage>} />
       <Route path="/cupons" element={<AdminPage><CouponsView showToast={noop} /></AdminPage>} />
+      <Route path="/clube" element={<AdminPage><ClubInline /></AdminPage>} />
       <Route path="/avaliacoes" element={<AdminPage><ReviewsView showToast={noop} /></AdminPage>} />
       <Route path="/loja" element={<AdminPage><StoreStudioPage /></AdminPage>} />
       <Route path="/design" element={<Navigate to="/loja" replace />} />

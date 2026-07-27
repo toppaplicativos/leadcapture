@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, lazy, Suspense } from 'react'
 import { Routes, Route, useNavigate, Navigate } from 'react-router-dom'
 import type { StoreData } from '@/lib/api'
-import { storeSlug } from '@/lib/store-context'
+import { storeSlug, isCustomDomain } from '@/lib/store-context'
 import { Topbar } from '@/components/Topbar'
 import { BottomNav } from '@/components/BottomNav'
 import { Toast } from '@/components/Toast'
@@ -31,10 +31,12 @@ const PartnersLoginPage = lazy(() => import('@/pages/partners/PartnersLoginPage'
 const PartnersAppPage = lazy(() => import('@/pages/partners/PartnersAppPage').then(m => ({ default: m.PartnersAppPage })))
 const PartnersProgramWorkspace = lazy(() => import('@/pages/partners/PartnersProgramWorkspace').then(m => ({ default: m.PartnersProgramWorkspace })))
 const AffiliateRedirectPage = lazy(() => import('@/pages/AffiliateRedirectPage').then(m => ({ default: m.AffiliateRedirectPage })))
+const WhatsAppComposerPreview = lazy(() => import('@/pages/dev/WhatsAppComposerPreview').then(m => ({ default: m.WhatsAppComposerPreview })))
 const MobLoginPage = lazy(() => import('@/pages/mob/MobLoginPage').then(m => ({ default: m.MobLoginPage })))
 const MobAppPage = lazy(() => import('@/pages/mob/MobAppPage').then(m => ({ default: m.MobAppPage })))
 const MobTrackPage = lazy(() => import('@/pages/mob/MobTrackPage').then(m => ({ default: m.MobTrackPage })))
 const ProductDetailPage = lazy(() => import('@/pages/ProductDetailPage').then(m => ({ default: m.ProductDetailPage })))
+const ClubPage = lazy(() => import('@/pages/ClubPage').then(m => ({ default: m.ClubPage })))
 const LandingPage = lazy(() => import('@/pages/LandingPage').then(m => ({ default: m.LandingPage })))
 const CadastroPage = lazy(() => import('@/pages/CadastroPage').then(m => ({ default: m.CadastroPage })))
 const CadastroSucessoPage = lazy(() => import('@/pages/CadastroSucessoPage').then(m => ({ default: m.CadastroSucessoPage })))
@@ -342,6 +344,23 @@ export default function App() {
           {/* ── Login ── */}
           <Route path="/login" element={<LoginPage />} />
 
+          {/*
+            Domínio custom da loja (ex.: alhopronto.online):
+            rotas públicas da vitrine DEVEM vir ANTES do admin.
+            Senão /clube cai no ClubView admin → AdminShell sem token → /login
+            (parece “cadastro de organização”). Clientes/restaurantes entram
+            no ClubPage do catálogo, nunca no signup SaaS.
+          */}
+          {!onMasterHost && isCustomDomain && (
+            <>
+              <Route path="/clube" element={<ClubPage />} />
+              <Route path="/checkout" element={<CheckoutPage />} />
+              <Route path="/pedido" element={<OrderPage />} />
+              <Route path="/historico" element={<HistoryPage />} />
+              <Route path="/produto/:productSlug" element={<ProductDetailPage />} />
+            </>
+          )}
+
           {/* ── Admin do cliente (app.leadcapture.online) — omitido no host master ── */}
           {!onMasterHost && adminRouteElements}
 
@@ -356,6 +375,7 @@ export default function App() {
               to /api/stock-app/* using the stock manager token. */}
           {!onMasterHost && (
             <>
+              {import.meta.env.DEV && <Route path="/dev/afiliado/mensagem-whatsapp" element={<WhatsAppComposerPreview />} />}
               <Route path="/app-estoque" element={<StockLoginPage />} />
               <Route path="/app-estoque/:slug" element={<StockLoginPage />} />
               <Route path="/app-estoque/:slug/painel" element={<InventoryPage />} />
@@ -382,6 +402,8 @@ export default function App() {
 
               <Route path="/catalogo/:slug/produto/:productSlug" element={<ProductDetailPage />} />
               <Route path="/loja/:slug/produto/:productSlug" element={<ProductDetailPage />} />
+              <Route path="/catalogo/:slug/clube" element={<ClubPage />} />
+              <Route path="/loja/:slug/clube" element={<ClubPage />} />
               <Route path="/catalogo/:slug/checkout" element={<CheckoutPage />} />
               <Route path="/loja/:slug/checkout" element={<CheckoutPage />} />
               <Route path="/catalogo/:slug/pedido" element={<OrderPage />} />
@@ -390,10 +412,14 @@ export default function App() {
               <Route path="/loja/:slug/historico" element={<HistoryPage />} />
               <Route path="/catalogo/:slug" element={<CatalogShell />} />
               <Route path="/loja/:slug" element={<CatalogShell />} />
-              <Route path="/checkout" element={<CheckoutPage />} />
-              <Route path="/pedido" element={<OrderPage />} />
-              <Route path="/historico" element={<HistoryPage />} />
-              <Route path="/produto/:productSlug" element={<ProductDetailPage />} />
+              {/* Host app (não custom): /clube é do admin; vitrine usa /catalogo/:slug/clube */}
+              {!isCustomDomain && <Route path="/clube" element={<ClubPage />} />}
+              {!isCustomDomain && <Route path="/checkout" element={<CheckoutPage />} />}
+              {!isCustomDomain && <Route path="/pedido" element={<OrderPage />} />}
+              {!isCustomDomain && <Route path="/historico" element={<HistoryPage />} />}
+              {!isCustomDomain && (
+                <Route path="/produto/:productSlug" element={<ProductDetailPage />} />
+              )}
             </>
           )}
 

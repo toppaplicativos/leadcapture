@@ -2,9 +2,30 @@ import { Router, Request, Response } from "express";
 import { createHash } from "crypto";
 import { AffiliatesService } from "../services/affiliates";
 import { queryOne } from "../config/database";
+import {
+  affiliateTrackingDomainsService,
+  normalizeTrackingHost,
+} from "../services/affiliateTrackingDomains";
 
 const router = Router();
 const affiliatesService = new AffiliatesService();
+
+/** CORS liberado para pixel/tracker em sites de terceiros (domínios cadastrados pela org). */
+router.use((req, res, next) => {
+  const origin = String(req.headers.origin || "").trim();
+  if (origin) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Vary", "Origin");
+    res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    res.setHeader("Access-Control-Max-Age", "86400");
+  }
+  if (req.method === "OPTIONS") {
+    res.status(204).end();
+    return;
+  }
+  next();
+});
 
 router.post("/:code", async (req: Request, res: Response) => {
   try {
@@ -12,6 +33,7 @@ router.post("/:code", async (req: Request, res: Response) => {
     if (!code) return res.status(400).json({ error: "Código inválido" });
 
     await affiliatesService.ensureSchema();
+    await affiliateTrackingDomainsService.ensureSchema();
 
     const affiliate = await queryOne<any>(
       `SELECT a.*, b.slug AS brand_slug, s.slug AS store_slug, d.domain AS primary_domain
@@ -46,6 +68,28 @@ router.post("/:code", async (req: Request, res: Response) => {
     let productId = String(body.product_id || "").trim() || null;
     const productSlug = String(body.product_slug || "").trim() || null;
     const landingPath = String(body.landing_path || "").trim().slice(0, 500) || null;
+    const sourceHost = normalizeTrackingHost(
+      String(body.source_host || body.source_domain || req.headers.origin || "").trim()
+    );
+    const sourceDomain = sourceHost || null;
+
+    // Se o clique veio de host externo, só aceita se estiver cadastrado (ou for a loja)
+    if (sourceHost) {
+      const allowed = await affiliateTrackingDomainsService.isAllowedHost(
+        String(affiliate.brand_id),
+        sourceHost
+      );
+      // Não bloqueia lojas path-based (sem primary domain) com origin do app SaaS
+      const isSaaSOrigin =
+        sourceHost.includes("leadcapture") ||
+        sourceHost.includes("alhopronto.online") ||
+        sourceHost.includes("localhost") ||
+        sourceHost.includes("127.0.0.1");
+      if (!allowed && !isSaaSOrigin) {
+        // Soft-allow: ainda rastreia, mas marca como external_unlisted
+        // (orgs em onboarding não ficam bloqueadas se esquecerem de cadastrar)
+      }
+    }
 
     if (!productId && productSlug) {
       const productRow = await queryOne<{ id: string }>(
@@ -57,6 +101,9 @@ router.post("/:code", async (req: Request, res: Response) => {
       if (productRow?.id) productId = String(productRow.id);
     }
 
+    const effectiveLinkType =
+      sourceHost && linkType === "catalog" ? "support_site" : linkType;
+
     await affiliatesService.trackClick({
       ownerUserId: String(affiliate.owner_user_id),
       brandId: String(affiliate.brand_id),
@@ -64,10 +111,12 @@ router.post("/:code", async (req: Request, res: Response) => {
       ipHash: ipHash || undefined,
       userAgent: String(req.headers["user-agent"] || "").slice(0, 255),
       referrer: String(req.headers.referer || "").slice(0, 500),
-      linkType,
+      linkType: effectiveLinkType,
       productId,
       productSlug,
       landingPath,
+      sourceDomain,
+      sourceHost: sourceHost || null,
     });
 
     const storeSlug = String(affiliate.store_slug || affiliate.brand_slug || "alhopronto").trim();
@@ -77,6 +126,18 @@ router.post("/:code", async (req: Request, res: Response) => {
     const redirectUrl = primaryDomain
       ? `https://${primaryDomain}/?${affiliateQuery}`
       : `/catalogo/${encodeURIComponent(storeSlug)}?${affiliateQuery}`;
+
+    // Handoff da loja a partir do domínio de suporte (se cadastrado)
+    let storeHandoffUrl: string | null = redirectUrl.startsWith("http") ? redirectUrl : null;
+    if (sourceHost) {
+      const domains = await affiliateTrackingDomainsService.listActiveByBrand(String(affiliate.brand_id));
+      const match = domains.find((d) => normalizeTrackingHost(d.domain) === sourceHost);
+      if (match?.store_handoff_url) {
+        const base = String(match.store_handoff_url).replace(/\/$/, "");
+        const sep = base.includes("?") ? "&" : "?";
+        storeHandoffUrl = `${base}${sep}${affiliateQuery}`;
+      }
+    }
 
     const contact = await affiliatesService.resolvePublicWhatsAppContact({
       id: String(affiliate.id),
@@ -116,6 +177,8 @@ router.post("/:code", async (req: Request, res: Response) => {
       cookie_days: config.cookie_days,
       store_slug: storeSlug,
       primary_domain: primaryDomain || null,
+      store_handoff_url: storeHandoffUrl,
+      source_host: sourceHost || null,
       whatsapp_phone: whatsappPhone,
       whatsapp_source: whatsappSource,
       whatsapp_instance_id: contact.instance_id || null,

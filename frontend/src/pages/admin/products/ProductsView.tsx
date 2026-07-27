@@ -32,6 +32,17 @@ import { useProductsBridgeOptional } from '@/lib/agent/ProductsBridgeContext'
 import { useAgentShell } from '@/lib/agent/AgentShellContext'
 import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
 import { fieldControlClass, fieldLabelLegacyClass } from '@/components/ui'
+import { measurePerSaleItem, normalizePricingMeasure, PRICING_MEASURE_LABELS, validateProductVolumePricing, type PricingMeasure, type ProductVolumePricingTier } from '@/lib/product-volume-pricing'
+
+function defaultVolumePriceTiers(basePrice: number): ProductVolumePricingTier[] {
+  const value = Math.max(0, Number(basePrice) || 0)
+  return [
+    { id: 'up_to_10', up_to: 10, price_per_measure: value },
+    { id: 'up_to_50', up_to: 50, price_per_measure: Number((value * 0.95).toFixed(2)) },
+    { id: 'up_to_100', up_to: 100, price_per_measure: Number((value * 0.9).toFixed(2)) },
+    { id: 'above_100', up_to: null, price_per_measure: Number((value * 0.85).toFixed(2)) },
+  ]
+}
 
 export function ProductsView({
   showToast,
@@ -700,6 +711,25 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
   }
   const [price, setPrice] = useState(product?.price != null ? String(product.price) : '')
   const [promoPrice, setPromoPrice] = useState(product?.promoPrice != null ? String(product.promoPrice) : '')
+  const [volumePricingEnabled, setVolumePricingEnabled] = useState(Boolean(product?.metadata?.volume_pricing?.enabled))
+  const [volumePricingMeasure, setVolumePricingMeasure] = useState<PricingMeasure>(() => normalizePricingMeasure(product?.unit, product?.metadata?.volume_pricing?.measure))
+  const [volumePriceTiers, setVolumePriceTiers] = useState<ProductVolumePricingTier[]>(() => {
+    const stored = product?.metadata?.volume_pricing?.tiers
+    if (!Array.isArray(stored) || !stored.length) return defaultVolumePriceTiers(Number(product?.price || 0))
+    return stored.map((tier: any, index: number) => ({
+      id: String(tier.id || `price_${index + 1}`),
+      up_to: tier.up_to == null && tier.up_to_kg == null ? null : Number(tier.up_to ?? tier.up_to_kg),
+      price_per_measure: Number(tier.price_per_measure ?? tier.price_per_kg) || 0,
+      label: tier?.label != null && String(tier.label).trim() ? String(tier.label).trim() : null,
+    }))
+  })
+  const vpDisplay = product?.metadata?.volume_pricing?.display || {}
+  const [volumeDisplayTitle, setVolumeDisplayTitle] = useState(String(vpDisplay.title || ''))
+  const [volumeDisplaySubtitle, setVolumeDisplaySubtitle] = useState(String(vpDisplay.subtitle || ''))
+  const [volumeCollapsible, setVolumeCollapsible] = useState(vpDisplay.collapsible !== false)
+  const [volumeDefaultOpen, setVolumeDefaultOpen] = useState(vpDisplay.default_open === true)
+  const [volumeShowDiscounts, setVolumeShowDiscounts] = useState(vpDisplay.show_discounts !== false)
+  const [volumeShowNextHint, setVolumeShowNextHint] = useState(vpDisplay.show_next_hint !== false)
   const [features, setFeatures] = useState((product?.features || []).join(', '))
   const [active, setActive] = useState(product?.active !== false)
   const [imageUrl, setImageUrl] = useState(product?.imageUrl || product?.image || '')
@@ -1162,6 +1192,10 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
     if (!category.trim()) errors.category = 'Categoria é obrigatória'
     if (!price || isNaN(parseFloat(price))) errors.price = 'Preço válido é obrigatório'
     else if (parseFloat(price) < 0) errors.price = 'Preço não pode ser negativo'
+    if (volumePricingEnabled) {
+      const pricingError = validateProductVolumePricing(volumePriceTiers)
+      if (pricingError) errors.volumePricing = pricingError
+    }
     return errors
   }
 
@@ -1182,6 +1216,29 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
     metadata.launch_at = launchAt || null
     metadata.preorder_starts_at = preorderStartsAt || null
     metadata.preorder_ends_at = preorderEndsAt || null
+    metadata.volume_pricing = {
+      enabled: volumePricingEnabled,
+      measure: volumePricingMeasure,
+      measure_per_item: measurePerSaleItem(composedUnit, volumePricingMeasure),
+      unit_weight_kg: volumePricingMeasure === 'kg' ? measurePerSaleItem(composedUnit, volumePricingMeasure) : null,
+      display: {
+        title: volumeDisplayTitle.trim() || null,
+        subtitle: volumeDisplaySubtitle.trim() || null,
+        collapsible: volumeCollapsible,
+        default_open: volumeDefaultOpen,
+        show_discounts: volumeShowDiscounts,
+        show_next_hint: volumeShowNextHint,
+      },
+      tiers: volumePriceTiers
+        .map((tier, index) => ({
+          id: String(tier.id || `price_${index + 1}`),
+          up_to: tier.up_to == null || Number.isNaN(Number(tier.up_to)) ? null : Number(tier.up_to),
+          price_per_measure: Number(tier.price_per_measure),
+          label: tier.label != null && String(tier.label).trim() ? String(tier.label).trim().slice(0, 80) : null,
+        }))
+        .filter((tier) => Number.isFinite(tier.price_per_measure) && tier.price_per_measure >= 0)
+        .sort((a, b) => a.up_to == null ? 1 : b.up_to == null ? -1 : a.up_to - b.up_to),
+    }
     if (saveAsDraft || product?.metadata?.is_draft) {
       metadata.is_draft = true
     }
@@ -1446,7 +1503,7 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
               <div className="flex gap-2">
                 <input type="number" step="any" min="0.01" value={unitQty} onChange={e => setUnitQty(e.target.value)}
                   placeholder="1" className={inputCls + ' !w-20 text-center'} aria-label="Quantidade da unidade" title="Quantidade (ex.: 1, 500)" />
-                <select value={baseUnit} onChange={e => setBaseUnit(e.target.value)} className={inputCls} aria-label="Unidade base">
+                <select value={baseUnit} onChange={e => { setBaseUnit(e.target.value); setVolumePricingMeasure(normalizePricingMeasure(e.target.value)) }} className={inputCls} aria-label="Unidade base">
                   {UNITS.map(u => <option key={u.value} value={u.value}>{u.label}</option>)}
                 </select>
               </div>
@@ -1464,6 +1521,173 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
               <label className={labelCls}>Preco Promocional</label>
               <input type="number" step="0.01" value={promoPrice} onChange={e => setPromoPrice(e.target.value)} placeholder="Opcional" className={inputCls} />
             </div>
+          </div>
+          <div className="rounded-2xl border border-gray-200 bg-gray-50/70 p-4 sm:p-5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h5 className="text-sm font-extrabold text-gray-950">Preço progressivo por volume</h5>
+                <p className="mt-0.5 text-[11px] leading-relaxed text-gray-500">
+                  Faixas livres (qualquer limite e preço). No catálogo o bloco pode ser recolhível e com textos seus.
+                </p>
+              </div>
+              <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 text-xs font-bold text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={volumePricingEnabled}
+                  onChange={(event) => setVolumePricingEnabled(event.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300"
+                />
+                Usar faixas
+              </label>
+            </div>
+
+            {volumePricingEnabled ? (
+              <div className="mt-4 space-y-3">
+                {fieldErrors.volumePricing && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-xs font-semibold text-red-700">{fieldErrors.volumePricing}</p>}
+
+                <div className="rounded-xl border border-gray-200 bg-white p-3 space-y-3">
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-gray-500">Exibição no catálogo</p>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <label className={labelCls}>Título do bloco</label>
+                      <input
+                        value={volumeDisplayTitle}
+                        onChange={(e) => setVolumeDisplayTitle(e.target.value)}
+                        placeholder="Quanto mais comprar, mais barato"
+                        className={inputCls}
+                        maxLength={80}
+                      />
+                    </div>
+                    <div>
+                      <label className={labelCls}>Subtítulo (opcional)</label>
+                      <input
+                        value={volumeDisplaySubtitle}
+                        onChange={(e) => setVolumeDisplaySubtitle(e.target.value)}
+                        placeholder="Ex.: tabela para atacado e varejo"
+                        className={inputCls}
+                        maxLength={120}
+                      />
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <label className="inline-flex min-h-10 cursor-pointer items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 text-[11px] font-semibold text-gray-700">
+                      <input type="checkbox" checked={volumeCollapsible} onChange={(e) => setVolumeCollapsible(e.target.checked)} className="h-4 w-4 rounded border-gray-300" />
+                      Recolhível
+                    </label>
+                    <label className={`inline-flex min-h-10 items-center gap-2 rounded-xl border border-gray-200 px-3 text-[11px] font-semibold ${volumeCollapsible ? 'cursor-pointer bg-gray-50 text-gray-700' : 'opacity-40 cursor-not-allowed bg-gray-100 text-gray-400'}`}>
+                      <input type="checkbox" checked={volumeDefaultOpen} disabled={!volumeCollapsible} onChange={(e) => setVolumeDefaultOpen(e.target.checked)} className="h-4 w-4 rounded border-gray-300" />
+                      Aberto por padrão
+                    </label>
+                    <label className="inline-flex min-h-10 cursor-pointer items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 text-[11px] font-semibold text-gray-700">
+                      <input type="checkbox" checked={volumeShowDiscounts} onChange={(e) => setVolumeShowDiscounts(e.target.checked)} className="h-4 w-4 rounded border-gray-300" />
+                      Badges −%
+                    </label>
+                    <label className="inline-flex min-h-10 cursor-pointer items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 text-[11px] font-semibold text-gray-700">
+                      <input type="checkbox" checked={volumeShowNextHint} onChange={(e) => setVolumeShowNextHint(e.target.checked)} className="h-4 w-4 rounded border-gray-300" />
+                      Dica próxima faixa
+                    </label>
+                  </div>
+                  <p className="text-[10px] text-gray-500 leading-relaxed">
+                    Recolhido por padrão no mobile deixa a página mais limpa; o cliente expande para ver a tabela completa.
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-gray-200 bg-white p-3 sm:flex sm:items-end sm:justify-between sm:gap-4">
+                  <div className="min-w-0">
+                    <label className={labelCls}>Faixas calculadas em</label>
+                    <p className="mt-1 text-[11px] leading-relaxed text-gray-500">
+                      Cada item = {measurePerSaleItem(`${unitQty}${baseUnit}`, volumePricingMeasure).toLocaleString('pt-BR')} {PRICING_MEASURE_LABELS[volumePricingMeasure].short}.
+                      Limites aceitam qualquer valor (ex.: 12, 37,5, 120) — não precisa ser redondo.
+                    </p>
+                  </div>
+                  <select value={volumePricingMeasure} onChange={(event) => setVolumePricingMeasure(event.target.value as PricingMeasure)} className={`${inputCls} mt-3 sm:mt-0 sm:!w-52`}>
+                    {Object.entries(PRICING_MEASURE_LABELS).map(([value, label]) => <option key={value} value={value}>{label.plural}</option>)}
+                  </select>
+                </div>
+                {volumePriceTiers.map((tier, index) => {
+                  const previousLimit = index > 0 ? volumePriceTiers[index - 1]?.up_to : null
+                  const unitShort = PRICING_MEASURE_LABELS[volumePricingMeasure].short
+                  const autoLabel = tier.up_to == null
+                    ? `Acima de ${Number(previousLimit || 0).toLocaleString('pt-BR')} ${unitShort}`
+                    : index === 0
+                      ? `Até ${Number(tier.up_to).toLocaleString('pt-BR')} ${unitShort}`
+                      : `Acima de ${Number(previousLimit || 0).toLocaleString('pt-BR')} até ${Number(tier.up_to).toLocaleString('pt-BR')} ${unitShort}`
+                  return (
+                    <div key={tier.id} className="rounded-xl border border-gray-200 bg-white p-3 space-y-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-xs font-bold text-gray-800">Faixa {index + 1}</p>
+                          <p className="mt-0.5 text-[10px] text-gray-400 truncate">Auto: {autoLabel}</p>
+                        </div>
+                        <button
+                          type="button"
+                          aria-label={`Remover faixa ${index + 1}`}
+                          onClick={() => setVolumePriceTiers((list) => list.filter((item) => item.id !== tier.id))}
+                          className="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-gray-400 hover:bg-red-50 hover:text-red-600"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <div>
+                          <label className={labelCls}>Até ({unitShort}) — valor livre</label>
+                          <input
+                            type="number"
+                            min="0"
+                            step="any"
+                            value={tier.up_to ?? ''}
+                            disabled={tier.up_to == null}
+                            onChange={(event) => setVolumePriceTiers((list) => list.map((item) => item.id === tier.id ? { ...item, up_to: event.target.value === '' ? null : Number(event.target.value) } : item))}
+                            placeholder="Sem limite"
+                            className={`${inputCls} disabled:bg-gray-100 disabled:text-gray-400`}
+                          />
+                        </div>
+                        <div>
+                          <label className={labelCls}>Preço por {PRICING_MEASURE_LABELS[volumePricingMeasure].singular} (R$)</label>
+                          <input
+                            type="number"
+                            min="0"
+                            step="any"
+                            value={tier.price_per_measure}
+                            onChange={(event) => setVolumePriceTiers((list) => list.map((item) => item.id === tier.id ? { ...item, price_per_measure: Number(event.target.value) } : item))}
+                            className={inputCls}
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className={labelCls}>Rótulo no catálogo (opcional)</label>
+                        <input
+                          value={tier.label || ''}
+                          onChange={(event) => setVolumePriceTiers((list) => list.map((item) => item.id === tier.id ? { ...item, label: event.target.value || null } : item))}
+                          placeholder={autoLabel}
+                          className={inputCls}
+                          maxLength={80}
+                        />
+                        <p className="mt-1 text-[10px] text-gray-400">Deixe vazio para usar o rótulo automático da faixa.</p>
+                      </div>
+                    </div>
+                  )
+                })}
+                <button
+                  type="button"
+                  onClick={() => setVolumePriceTiers((list) => {
+                    const openIndex = list.findIndex((tier) => tier.up_to == null)
+                    const prev = openIndex > 0 ? list[openIndex - 1]?.up_to : list[list.length - 1]?.up_to
+                    const nextUp = prev != null && Number.isFinite(Number(prev)) ? Number(prev) * 2 : 100
+                    const next = { id: `price_${Date.now().toString(36)}`, up_to: nextUp, price_per_measure: Number(price) || 0, label: null as string | null }
+                    if (openIndex < 0) return [...list, next]
+                    return [...list.slice(0, openIndex), next, ...list.slice(openIndex)]
+                  })}
+                  className="inline-flex h-11 items-center gap-2 rounded-xl bg-gray-100 px-4 text-xs font-bold text-gray-700 hover:bg-gray-200"
+                >
+                  <Plus size={14} /> Nova faixa
+                </button>
+              </div>
+            ) : (
+              <p className="mt-3 rounded-xl border border-dashed border-gray-300 px-3 py-3 text-xs text-gray-500">
+                Desativado: o produto continua usando o preço padrão informado acima.
+              </p>
+            )}
           </div>
           {copilotOpen && (
             <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">

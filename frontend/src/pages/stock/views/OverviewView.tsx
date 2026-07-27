@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import {
   AlertTriangle, ArrowRight, Boxes, CheckCircle2, ChevronRight, CircleDollarSign,
-  Package, PackagePlus, ShoppingCart, TrendingUp, Truck, Users,
+  Package, ShoppingCart, TrendingUp, Truck, Users,
 } from 'lucide-react'
 import { inventoryApi } from '@/lib/api-admin'
 import type { ViewKey, ShowToast } from '../types'
@@ -124,7 +124,7 @@ export function OverviewView({
           <h3 className="text-[15px] font-bold tracking-tight text-gray-950">Ações rápidas</h3>
           <p className="text-[11px] text-gray-500 mt-0.5 mb-3">Atalhos para a rotina do estoque</p>
           <div className="grid grid-cols-2 gap-2">
-            <QuickAction icon={<PackagePlus size={18} />} label="Dar entrada" onClick={() => onNavigate('movements')} />
+            <QuickAction icon={<ShoppingCart size={18} />} label="Nova venda" onClick={() => onNavigate('pos')} primary />
             <QuickAction icon={<Truck size={18} />} label="Expedir" onClick={() => onNavigate('expedition')} primary />
             <QuickAction icon={<Package size={18} />} label="Produtos" onClick={() => onNavigate('products')} />
             <QuickAction icon={<Users size={18} />} label="Clientes" onClick={() => onNavigate('clients')} />

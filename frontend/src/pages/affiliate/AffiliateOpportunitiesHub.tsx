@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Ban, CalendarCheck, CheckCircle2, ChevronRight, Clock3, Filter, Hand, History,
+  AlertTriangle, Ban, CalendarCheck, CheckCircle2, ChevronRight, Clock3, Filter, Hand, History,
   Loader2, Mail, MapPin, Radio, RefreshCw, Search, Target, Users, X, Zap,
 } from 'lucide-react'
 import { affiliateApi } from '@/lib/api-affiliate'
@@ -148,6 +148,25 @@ function initials(name: string) {
 }
 
 const POOL_FILTER_KEY = 'affiliate.pool.filters.v1'
+const POOL_CACHE_KEY = 'affiliate.pool.cache.v1'
+
+function loadPoolCache(): PoolItem[] {
+  try {
+    const parsed = JSON.parse(sessionStorage.getItem(POOL_CACHE_KEY) || '{}')
+    if (!Array.isArray(parsed.items) || Date.now() - Number(parsed.saved_at || 0) > 5 * 60_000) return []
+    return parsed.items
+  } catch {
+    return []
+  }
+}
+
+function savePoolCache(items: PoolItem[]) {
+  try {
+    sessionStorage.setItem(POOL_CACHE_KEY, JSON.stringify({ items, saved_at: Date.now() }))
+  } catch {
+    /* private mode / quota */
+  }
+}
 
 function loadPoolFilters() {
   try {
@@ -178,8 +197,11 @@ function PoolPanel({
   searchQuery?: string
 }) {
   const initialFilters = useMemo(() => loadPoolFilters(), [])
-  const [items, setItems] = useState<PoolItem[]>([])
-  const [loading, setLoading] = useState(true)
+  const cachedItems = useMemo(() => loadPoolCache(), [])
+  const [items, setItems] = useState<PoolItem[]>(cachedItems)
+  const itemsRef = useRef<PoolItem[]>(cachedItems)
+  const [loading, setLoading] = useState(cachedItems.length === 0)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [claimingId, setClaimingId] = useState<string | null>(null)
   const [skippingId, setSkippingId] = useState<string | null>(null)
   const [canClaim, setCanClaim] = useState(true)
@@ -202,6 +224,9 @@ function PoolPanel({
     regions?: string[]
     channels?: { whatsapp?: number; total?: number }
   } | null>(null)
+  const showToastRef = useRef(ctx.showToast)
+  useEffect(() => { showToastRef.current = ctx.showToast }, [ctx.showToast])
+  useEffect(() => { itemsRef.current = items }, [items])
 
   useEffect(() => {
     try {
@@ -213,31 +238,30 @@ function PoolPanel({
 
   const load = useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setLoading(true)
-    let lastErr: unknown = null
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        const r = await affiliateApi.opportunitiesPool(120)
-        setItems(r.items || [])
-        setCanClaim(r.can_claim !== false)
-        setClaimBlockers(Array.isArray(r.claim_blockers) ? r.claim_blockers : [])
-        setTtl(Number(r.claim_ttl_minutes) || 90)
-        setOpenPool(r.open_pool_enabled !== false)
+    setLoadError(null)
+    try {
+      const r = await affiliateApi.opportunitiesPool(50)
+      if (r.error_soft) {
+        const message = (r.claim_blockers || [])[0] || 'Servidor ocupado. Tente atualizar em instantes.'
+        setLoadError(message)
+      } else {
+        const nextItems = Array.isArray(r.items) ? r.items : []
+        setItems(nextItems)
+        savePoolCache(nextItems)
         setFacets(r.facets || null)
-        lastErr = null
-        break
-      } catch (e) {
-        lastErr = e
-        if (attempt === 0) await new Promise((r) => setTimeout(r, 600))
       }
+      setCanClaim(r.can_claim !== false)
+      setClaimBlockers(Array.isArray(r.claim_blockers) ? r.claim_blockers : [])
+      setTtl(Number(r.claim_ttl_minutes) || 90)
+      setOpenPool(r.open_pool_enabled !== false)
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Erro ao carregar oportunidades disponíveis'
+      setLoadError(message)
+      if (!itemsRef.current.length && !opts?.silent) showToastRef.current(message, 'err')
+    } finally {
+      setLoading(false)
     }
-    if (lastErr && !opts?.silent) {
-      ctx.showToast(
-        lastErr instanceof Error ? lastErr.message : 'Erro ao carregar oportunidades disponíveis',
-        'err',
-      )
-    }
-    setLoading(false)
-  }, [ctx])
+  }, [])
 
   useEffect(() => {
     void load()
@@ -261,13 +285,6 @@ function PoolPanel({
     return Array.from(s).sort((a, b) => a.localeCompare(b, 'pt-BR'))
   }, [items, facets])
 
-  const placeTypes = useMemo(() => {
-    if (facets?.place_types?.length) return facets.place_types
-    const s = new Set<string>()
-    for (const i of items) if (i.place_type) s.add(String(i.place_type))
-    return Array.from(s).sort((a, b) => a.localeCompare(b, 'pt-BR'))
-  }, [items, facets])
-
   const regions = useMemo(() => {
     if (facets?.regions?.length) return facets.regions
     const s = new Set<string>()
@@ -282,7 +299,7 @@ function PoolPanel({
     const q = searchQuery.trim().toLowerCase()
     const isSearching = q.length > 0
     return items.filter((item) => {
-      /* Com busca: ignora canal/nicho/região — match dinâmico */
+      /* Busca e filtros são cumulativos — nenhuma seleção desativa a outra. */
       if (isSearching) {
         const phoneDigits = String(item.channels?.whatsapp || item.phone || '').replace(/\D/g, '')
         const qDigits = searchQuery.replace(/\D/g, '')
@@ -301,11 +318,12 @@ function PoolPanel({
           .replace(/[\u0300-\u036f]/g, '')
           .split(/\s+/)
           .filter(Boolean)
-        return tokens.every((t) => {
+        const matchesSearch = tokens.every((t) => {
           if (hay.includes(t)) return true
           const td = t.replace(/\D/g, '')
           return td.length >= 3 && phoneDigits.includes(td)
         })
+        if (!matchesSearch) return false
       }
 
       const phone = item.channels?.whatsapp || item.phone
@@ -422,16 +440,27 @@ function PoolPanel({
           ✓ {lastClaimMsg}
         </div>
       )}
+      {loadError && (
+        <div className="flex items-start gap-3 rounded-[18px] border border-amber-200 bg-amber-50 px-3.5 py-3 text-amber-950">
+          <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <p className="text-[12px] font-semibold">Não foi possível atualizar agora</p>
+            <p className="mt-0.5 text-[10px] leading-relaxed opacity-80">
+              {items.length ? 'Mantivemos as últimas oportunidades na tela.' : loadError}
+            </p>
+          </div>
+          <button type="button" onClick={() => void load()} className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-white" aria-label="Tentar atualizar">
+            <RefreshCw size={15} />
+          </button>
+        </div>
+      )}
       <div className="rounded-2xl border border-border bg-white p-4">
-        <div className="flex items-start gap-3">
+        <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-700 grid place-items-center shrink-0">
             <Hand size={18} />
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-[15px] font-semibold text-gray-900 tracking-tight">Disponíveis</p>
-            <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">
-              Filtre, <strong>Assuma</strong> (exclusivo ~{ttl} min) ou <strong>Recuse</strong>.
-            </p>
           </div>
           <button
             type="button"
@@ -452,12 +481,6 @@ function PoolPanel({
             )}
           </button>
         </div>
-        {!canClaim && claimBlockers.length > 0 && (
-          <div className="mt-3 rounded-xl bg-gray-50 border border-border px-3 py-2.5 text-xs text-gray-700">
-            Para assumir: {claimBlockers.join(' · ')}
-          </div>
-        )}
-
         {/* Filtros de canal com ícones oficiais — sempre visíveis */}
         <div className="mt-3 flex gap-1.5 overflow-x-auto scrollbar-hide pb-0.5">
           {(
@@ -491,76 +514,22 @@ function PoolPanel({
             )
           })}
         </div>
-        <p className="mt-2 text-[11px] text-gray-500">
-          {filtered.length} de {items.length}
-          {channel === 'whatsapp' ? ' · só WhatsApp' : ''}
-          {facets?.channels?.whatsapp != null ? ` · ${facets.channels.whatsapp} com WA` : ''}
-          {niche ? ` · ${niche}` : ''}
-          {' · '}janela {ttl} min
-        </p>
       </div>
-
-      {(niches.length > 0 || placeTypes.length > 1) && (
-        <div className="space-y-1.5">
-          <p className="px-0.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-400">
-            Busca / vertical da captação
-          </p>
-        <div className="flex gap-1.5 overflow-x-auto scrollbar-hide px-0.5">
-          <button
-            type="button"
-            onClick={() => setNiche('')}
-            className={[
-              'shrink-0 min-h-8 px-2.5 rounded-full text-[10px] font-bold border',
-              !niche ? 'bg-neutral-900 text-white border-neutral-900' : 'bg-white text-neutral-600 border-neutral-200',
-            ].join(' ')}
-          >
-            Todos
-          </button>
-          {niches.slice(0, 24).map((n) => {
-            const on = Boolean(niche) && niche.toLowerCase() === n.toLowerCase()
-            const count = items.filter((i) => nicheMatches({
-              niche: i.niche,
-              search_query: i.search_query,
-              place_type: i.place_type,
-              vertical: i.vertical,
-            }, n)).length
-            if (count === 0) return null
-            return (
-              <button
-                key={n}
-                type="button"
-                onClick={() => setNiche(on ? '' : n)}
-                className={[
-                  'shrink-0 min-h-8 px-2.5 rounded-full text-[10px] font-bold border max-w-[160px] truncate',
-                  on
-                    ? 'bg-orange-600 text-white border-orange-600'
-                    : 'bg-white text-neutral-700 border-neutral-200',
-                ].join(' ')}
-                title={`${n} (${count})`}
-              >
-                {n}{count ? ` · ${count}` : ''}
-              </button>
-            )
-          })}
-        </div>
-        </div>
-      )}
 
       {showFilters && (
         <div className="rounded-2xl border border-border bg-white p-3.5 space-y-3">
           {niches.length > 0 && (
             <div>
-              <p className="text-[11px] font-semibold text-gray-500 mb-1.5">Nicho ({niches.length})</p>
-              <select
-                value={niche}
-                onChange={(e) => setNiche(e.target.value)}
-                className="w-full h-11 rounded-xl border border-border bg-white px-3 text-sm"
-              >
-                <option value="">Todos os nichos</option>
-                {niches.map((n) => (
-                  <option key={n} value={n}>{n}</option>
-                ))}
-              </select>
+              <p className="mb-2 text-[11px] font-semibold text-gray-600">Segmento da captação</p>
+              <div className="flex flex-wrap gap-1.5">
+                <button type="button" onClick={() => setNiche('')} className={`min-h-9 rounded-xl border px-3 text-[10px] font-bold ${!niche ? 'border-neutral-900 bg-neutral-900 text-white' : 'border-neutral-200 bg-white text-neutral-600'}`}>Todos</button>
+                {niches.map((n) => {
+                  const count = items.filter((item) => nicheMatches({ niche: item.niche, search_query: item.search_query, place_type: item.place_type, vertical: item.vertical }, n)).length
+                  if (!count) return null
+                  const active = niche.toLowerCase() === n.toLowerCase()
+                  return <button key={n} type="button" onClick={() => setNiche(active ? '' : n)} className={`min-h-9 max-w-full rounded-xl border px-3 text-[10px] font-bold ${active ? 'border-neutral-900 bg-neutral-900 text-white' : 'border-neutral-200 bg-white text-neutral-700'}`}>{n} · {count}</button>
+                })}
+              </div>
             </div>
           )}
           {regions.length > 0 && (
@@ -594,10 +563,12 @@ function PoolPanel({
         <div className="affiliate-card p-8 text-center space-y-2">
           <CheckCircle2 size={22} className="mx-auto text-gray-300" />
           <p className="text-sm font-semibold text-gray-900">
-            {items.length === 0 ? 'Nenhuma oportunidade aberta' : 'Nada com estes filtros'}
+            {items.length === 0 && loadError ? 'Não foi possível carregar agora' : items.length === 0 ? 'Nenhuma oportunidade aberta' : 'Nada com estes filtros'}
           </p>
           <p className="text-xs text-gray-500 max-w-xs mx-auto leading-relaxed">
-            {items.length === 0
+            {items.length === 0 && loadError
+              ? 'Tente atualizar novamente. Quando houver uma lista anterior, ela será mantida durante falhas temporárias.'
+              : items.length === 0
               ? 'Quando a marca capturar contatos, eles aparecem aqui.'
               : 'Limpe os filtros ou recuse menos itens para ver mais.'}
           </p>
@@ -796,6 +767,21 @@ function PoolPanel({
             </div>
 
             <div className="border-t border-border px-4 py-3 space-y-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+              {!canClaim && claimBlockers.length > 0 ? (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-[11px] leading-relaxed text-amber-950">
+                  <p className="font-bold">Não é possível assumir agora</p>
+                  <ul className="mt-1 list-disc space-y-0.5 pl-4">
+                    {claimBlockers.map((b) => (
+                      <li key={b}>{b}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              {!canClaim && claimBlockers.length === 0 ? (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-[11px] leading-relaxed text-amber-950">
+                  Liberação em verificação. Atualize a lista ou cadastre seu número em Conexões.
+                </div>
+              ) : null}
               <div className="flex gap-2">
                 <button
                   type="button"
@@ -830,7 +816,11 @@ function PoolPanel({
                   ) : (
                     <Hand size={16} />
                   )}
-                  {claimConfirm ? 'Confirmar exclusividade' : 'Assumir e atender'}
+                  {!canClaim
+                    ? 'Bloqueado'
+                    : claimConfirm
+                      ? 'Confirmar exclusividade'
+                      : 'Assumir e atender'}
                 </button>
               </div>
             </div>
@@ -848,9 +838,14 @@ function PoolPanel({
 }
 
 const TASK_TYPE_LABEL: Record<string, string> = {
-  first_contact: 'Primeiro contato',
-  followup_1: 'Follow-up',
-  followup_2: '2º follow-up',
+  first_contact: 'C1 · Abertura',
+  followup_1: 'C2 · Check-in',
+  followup_2: 'C3 · Consciência',
+  followup_3: 'C4 · Prova',
+  followup_4: 'C5 · Educação',
+  followup_5: 'C6 · Caso real',
+  followup_6: 'C7 · Valor puro',
+  followup_7: 'C8 · Break-up',
   qualify: 'Qualificar',
   proposal: 'Proposta',
   close: 'Fechar',

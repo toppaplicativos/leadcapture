@@ -3,6 +3,7 @@ import { query, queryOne, update } from "../config/database";
 import { productStockService, reserveStockForOrder, releaseStockForOrder } from "./productStock";
 import { couponsService } from "./coupons";
 import { logger } from "../utils/logger";
+import { resolveServerProductVolumePrice, type ProductVolumePrice } from "./productVolumePricing";
 
 export type CommerceProductType = "fisico" | "digital" | "servico";
 export type CommerceOrderStatus =
@@ -620,8 +621,11 @@ export class CommerceService {
       itens: Array<{
         product_id?: string;
         nome?: string;
+        product_name?: string;
         quantidade?: number;
+        quantity?: number;
         valor_unitario?: number;
+        unit_price?: number;
         imagem?: string | null;
         imagens?: string[];
         descricao?: string | null;
@@ -645,9 +649,9 @@ export class CommerceService {
     }> = [];
 
     for (const rawItem of input.itens) {
-      const quantidade = Math.max(1, Math.floor(this.parseNumber(rawItem.quantidade, 1)));
-      let nome = String(rawItem.nome || "").trim();
-      let valorUnitario = this.parseNumber(rawItem.valor_unitario, 0);
+      const quantidade = Number(Math.max(0.001, Math.min(100000, this.parseNumber(rawItem.quantidade ?? rawItem.quantity, 1))).toFixed(3));
+      let nome = String(rawItem.nome || rawItem.product_name || "").trim();
+      let valorUnitario = this.parseNumber(rawItem.valor_unitario ?? rawItem.unit_price, 0);
       let productId: string | null = null;
       let snapshotImage: string | null = rawItem.imagem ? String(rawItem.imagem).trim() : null;
       let snapshotImages: string[] = Array.isArray(rawItem.imagens)
@@ -655,6 +659,9 @@ export class CommerceService {
         : [];
       let snapshotDescription: string | null = rawItem.descricao ? String(rawItem.descricao).trim() : null;
       let snapshotCategory: string | null = rawItem.categoria ? String(rawItem.categoria).trim() : null;
+      let pricingMetadata: Record<string, any> = {};
+      let pricingUnit: unknown = null;
+      let volumePricing: ProductVolumePrice | null = null;
 
       if (rawItem.product_id) {
         const requestedProductId = String(rawItem.product_id);
@@ -670,6 +677,17 @@ export class CommerceService {
           if (!snapshotImage) snapshotImage = commerceProduct.imagem ? String(commerceProduct.imagem).trim() : null;
           if (!snapshotDescription) snapshotDescription = commerceProduct.descricao ? String(commerceProduct.descricao).trim() : null;
           if (!snapshotCategory) snapshotCategory = commerceProduct.tipo ? String(commerceProduct.tipo).trim() : null;
+          const catalogPricingSource = await this.getCatalogProductById(userId, normalizedBrandId, requestedProductId);
+          if (catalogPricingSource && ![false, 0, "0", "false"].includes(catalogPricingSource.active as any)) {
+            try {
+              pricingMetadata = typeof catalogPricingSource.metadata_json === "string"
+                ? JSON.parse(catalogPricingSource.metadata_json || "{}")
+                : (catalogPricingSource.metadata_json || {});
+            } catch {
+              pricingMetadata = {};
+            }
+            pricingUnit = catalogPricingSource.unit || pricingMetadata.unit || null;
+          }
         } else {
           const catalogProduct = await this.getCatalogProductById(userId, normalizedBrandId, requestedProductId);
           const isCatalogProductActive =
@@ -685,11 +703,26 @@ export class CommerceService {
               ? Number(catalogProduct.promo_price)
               : null;
           valorUnitario = promo !== null && Number.isFinite(promo) && promo > 0 ? promo : Number(catalogProduct.price || 0);
+          try {
+            pricingMetadata = typeof catalogProduct.metadata_json === "string"
+              ? JSON.parse(catalogProduct.metadata_json || "{}")
+              : (catalogProduct.metadata_json || {});
+          } catch {
+            pricingMetadata = {};
+          }
+          pricingUnit = catalogProduct.unit || pricingMetadata.unit || null;
           if (!snapshotImage) snapshotImage = catalogProduct.image_url ? String(catalogProduct.image_url).trim() : null;
           if (!snapshotDescription) snapshotDescription = catalogProduct.description ? String(catalogProduct.description).trim() : null;
           if (!snapshotCategory) snapshotCategory = catalogProduct.category ? String(catalogProduct.category).trim() : null;
         }
       }
+
+      volumePricing = resolveServerProductVolumePrice({
+        unit: pricingUnit,
+        metadata: pricingMetadata,
+        quantity: quantidade,
+      });
+      if (volumePricing) valorUnitario = volumePricing.itemUnitPrice;
 
       if (!nome) {
         throw new Error("item inválido: nome obrigatório");
@@ -709,6 +742,14 @@ export class CommerceService {
           descricao: snapshotDescription || null,
           categoria: snapshotCategory || null,
         },
+        pricing: volumePricing ? {
+          source: "volume_pricing",
+          measure: volumePricing.measure,
+          measure_quantity: volumePricing.measureQuantity,
+          measure_per_item: volumePricing.measurePerItem,
+          price_per_measure: volumePricing.pricePerMeasure,
+          tier_id: volumePricing.tier.id,
+        } : { source: "base_price" },
       };
 
       itensResolved.push({
@@ -933,6 +974,65 @@ export class CommerceService {
       });
     }
 
+    /* Atribuição de comissão quando o pedido usa cupom de afiliado (PDV afiliado ou WhatsApp). */
+    if (cupomCodigoFinal && normalizedBrandId) {
+      void (async () => {
+        try {
+          const aff = await queryOne<any>(
+            `SELECT id FROM affiliates
+             WHERE brand_id = ? AND UPPER(coupon_code) = UPPER(?) AND status = 'active'
+             LIMIT 1`,
+            [normalizedBrandId, cupomCodigoFinal],
+          );
+          if (!aff?.id) return;
+          const { AffiliatesService } = await import("./affiliates");
+          const affSvc = new AffiliatesService();
+          await affSvc.recordSale({
+            ownerUserId: userId,
+            brandId: normalizedBrandId,
+            affiliateId: String(aff.id),
+            orderId,
+            customerName: input.customer_name ? String(input.customer_name).trim() : undefined,
+            customerPhone: input.customer_phone ? String(input.customer_phone).trim() : undefined,
+            customerEmail: input.customer_email ? String(input.customer_email).trim() : undefined,
+            orderTotal: valorTotal,
+            orderItems: itensResolved.map((it) => ({
+              product_id: it.product_id || undefined,
+              quantity: it.quantidade,
+            })),
+          });
+        } catch (e: any) {
+          logger.warn(`commerce createOrder affiliate sale skipped: ${e?.message || e}`);
+        }
+      })();
+    }
+
+    /* Notifica org: novo pedido (inclui canal afiliado) */
+    try {
+      const { emitPlatformEventToUser } = await import("./notificationHub");
+      await emitPlatformEventToUser("app.order.created", userId, {
+        organization_id: normalizedBrandId,
+        role: "admin",
+        entity_type: "commerce_order",
+        entity_id: orderId,
+        deep_link: "/pedidos",
+        template_vars: {
+          order_id: orderId.slice(0, 8).toUpperCase(),
+          customer_name: String(input.customer_name || "Cliente").slice(0, 80),
+          total: valorTotal.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }),
+          brand_id: normalizedBrandId || "",
+        },
+        metadata: {
+          app_context: "admin",
+          order_id: orderId,
+          origem: input.origem || "whatsapp",
+          cupom: cupomCodigoFinal,
+        },
+      });
+    } catch {
+      /* notificação não bloqueia */
+    }
+
     const created = await this.getOrderById(userId, normalizedBrandId, orderId);
     if (!created) throw new Error("falha ao criar pedido");
 
@@ -977,6 +1077,13 @@ export class CommerceService {
     });
 
     if (status === "pago" && found.order.status_pedido !== "pago") {
+      try {
+        const { AffiliatesService } = await import("./affiliates");
+        const affSvc = new AffiliatesService();
+        await affSvc.syncOrderCommissionStatus(orderId, "pago");
+      } catch {
+        /* comissão não bloqueia pagamento */
+      }
       try {
         const { notifyStockManagers } = await import("./stockPush");
         void notifyStockManagers({
@@ -1045,6 +1152,18 @@ export class CommerceService {
           productsTotal: Number(found.order.valor_total || 0),
           paymentMethod: paymentMethod,
         });
+      } catch {
+        /* non-blocking */
+      }
+    }
+
+    /* Cancela comissão afiliada em cancelamento/estorno */
+    if (["cancelado", "abandonado", "estornado"].includes(status) &&
+        !["cancelado", "abandonado", "estornado"].includes(String(found.order.status_pedido))) {
+      try {
+        const { AffiliatesService } = await import("./affiliates");
+        const affSvc = new AffiliatesService();
+        await affSvc.syncOrderCommissionStatus(orderId, "cancelado");
       } catch {
         /* non-blocking */
       }

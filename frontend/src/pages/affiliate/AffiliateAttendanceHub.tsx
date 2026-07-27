@@ -610,7 +610,12 @@ export function AffiliateAttendanceHub({ ctx, onNavigate }: Props) {
           }}
           onQuote={async (payload) => {
             const res = await affiliateApi.freightQuote(payload)
-            return { quote: res.quote, configured: res.configured, store_id: res.store_id }
+            return {
+              quote: res.quote,
+              configured: res.configured,
+              store_id: res.store_id,
+              club: res.club || null,
+            }
           }}
         />
       </section>

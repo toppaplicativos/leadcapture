@@ -41,6 +41,7 @@ const MODULE_LABELS: Record<string, string> = {
   '/configuracoes': 'Configurações',
   '/notificacoes': 'Notificações',
   '/cupons': 'Cupons',
+  '/clube': 'Clube Assinantes',
   '/frete': 'Frete',
   '/estoque': 'Estoque',
   '/emails': 'Emails',

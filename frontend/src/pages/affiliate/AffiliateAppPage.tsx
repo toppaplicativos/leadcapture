@@ -42,6 +42,8 @@ import { AffiliateOpportunitiesHub, type OppHubTab } from '@/pages/affiliate/Aff
 import { AffiliateContactsPage } from '@/pages/affiliate/AffiliateContactsPage'
 import { AffiliateOrdersHub } from '@/pages/affiliate/AffiliateOrdersHub'
 import { AffiliateAttendanceHub } from '@/pages/affiliate/AffiliateAttendanceHub'
+import { AffiliateRankingAwardsHub } from '@/pages/affiliate/AffiliateRankingAwardsHub'
+import { AffiliateChallengeNudge } from '@/pages/affiliate/AffiliateChallengeNudge'
 
 import { WhatsAppIcon } from '@/components/icons'
 import { AffiliateCommissionCard } from '@/pages/affiliate/AffiliateCommissionCard'
@@ -63,7 +65,7 @@ const dt = (v?: string) => {
   }
 }
 
-type TabId = 'resumo' | 'ao-vivo' | 'oportunidades' | 'atendimento' | 'vendas' | 'financeiro' | 'divulgacao' | 'materiais' | 'links' | 'contatos' | 'mercado' | 'alertas' | 'preferencias' | 'clientes' | 'aprendizado' | 'produtos' | 'perfil' | 'conexoes' | 'mensagens'
+type TabId = 'resumo' | 'ao-vivo' | 'oportunidades' | 'atendimento' | 'vendas' | 'financeiro' | 'divulgacao' | 'materiais' | 'links' | 'contatos' | 'mercado' | 'alertas' | 'preferencias' | 'clientes' | 'aprendizado' | 'produtos' | 'perfil' | 'conexoes' | 'mensagens' | 'ranking'
 type FinanceiroMode = 'comissoes' | 'saques' | 'pagamentos'
 
 const TAB_ROUTES: { key: TabId; path: string; icon: typeof LayoutDashboard; label: string }[] = [
@@ -79,6 +81,7 @@ const TAB_ROUTES: { key: TabId; path: string; icon: typeof LayoutDashboard; labe
   { key: 'contatos', path: 'contatos', icon: Users, label: 'Contatos' },
   { key: 'mercado', path: 'mercado', icon: Store, label: 'Mercado' },
   { key: 'alertas', path: 'notificacoes', icon: Bell, label: 'Notificações' },
+  { key: 'ranking', path: 'ranking', icon: Trophy, label: 'Ranking' },
   { key: 'clientes', path: 'clientes', icon: Crown, label: 'Clientes' },
   { key: 'aprendizado', path: 'aprendizado', icon: GraduationCap, label: 'Aprender' },
   { key: 'produtos', path: 'produtos', icon: Package, label: 'Produtos' },
@@ -97,6 +100,7 @@ const TAB_PATHS: Partial<Record<TabId, string>> = {
   contatos: 'contatos',
   mercado: 'mercado',
   alertas: 'notificacoes',
+  ranking: 'ranking',
   clientes: 'clientes',
   aprendizado: 'aprendizado',
   produtos: 'produtos',
@@ -113,20 +117,21 @@ const BOTTOM_NAV: { key: TabId; path: string; icon: typeof LayoutDashboard; labe
   { key: 'financeiro', path: 'financeiro', icon: Wallet, label: 'Carteira' },
 ]
 
-const MORE_MENU_TABS_BASE: TabId[] = ['atendimento', 'ao-vivo', 'divulgacao', 'materiais', 'links', 'contatos', 'mercado', 'clientes', 'aprendizado', 'produtos', 'perfil', 'conexoes', 'mensagens', 'alertas']
+const MORE_MENU_TABS_BASE: TabId[] = ['atendimento', 'ao-vivo', 'divulgacao', 'materiais', 'links', 'contatos', 'ranking', 'mercado', 'clientes', 'aprendizado', 'produtos', 'perfil', 'conexoes', 'mensagens', 'alertas']
 
 type MoreMenuItem =
   | { kind: 'tab'; tab: TabId; icon: typeof LayoutDashboard; label: string; desc: string }
   | { kind: 'financeiro'; mode: FinanceiroMode; icon: typeof LayoutDashboard; label: string; desc: string }
 
 const MORE_MENU_BASE: MoreMenuItem[] = [
-  { kind: 'tab', tab: 'atendimento', icon: MessageCircle, label: 'Atendimento', desc: 'Copiloto IA, print da conversa e links para converter' },
+  { kind: 'tab', tab: 'atendimento', icon: MessageCircle, label: 'Copiloto IA', desc: 'IA, print da conversa e links para converter' },
   { kind: 'tab', tab: 'ao-vivo', icon: Radio, label: 'Automático', desc: 'Disparo da marca e status do WhatsApp conectado' },
   { kind: 'tab', tab: 'divulgacao', icon: Megaphone, label: 'Divulgar', desc: 'Kits, argumentos e canais para vender' },
   { kind: 'tab', tab: 'materiais', icon: Image, label: 'Materiais', desc: 'Galeria oficial de artes e mídias do programa' },
   { kind: 'tab', tab: 'contatos', icon: Users, label: 'Contatos', desc: 'Cadastro, relacionamento e histórico de cada pessoa' },
   { kind: 'tab', tab: 'clientes', icon: Crown, label: 'Clientes', desc: 'Quem já comprou — faturamento, pós-venda e comissões' },
   { kind: 'tab', tab: 'links', icon: Link2, label: 'Links', desc: 'Compartilhar e rastrear cliques' },
+  { kind: 'tab', tab: 'ranking', icon: Trophy, label: 'Ranking & Premiações', desc: 'Sua posição na rede e desafios com prêmio' },
   { kind: 'tab', tab: 'mercado', icon: Store, label: 'Mercado', desc: 'Outros programas e comissões' },
   { kind: 'tab', tab: 'aprendizado', icon: GraduationCap, label: 'Aprender', desc: 'Treinamento e regras do programa' },
   { kind: 'tab', tab: 'produtos', icon: Package, label: 'Produtos', desc: 'Catálogo com guia IA para vender' },
@@ -154,6 +159,7 @@ function tabFromPath(pathname: string, base: string): TabId {
   if (rest === 'alertas' || rest === 'notificacoes') return 'alertas'
   if (rest === 'preferencias' || rest === 'notificacoes-prefs' || rest === 'push') return 'alertas'
   if (rest === 'leads' || rest === 'contatos') return 'contatos'
+  if (rest === 'ranking' || rest === 'premios' || rest === 'premiacoes') return 'ranking'
   if (rest === 'mercado') return 'mercado'
   if (rest === 'clientes') return 'clientes'
   if (rest === 'comissoes' || rest === 'saques' || rest === 'pagamentos' || rest === 'financeiro') return 'financeiro'
@@ -323,6 +329,7 @@ function AffiliateDashboard({
   onConnectWhatsApp,
   onViewOpportunities,
   onOpenAttendance,
+  onOpenRanking,
 }: {
   ctx: AppContext
   onOpenLinks?: () => void
@@ -330,6 +337,7 @@ function AffiliateDashboard({
   onConnectWhatsApp?: () => void
   onViewOpportunities?: () => void
   onOpenAttendance?: () => void
+  onOpenRanking?: () => void
 }) {
   const snap = affiliateAppCache.get()
   const [stats, setStats] = useState<any>(snap.dashboard)
@@ -406,12 +414,24 @@ function AffiliateDashboard({
         <AffiliateCommissionCard commission={commission} primary={ctx.primary} secondary={ctx.secondary} />
       )}
 
-      <div className="affiliate-card px-4 py-3 flex items-center gap-2.5">
+      <button
+        type="button"
+        onClick={onOpenRanking}
+        className="affiliate-card px-4 py-3 flex items-center gap-2.5 w-full text-left active:scale-[0.99] transition"
+      >
         <Trophy size={18} strokeWidth={2.25} style={{ color: ctx.primary }} />
-        <p className="text-sm font-bold text-[#1c1c1e]">
-          Ranking #{stats?.rank || '—'} na rede de parceiros
-        </p>
-      </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-bold text-[#1c1c1e]">
+            Ranking #{stats?.rank || '—'}
+            {stats?.rank_of ? (
+              <span className="font-semibold text-neutral-500"> de {stats.rank_of}</span>
+            ) : null}
+            {' '}na rede
+          </p>
+          <p className="text-[11px] text-neutral-500 mt-0.5">Toque para ver o placar e as premiações</p>
+        </div>
+        <ChevronRight size={18} className="text-neutral-300 shrink-0" />
+      </button>
 
       <AttendanceMetricsStrip
         ctx={ctx}
@@ -515,6 +535,7 @@ function PremiumAffiliateDashboard({
   onViewOpportunities,
   onOpenAttendance,
   onOpenWallet,
+  onOpenRanking,
   onNavigate,
 }: {
   ctx: AppContext
@@ -524,6 +545,7 @@ function PremiumAffiliateDashboard({
   onViewOpportunities?: () => void
   onOpenAttendance?: () => void
   onOpenWallet?: () => void
+  onOpenRanking?: () => void
   onNavigate?: (path: string) => void
 }) {
   const snap = affiliateAppCache.get()
@@ -669,11 +691,20 @@ function PremiumAffiliateDashboard({
               Veja o que pede atenção e continue fazendo sua carteira crescer.
             </p>
           </div>
-          {stats?.rank ? (
-            <div className="shrink-0 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-center">
+          {(stats?.rank || onOpenRanking) ? (
+            <button
+              type="button"
+              onClick={onOpenRanking}
+              className="shrink-0 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-center active:scale-[0.98] transition"
+            >
               <p className="text-[9px] font-semibold uppercase tracking-wide text-neutral-400">Ranking</p>
-              <p className="mt-0.5 text-sm font-bold tabular-nums text-neutral-900">#{stats.rank}</p>
-            </div>
+              <p className="mt-0.5 text-sm font-bold tabular-nums text-neutral-900">
+                #{stats?.rank || '—'}
+                {stats?.rank_of ? (
+                  <span className="text-[10px] font-semibold text-neutral-400">/{stats.rank_of}</span>
+                ) : null}
+              </p>
+            </button>
           ) : null}
         </div>
       </section>
@@ -685,6 +716,8 @@ function PremiumAffiliateDashboard({
         onViewOpportunities={onViewOpportunities}
         onNavigate={onNavigate}
       />
+
+      <AffiliateChallengeNudge ctx={ctx} onOpenRanking={onOpenRanking} />
 
       <AttendanceMetricsStrip ctx={ctx} onOpenAttendance={onOpenAttendance || onViewOpportunities} />
 
@@ -1371,6 +1404,7 @@ export function AffiliateAppPage() {
     mercado: 'Mercado',
     alertas: 'Notificações',
     preferencias: 'Preferências',
+    ranking: 'Ranking & Premiações',
     clientes: 'Clientes',
     aprendizado: 'Aprender',
     produtos: 'Produtos',
@@ -1423,11 +1457,17 @@ export function AffiliateAppPage() {
             onOpenLeads={() => goTab('contatos')}
             onConnectWhatsApp={() => goTab('conexoes')}
             onViewOpportunities={() => goTab('oportunidades')}
-            onOpenAttendance={() => goTab('atendimento')}
+            /* Atendimento operacional = Oportunidades (fila manual), não o copiloto IA */
+            onOpenAttendance={() => goTab('oportunidades')}
             onOpenWallet={() => goTab('financeiro')}
+            onOpenRanking={() => goTab('ranking')}
             onNavigate={(path) => {
               const raw = String(path || '')
-              const clean = raw.replace(/^\//, '').split('?')[0]
+              // Aceita deeplink completo (/central-afiliado/…/painel/ranking) ou curto (/ranking)
+              let clean = raw.replace(/^\//, '').split('?')[0]
+              const painelIdx = clean.indexOf('painel/')
+              if (painelIdx >= 0) clean = clean.slice(painelIdx + 'painel/'.length)
+              else if (clean.endsWith('/painel')) clean = ''
               if (clean.startsWith('onboarding/')) {
                 const id = decodeURIComponent(clean.slice('onboarding/'.length).split('/')[0] || '')
                 if (id) return goProgramOnboarding(id)
@@ -1439,7 +1479,9 @@ export function AffiliateAppPage() {
               if (clean === 'pagamentos') return goFinanceiro('pagamentos')
               if (clean === 'mercado') return goTab('mercado')
               if (clean === 'oportunidades') return goTab('oportunidades')
-              goTab(tabFromPath(path, base))
+              if (clean === 'ranking' || clean === 'premios' || clean === 'premiacoes') return goTab('ranking')
+              if (!clean) return goTab('resumo')
+              return goTab(tabFromPath(`${base}/${clean}`, base))
             }}
           />
         )
@@ -1518,6 +1560,7 @@ export function AffiliateAppPage() {
         )
       case 'divulgacao': return <AffiliatePromotionHub ctx={appCtx} />
       case 'materiais': return <AffiliateMaterialsPanel ctx={appCtx} />
+      case 'ranking': return <AffiliateRankingAwardsHub ctx={appCtx} />
       case 'links': return <AffiliateLinksHub ctx={appCtx} active={activeTab === 'links'} />
       case 'contatos':
         return <AffiliateContactsPage ctx={appCtx} initialFocusRefId={oppHubFocusFromSearch(location.search)} onConnectWhatsApp={() => goTab('conexoes')} />
@@ -1546,7 +1589,12 @@ export function AffiliateAppPage() {
       case 'alertas':
         return (
           <AffiliateAlertsPanel
-            onNavigate={(path) => goTab(tabFromPath(path, base))}
+            onNavigate={(path) => {
+              const clean = String(path || '').replace(/^\//, '').split('?')[0]
+              if (clean === 'ranking' || clean === 'premios' || clean === 'premiacoes') return goTab('ranking')
+              if (clean === 'financeiro' || clean === 'comissoes') return goFinanceiro('comissoes')
+              goTab(tabFromPath(path.startsWith('/') ? `${base}${path}` : `${base}/${path}`, base))
+            }}
           />
         )
       case 'clientes':

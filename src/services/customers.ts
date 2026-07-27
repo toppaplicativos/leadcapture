@@ -493,28 +493,120 @@ export class CustomersService {
     }
   }
 
+  /**
+   * Parse robusto de tags — a coluna vem em formatos mistos no legado:
+   * JSON array, JSON string aninhada, PG text[] `{a,b}` / `{"a","b"}`, CSV.
+   * NUNCA deve devolver vazio se raw tinha conteúdo legível (evita apagar
+   * tags de rastreio/fonte na validação WhatsApp).
+   */
   private parseTags(raw: unknown): string[] {
-    if (!raw) return [];
+    if (raw == null || raw === "") return [];
     if (Array.isArray(raw)) {
       return raw.map((item) => String(item).trim()).filter(Boolean);
     }
-    if (typeof raw === "string") {
-      const trimmed = raw.trim();
-      if (!trimmed) return [];
+    if (typeof raw === "object") {
+      /* object map raro → chaves ou valores */
+      try {
+        return Object.values(raw as Record<string, unknown>)
+          .map((v) => String(v).trim())
+          .filter(Boolean);
+      } catch {
+        return [];
+      }
+    }
+    if (typeof raw !== "string") return [];
+
+    let trimmed = raw.trim();
+    if (!trimmed) return [];
+
+    /* double-encoded JSON string */
+    for (let i = 0; i < 2; i++) {
+      if (
+        (trimmed.startsWith('"') && trimmed.endsWith('"'))
+        || (trimmed.startsWith("'") && trimmed.endsWith("'"))
+      ) {
+        try {
+          const unquoted = JSON.parse(trimmed);
+          if (typeof unquoted === "string") {
+            trimmed = unquoted.trim();
+            continue;
+          }
+          if (Array.isArray(unquoted)) {
+            return unquoted.map((item) => String(item).trim()).filter(Boolean);
+          }
+        } catch {
+          break;
+        }
+      }
+      break;
+    }
+
+    /* JSON array / value */
+    if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
       try {
         const parsed = JSON.parse(trimmed);
         if (Array.isArray(parsed)) {
           return parsed.map((item) => String(item).trim()).filter(Boolean);
         }
+        if (parsed && typeof parsed === "object") {
+          return Object.values(parsed as Record<string, unknown>)
+            .map((v) => String(v).trim())
+            .filter(Boolean);
+        }
       } catch {
-        // fall through
+        /* PostgreSQL text[]: {a,b} ou {"a","b"} */
+        if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+          const inner = trimmed.slice(1, -1).trim();
+          if (!inner) return [];
+          const parts: string[] = [];
+          let cur = "";
+          let inQuotes = false;
+          for (let i = 0; i < inner.length; i++) {
+            const ch = inner[i];
+            if (ch === '"') {
+              inQuotes = !inQuotes;
+              continue;
+            }
+            if (ch === "," && !inQuotes) {
+              const t = cur.trim();
+              if (t) parts.push(t);
+              cur = "";
+              continue;
+            }
+            cur += ch;
+          }
+          const last = cur.trim();
+          if (last) parts.push(last);
+          if (parts.length) return parts;
+        }
       }
+    }
+
+    /* CSV / pipe */
+    if (trimmed.includes(",") || trimmed.includes("|") || trimmed.includes(";")) {
       return trimmed
-        .split(",")
-        .map((item) => item.trim())
+        .split(/[,|;]/)
+        .map((item) => item.trim().replace(/^["']|["']$/g, ""))
         .filter(Boolean);
     }
-    return [];
+
+    return [trimmed];
+  }
+
+  /** Merge tags sem perder as existentes; opcionalmente adiciona novas. */
+  private mergeTags(existingRaw: unknown, extra: string[] = []): string[] {
+    const base = this.parseTags(existingRaw);
+    const out: string[] = [];
+    const seen = new Set<string>();
+    for (const t of [...base, ...extra]) {
+      const clean = String(t || "").trim();
+      if (!clean) continue;
+      const key = clean.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(clean);
+    }
+    return out;
   }
 
   private resolveHasWhatsAppExpression(columns: Map<string, ColumnMeta>): string | null {
@@ -913,7 +1005,7 @@ export class CustomersService {
     }
   }
 
-  /** Garante tag "validado" em lead já checado (sem revalidar WA). */
+  /** Garante tag "validado" em lead já checado (sem revalidar WA). Nunca apaga tags existentes. */
   async ensureValidatedTag(
     id: string | number,
     ownerUserId?: string,
@@ -931,16 +1023,19 @@ export class CustomersService {
       [id, ownerUserId, ...brandParams]
     );
     if (!row) return;
-    let tags: string[] = [];
-    try {
-      if (Array.isArray(row.tags)) tags = row.tags.map(String);
-      else if (typeof row.tags === "string" && row.tags.trim()) tags = JSON.parse(row.tags);
-    } catch {
-      tags = [];
+    const before = this.parseTags(row.tags);
+    const tags = this.mergeTags(row.tags, ["validado"]);
+    if (tags.length === before.length && before.some((t) => t.toLowerCase() === "validado")) {
+      return;
     }
-    const has = tags.some((t) => String(t).toLowerCase() === "validado");
-    if (has) return;
-    tags.push("validado");
+    /* Segurança: se raw tinha conteúdo e parse saiu vazio (formato desconhecido), não sobrescreve. */
+    const rawStr = row.tags == null ? "" : String(row.tags).trim();
+    if (rawStr && rawStr !== "[]" && rawStr !== "{}" && tags.length === 1 && tags[0].toLowerCase() === "validado") {
+      logger.warn(
+        `[customers.ensureValidatedTag] recusou sobrescrever tags opacas do lead ${id}: ${rawStr.slice(0, 120)}`
+      );
+      return;
+    }
     await update(
       `UPDATE customers SET tags = ? WHERE id = ? AND ${ownerColumn} = ?${brandWhere}`,
       [
@@ -964,6 +1059,8 @@ export class CustomersService {
     createdPlaceIds: string[];
     createdLeadIds: string[];
     existingPlaceIds: string[];
+    /** IDs de customers já existentes tocados no batch (re-captura) */
+    existingLeadIds: string[];
   }> {
     if (!ownerUserId) {
       throw new Error("Missing owner user context for bulk lead import");
@@ -973,6 +1070,7 @@ export class CustomersService {
     const createdPlaceIds: string[] = [];
     const createdLeadIds: string[] = [];
     const existingPlaceIds: string[] = [];
+    const existingLeadIds: string[] = [];
 
     const columns = await this.getColumns();
     const ownerColumn = this.requireOwnerColumn(columns);
@@ -1040,6 +1138,8 @@ export class CustomersService {
         }
         if (existing) {
           skipped++;
+          const existingId = String((existing as any).id || "").trim();
+          if (existingId) existingLeadIds.push(existingId);
           if (placeIdStr) {
             existingPlaceIds.push(placeIdStr);
             existingByPlaceId.set(placeIdStr, existing);
@@ -1133,6 +1233,8 @@ export class CustomersService {
             const again = await this.findExistingByPlaceOrPhone(place, ownerUserId, brandId);
             if (again) {
               skipped++;
+              const againId = String((again as any).id || "").trim();
+              if (againId) existingLeadIds.push(againId);
               existingPlaceIds.push(placeIdStr);
               existingByPlaceId.set(placeIdStr, again);
               if (phone) existingByPhone.set(phone, again);
@@ -1168,6 +1270,7 @@ export class CustomersService {
       createdPlaceIds: Array.from(new Set(createdPlaceIds)),
       createdLeadIds: uniqueCreated,
       existingPlaceIds: Array.from(new Set(existingPlaceIds)),
+      existingLeadIds: Array.from(new Set(existingLeadIds)),
     };
   }
 
@@ -1780,18 +1883,28 @@ export class CustomersService {
       values.push(this.normalizeColumnValue(columns.get("source_details"), details));
     }
 
-    // Tag "validado" — UI e "Validar todos" usam pra pular recheck
+    // Tag "validado" — APPEND only. Nunca substitui tags de rastreio/fonte/nicho.
     if (this.hasColumn(columns, "tags")) {
-      let tags: string[] = [];
-      try {
-        const rawTags = (existing as any).tags;
-        if (Array.isArray(rawTags)) tags = rawTags.map(String);
-        else if (typeof rawTags === "string" && rawTags.trim()) tags = JSON.parse(rawTags);
-      } catch {
-        tags = [];
-      }
-      if (!tags.some((t) => String(t).toLowerCase() === "validado")) {
-        tags.push("validado");
+      const rawTags = (existing as any).tags;
+      const before = this.parseTags(rawTags);
+      const tags = this.mergeTags(rawTags, ["validado"]);
+      const already = before.some((t) => t.toLowerCase() === "validado");
+      const rawStr = rawTags == null ? "" : String(rawTags).trim();
+      const wouldWipe =
+        !!rawStr
+        && rawStr !== "[]"
+        && rawStr !== "{}"
+        && before.length === 0
+        && tags.length === 1
+        && tags[0].toLowerCase() === "validado";
+
+      if (wouldWipe) {
+        logger.warn(
+          `[customers.updateWhatsAppValidation] preservou tags opacas do lead ${id}: ${rawStr.slice(0, 160)}`
+        );
+        /* Não grava tags = ["validado"] — perde fonte/busca/nicho. Validação WA
+         * continua em source_details / has_whatsapp. */
+      } else if (!already || tags.length !== before.length) {
         fields.push("tags = ?");
         values.push(this.normalizeColumnValue(columns.get("tags"), tags));
       }

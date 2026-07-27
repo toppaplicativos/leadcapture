@@ -173,6 +173,8 @@ export function defaultStoreSettings(): Record<string, any> {
       delivery_fee: null,
       delivery_radius_km: 40,
       free_shipping_above: null,
+      free_shipping_min_weight_kg: null,
+      free_shipping_max_distance_km: null,
       delivery_time_text: null,
       frete_texto: null,
       expedition_phone: null,

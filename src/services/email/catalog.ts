@@ -19,7 +19,7 @@ import {
   EMAIL_DS,
 } from "./designSystem"
 
-export const EMAIL_CATALOG_VERSION = "2026-07-13-v6-affiliate-onboard"
+export const EMAIL_CATALOG_VERSION = "2026-07-22-v7-club-member"
 
 export type CatalogTemplate = {
   slug: string
@@ -302,6 +302,44 @@ export const TENANT_TEMPLATES: CatalogTemplate[] = [
     subject: "{{brand_name}} · seu cadastro está ativo",
     html: ten(customerWelcomeBody("Serviços", "Falar conosco")),
     text: "Cadastro ativo em {{brand_name}}. {{store_url}}",
+  },
+  {
+    slug: "welcome-club-member",
+    scope: "tenant",
+    category: "onboarding",
+    audience: "club_member",
+    description: "Boas-vindas ao cliente que entrou no Clube de Assinantes.",
+    variables: [
+      "customer_name",
+      "brand_name",
+      "brand_color",
+      "brand_logo_url",
+      "store_url",
+      "whatsapp_url",
+      "club_name",
+      "benefits_summary",
+      "discount_label",
+      "shipping_note",
+    ],
+    subject: "Você entrou no {{club_name}} · {{brand_name}}",
+    html: ten(`
+      ${emailIconBadge("mark", "#ecfdf5")}
+      ${emailPill("Clube de Assinantes", "success")}
+      <div style="height:12px"></div>
+      ${emailH1("Bem-vindo(a) ao {{club_name}}")}
+      ${emailP(`Oi <strong>{{customer_name}}</strong> — sua inscrição no clube da <strong>{{brand_name}}</strong> está ativa.`)}
+      ${emailP("A partir de agora você aproveita condições especiais em cada compra.")}
+      ${emailCard(emailKvTable([
+        ["Clube", "{{club_name}}"],
+        ["Desconto", "{{discount_label}}"],
+        ["Frete", "{{shipping_note}}"],
+        ["Vantagens", "{{benefits_summary}}"],
+      ]))}
+      ${emailP("Use o mesmo telefone/WhatsApp do cadastro no checkout para liberar automaticamente os benefícios.")}
+      <p style="margin:18px 0 8px">${brandCta("{{store_url}}", "Ir para a loja")}</p>
+      ${emailMuted("Dúvidas? Fale conosco no WhatsApp ou responda este e-mail.")}
+    `),
+    text: "Bem-vindo ao {{club_name}}, {{customer_name}}! {{discount_label}}. Loja: {{store_url}}",
   },
   {
     slug: "welcome-affiliate",

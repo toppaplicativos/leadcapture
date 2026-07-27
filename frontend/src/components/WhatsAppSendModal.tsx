@@ -9,7 +9,7 @@
  *
  * Suporta modo fila: leads[] com mais de 1 item ativa navegação Lead 1/N → Próximo
  */
-import { useState, useCallback, useMemo, useEffect } from 'react'
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import {
   X, Copy, ExternalLink, ChevronLeft, ChevronRight,
@@ -54,8 +54,12 @@ interface WhatsAppSendModalProps {
   initialBrandName?: string
   /** Default product/service line when the lead has none. */
   initialProductName?: string
+  /** Nome do operador/afiliado usado na assinatura e nas variáveis. */
+  initialSenderName?: string
   /** Template inicial (ex.: optin | followup). Default: optin */
   initialTemplateId?: string
+  /** Base editorial resolvida pela organização para esta etapa/resultado. */
+  managedTemplate?: { body: string; title?: string; source?: string } | null
   /** Operational context that explains why this message is being prepared. */
   messageContext?: WaMessageContext
   /** Affiliate-tracked destinations that can be appended to the final message. */
@@ -73,18 +77,43 @@ interface WhatsAppSendModalProps {
     templateId: string
     senderName: string
     context?: WaMessageContext
+    customFields?: Record<string, string>
   }) => Promise<string>
+  /** Generates the first contextual suggestion when the composer opens. */
+  autoPersonalize?: boolean
 }
 
 export interface WaMessageContext {
+  messageStep?: number | null
+  stepLabel?: string | null
   previousAction?: string | null
   previousChannel?: string | null
   previousMessage?: string | null
   previousNote?: string | null
+  queueLabel?: string | null
+  waitingCount?: number | null
   taskType?: string | null
   taskInstruction?: string | null
   campaignTemplate?: string | null
   campaignIntent?: string | null
+}
+
+const RESULT_LABELS: Record<string, string> = {
+  no_answer: 'Não respondeu',
+  auto_reply: 'Resposta automática',
+  replied: 'Respondeu',
+  waiting: 'Pediu para aguardar',
+  negotiating: 'Em negociação',
+  busy: 'Linha ocupada',
+  voicemail: 'Caixa postal',
+  callback_requested: 'Pediu retorno',
+  start: 'Início da jornada',
+  optin: 'Aguardando autorização',
+}
+
+function contextResultLabel(value?: string | null) {
+  const key = String(value || '').trim().toLowerCase()
+  return RESULT_LABELS[key] || value || 'Sem resultado registrado'
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -310,6 +339,12 @@ function buildVars(
     nicho: segmento,
     contato_comercial: commercialContactPhrase(empresa, segmento),
     nicho_regiao: nicheRegionPhrase(segmento, cidade),
+    affiliate_name: senderName || '',
+    contact_name: lead.name?.split(' ')[0] || lead.name || '',
+    company_name: empresa,
+    brand_name: marca,
+    product_name: produto,
+    city: cidade,
   }
 }
 
@@ -475,10 +510,13 @@ export function WhatsAppSendModal({
   initialValueProposition = '',
   initialBrandName = '',
   initialProductName = '',
+  initialSenderName = '',
   initialTemplateId = 'optin',
+  managedTemplate,
   messageContext,
   trackedLinks,
   onAiPersonalize,
+  autoPersonalize = false,
 }: WhatsAppSendModalProps) {
   const [queueIdx, setQueueIdx] = useState(() => Math.min(Math.max(initialIndex, 0), Math.max(leads.length - 1, 0)))
   const [templateId, setTemplateId] = useState(() => {
@@ -486,10 +524,11 @@ export function WhatsAppSendModal({
     return TEMPLATES.some((t) => t.id === id) ? id : 'optin'
   })
   const [message, setMessage] = useState('')
-  const [senderName, setSenderNameState] = useState(getSenderName)
+  const [senderName, setSenderNameState] = useState(() => initialSenderName || getSenderName())
   const [copied, setCopied] = useState(false)
   const [sentIdx, setSentIdx] = useState<Set<number>>(new Set())
   const [aiLoading, setAiLoading] = useState(false)
+  const autoPersonalizedRef = useRef(false)
   const [showSenderInput, setShowSenderInput] = useState(false)
   const [valueProposition, setValuePropositionState] = useState(initialValueProposition)
   const [brandName, setBrandName] = useState(
@@ -502,6 +541,7 @@ export function WhatsAppSendModal({
   const [resolvedLinks, setResolvedLinks] = useState(() => trackedLinks || {})
   const [linksLoading, setLinksLoading] = useState(false)
   const [linksError, setLinksError] = useState<string | null>(null)
+  const [customFields, setCustomFields] = useState<Array<{ id: string; name: string; value: string }>>([])
 
   useEffect(() => {
     if (!trackedLinks) return
@@ -658,9 +698,20 @@ export function WhatsAppSendModal({
   const phone = cleanPhone(lead?.phone)
   const hasPhone = phone.length > 8
 
+  const customVars = useMemo<Record<string, string>>(
+    () => Object.fromEntries(
+      customFields
+        .map((field) => [
+          field.name.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, '_').replace(/[^\w]/g, ''),
+          field.value.trim(),
+        ])
+        .filter(([name, value]) => name && value),
+    ),
+    [customFields],
+  )
   const vars = useMemo(
-    () => buildVars(lead, senderName, valueProposition, brandName, defaultProduct),
-    [lead, senderName, valueProposition, brandName, defaultProduct],
+    () => ({ ...buildVars(lead, senderName, valueProposition, brandName, defaultProduct), ...customVars }),
+    [lead, senderName, valueProposition, brandName, defaultProduct, customVars],
   )
   useEffect(() => {
     if (!productOptions.length) {
@@ -685,30 +736,40 @@ export function WhatsAppSendModal({
   /** Painel de links: sempre no fluxo afiliado; nos demais, só se houver destino. */
   const showLinkPanel = affiliateComposer || hasAnyTrackedLink
   const finalMessage = useMemo(() => {
-    const clean = message.trim()
     const link = String(selectedLink || '').trim()
+    const clean = message.replace(/\{\{catalog_link\}\}/g, includeLink ? link : '').trim()
     if (!includeLink || !link || clean.includes(link)) return clean
     const label = linkKind === 'product' ? 'Veja este produto' : 'Veja nosso catálogo'
     return `${clean}\n\n${label}: ${link}`
   }, [message, includeLink, selectedLink, linkKind])
+  const linkIsReady = !includeLink || (!linksLoading && !!selectedLink)
+  const sendIsReady = hasPhone && !!finalMessage.trim() && linkIsReady
 
   /* When template or lead changes, rebuild message from template */
   useEffect(() => {
     const tpl = TEMPLATES.find(t => t.id === templateId)
     if (!tpl) return
+    if (managedTemplate?.body && templateId === initialTemplateId) {
+      setMessage(applyVars(managedTemplate.body, vars))
+      return
+    }
     const contextual = contextualTemplate(templateId, messageContext)
     setMessage(applyVars(contextual || tpl.body, vars))
     // Intentionally not depending on full `vars` object identity every render —
     // rebuild when lead, template or brand context that feeds vars changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [templateId, queueIdx, valueProposition, brandName, defaultProduct, senderName, lead?.id, lead?.name, lead?.phone, lead?.category, lead?.niche, lead?.product_name, lead?.brand_name, lead?.city, messageContext?.previousAction, messageContext?.previousChannel, messageContext?.taskType])
+  }, [templateId, queueIdx, valueProposition, brandName, defaultProduct, senderName, lead?.id, lead?.name, lead?.phone, lead?.category, lead?.niche, lead?.product_name, lead?.brand_name, lead?.city, messageContext?.previousAction, messageContext?.previousChannel, messageContext?.taskType, managedTemplate?.body, initialTemplateId])
 
   /* Re-apply vars when sender name changes (only if message still matches template pattern) */
   const applyCurrentTemplate = useCallback(() => {
     const tpl = TEMPLATES.find(t => t.id === templateId)
     if (!tpl) return
+    if (managedTemplate?.body && templateId === initialTemplateId) {
+      setMessage(applyVars(managedTemplate.body, vars))
+      return
+    }
     setMessage(applyVars(contextualTemplate(templateId, messageContext) || tpl.body, vars))
-  }, [templateId, vars, messageContext])
+  }, [templateId, vars, messageContext, managedTemplate, initialTemplateId])
 
   /* ── AI personalize ── */
   async function aiPersonalize() {
@@ -722,6 +783,7 @@ export function WhatsAppSendModal({
           templateId,
           senderName,
           context: messageContext,
+          customFields: customVars,
         })
         if (personalized) setMessage(personalized)
         return
@@ -751,6 +813,7 @@ export function WhatsAppSendModal({
           current_message: message,
           template_id: templateId,
           sender_name: senderName,
+          custom_fields: customVars,
           intent: templateId === 'optin' ? 'optin_authorization' : templateId,
         }),
       })
@@ -765,9 +828,15 @@ export function WhatsAppSendModal({
     }
   }
 
+  useEffect(() => {
+    if (!autoPersonalize || !onAiPersonalize || autoPersonalizedRef.current || !lead) return
+    autoPersonalizedRef.current = true
+    void aiPersonalize()
+  }, [autoPersonalize, onAiPersonalize, lead?.id])
+
   /* ── Send actions ── */
   async function handleSend(platform: 'auto' | 'web' | 'app') {
-    if (!hasPhone) return
+    if (!sendIsReady) return
     await copyToClipboard(finalMessage)
     openWhatsApp(phone, finalMessage, platform)
     setSentIdx(prev => new Set([...prev, queueIdx]))
@@ -777,6 +846,7 @@ export function WhatsAppSendModal({
   }
 
   async function handleCopyOnly() {
+    if (!finalMessage.trim() || !linkIsReady) return
     const ok = await copyToClipboard(finalMessage)
     if (ok) {
       setCopied(true)
@@ -883,7 +953,7 @@ export function WhatsAppSendModal({
         {/* ── Body ── */}
         <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain lg:overflow-hidden lg:grid lg:grid-cols-[300px_minmax(0,1fr)]">
 
-          <aside className="lg:overflow-y-auto lg:border-r lg:border-neutral-200 bg-neutral-50/70">
+          <aside className={`${managedTemplate?.body ? 'hidden lg:block' : ''} lg:overflow-y-auto lg:border-r lg:border-neutral-200 bg-neutral-50/70`}>
 
           {/* Phone warning */}
           {!hasPhone && (
@@ -912,8 +982,18 @@ export function WhatsAppSendModal({
 
           {/* Template selector */}
           <div className="px-4 pt-3 lg:pt-4 pb-3 lg:pb-4">
-            <p className="text-[11px] font-semibold text-neutral-600 mb-2">Escolha um ponto de partida</p>
-            <div className="flex lg:grid lg:grid-cols-1 gap-2 overflow-x-auto snap-x scroll-pl-0 pb-1 pr-4 lg:pr-0 lg:overflow-visible">
+            {managedTemplate?.body ? (
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-3.5 py-3">
+                <p className="text-[9px] font-bold uppercase tracking-[0.08em] text-emerald-700">Roteiro definido pela etapa</p>
+                <p className="mt-1 text-[12px] font-bold text-emerald-950">{managedTemplate.title || 'Mensagem da etapa atual'}</p>
+                <p className="mt-1 text-[10px] leading-relaxed text-emerald-800">
+                  A base considera o resultado anterior. Você pode personalizar o texto sem trocar o objetivo desta etapa.
+                </p>
+              </div>
+            ) : (
+              <>
+              <p className="text-[11px] font-semibold text-neutral-600 mb-2">Escolha um ponto de partida</p>
+              <div className="flex lg:grid lg:grid-cols-1 gap-2 overflow-x-auto snap-x scroll-pl-0 pb-1 pr-4 lg:pr-0 lg:overflow-visible">
               {TEMPLATES.map(t => {
                 const isOptIn = t.id === 'optin'
                 const selected = templateId === t.id
@@ -939,7 +1019,9 @@ export function WhatsAppSendModal({
                   </button>
                 )
               })}
-            </div>
+              </div>
+              </>
+            )}
             {templateId === 'optin' && (
               <p className="hidden lg:block mt-3 text-[11px] leading-relaxed text-emerald-900 bg-emerald-50 border border-emerald-100 rounded-2xl px-3 py-2.5">
                 Pede autorização antes da oferta. Usa a <strong>marca</strong> e o <strong>produto/serviço</strong> que
@@ -953,10 +1035,23 @@ export function WhatsAppSendModal({
 
           {/* Message editor */}
           <div className="px-4 lg:px-7 pt-4 lg:pt-6 pb-3 lg:pb-4">
+            {messageContext && (
+              <div className="mb-3 flex min-h-11 items-center justify-between gap-3 rounded-2xl bg-neutral-100 px-3.5">
+                <p className="min-w-0 truncate text-[11px] font-semibold text-neutral-700">
+                  {messageContext.stepLabel || (messageContext.messageStep ? `Mensagem ${messageContext.messageStep}` : 'Etapa atual')}
+                  <span className="px-1.5 text-neutral-300">·</span>
+                  {contextResultLabel(messageContext.previousAction)}
+                </p>
+                {typeof messageContext.waitingCount === 'number' && (
+                  <span className="shrink-0 text-[10px] font-semibold text-neutral-500">
+                    {messageContext.waitingCount} na fila
+                  </span>
+                )}
+              </div>
+            )}
             <div className="flex items-start justify-between gap-2 mb-3">
               <div>
-                <p className="text-[15px] font-semibold tracking-[-0.015em] text-neutral-950">Composição</p>
-                <p className="text-[11px] text-neutral-500">Revise o texto antes de abrir o WhatsApp.</p>
+                <p className="text-[15px] font-semibold tracking-[-0.015em] text-neutral-950">Sua mensagem</p>
               </div>
               <div className="flex items-center gap-1 shrink-0">
                 <button
@@ -976,7 +1071,7 @@ export function WhatsAppSendModal({
                 >
                   {aiLoading
                     ? <><Loader2 size={10} strokeWidth={2} className="animate-spin" /> Gerando...</>
-                    : <><Sparkles size={10} strokeWidth={2} /> Personalizar IA</>}
+                    : <><Sparkles size={10} strokeWidth={2} /> Gerar outra</>}
                 </button>
               </div>
             </div>
@@ -1101,6 +1196,56 @@ export function WhatsAppSendModal({
                 </button>
               )}
             </div>
+            <div className="mt-4 border-t border-neutral-200 pt-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[11px] font-semibold text-neutral-800">Informações extras</p>
+                  <p className="text-[10px] text-neutral-500">A IA usa estes dados na próxima sugestão.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setCustomFields((fields) => [
+                    ...fields,
+                    { id: `${Date.now()}-${fields.length}`, name: '', value: '' },
+                  ])}
+                  className="min-h-9 rounded-xl bg-white px-3 text-[11px] font-semibold text-neutral-800 ring-1 ring-neutral-200"
+                >
+                  + Adicionar
+                </button>
+              </div>
+              {customFields.length > 0 && (
+                <div className="mt-3 space-y-2">
+                  {customFields.map((field) => (
+                    <div key={field.id} className="grid grid-cols-[minmax(0,.8fr)_minmax(0,1.2fr)_36px] gap-2">
+                      <input
+                        value={field.name}
+                        onChange={(event) => setCustomFields((fields) => fields.map((item) => (
+                          item.id === field.id ? { ...item, name: event.target.value } : item
+                        )))}
+                        placeholder="Ex.: preferência"
+                        className="h-10 min-w-0 rounded-xl border border-neutral-200 bg-white px-3 text-[11px] outline-none focus:border-neutral-900"
+                      />
+                      <input
+                        value={field.value}
+                        onChange={(event) => setCustomFields((fields) => fields.map((item) => (
+                          item.id === field.id ? { ...item, value: event.target.value } : item
+                        )))}
+                        placeholder="Ex.: entrega semanal"
+                        className="h-10 min-w-0 rounded-xl border border-neutral-200 bg-white px-3 text-[11px] outline-none focus:border-neutral-900"
+                      />
+                      <button
+                        type="button"
+                        aria-label="Remover informação"
+                        onClick={() => setCustomFields((fields) => fields.filter((item) => item.id !== field.id))}
+                        className="grid h-10 w-9 place-items-center rounded-xl text-neutral-400 hover:bg-neutral-200 hover:text-neutral-700"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
             </div>
           </details>
           </section>
@@ -1120,17 +1265,19 @@ export function WhatsAppSendModal({
               <button
                 type="button"
                 onClick={() => handleSend('auto')}
-                disabled={!hasPhone || !finalMessage.trim()}
+                disabled={!sendIsReady}
                 className={`w-full flex items-center justify-center gap-2.5 h-12 rounded-[18px] text-[14px] font-semibold transition active:scale-[0.98] disabled:opacity-40 ${
                   currentSent
                     ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                    : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm'
+                    : 'bg-neutral-950 hover:bg-neutral-800 text-white shadow-sm'
                 }`}
               >
                 {currentSent ? (
                   <><CheckCircle2 size={16} strokeWidth={2} /> Enviado — abrir novamente</>
                 ) : (
-                  <><WhatsAppIcon size={16} className="brand-icon--wa" /> Copiar e abrir WhatsApp</>
+                  linksLoading && includeLink
+                    ? <><Loader2 size={16} className="animate-spin" /> Preparando seu link…</>
+                    : <><WhatsAppIcon size={17} className="brand-icon--wa" /> Copiar e abrir WhatsApp</>
                 )}
               </button>
 
@@ -1139,7 +1286,7 @@ export function WhatsAppSendModal({
                 <button
                   type="button"
                   onClick={() => handleSend('web')}
-                  disabled={!hasPhone || !finalMessage.trim()}
+                  disabled={!sendIsReady}
                   title="Abrir no WhatsApp Web (navegador)"
                   className="flex items-center justify-center gap-1.5 h-11 px-2 sm:px-3.5 rounded-2xl bg-neutral-100 hover:bg-neutral-200 text-neutral-700 text-[12px] font-medium disabled:opacity-40 transition"
                 >
@@ -1148,7 +1295,7 @@ export function WhatsAppSendModal({
                 <button
                   type="button"
                   onClick={() => handleSend('app')}
-                  disabled={!hasPhone || !finalMessage.trim()}
+                  disabled={!sendIsReady}
                   title="Abrir no app WhatsApp"
                   className="flex items-center justify-center gap-1.5 h-11 px-2 sm:px-3.5 rounded-2xl bg-neutral-100 hover:bg-neutral-200 text-neutral-700 text-[12px] font-medium disabled:opacity-40 transition"
                 >
@@ -1157,7 +1304,7 @@ export function WhatsAppSendModal({
                 <button
                   type="button"
                   onClick={handleCopyOnly}
-                  disabled={!finalMessage.trim()}
+                  disabled={!finalMessage.trim() || !linkIsReady}
                   className="flex items-center justify-center gap-1.5 h-11 px-2 sm:px-3.5 rounded-2xl bg-neutral-100 hover:bg-neutral-200 text-neutral-700 text-[12px] font-medium disabled:opacity-40 transition"
                 >
                   {copied ? <CheckCircle2 size={13} strokeWidth={2} className="text-emerald-600" /> : <Copy size={13} strokeWidth={2} />}

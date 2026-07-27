@@ -768,7 +768,8 @@ export class AffiliateProgramAiFillService {
         initial_message_template: generated.dist_initial_message,
         followup_message_template: generated.dist_followup_message,
         followup_enabled: true,
-        followup_delays_hours_json: "[24,48,72]",
+        /* Régua Reev C2–C8 em horas relativas: 2d,3d,3d,4d,4d,4d,5d */
+        followup_delays_hours_json: "[48,72,72,96,96,96,120]",
         max_daily_per_affiliate: Number(rules?.max_daily_per_affiliate || 20),
       } as any);
     } catch (e: any) {

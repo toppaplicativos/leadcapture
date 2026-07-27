@@ -103,10 +103,30 @@ export async function emitPlatformEvent(input: EmitPlatformEventInput): Promise<
   let title = renderTemplate(definition.title_template, vars);
   let body = renderTemplate(definition.body_template, vars);
   const ctaLabel = definition.cta_label ? renderTemplate(definition.cta_label, vars) : undefined;
-  const deepLink = resolveDeepLink(definition.deep_link_template, vars, input.deep_link);
+  let deepLink = resolveDeepLink(definition.deep_link_template, vars, input.deep_link);
   const resolvedPriority = (input.priority_override || definition.default_priority) as
     "low" | "normal" | "high" | "urgent" | "critical";
   const priority = mapPriorityToHub(resolvedPriority);
+
+  // Afiliado: path curto (/ranking) → /central-afiliado/{slug}/painel/ranking
+  const orgForDeep = String(
+    input.organization_id || vars.brand_id || "",
+  ).trim();
+  if (
+    definition.app_target === "affiliate"
+    && orgForDeep
+    && deepLink
+    && !/^https?:\/\//i.test(deepLink)
+    && !deepLink.startsWith("/central-afiliado/")
+    && !deepLink.startsWith("/parceiros/")
+  ) {
+    try {
+      const { resolveAffiliateDeepLink } = await import("./affiliatePushCenter");
+      deepLink = await resolveAffiliateDeepLink(orgForDeep, deepLink);
+    } catch {
+      /* keep raw */
+    }
+  }
 
   const notifications = getNotificationService();
   const actions = getPlatformActionsService();

@@ -11,9 +11,6 @@ const QUEUE_STATUS: Record<string, string> = {
   filtered_out: 'Fora do filtro',
 }
 
-const TEMPLATE_HINT =
-  'Placeholders: {{prospect_name}}, {{prospect_city}}, {{affiliate_name}}, {{brand_name}}, {{program_name}}'
-
 type Props = {
   showToast: (t: string, tp?: 'ok' | 'err') => void
   saving: boolean
@@ -49,7 +46,7 @@ export function AffiliateDistributionSection({ showToast, saving, setSaving }: P
     per_instance_jitter_seconds: 15,
     initial_message_template: '',
     followup_enabled: true,
-    followup_delays_hours_json: '[24,48,72]',
+    followup_delays_hours_json: '[48,72,72,96,96,96,120]',
     followup_message_template: '',
     require_whatsapp_connected: true,
     require_training_complete: true,
@@ -88,7 +85,7 @@ export function AffiliateDistributionSection({ showToast, saving, setSaving }: P
         per_instance_jitter_seconds: Number(r.per_instance_jitter_seconds || 15),
         initial_message_template: String(r.initial_message_template || ''),
         followup_enabled: r.followup_enabled !== false && r.followup_enabled !== 0,
-        followup_delays_hours_json: String(r.followup_delays_hours_json || '[24,48,72]'),
+        followup_delays_hours_json: String(r.followup_delays_hours_json || '[48,72,72,96,96,96,120]'),
         followup_message_template: String(r.followup_message_template || ''),
         require_whatsapp_connected: r.require_whatsapp_connected !== false && r.require_whatsapp_connected !== 0,
         require_training_complete: r.require_training_complete !== false && r.require_training_complete !== 0,
@@ -376,17 +373,12 @@ export function AffiliateDistributionSection({ showToast, saving, setSaving }: P
             />
           </label>
         </div>
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="text-gray-600">Template da primeira mensagem</span>
-          <textarea
-            rows={4}
-            value={rulesForm.initial_message_template}
-            onChange={(e) => setRulesForm((f) => ({ ...f, initial_message_template: e.target.value }))}
-            placeholder="Deixe vazio para usar o tom do programa ou o padrão do sistema"
-            className="rounded-lg border border-gray-200 px-3 py-2 font-mono text-xs"
-          />
-          <span className="text-xs text-gray-400">{TEMPLATE_HINT}</span>
-        </label>
+        <div className="rounded-[18px] border border-neutral-200 bg-neutral-50 px-4 py-3">
+          <p className="text-sm font-semibold text-neutral-900">Textos centralizados em Templates</p>
+          <p className="mt-1 text-xs leading-relaxed text-neutral-500">
+            Primeira mensagem e respostas por etapa agora são mantidas na seção Templates. Esta área controla somente distribuição, ritmo e agendamento.
+          </p>
+        </div>
         <button
           type="button"
           className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm"
@@ -405,17 +397,7 @@ export function AffiliateDistributionSection({ showToast, saving, setSaving }: P
                 value={rulesForm.followup_delays_hours_json}
                 onChange={(e) => setRulesForm((f) => ({ ...f, followup_delays_hours_json: e.target.value }))}
                 className="rounded-lg border border-gray-200 px-3 py-2 font-mono text-xs"
-                placeholder="[24,48,72]"
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-sm">
-              <span className="text-gray-600">Template de follow-up</span>
-              <textarea
-                rows={3}
-                value={rulesForm.followup_message_template}
-                onChange={(e) => setRulesForm((f) => ({ ...f, followup_message_template: e.target.value }))}
-                className="rounded-lg border border-gray-200 px-3 py-2 font-mono text-xs"
-                placeholder="Vazio = padrão do sistema"
+                placeholder="[48,72,72,96,96,96,120] · C2–C8 Reev"
               />
             </label>
           </>

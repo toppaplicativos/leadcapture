@@ -1,11 +1,19 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { FacebookIcon, InstagramIcon, WhatsAppIcon } from '@/components/icons'
-import { getHeaders } from '@/lib/admin/helpers'
+import { clearAdminAuth, getHeaders, isHardAuthFailure } from '@/lib/admin/helpers'
 import { useAgentShell } from '@/lib/agent/AgentShellContext'
 import { useWhatsAppHealth } from '@/lib/hooks/useWhatsAppHealth'
 
 type Props = {
   brandKey?: string | number
+}
+
+function hasAuthToken(): boolean {
+  try {
+    return !!localStorage.getItem('lead-system-token')
+  } catch {
+    return false
+  }
 }
 
 export function ChannelHeaderIcons({ brandKey = '' }: Props) {
@@ -17,18 +25,49 @@ export function ChannelHeaderIcons({ brandKey = '' }: Props) {
   const [fbConnected, setFbConnected] = useState(false)
   const [fbPageName, setFbPageName] = useState<string | null>(null)
   const [fbLoading, setFbLoading] = useState(true)
+  /** Para de pollar canais após 401/token inválido — evita flood no console. */
+  const authDeadRef = useRef(false)
+
+  const handleAuthDeath = useCallback((status: number, body?: any) => {
+    if (!isHardAuthFailure(status, body)) return false
+    authDeadRef.current = true
+    clearAdminAuth()
+    return true
+  }, [])
 
   const loadInstagram = useCallback(async () => {
+    if (authDeadRef.current || !hasAuthToken()) {
+      setIgLoading(false)
+      return
+    }
     try {
+      const headers = getHeaders()
+      if (!headers.Authorization) {
+        setIgLoading(false)
+        return
+      }
       // status + connection em paralelo (mesma regra do studio)
       const [statusRes, connRes] = await Promise.all([
-        fetch('/api/instagram/connection-status', { headers: getHeaders() }),
-        fetch('/api/instagram/connection', { headers: getHeaders() }),
+        fetch('/api/instagram/connection-status', { headers }),
+        fetch('/api/instagram/connection', { headers }),
       ])
       const status = await statusRes.json().catch(() => ({}))
       const connBody = await connRes.json().catch(() => ({}))
 
-      // 403 plano/módulo: não inventar "desconectado" se a API só bloqueou o plano
+      if (handleAuthDeath(statusRes.status, status) || handleAuthDeath(connRes.status, connBody)) {
+        setIgConnected(false)
+        setIgUsername(null)
+        setIgLoading(false)
+        return
+      }
+
+      // 400 brand / 403 plano: não inventar "desconectado" nem re-pollar em loop agressivo
+      if (statusRes.status === 400 || connRes.status === 400) {
+        setIgConnected(false)
+        setIgUsername(null)
+        setIgLoading(false)
+        return
+      }
       if (statusRes.status === 403 && connRes.status === 403) {
         setIgConnected(false)
         setIgUsername(null)
@@ -52,12 +91,33 @@ export function ChannelHeaderIcons({ brandKey = '' }: Props) {
     } finally {
       setIgLoading(false)
     }
-  }, [])
+  }, [handleAuthDeath])
 
   const loadFacebook = useCallback(async () => {
+    if (authDeadRef.current || !hasAuthToken()) {
+      setFbLoading(false)
+      return
+    }
     try {
-      const r = await fetch('/api/facebook/connection', { headers: getHeaders() })
-      const d = await r.json()
+      const headers = getHeaders()
+      if (!headers.Authorization) {
+        setFbLoading(false)
+        return
+      }
+      const r = await fetch('/api/facebook/connection', { headers })
+      const d = await r.json().catch(() => ({}))
+      if (handleAuthDeath(r.status, d)) {
+        setFbConnected(false)
+        setFbPageName(null)
+        setFbLoading(false)
+        return
+      }
+      if (r.status === 400 || r.status === 403) {
+        setFbConnected(false)
+        setFbPageName(null)
+        setFbLoading(false)
+        return
+      }
       const connected = !!d.success && !!d.connection
       setFbConnected(connected)
       setFbPageName(d.connection?.page_name || d.profile?.name || null)
@@ -67,14 +127,21 @@ export function ChannelHeaderIcons({ brandKey = '' }: Props) {
     } finally {
       setFbLoading(false)
     }
-  }, [])
+  }, [handleAuthDeath])
 
   useEffect(() => {
+    authDeadRef.current = false
+    if (!hasAuthToken()) {
+      setIgLoading(false)
+      setFbLoading(false)
+      return
+    }
     setIgLoading(true)
     setFbLoading(true)
     void loadInstagram()
     void loadFacebook()
     const id = setInterval(() => {
+      if (authDeadRef.current || !hasAuthToken()) return
       void loadInstagram()
       void loadFacebook()
     }, 60_000)

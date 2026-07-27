@@ -9,17 +9,19 @@ import {
   type ContactChannel,
 } from '@/lib/affiliate-contact-ops'
 import { WhatsAppIcon } from '@/components/icons'
+import { InstagramIcon } from '@/components/icons'
 
 type Props = {
   summary: ChannelAttemptSummary[]
   compact?: boolean
   activeChannel?: ContactChannel | null
-  onSelectChannel?: (channel: 'whatsapp' | 'phone') => void
+  onSelectChannel?: (channel: 'whatsapp' | 'phone' | 'instagram') => void
 }
 
 function ChannelIcon({ channel }: { channel: string }) {
   if (channel === 'phone') return <Phone size={14} className="text-sky-700" />
   if (channel === 'whatsapp') return <WhatsAppIcon size={14} />
+  if (channel === 'instagram') return <InstagramIcon size={14} />
   return <MessageCircle size={14} className="text-neutral-500" />
 }
 
@@ -56,9 +58,9 @@ export function ContactChannelAttempts({
       {!compact && (
         <p className="text-[11px] font-semibold text-neutral-500">Tentativas por canal</p>
       )}
-      <div className="grid grid-cols-2 gap-2">
+      <div className={`grid gap-2 ${rows.some((row) => row.channel === 'instagram') ? 'grid-cols-3' : 'grid-cols-2'}`}>
         {rows
-          .filter((r) => r.channel === 'whatsapp' || r.channel === 'phone')
+          .filter((r) => r.channel === 'whatsapp' || r.channel === 'phone' || r.channel === 'instagram')
           .map((row) => {
             const active = activeChannel === row.channel
             const clickable = Boolean(onSelectChannel)
@@ -96,12 +98,12 @@ export function ContactChannelAttempts({
               clickable ? 'active:scale-[0.99]' : '',
             ].join(' ')
 
-            if (clickable && (row.channel === 'whatsapp' || row.channel === 'phone')) {
+            if (clickable && (row.channel === 'whatsapp' || row.channel === 'phone' || row.channel === 'instagram')) {
               return (
                 <button
                   key={row.channel}
                   type="button"
-                  onClick={() => onSelectChannel?.(row.channel as 'whatsapp' | 'phone')}
+                  onClick={() => onSelectChannel?.(row.channel as 'whatsapp' | 'phone' | 'instagram')}
                   className={[
                     cls,
                     active ? '' : 'hover:border-neutral-300',

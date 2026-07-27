@@ -34,8 +34,8 @@ export const config = {
     password: process.env.POSTGRES_PASSWORD || process.env.SUPABASE_DB_PASSWORD || "",
     database: process.env.POSTGRES_DATABASE || "postgres",
     ssl: (process.env.POSTGRES_SSL || "true").toLowerCase() !== "false",
-    /* Default conservador: Supabase session pooler costuma limitar a ~15 slots. */
-    max: parseInt(process.env.POSTGRES_POOL_MAX || "8", 10),
+    /* Default conservador no pooler (transaction 6543). Evitar saturar o limite remoto. */
+    max: parseInt(process.env.POSTGRES_POOL_MAX || "6", 10),
   },
 
   // JWT

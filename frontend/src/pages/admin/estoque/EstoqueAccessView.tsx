@@ -139,6 +139,10 @@ export function EstoqueAccessView({ showToast }: { showToast: (t: string, tp?: '
   }
 
   const stockAppUrl = buildStockAppUrl(brandSlug)
+  const hasStockSession = Boolean(localStorage.getItem('lead-system-token-estoque'))
+  const stockAppDestination = hasStockSession && brandSlug
+    ? `${stockAppUrl}/painel`
+    : stockAppUrl
 
   return (
     <div className="space-y-5">
@@ -156,16 +160,18 @@ export function EstoqueAccessView({ showToast }: { showToast: (t: string, tp?: '
 
       {/* App link card */}
       <div className="bg-gray-900 rounded-2xl p-5 text-white shadow-lg">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-col items-stretch gap-4 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
           <div className="min-w-0">
             <p className="text-white/60 text-[10px] font-semibold">Aplicativo conectado</p>
             <p className="text-sm font-semibold mt-1">Operação de estoque e expedição</p>
             <p className="text-xs text-white/40 mt-1.5 font-mono truncate">{window.location.origin}{stockAppUrl}</p>
           </div>
           {brandSlug ? (
-            <a href={stockAppUrl} target="_blank" rel="noreferrer"
-              className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-bold transition shrink-0">
-              Abrir app de estoque →
+            <a
+              href={stockAppDestination}
+              className="flex min-h-11 w-full items-center justify-center rounded-xl bg-white px-4 py-2.5 text-xs font-bold text-gray-950 transition active:scale-[0.99] sm:w-auto sm:shrink-0"
+            >
+              {hasStockSession ? 'Continuar no app de estoque →' : 'Abrir app de estoque →'}
             </a>
           ) : (
             <span className="px-4 py-2.5 rounded-xl bg-white/5 text-white/40 text-xs font-bold shrink-0">

@@ -7,6 +7,7 @@ import { ClientsService } from "../services/clients";
 import { query, queryOne } from "../config/database";
 import { ensureMobDeliveryForOrder, getMobTrackingForOrder } from "../services/mobOrderBridge";
 import { mobLogisticsService } from "../services/mobLogistics";
+import { manufacturingService } from "../services/manufacturing";
 
 const router = Router();
 const commerceService = new CommerceService();
@@ -878,6 +879,123 @@ router.get("/categories", async (req: AuthRequest, res: Response) => {
     res.json({ success: true, categories: [] });
   } catch (e: any) {
     res.status(500).json({ error: e.message || "Falha ao listar categorias" });
+  }
+});
+
+/* ── Manufacturing / transformation ── */
+
+function manufacturingScope(ctx: any) {
+  return { userId: ctx.ownerUserId, brandId: ctx.brandId, actorId: ctx.managerUserId };
+}
+
+router.get("/manufacturing/settings", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = requireStockCredential(req, res);
+    if (!ctx) return;
+    res.json({ success: true, settings: await manufacturingService.settings(manufacturingScope(ctx)) });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Falha ao carregar configuração de produção" });
+  }
+});
+
+router.put("/manufacturing/settings", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = requireStockCredential(req, res);
+    if (!ctx) return;
+    const settings = await manufacturingService.updateSettings(manufacturingScope(ctx), req.body || {});
+    res.json({ success: true, settings });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message || "Falha ao atualizar configuração de produção" });
+  }
+});
+
+router.get("/manufacturing/dashboard", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = requireStockCredential(req, res);
+    if (!ctx) return;
+    res.json({ success: true, ...(await manufacturingService.dashboard(manufacturingScope(ctx))) });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Falha ao carregar produção" });
+  }
+});
+
+router.get("/manufacturing/materials", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = requireStockCredential(req, res);
+    if (!ctx) return;
+    res.json({ success: true, materials: await manufacturingService.listMaterials(manufacturingScope(ctx)) });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Falha ao listar matérias-primas" });
+  }
+});
+
+router.get("/manufacturing/lots", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = requireStockCredential(req, res);
+    if (!ctx) return;
+    res.json({
+      success: true,
+      lots: await manufacturingService.listLots(manufacturingScope(ctx), String(req.query.available || "true") !== "false"),
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Falha ao listar lotes" });
+  }
+});
+
+router.get("/manufacturing/recipes", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = requireStockCredential(req, res);
+    if (!ctx) return;
+    res.json({ success: true, recipes: await manufacturingService.listRecipes(manufacturingScope(ctx)) });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || "Falha ao listar fichas técnicas" });
+  }
+});
+
+router.put("/manufacturing/recipes/:productId", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = requireStockCredential(req, res);
+    if (!ctx) return;
+    const recipe = await manufacturingService.saveRecipe(manufacturingScope(ctx), {
+      ...(req.body || {}),
+      product_id: req.params.productId,
+    });
+    res.json({ success: true, recipe });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message || "Falha ao salvar ficha técnica" });
+  }
+});
+
+router.post("/manufacturing/plan", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = requireStockCredential(req, res);
+    if (!ctx) return;
+    const plan = await manufacturingService.planBatch(manufacturingScope(ctx), req.body || {});
+    res.json({ success: true, ...plan });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message || "Falha ao calcular consumo" });
+  }
+});
+
+router.post("/manufacturing/receipts", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = requireStockCredential(req, res);
+    if (!ctx) return;
+    const lot = await manufacturingService.receive(manufacturingScope(ctx), req.body || {});
+    res.status(201).json({ success: true, lot });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message || "Falha ao registrar entrada de matéria-prima" });
+  }
+});
+
+router.post("/manufacturing/batches", async (req: AuthRequest, res: Response) => {
+  try {
+    const ctx = requireStockCredential(req, res);
+    if (!ctx) return;
+    const batch = await manufacturingService.createBatch(manufacturingScope(ctx), req.body || {});
+    res.status(201).json({ success: true, batch });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message || "Falha ao concluir produção" });
   }
 });
 

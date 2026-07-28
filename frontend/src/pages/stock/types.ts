@@ -7,6 +7,7 @@ export type ViewKey =
   | 'reports'
   | 'clients'
   | 'pos'
+  | 'production'
   | 'profile'
 
 export type ShowToast = (t: string, tp?: 'success' | 'error') => void

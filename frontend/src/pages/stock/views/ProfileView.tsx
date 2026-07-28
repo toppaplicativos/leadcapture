@@ -37,11 +37,38 @@ function dateLabel(value?: string) {
   return new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }).format(date)
 }
 
-export function ProfileView({ showToast }: { showToast: ShowToast }) {
+export function ProfileView({
+  showToast,
+  manufacturingEnabled = false,
+  onManufacturingChange,
+}: {
+  showToast: ShowToast
+  manufacturingEnabled?: boolean
+  onManufacturingChange?: (enabled: boolean) => void
+}) {
   const [identity, setIdentity] = useState<Identity>({})
   const [items, setItems] = useState<AuditItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
+  const [changingOperation, setChangingOperation] = useState(false)
+
+  async function toggleManufacturing() {
+    setChangingOperation(true)
+    try {
+      const result = await stockApi.updateManufacturingSettings({
+        enabled: !manufacturingEnabled,
+        track_lots: true,
+        base_weight_unit: 'kg',
+      })
+      const enabled = result.settings?.enabled === true
+      onManufacturingChange?.(enabled)
+      showToast(enabled ? 'Produção e lotes ativados' : 'Produção ocultada do app')
+    } catch (e: any) {
+      showToast(e?.message || 'Não foi possível alterar o tipo de operação', 'error')
+    } finally {
+      setChangingOperation(false)
+    }
+  }
 
   async function load() {
     setLoading(true)
@@ -87,6 +114,16 @@ export function ProfileView({ showToast }: { showToast: ShowToast }) {
           <div className="rounded-2xl bg-white/[0.07] px-3 py-3 ring-1 ring-white/10"><p className="text-[10px] font-semibold uppercase tracking-wider text-white/45">Último acesso</p><p className="mt-1 truncate text-sm font-semibold">{dateLabel(manager.last_login_at)}</p></div>
         </div>
         <div className="mt-3 flex items-center gap-2 text-xs font-medium text-emerald-300"><CheckCircle2 size={14} /> Sessão identificada e auditada</div>
+      </article>
+
+      <article className="rounded-[24px] border border-gray-100 bg-white p-4 shadow-sm">
+        <div className="flex items-start gap-3">
+          <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl ${manufacturingEnabled ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-100 text-gray-600'}`}><Settings2 size={18} /></span>
+          <div className="min-w-0 flex-1"><h2 className="text-base font-bold tracking-tight text-gray-950">Tipo de operação</h2><p className="mt-1 text-xs leading-5 text-gray-500">{manufacturingEnabled ? 'Produção por lotes ativa: matéria-prima, transformação, quebra e rendimento.' : 'Ative somente se esta unidade transforma matéria-prima em produtos finais.'}</p></div>
+        </div>
+        <button type="button" disabled={changingOperation} onClick={toggleManufacturing} className={`mt-4 min-h-11 w-full rounded-xl border px-4 text-sm font-semibold disabled:opacity-50 ${manufacturingEnabled ? 'border-gray-200 text-gray-700' : 'border-gray-950 bg-gray-950 text-white'}`}>
+          {changingOperation ? 'Atualizando…' : manufacturingEnabled ? 'Ocultar módulo de produção' : 'Ativar produção e rastreabilidade'}
+        </button>
       </article>
 
       <article className="rounded-[24px] border border-gray-100 bg-white p-4 shadow-sm">

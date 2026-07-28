@@ -87,6 +87,10 @@ export function resolveStockDeepLink(path?: string | null): {
     return { view: 'reports' }
   }
 
+  if (lower.includes('producao') || lower.includes('produção') || lower.includes('production') || lower.includes('fabricacao')) {
+    return { view: 'production' }
+  }
+
   if (lower.includes('inventario') || lower.includes('inventário') || lower.includes('estoque')) {
     // generic inventory alert → alerts triage
     return { view: 'alerts' }
@@ -110,6 +114,10 @@ function mapViewToken(token: string): ViewKey | null {
     pos: 'pos',
     pdv: 'pos',
     venda: 'pos',
+    production: 'production',
+    producao: 'production',
+    produção: 'production',
+    fabricacao: 'production',
     movements: 'movements',
     movimentacoes: 'movements',
     movimentações: 'movements',

@@ -377,6 +377,51 @@ export const stockApi = {
 
   sync: () => authFetch<any>('/api/stock-app/inventory/sync', getStockHeaders(), { method: 'POST' }),
 
+  manufacturingSettings: () =>
+    authFetch<any>('/api/stock-app/manufacturing/settings', getStockHeaders()),
+
+  updateManufacturingSettings: (data: { enabled: boolean; track_lots?: boolean; base_weight_unit?: string }) =>
+    authFetch<any>('/api/stock-app/manufacturing/settings', getStockHeaders(), {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  manufacturingDashboard: () =>
+    authFetch<any>('/api/stock-app/manufacturing/dashboard', getStockHeaders()),
+
+  manufacturingMaterials: () =>
+    authFetch<any>('/api/stock-app/manufacturing/materials', getStockHeaders()),
+
+  manufacturingLots: (available = true) =>
+    authFetch<any>(`/api/stock-app/manufacturing/lots?available=${available}`, getStockHeaders()),
+
+  manufacturingRecipes: () =>
+    authFetch<any>('/api/stock-app/manufacturing/recipes', getStockHeaders()),
+
+  saveManufacturingRecipe: (productId: string, data: Record<string, any>) =>
+    authFetch<any>(`/api/stock-app/manufacturing/recipes/${productId}`, getStockHeaders(), {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  planManufacturingBatch: (data: Record<string, any>) =>
+    authFetch<any>('/api/stock-app/manufacturing/plan', getStockHeaders(), {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  receiveManufacturingMaterial: (data: Record<string, any>) =>
+    authFetch<any>('/api/stock-app/manufacturing/receipts', getStockHeaders(), {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  createManufacturingBatch: (data: Record<string, any>) =>
+    authFetch<any>('/api/stock-app/manufacturing/batches', getStockHeaders(), {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
   /* ── Clients ── */
   clients: (page = 1, limit = 50, search = '', status = '') => {
     const q = new URLSearchParams({ page: String(page), limit: String(limit) })

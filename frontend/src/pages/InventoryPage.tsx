@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   LayoutDashboard, Package, ArrowLeftRight, Truck, AlertTriangle, BarChart3,
   RefreshCw, LogOut, Menu, X, Users, ShoppingCart, UserRound,
+  Factory,
 } from 'lucide-react'
 import {
   inventoryApi,
@@ -24,6 +25,7 @@ import { ClientsView } from './stock/views/ClientsView'
 import { ReportsView } from './stock/views/ReportsView'
 import { PosView } from './stock/views/PosView'
 import { ProfileView } from './stock/views/ProfileView'
+import { ProductionView } from './stock/views/ProductionView'
 import { resolveStockDeepLink } from './stock/deepLink'
 import { ensurePushSubscription, pushPermission } from '@/lib/push/client'
 
@@ -52,6 +54,7 @@ export function InventoryPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [categories, setCategories] = useState<Category[]>([])
   const [refreshKey, setRefreshKey] = useState(0)
+  const [manufacturingEnabled, setManufacturingEnabled] = useState(false)
   const stockRoute = isStockAppRoute()
 
   const auth = getSessionAuth()
@@ -106,9 +109,13 @@ export function InventoryPage() {
     if (!auth.token) return
 
     if (stockRoute) {
-      stockApi.me()
-        .then((d) => {
+      Promise.all([
+        stockApi.me(),
+        stockApi.manufacturingSettings().catch(() => ({ settings: { enabled: false } })),
+      ])
+        .then(([d, manufacturing]) => {
           const b = d.brand || {}
+          setManufacturingEnabled(manufacturing.settings?.enabled === true)
           setBrand({
             name: b.name,
             logo_url: b.logo_url,
@@ -216,6 +223,7 @@ export function InventoryPage() {
     { key: 'overview', icon: LayoutDashboard, label: 'Início', short: 'Início' },
     { key: 'products', icon: Package, label: 'Produtos', short: 'Produtos' },
     { key: 'pos', icon: ShoppingCart, label: 'PDV', short: 'PDV' },
+    ...(manufacturingEnabled ? [{ key: 'production' as ViewKey, icon: Factory, label: 'Produção', short: 'Produção' }] : []),
     { key: 'expedition', icon: Truck, label: 'Expedição', short: 'Expedir' },
     { key: 'movements', icon: ArrowLeftRight, label: 'Movimentações', short: 'Mov.' },
     { key: 'alerts', icon: AlertTriangle, label: 'Alertas', short: 'Alertas', badge: alertCount },
@@ -388,6 +396,7 @@ export function InventoryPage() {
             )}
             {view === 'movements' && <MovementsView showToast={showToast} />}
             {view === 'pos' && <PosView showToast={showToast} onFinished={() => setRefreshKey((k) => k + 1)} />}
+            {view === 'production' && manufacturingEnabled && <ProductionView showToast={showToast} />}
             {view === 'expedition' && <ExpeditionView showToast={showToast} />}
             {view === 'alerts' && (
               <AlertsView
@@ -398,7 +407,7 @@ export function InventoryPage() {
             )}
             {view === 'clients' && <ClientsView showToast={showToast} />}
             {view === 'reports' && <ReportsView showToast={showToast} />}
-            {view === 'profile' && <ProfileView showToast={showToast} />}
+            {view === 'profile' && <ProfileView showToast={showToast} manufacturingEnabled={manufacturingEnabled} onManufacturingChange={setManufacturingEnabled} />}
           </div>
         </main>
       </div>

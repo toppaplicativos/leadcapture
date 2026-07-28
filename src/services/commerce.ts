@@ -617,6 +617,7 @@ export class CommerceService {
       customer_phone?: string;
       cupom_codigo?: string;
       desconto?: number;
+      allow_manual_pricing?: boolean;
       checkout_base_url: string;
       itens: Array<{
         product_id?: string;
@@ -724,6 +725,13 @@ export class CommerceService {
       });
       if (volumePricing) valorUnitario = volumePricing.itemUnitPrice;
 
+      const requestedUnitPrice = this.parseNumber(rawItem.valor_unitario ?? rawItem.unit_price, 0);
+      const hasManualPrice = input.allow_manual_pricing === true
+        && (rawItem.valor_unitario !== undefined || rawItem.unit_price !== undefined)
+        && Number.isFinite(requestedUnitPrice)
+        && requestedUnitPrice > 0;
+      if (hasManualPrice) valorUnitario = requestedUnitPrice;
+
       if (!nome) {
         throw new Error("item inválido: nome obrigatório");
       }
@@ -742,7 +750,11 @@ export class CommerceService {
           descricao: snapshotDescription || null,
           categoria: snapshotCategory || null,
         },
-        pricing: volumePricing ? {
+        pricing: hasManualPrice ? {
+          source: "manual_pos",
+          catalog_unit_price: volumePricing?.itemUnitPrice ?? null,
+          negotiated_unit_price: valorUnitario,
+        } : volumePricing ? {
           source: "volume_pricing",
           measure: volumePricing.measure,
           measure_quantity: volumePricing.measureQuantity,

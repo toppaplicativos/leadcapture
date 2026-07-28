@@ -647,17 +647,25 @@ router.post("/orders/pos", async (req: AuthRequest, res: Response) => {
     const rawItems = Array.isArray(body.items) ? body.items : [];
     if (!rawItems.length) return res.status(400).json({ error: "Adicione ao menos um produto" });
     const paymentRaw = String(body.payment_method || "").toLowerCase();
-    const paymentMethod = paymentRaw === "dinheiro" ? "desconhecido" : paymentRaw;
-    if (!["pix", "cartao", "desconhecido"].includes(paymentMethod)) {
+    const paymentMethod = ["dinheiro", "prazo", "a_combinar"].includes(paymentRaw) ? "desconhecido" : paymentRaw;
+    if (!["pix", "cartao", "boleto", "desconhecido"].includes(paymentMethod)) {
       return res.status(400).json({ error: "Forma de pagamento inválida" });
     }
+    const paymentStatus = body.payment_status === "pending" ? "pending" : "paid";
+    const installments = Math.max(1, Math.min(60, Math.trunc(Number(body.installments || 1))));
+    const dueDate = String(body.due_date || "").trim() || null;
+    const orderNotes = String(body.order_notes || "").trim().slice(0, 2000) || null;
+    const deliveryAddress = String(body.delivery_address || "").trim().slice(0, 1000) || null;
+    const customerId = String(body.customer_id || "").trim() || null;
 
     const created = await commerceService.createOrder(ctx.ownerUserId, ctx.brandId, {
       origem: "whatsapp",
       forma_pagamento: paymentMethod,
       customer_name: String(body.customer_name || "Consumidor final").trim(),
+      customer_email: String(body.customer_email || "").trim() || undefined,
       customer_phone: String(body.customer_phone || "").trim() || undefined,
       desconto: Math.max(0, Number(body.discount || 0)),
+      allow_manual_pricing: true,
       checkout_base_url: `${req.protocol}://${req.get("host") || ""}`,
       itens: rawItems.map((item: any) => ({
         product_id: String(item.product_id || "").trim(),
@@ -669,23 +677,41 @@ router.post("/orders/pos", async (req: AuthRequest, res: Response) => {
 
     await query(
       `UPDATE commerce_orders
-          SET origem = 'pdv', status_pedido = 'pago', data_pagamento = NOW(), data_atualizacao = NOW()
+          SET origem = 'pdv', status_pedido = ?, data_pagamento = ?, data_atualizacao = NOW()
         WHERE id = ? AND user_id = ? AND brand_id = ?`,
-      [created.order.id, ctx.ownerUserId, ctx.brandId],
+      [
+        paymentStatus === "paid" ? "pago" : "aguardando_pagamento",
+        paymentStatus === "paid" ? new Date() : null,
+        created.order.id,
+        ctx.ownerUserId,
+        ctx.brandId,
+      ],
     );
     await query(
       `INSERT INTO commerce_order_events (order_id, event_type, payload_json)
-       VALUES (?, 'venda_pdv_concluida', ?)`,
-      [created.order.id, JSON.stringify({
+       VALUES (?, ?, ?)`,
+      [created.order.id, paymentStatus === "paid" ? "venda_pdv_concluida" : "pedido_pdv_criado", JSON.stringify({
         manager_user_id: ctx.managerUserId,
         payment_method: paymentRaw,
+        payment_status: paymentStatus,
+        installments,
+        due_date: dueDate,
         fulfillment: body.fulfillment === "entrega" ? "entrega" : "retirada",
+        delivery_address: deliveryAddress,
+        order_notes: orderNotes,
+        customer_id: customerId,
+        customer_email: String(body.customer_email || "").trim() || null,
+        pricing_mode: "manual_allowed",
       })],
     ).catch(() => undefined);
 
     res.status(201).json({
       success: true,
-      order: { ...created.order, status_pedido: "pago", origem: "pdv" },
+      order: {
+        ...created.order,
+        status_pedido: paymentStatus === "paid" ? "pago" : "aguardando_pagamento",
+        origem: "pdv",
+      },
       items: created.items,
       receipt_number: String(created.order.id).slice(0, 8).toUpperCase(),
     });

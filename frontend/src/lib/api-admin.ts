@@ -340,9 +340,16 @@ export const stockApi = {
     items: Array<{ product_id: string; product_name: string; quantity: number; unit_price: number }>
     customer_name?: string
     customer_phone?: string
-    payment_method: 'pix' | 'cartao' | 'dinheiro'
+    customer_email?: string
+    customer_id?: string
+    payment_method: 'pix' | 'cartao' | 'dinheiro' | 'boleto' | 'prazo' | 'a_combinar'
+    payment_status?: 'paid' | 'pending'
+    installments?: number
+    due_date?: string
     discount?: number
     fulfillment?: 'retirada' | 'entrega'
+    delivery_address?: string
+    order_notes?: string
   }) => authFetch<any>('/api/stock-app/orders/pos', getStockHeaders(), {
     method: 'POST',
     body: JSON.stringify(data),

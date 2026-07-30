@@ -878,6 +878,20 @@ const TASK_TYPE_LABEL: Record<string, string> = {
   post_sale: 'Pós-venda',
 }
 
+function taskRequiresPhoneChannel(task: AttendanceTaskItem) {
+  const instruction = String(task.instruction || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+  return /\b(contato|tentar|ligar|ligacao)\b.*\b(telefone|telefonico|ligar|ligacao)\b/.test(instruction)
+    || /\b(telefone|telefonico|ligar|ligacao)\b.*\b(contato|tentar)\b/.test(instruction)
+}
+
+function taskLabelWithChannel(task: AttendanceTaskItem) {
+  const label = TASK_TYPE_LABEL[task.task_type] || task.task_type
+  return label.replace(/^C(\d+)\b/, `C$1-${taskRequiresPhoneChannel(task) ? 'Tel' : 'WA'}`)
+}
+
 type TaskFilterChip = 'due' | 'overdue' | 'done_today' | 'future' | 'done'
 type TaskRow = AttendanceTaskItem & { completed_at?: string | null; status?: string }
 
@@ -1077,7 +1091,7 @@ function TasksPanel({
         <ul className="overflow-hidden rounded-[20px] border border-neutral-200 bg-white divide-y divide-neutral-100">
           {filtered.map((item) => {
             const overdue = !isDoneView && isOverdueDue(item.due_at)
-            const label = TASK_TYPE_LABEL[item.task_type] || item.task_type
+            const label = taskLabelWithChannel(item)
             const locked = isFuture
             const secondary = isDoneView
               ? `Feita · ${new Date(item.completed_at || item.due_at).toLocaleString('pt-BR', {

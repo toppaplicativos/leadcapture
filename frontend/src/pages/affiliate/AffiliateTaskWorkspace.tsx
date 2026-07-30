@@ -148,6 +148,20 @@ function formatDue(iso: string) {
   }
 }
 
+function taskRequiresPhone(task: AttendanceTaskItem) {
+  const instruction = String(task.instruction || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+
+  return /\b(contato|tentar|ligar|ligacao)\b.*\b(telefone|telefonico|ligar|ligacao)\b/.test(instruction)
+    || /\b(telefone|telefonico|ligar|ligacao)\b.*\b(contato|tentar)\b/.test(instruction)
+}
+
+function channelStageTitle(title: string, phoneOnly: boolean) {
+  return title.replace(/^C(\d+)\b/, `C$1-${phoneOnly ? 'Tel' : 'WA'}`)
+}
+
 const PHASE_LABEL: Record<Phase, string> = {
   overview: 'Visão',
   contact: 'Mensagem',
@@ -163,11 +177,16 @@ export function AffiliateTaskWorkspace({
   onOpenContact,
   onConnectWhatsApp,
 }: Props) {
-  const meta = TASK_META[task.task_type] || {
+  const phoneRequiredByTask = useMemo(() => taskRequiresPhone(task), [task])
+  const baseMeta = TASK_META[task.task_type] || {
     title: 'Tarefa',
     tone: 'due' as const,
     defaultTemplate: task.template_id || 'followup',
     blurb: 'Execute o contato e registre o resultado.',
+  }
+  const meta = {
+    ...baseMeta,
+    title: channelStageTitle(baseMeta.title, phoneRequiredByTask),
   }
 
   const [templateId, setTemplateId] = useState(
@@ -182,7 +201,9 @@ export function AffiliateTaskWorkspace({
   const [doneMsg, setDoneMsg] = useState<string | null>(null)
   const [nextTaskFeedback, setNextTaskFeedback] = useState<{ due_at: string; instruction?: string | null } | null>(null)
   const [confirmAction, setConfirmAction] = useState<string | null>(null)
-  const [taskChannel, setTaskChannel] = useState<'whatsapp' | 'phone'>('whatsapp')
+  const [taskChannel, setTaskChannel] = useState<'whatsapp' | 'phone'>(
+    () => phoneRequiredByTask ? 'phone' : 'whatsapp',
+  )
   const [managedTemplates, setManagedTemplates] = useState<Array<{
     program_id?: string | null
     message_step: number
@@ -206,8 +227,8 @@ export function AffiliateTaskWorkspace({
     setError(null)
     setConfirmAction(null)
     setShowComposer(false)
-    setTaskChannel('whatsapp')
-  }, [task.id, task.template_id, meta.defaultTemplate])
+    setTaskChannel(phoneRequiredByTask ? 'phone' : 'whatsapp')
+  }, [task.id, task.template_id, meta.defaultTemplate, phoneRequiredByTask])
 
   useEffect(() => {
     let cancelled = false
@@ -284,10 +305,10 @@ export function AffiliateTaskWorkspace({
   }, [task.id, task.ref_id, task.ref_type, task.contact_name, task.instruction, task.due_at, templateId, meta.title, task.task_type])
 
   useEffect(() => {
-    if (contact?.phone_only || contact?.contact_mode === 'phone_only' || contact?.has_whatsapp === false) {
+    if (phoneRequiredByTask || contact?.phone_only || contact?.contact_mode === 'phone_only' || contact?.has_whatsapp === false) {
       setTaskChannel('phone')
     }
-  }, [contact?.contact_mode, contact?.has_whatsapp, contact?.phone_only])
+  }, [contact?.contact_mode, contact?.has_whatsapp, contact?.phone_only, phoneRequiredByTask])
 
   const lead: WaSendLead | null = useMemo(() => {
     if (!contact) return null
@@ -523,8 +544,8 @@ export function AffiliateTaskWorkspace({
         : 'O contato continua com você e a próxima tentativa será por ligação.',
     },
     release_phone_pool: {
-      title: 'Liberar para outro afiliado?',
-      body: 'O contato sai da sua fila e entra em Disponíveis como “Só telefone”. Esta liberação não gera pontos no ranking.',
+      title: 'Confirmar que você não pode ligar?',
+      body: 'O contato volta para a fila como “Só telefone”. Outro afiliado poderá assumir a ligação e o telefone continuará disponível.',
     },
     not_matching: {
       title: 'Marcar como não correspondente?',
@@ -668,7 +689,7 @@ export function AffiliateTaskWorkspace({
                   onClick={() => setPhase('contact')}
                   className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-neutral-900 text-sm font-bold text-white active:scale-[0.99] disabled:opacity-40"
                 >
-                  Seguir para mensagem
+                  {phoneRequiredByTask ? 'Seguir para ligação' : 'Seguir para contato'}
                   <ChevronRight size={17} />
                 </button>
 
@@ -689,45 +710,59 @@ export function AffiliateTaskWorkspace({
                 <div>
                   <p className="text-[13px] font-semibold text-neutral-950">{contactName}</p>
                   <p className="mt-0.5 text-[12px] text-neutral-500">
-                    Envie a mensagem (ou ligue) para avançar ao resultado.
+                    {phoneRequiredByTask
+                      ? 'Esta tarefa é exclusivamente por telefone.'
+                      : 'Escolha o canal e faça o contato para avançar.'}
                   </p>
                 </div>
 
-                <div
-                  className="grid grid-cols-2 gap-1 rounded-xl bg-neutral-100 p-1"
-                  role="tablist"
-                  aria-label="Canal"
-                >
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={taskChannel === 'whatsapp'}
-                    disabled={contact.phone_only || contact.contact_mode === 'phone_only'}
-                    onClick={() => setTaskChannel('whatsapp')}
-                    className={[
-                      'min-h-9 rounded-lg text-[12px] font-semibold transition',
-                      taskChannel === 'whatsapp'
-                        ? 'bg-white text-neutral-950 shadow-sm'
-                        : 'text-neutral-600',
-                    ].join(' ')}
+                {phoneRequiredByTask ? (
+                  <div className="flex min-h-11 items-center gap-3 rounded-xl border border-neutral-200 bg-neutral-50 px-3.5">
+                    <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-white text-neutral-700 shadow-sm">
+                      <Phone size={15} />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-[12px] font-bold text-neutral-950">Contato por telefone</p>
+                      <p className="text-[11px] text-neutral-500">WhatsApp já foi tentado e está indisponível</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div
+                    className="grid grid-cols-2 gap-1 rounded-xl bg-neutral-100 p-1"
+                    role="tablist"
+                    aria-label="Canal"
                   >
-                    WhatsApp
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={taskChannel === 'phone'}
-                    onClick={() => setTaskChannel('phone')}
-                    className={[
-                      'min-h-9 rounded-lg text-[12px] font-semibold transition',
-                      taskChannel === 'phone'
-                        ? 'bg-white text-neutral-950 shadow-sm'
-                        : 'text-neutral-600',
-                    ].join(' ')}
-                  >
-                    Telefone
-                  </button>
-                </div>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={taskChannel === 'whatsapp'}
+                      disabled={contact.phone_only || contact.contact_mode === 'phone_only'}
+                      onClick={() => setTaskChannel('whatsapp')}
+                      className={[
+                        'min-h-9 rounded-lg text-[12px] font-semibold transition',
+                        taskChannel === 'whatsapp'
+                          ? 'bg-white text-neutral-950 shadow-sm'
+                          : 'text-neutral-600',
+                      ].join(' ')}
+                    >
+                      WhatsApp
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={taskChannel === 'phone'}
+                      onClick={() => setTaskChannel('phone')}
+                      className={[
+                        'min-h-9 rounded-lg text-[12px] font-semibold transition',
+                        taskChannel === 'phone'
+                          ? 'bg-white text-neutral-950 shadow-sm'
+                          : 'text-neutral-600',
+                      ].join(' ')}
+                    >
+                      Telefone
+                    </button>
+                  </div>
+                )}
 
                 {taskChannel === 'whatsapp' ? (
                   <div className="space-y-3">
@@ -802,6 +837,21 @@ export function AffiliateTaskWorkspace({
                       {saving === 'called' ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
                       Já liguei · registrar e seguir
                     </button>
+                    {phoneRequiredByTask && (
+                      <button
+                        type="button"
+                        disabled={!!saving || !executable}
+                        onClick={() => requestOutcome('release_phone_pool')}
+                        className="flex min-h-11 w-full items-center justify-center rounded-xl text-sm font-semibold text-neutral-600 active:bg-neutral-50 disabled:opacity-40"
+                      >
+                        Não posso fazer contato por telefone
+                      </button>
+                    )}
+                    {phoneRequiredByTask && (
+                      <p className="px-2 text-center text-[11px] leading-relaxed text-neutral-500">
+                        O contato volta para a fila e o telefone continua disponível para outro afiliado.
+                      </p>
+                    )}
                   </div>
                 )}
               </div>
@@ -897,9 +947,16 @@ export function AffiliateTaskWorkspace({
                     type="button"
                     disabled={!!saving}
                     onClick={() => void runProgress(confirmAction)}
-                    className="h-11 rounded-xl bg-red-600 text-sm font-bold text-white disabled:opacity-50"
+                    className={[
+                      'h-11 rounded-xl text-sm font-bold text-white disabled:opacity-50',
+                      confirmAction === 'release_phone_pool' ? 'bg-neutral-900' : 'bg-red-600',
+                    ].join(' ')}
                   >
-                    {saving === confirmAction ? '…' : 'Confirmar'}
+                    {saving === confirmAction
+                      ? '…'
+                      : confirmAction === 'release_phone_pool'
+                        ? 'Sim, devolver à fila'
+                        : 'Confirmar'}
                   </button>
                 </div>
               </div>

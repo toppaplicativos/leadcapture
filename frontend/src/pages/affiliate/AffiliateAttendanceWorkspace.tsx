@@ -364,6 +364,10 @@ export function AffiliateAttendanceWorkspace({
     const sentCount = history.filter((event) =>
       ['sent', 'followup', 'called'].includes(String(event.action || '').toLowerCase()),
     ).length
+    /*
+     * Se o envio ainda espera resultado, ele continua pertencendo à etapa
+     * executada. C2/C3 só aparece depois do desfecho de C1/C2.
+     */
     const awaitingOutcome = isInitiatingAction(lastAction)
     const requestedStep = composerTemplateId === 'optin'
       ? 0
@@ -1313,77 +1317,6 @@ export function AffiliateAttendanceWorkspace({
                   </button>
                 </div>
 
-                {/* Saída rápida na fase inicial — negativos de rede */}
-                <div className="space-y-2 rounded-2xl border border-neutral-200 bg-white p-3">
-                  <p className="text-[11px] font-semibold text-neutral-500">
-                    Verificação do contato
-                  </p>
-                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    <button
-                      type="button"
-                      disabled={!!saving}
-                      onClick={() => void applyOutcome('not_matching')}
-                      className="flex min-h-12 items-center gap-2.5 rounded-xl border border-amber-200 bg-amber-50/70 px-3 text-left active:scale-[0.99] disabled:opacity-50"
-                    >
-                      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-white text-amber-800">
-                        {saving === 'not_matching' ? (
-                          <Loader2 size={16} className="animate-spin" />
-                        ) : (
-                          <UserX size={16} />
-                        )}
-                      </span>
-                      <span className="min-w-0">
-                        <strong className="block text-[12px] text-neutral-950">Não correspondente</strong>
-                        <span className="block text-[10px] text-neutral-600 leading-snug">
-                          Nicho errado ou não é o público — some para todos
-                        </span>
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      disabled={!!saving}
-                      onClick={() => void applyOutcome('channel_unavailable')}
-                      className="flex min-h-12 items-center gap-2.5 rounded-xl border border-red-200 bg-red-50/60 px-3 text-left active:scale-[0.99] disabled:opacity-50"
-                    >
-                      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-white text-red-700">
-                        {saving === 'channel_unavailable' ? (
-                          <Loader2 size={16} className="animate-spin" />
-                        ) : (
-                          <PhoneOff size={16} />
-                        )}
-                      </span>
-                      <span className="min-w-0">
-                        <strong className="block text-[12px] text-neutral-950">{channelLabel(activeChannel)} indisponível</strong>
-                        <span className="block text-[10px] text-neutral-600 leading-snug">
-                          {activeChannelIsLast ? 'Último canal · encerra o contato' : 'Mantém o contato e libera o próximo canal'}
-                        </span>
-                      </span>
-                    </button>
-                    {phoneDigits.length >= 8 && (
-                      <button
-                        type="button"
-                        disabled={!!saving}
-                        onClick={() => void applyOutcome('release_phone_pool')}
-                        className="flex min-h-12 items-center gap-2.5 rounded-xl border border-neutral-200 bg-neutral-50 px-3 text-left active:scale-[0.99] disabled:opacity-50 sm:col-span-2"
-                      >
-                        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-white text-neutral-800">
-                          {saving === 'release_phone_pool' ? (
-                            <Loader2 size={16} className="animate-spin" />
-                          ) : (
-                            <Users size={16} />
-                          )}
-                        </span>
-                        <span className="min-w-0">
-                          <strong className="block text-[12px] text-neutral-950">Liberar para outro afiliado ligar</strong>
-                          <span className="block text-[10px] leading-snug text-neutral-600">
-                            Vai para Disponíveis como Só telefone · esta ação não gera pontos
-                          </span>
-                        </span>
-                      </button>
-                    )}
-                  </div>
-                </div>
-
                 <details className="rounded-2xl border border-neutral-200 bg-white">
                   <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between px-3.5 text-xs font-semibold text-neutral-700">
                     Dados e outros canais
@@ -1438,7 +1371,7 @@ export function AffiliateAttendanceWorkspace({
 
                 {waDoubtful && (
                   <p className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
-                    Número com poucos dígitos — pode ser WA duvidoso. Use “Canal indisponível” se não abrir.
+                    Número com poucos dígitos — confirme o destinatário na montagem da mensagem antes de enviar.
                   </p>
                 )}
 

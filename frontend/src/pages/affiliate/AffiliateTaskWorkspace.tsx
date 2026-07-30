@@ -8,7 +8,7 @@
  */
 import { useEffect, useMemo, useState } from 'react'
 import {
-  ArrowLeft, Check, ChevronRight, Clock3, Loader2, MessageCircle, Phone, Send, X,
+  ArrowLeft, ArrowRight, Check, CheckCircle2, ChevronRight, Clock3, ListTodo, Loader2, MessageCircle, Phone, Send, X,
 } from 'lucide-react'
 import { affiliateApi } from '@/lib/api-affiliate'
 import type { AppContext } from '@/pages/affiliate/types'
@@ -40,6 +40,8 @@ type Props = {
   ctx: AppContext
   onClose: () => void
   onChanged?: (patch?: ProgressPatch) => void
+  nextTask?: AttendanceTaskItem | null
+  onNextTask?: (task: AttendanceTaskItem) => void
   onOpenContact?: (item: AttendanceOpportunity) => void
   onConnectWhatsApp?: () => void
 }
@@ -174,6 +176,8 @@ export function AffiliateTaskWorkspace({
   ctx,
   onClose,
   onChanged,
+  nextTask,
+  onNextTask,
   onOpenContact,
   onConnectWhatsApp,
 }: Props) {
@@ -406,7 +410,6 @@ export function AffiliateTaskWorkspace({
         setDoneMsg(res.toast)
         setPhase('done')
         ctx.showToast(res.toast)
-        window.setTimeout(() => onClose(), 900)
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Falha ao liberar para a rede')
         ctx.showToast(e instanceof Error ? e.message : 'Falha ao liberar para a rede', 'err')
@@ -461,10 +464,6 @@ export function AffiliateTaskWorkspace({
         } : null)
         setPhase('done')
         ctx.showToast(toast)
-        if (DESTRUCTIVE_ACTIONS.has(action) || (res.removed_from_queue && action !== 'post_sale_completed')) {
-          /* Destrutivos: feedback breve e fecha */
-          window.setTimeout(() => onClose(), 700)
-        }
       }
     } catch (e) {
       if (isNetworkLikeError(e)) {
@@ -584,7 +583,9 @@ export function AffiliateTaskWorkspace({
         role="dialog"
         aria-modal="true"
         aria-label={`Tarefa: ${meta.title}`}
-        onMouseDown={onClose}
+        onMouseDown={() => {
+          if (phase !== 'done') onClose()
+        }}
       >
         <div
           className="relative flex max-h-[min(94dvh,720px)] w-full flex-col overflow-hidden rounded-t-[22px] bg-white shadow-2xl sm:max-w-md sm:rounded-[22px]"
@@ -894,33 +895,84 @@ export function AffiliateTaskWorkspace({
             )}
 
             {!loading && phase === 'done' && (
-              <div className="py-6 text-center">
-                <span className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-emerald-100 text-emerald-700">
-                  <Check size={22} />
-                </span>
-                <h3 className="mt-3 text-base font-bold text-neutral-950">Tarefa concluída</h3>
-                <p className="mt-1 text-sm text-neutral-600">{doneMsg || 'Registrado com sucesso.'}</p>
-                {nextTaskFeedback ? (
-                  <div className="mt-4 rounded-2xl border border-neutral-200 bg-neutral-50 p-3.5 text-left">
-                    <p className="text-[11px] font-semibold text-neutral-500">Próxima tarefa</p>
+              <div className="py-2">
+                <div className="rounded-[20px] border border-emerald-100 bg-emerald-50/70 px-5 py-5 text-center">
+                  <span className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-emerald-600 text-white shadow-sm shadow-emerald-200">
+                    <CheckCircle2 size={28} strokeWidth={2.4} />
+                  </span>
+                  <p className="mt-4 text-[11px] font-bold uppercase tracking-[0.16em] text-emerald-700">
+                    Resultado salvo
+                  </p>
+                  <h3 className="mt-1 text-lg font-bold tracking-tight text-neutral-950">Tarefa concluída</h3>
+                  <p className="mt-1.5 text-sm leading-relaxed text-neutral-600">
+                    {doneMsg || 'Registrado com sucesso.'}
+                  </p>
+                </div>
+
+                {nextTask ? (
+                  <div className="mt-4 overflow-hidden rounded-[20px] border border-neutral-200 bg-white">
+                    <div className="flex items-center gap-3 border-b border-neutral-100 px-4 py-3">
+                      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-neutral-100 text-neutral-700">
+                        <ListTodo size={17} />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-500">
+                          Próxima da sua fila
+                        </p>
+                        <p className="truncate text-sm font-bold text-neutral-950">
+                          {nextTask.contact_name || 'Contato'}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="px-4 py-3">
+                      <p className="text-[13px] font-semibold text-neutral-900">
+                        {nextTask.instruction || 'Continuar o atendimento'}
+                      </p>
+                      <p className="mt-1 text-[11px] font-medium text-neutral-500">
+                        {formatDueAt(nextTask.due_at)}
+                      </p>
+                    </div>
+                  </div>
+                ) : nextTaskFeedback ? (
+                  <div className="mt-4 rounded-[20px] border border-neutral-200 bg-neutral-50 p-4">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-500">
+                      Próximo contato agendado
+                    </p>
                     <p className="mt-1 text-sm font-semibold text-neutral-900">
                       {nextTaskFeedback.instruction || 'Continuar o atendimento'}
                     </p>
-                    <p className="mt-0.5 text-xs text-neutral-600">
+                    <p className="mt-1 text-xs text-neutral-600">
                       {formatDueAt(nextTaskFeedback.due_at)}
                     </p>
                   </div>
                 ) : (
-                  <p className="mt-4 text-[12px] text-neutral-500">
-                    Nenhuma nova tarefa necessária agora.
-                  </p>
+                  <div className="mt-4 rounded-[20px] border border-neutral-200 bg-neutral-50 px-4 py-4 text-center">
+                    <p className="text-sm font-semibold text-neutral-900">Fila concluída por agora</p>
+                    <p className="mt-1 text-xs text-neutral-500">Não há outra tarefa liberada neste momento.</p>
+                  </div>
                 )}
+
+                {nextTask && onNextTask ? (
+                  <button
+                    type="button"
+                    onClick={() => onNextTask(nextTask)}
+                    className="mt-4 flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-neutral-950 px-4 text-sm font-bold text-white shadow-sm active:scale-[0.99]"
+                  >
+                    Ir para a próxima tarefa
+                    <ArrowRight size={17} />
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   onClick={onClose}
-                  className="mt-5 flex min-h-11 w-full items-center justify-center rounded-xl bg-neutral-900 text-sm font-bold text-white"
+                  className={[
+                    'flex min-h-11 w-full items-center justify-center rounded-xl text-sm font-semibold',
+                    nextTask && onNextTask
+                      ? 'mt-2 text-neutral-600 active:bg-neutral-50'
+                      : 'mt-4 bg-neutral-950 text-white',
+                  ].join(' ')}
                 >
-                  {nextTaskFeedback ? 'Próxima' : 'Voltar para tarefas'}
+                  Voltar para tarefas
                 </button>
               </div>
             )}

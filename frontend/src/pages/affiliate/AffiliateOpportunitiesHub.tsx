@@ -918,11 +918,13 @@ function TasksPanel({
   onOpenTask,
   refreshKey = 0,
   onSummary,
+  onQueueChange,
 }: {
   onOpenTask: (task: AttendanceTaskItem) => void
   refreshKey?: number
   /** Badge = só devidas (executáveis agora), nunca futuras */
   onSummary?: (summary: { due_now: number; overdue: number }) => void
+  onQueueChange?: (tasks: AttendanceTaskItem[]) => void
 }) {
   const [due, setDue] = useState<TaskRow[]>([])
   const [upcoming, setUpcoming] = useState<TaskRow[]>([])
@@ -947,6 +949,7 @@ function TasksPanel({
       setDue(dueList)
       setUpcoming(upList)
       setDone(doneList)
+      onQueueChange?.(dueList)
       const overdue = dueList.filter((t) => isOverdueDue(t.due_at)).length
       onSummary?.({ due_now: dueList.length, overdue })
       hasLoadedOnce.current = true
@@ -963,7 +966,7 @@ function TasksPanel({
       setLoading(false)
       setRefreshing(false)
     }
-  }, [onSummary])
+  }, [onQueueChange, onSummary])
 
   useEffect(() => { void load() }, [load, refreshKey])
 
@@ -1295,6 +1298,7 @@ export function AffiliateOpportunitiesHub({
   const [workspaceItem, setWorkspaceItem] = useState<AttendanceOpportunity | null>(null)
   /** Modal de execução de tarefa (diretor) — separado da ficha de contato */
   const [taskItem, setTaskItem] = useState<AttendanceTaskItem | null>(null)
+  const [taskQueue, setTaskQueue] = useState<AttendanceTaskItem[]>([])
   const [activityItem, setActivityItem] = useState<ActivityFeedItem | null>(null)
   const [tasksRefresh, setTasksRefresh] = useState(0)
   const [taskBadge, setTaskBadge] = useState(0)
@@ -1302,6 +1306,14 @@ export function AffiliateOpportunitiesHub({
   const [globalQ, setGlobalQ] = useState('')
   const [digest, setDigest] = useState<AttendanceDigest | null>(null)
   const [deepLinkTaskConsumed, setDeepLinkTaskConsumed] = useState(false)
+  const handleTaskSummary = useCallback(
+    (summary: { due_now: number }) => setTaskBadge(Math.max(0, Number(summary.due_now) || 0)),
+    [],
+  )
+  const handleTaskQueueChange = useCallback(
+    (tasks: AttendanceTaskItem[]) => setTaskQueue(tasks),
+    [],
+  )
 
   useEffect(() => {
     setTab(initialTab)
@@ -1592,7 +1604,8 @@ export function AffiliateOpportunitiesHub({
       {tab === 'tarefas' && (
         <TasksPanel
           refreshKey={tasksRefresh}
-          onSummary={(s) => setTaskBadge(Math.max(0, Number(s.due_now) || 0))}
+          onSummary={handleTaskSummary}
+          onQueueChange={handleTaskQueueChange}
           onOpenTask={(t) => {
             setWorkspaceItem(null)
             setTaskItem(t)
@@ -1650,6 +1663,8 @@ export function AffiliateOpportunitiesHub({
         <AffiliateTaskWorkspace
           task={taskItem}
           ctx={ctx}
+          nextTask={taskQueue.find((candidate) => String(candidate.id) !== String(taskItem.id)) || null}
+          onNextTask={(nextTask) => setTaskItem(nextTask)}
           onConnectWhatsApp={() => onNavigate?.('/conexoes')}
           onClose={() => {
             setTaskItem(null)
@@ -1663,11 +1678,6 @@ export function AffiliateOpportunitiesHub({
           onChanged={(patch) => {
             if (patch) {
               setProgressPatch(patch)
-              const midFlow = new Set(['sent', 'followup', 'note'])
-              if (!midFlow.has(String(patch.action || ''))) {
-                setTaskItem(null)
-                setTab('novas')
-              }
             }
             setTasksRefresh((k) => k + 1)
             setMeusRefresh((k) => k + 1)

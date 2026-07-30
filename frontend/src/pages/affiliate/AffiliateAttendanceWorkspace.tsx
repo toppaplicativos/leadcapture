@@ -364,9 +364,10 @@ export function AffiliateAttendanceWorkspace({
     const sentCount = history.filter((event) =>
       ['sent', 'followup', 'called'].includes(String(event.action || '').toLowerCase()),
     ).length
+    const awaitingOutcome = isInitiatingAction(lastAction)
     const requestedStep = composerTemplateId === 'optin'
       ? 0
-      : Math.min(8, Math.max(1, sentCount + 1))
+      : Math.min(8, Math.max(1, awaitingOutcome ? sentCount : sentCount + 1))
     const rawTrigger = String(lastAction || (composerTemplateId === 'followup' ? 'no_answer' : 'start')).toLowerCase()
     const trigger = requestedStep === 0
       ? 'optin'

@@ -1983,6 +1983,7 @@ router.post("/opportunities/:refType/:refId/release-phone", async (req: AuthRequ
 
     await query(`CREATE TABLE IF NOT EXISTS affiliate_pool_skips (
       id VARCHAR(36) PRIMARY KEY,
+      owner_user_id VARCHAR(36) NOT NULL,
       affiliate_id VARCHAR(36) NOT NULL,
       brand_id VARCHAR(36) NOT NULL,
       queue_id VARCHAR(36) NOT NULL,
@@ -1993,11 +1994,19 @@ router.post("/opportunities/:refType/:refId/release-phone", async (req: AuthRequ
     )`);
     await query(
       `INSERT INTO affiliate_pool_skips
-       (id, affiliate_id, brand_id, queue_id, reason, note)
-       VALUES (?, ?, ?, ?, 'released_by_affiliate', ?)
+       (id, owner_user_id, affiliate_id, brand_id, queue_id, reason, note)
+       VALUES (?, ?, ?, ?, ?, 'released_by_affiliate', ?)
        ON CONFLICT (affiliate_id, brand_id, queue_id) DO UPDATE SET
+         owner_user_id = EXCLUDED.owner_user_id,
          reason = EXCLUDED.reason, note = EXCLUDED.note, created_at = CURRENT_TIMESTAMP`,
-      [randomUUID(), affiliateId, ctx.brandId, queueId, "Liberado para outro afiliado realizar ligação"],
+      [
+        randomUUID(),
+        ctx.ownerUserId,
+        affiliateId,
+        ctx.brandId,
+        queueId,
+        "Liberado para outro afiliado realizar ligação",
+      ],
     );
     await query(
       `UPDATE lead_distribution_queue
@@ -2331,6 +2340,25 @@ router.patch("/opportunities/:refType/:refId/progress", async (req: AuthRequest,
     });
     if (!effect) return res.status(400).json({ error: "Etapa inválida" });
 
+    /*
+     * O contato realizado abre a apuração do resultado, mas não conclui C1–C8.
+     * A próxima etapa só nasce depois que o afiliado informa o desfecho.
+     */
+    const awaitingOutcome = isInitiatingAction(action);
+    if (awaitingOutcome) {
+      effect = {
+        ...effect,
+        followupDays: null,
+        clearFollowup: false,
+        taskType: null,
+        instruction: "Contato realizado · registre o resultado para concluir esta etapa",
+        templateId: null,
+        toast: action === "called"
+          ? "Ligação registrada · informe o resultado"
+          : "Mensagem registrada · informe o resultado",
+      };
+    }
+
     let channelExhausted = false;
     let remainingChannels: ContactChannel[] = [];
     if (action === "channel_unavailable") {
@@ -2377,7 +2405,7 @@ router.patch("/opportunities/:refType/:refId/progress", async (req: AuthRequest,
     }
 
     /* Conclui a tarefa específica do modal (idempotente se já done). */
-    if (taskId && action !== "note") {
+    if (taskId && action !== "note" && !awaitingOutcome) {
       await completeAttendanceTask({
         affiliateId: String(affiliate.id),
         brandId: ctx.brandId,
@@ -2550,18 +2578,20 @@ router.patch("/opportunities/:refType/:refId/progress", async (req: AuthRequest,
       }
     }
 
-    const cadence = await applyCadenceAfterProgress({
-      ownerUserId: ctx.ownerUserId,
-      brandId: ctx.brandId,
-      affiliateId: String(affiliate.id),
-      refType,
-      refId,
-      action,
-      followupDaysOverride:
-        action === "waiting" || action === "callback_requested" ? followupDaysBody : null,
-      completedMessageStep,
-      effectOverride: effect,
-    });
+    const cadence = awaitingOutcome
+      ? { effect, next_task: null }
+      : await applyCadenceAfterProgress({
+          ownerUserId: ctx.ownerUserId,
+          brandId: ctx.brandId,
+          affiliateId: String(affiliate.id),
+          refType,
+          refId,
+          action,
+          followupDaysOverride:
+            action === "waiting" || action === "callback_requested" ? followupDaysBody : null,
+          completedMessageStep,
+          effectOverride: effect,
+        });
 
     await recordAffiliateManualAction({
       ctx,

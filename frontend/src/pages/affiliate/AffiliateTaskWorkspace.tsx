@@ -30,6 +30,7 @@ export type AttendanceTaskItem = {
   task_type: string
   instruction?: string | null
   template_id?: string | null
+  contact_channel?: 'whatsapp' | 'phone' | 'instagram' | 'note' | 'system' | null
   due_at: string
   status: string
   contact_name?: string | null
@@ -151,6 +152,8 @@ function formatDue(iso: string) {
 }
 
 function taskRequiresPhone(task: AttendanceTaskItem) {
+  if (task.contact_channel === 'phone') return true
+  if (task.contact_channel === 'whatsapp') return false
   const instruction = String(task.instruction || '')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
@@ -309,10 +312,10 @@ export function AffiliateTaskWorkspace({
   }, [task.id, task.ref_id, task.ref_type, task.contact_name, task.instruction, task.due_at, templateId, meta.title, task.task_type])
 
   useEffect(() => {
-    if (phoneRequiredByTask || contact?.phone_only || contact?.contact_mode === 'phone_only' || contact?.has_whatsapp === false) {
+    if (phoneRequiredByTask || contact?.phone_only || contact?.contact_mode === 'phone_only') {
       setTaskChannel('phone')
     }
-  }, [contact?.contact_mode, contact?.has_whatsapp, contact?.phone_only, phoneRequiredByTask])
+  }, [contact?.contact_mode, contact?.phone_only, phoneRequiredByTask])
 
   const lead: WaSendLead | null = useMemo(() => {
     if (!contact) return null
@@ -331,11 +334,14 @@ export function AffiliateTaskWorkspace({
   }, [contact, ctx.brand?.name, task.instruction])
 
   const phoneDigits = String(contact?.channels?.phone || contact?.phone || contact?.channels?.whatsapp || '').replace(/\D/g, '')
-  const hasWa = contact?.has_whatsapp ?? (
-    contact?.contact_mode !== 'phone_only'
-    && !contact?.phone_only
-    && phoneDigits.length >= 8
-  )
+  const taskConfirmsWhatsApp = task.contact_channel === 'whatsapp' || (!phoneRequiredByTask && /^followup_|^first_contact$/.test(task.task_type))
+  const hasWa = taskConfirmsWhatsApp
+    ? phoneDigits.length >= 8
+    : contact?.has_whatsapp ?? (
+      contact?.contact_mode !== 'phone_only'
+      && !contact?.phone_only
+      && phoneDigits.length >= 8
+    )
   const hasPhone = phoneDigits.length >= 8
   const persistedTaskId = isPersistedTaskId(task.id) ? task.id : undefined
   const executable = isTaskDue(task.due_at)

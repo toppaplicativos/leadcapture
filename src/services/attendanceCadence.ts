@@ -462,6 +462,7 @@ export async function ensureAttendanceTasksSchema(): Promise<void> {
       task_type VARCHAR(40) NOT NULL,
       instruction TEXT NULL,
       template_id VARCHAR(40) NULL,
+      contact_channel VARCHAR(20) NULL,
       due_at TIMESTAMP NOT NULL,
       status VARCHAR(20) NOT NULL DEFAULT 'pending',
       created_from_action VARCHAR(40) NULL,
@@ -488,6 +489,9 @@ export async function ensureAttendanceTasksSchema(): Promise<void> {
   await query(
     `ALTER TABLE prospect_assignments ADD COLUMN removed_reason VARCHAR(80) NULL`,
   ).catch(() => undefined);
+  await query(
+    `ALTER TABLE affiliate_attendance_tasks ADD COLUMN contact_channel VARCHAR(20) NULL`,
+  ).catch(() => undefined);
   tasksSchemaReady = true;
 }
 
@@ -501,9 +505,39 @@ export type AttendanceTaskRow = {
   due_at: string;
   status: string;
   created_from_action: string | null;
+  contact_channel?: "whatsapp" | "phone" | "instagram" | "note" | "system" | null;
   contact_name?: string | null;
   completed_at?: string | null;
 };
+
+function normalizeTaskChannel(raw?: string | null): AttendanceTaskRow["contact_channel"] {
+  const value = String(raw || "").trim().toLowerCase();
+  if (value === "whatsapp" || value === "phone" || value === "instagram" || value === "note" || value === "system") {
+    return value;
+  }
+  return null;
+}
+
+function inferTaskChannel(row: any): AttendanceTaskRow["contact_channel"] {
+  const explicit = normalizeTaskChannel(row?.contact_channel);
+  if (explicit) return explicit;
+  const fromAction = String(row?.created_from_action || "").trim().toLowerCase();
+  if (fromAction === "called" || fromAction === "voicemail" || fromAction === "busy" || fromAction === "callback_requested") {
+    return "phone";
+  }
+  const instruction = String(row?.instruction || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  if (
+    /\b(contato|tentar|ligar|ligacao)\b.*\b(telefone|telefonico|ligar|ligacao)\b/.test(instruction)
+    || /\b(telefone|telefonico|ligar|ligacao)\b.*\b(contato|tentar)\b/.test(instruction)
+  ) {
+    return "phone";
+  }
+  if (/^followup_|^first_contact$/.test(String(row?.task_type || ""))) return "whatsapp";
+  return null;
+}
 
 export async function cancelOpenTasks(input: {
   affiliateId: string;
@@ -533,6 +567,7 @@ export async function scheduleAttendanceTask(input: {
   templateId?: string | null;
   dueDays: number;
   fromAction: string;
+  contactChannel?: "whatsapp" | "phone" | "instagram" | "note" | "system" | null;
 }): Promise<AttendanceTaskRow | null> {
   await ensureAttendanceTasksSchema();
   await cancelOpenTasks({
@@ -548,8 +583,8 @@ export async function scheduleAttendanceTask(input: {
   await query(
     `INSERT INTO affiliate_attendance_tasks
      (id, owner_user_id, brand_id, affiliate_id, ref_type, ref_id,
-      task_type, instruction, template_id, due_at, status, created_from_action)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP + (? * INTERVAL '1 day'), 'pending', ?)`,
+      task_type, instruction, template_id, contact_channel, due_at, status, created_from_action)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP + (? * INTERVAL '1 day'), 'pending', ?)`,
     [
       id,
       input.ownerUserId,
@@ -560,6 +595,7 @@ export async function scheduleAttendanceTask(input: {
       input.taskType,
       input.instruction,
       input.templateId || null,
+      normalizeTaskChannel(input.contactChannel) || null,
       days,
       input.fromAction,
     ],
@@ -580,6 +616,7 @@ export async function scheduleAttendanceTask(input: {
     due_at: String(row.due_at),
     status: String(row.status),
     created_from_action: row.created_from_action || null,
+    contact_channel: inferTaskChannel(row),
   };
 }
 
@@ -628,6 +665,7 @@ function mapTaskRow(row: any): AttendanceTaskRow {
     due_at: String(row.due_at),
     status: String(row.status),
     created_from_action: row.created_from_action || null,
+    contact_channel: inferTaskChannel(row),
     contact_name: row.contact_name ? String(row.contact_name) : null,
     completed_at: row.completed_at ? String(row.completed_at) : null,
   };
@@ -775,6 +813,7 @@ export async function applyCadenceAfterProgress(input: {
   /** Última etapa cold já enviada (0–8) — alimenta régua C1–C8 */
   completedMessageStep?: number | null;
   effectOverride?: CadenceEffect | null;
+  contactChannel?: "whatsapp" | "phone" | "instagram" | "note" | "system" | null;
 }): Promise<{
   effect: CadenceEffect;
   next_task: AttendanceTaskRow | null;
@@ -819,6 +858,7 @@ export async function applyCadenceAfterProgress(input: {
       templateId: effect.templateId,
       dueDays: effect.followupDays,
       fromAction: input.action,
+      contactChannel: input.contactChannel,
     });
   } else if (effect.taskType && effect.archive && input.action === "convert") {
     /* pós-venda mesmo após sair da prospecção */
@@ -833,6 +873,7 @@ export async function applyCadenceAfterProgress(input: {
       templateId: effect.templateId,
       dueDays: effect.followupDays ?? 2,
       fromAction: input.action,
+      contactChannel: input.contactChannel,
     });
   }
 

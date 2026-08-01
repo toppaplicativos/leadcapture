@@ -2571,12 +2571,18 @@ router.patch("/opportunities/:refType/:refId/progress", async (req: AuthRequest,
                 due_at: existingNext.due_at,
                 instruction: existingNext.instruction,
                 template_id: existingNext.template_id,
+                contact_channel: existingNext.contact_channel || null,
                 is_due: new Date(existingNext.due_at).getTime() <= Date.now(),
               }
             : null,
         });
       }
     }
+
+    const nextTaskChannel =
+      action === "channel_unavailable" && !channelExhausted
+        ? (remainingChannels.includes("phone") ? "phone" : remainingChannels[0] || channel)
+        : channel;
 
     const cadence = awaitingOutcome
       ? { effect, next_task: null }
@@ -2591,6 +2597,7 @@ router.patch("/opportunities/:refType/:refId/progress", async (req: AuthRequest,
             action === "waiting" || action === "callback_requested" ? followupDaysBody : null,
           completedMessageStep,
           effectOverride: effect,
+          contactChannel: nextTaskChannel,
         });
 
     await recordAffiliateManualAction({
@@ -2699,6 +2706,7 @@ router.patch("/opportunities/:refType/:refId/progress", async (req: AuthRequest,
             due_at: cadence.next_task.due_at,
             instruction: cadence.next_task.instruction,
             template_id: cadence.next_task.template_id,
+            contact_channel: cadence.next_task.contact_channel || null,
             is_due: nextDue,
           }
         : null,

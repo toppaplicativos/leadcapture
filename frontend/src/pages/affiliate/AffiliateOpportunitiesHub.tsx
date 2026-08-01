@@ -879,6 +879,8 @@ const TASK_TYPE_LABEL: Record<string, string> = {
 }
 
 function taskRequiresPhoneChannel(task: AttendanceTaskItem) {
+  if (task.contact_channel === 'phone') return true
+  if (task.contact_channel === 'whatsapp') return false
   const instruction = String(task.instruction || '')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')

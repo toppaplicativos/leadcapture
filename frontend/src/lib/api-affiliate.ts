@@ -549,6 +549,7 @@ export const affiliateApi = {
         due_at: string
         instruction?: string | null
         template_id?: string | null
+        contact_channel?: 'whatsapp' | 'phone' | 'instagram' | 'note' | 'system' | null
         is_due?: boolean
       } | null
     }>(`/api/affiliate-app/opportunities/${encodeURIComponent(refType)}/${encodeURIComponent(refId)}/progress`, {
@@ -602,6 +603,7 @@ export const affiliateApi = {
       task_type: string
       instruction?: string | null
       template_id?: string | null
+      contact_channel?: 'whatsapp' | 'phone' | 'instagram' | 'note' | 'system' | null
       due_at: string
       status: string
       contact_name?: string | null

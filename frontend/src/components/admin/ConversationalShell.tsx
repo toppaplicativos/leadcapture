@@ -38,8 +38,8 @@ import { useConfirm } from '@/components/ConfirmModal'
 const COLLAPSED_CHAT_GROUPS = [
   { label: 'Principal', keys: ['dashboard', 'busca', 'clientes', 'leads'] },
   { label: 'Canais', keys: ['mensagens', 'whatsapp', 'instagram', 'facebook', 'emails'] },
-  { label: 'Vendas', keys: ['campanhas', 'loja', 'produtos', 'pedidos', 'frete', 'entregas', 'estoque', 'pagamentos', 'afiliados', 'cupons', 'clube', 'galeria'] },
-  { label: 'Inteligência', keys: ['automacoes', 'fluxos', 'notificacoes', 'habilidades', 'agente', 'atendente', 'provedores-ia'] },
+  { label: 'Vendas', keys: ['campanhas', 'loja', 'produtos', 'pedidos', 'frete', 'entregas', 'estoque', 'pagamentos', 'administrativo', 'afiliados', 'cupons', 'clube', 'galeria'] },
+  { label: 'Inteligência', keys: ['automacoes', 'fluxos', 'notificacoes', 'habilidades', 'criativos', 'video-studio', 'agente', 'atendente', 'provedores-ia'] },
   { label: 'Sistema', keys: ['configuracoes'] },
 ] as const
 
@@ -479,7 +479,6 @@ function ConversationalShellInner({ children }: { children?: ReactNode }) {
   const navigate = useNavigate()
   const location = useLocation()
   const { msg: toast, show: showToast } = useShellToast()
-  const isImmersive = location.pathname === '/video-studio'
   const [brand, setBrand] = useState<{ name?: string; logo_url?: string }>({})
   const [brands, setBrands] = useState<any[]>([])
   const [activeBrandId, setActiveBrandId] = useState(localStorage.getItem('lead-system:active-brand-id') || '')
@@ -564,7 +563,10 @@ function ConversationalShellInner({ children }: { children?: ReactNode }) {
 
   async function switchBrand(brandId: string) {
     try {
-      await fetch(`/api/brands/${brandId}/activate`, { method: 'POST', headers: getHeaders() })
+      await fetch(`/api/brands/${brandId}/activate`, {
+        method: 'POST',
+        headers: { ...getHeaders(), 'x-brand-id': brandId },
+      })
       localStorage.setItem('lead-system:active-brand-id', brandId)
       setActiveBrandId(brandId)
       setShowBrandPicker(false)
@@ -588,17 +590,6 @@ function ConversationalShellInner({ children }: { children?: ReactNode }) {
     return (
       <div className="h-screen w-full" style={{ background: 'var(--color-surface-alt, #f3f3f3)' }}>
         <PageSplash variant="route" view="admin" label="Painel" />
-      </div>
-    )
-  }
-
-  if (isImmersive) {
-    return (
-      <div className="agent-shell flex flex-col bg-bg">
-        <div className="agent-shell__chrome shrink-0">
-          <WhatsAppHealthBanner embedded />
-        </div>
-        <div key={activeBrandId} className="flex-1 min-h-0 overflow-hidden">{children}</div>
       </div>
     )
   }

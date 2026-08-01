@@ -34,6 +34,7 @@ import bcrypt from "bcryptjs";
 import { SKILLS, NAV_PATHS, buildSkillsCatalog } from "./squads";
 import { getSkillMeta } from "./skillMeta";
 import { formatCommissionShort, normalizeCommissionMode } from "../affiliateCommission";
+import { accountingService } from "../accounting";
 import { combineMemoryBlocks } from "./memory";
 import type { AdminAgentMemory } from "./sessionStore";
 import type {
@@ -108,11 +109,17 @@ export class AdminAgentOrchestrator {
     }
 
     let selection: SkillSelection;
-    try {
-      selection = await this.selectSkill(trimmed, history, ctx);
-    } catch (err: any) {
-      logger.warn({ err: err?.message }, "admin agent: skill selection failed, using fallback");
+    const deterministicAction =
+      /(lan[çc]ar|registrar|adicionar|incluir|anotar).*(entrada|sa[ií]da|despesa|receita|aluguel|combust[ií]vel|transporte|alimenta[çc][aã]o|sal[aá]rio|folha)/i.test(trimmed);
+    if (deterministicAction) {
       selection = this.fallbackSelection(trimmed, ctx);
+    } else {
+      try {
+        selection = await this.selectSkill(trimmed, history, ctx);
+      } catch (err: any) {
+        logger.warn({ err: err?.message }, "admin agent: skill selection failed, using fallback");
+        selection = this.fallbackSelection(trimmed, ctx);
+      }
     }
 
     const skill = SKILLS[selection.skill];
@@ -607,6 +614,16 @@ Responda APENAS com JSON válido neste formato:
       };
     }
 
+    if (ev?.action === "finance_transaction_confirm") {
+      const payload = ev.payload || {};
+      return {
+        skill: "finance.transaction.create",
+        squad: "finance",
+        message: "Registrando o lançamento no financeiro…",
+        context: { ...payload, confirmed: true },
+      };
+    }
+
     if (sk?.nextSkill === "crm.lead.detail" && sk.leadId) {
       return {
         skill: "crm.lead.detail",
@@ -631,6 +648,34 @@ Responda APENAS com JSON válido neste formato:
 
   private fallbackSelection(message: string, ctx?: AdminAgentContext): SkillSelection {
     const lower = message.toLowerCase();
+
+    const financeIntent = /(lan[çc]ar|registrar|adicionar|incluir|anotar).*(entrada|sa[ií]da|despesa|receita|aluguel|combust[ií]vel|transporte|alimenta[çc][aã]o|sal[aá]rio|folha)/i.test(lower);
+    if (financeIntent) {
+      const amountMatch = message.match(/r\$\s*([\d.]+(?:,\d{1,2})?)/i)
+        || message.match(/(?:valor(?:\s+de)?|de)\s+([\d.]+(?:,\d{1,2})?)/i);
+      const amount = amountMatch?.[1]
+        ? Number(amountMatch[1].replace(/\./g, "").replace(",", "."))
+        : 0;
+      const kind = /(entrada|receita|recebimento|venda)/i.test(lower) ? "income" : "expense";
+      const categoryHint =
+        /combust|carro|ve[ií]culo/i.test(lower) ? "Veículos e combustível"
+        : /alimenta/i.test(lower) ? "Alimentação"
+        : /transporte/i.test(lower) ? "Transporte"
+        : /folha|sal[aá]rio|funcion[aá]rio/i.test(lower) ? "Folha e salários"
+        : /aluguel/i.test(lower) ? "Aluguel e estrutura"
+        : kind === "income" ? "Recebimentos" : "Outras saídas";
+      const description = message
+        .replace(/^(lan[çc]ar|registrar|adicionar|incluir|anotar)\s+/i, "")
+        .replace(/r\$\s*[\d.]+(?:,\d{1,2})?/i, "")
+        .replace(/\s+/g, " ")
+        .trim() || categoryHint;
+      return {
+        squad: "finance",
+        skill: "finance.transaction.create",
+        message: amount > 0 ? "Revise o lançamento antes de registrar:" : "Qual é o valor do lançamento?",
+        context: { kind, amount, description, categoryHint, occurred_on: new Date().toISOString().slice(0, 10) },
+      };
+    }
 
     const leadNameMatch = lower.match(/(?:lead|cliente)\s+(?:chamad[oa]|nome)\s+(.+)/i)
       || lower.match(/editar\s+(?:o\s+)?lead\s+(.+)/i)
@@ -1136,6 +1181,70 @@ Responda APENAS com JSON válido neste formato:
           },
         });
         components.push(this.buildNavSuggestions(["produtos"]));
+        break;
+      }
+
+      case "finance.transaction.create": {
+        if (!ctx.brandId) throw new Error("Selecione uma organização antes de criar o lançamento.");
+        const kind = String(sk.kind || "expense") === "income" ? "income" : "expense";
+        const amount = Number(sk.amount || 0);
+        const description = String(sk.description || "").trim();
+        const occurredOn = String(sk.occurred_on || new Date().toISOString().slice(0, 10));
+        const categoryHint = String(sk.categoryHint || (kind === "income" ? "Recebimentos" : "Outras saídas"));
+        if (!(amount > 0)) {
+          components.push({
+            id: "finance-value-needed",
+            type: "text",
+            props: { content: "Informe o valor com a moeda. Ex.: “lançar despesa de combustível de R$ 300 hoje”." },
+          });
+          break;
+        }
+        const categories = await accountingService.listCategories(ctx.brandId);
+        const categorySource = `${categoryHint} ${description}`.toLowerCase();
+        const preferredCategoryName =
+          /(combust|transporte|carro|veículo|veiculo|frete|logística|logistica)/i.test(categorySource) ? "Frete e logística"
+          : /(folha|salário|salario|funcionário|funcionario)/i.test(categorySource) ? "Folha e salários"
+          : /aluguel/i.test(categorySource) ? "Aluguel e estrutura"
+          : kind === "income" ? "Recebimentos" : "Outras saídas";
+        const category = categories.find((item: any) =>
+          item.kind === kind && String(item.name).toLowerCase() === preferredCategoryName.toLowerCase(),
+        ) || categories.find((item: any) =>
+          item.kind === kind && String(item.name).toLowerCase() === categoryHint.toLowerCase(),
+        ) || categories.find((item: any) => item.kind === kind && item.is_active);
+        if (!category?.id) throw new Error("Nenhuma categoria financeira ativa foi encontrada.");
+        const draft = {
+          kind,
+          amount,
+          description: description || categoryHint,
+          category_id: category.id,
+          category_name: category.name,
+          occurred_on: occurredOn,
+          status: "paid",
+        };
+        if (sk.confirmed) {
+          const transaction = await accountingService.saveTransaction(ctx.brandId, draft, ctx.userId);
+          components.push({
+            id: "finance-created",
+            type: "text",
+            props: {
+              content: `Lançamento registrado com sucesso: ${draft.description} · ${new Intl.NumberFormat("pt-BR", { style:"currency", currency:"BRL" }).format(amount)}.`,
+            },
+          });
+          components.push(this.buildNavSuggestions(["contabilidade"]));
+          actions.push({ type:"navigate", payload:{ path:"/contabilidade", transactionId:transaction?.id } });
+          break;
+        }
+        components.push({
+          id: "finance-confirmation",
+          type: "confirmation",
+          props: {
+            title: `${kind === "income" ? "Entrada" : "Saída"} · ${new Intl.NumberFormat("pt-BR", { style:"currency", currency:"BRL" }).format(amount)}`,
+            description: `${draft.description} · ${category.name} · ${new Date(`${occurredOn}T12:00:00`).toLocaleDateString("pt-BR")}`,
+            confirmLabel: "Registrar lançamento",
+            action: "finance_transaction_confirm",
+            actionPayload: draft,
+          },
+        });
         break;
       }
 

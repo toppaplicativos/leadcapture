@@ -62,6 +62,7 @@ const PUBLIC_TITLES: Record<string, string> = {
 
 const AFFILIATE_PREFIX = '/central-afiliado'
 const STOCK_PREFIX = '/app-estoque'
+const ADMINISTRATIVE_PREFIX = '/app-administrativo'
 
 function normalizePath(pathname: string): string {
   const p = pathname.replace(/\/+$/, '') || '/'
@@ -126,6 +127,10 @@ export function resolveDocumentTitle(
 
   const stock = resolveStockTitle(base, brandName)
   if (stock) return stock
+
+  if (base.startsWith(ADMINISTRATIVE_PREFIX)) {
+    return formatTitle('Administrativo', brandName)
+  }
 
   if (base === '/configuracoes') {
     return resolveSettingsTitle(search, brandName)

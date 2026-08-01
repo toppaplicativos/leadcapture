@@ -137,13 +137,29 @@ export function PWAInstallBanner() {
       const slug = storeBrand?.slug || ''
       return `store:${host}:${slug}`
     }
-    return `app:${platformIdentity.app}:${platformIdentity.surface || ''}`
-  }, [storeSurface, storeBrand?.slug, platformIdentity.app, platformIdentity.surface])
+    return `app:${platformIdentity.app}:${platformIdentity.slug || ''}:${platformIdentity.surface || ''}`
+  }, [storeSurface, storeBrand?.slug, platformIdentity.app, platformIdentity.slug, platformIdentity.surface])
 
   const adoptPrompt = useCallback((e: BeforeInstallPromptEvent | null) => {
     if (!e || typeof e.prompt !== 'function') return
     setDeferredPrompt(e)
     setCanNativeInstall(true)
+  }, [])
+
+  useEffect(() => {
+    const openInstall = () => {
+      const standalone =
+        window.matchMedia('(display-mode: standalone)').matches ||
+        (window.navigator as any).standalone === true
+      if (standalone) return
+      const ua = navigator.userAgent || ''
+      setIsIOS(/iphone|ipad|ipod/i.test(ua))
+      setIsAndroid(/android/i.test(ua))
+      setInAppBrowser(isInAppBrowser())
+      setVisible(true)
+    }
+    window.addEventListener('lc:open-pwa-install', openInstall)
+    return () => window.removeEventListener('lc:open-pwa-install', openInstall)
   }, [])
 
   // Catálogo whitelabel: identidade da marca

@@ -1,7 +1,7 @@
 import {
   LayoutDashboard, Megaphone, ShoppingCart,
   Package, Palette, Search, Mail, Truck, Globe, Bot, Zap,
-  BarChart3, Receipt, Ticket, Star, Sparkles, Film, Images, Crown,
+  BarChart3, Receipt, Ticket, Star, Sparkles, Film, Images, Crown, Landmark,
   GitBranch, Brain, Headphones, Bell, Settings, Handshake, Store,
   MessageSquare, ContactRound, UserRound, CreditCard, UserCog, Bike,
 } from 'lucide-react'
@@ -40,6 +40,9 @@ export const ROUTE_MAP: Record<string, string> = {
   '/instagram': 'instagram',
   '/facebook': 'facebook',
   '/pagamentos': 'pagamentos',
+  '/contabilidade': 'administrativo',
+  '/administrativo': 'administrativo',
+  '/app-administrativo/painel': 'app-administrativo',
   '/frete': 'frete',
   '/entregas': 'entregas',
   '/mob': 'entregas',
@@ -93,6 +96,8 @@ export const NAV_ITEMS: NavItem[] = [
   { key: 'avaliacoes', path: '/avaliacoes', icon: Star, label: 'Avaliações', group: 'loja' },
   { key: 'loja', path: '/loja', icon: Store, label: 'Loja', group: 'loja' },
   { key: 'pagamentos', path: '/pagamentos', icon: CreditCard, label: 'Pagamentos', group: 'loja' },
+  { key: 'administrativo', path: '/administrativo', icon: UserCog, label: 'Acessos Admin', group: 'loja' },
+  { key: 'app-administrativo', path: '/app-administrativo/painel', icon: Landmark, label: 'App Administrativo', group: 'loja', badge: 'Novo' },
   { key: 'frete', path: '/frete', icon: Truck, label: 'Frete & entrega', group: 'loja' },
   { key: 'entregas', path: '/entregas', icon: Bike, label: 'Lead Capture Mob', group: 'loja', badge: 'Novo' },
   { key: 'dominio', path: '/dominio', icon: Globe, label: 'Dominio', group: 'loja' },

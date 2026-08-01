@@ -172,6 +172,15 @@ export const SKILLS: Record<string, SkillDefinition> = {
     permissions: ["catalog.read"],
     ui: ["orders_stats", "kpi_row", "table"],
   },
+  "finance.transaction.create": {
+    id: "finance.transaction.create",
+    name: "Criar lançamento financeiro",
+    description: "Registra uma entrada ou saída real após confirmação explícita.",
+    squad: "finance",
+    intents: ["lançar despesa", "registrar saída", "adicionar entrada", "lançamento financeiro"],
+    permissions: ["finance.write"],
+    ui: ["confirmation", "text", "nav_suggestions"],
+  },
   "nav.help": {
     id: "nav.help",
     name: "Ajuda e navegação",

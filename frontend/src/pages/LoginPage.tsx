@@ -24,6 +24,12 @@ const LOGIN_MEDIA = {
 
 const ACCESS_PROFILES = [
   {
+    label: 'Administrativo',
+    detail: 'Financeiro, pessoas e aprovações',
+    to: '/app-administrativo/painel',
+    icon: Building2,
+  },
+  {
     label: 'Afiliado',
     detail: 'Programas, divulgação e vendas',
     to: '/parceiros/entrar',
@@ -115,6 +121,21 @@ export function LoginPage() {
   )
   const [loading, setLoading] = useState(false)
   const [mounted, setMounted] = useState(false)
+  const organizationAdminHost =
+    typeof window !== 'undefined'
+    && window.location.hostname.toLowerCase().startsWith('admin.')
+    && window.location.hostname.toLowerCase() !== 'admin.leadcapture.online'
+  const administrativeLogin = organizationAdminHost || redirect.includes('/app-administrativo')
+  const requestedBrandRef =
+    redirect.match(/\/app-administrativo\/([^/]+)\/painel/)?.[1]
+    || (typeof window !== 'undefined' ? window.__STORE_SLUG__ : '')
+    || ''
+  const brandLabel =
+    localStorage.getItem('lead-system:active-brand-name')
+    || (requestedBrandRef === 'alhopronto'
+      ? 'Alho Pronto'
+      : requestedBrandRef.replace(/-/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase()))
+    || 'Organização'
 
   useEffect(() => {
     document.title = 'Entrar · Organização · LeadCapture'
@@ -134,6 +155,22 @@ export function LoginPage() {
     if (isMasterHost()) return masterAdminBase()
     // PWA/mobile: chat com última conversa (ou nova); painel não é home
     return '/assistente'
+  }
+
+  async function ensureAdministrativeBrand(sessionToken: string) {
+    if (!administrativeLogin) return
+    const refQuery = requestedBrandRef ? `?ref=${encodeURIComponent(requestedBrandRef)}` : ''
+    const response = await fetch(`/api/auth/administrative-brand${refQuery}`, {
+      cache: 'no-store',
+      headers: { Authorization: `Bearer ${sessionToken}`, 'Content-Type': 'application/json' },
+    })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) throw new Error(data.error || 'Não foi possível identificar a organização.')
+    const selected = data.brand
+    if (!selected?.id) throw new Error('Sua conta não possui acesso a esta organização.')
+    localStorage.setItem('lead-system:active-brand-id', String(selected.id))
+    if (selected.name) localStorage.setItem('lead-system:active-brand-name', String(selected.name))
+    if (selected.logo_url) localStorage.setItem('lead-system:active-brand-logo', String(selected.logo_url))
   }
 
   /* Master impersonation: /login?impersonate=1#token=JWT */
@@ -164,6 +201,7 @@ export function LoginPage() {
     })
       .then(async (r) => {
         if (r.ok) {
+          await ensureAdministrativeBrand(token)
           if (alive) navigate(postLoginPath(), { replace: true })
           return
         }
@@ -221,6 +259,7 @@ export function LoginPage() {
           localStorage.setItem('lead-system:active-brand-id', bd.active_brand_id)
         }
       }
+      await ensureAdministrativeBrand(d.token)
 
       navigate(dest, { replace: true })
     } catch (err: any) {
@@ -231,18 +270,16 @@ export function LoginPage() {
   }
 
   return (
-    <div className={`org-login${mounted ? ' is-ready' : ''}`}>
-      <LoginMediaPanel />
+    <div className={`org-login${administrativeLogin ? ' org-login--administrative' : ''}${mounted ? ' is-ready' : ''}`}>
+      {!administrativeLogin && <LoginMediaPanel />}
 
       <div className="org-login__panel">
         <header className="org-login__top">
-          <Link to="/inicio" className="org-login__brand">
-            <BrandMark size={28} />
-            <span>LeadCapture</span>
-          </Link>
-          <Link to="/inicio#planos" className="org-login__plans-link">
-            Ver planos
-          </Link>
+          <div className="org-login__brand">
+            {administrativeLogin ? <Building2 size={24} /> : <BrandMark size={28} />}
+            <span>{administrativeLogin ? brandLabel : 'LeadCapture'}</span>
+          </div>
+          {!administrativeLogin && <Link to="/inicio#planos" className="org-login__plans-link">Ver planos</Link>}
         </header>
 
         <main className="org-login__main">
@@ -252,8 +289,8 @@ export function LoginPage() {
                 <Building2 size={19} strokeWidth={1.9} />
               </span>
               <div>
-                <p className="org-login__eyebrow">Organização</p>
-                <h1 className="org-login__title">Entrar no painel</h1>
+                <p className="org-login__eyebrow">{administrativeLogin ? brandLabel : 'Organização'}</p>
+                <h1 className="org-login__title">{administrativeLogin ? 'Acesso administrativo' : 'Entrar no painel'}</h1>
               </div>
             </div>
 
@@ -301,7 +338,7 @@ export function LoginPage() {
                 iconRight={!loading ? <ArrowRight size={16} strokeWidth={2} /> : undefined}
                 className="org-login__submit"
               >
-                {loading ? 'Entrando…' : 'Entrar na organização'}
+                {loading ? 'Entrando…' : administrativeLogin ? 'Entrar' : 'Entrar na organização'}
               </Button>
             </form>
 
@@ -310,16 +347,16 @@ export function LoginPage() {
               <span>Sessão segura · Dados da marca isolados por organização</span>
             </div>
 
-            <p className="org-login__footer-note">
+            {!administrativeLogin && <p className="org-login__footer-note">
               Ainda não tem conta?{' '}
               <Link to="/inicio#planos">Conhecer os planos</Link>
-            </p>
+            </p>}
 
-            <div className="org-login__access-divider">
+            {!administrativeLogin && <div className="org-login__access-divider">
               <span>Outros acessos</span>
-            </div>
+            </div>}
 
-            <nav className="org-login__access-grid" aria-label="Escolha outro tipo de acesso">
+            {!administrativeLogin && <nav className="org-login__access-grid" aria-label="Escolha outro tipo de acesso">
               {ACCESS_PROFILES.map(({ label, detail, to, icon: Icon }) => (
                 <Link key={label} to={to} className="org-login__access-item">
                   <span className="org-login__access-icon" aria-hidden>
@@ -332,12 +369,12 @@ export function LoginPage() {
                   <ArrowRight size={14} strokeWidth={2} className="org-login__access-arrow" aria-hidden />
                 </Link>
               ))}
-            </nav>
+            </nav>}
           </div>
         </main>
 
         <footer className="org-login__bottom">
-          <p>Painel administrativo · LeadCapture</p>
+          <p>{administrativeLogin ? `${brandLabel} · Ambiente administrativo protegido` : 'Painel administrativo · LeadCapture'}</p>
         </footer>
       </div>
     </div>

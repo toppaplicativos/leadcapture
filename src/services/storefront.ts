@@ -1703,6 +1703,13 @@ export class StorefrontService {
         value: verificationValue,
       },
       connection,
+      administrative_app: {
+        url: `https://admin.${domain.replace(/^www\./, "")}`,
+        type: "A",
+        host: "admin",
+        value: serverIp,
+        note: `Crie também um registro A com host "admin" apontando para ${serverIp}. Esse será o PWA administrativo privado da marca.`,
+      },
       expected_origin: `https://${domain}`,
       verification_token: verificationToken,
     };

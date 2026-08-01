@@ -22,6 +22,7 @@ const ReviewsView = lazy(() => import('@/pages/admin/reviews/ReviewsView').then(
 const PaymentConfigView = lazy(() => import('@/pages/admin/payments/PaymentConfigView').then(m => ({ default: m.PaymentConfigView })))
 const WhatsAppManagerView = lazy(() => import('@/pages/admin/whatsapp/WhatsAppManagerView').then(m => ({ default: m.WhatsAppManagerView })))
 const SettingsView = lazy(() => import('@/pages/admin/settings/SettingsView').then(m => ({ default: m.SettingsView })))
+const AdministrativeAccessView = lazy(() => import('@/pages/administrative/AdministrativeAppPage').then(m => ({ default: () => <m.AdministrativeAppPage accessOnly /> })))
 const MessagesView = lazy(() => import('@/pages/admin/messages/MessagesView').then(m => ({ default: m.MessagesView })))
 const AutomationsView = lazy(() => import('@/pages/admin/automations/AutomationsView').then(m => ({ default: m.AutomationsView })))
 
@@ -131,6 +132,8 @@ export const adminRouteElements = (
       <Route path="/loja" element={<AdminPage><StoreStudioPage /></AdminPage>} />
       <Route path="/design" element={<Navigate to="/loja" replace />} />
       <Route path="/pagamentos" element={<AdminPage><PaymentConfigView showToast={noop} /></AdminPage>} />
+      <Route path="/contabilidade" element={<Navigate to="/app-administrativo/painel?view=finance" replace />} />
+      <Route path="/administrativo" element={<AdministrativeAccessView />} />
       <Route path="/frete" element={<AdminPage><FreteView showToast={noop} /></AdminPage>} />
       <Route path="/entregas" element={<AdminPage><MobLogisticsView showToast={noop} /></AdminPage>} />
       <Route path="/mob" element={<AdminPage><MobLogisticsView showToast={noop} /></AdminPage>} />

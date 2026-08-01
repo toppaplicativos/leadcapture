@@ -313,6 +313,10 @@ export class AtlasProvider {
       model?: string;
       /** Image URL for image-to-video models */
       imageUrl?: string;
+      /** Video URL for video-to-video / restyle models */
+      videoUrl?: string;
+      /** Additional visual references for models that support multi-reference */
+      referenceUrls?: string[];
       params?: Record<string, unknown>;
     },
   ): Promise<{ predictionId: string | null; urls: string[]; model: string; raw: any }> {
@@ -322,7 +326,18 @@ export class AtlasProvider {
       prompt,
       ...(options?.params || {}),
     };
-    if (options?.imageUrl) body.image = options.imageUrl;
+    if (options?.imageUrl) {
+      body.image = options.imageUrl;
+      body.image_url = options.imageUrl;
+    }
+    if (options?.videoUrl) {
+      body.video = options.videoUrl;
+      body.video_url = options.videoUrl;
+    }
+    if (options?.referenceUrls?.length) {
+      body.reference_urls = options.referenceUrls;
+      body.images = options.referenceUrls;
+    }
 
     const response = await fetch(`${this.root}/api/v1/model/generateVideo`, {
       method: "POST",

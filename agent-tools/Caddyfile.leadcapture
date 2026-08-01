@@ -96,6 +96,29 @@ adm.leadcapture.online, www.adm.leadcapture.online {
     }
 }
 
+# leadcapture:admin.alhopronto.online — PWA administrativo da marca
+admin.alhopronto.online {
+    handle /socket.io/* {
+        reverse_proxy 127.0.0.1:3001
+    }
+    handle /api/* {
+        reverse_proxy 127.0.0.1:3001 {
+            transport http {
+                read_timeout 5m
+                write_timeout 5m
+                dial_timeout 30s
+            }
+        }
+    }
+    handle /uploads/* {
+        reverse_proxy 127.0.0.1:3001
+    }
+    handle {
+        reverse_proxy 127.0.0.1:3001
+        header Cache-Control "no-cache, no-store, must-revalidate"
+    }
+}
+
 # ai-model-studio:toppaimodel.online
 toppaimodel.online, www.toppaimodel.online, app.toppaimodel.online, adm.toppaimodel.online {
     encode gzip

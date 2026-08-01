@@ -1,10 +1,12 @@
 import { useState, useRef, useEffect, type FormEvent } from 'react'
+import { createPortal } from 'react-dom'
 import { AICampaignWizardModal } from '@/components/AICampaignWizardModal'
 import { SkillTrainerWizardModal } from '@/components/SkillTrainerWizardModal'
 import {
   Send, Loader2, LayoutGrid, Search, MapPin, Zap as ZapIcon,
   Maximize2, Sparkles, Brain,
   PanelRight, X, SquarePen, History, ChevronDown, Trash2, Pencil, Pin, Copy,
+  ChevronRight, ArrowLeft, MessageSquare, LayoutDashboard, Package, ShoppingBag, Landmark, ShieldCheck,
 } from 'lucide-react'
 import type { IconComponent } from '@/components/icons'
 import { AgentUIRenderer } from './AgentUIRenderer'
@@ -101,6 +103,16 @@ const CATALOG_INLINE_SKILLS = new Set([
   'settings.open',
   'design.edit',
 ])
+
+const MOBILE_PRIMARY_NAV = [
+  { skill: 'dashboard.overview', label: 'Painel', description: 'Visão geral da organização', icon: LayoutDashboard },
+  { skill: 'messages.inbox', label: 'Mensagens', description: 'Atendimento e conversas', icon: MessageSquare },
+  { skill: 'catalog.products', label: 'Produtos', description: 'Catálogo e preços', icon: Package },
+  { skill: 'catalog.orders', label: 'Pedidos', description: 'Vendas e acompanhamento', icon: ShoppingBag },
+  { skill: 'nav.contabilidade', label: 'Financeiro', description: 'Entradas, saídas e relatórios', icon: Landmark },
+  { skill: 'nav.administrativo', label: 'Acessos Admin', description: 'Usuários, perfis e permissões', icon: ShieldCheck },
+  { skill: 'nav.app-administrativo', label: 'App Administrativo', description: 'Financeiro, pessoas e aprovações', icon: Landmark },
+] as const
 
 function isProductSkill(skill?: string) {
   return isCatalogProductSkill(skill)
@@ -248,6 +260,7 @@ export function WorkspaceChat({
   const [skillModal, setSkillModal] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
+  const shortcutsRef = useRef<HTMLDivElement>(null)
   const historyRef = useRef<HTMLDivElement>(null)
 
   function formatSessionDate(iso?: string | null) {
@@ -354,7 +367,12 @@ export function WorkspaceChat({
     if (!menuOpen && !historyOpen && !memoryOpen) return
     function onDoc(e: MouseEvent) {
       const target = e.target as Node
-      if (menuOpen && menuRef.current && !menuRef.current.contains(target)) {
+      if (
+        menuOpen &&
+        menuRef.current &&
+        !menuRef.current.contains(target) &&
+        !shortcutsRef.current?.contains(target)
+      ) {
         setMenuOpen(false)
       }
       if ((historyOpen || memoryOpen) && historyRef.current && !historyRef.current.contains(target)) {
@@ -989,13 +1007,62 @@ export function WorkspaceChat({
             {menuOpen ? <X size={16} /> : <LayoutGrid size={16} />}
           </button>
 
-          {menuOpen && (
-            <div className="workspace-chat__shortcuts" role="menu">
+          {menuOpen && createPortal((
+            <>
+            <button
+              type="button"
+              className="workspace-chat__nav-backdrop"
+              aria-label="Fechar menu"
+              onClick={() => {
+                setMenuOpen(false)
+                setMenuGroup(null)
+              }}
+            />
+            <div ref={shortcutsRef} className="workspace-chat__shortcuts" role="menu" aria-label="Menu da organização">
+              <button
+                type="button"
+                className="workspace-chat__shortcuts-close"
+                aria-label="Fechar menu"
+                onClick={() => {
+                  setMenuOpen(false)
+                  setMenuGroup(null)
+                }}
+              >
+                <X size={18} />
+              </button>
               <p className="workspace-chat__shortcuts-title">
                 {menuGroup
                   ? OBJECTIVE_GROUPS.find((g) => g.id === menuGroup)?.label || 'Atalhos'
                   : 'Áreas de trabalho'}
               </p>
+              {!menuGroup && (
+                <>
+                  <p className="workspace-chat__shortcuts-subtitle">Principal</p>
+                  {MOBILE_PRIMARY_NAV.map((item) => {
+                    const Icon = item.icon
+                    return (
+                      <button
+                        key={item.skill}
+                        type="button"
+                        role="menuitem"
+                        className="workspace-chat__shortcut workspace-chat__shortcut--primary"
+                        onClick={() => {
+                          setMenuOpen(false)
+                          triggerSkill(item.skill, { label: item.label })
+                        }}
+                      >
+                        <span className="workspace-chat__shortcut-icon">
+                          <Icon size={16} strokeWidth={1.8} />
+                        </span>
+                        <span className="min-w-0">
+                          <span className="workspace-chat__shortcut-label">{item.label}</span>
+                          <span className="workspace-chat__shortcut-desc">{item.description}</span>
+                        </span>
+                      </button>
+                    )
+                  })}
+                </>
+              )}
               {menuGroup && (
                 <button
                   type="button"
@@ -1065,7 +1132,8 @@ export function WorkspaceChat({
                 </button>
               ))}
             </div>
-          )}
+            </>
+          ), document.body)}
         </div>
 
         {showCanvasBtn && (

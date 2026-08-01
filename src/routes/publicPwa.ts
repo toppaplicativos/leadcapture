@@ -21,7 +21,7 @@ const brandMarkPath = existsSync(path.join(frontendPublicDir, "brand-mark.svg"))
   : path.join(publicDir, "brand-mark.svg");
 
 /** Superfícies instaláveis: cada uma com cor de fundo de ícone distinta */
-export type PwaAppKind = "store" | "affiliate" | "admin" | "stock" | "mob";
+export type PwaAppKind = "store" | "affiliate" | "admin" | "administrative" | "stock" | "mob";
 
 type PwaContext = {
   app: PwaAppKind;
@@ -61,6 +61,15 @@ const APP_THEMES: Record<PwaAppKind, AppTheme> = {
     themeColor: "#111827",
     backgroundColor: "#0a0a0a",
     categories: ["business", "productivity"],
+  },
+  administrative: {
+    name: "Administrativo",
+    shortName: "Administrativo",
+    description: "Financeiro, pessoas, aprovações e estrutura da organização.",
+    iconBg: "#171717",
+    themeColor: "#171717",
+    backgroundColor: "#f5f5f5",
+    categories: ["business", "finance", "productivity"],
   },
   stock: {
     name: "Estoque",
@@ -115,6 +124,9 @@ function inferFromHost(host: string | null | undefined): Partial<PwaContext> {
   if (!h) return {};
   if (h === "mob.leadcapture.online") {
     return { app: "mob", surface: "mob" };
+  }
+  if (h.startsWith("admin.") && h !== "admin.leadcapture.online") {
+    return { app: "administrative" };
   }
   if (h === "parceiros.leadcapture.online" || h === "afiliados.leadcapture.online") {
     return { app: "affiliate", surface: "partners" };
@@ -201,6 +213,12 @@ function inferFromPath(input: string): Partial<PwaContext> {
         slug: parts[1] ? decodeURIComponent(parts[1]) : undefined,
       };
     }
+    if (first === "app-administrativo") {
+      return {
+        app: "administrative",
+        slug: parts[1] && parts[1] !== "painel" ? decodeURIComponent(parts[1]) : undefined,
+      };
+    }
     if (!first || ADMIN_PATH_FIRST.has(first) || first === "loja") {
       return { app: "admin" };
     }
@@ -225,6 +243,7 @@ function resolvePwaContext(req: Request): PwaContext {
     explicitApp === "affiliate"
     || explicitApp === "admin"
     || explicitApp === "stock"
+    || explicitApp === "administrative"
     || explicitApp === "store"
     || explicitApp === "mob"
   ) {
@@ -280,6 +299,11 @@ function buildRootPath(context: PwaContext): string {
   }
   if (context.app === "stock") {
     return context.slug ? `/app-estoque/${encodeURIComponent(context.slug)}` : "/app-estoque";
+  }
+  if (context.app === "administrative") {
+    return context.slug
+      ? `/app-administrativo/${encodeURIComponent(context.slug)}`
+      : "/app-administrativo";
   }
   if (context.app === "admin") {
     return "/admin";
@@ -608,7 +632,7 @@ function contextFromIconKey(key: string): PwaContext {
     return { app: "affiliate", surface: "partners" };
   }
   if (k === "mob") return { app: "mob", surface: "mob" };
-  if (k === "admin" || k === "stock" || k === "store" || k === "affiliate") {
+  if (k === "admin" || k === "administrative" || k === "stock" || k === "store" || k === "affiliate") {
     return { app: k };
   }
   return { app: "admin" };
@@ -647,6 +671,8 @@ router.get("/manifest.webmanifest", async (req: Request, res: Response) => {
   const scope =
     context.app === "admin"
       ? "/"
+      : context.app === "administrative"
+        ? "/app-administrativo/"
       : context.app === "mob"
         ? (hostIsMob ? "/" : "/mob/")
         : context.app === "affiliate" && (context.surface === "partners" || hostIsPartners)
@@ -670,6 +696,8 @@ router.get("/manifest.webmanifest", async (req: Request, res: Response) => {
           ? `${rootPath}/painel?source=pwa`
           : context.app === "admin"
             ? "/assistente?source=pwa"
+            : context.app === "administrative"
+              ? `${rootPath}/painel?source=pwa`
             : context.app === "stock"
               ? context.slug
                 ? `${rootPath}/painel?source=pwa`
@@ -789,6 +817,33 @@ router.get("/manifest.webmanifest", async (req: Request, res: Response) => {
                   icons: [{ src: icon192, sizes: "192x192" }],
                 },
               ]
+            : context.app === "administrative"
+              ? [
+                  {
+                    name: "Visão geral",
+                    short_name: "Início",
+                    url: `${rootPath}/painel?view=home&source=pwa`,
+                    icons: [{ src: icon192, sizes: "192x192" }],
+                  },
+                  {
+                    name: "Financeiro",
+                    short_name: "Financeiro",
+                    url: `${rootPath}/painel?view=finance&source=pwa`,
+                    icons: [{ src: icon192, sizes: "192x192" }],
+                  },
+                  {
+                    name: "Pessoas e RH",
+                    short_name: "Pessoas",
+                    url: `${rootPath}/painel?view=people&source=pwa`,
+                    icons: [{ src: icon192, sizes: "192x192" }],
+                  },
+                  {
+                    name: "Aprovações",
+                    short_name: "Aprovações",
+                    url: `${rootPath}/painel?view=approvals&source=pwa`,
+                    icons: [{ src: icon192, sizes: "192x192" }],
+                  },
+                ]
             : [
                 {
                   name: "Catálogo",
@@ -815,6 +870,8 @@ router.get("/manifest.webmanifest", async (req: Request, res: Response) => {
   const manifestId =
     context.app === "admin"
       ? "/admin?app=admin"
+      : context.app === "administrative"
+        ? `${rootPath}?app=administrative`
       : context.app === "mob"
         ? (hostIsMob ? "/?app=mob" : "/mob?app=mob")
         : context.app === "stock"

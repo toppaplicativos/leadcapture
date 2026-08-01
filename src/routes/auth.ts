@@ -10,6 +10,7 @@ import { config } from "../config";
 import { query, queryOne } from "../config/database";
 import { logger } from "../utils/logger";
 import { resolveCommissionConfig } from "../services/affiliateCommission";
+import { permissionsService } from "../services/permissions";
 
 const router = Router();
 const usersService = new UsersService();
@@ -287,6 +288,57 @@ router.get("/me", authMiddleware, async (req: AuthRequest, res: Response) => {
     res.json({ success: true, user });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/auth/administrative-brand
+// Resolve a marca administrativa antes das APIs que exigem x-brand-id.
+// Aceita tanto o proprietário quanto um funcionário com perfil ativo na marca.
+router.get("/administrative-brand", authMiddleware, async (req: AuthRequest, res: Response) => {
+  try {
+    res.setHeader("Cache-Control", "no-store");
+    await permissionsService.ensureSchema();
+    const userId = String(req.user!.userId);
+    const brandRef = String(req.query.ref || "").trim();
+    const referenceFilter = brandRef
+      ? `AND (
+          b.id = ?
+          OR LOWER(COALESCE(b.slug, '')) = LOWER(?)
+          OR EXISTS (
+            SELECT 1
+            FROM storefront_stores s
+            WHERE s.brand_id = b.id AND LOWER(s.slug) = LOWER(?)
+          )
+        )`
+      : "";
+    const params = brandRef
+      ? [userId, userId, brandRef, brandRef, brandRef]
+      : [userId, userId];
+    const brand = await queryOne<BrandLookupRow>(
+      `SELECT b.id, b.user_id, b.slug, b.name, b.logo_url
+       FROM brand_units b
+       WHERE (
+         b.user_id = ?
+         OR EXISTS (
+           SELECT 1
+           FROM user_brand_roles ubr
+           WHERE ubr.brand_id = b.id
+             AND ubr.user_id = ?
+             AND ubr.is_blocked = FALSE
+         )
+       )
+       ${referenceFilter}
+       ORDER BY (b.user_id = ?) DESC, b.is_default DESC, b.created_at ASC
+       LIMIT 1`,
+      [...params, userId]
+    );
+    if (!brand) {
+      return res.status(403).json({ error: "Sua conta não possui acesso a esta organização." });
+    }
+    res.json({ success: true, brand });
+  } catch (error: any) {
+    logger.error(`Administrative brand resolution error: ${error.message}`);
+    res.status(500).json({ error: "Não foi possível identificar a organização." });
   }
 });
 

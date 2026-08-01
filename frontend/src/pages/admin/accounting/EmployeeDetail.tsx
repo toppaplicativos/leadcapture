@@ -1,0 +1,63 @@
+import {
+  ArrowLeft, BriefcaseBusiness, CalendarDays, CheckCircle2, Clock3, Mail, MapPin,
+  Pencil, Phone, ShieldCheck, UserRound, WalletCards,
+} from 'lucide-react'
+import { money } from '@/lib/admin/helpers'
+
+type Profile = Record<string, any>
+type Employee = { id:string;name:string;email?:string;phone?:string;document_number?:string;role_title?:string;department?:string;employment_type:string;admission_date?:string;salary?:number;status:'active'|'inactive'|'vacation';notes?:string;photo_url?:string;profile_data?:Profile }
+type Expense = { amount:number;starts_on?:string;is_active:boolean }
+type Event = { id:string;summary:string;actor_name?:string;actor_email?:string;created_at:string }
+
+const dateText=(value?:string)=>value?new Intl.DateTimeFormat('pt-BR',{timeZone:'UTC'}).format(new Date(`${value.slice(0,10)}T12:00:00Z`)):'Não informado'
+const statusText=(status:Employee['status'])=>status==='active'?'Ativo':status==='vacation'?'Férias / afastado':'Inativo'
+
+export function EmployeeRows({rows,open,edit,remove}:{rows:Employee[];open:(v:Employee)=>void;edit:(v:Employee)=>void;remove:(v:Employee)=>void}) {
+  if(!rows.length)return <div className="h-44 grid place-items-center text-[12px] text-gray-400">Nenhum funcionário cadastrado.</div>
+  return <><div className="sm:hidden divide-y divide-gray-100">{rows.map(r=><button key={r.id} onClick={()=>open(r)} className="w-full p-4 text-left active:bg-gray-50"><div className="flex items-center gap-3"><div className="size-11 rounded-full bg-gray-100 overflow-hidden grid place-items-center shrink-0">{r.photo_url?<img src={r.photo_url} alt="" className="size-full object-cover"/>:<UserRound size={18}/>}</div><div className="flex-1 min-w-0"><div className="flex items-center justify-between gap-2"><p className="font-semibold text-[13px] truncate">{r.name}</p><span className={`size-2 rounded-full shrink-0 ${r.status==='active'?'bg-emerald-500':r.status==='vacation'?'bg-amber-500':'bg-gray-300'}`}/></div><p className="text-[11px] text-gray-500 truncate mt-0.5">{r.role_title||'Cargo não informado'} · {r.department||'Sem setor'}</p><div className="flex items-center justify-between gap-3 mt-2"><span className="text-[10px] font-semibold text-gray-400">{r.employment_type.toUpperCase()} · {statusText(r.status)}</span><span className="text-[12px] font-bold tabular-nums">{money(r.salary||0)}</span></div></div></div></button>)}</div><table className="hidden sm:table w-full min-w-[760px]"><thead><tr className="bg-gray-50 text-[10px] uppercase tracking-wider text-gray-400">{['Funcionário','Cargo e setor','Vínculo','Admissão','Salário base','Ações'].map(x=><th key={x} className="text-left px-4 py-3">{x}</th>)}</tr></thead><tbody>{rows.map(r=><tr key={r.id} onClick={()=>open(r)} className="border-t border-gray-100 text-[12px] cursor-pointer hover:bg-gray-50/80"><td className="px-4 py-3"><div className="flex items-center gap-3"><div className="size-9 rounded-full bg-gray-100 overflow-hidden grid place-items-center">{r.photo_url?<img src={r.photo_url} alt="" className="size-full object-cover"/>:<UserRound size={16}/>}</div><div><p className="font-semibold">{r.name}</p><p className="text-[10px] text-gray-400">{r.email||r.phone||'Sem contato'}</p></div></div></td><td className="px-4 py-3"><p>{r.role_title||'Não informado'}</p><p className="text-[10px] text-gray-400">{r.department||'Sem departamento'}</p></td><td className="px-4 py-3"><span className={`px-2 py-1 rounded-full text-[10px] font-semibold ${r.status==='active'?'bg-emerald-50 text-emerald-700':'bg-gray-100 text-gray-600'}`}>{r.employment_type.toUpperCase()} · {statusText(r.status)}</span></td><td className="px-4 py-3 text-gray-500">{dateText(r.admission_date)}</td><td className="px-4 py-3 font-semibold tabular-nums">{money(r.salary||0)}</td><td className="px-4 py-3"><button aria-label="Editar" onClick={e=>{e.stopPropagation();edit(r)}} className="p-2"><Pencil size={14}/></button><button aria-label="Arquivar" onClick={e=>{e.stopPropagation();remove(r)}} className="p-2 text-rose-600">Arquivar</button></td></tr>)}</tbody></table></>
+}
+
+function Avatar({employee}:{employee:Employee}) {
+  return <div className="size-20 rounded-[22px] bg-gray-100 overflow-hidden grid place-items-center shrink-0">{employee.photo_url?<img src={employee.photo_url} alt="" className="size-full object-cover"/>:<UserRound size={30} className="text-gray-400"/>}</div>
+}
+function Card({title,icon:Icon,children}:{title:string;icon:any;children:any}) {
+  return <section className="bg-white border border-gray-200 rounded-[20px] p-4 sm:p-5"><div className="flex items-center gap-2 mb-3"><div className="size-8 rounded-xl bg-gray-100 grid place-items-center"><Icon size={15}/></div><h3 className="text-[13px] font-bold">{title}</h3></div>{children}</section>
+}
+function Line({label,value,strong=false}:{label:string;value:string;strong?:boolean}) {
+  return <div className="flex items-start justify-between gap-4 py-2 border-b border-gray-100 last:border-0"><span className="text-[12px] text-gray-500">{label}</span><span className={`${strong?'font-bold text-gray-950':'font-semibold text-gray-700'} text-[12px] text-right tabular-nums`}>{value}</span></div>
+}
+function Stat({title,value,icon:Icon,tone}:{title:string;value:string;icon:any;tone:'dark'|'green'|'amber'}) {
+  const colors={dark:'bg-gray-950 text-white',green:'bg-emerald-50 text-emerald-700',amber:'bg-amber-50 text-amber-700'}
+  return <div className="bg-white border border-gray-200 rounded-[20px] p-4"><div className={`size-9 rounded-xl grid place-items-center ${colors[tone]}`}><Icon size={17}/></div><p className="text-[11px] text-gray-500 mt-3">{title}</p><p className="text-[17px] font-bold mt-0.5">{value}</p></div>
+}
+function tenure(value?:string) {
+  if(!value)return 'Não informado'
+  const start=new Date(`${value.slice(0,10)}T12:00:00`), now=new Date()
+  let months=(now.getFullYear()-start.getFullYear())*12+now.getMonth()-start.getMonth()
+  if(months<0)return 'Admissão futura'
+  const years=Math.floor(months/12); months%=12
+  return years?`${years}a ${months}m`:`${months} meses`
+}
+
+export function EmployeeDetail({employee,expense,history,loading,back,edit,archive}:{employee:Employee;expense:Expense|null;history:Event[];loading:boolean;back:()=>void;edit:()=>void;archive:()=>void}) {
+  const p:Profile=employee.profile_data||{}
+  const required=[employee.name,employee.document_number,employee.email,employee.phone,employee.role_title,employee.department,employee.admission_date,employee.salary,p.birth_date,p.address,p.employee_number,p.weekly_hours]
+  const completeness=Math.round(required.filter(Boolean).length/required.length*100)
+  const address=[p.address,p.address_number,p.city,p.state].filter(Boolean).join(', ')||'Não informado'
+  return <div className="space-y-4">
+    <button onClick={back} className="h-10 px-2 -ml-2 rounded-xl flex items-center gap-2 text-[12px] font-semibold text-gray-600 hover:bg-white"><ArrowLeft size={16}/> Voltar para funcionários</button>
+    <section className="bg-white border border-gray-200 rounded-[22px] p-4 sm:p-6">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-4"><Avatar employee={employee}/><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h2 className="text-[22px] font-bold tracking-tight truncate">{employee.name}</h2><span className={`px-2.5 py-1 rounded-full text-[10px] font-semibold ${employee.status==='active'?'bg-emerald-50 text-emerald-700':employee.status==='vacation'?'bg-amber-50 text-amber-700':'bg-gray-100 text-gray-600'}`}>{employee.employment_type.toUpperCase()} · {statusText(employee.status)}</span></div><p className="text-[13px] text-gray-500 mt-1">{employee.role_title||'Cargo não informado'} · {employee.department||'Sem departamento'}</p><p className="text-[11px] text-gray-400 mt-1">Matrícula {p.employee_number||'não informada'} · Admissão {dateText(employee.admission_date)}</p></div><div className="flex gap-2"><button onClick={edit} className="h-11 px-4 rounded-[15px] border border-gray-200 text-[12px] font-semibold flex items-center gap-2"><Pencil size={15}/> Editar ficha</button>{employee.status!=='inactive'&&<button onClick={archive} className="h-11 px-3 rounded-[15px] text-rose-700 bg-rose-50 text-[12px] font-semibold">Arquivar</button>}</div></div>
+    </section>
+    {loading?<div className="h-44 grid place-items-center text-gray-400">Carregando prontuário…</div>:<>
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-3"><Stat title="Salário base" value={money(employee.salary||0)} icon={WalletCards} tone="dark"/><Stat title="Tempo de casa" value={tenure(employee.admission_date)} icon={Clock3} tone="green"/><Stat title="Jornada semanal" value={p.weekly_hours?`${p.weekly_hours} horas`:'Não informada'} icon={CalendarDays} tone="amber"/><Stat title="Ficha completa" value={`${completeness}%`} icon={CheckCircle2} tone={completeness>=80?'green':'amber'}/></div>
+      <div className="grid lg:grid-cols-2 gap-4">
+        <Card title="Dados pessoais e contato" icon={UserRound}><Line label="Nome preferido" value={p.preferred_name||'Não informado'}/><Line label="CPF / documento" value={employee.document_number||'Não informado'}/><Line label="Nascimento" value={dateText(p.birth_date)}/><Line label="Nacionalidade" value={p.nationality||'Não informada'}/><Line label="Estado civil" value={p.marital_status||'Não informado'}/><Line label="Escolaridade" value={p.education||'Não informada'}/><div className="pt-3 space-y-2">{employee.email&&<a href={`mailto:${employee.email}`} className="flex items-center gap-2 text-[12px] text-gray-600"><Mail size={14}/>{employee.email}</a>}{employee.phone&&<a href={`tel:${employee.phone}`} className="flex items-center gap-2 text-[12px] text-gray-600"><Phone size={14}/>{employee.phone}</a>}<p className="flex items-start gap-2 text-[12px] text-gray-600"><MapPin size={14} className="mt-0.5 shrink-0"/>{address}</p></div></Card>
+        <Card title="Vínculo e estrutura" icon={BriefcaseBusiness}><Line label="Matrícula" value={p.employee_number||'Não informada'}/><Line label="Categoria eSocial" value={p.esocial_category||'Não informada'}/><Line label="Tipo de vínculo" value={employee.employment_type.toUpperCase()}/><Line label="Gestor responsável" value={p.manager_name||'Não informado'}/><Line label="Centro de custo" value={p.cost_center||'Não informado'}/><Line label="Horário / escala" value={p.work_schedule||'Não informado'}/><Line label="Data de admissão" value={dateText(employee.admission_date)}/></Card>
+        <Card title="Remuneração e integração financeira" icon={WalletCards}><Line label="Salário base" value={money(employee.salary||0)} strong/><Line label="Periodicidade" value={p.salary_frequency==='weekly'?'Semanal':p.salary_frequency==='daily'?'Diária':p.salary_frequency==='hourly'?'Por hora':'Mensal'}/><Line label="Despesa fixa vinculada" value={expense?.is_active?'Ativa':'Inativa'}/><Line label="Valor integrado" value={expense?money(expense.amount):'Não gerado'}/><Line label="Início da competência" value={dateText(expense?.starts_on)}/><Line label="Banco" value={p.bank_name||'Não informado'}/><Line label="Agência / conta" value={[p.bank_agency,p.bank_account].filter(Boolean).join(' / ')||'Não informado'}/><Line label="Chave Pix" value={p.pix_key||'Não informada'}/></Card>
+        <Card title="Emergência e observações" icon={ShieldCheck}><Line label="Contato de emergência" value={p.emergency_name||'Não informado'}/><Line label="Telefone" value={p.emergency_phone||'Não informado'}/><div className="mt-3 rounded-[14px] bg-gray-50 p-3"><p className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1">Observações internas</p><p className="text-[12px] leading-5 text-gray-600 whitespace-pre-wrap">{employee.notes||'Nenhuma observação registrada.'}</p></div></Card>
+      </div>
+      <Card title="Histórico do funcionário" icon={Clock3}>{history.length?<div>{history.map(event=><div key={event.id} className="relative pl-7 pb-5 last:pb-0 before:absolute before:left-[7px] before:top-4 before:bottom-0 before:w-px before:bg-gray-200 last:before:hidden"><span className="absolute left-0 top-1 size-[15px] rounded-full border-[4px] border-white bg-gray-900"/><p className="text-[12px] font-semibold text-gray-800">{event.summary}</p><p className="text-[10px] text-gray-400 mt-1">{new Intl.DateTimeFormat('pt-BR',{dateStyle:'medium',timeStyle:'short'}).format(new Date(event.created_at))} · {event.actor_name||event.actor_email||'Sistema'}</p></div>)}</div>:<div className="py-8 text-center text-[12px] text-gray-400">O histórico aparecerá aqui conforme a ficha for criada e atualizada.</div>}</Card>
+    </>}
+  </div>
+}

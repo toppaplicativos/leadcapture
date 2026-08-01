@@ -7,6 +7,7 @@ import {
   Zap, Smartphone, SquarePlay, Clapperboard,
   Type, Tv2, Check, X, ChevronDown, ChevronUp,
   Palette, Clock, Maximize2, AlignLeft, Settings2,
+  Image as ImageIcon, Video, UploadCloud,
 } from 'lucide-react'
 import { BrandPromo } from '@/remotion/templates/BrandPromo'
 import { ProductShowcase } from '@/remotion/templates/ProductShowcase'
@@ -504,9 +505,106 @@ function ChatPanel({
   )
 }
 
+function AtlasVideoActions({ prompt, onGenerated }: { prompt: string; onGenerated: (url: string, summary: string) => void }) {
+  type Mode = 'text-to-video' | 'image-to-video' | 'video-to-video'
+  type Model = { id: string; label: string; tier: string; cost_label?: string; capabilities?: string[] }
+  const [mode, setMode] = useState<Mode>('text-to-video')
+  const [models, setModels] = useState<Model[]>([])
+  const [model, setModel] = useState('kling-v2.0')
+  const [reference, setReference] = useState<{ url: string; name: string } | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    fetch('/api/video-studio/ai/models', { headers: getHeaders(false) })
+      .then(async r => ({ ok: r.ok, data: await r.json() }))
+      .then(({ ok, data }) => {
+        if (!ok) throw new Error(data.error || 'Falha ao carregar modelos')
+        setModels(data.models || [])
+      }).catch(err => setError(err.message))
+  }, [])
+
+  const available = models.filter(item => item.capabilities?.includes(mode))
+  useEffect(() => {
+    if (available.length && !available.some(item => item.id === model)) setModel(available[0].id)
+  }, [mode, models])
+
+  async function upload(file?: File) {
+    if (!file) return
+    const expected = mode === 'video-to-video' ? 'video/' : 'image/'
+    if (!file.type.startsWith(expected)) return setError(mode === 'video-to-video' ? 'Escolha um vídeo.' : 'Escolha uma imagem.')
+    setBusy(true); setError('')
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const res = await fetch('/api/video-studio/ai/references', { method: 'POST', headers: getHeaders(false), body: form })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Falha no envio')
+      setReference(data)
+    } catch (err: any) { setError(err.message) } finally { setBusy(false) }
+  }
+
+  async function generate() {
+    setBusy(true); setError('')
+    try {
+      const res = await fetch('/api/video-studio/ai/generate', {
+        method: 'POST', headers: getHeaders(),
+        body: JSON.stringify({
+          prompt, model, mode,
+          imageUrl: mode === 'image-to-video' ? reference?.url : undefined,
+          videoUrl: mode === 'video-to-video' ? reference?.url : undefined,
+          params: { aspect_ratio: '16:9' },
+        }),
+      })
+      let job = await res.json()
+      if (!res.ok) throw new Error(job.error || 'Falha ao iniciar a geração')
+      while (job.status === 'processing') {
+        await new Promise(resolve => window.setTimeout(resolve, 3000))
+        const poll = await fetch(`/api/video-studio/ai/generate/${job.id}`, { headers: getHeaders(false) })
+        job = await poll.json()
+      }
+      if (job.status !== 'done' || !job.urls?.[0]) throw new Error(job.error || 'O Atlas não retornou um vídeo.')
+      onGenerated(job.urls[0], `${mode} · ${job.model}`)
+    } catch (err: any) { setError(err.message) } finally { setBusy(false) }
+  }
+
+  return (
+    <div style={{ width: '100%', padding: 14, borderRadius: 18, background: S.surface, border: `1px solid ${S.border}`, boxShadow: '0 1px 3px rgba(0,0,0,.04)' }}>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+        {([['text-to-video', Type, 'Texto'], ['image-to-video', ImageIcon, 'Imagem'], ['video-to-video', Video, 'Vídeo']] as const).map(([value, Icon, label]) => (
+          <button key={value} onClick={() => { setMode(value); setReference(null); setError('') }}
+            style={{ flex: 1, minHeight: 44, borderRadius: 14, border: `1px solid ${mode === value ? S.text : S.border}`, background: mode === value ? S.text : S.surface, color: mode === value ? '#fff' : S.textMuted, fontWeight: 600, cursor: 'pointer' }}>
+            <Icon size={14} style={{ verticalAlign: 'middle', marginRight: 6 }} />{label}
+          </button>
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <select value={model} onChange={e => setModel(e.target.value)} style={{ flex: 1, minWidth: 210, height: 44, borderRadius: 14, border: `1px solid ${S.border}`, padding: '0 10px', background: '#fff', color: S.text }}>
+          {(available.length ? available : models).map(item => <option key={item.id} value={item.id}>{item.label} · {item.cost_label || item.tier}</option>)}
+        </select>
+        {mode !== 'text-to-video' && <>
+          <input ref={fileRef} hidden type="file" accept={mode === 'video-to-video' ? 'video/*' : 'image/*'} onChange={e => upload(e.target.files?.[0])} />
+          <button onClick={() => fileRef.current?.click()} style={{ minHeight: 44, padding: '0 13px', borderRadius: 14, border: `1px solid ${S.border}`, background: S.elevated, color: S.text, fontWeight: 600 }}>
+            <UploadCloud size={14} style={{ verticalAlign: 'middle', marginRight: 6 }} />{reference?.name || 'Referência'}
+          </button>
+        </>}
+        <button onClick={generate} disabled={busy || !prompt.trim() || (mode !== 'text-to-video' && !reference)}
+          style={{ minHeight: 44, padding: '0 15px', borderRadius: 14, border: 0, background: S.text, color: '#fff', fontWeight: 700, opacity: busy || !prompt.trim() || (mode !== 'text-to-video' && !reference) ? .45 : 1 }}>
+          {busy ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite', verticalAlign: 'middle', marginRight: 6 }} /> : <Sparkles size={14} style={{ verticalAlign: 'middle', marginRight: 6 }} />}
+          {busy ? 'Gerando...' : 'Gerar com Atlas'}
+        </button>
+      </div>
+      <div style={{ marginTop: 8, minHeight: 16, fontSize: 10.5, color: error ? S.error : S.textMuted }}>
+        {error || (mode === 'text-to-video' ? 'Do briefing para uma cena inédita.' : reference ? 'Referência pronta.' : 'Adicione a referência que guiará a geração.')}
+      </div>
+    </div>
+  )
+}
+
 /* ── Landing screen (initial, before first message) ──────────────── */
 function LandingScreen({
-  input, onInput, onSend, onSuggestion, composing, textareaRef,
+  input, onInput, onSend, onSuggestion, composing, textareaRef, onGenerated,
 }: {
   input: string
   onInput: (v: string) => void
@@ -514,6 +612,7 @@ function LandingScreen({
   onSuggestion: (s: string) => void
   composing: boolean
   textareaRef: React.RefObject<HTMLTextAreaElement | null>
+  onGenerated: (url: string, summary: string) => void
 }) {
   const handleKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSend(input) }
@@ -546,9 +645,11 @@ function LandingScreen({
             O que vamos criar hoje?
           </div>
           <div style={{ fontSize: 13.5, color: S.textMuted, lineHeight: 1.68 }}>
-            Descreva o vídeo — a IA seleciona o template, anima e gera o preview.
+            Monte um template editável ou gere no Atlas Cloud a partir de texto, imagem ou vídeo.
           </div>
         </motion.div>
+
+        <AtlasVideoActions prompt={input} onGenerated={onGenerated} />
 
         {/* Suggestion chips */}
         <motion.div
@@ -624,13 +725,14 @@ export function VideoStudioPage() {
   const [brandName, setBrandName]       = useState('')
   const [mobileTab, setMobileTab]       = useState<'canvas' | 'chat'>('canvas')
   const [canvasArea, setCanvasArea]     = useState({ w: 800, h: 500 })
+  const [generatedVideo, setGeneratedVideo] = useState<string | null>(null)
 
   const playerRef   = useRef<PlayerRef>(null)
   const chatEndRef  = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const canvasRef   = useRef<HTMLDivElement>(null)
 
-  const hasStarted = messages.length > 0 || composing
+  const hasStarted = messages.length > 0 || composing || Boolean(generatedVideo)
 
   useEffect(() => {
     const brandId = localStorage.getItem('lead-system:active-brand-id')
@@ -750,7 +852,7 @@ export function VideoStudioPage() {
     onInput: setInput,
     onSend: sendMessage,
     onSuggestion: sendMessage,
-    onReset: () => { setCurrentSpec(null); setMessages([]); setDownloadUrl(null); setPropsOpen(false) },
+    onReset: () => { setCurrentSpec(null); setGeneratedVideo(null); setMessages([]); setDownloadUrl(null); setPropsOpen(false) },
     currentSpec, textareaRef, chatEndRef,
   }
 
@@ -797,6 +899,13 @@ export function VideoStudioPage() {
                         controls={false} loop autoPlay={false}
                       />
                     </div>
+                  </motion.div>
+                ) : generatedVideo ? (
+                  <motion.div key="atlas-mobile" initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ width: 'calc(100% - 24px)', zIndex: 1 }}>
+                    <video src={generatedVideo} controls playsInline style={{ width: '100%', maxHeight: '72vh', borderRadius: 14, background: '#000' }} />
+                    <a href={generatedVideo} download style={{ marginTop: 10, minHeight: 44, borderRadius: 14, background: S.text, color: '#fff', textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, fontWeight: 700, fontSize: 12 }}>
+                      <Download size={14} /> Baixar vídeo
+                    </a>
                   </motion.div>
                 ) : (
                   <motion.div key="empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }}
@@ -931,6 +1040,10 @@ export function VideoStudioPage() {
               input={input} onInput={setInput}
               onSend={sendMessage} onSuggestion={sendMessage}
               composing={composing} textareaRef={textareaRef}
+              onGenerated={(url, summary) => {
+                setGeneratedVideo(url)
+                addMsg(`Vídeo gerado no Atlas Cloud (${summary}). Revise o resultado no canvas e faça o download quando estiver pronto.`)
+              }}
             />
           ) : (
             <div
@@ -968,6 +1081,14 @@ export function VideoStudioPage() {
                       <Settings2 size={9} />
                       Clique para editar componentes
                     </motion.div>
+                  </motion.div>
+                ) : generatedVideo ? (
+                  <motion.div key="atlas-video" initial={{ opacity: 0, scale: .97 }} animate={{ opacity: 1, scale: 1 }}
+                    style={{ width: 'min(86%, 960px)', position: 'relative', zIndex: 1 }}>
+                    <video src={generatedVideo} controls playsInline style={{ display: 'block', width: '100%', maxHeight: '70vh', borderRadius: 14, background: '#000', boxShadow: '0 20px 50px rgba(0,0,0,.25)' }} />
+                    <a href={generatedVideo} download style={{ position: 'absolute', right: 10, top: 10, minHeight: 44, padding: '0 14px', borderRadius: 14, background: 'rgba(23,23,23,.9)', color: '#fff', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, fontWeight: 700 }}>
+                      <Download size={14} /> Baixar vídeo
+                    </a>
                   </motion.div>
                 ) : (
                   /* Canvas placeholder while composing first spec */

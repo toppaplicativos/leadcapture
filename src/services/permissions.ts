@@ -110,6 +110,20 @@ export const SYSTEM_PERMISSIONS: Omit<Permission, "id">[] = [
   { resource: "roles", action: "read",   description: "Visualizar perfis de acesso" },
   { resource: "roles", action: "write",  description: "Criar e editar perfis de acesso" },
   { resource: "roles", action: "delete", description: "Excluir perfis de acesso" },
+  // App Administrativo — Financeiro
+  { resource: "finance", action: "read", description: "Visualizar dados financeiros" },
+  { resource: "finance", action: "write", description: "Criar e editar lançamentos financeiros" },
+  { resource: "finance", action: "approve", description: "Aprovar pagamentos e movimentações" },
+  { resource: "finance", action: "export", description: "Exportar relatórios financeiros" },
+  // App Administrativo — Pessoas e RH
+  { resource: "hr", action: "read", description: "Visualizar cadastro funcional" },
+  { resource: "hr", action: "write", description: "Criar e editar registros de funcionários" },
+  { resource: "hr", action: "sensitive", description: "Visualizar salários, documentos e dados sensíveis" },
+  { resource: "hr", action: "approve", description: "Aprovar férias, afastamentos e solicitações" },
+  // Governança administrativa
+  { resource: "approvals", action: "read", description: "Visualizar aprovações administrativas" },
+  { resource: "approvals", action: "decide", description: "Aprovar ou rejeitar solicitações administrativas" },
+  { resource: "audit", action: "read", description: "Visualizar trilha de auditoria administrativa" },
 ];
 
 // ─── Perfis padrão do sistema ─────────────────────────────────────────────────
@@ -122,6 +136,43 @@ type SystemRoleDef = {
 };
 
 export const SYSTEM_ROLE_DEFS: SystemRoleDef[] = [
+  {
+    slug: "financeiro",
+    name: "Financeiro",
+    description: "Opera o financeiro e prepara pagamentos, sem acesso aos dados completos de RH",
+    permissions: [
+      "finance:read", "finance:write", "finance:export",
+      "approvals:read", "reports:read",
+    ],
+  },
+  {
+    slug: "rh",
+    name: "Pessoas e RH",
+    description: "Gerencia pessoas, documentos e rotinas de RH",
+    permissions: [
+      "hr:read", "hr:write", "hr:sensitive", "hr:approve",
+      "approvals:read", "approvals:decide", "reports:read",
+    ],
+  },
+  {
+    slug: "gestor_administrativo",
+    name: "Gestor Administrativo",
+    description: "Coordena Financeiro e RH, incluindo aprovações",
+    permissions: [
+      "finance:read", "finance:write", "finance:approve", "finance:export",
+      "hr:read", "hr:write", "hr:sensitive", "hr:approve",
+      "approvals:read", "approvals:decide", "audit:read", "reports:read",
+    ],
+  },
+  {
+    slug: "auditor_contador",
+    name: "Auditor / Contador",
+    description: "Consulta dados administrativos, auditoria e exportações sem alterar registros",
+    permissions: [
+      "finance:read", "finance:export", "hr:read",
+      "approvals:read", "audit:read", "reports:read",
+    ],
+  },
   {
     slug: "admin",
     name: "Administrador",
@@ -267,14 +318,14 @@ export class PermissionsService {
         "SELECT id FROM roles WHERE brand_id = ? AND slug = ?",
         [brandId, def.slug]
       );
-      if (existing) continue;
-
-      const roleId = randomUUID();
-      await query(
-        `INSERT INTO roles (id, brand_id, name, slug, description, is_system, is_active)
-         VALUES (?, ?, ?, ?, ?, TRUE, TRUE)`,
-        [roleId, brandId, def.name, def.slug, def.description]
-      );
+      const roleId = existing?.id || randomUUID();
+      if (!existing) {
+        await query(
+          `INSERT INTO roles (id, brand_id, name, slug, description, is_system, is_active)
+           VALUES (?, ?, ?, ?, ?, TRUE, TRUE)`,
+          [roleId, brandId, def.name, def.slug, def.description]
+        );
+      }
 
       // Resolve permissionIds
       let permIds: string[];

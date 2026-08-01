@@ -1,4 +1,4 @@
-export type PwaAppKind = 'store' | 'admin' | 'stock' | 'affiliate' | 'mob'
+export type PwaAppKind = 'store' | 'admin' | 'administrative' | 'stock' | 'affiliate' | 'mob'
 
 export type PwaIdentity = {
   app: PwaAppKind
@@ -15,6 +15,11 @@ const DEFAULTS: Record<PwaAppKind, Omit<PwaIdentity, 'app' | 'slug' | 'surface'>
     name: 'LeadCapture',
     themeColor: '#0a0a0a',
     iconUrl: '/pwa/icon?app=admin&size=192',
+  },
+  administrative: {
+    name: 'Administrativo',
+    themeColor: '#171717',
+    iconUrl: '/pwa/icon?app=administrative&size=192',
   },
   store: {
     name: 'Catálogo',
@@ -64,6 +69,9 @@ function detectFromLocation(): {
   if (host === 'mob.leadcapture.online') {
     return { app: 'mob', slug: null, surface: null }
   }
+  if (host.startsWith('admin.') && host !== 'admin.leadcapture.online') {
+    return { app: 'administrative', slug: window.__STORE_SLUG__ || null, surface: null }
+  }
 
   const brandHost = host.match(/^(?:parceiros|afiliados)\.([a-z0-9-]+)\./i)
   if (brandHost?.[1] && brandHost[1] !== 'leadcapture') {
@@ -91,6 +99,13 @@ function detectFromLocation(): {
     return {
       app: 'stock',
       slug: parts[1] ? decodeURIComponent(parts[1]) : null,
+      surface: null,
+    }
+  }
+  if (first === 'app-administrativo') {
+    return {
+      app: 'administrative',
+      slug: parts[1] && parts[1] !== 'painel' ? decodeURIComponent(parts[1]) : null,
       surface: null,
     }
   }

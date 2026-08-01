@@ -928,6 +928,9 @@ function Confirmation({ props, callbacks }: { props?: Record<string, unknown>; c
   const confirmLabel = String(props?.confirmLabel || 'Confirmar')
   const modal = props?.modal as 'ai-campaign' | 'skill-trainer' | undefined
   const action = String(props?.action || '')
+  const actionPayload = (props?.actionPayload && typeof props.actionPayload === 'object'
+    ? props.actionPayload
+    : {}) as Record<string, unknown>
   const draft = props?.draft as {
     name?: string
     description?: string
@@ -970,6 +973,18 @@ function Confirmation({ props, callbacks }: { props?: Record<string, unknown>; c
         )}
         {modal && (
           <Button size="sm" onClick={() => callbacks.onOpenModal(modal)}>
+            {confirmLabel}
+          </Button>
+        )}
+        {action && action !== 'create_product' && !modal && callbacks.onComponentEvent && (
+          <Button
+            size="sm"
+            onClick={() => callbacks.onComponentEvent?.({
+              componentId: 'confirmation',
+              action,
+              payload: actionPayload,
+            })}
+          >
             {confirmLabel}
           </Button>
         )}

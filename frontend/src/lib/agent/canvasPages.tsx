@@ -8,6 +8,7 @@ import { useAffiliatesBridgeOptional } from '@/lib/agent/AffiliatesBridgeContext
 import type { InstagramTabKey } from '@/lib/instagram/nav'
 import type { FacebookTabKey } from '@/pages/FacebookPage'
 import type { AffiliatesTabKey } from '@/lib/agent/AffiliatesBridgeContext'
+import { Navigate } from 'react-router-dom'
 
 /** Loaders nomeados — reutilizados por lazy + prefetch de chunk */
 const loadDashboard = () => import('@/pages/admin/dashboard/DashboardView').then(m => ({ default: m.DashboardView }))
@@ -43,6 +44,8 @@ const loadCoupons = () => import('@/pages/admin/coupons/CouponsView').then(m => 
 const loadClub = () => import('@/pages/admin/club/ClubView').then(m => ({ default: m.ClubView }))
 const loadReviews = () => import('@/pages/admin/reviews/ReviewsView').then(m => ({ default: m.ReviewsView }))
 const loadPayments = () => import('@/pages/admin/payments/PaymentConfigView').then(m => ({ default: m.PaymentConfigView }))
+const loadAccounting = () => import('@/pages/admin/accounting/AccountingView').then(m => ({ default: m.AccountingView }))
+const loadAdministrativeAccess = () => import('@/pages/administrative/AdministrativeAppPage').then(m => ({ default: (props: Record<string, never>) => <m.AdministrativeAppPage {...props} accessOnly /> }))
 const loadAIProviders = () => import('@/pages/AIProvidersPage').then(m => ({ default: m.AIProvidersPage }))
 const loadEmails = () => import('@/pages/AdminEmailsPage').then(m => ({ default: m.AdminEmailsPage }))
 
@@ -79,6 +82,8 @@ const CouponsView = lazy(loadCoupons)
 const ClubView = lazy(loadClub)
 const ReviewsView = lazy(loadReviews)
 const PaymentConfigView = lazy(loadPayments)
+const AccountingView = lazy(loadAccounting)
+const AdministrativeAccessView = lazy(loadAdministrativeAccess)
 const AIProvidersPage = lazy(loadAIProviders)
 const AdminEmailsPage = lazy(loadEmails)
 
@@ -193,6 +198,8 @@ const CANVAS_PAGE_MAP: Record<string, () => ReactNode> = {
   '/clube': () => <ClubCanvas />,
   '/avaliacoes': () => <ReviewsView showToast={noop} />,
   '/pagamentos': () => <PaymentConfigView showToast={noop} />,
+  '/contabilidade': () => <AccountingView />,
+  '/administrativo': () => <AdministrativeAccessView />,
   '/provedores-ia': () => <AIProvidersPage />,
   '/emails': () => <AdminEmailsPage />,
 }
@@ -256,6 +263,7 @@ const CANVAS_PRELOADERS: Record<string, () => Promise<unknown>> = {
   '/estoque': loadEstoque,
   '/avaliacoes': loadReviews,
   '/pagamentos': loadPayments,
+  '/contabilidade': loadAccounting,
   '/dominio': loadDomain,
   '/emails': loadEmails,
   '/provedores-ia': loadAIProviders,
@@ -294,6 +302,8 @@ export function CanvasPageEmbed({ route }: { route: string }) {
   const pathOnly = normalizeCanvasPath(route)
   const qs = (route || '').includes('?') ? (route || '').slice((route || '').indexOf('?') + 1) : ''
   const flush = CANVAS_FLUSH_ROUTES.has(pathOnly)
+
+  // O Administrativo é um PWA independente, não um painel embutido no canvas.
 
   // Legacy: /configuracoes?tab=whatsapp → ferramenta WhatsApp
   if (pathOnly === '/configuracoes' && new URLSearchParams(qs).get('tab') === 'whatsapp') {

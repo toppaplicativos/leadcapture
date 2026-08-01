@@ -290,8 +290,15 @@ export class BrandUnitsService {
   async list(userId: string): Promise<BrandUnit[]> {
     await this.ensureSchema();
     const rows = await query<BrandUnit[]>(
-      `SELECT * FROM brand_units WHERE user_id = ? ORDER BY is_default DESC, created_at ASC`,
-      [userId]
+      `SELECT DISTINCT b.*
+       FROM brand_units b
+       LEFT JOIN user_brand_roles ubr
+         ON ubr.brand_id = b.id
+        AND ubr.user_id = ?
+        AND COALESCE(ubr.is_blocked, FALSE) = FALSE
+       WHERE b.user_id = ? OR ubr.user_id IS NOT NULL
+       ORDER BY b.is_default DESC, b.created_at ASC`,
+      [userId, userId]
     );
     return (rows || []).map((item) => this.hydrateBrandUnit(item));
   }
@@ -572,8 +579,18 @@ export class BrandUnitsService {
 
   async setActiveBrand(userId: string, brandId: string): Promise<boolean> {
     await this.ensureSchema();
-    const brand = await this.getById(userId, brandId);
-    if (!brand) return false;
+    const access = await queryOne<{ id: string }>(
+      `SELECT b.id
+       FROM brand_units b
+       LEFT JOIN user_brand_roles ubr
+         ON ubr.brand_id = b.id
+        AND ubr.user_id = ?
+        AND COALESCE(ubr.is_blocked, FALSE) = FALSE
+       WHERE b.id = ? AND (b.user_id = ? OR ubr.user_id IS NOT NULL)
+       LIMIT 1`,
+      [userId, brandId, userId],
+    );
+    if (!access?.id) return false;
 
     const affected = await update(
       `UPDATE user_brand_context SET active_brand_id = ? WHERE user_id = ?`,

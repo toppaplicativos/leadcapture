@@ -32,6 +32,8 @@ const PartnersAppPage = lazy(() => import('@/pages/partners/PartnersAppPage').th
 const PartnersProgramWorkspace = lazy(() => import('@/pages/partners/PartnersProgramWorkspace').then(m => ({ default: m.PartnersProgramWorkspace })))
 const AffiliateRedirectPage = lazy(() => import('@/pages/AffiliateRedirectPage').then(m => ({ default: m.AffiliateRedirectPage })))
 const WhatsAppComposerPreview = lazy(() => import('@/pages/dev/WhatsAppComposerPreview').then(m => ({ default: m.WhatsAppComposerPreview })))
+const AccountingPreview = lazy(() => import('@/pages/admin/accounting/AccountingView').then(m => ({ default: m.AccountingView })))
+const AdministrativeAppPage = lazy(() => import('@/pages/administrative/AdministrativeAppPage').then(m => ({ default: m.AdministrativeAppPage })))
 const MobLoginPage = lazy(() => import('@/pages/mob/MobLoginPage').then(m => ({ default: m.MobLoginPage })))
 const MobAppPage = lazy(() => import('@/pages/mob/MobAppPage').then(m => ({ default: m.MobAppPage })))
 const MobTrackPage = lazy(() => import('@/pages/mob/MobTrackPage').then(m => ({ default: m.MobTrackPage })))
@@ -164,6 +166,12 @@ function isMobHost() {
   return MOB_HOSTS.has(window.location.hostname)
 }
 
+function isOrganizationAdminHost() {
+  if (typeof window === 'undefined') return false
+  const host = window.location.hostname.toLowerCase()
+  return host.startsWith('admin.') && host !== 'admin.leadcapture.online'
+}
+
 function isLandingHost() {
   if (typeof window === 'undefined') return false
   return LANDING_HOSTS.has(window.location.hostname)
@@ -186,6 +194,13 @@ function RootIndex() {
   // adm.leadcapture.online → painel master em /admin
   if (onMasterHost) {
     return <Navigate to="/admin" replace />
+  }
+
+  if (isOrganizationAdminHost()) {
+    const destination = storeSlug
+      ? `/app-administrativo/${encodeURIComponent(storeSlug)}/painel`
+      : '/app-administrativo/painel'
+    return <Navigate to={destination} replace />
   }
 
   // parceiros.leadcapture.online → painel se logado, landing se não
@@ -363,6 +378,8 @@ export default function App() {
 
           {/* ── Admin do cliente (app.leadcapture.online) — omitido no host master ── */}
           {!onMasterHost && adminRouteElements}
+          {!onMasterHost && <Route path="/app-administrativo/painel" element={<AdministrativeAppPage />} />}
+          {!onMasterHost && <Route path="/app-administrativo/:slug/painel" element={<AdministrativeAppPage />} />}
 
           {/* ── Estoque standalone (fora do AdminShell) ── */}
           {!onMasterHost && <Route path="/estoque/app" element={<InventoryPage />} />}
@@ -376,6 +393,21 @@ export default function App() {
           {!onMasterHost && (
             <>
               {import.meta.env.DEV && <Route path="/dev/afiliado/mensagem-whatsapp" element={<WhatsAppComposerPreview />} />}
+              {import.meta.env.DEV && <Route path="/dev/contabilidade" element={<AccountingPreview />} />}
+              {import.meta.env.DEV && <Route path="/dev/administrativo" element={<AdministrativeAppPage />} />}
+              {import.meta.env.DEV && (
+                <Route path="/dev/contabilidade-mobile" element={
+                  <main className="min-h-screen bg-[#e9e9e7] grid place-items-center p-6">
+                    <div className="w-[390px] max-w-full h-[844px] max-h-[calc(100vh-48px)] overflow-hidden rounded-[32px] border-[8px] border-gray-950 bg-white shadow-2xl">
+                      <iframe
+                        title="Preview mobile da Contabilidade"
+                        src="/dev/administrativo"
+                        className="w-full h-full border-0"
+                      />
+                    </div>
+                  </main>
+                } />
+              )}
               <Route path="/app-estoque" element={<StockLoginPage />} />
               <Route path="/app-estoque/:slug" element={<StockLoginPage />} />
               <Route path="/app-estoque/:slug/painel" element={<InventoryPage />} />

@@ -75,6 +75,8 @@ import collectionsRoutes from "./routes/collections";
 import attributeDefinitionsRoutes from "./routes/attributeDefinitions";
 import bookingsRoutes from "./routes/bookings";
 import couponsRoutes from "./routes/coupons";
+import accountingRoutes from "./routes/accounting";
+import administrativeRoutes from "./routes/administrative";
 import subscriberClubRoutes from "./routes/subscriberClub";
 import reviewsRoutes from "./routes/reviews";
 import priceTablesRoutes from "./routes/pricetables";
@@ -221,6 +223,13 @@ function isCustomDomainHost(host: string): boolean {
   return host.includes(".");
 }
 
+function organizationAdminBaseDomain(host: string): string | null {
+  if (!host.startsWith("admin.")) return null;
+  const base = host.slice("admin.".length);
+  if (!base || base === "leadcapture.online") return null;
+  return base;
+}
+
 async function resolveSlugByDomain(host: string): Promise<string | null> {
   if (!host) return null;
   const cached = _domainSlugCache.get(host);
@@ -230,10 +239,21 @@ async function resolveSlugByDomain(host: string): Promise<string | null> {
     if (host.startsWith("www.")) candidates.push(host.slice(4));
     else candidates.push(`www.${host}`);
     const placeholders = candidates.map(() => "?").join(",");
-    const result = await queryOne<{ slug: string }>(
+    let result = await queryOne<{ slug: string }>(
       `SELECT s.slug FROM storefront_domains d INNER JOIN storefront_stores s ON s.id = d.store_id WHERE d.domain IN (${placeholders}) ORDER BY d.is_primary DESC LIMIT 1`,
       candidates
     );
+    if (!result?.slug) {
+      result = await queryOne<{ slug: string }>(
+        `SELECT COALESCE(s.slug, b.slug) slug
+         FROM brand_units b
+         LEFT JOIN storefront_stores s ON s.brand_id = b.id
+         WHERE b.domain IN (${placeholders})
+         ORDER BY s.updated_at DESC NULLS LAST
+         LIMIT 1`,
+        candidates,
+      );
+    }
     if (result?.slug) {
       _domainSlugCache.set(host, { slug: result.slug, expires: Date.now() + DOMAIN_SLUG_CACHE_TTL });
       return result.slug;
@@ -351,6 +371,15 @@ async function serveCatalogWithSlug(
     logger.error(`serveCatalogWithSlug error: ${err.message || err}`);
     res.status(500).send("Internal Server Error");
   }
+}
+
+async function serveAdministrativeWithSlug(res: express.Response, slug: string) {
+  if (!hasReactBuild) return serveCatalogSPA(res, "index.html");
+  let html = readFileSync(reactIndexPath, "utf-8");
+  const injection = `<script>window.__STORE_SLUG__=${JSON.stringify(slug)};window.__CUSTOM_DOMAIN__=false;window.__ORGANIZATION_ADMIN__=true;</script>`;
+  html = html.replace("</head>", `${injection}\n</head>`);
+  res.set("Cache-Control", "no-cache, no-store, must-revalidate");
+  return res.type("html").send(html);
 }
 
 /** Link curto /afiliado/:code — OG title/image da marca + domínio canônico. */
@@ -478,6 +507,14 @@ app.get("/service-worker.js", (_req, res) => {
   res.setHeader("Pragma", "no-cache");
   res.setHeader("Expires", "0");
   res.sendFile(path.join(__dirname, "../public/service-worker.js"));
+});
+// /public/index.html interceptaria a raiz antes do fallback de domínio customizado.
+// Injete primeiro o contexto white-label do PWA administrativo da marca.
+app.get("/", async (req, res, next) => {
+  const adminBase = organizationAdminBaseDomain(extractHostname(req));
+  if (!adminBase) return next();
+  const resolvedSlug = await resolveSlugByDomain(adminBase);
+  return serveAdministrativeWithSlug(res, resolvedSlug || adminBase.split(".")[0]);
 });
 app.use(express.static(path.join(__dirname, "../public")));
 app.use(
@@ -775,6 +812,8 @@ app.use("/api/collections", collectionsRoutes);
 app.use("/api/attribute-definitions", attributeDefinitionsRoutes);
 app.use("/api/bookings", bookingsRoutes);
 app.use("/api/coupons", couponsRoutes);
+app.use("/api/accounting", accountingRoutes);
+app.use("/api/administrative", administrativeRoutes);
 app.use("/api/subscriber-club", subscriberClubRoutes);
 app.use("/api/reviews", reviewsRoutes);
 /* LGPD (Fase 15) — public opt-out is NO-AUTH on purpose. Admin views require auth. */
@@ -3656,8 +3695,11 @@ app.get("*", async (req, res) => {
   }
   const host = extractHostname(req);
   if (isCustomDomainHost(host)) {
-    const slug = await resolveSlugByDomain(host);
+    const adminBase = organizationAdminBaseDomain(host);
+    const resolvedSlug = await resolveSlugByDomain(adminBase || host);
+    const slug = resolvedSlug || (adminBase ? adminBase.split(".")[0] : null);
     if (slug) {
+      if (adminBase) return serveAdministrativeWithSlug(res, slug);
       return serveCatalogWithSlug(req, res, "catalogo-publico.html", slug, {
         customDomain: true,
         canonicalPath: "/",

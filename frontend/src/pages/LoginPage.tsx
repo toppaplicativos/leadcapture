@@ -196,7 +196,8 @@ export function LoginPage() {
     if (!token) return
 
     let alive = true
-    fetch('/api/auth/me', {
+    const sessionCheckPath = isMasterHost() ? '/api/master/auth/me' : '/api/auth/me'
+    fetch(sessionCheckPath, {
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     })
       .then(async (r) => {
@@ -211,12 +212,16 @@ export function LoginPage() {
         const code = String(body?.code || '').toUpperCase()
         const hard =
           r.status === 401 ||
+          (isMasterHost() && r.status === 403) ||
           code === 'TOKEN_EXPIRED' ||
           code === 'TOKEN_INVALID' ||
           code === 'UNAUTHORIZED'
         if (hard) {
           localStorage.removeItem('lead-system-token')
           localStorage.removeItem('lead-system:active-brand-id')
+          if (isMasterHost() && r.status === 403 && alive) {
+            setError('Esta conta não tem acesso ao painel master. Entre com uma conta super-admin.')
+          }
           return
         }
         // API instável: se há token, entra no app mesmo assim
@@ -248,6 +253,16 @@ export function LoginPage() {
       if (!r.ok || !d.token) throw new Error(d.error || 'Credenciais inválidas')
 
       localStorage.setItem('lead-system-token', d.token)
+
+      if (isMasterHost()) {
+        const masterCheck = await fetch('/api/master/auth/me', {
+          headers: { Authorization: `Bearer ${d.token}`, 'Content-Type': 'application/json' },
+        })
+        if (!masterCheck.ok) {
+          localStorage.removeItem('lead-system-token')
+          throw new Error('Esta conta não tem acesso ao painel master. Entre com uma conta super-admin.')
+        }
+      }
 
       const dest = postLoginPath()
       if (dest === '/admin') {

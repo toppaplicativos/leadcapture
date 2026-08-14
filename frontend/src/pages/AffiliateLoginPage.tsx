@@ -186,19 +186,19 @@ export function AffiliateLoginPage() {
   const isLogin = mode === 'login'
 
   return (
-    <div className={`relative min-h-screen overflow-x-hidden bg-white flex flex-col text-slate-950 sm:bg-[#f6eff8] ${isLogin ? 'justify-start sm:justify-center sm:py-5' : 'justify-start sm:py-5'}`}>
+    <div className={`relative min-h-screen overflow-x-hidden bg-white flex flex-col text-slate-950 sm:bg-slate-50 ${isLogin ? 'justify-start sm:justify-center sm:py-5' : 'justify-start sm:py-5'}`}>
       <div className="pointer-events-none absolute inset-0" aria-hidden="true">
-        <div className="absolute -top-64 left-1/2 h-[32rem] w-[32rem] -translate-x-1/2 rounded-full bg-[#7b2c91]/12 blur-3xl sm:h-[40rem] sm:w-[40rem]" />
-        <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-[#351044] via-[#7b2c91] to-[#d6a94c]" />
+        <div className="absolute -top-64 left-1/2 h-[32rem] w-[32rem] -translate-x-1/2 rounded-full blur-3xl sm:h-[40rem] sm:w-[40rem]" style={{ backgroundColor: `${primary}18` }} />
+        <div className="absolute inset-x-0 top-0 h-1" style={{ background: `linear-gradient(90deg, ${primary}, ${brand?.secondary_color || primary})` }} />
       </div>
-      <header className="relative z-10 flex w-full flex-col items-center bg-[#f2e4f5] px-5 pb-8 pt-8 text-center sm:bg-transparent sm:pb-4 sm:pt-0">
+      <header className="relative z-10 flex w-full flex-col items-center bg-slate-50 px-5 pb-8 pt-8 text-center sm:bg-transparent sm:pb-4 sm:pt-0">
         {brand?.logo_url ? (
           <div className="mb-2.5 grid h-[4.25rem] w-[4.25rem] place-items-center overflow-hidden rounded-[1.35rem] border border-white/80 bg-white/90 shadow-[0_12px_32px_rgba(66,20,82,0.11)] backdrop-blur">
             <img src={brand.logo_url} alt={`Logomarca ${brand?.name || ''}`} className="h-[3.8rem] w-[3.8rem] scale-[1.35] object-contain" />
           </div>
         ) : (
           <div
-            className="mb-2.5 grid h-[4.25rem] w-[4.25rem] place-items-center rounded-[1.35rem] text-lg font-bold text-white shadow-[0_12px_32px_rgba(66,20,82,0.14)]"
+            className="mb-2.5 grid h-[4.25rem] w-[4.25rem] place-items-center rounded-[1.35rem] text-lg font-bold text-white shadow-[0_12px_32px_rgba(0,0,0,0.10)]"
             style={{ background: `linear-gradient(135deg, ${primary}, ${brand?.secondary_color || '#22c55e'})` }}
           >
             {(brand?.name || 'A')[0].toUpperCase()}
@@ -211,16 +211,16 @@ export function AffiliateLoginPage() {
       </header>
 
       <main className="relative z-10 -mt-5 flex flex-1 items-start justify-center sm:mt-0 sm:flex-none sm:px-6">
-        <div className="min-h-[calc(100svh-10.5rem)] w-full max-w-none rounded-t-[1.75rem] border border-white/90 bg-white p-5 shadow-none sm:min-h-0 sm:max-w-[400px] sm:rounded-[1.75rem] sm:bg-white/95 sm:p-6 sm:shadow-[0_22px_65px_rgba(64,18,78,0.14)] sm:backdrop-blur-xl">
+        <div className="min-h-[calc(100svh-10.5rem)] w-full max-w-none rounded-t-[1.75rem] border border-white/90 bg-white p-5 shadow-none sm:min-h-0 sm:max-w-[400px] sm:rounded-[1.75rem] sm:bg-white/95 sm:p-6 sm:shadow-[0_22px_65px_rgba(0,0,0,0.08)] sm:backdrop-blur-xl">
           {canRegister && (
-            <div className="mb-7 flex gap-1 rounded-2xl bg-[#f3edf5] p-1.5" role="tablist" aria-label="Acesso à Central do Afiliado">
+            <div className="mb-7 grid grid-cols-2 gap-1 rounded-2xl bg-slate-100 p-1.5" role="tablist" aria-label="Acesso à Central do Afiliado">
               <button
                 type="button"
                 role="tab"
                 aria-selected={isLogin}
                 onClick={() => switchMode('login')}
-                className={`min-h-10 flex-1 rounded-xl text-[13px] font-bold transition ${
-                  isLogin ? 'bg-white text-slate-950 shadow-[0_5px_18px_rgba(64,18,78,0.1)]' : 'text-slate-500 hover:text-slate-800'
+                className={`min-h-10 min-w-0 rounded-xl px-2 text-center text-[13px] font-bold transition ${
+                  isLogin ? 'bg-white text-slate-950 shadow-[0_5px_18px_rgba(0,0,0,0.08)]' : 'text-slate-500 hover:text-slate-800'
                 }`}
               >
                 Entrar
@@ -230,8 +230,8 @@ export function AffiliateLoginPage() {
                 role="tab"
                 aria-selected={!isLogin}
                 onClick={() => switchMode('register')}
-                className={`min-h-10 flex-1 rounded-xl text-[13px] font-bold transition ${
-                  !isLogin ? 'bg-white text-slate-950 shadow-[0_5px_18px_rgba(64,18,78,0.1)]' : 'text-slate-500 hover:text-slate-800'
+                className={`min-h-10 min-w-0 rounded-xl px-2 text-center text-[13px] font-bold transition ${
+                  !isLogin ? 'bg-white text-slate-950 shadow-[0_5px_18px_rgba(0,0,0,0.08)]' : 'text-slate-500 hover:text-slate-800'
                 }`}
               >
                 Criar conta

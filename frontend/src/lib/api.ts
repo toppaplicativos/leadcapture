@@ -25,6 +25,9 @@ export interface Product {
   description?: string
   features?: string[]
   price: number
+  currency?: string
+  /** Preços explícitos por moeda, sem conversão automática. Ex.: { BRL: 15, USD: 4.9 } */
+  currency_prices?: Record<string, number | string | { price?: number | string; promo_price?: number | string; compare_at_price?: number | string }>
   compare_at_price?: number
   image?: string
   images?: string[]
@@ -85,6 +88,7 @@ export interface Product {
     launch_at?: string | null
     preorder_starts_at?: string | null
     preorder_ends_at?: string | null
+    localized_content?: Partial<Record<'pt-PT' | 'es' | 'en', { description?: string }>>
     [key: string]: unknown
   }
   /* Reviews (Fase 14) — denormalized; 0 means "no reviews yet" */
@@ -191,6 +195,7 @@ export interface StoreData {
   all_products: Product[]
   /** Categorias cadastradas no admin com capa (vazio = sem carrossel). */
   store_categories?: StoreCatalogCategory[]
+  detected_currency?: { currency: string; country: string }
 }
 
 export interface Order {

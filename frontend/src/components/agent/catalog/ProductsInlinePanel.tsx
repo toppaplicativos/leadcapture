@@ -142,7 +142,7 @@ export function ProductsInlinePanel() {
   const registerHandlers = bridge?.registerHandlers
   const setModuleExpanded = bridge?.setModuleExpanded
   const dispatch = bridge?.dispatch
-  const { openCanvas } = useAgentShell()
+  const { openCanvas, brandId } = useAgentShell()
   const isDesktop = useIsDesktop()
   const { showToast } = useToast()
   const [products, setProducts] = useState<any[]>([])
@@ -161,6 +161,13 @@ export function ProductsInlinePanel() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
+      if (!brandId) {
+        productsRef.current = []
+        setProducts([])
+        setCategories([])
+        publishSnapshot?.({ total: 0, active: 0, drafts: 0, search: searchRef.current, loading: false })
+        return
+      }
       const [p, c] = await Promise.all([
         fetch('/api/products', { headers: getHeaders() }).then((r) => r.json()).catch(() => ({ products: [] })),
         fetch('/api/categories', { headers: getHeaders() }).then((r) => r.json()).catch(() => ({ categories: [] })),
@@ -183,7 +190,7 @@ export function ProductsInlinePanel() {
     } finally {
       setLoading(false)
     }
-  }, [publishSnapshot])
+  }, [brandId, publishSnapshot])
 
   useEffect(() => {
     if (loadedRef.current) return

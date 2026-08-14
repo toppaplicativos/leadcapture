@@ -36,8 +36,11 @@ export function ChannelHeaderIcons({ brandKey = '' }: Props) {
   }, [])
 
   const loadInstagram = useCallback(async () => {
-    if (authDeadRef.current || !hasAuthToken()) {
+    const activeBrandId = String(brandKey || localStorage.getItem('lead-system:active-brand-id') || '').trim()
+    if (authDeadRef.current || !hasAuthToken() || !activeBrandId) {
       setIgLoading(false)
+      setIgConnected(false)
+      setIgUsername(null)
       return
     }
     try {
@@ -94,8 +97,11 @@ export function ChannelHeaderIcons({ brandKey = '' }: Props) {
   }, [handleAuthDeath])
 
   const loadFacebook = useCallback(async () => {
-    if (authDeadRef.current || !hasAuthToken()) {
+    const activeBrandId = String(brandKey || localStorage.getItem('lead-system:active-brand-id') || '').trim()
+    if (authDeadRef.current || !hasAuthToken() || !activeBrandId) {
       setFbLoading(false)
+      setFbConnected(false)
+      setFbPageName(null)
       return
     }
     try {

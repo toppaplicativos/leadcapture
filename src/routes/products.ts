@@ -695,6 +695,7 @@ router.post("/", async (req: BrandRequest, res: Response) => {
       ...(body.service_config !== undefined ? { service_config: body.service_config } : {}),
       ...(body.configurator !== undefined ? { configurator: body.configurator } : {}),
       ...(body.bundle_items !== undefined ? { bundle_items: body.bundle_items } : {}),
+      ...(body.currency_prices !== undefined ? { currency_prices: body.currency_prices } : {}),
       ...(body.stock_quantity !== undefined ? { stock_quantity: body.stock_quantity } : {}),
       ...(body.stock_threshold_low !== undefined ? { stock_threshold_low: body.stock_threshold_low } : {}),
       ...(imageUrl ? { imageUrl } : (body.imageUrl !== undefined || body.image !== undefined ? { imageUrl: imageUrl || null } : {})),
@@ -834,6 +835,7 @@ router.put("/:id", async (req: BrandRequest, res: Response) => {
       service_config: body.service_config !== undefined ? body.service_config : undefined,
       configurator: body.configurator !== undefined ? body.configurator : undefined,
       bundle_items: body.bundle_items !== undefined ? body.bundle_items : undefined,
+      currency_prices: body.currency_prices !== undefined ? body.currency_prices : undefined,
       ...(body.stock_quantity !== undefined ? { stock_quantity: body.stock_quantity } : {}),
       ...(body.stock_threshold_low !== undefined ? { stock_threshold_low: body.stock_threshold_low } : {}),
     };

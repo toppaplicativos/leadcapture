@@ -12,6 +12,7 @@ import {
   Camera, Ticket, Percent, MessageSquareQuote, ThumbsUp, ThumbsDown, Film, ShoppingBag,
   CheckSquare, Square, FolderOpen, Power, PowerOff, XCircle,
   Share2, ImageIcon, LineChart, ListChecks, MessageCircle, ExternalLink,
+  Bold, Heading2, Languages,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { adminApi, inventoryApi } from '@/lib/api-admin'
@@ -33,6 +34,7 @@ import { useAgentShell } from '@/lib/agent/AgentShellContext'
 import { useIsDesktop } from '@/lib/hooks/useMediaQuery'
 import { fieldControlClass, fieldLabelLegacyClass } from '@/components/ui'
 import { measurePerSaleItem, normalizePricingMeasure, PRICING_MEASURE_LABELS, validateProductVolumePricing, type PricingMeasure, type ProductVolumePricingTier } from '@/lib/product-volume-pricing'
+import { productDescriptionToHtml, sanitizeProductDescriptionHtml, stripProductDescriptionFormatting } from '@/lib/product-description'
 
 function defaultVolumePriceTiers(basePrice: number): ProductVolumePricingTier[] {
   const value = Math.max(0, Number(basePrice) || 0)
@@ -655,7 +657,18 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
   const [saving, setSaving] = useState(false)
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [name, setName] = useState(product?.name || '')
-  const [description, setDescription] = useState(product?.description || '')
+  const [description, setDescription] = useState(productDescriptionToHtml(product?.description || ''))
+  type ProductContentLocale = 'pt-BR' | 'pt-PT' | 'es' | 'en'
+  const storedLocalizedContent = product?.metadata?.localized_content && typeof product.metadata.localized_content === 'object'
+    ? product.metadata.localized_content
+    : {}
+  const [contentLocale, setContentLocale] = useState<ProductContentLocale>('pt-BR')
+  const [localizedDescriptions, setLocalizedDescriptions] = useState<Record<Exclude<ProductContentLocale, 'pt-BR'>, string>>({
+    'pt-PT': productDescriptionToHtml(String(storedLocalizedContent?.['pt-PT']?.description || '')),
+    es: productDescriptionToHtml(String(storedLocalizedContent?.es?.description || '')),
+    en: productDescriptionToHtml(String(storedLocalizedContent?.en?.description || '')),
+  })
+  const descriptionRef = useRef<HTMLDivElement>(null)
   const [category, setCategory] = useState(product?.category || '')
   /* Local mutable copy so newly-created categories appear immediately without parent re-render */
   const [categories, setCategories] = useState<any[]>(categoriesProp || [])
@@ -711,6 +724,10 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
   }
   const [price, setPrice] = useState(product?.price != null ? String(product.price) : '')
   const [promoPrice, setPromoPrice] = useState(product?.promoPrice != null ? String(product.promoPrice) : '')
+  const existingCurrencyPrices = ((product as any)?.currency_prices || {}) as Record<string, any>
+  const [priceEur, setPriceEur] = useState(existingCurrencyPrices.EUR?.price != null ? String(existingCurrencyPrices.EUR.price) : '')
+  const [priceUsd, setPriceUsd] = useState(existingCurrencyPrices.USD?.price != null ? String(existingCurrencyPrices.USD.price) : '')
+  const [currencyPricesEnabled, setCurrencyPricesEnabled] = useState(Boolean(existingCurrencyPrices.EUR || existingCurrencyPrices.USD))
   const [volumePricingEnabled, setVolumePricingEnabled] = useState(Boolean(product?.metadata?.volume_pricing?.enabled))
   const [volumePricingMeasure, setVolumePricingMeasure] = useState<PricingMeasure>(() => normalizePricingMeasure(product?.unit, product?.metadata?.volume_pricing?.measure))
   const [volumePriceTiers, setVolumePriceTiers] = useState<ProductVolumePricingTier[]>(() => {
@@ -781,6 +798,20 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
   const [bundleItems, setBundleItems] = useState<Array<{ product_id: string; quantity: number; note?: string }>>(
     Array.isArray(product?.bundle_items) ? product!.bundle_items! : []
   )
+
+  const currentDescription = contentLocale === 'pt-BR' ? description : localizedDescriptions[contentLocale]
+  const setCurrentDescription = (value: string) => {
+    if (contentLocale === 'pt-BR') setDescription(value)
+    else setLocalizedDescriptions(prev => ({ ...prev, [contentLocale]: value }))
+  }
+
+  function applyEditorCommand(command: 'bold' | 'formatBlock', value?: string) {
+    const field = descriptionRef.current
+    if (!field) return
+    field.focus()
+    document.execCommand(command, false, value)
+    setCurrentDescription(sanitizeProductDescriptionHtml(field.innerHTML))
+  }
 
   function addBundleItem(productId: string) {
     if (!productId) return
@@ -1012,12 +1043,18 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
     { value: 'pct', label: 'Pacote (pct)' },
     { value: 'par', label: 'Par' },
     { value: 'm', label: 'Metro (m)' },
+    { value: 'agendamento', label: 'Agendamento' },
+    { value: 'pedido', label: 'Pedido' },
+    { value: 'uso', label: 'Uso' },
+    { value: 'usuario_ativo', label: 'Usuário ativo' },
+    { value: 'publicacao', label: 'Publicação' },
+    { value: 'hora', label: 'Hora' },
   ]
 
   function parseUnit(raw: string): { qty: string; baseUnit: string } {
     const s = (raw || 'unidade').trim().toLowerCase()
     // Match patterns like "500g", "1kg", "10kg", "250ml", "1L"
-    const m = s.match(/^(\d+(?:[.,]\d+)?)\s*(kg|g|ml|l|un|cx|pct|m|par)$/i)
+    const m = s.match(/^(\d+(?:[.,]\d+)?)\s*(kg|g|ml|l|un|cx|pct|m|par|agendamento|pedido|uso|usuario_ativo|publicacao|hora)$/i)
     if (m) return { qty: m[1], baseUnit: m[2].toLowerCase() === 'l' ? 'L' : m[2].toLowerCase() }
     // Already a base unit
     const found = UNITS.find(u => u.value.toLowerCase() === s || u.label.toLowerCase().includes(s))
@@ -1075,7 +1112,7 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
   }
 
   async function assistWithAI() {
-    if (!name.trim() && !description.trim()) {
+    if (!name.trim() && !stripProductDescriptionFormatting(description)) {
       showToast('Informe ao menos um nome ou uma descrição simples para a IA trabalhar.', 'err')
       setEditorSection('essencial')
       return
@@ -1088,7 +1125,7 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
         body: JSON.stringify({
           name,
           category,
-          description,
+          description: stripProductDescriptionFormatting(description),
           command: aiCommand,
           price,
           offerType,
@@ -1102,7 +1139,7 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
       const suggestion = d.suggestion || {}
       if (suggestion.name) setName(String(suggestion.name))
       if (suggestion.subtitle) setSubtitle(String(suggestion.subtitle))
-      if (suggestion.description) setDescription(String(suggestion.description))
+      if (suggestion.description) setDescription(productDescriptionToHtml(String(suggestion.description)))
       if (Array.isArray(suggestion.benefits)) setFeatures(suggestion.benefits.filter(Boolean).join(', '))
       if (!category && suggestion.suggested_category) setCategory(String(suggestion.suggested_category))
       setSeoValues(prev => ({
@@ -1213,6 +1250,7 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
       metadata.galleryImages = normalizedGallery
     }
     metadata.availability_mode = availabilityMode
+    delete metadata.usage_billing
     metadata.launch_at = launchAt || null
     metadata.preorder_starts_at = preorderStartsAt || null
     metadata.preorder_ends_at = preorderEndsAt || null
@@ -1239,15 +1277,27 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
         .filter((tier) => Number.isFinite(tier.price_per_measure) && tier.price_per_measure >= 0)
         .sort((a, b) => a.up_to == null ? 1 : b.up_to == null ? -1 : a.up_to - b.up_to),
     }
+    const localizedContent = Object.fromEntries(
+      Object.entries(localizedDescriptions)
+        .map(([locale, value]) => [locale, { description: stripProductDescriptionFormatting(value) ? sanitizeProductDescriptionHtml(value) : '' }])
+        .filter(([, value]) => Boolean((value as { description: string }).description)),
+    )
+    if (Object.keys(localizedContent).length) metadata.localized_content = localizedContent
+    else delete metadata.localized_content
     if (saveAsDraft || product?.metadata?.is_draft) {
       metadata.is_draft = true
     }
     return {
       name: name.trim(),
-      description: description.trim(),
+      description: stripProductDescriptionFormatting(description) ? sanitizeProductDescriptionHtml(description) : '',
       category: category.trim() || null,
       price: price ? parseFloat(price) : 0,
       promoPrice: promoPrice ? parseFloat(promoPrice) : null,
+      currency_prices: currencyPricesEnabled ? {
+        BRL: { price: price ? parseFloat(price) : 0, promo_price: promoPrice ? parseFloat(promoPrice) : null },
+        ...(priceEur ? { EUR: { price: parseFloat(priceEur) } } : {}),
+        ...(priceUsd ? { USD: { price: parseFloat(priceUsd) } } : {}),
+      } : {},
       unit: composedUnit,
       features: features.split(',').map((f: string) => f.trim()).filter(Boolean),
       active: saveAsDraft ? false : active,
@@ -1316,7 +1366,7 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
     setFieldErrors({})
 
     if (saveAsDraft) {
-      if (!name.trim() && !description.trim()) {
+      if (!name.trim() && !stripProductDescriptionFormatting(description)) {
         const err = { name: 'Informe ao menos o nome ou a descrição' }
         setFieldErrors(err)
         showToast('Informe ao menos o nome ou a descrição para salvar o rascunho', 'err')
@@ -1521,6 +1571,17 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
               <label className={labelCls}>Preco Promocional</label>
               <input type="number" step="0.01" value={promoPrice} onChange={e => setPromoPrice(e.target.value)} placeholder="Opcional" className={inputCls} />
             </div>
+          </div>
+          <div className="mt-3 rounded-2xl border border-gray-200 bg-white p-4">
+            <label className="flex min-h-11 items-center gap-2 text-sm font-bold text-gray-900">
+              <input type="checkbox" checked={currencyPricesEnabled} onChange={e => setCurrencyPricesEnabled(e.target.checked)} />
+              Ativar preços por moeda
+            </label>
+            {currencyPricesEnabled && <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <label className={labelCls}>Preço em EUR<input type="number" step="0.01" value={priceEur} onChange={e => setPriceEur(e.target.value)} placeholder="Ex.: 12,90" className={inputCls} /></label>
+              <label className={labelCls}>Preço em USD<input type="number" step="0.01" value={priceUsd} onChange={e => setPriceUsd(e.target.value)} placeholder="Ex.: 14,90" className={inputCls} /></label>
+            </div>}
+            <p className="mt-2 text-[11px] text-gray-500">O cliente verá a moeda detectada automaticamente. Sem preço específico, o produto continua em BRL.</p>
           </div>
           <div className="rounded-2xl border border-gray-200 bg-gray-50/70 p-4 sm:p-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -1886,10 +1947,48 @@ export function ProductEditorModal({ product, categories: categoriesProp, onClos
               <h4 className="text-sm font-extrabold text-gray-950">Conteúdo do produto</h4>
               <p className="text-[11px] text-gray-500 mt-0.5">Organize a apresentação comercial com descrição, vantagens e uma frase curta de apoio.</p>
             </div>
-          <div>
-            <label className={labelCls}>Descricao</label>
-            <textarea value={description} onChange={e => setDescription(e.target.value)} rows={6}
-              placeholder="Descreva o produto..." className={inputCls + ' resize-none'} />
+          <div className="overflow-hidden rounded-2xl border border-gray-200 bg-gray-50/70">
+            <div className="flex flex-col gap-3 border-b border-gray-200 bg-white p-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <label className="flex items-center gap-2 text-xs font-extrabold text-gray-900">
+                  <Languages className="h-4 w-4" /> Descrição do produto
+                </label>
+                <p className="mt-0.5 text-[10px] text-gray-500">Crie uma versão para cada público. Português (Brasil) continua sendo o padrão.</p>
+              </div>
+              <div className="flex flex-wrap gap-1" role="tablist" aria-label="Idioma da descrição">
+                {([
+                  ['pt-BR', 'PT-BR'], ['pt-PT', 'PT-PT'], ['es', 'ES'], ['en', 'EN'],
+                ] as Array<[ProductContentLocale, string]>).map(([locale, label]) => {
+                  const hasContent = locale === 'pt-BR' ? Boolean(stripProductDescriptionFormatting(description)) : Boolean(stripProductDescriptionFormatting(localizedDescriptions[locale]))
+                  return (
+                    <button key={locale} type="button" role="tab" aria-selected={contentLocale === locale}
+                      onClick={() => setContentLocale(locale)}
+                      className={`relative min-h-9 rounded-lg px-3 text-[11px] font-extrabold transition ${contentLocale === locale ? 'bg-gray-950 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                      {label}
+                      {hasContent && <span className={`absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full ${contentLocale === locale ? 'bg-emerald-400' : 'bg-emerald-500'}`} aria-label="Descrição preenchida" />}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5 border-b border-gray-200 bg-gray-50 px-3 py-2" role="toolbar" aria-label="Formatação da descrição">
+              <button type="button" onMouseDown={event => event.preventDefault()} onClick={() => applyEditorCommand('bold')}
+                aria-label="Negrito" className="grid h-11 w-11 place-items-center rounded-xl border border-gray-200 bg-white text-gray-700 shadow-[0_1px_2px_rgba(0,0,0,0.03)] transition hover:border-gray-300 hover:bg-gray-100 hover:text-gray-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-950 focus-visible:ring-offset-2 active:scale-95" title="Negrito">
+                <Bold className="h-4 w-4" strokeWidth={2.25} aria-hidden="true" />
+              </button>
+              <button type="button" onMouseDown={event => event.preventDefault()} onClick={() => applyEditorCommand('formatBlock', 'h2')}
+                aria-label="Título grande" className="grid h-11 w-11 place-items-center rounded-xl border border-gray-200 bg-white text-gray-700 shadow-[0_1px_2px_rgba(0,0,0,0.03)] transition hover:border-gray-300 hover:bg-gray-100 hover:text-gray-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-950 focus-visible:ring-offset-2 active:scale-95" title="Título grande">
+                <Heading2 className="h-[18px] w-[18px]" strokeWidth={2.1} aria-hidden="true" />
+              </button>
+              <span className="ml-auto text-[10px] font-medium text-gray-400">{stripProductDescriptionFormatting(currentDescription).length.toLocaleString('pt-BR')} caracteres</span>
+            </div>
+            <div key={contentLocale} ref={descriptionRef} contentEditable suppressContentEditableWarning
+              role="textbox" aria-multiline="true" aria-label={`Descrição em ${contentLocale}`}
+              data-placeholder={contentLocale === 'pt-BR' ? 'Descreva o produto...' : `Escreva a versão ${contentLocale}...`}
+              onInput={event => setCurrentDescription(sanitizeProductDescriptionHtml(event.currentTarget.innerHTML))}
+              dangerouslySetInnerHTML={{ __html: currentDescription }}
+              className="product-description-editor min-h-[19rem] w-full overflow-y-auto bg-white px-4 py-4 text-sm leading-7 text-gray-800 outline-none focus:ring-2 focus:ring-inset focus:ring-gray-900/10" />
+            <p className="border-t border-gray-100 bg-white px-4 py-2 text-[10px] text-gray-500">Selecione um trecho e use os ícones. O resultado aparece aqui exatamente como será publicado.</p>
           </div>
 
           <div>

@@ -956,19 +956,38 @@ export function AffiliateAttendanceWorkspace({
     setSaving('convert')
     setError(null)
     const notes = note.trim() || 'Convertido pelo afiliado'
-    emitOptimistic('convert', notes)
-    onClose()
     try {
-      if (item.ref_type === 'assignment') {
-        await affiliateApi.convertDistributionAssignment(item.ref_id, { notes })
-      } else {
-        await affiliateApi.updateLead(item.ref_id, {
-          status: 'converted',
-          notes: note.trim() || undefined,
-        })
-      }
-      ctx.showToast('Cliente registrado · pós-venda em 2 dias')
+      const res = await affiliateApi.progressOpportunity(item.ref_type, item.ref_id, {
+        action: 'convert',
+        channel: 'system',
+        note: notes,
+        reason: 'convert',
+      })
+      const patch = patchFromAction(item.ref_type, item.ref_id, 'convert', { note: notes })
+      patchOpportunitiesCache({
+        ...patch,
+        removed: Boolean(res.removed_from_queue),
+        operational_phase: res.phase || patch.operational_phase,
+      })
+      onChanged({
+        ...patch,
+        removed: Boolean(res.removed_from_queue),
+        operational_phase: res.phase || patch.operational_phase,
+      })
+      ctx.showToast(res.toast || 'Cliente registrado · pós-venda agendado')
+      if (res.removed_from_queue) onClose()
     } catch (e) {
+      if (isNetworkLikeError(e)) {
+        const payload: Parameters<typeof affiliateApi.progressOpportunity>[2] = {
+          action: 'convert',
+          channel: 'system',
+          note: notes,
+          reason: 'convert',
+        }
+        enqueueProgress(item.ref_type, item.ref_id, payload)
+        ctx.showToast('Conversão salva no aparelho · sincroniza quando a rede voltar')
+        return
+      }
       const msg = e instanceof Error ? e.message : 'Erro ao converter'
       ctx.showToast(msg, 'err')
     } finally {

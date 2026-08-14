@@ -442,10 +442,16 @@ export function AffiliateTaskWorkspace({
     })
     try {
       const res = await affiliateApi.progressOpportunity(contact.ref_type, contact.ref_id, payload)
-      patchOpportunitiesCache(patch)
+      const serverPatch = {
+        ...patch,
+        removed: Boolean(res.removed_from_queue),
+        operational_phase: res.phase || patch.operational_phase,
+        queued_offline: false,
+      }
+      patchOpportunitiesCache(serverPatch)
 
       if (action === 'sent' || action === 'called' || extra?.stayOpen) {
-        onChanged?.({ ...patch, action: action === 'called' ? 'called' : 'sent' })
+        onChanged?.({ ...serverPatch, action: action === 'called' ? 'called' : 'sent' })
         setPhase('result')
         setDoneMsg(null)
         ctx.showToast(
@@ -455,10 +461,12 @@ export function AffiliateTaskWorkspace({
             : 'Mensagem registrada · escolha o resultado'),
         )
       } else {
-        onChanged?.(patch)
+        onChanged?.(serverPatch)
         const exitMsg: Record<string, string> = {
           lost: 'Excluído · contato saiu da fila',
-          channel_unavailable: 'Canal indisponível · contato excluído',
+          channel_unavailable: res.removed_from_queue
+            ? 'Canal indisponível · contato excluído'
+            : (res.toast || 'Canal indisponível · tente o próximo canal'),
           not_matching: 'Não correspondente · contato excluído',
           dismiss: 'Oculto · removido da sua lista',
         }

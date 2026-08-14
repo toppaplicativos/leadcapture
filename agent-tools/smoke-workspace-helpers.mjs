@@ -45,9 +45,23 @@ export async function waitForWorkspaceReady(page, timeout = 45000) {
   }, { timeout })
 }
 
+export async function dismissPwaBanner(page) {
+  const dialog = page.locator('[role="dialog"]').filter({ hasText: /Lembrar depois|Instalar app|Como instalar/i }).last()
+  if (!(await dialog.isVisible().catch(() => false))) return
+  const dismiss = dialog.locator('button').filter({ hasText: /Lembrar depois|Agora n[aã]o|Fechar/i }).first()
+  if (await dismiss.count()) {
+    await dismiss.click({ force: true }).catch(() => null)
+    await dialog.waitFor({ state: 'hidden', timeout: 5000 }).catch(() => null)
+  }
+}
+
 export async function gotoAdminWorkspace(page, base, timeout = 45000) {
-  await page.goto(`${base}/admin`, { waitUntil: 'domcontentloaded', timeout })
+  // /admin is the dashboard canvas route. The conversational workspace lives
+  // at /assistente; navigating to /admin here hides the chat and made the
+  // authenticated desktop/mobile smokes report false failures.
+  await page.goto(`${base}/assistente`, { waitUntil: 'domcontentloaded', timeout })
   await waitForWorkspaceReady(page, timeout)
+  await dismissPwaBanner(page)
 }
 
 /**

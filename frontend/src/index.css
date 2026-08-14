@@ -1,7 +1,7 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap'); /* canonical font import */
 @import "tailwindcss";
 
 /* Inter Ã¢ÂÂ distinctive, dense, premium (used by GitHub, Stripe, Linear, Vercel) */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
 
 /* Ã¢ÂÂÃ¢ÂÂ Leaflet z-index containment Ã¢ÂÂÃ¢ÂÂ
  * Leaflet's default CSS sets .leaflet-pane to z-index 200-700 (above almost everything).
@@ -3240,6 +3240,69 @@ button.product-volume-ladder__row:focus-visible {
   letter-spacing: -.02em;
 }
 
+.product-editorial__section h3.product-editorial__title--large {
+  font-size: clamp(1.35rem, 3vw, 1.8rem);
+  line-height: 1.2;
+  letter-spacing: -.035em;
+}
+
+.product-editorial__section strong {
+  color: #171717;
+  font-weight: 800;
+}
+
+.product-description-editor:empty::before {
+  content: attr(data-placeholder);
+  color: #9a9a9a;
+  pointer-events: none;
+}
+
+.product-description-editor p,
+.product-description-rich p {
+  margin: 0 0 .75rem;
+}
+
+.product-description-editor h2,
+.product-description-rich h2 {
+  margin: 1.25rem 0 .75rem;
+  color: #171717;
+  font-size: 1.5rem;
+  font-weight: 800;
+  line-height: 1.25;
+  letter-spacing: -.03em;
+}
+
+.product-description-editor h3,
+.product-description-rich h3 {
+  margin: 1rem 0 .625rem;
+  color: #171717;
+  font-size: 1.125rem;
+  font-weight: 750;
+  line-height: 1.3;
+}
+
+.product-description-editor strong,
+.product-description-rich strong {
+  color: #171717;
+  font-weight: 800;
+}
+
+.product-description-editor ul,
+.product-description-editor ol,
+.product-description-rich ul,
+.product-description-rich ol {
+  margin: .75rem 0 1rem;
+  padding-left: 1.4rem;
+}
+
+.product-description-editor ul,
+.product-description-rich ul { list-style: disc; }
+.product-description-editor ol,
+.product-description-rich ol { list-style: decimal; }
+
+.product-description-rich--compact h2 { font-size: 1.25rem; }
+.product-description-rich--compact h3 { font-size: 1rem; }
+
 .product-editorial__section p {
   margin: 0;
   color: #525252;
@@ -4756,6 +4819,13 @@ html.agent-workspace #root {
   padding-bottom: max(0.5rem, env(safe-area-inset-bottom, 0px));
 }
 
+/* O menu mobile é um drawer fixed dentro do footer. Quando aberto, o footer
+   precisa superar o chrome do shell; sem isso o header fica por cima do
+   drawer e os toques no botão de fechar atingem os ícones de canal atrás. */
+.workspace-chat__footer.is-menu-open {
+  z-index: 130;
+}
+
 @media (max-width: 1023px) {
   .workspace-chat__footer {
     position: relative;
@@ -5449,6 +5519,14 @@ html.agent-workspace #root {
 }
 
 @media (max-width: 1023px) {
+  /* O rail é irmão do chrome do shell (z-index 30). O drawer fixed vive
+     dentro dele; elevar somente enquanto aberto permite que o backdrop e o
+     botão de fechar recebam o toque, sem cobrir o header no estado normal. */
+  .agent-shell__rail:has(.workspace-chat__shortcuts) {
+    position: relative;
+    z-index: 40;
+  }
+
   .workspace-chat__nav-backdrop {
     display: block;
     position: fixed;

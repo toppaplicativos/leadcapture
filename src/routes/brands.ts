@@ -4,6 +4,7 @@ import { BrandUnitsService } from "../services/brandUnits";
 import { StorefrontService } from "../services/storefront";
 import { invalidateCatalogCacheByBrand } from "../services/storefrontCache";
 import { assertBrandLimit, EntitlementError, getBrandStatus } from "../services/planEntitlements";
+import { queryOne } from "../config/database";
 
 const router = Router();
 const brandUnitsService = new BrandUnitsService();
@@ -73,10 +74,45 @@ const updateBrandHandler = async (req: AuthRequest, res: Response) => {
     const userId = req.user?.userId as string | undefined;
     if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
-    const brand = await brandUnitsService.update(userId, String(req.params.id), req.body || {});
+    const brandId = String(req.params.id);
+    const access = await queryOne<{ owner_user_id: string; role_slug: string | null }>(
+      `SELECT b.user_id AS owner_user_id, r.slug AS role_slug
+         FROM brand_units b
+         LEFT JOIN user_brand_roles ubr
+           ON ubr.brand_id = b.id AND ubr.user_id = ? AND COALESCE(ubr.is_blocked, FALSE) = FALSE
+         LEFT JOIN roles r ON r.id = ubr.role_id
+        WHERE b.id = ? AND (b.user_id = ? OR ubr.user_id IS NOT NULL)
+        LIMIT 1`,
+      [userId, brandId, userId],
+    );
+    if (!access) return res.status(404).json({ error: "Brand not found" });
+    const isOwner = String(access.owner_user_id) === String(userId);
+    const isOrganizationAdmin = String(access.role_slug || "") === "admin";
+    if (!isOwner && !isOrganizationAdmin) {
+      return res.status(403).json({ error: "Somente o dono ou administrador da organização pode alterar estes dados." });
+    }
+
+    if (req.body?.slug !== undefined) {
+      const requestedSlug = String(req.body.slug || "").trim().toLowerCase()
+        .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+      const conflict = await queryOne<{ id: string }>(
+        `SELECT id FROM brand_units WHERE slug = ? AND id <> ?
+         UNION ALL
+         SELECT id FROM storefront_stores WHERE slug = ? AND brand_id <> ?
+         LIMIT 1`,
+        [requestedSlug, brandId, requestedSlug, brandId],
+      );
+      if (conflict) {
+        return res.status(409).json({ error: "Este endereço público já está sendo usado por outra organização." });
+      }
+    }
+
+    const ownerUserId = String(access.owner_user_id);
+    const brand = await brandUnitsService.update(ownerUserId, brandId, req.body || {});
     if (!brand) return res.status(404).json({ error: "Brand not found" });
 
-    await storefrontService.synchronizeBrandStructure(userId, String(brand.id), { syncProducts: true });
+    await storefrontService.synchronizeBrandStructure(ownerUserId, String(brand.id), { syncProducts: true });
     await invalidateCatalogCacheByBrand(String(brand.id));
 
     const activeBrandId = await brandUnitsService.getActiveBrandId(userId);

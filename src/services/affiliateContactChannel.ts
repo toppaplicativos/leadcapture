@@ -112,6 +112,7 @@ export async function ensureManualActionsChannelSchema(): Promise<void> {
     note TEXT NULL,
     channel VARCHAR(20) NULL DEFAULT 'whatsapp',
     duration_sec INT NULL,
+    client_event_id VARCHAR(100) NULL,
     meta_json TEXT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
   )`).catch((e: any) => {
@@ -121,6 +122,7 @@ export async function ensureManualActionsChannelSchema(): Promise<void> {
   const alters = [
     `ALTER TABLE affiliate_manual_actions ADD COLUMN channel VARCHAR(20) NULL DEFAULT 'whatsapp'`,
     `ALTER TABLE affiliate_manual_actions ADD COLUMN duration_sec INT NULL`,
+    `ALTER TABLE affiliate_manual_actions ADD COLUMN client_event_id VARCHAR(100) NULL`,
     `ALTER TABLE affiliate_manual_actions ADD COLUMN meta_json TEXT NULL`,
   ];
   for (const sql of alters) {
@@ -129,6 +131,10 @@ export async function ensureManualActionsChannelSchema(): Promise<void> {
   await query(
     `CREATE INDEX IF NOT EXISTS idx_aff_manual_channel
      ON affiliate_manual_actions (affiliate_id, brand_id, ref_type, ref_id, channel, created_at)`,
+  ).catch(() => undefined);
+  await query(
+    `CREATE UNIQUE INDEX IF NOT EXISTS uq_aff_manual_client_event
+     ON affiliate_manual_actions (affiliate_id, brand_id, client_event_id)`,
   ).catch(() => undefined);
   schemaReady = true;
 }

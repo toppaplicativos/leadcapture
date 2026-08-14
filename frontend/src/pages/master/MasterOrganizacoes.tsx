@@ -201,6 +201,23 @@ export function MasterOrganizacoes() {
     }
   }
 
+  async function updateOrgSlug(id: string, slug: string) {
+    const normalized = slug.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+    if (!normalized || normalized.length < 3) return setError('Informe um endereço público com pelo menos 3 caracteres.')
+    setBusyId(id)
+    try {
+      await masterApi.updateOrganization(id, { slug: normalized })
+      setRows(prev => prev.map(r => (r.id === id ? { ...r, slug: normalized } : r)))
+      setDetail((d: any) => d ? { ...d, organization: { ...d.organization, slug: normalized } } : d)
+      setFlash('Endereço público atualizado. O link anterior continua funcionando.')
+    } catch (err: any) {
+      setError(err?.message || 'Falha ao atualizar endereço público')
+    } finally {
+      setBusyId(null)
+      setTimeout(() => setFlash(null), 3000)
+    }
+  }
+
   async function impersonate(ownerId: string) {
     if (!ownerId) return
     setBusyId(ownerId)
@@ -481,7 +498,21 @@ export function MasterOrganizacoes() {
                         }}
                         className="w-full mt-1 h-10 px-3 rounded-xl bg-white/[0.04] border border-white/10 text-[13px] text-white"
                       />
-                      <p className="mt-2 text-[11px] text-white/40 font-mono">{org.slug || org.id}</p>
+                      <label className="mt-3 block text-[10px] uppercase text-white/40 font-semibold">Endereço público</label>
+                      <div className="mt-1 flex items-center gap-2">
+                        <span className="text-[11px] text-white/35">/catalogo/</span>
+                        <input
+                          key={`${org.id}-${org.slug}`}
+                          defaultValue={org.slug || ''}
+                          disabled={busyId === org.id}
+                          onBlur={e => {
+                            if (e.target.value.trim() !== String(org.slug || '')) updateOrgSlug(org.id, e.target.value)
+                          }}
+                          className="min-w-0 flex-1 h-9 px-3 rounded-xl bg-white/[0.04] border border-white/10 text-[12px] font-mono text-white"
+                          aria-label="Slug público da organização"
+                        />
+                      </div>
+                      <p className="mt-1.5 text-[10px] leading-relaxed text-white/35">Ao alterar, a loja acompanha o novo endereço e o link anterior vira um redirecionamento compatível.</p>
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-3 text-[12px]">

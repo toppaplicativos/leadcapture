@@ -198,7 +198,7 @@ function signPartnersGlobalToken(input: {
 // Creates an ORGANIZATION principal (account_kind=org). Client cannot self-assign admin/platform.
 router.post("/register", async (req: Request, res: Response) => {
   try {
-    const { email, password, name, phone, brand_name } = req.body;
+    const { email, password, name, phone, brand_name, app_token } = req.body;
 
     if (!email || !password || !name) {
       return res.status(400).json({ error: "Email, password and name are required" });
@@ -233,6 +233,10 @@ router.post("/register", async (req: Request, res: Response) => {
         const brands = new BrandUnitsService();
         const brand = await brands.create(user.id, { name: brandNameFinal, is_default: true });
         logger.info(`Organization created for new user: ${brandNameFinal} (ID: ${brand.id})`);
+        if (app_token) {
+          const { attachCustomerApp } = await import("../services/usageBilling");
+          await attachCustomerApp({ userId: String(user.id), brandId: String(brand.id), token: String(app_token) });
+        }
       } catch (brandErr: any) {
         logger.warn(`Org brand create on register failed: ${brandErr?.message}`);
       }

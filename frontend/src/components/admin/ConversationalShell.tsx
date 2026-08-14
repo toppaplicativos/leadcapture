@@ -337,7 +337,7 @@ function ConversationalShellBody({
               )}
             </span>
           )}
-          <ChannelHeaderIcons brandKey={activeBrandId || refreshKey} />
+          <ChannelHeaderIcons brandKey={activeBrandId} />
           <button type="button" onClick={requestLogout} className="agent-shell__logout" aria-label="Sair">
             <LogOut size={16} strokeWidth={1.75} />
             <span className="hidden sm:inline">Sair</span>

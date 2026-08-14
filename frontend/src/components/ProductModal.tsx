@@ -3,6 +3,7 @@ import { WhatsAppIcon, type IconComponent } from '@/components/icons'
 import { useEffect, useState } from 'react'
 import type { OfferCta, Product } from '@/lib/api'
 import { ProductReviewsSection } from '@/components/product/ProductReviewsSection'
+import { ProductDescriptionContent } from '@/components/product/ProductDescriptionContent'
 import { money } from '@/lib/store-context'
 import { Button } from '@/components/ui'
 import { optimizedImage, optimizedSrcset } from '@/lib/image'
@@ -402,9 +403,7 @@ export function ProductModal({ product, onClose, onAddToCart, whatsappPhone, all
           })}
 
           {product.description && (
-            <p className="text-[14px] text-gray-600 leading-relaxed whitespace-pre-wrap max-w-prose">
-              {product.description}
-            </p>
+            <ProductDescriptionContent description={product.description} variant="compact" />
           )}
 
           {details.length > 0 && (
@@ -598,4 +597,3 @@ export function ProductModal({ product, onClose, onAddToCart, whatsappPhone, all
     </div>
   )
 }
-

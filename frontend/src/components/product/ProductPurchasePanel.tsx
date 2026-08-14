@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Minus, Plus, ShoppingBag } from 'lucide-react'
 import type { Product } from '@/lib/api'
 import type { AddItemPayload } from '@/lib/store'
-import { money } from '@/lib/store-context'
+import { money, resolveProductPrice, getStoreCurrency } from '@/lib/store-context'
 import {
   getProductVolumePricingFromPrice,
   isProductVolumePricingEnabled,
@@ -83,7 +83,7 @@ export function useProductPurchase(product: Product | null) {
     const effectivePrice =
       selectedVariant?.price != null && selectedVariant.price > 0
         ? Number(selectedVariant.price)
-        : Number(product.price || 0)
+        : resolveProductPrice(product, getStoreCurrency())
     const effectivePromo =
       selectedVariant?.promo_price != null && selectedVariant.promo_price > 0
         ? Number(selectedVariant.promo_price)

@@ -36,10 +36,32 @@ export function storeUrl(subpath?: string, catalogSlug?: string): string {
   )
 }
 
-export function money(value: number | string | null | undefined): string {
-  return new Intl.NumberFormat('pt-BR', {
+export type StoreCurrency = 'BRL' | 'EUR' | 'USD'
+
+export function getStoreCurrency(): StoreCurrency {
+  if (typeof window === 'undefined') return 'BRL'
+  const raw = String(window.sessionStorage.getItem('storefront_currency') || '').toUpperCase()
+  return raw === 'EUR' || raw === 'USD' || raw === 'BRL' ? raw : 'BRL'
+}
+
+export function resolveProductPrice(product: { price?: number | string; currency_prices?: Record<string, any> }, currency = getStoreCurrency()) {
+  const entry = product.currency_prices?.[currency]
+  if (entry == null) return Number(product.price || 0)
+  if (typeof entry === 'object') return Number(entry.price ?? product.price ?? 0)
+  return Number(entry)
+}
+
+export function resolveProductPromoPrice(product: { price?: number | string; currency_prices?: Record<string, any> }, currency = getStoreCurrency()) {
+  const entry = product.currency_prices?.[currency]
+  if (entry && typeof entry === 'object' && entry.promo_price != null) return Number(entry.promo_price)
+  return undefined
+}
+
+export function money(value: number | string | null | undefined, currency = getStoreCurrency()): string {
+  const locale = currency === 'BRL' ? 'pt-BR' : currency === 'EUR' ? 'pt-PT' : 'en-US'
+  return new Intl.NumberFormat(locale, {
     style: 'currency',
-    currency: 'BRL',
+    currency,
   }).format(Number(value || 0))
 }
 

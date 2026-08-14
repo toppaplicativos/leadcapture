@@ -1769,6 +1769,7 @@ async function resolveAffiliateOpportunity(ctx: AffiliateContext, affiliateId: s
       notes: row.affiliate_notes,
       niche: row.cta_type || row.source_type || null,
       product_name: row.product_name || null,
+      order_id: row.order_id || null,
       incoming_message: row.message || null,
       source: "own_link",
       received_at: row.created_at || null,
@@ -1794,6 +1795,63 @@ async function syncRootCustomerStatus(input: {
      WHERE id = ? AND owner_user_id = ? AND brand_id = ?`,
     [input.status, prospectId, input.ctx.ownerUserId, input.ctx.brandId],
   );
+}
+
+async function ensureConvertedCustomer(input: {
+  ctx: AffiliateContext;
+  item: any;
+  notes?: string | null;
+}): Promise<string | null> {
+  const refTable = String(input.item?.prospect_ref_table || "").toLowerCase();
+  const existingId = String(input.item?.prospect_id || "").trim();
+  if (refTable === "customers" && existingId) {
+    await query(
+      `UPDATE customers
+       SET status = 'converted', updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND owner_user_id = ? AND brand_id = ?`,
+      [existingId, input.ctx.ownerUserId, input.ctx.brandId],
+    );
+    return existingId;
+  }
+
+  const phone = String(input.item?.contact_phone || input.item?.phone || "").replace(/\D/g, "").slice(0, 30) || null;
+  const email = String(input.item?.email || "").trim().toLowerCase().slice(0, 160) || null;
+  const name = String(input.item?.name || "Cliente").trim().slice(0, 120) || "Cliente";
+  const where: string[] = ["owner_user_id = ?", "brand_id = ?"];
+  const params: any[] = [input.ctx.ownerUserId, input.ctx.brandId];
+  if (phone) {
+    where.push("phone = ?");
+    params.push(phone);
+  } else if (email) {
+    where.push("LOWER(email) = ?");
+    params.push(email);
+  } else {
+    where.push("LOWER(name) = ?");
+    params.push(name.toLowerCase());
+  }
+  const found = await queryOne<any>(
+    `SELECT id FROM customers WHERE ${where.join(" AND ")} ORDER BY updated_at DESC LIMIT 1`,
+    params,
+  );
+  if (found?.id) {
+    await query(
+      `UPDATE customers
+       SET status = 'converted', phone = COALESCE(NULLIF(phone, ''), ?),
+           email = COALESCE(NULLIF(email, ''), ?), updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND owner_user_id = ? AND brand_id = ?`,
+      [phone, email, found.id, input.ctx.ownerUserId, input.ctx.brandId],
+    );
+    return String(found.id);
+  }
+
+  const customerId = randomUUID();
+  await query(
+    `INSERT INTO customers
+     (id, owner_user_id, brand_id, name, phone, email, source, status, notes, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, 'affiliate', 'converted', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+    [customerId, input.ctx.ownerUserId, input.ctx.brandId, name, phone, email, input.notes || null],
+  );
+  return customerId;
 }
 
 async function getContactOverride(affiliateId: string, brandId: string, refType: string, refId: string) {
@@ -1853,6 +1911,7 @@ async function recordAffiliateManualAction(input: {
   note?: string | null;
   channel?: string | null;
   durationSec?: number | null;
+  clientEventId?: string | null;
   meta?: Record<string, unknown> | null;
 }) {
   await ensureManualActionsChannelSchema();
@@ -1864,10 +1923,11 @@ async function recordAffiliateManualAction(input: {
   const metaJson = input.meta && Object.keys(input.meta).length
     ? JSON.stringify(input.meta).slice(0, 4000)
     : null;
+  const clientEventId = String(input.clientEventId || "").trim().slice(0, 100) || null;
   await query(
     `INSERT INTO affiliate_manual_actions
-     (id, owner_user_id, brand_id, affiliate_id, ref_type, ref_id, action, message_text, note, channel, duration_sec, meta_json)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     (id, owner_user_id, brand_id, affiliate_id, ref_type, ref_id, action, message_text, note, channel, duration_sec, client_event_id, meta_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       randomUUID(),
       input.ctx.ownerUserId,
@@ -1879,8 +1939,9 @@ async function recordAffiliateManualAction(input: {
       input.message || null,
       input.note || null,
       channel,
-      duration,
-      metaJson,
+       duration,
+       clientEventId,
+       metaJson,
     ],
   );
 }
@@ -2308,6 +2369,9 @@ router.patch("/opportunities/:refType/:refId/progress", async (req: AuthRequest,
     const note = String(req.body?.note || "").trim().slice(0, 2000) || null;
     const reason = String(req.body?.reason || "").trim().slice(0, 120) || null;
     const taskId = String(req.body?.task_id || "").trim() || null;
+    const clientEventId = String(req.body?.client_event_id || "").trim().slice(0, 100) || null;
+    const orderIdBody = String(req.body?.order_id || item?.order_id || "").trim() || null;
+    const orderTotalBody = Number(req.body?.order_total || 0);
     const followupDaysBody =
       req.body?.followup_days != null && Number.isFinite(Number(req.body.followup_days))
         ? Number(req.body.followup_days)
@@ -2323,6 +2387,43 @@ router.patch("/opportunities/:refType/:refId/progress", async (req: AuthRequest,
 
     await ensureAttendanceTasksSchema();
     await ensureManualActionsChannelSchema();
+
+    /* Um retry do cliente nÃ£o pode executar novamente uma transiÃ§Ã£o comercial. */
+    if (clientEventId) {
+      const previousEvent = await queryOne<any>(
+        `SELECT action, channel, created_at
+         FROM affiliate_manual_actions
+         WHERE affiliate_id = ? AND brand_id = ? AND client_event_id = ?
+         LIMIT 1`,
+        [String(affiliate.id), ctx.brandId, clientEventId],
+      ).catch(() => null);
+      if (previousEvent) {
+        const existingNext = await getNextPendingTask({
+          affiliateId: String(affiliate.id),
+          brandId: ctx.brandId,
+          refType,
+          refId,
+        }).catch(() => null);
+        return res.json({
+          success: true,
+          action: String(previousEvent.action || action),
+          channel: previousEvent.channel || channel,
+          duplicate_skipped: true,
+          toast: "Resultado jÃ¡ registrado Â· sem alteraÃ§Ã£o",
+          next_task: existingNext
+            ? {
+                id: existingNext.id,
+                task_type: existingNext.task_type,
+                due_at: existingNext.due_at,
+                instruction: existingNext.instruction,
+                template_id: existingNext.template_id,
+                contact_channel: existingNext.contact_channel || null,
+                is_due: new Date(existingNext.due_at).getTime() <= Date.now(),
+              }
+            : null,
+        });
+      }
+    }
 
     /* Régua C1–C8: quantas mensagens/ligações outbound já foram registradas neste contato */
     const outboundRow = await queryOne<{ c: number }>(
@@ -2413,6 +2514,28 @@ router.patch("/opportunities/:refType/:refId/progress", async (req: AuthRequest,
       }).catch(() => undefined);
     }
 
+    let convertedCustomerId: string | null = null;
+    let commissionRecorded = false;
+    if (action === "convert") {
+      convertedCustomerId = await ensureConvertedCustomer({
+        ctx,
+        item,
+        notes: note,
+      });
+      if (orderIdBody && Number.isFinite(orderTotalBody) && orderTotalBody > 0) {
+        await affiliatesService.recordSale({
+          ownerUserId: ctx.ownerUserId,
+          brandId: ctx.brandId,
+          affiliateId: String(affiliate.id),
+          orderId: orderIdBody,
+          customerName: String(item.name || "Cliente"),
+          customerPhone: String(item.phone || "") || undefined,
+          orderTotal: orderTotalBody,
+        });
+        commissionRecorded = true;
+      }
+    }
+
     const defaultNotes: Record<string, string> = {
       not_matching: "Não correspondente (nicho errado, número mudou ou contato inválido)",
       channel_unavailable: "Canal indisponível ao tentar contato",
@@ -2445,6 +2568,11 @@ router.patch("/opportunities/:refType/:refId/progress", async (req: AuthRequest,
         "last_interaction_at = CURRENT_TIMESTAMP",
       ];
       const params: any[] = [stage, assignmentStatus];
+
+      if (convertedCustomerId) {
+        sets.push("converted_customer_id = ?");
+        params.push(convertedCustomerId);
+      }
 
       if (action !== "note") {
         if (effect.followupDays != null && !effect.archive) {
@@ -2610,6 +2738,7 @@ router.patch("/opportunities/:refType/:refId/progress", async (req: AuthRequest,
       note: combinedNote,
       channel,
       durationSec: durationSecBody,
+      clientEventId,
       meta: { channel },
     });
 
@@ -2698,6 +2827,8 @@ router.patch("/opportunities/:refType/:refId/progress", async (req: AuthRequest,
       instruction: effect.instruction,
       toast: effect.toast,
       template_id: effect.templateId,
+      converted_customer_id: convertedCustomerId,
+      commission_recorded: commissionRecorded,
       duplicate_skipped: false,
       next_task: cadence.next_task
         ? {

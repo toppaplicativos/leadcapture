@@ -127,7 +127,9 @@ export function useAdminAgentChat(currentPath: string, brandId = '') {
   const [searchResults, setSearchResults] = useState<AdminAgentSearchHit[]>([])
   const [searchLoading, setSearchLoading] = useState(false)
   const searchAbortRef = useRef<AbortController | null>(null)
-  const hydrateKeyRef = useRef('')
+  // null means "not evaluated yet". It must remain distinct from an empty
+  // brand id, because super-admin can validly start without a selected brand.
+  const hydrateKeyRef = useRef<string | null>(null)
 
   const hydrateSession = useCallback(async (targetBrandId: string, path: string) => {
     if (!targetBrandId) {
@@ -405,6 +407,10 @@ export function useAdminAgentChat(currentPath: string, brandId = '') {
     const isDirect = !!opts?.directSkill
     const isEventOnly = !!opts?.componentEvent && !trimmed
     if ((!trimmed && !isEventOnly && !isDirect) || loading) return
+    if (!brandId) {
+      setError('Selecione uma marca para executar essa ação.')
+      return
+    }
 
     setError(null)
     const displayText = trimmed || (

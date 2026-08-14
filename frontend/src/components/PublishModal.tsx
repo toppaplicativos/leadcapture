@@ -62,6 +62,13 @@ export function PublishModal({ open, onClose, imageUrl, captionContext }: Props)
     if (!open) return
     setResult(null)
     setPublishing(false)
+    const brandId = localStorage.getItem('lead-system:active-brand-id') || ''
+    if (!brandId.trim()) {
+      setIgConnected(false)
+      setIgUsername('')
+      setIgPfp('')
+      return
+    }
     fetch('/api/instagram/connection-status', { headers: getHeaders() })
       .then(r => r.json())
       .then(d => {

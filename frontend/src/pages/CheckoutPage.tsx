@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import { fetchCatalog, createOrder, validateCoupon, fetchPublicClientTypes, quotePublicFreight, type Product, type PublicClientType, type PublicFreightQuote } from '@/lib/api'
 import { useCartStore } from '@/lib/store'
 import { getCustomer, setCustomer } from '@/lib/store'
-import { money, storeUrl, normalizePhone, getStoreSlug } from '@/lib/store-context'
+import { money, storeUrl, normalizePhone, getStoreSlug, getStoreCurrency, resolveProductPrice } from '@/lib/store-context'
 import { useToast } from '@/components/Toast'
 import { getAffiliateCoupon, getAffiliateOrderMeta } from '@/lib/affiliate-tracking'
 import { ClientTypePicker } from '@/components/store/ClientTypePicker'
@@ -61,6 +61,8 @@ export function CheckoutPage() {
   useEffect(() => {
     fetchCatalog()
       .then((data) => {
+        const detected = String(data.detected_currency?.currency || '').toUpperCase()
+        if (detected === 'BRL' || detected === 'EUR' || detected === 'USD') window.sessionStorage.setItem('storefront_currency', detected)
         const map = new Map<string, Product>()
         ;(data.all_products || []).forEach((p) => map.set(String(p.id), p))
         setProducts(map)
@@ -90,7 +92,7 @@ export function CheckoutPage() {
     const volumePrice = p ? resolveProductVolumePrice(p, it.quantity) : null
     if (volumePrice) return volumePrice.itemUnitPrice
     if (typeof it.unitPrice === 'number' && it.unitPrice > 0) return it.unitPrice
-    return p ? Number(p.price) : 0
+    return p ? resolveProductPrice(p, getStoreCurrency()) : 0
   }
   const total = cartKeys.reduce((sum, key) => {
     const it = items[key]

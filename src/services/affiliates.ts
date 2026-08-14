@@ -212,6 +212,11 @@ async function initializeAffiliateSchema(): Promise<void> {
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `);
+  await query(
+    `CREATE UNIQUE INDEX IF NOT EXISTS uq_affiliate_sales_order
+     ON affiliate_sales (order_id)
+     WHERE order_id IS NOT NULL`,
+  ).catch(() => undefined);
 
   await query(
     `ALTER TABLE affiliate_sales ADD COLUMN commission_mode VARCHAR(30) NULL`

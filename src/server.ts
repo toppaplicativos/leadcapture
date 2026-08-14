@@ -96,7 +96,8 @@ app.get('/', (req: Request, res: Response) => {
 // INICIAR SERVIDOR
 // ============================================
 
-const server = httpServer.listen(parseInt(PORT as string), '0.0.0.0', () => {
+/* Legacy entrypoint disabled: production starts src/index.ts. */
+if (false) { const server = httpServer.listen(parseInt(PORT as string), '0.0.0.0', () => {
     console.log();
     console.log();
     console.log();
@@ -120,5 +121,7 @@ process.on('SIGTERM', () => {
         process.exit(0);
     });
 });
+
+}
 
 export default app;

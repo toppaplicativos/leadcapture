@@ -7,7 +7,7 @@
 import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { gotoAdminWorkspace, openWorkspaceShortcut, waitForWorkspaceReady } from './smoke-workspace-helpers.mjs'
+import { dismissPwaBanner, gotoAdminWorkspace, openWorkspaceShortcut, waitForWorkspaceReady } from './smoke-workspace-helpers.mjs'
 
 const require = createRequire(import.meta.url)
 const pwRoot = join(homedir(), '.grok', 'skills', 'playwright', 'scripts', 'node_modules', 'playwright')
@@ -79,6 +79,7 @@ try {
   ok(`login → ${new URL(page.url()).pathname}`)
 
   await waitForWorkspaceReady(page, 45000)
+  await dismissPwaBanner(page)
   ok('workspace carregado')
 
   const chunkErrors = consoleErrors.filter((e) =>

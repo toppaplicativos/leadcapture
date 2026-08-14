@@ -36,6 +36,9 @@ export function AffiliateLinksHub({ ctx, active = true }: Props) {
   const [hub, setHub] = useState<any>(null)
   const [analytics, setAnalytics] = useState<any>(null)
   const [search, setSearch] = useState('')
+  const [editingSupportId, setEditingSupportId] = useState<string | null>(null)
+  const [editSupportLabel, setEditSupportLabel] = useState<string>('')
+  const [editSupportUrl, setEditSupportUrl] = useState<string>('')
   const [productShareKit, setProductShareKit] = useState<AffiliateProductCatalogItem | null>(null)
   const [selectedProgramId, setSelectedProgramId] = useState<string>('')
 

@@ -18,37 +18,12 @@ import { ProductReviewsSection } from '@/components/product/ProductReviewsSectio
 import type { StoreData } from '@/lib/api'
 import { normalizeConversionSettings } from '@/lib/store-conversion'
 import { publishStorefrontPwa, storefrontPwaFromStore } from '@/lib/store-pwa-install'
-
-const PRODUCT_CONTENT_HEADINGS = new Set([
-  'Visão geral',
-  'Por que escolher',
-  'Detalhes que fazem diferença',
-  'Para quem é',
-  'Como aproveitar melhor',
-])
+import { detectProductLocale, localizeProduct, localizeProducts } from '@/lib/product-localization'
+import { ProductDescriptionContent } from '@/components/product/ProductDescriptionContent'
 
 function ProductEditorialContent({ description, features }: { description?: string; features?: string[] }) {
-  const lines = String(description || '').split(/\r?\n/).map(line => line.trim())
-  const blocks: Array<{ title?: string; paragraphs: string[]; bullets: string[] }> = []
-  let current: { title?: string; paragraphs: string[]; bullets: string[] } = { paragraphs: [], bullets: [] }
-  const flush = () => {
-    if (current.title || current.paragraphs.length || current.bullets.length) blocks.push(current)
-    current = { paragraphs: [], bullets: [] }
-  }
-  for (const line of lines) {
-    if (!line) continue
-    if (PRODUCT_CONTENT_HEADINGS.has(line.replace(/:$/, ''))) {
-      flush()
-      current.title = line.replace(/:$/, '')
-    } else if (/^[•*-]\s+/.test(line)) {
-      current.bullets.push(line.replace(/^[•*-]\s+/, ''))
-    } else {
-      current.paragraphs.push(line)
-    }
-  }
-  flush()
   const safeFeatures = (features || []).map(item => String(item).trim()).filter(Boolean)
-  if (!blocks.length && !safeFeatures.length) return null
+  if (!String(description || '').trim() && !safeFeatures.length) return null
 
   return (
     <section className="product-editorial">
@@ -66,19 +41,7 @@ function ProductEditorialContent({ description, features }: { description?: stri
           ))}
         </div>
       )}
-      <div className="product-editorial__sections">
-        {blocks.map((block, index) => (
-          <article key={`${block.title || 'texto'}-${index}`} className="product-editorial__section">
-            {block.title && <h3>{block.title}</h3>}
-            {block.paragraphs.map((paragraph, paragraphIndex) => <p key={paragraphIndex}>{paragraph}</p>)}
-            {block.bullets.length > 0 && (
-              <ul>
-                {block.bullets.map((bullet, bulletIndex) => <li key={bulletIndex}>{bullet}</li>)}
-              </ul>
-            )}
-          </article>
-        ))}
-      </div>
+      <ProductDescriptionContent description={description} />
     </section>
   )
 }
@@ -184,7 +147,11 @@ export function ProductDetailPage() {
       fetchCatalog(storeSlugForApi).catch(() => null),
     ])
       .then(([productRes, catalogRes]) => {
-        setProduct(productRes.product)
+        const locale = detectProductLocale((catalogRes as any)?.detected_currency?.country)
+        const localizedProduct = localizeProduct(productRes.product, locale)
+        setProduct(localizedProduct)
+        const detected = String((catalogRes as any)?.detected_currency?.currency || '').toUpperCase()
+        if (detected === 'BRL' || detected === 'EUR' || detected === 'USD') window.sessionStorage.setItem('storefront_currency', detected)
         const resolvedSlug = String(
           productRes.store?.slug || catalogRes?.store?.slug || storeSlugForApi,
         ).trim()
@@ -199,7 +166,7 @@ export function ProductDetailPage() {
         if (catalogRes?.store) {
           applyStoreBrand(catalogRes.store)
           setStoreSnapshot(catalogRes.store)
-          setAllProducts(catalogRes.all_products || [])
+          setAllProducts(localizeProducts(catalogRes.all_products || [], (catalogRes as any)?.detected_currency?.country))
           const brand = catalogRes.store.brand
           setStoreName(brand?.name || catalogRes.store.name || resolvedSlug)
         } else if (productRes.store) {
@@ -217,7 +184,7 @@ export function ProductDetailPage() {
         const brand = catalogRes?.store?.brand || productRes.store?.brand
         const name = brand?.name || catalogRes?.store?.name || productRes.store?.name || resolvedSlug
         applyProductSeo({
-          product: productRes.product,
+          product: localizedProduct,
           storeName: name,
           canonicalUrl: absoluteProductUrl(productRes.product, {
             catalogSlug: resolvedSlug,
@@ -236,11 +203,16 @@ export function ProductDetailPage() {
   }, [product, purchase.pricing?.variantImage])
 
   const relatedProducts = useMemo(() => {
-    if (!product?.related_product_ids?.length || !allProducts.length) return []
-    return product.related_product_ids
+    if (!product || !allProducts.length) return []
+    const explicit = (product.related_product_ids || [])
       .map((id) => allProducts.find((p) => p.id === id))
-      .filter((p): p is Product => Boolean(p))
-      .slice(0, 6)
+      .filter((p): p is Product => p !== undefined)
+      .filter((p) => p.id !== product.id)
+    if (explicit.length) return explicit.slice(0, 6)
+    const category = String(product.category_name || product.category || '').trim().toLowerCase()
+    const sameCategory = allProducts.filter((p) => p.id !== product.id && category && String(p.category_name || p.category || '').trim().toLowerCase() === category)
+    const remaining = allProducts.filter((p) => p.id !== product.id && !sameCategory.some((candidate) => candidate.id === p.id))
+    return [...sameCategory, ...remaining].slice(0, 6)
   }, [product, allProducts])
 
   function handleAdd(payload: Parameters<typeof addItem>[0]) {
@@ -406,7 +378,7 @@ export function ProductDetailPage() {
         </div>
 
         {/* Seções full-width abaixo do grid */}
-        <div className="mt-10 lg:mt-14 space-y-10 max-w-3xl">
+        <div className="mt-10 lg:mt-14 space-y-10">
           <ProductEditorialContent description={product.description} features={product.features} />
 
           {(product.sku || product.weight || product.unit) && (
@@ -441,9 +413,9 @@ export function ProductDetailPage() {
           <ProductReviewsSection product={product} variant="page" />
 
           {relatedProducts.length > 0 && (
-            <section>
+            <section className="border-t border-gray-200 pt-8">
               <h2 className="product-section-title">Você também pode gostar</h2>
-              <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
+              <div className="mt-5 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 lg:gap-5">
                 {relatedProducts.map((rp) => {
                   const img = rp.image || rp.images?.[0]
                   return (
@@ -461,8 +433,13 @@ export function ProductDetailPage() {
                           </div>
                         )}
                       </div>
+                      {(rp.category_name || rp.category) && <p className="mt-3 text-[10px] font-bold uppercase tracking-wide text-brand">{rp.category_name || rp.category}</p>}
                       <p className="product-related-card__name">{rp.name}</p>
-                      <p className="product-related-card__price tabular-nums">{money(rp.price)}</p>
+                      {rp.subtitle && <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-gray-500">{rp.subtitle}</p>}
+                      <div className="mt-2 flex items-baseline justify-between gap-2">
+                        <p className="product-related-card__price tabular-nums">{money(rp.price)}</p>
+                        {rp.unit && <span className="text-[10px] font-medium text-gray-500">/{rp.unit}</span>}
+                      </div>
                     </Link>
                   )
                 })}

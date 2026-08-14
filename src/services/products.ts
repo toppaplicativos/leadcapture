@@ -176,6 +176,8 @@ export class ProductsService {
       await this.ensureColumnIfMissing("products", "configurator_json", "JSONB NULL DEFAULT '{}'");
       /* Bundle items (Fase 11) — only used when type = bundle */
       await this.ensureColumnIfMissing("products", "bundle_items_json", "JSONB NULL DEFAULT '[]'");
+      /* Dynamic locale prices (BRL, EUR, USD) */
+      await this.ensureColumnIfMissing("products", "currency_prices_json", "JSONB NULL DEFAULT '{}'");
 
       /* ── Inventory (Fase 12) ──
        * stock_quantity NULL  → unlimited (default for services, digital goods, configurators)
@@ -935,6 +937,7 @@ export class ProductsService {
     pushIfCol("service_config_json", JSON.stringify(anyData.service_config || {}));
     pushIfCol("configurator_json", JSON.stringify(anyData.configurator || {}));
     pushIfCol("bundle_items_json", JSON.stringify(Array.isArray(anyData.bundle_items) ? anyData.bundle_items : []));
+    pushIfCol("currency_prices_json", JSON.stringify(anyData.currency_prices || anyData.currency_prices_json || {}));
     if (anyData.imageUrl !== undefined || anyData.image !== undefined) {
       const imageUrl = anyData.imageUrl !== undefined ? anyData.imageUrl : anyData.image;
       const normalizedImage = imageUrl ? String(imageUrl).trim() : null;
@@ -1042,6 +1045,9 @@ export class ProductsService {
     if (anyData.service_config !== undefined) setIfCol("service_config_json", JSON.stringify(anyData.service_config || {}));
     if (anyData.configurator !== undefined) setIfCol("configurator_json", JSON.stringify(anyData.configurator || {}));
     if (anyData.bundle_items !== undefined) setIfCol("bundle_items_json", JSON.stringify(Array.isArray(anyData.bundle_items) ? anyData.bundle_items : []));
+    if (anyData.currency_prices !== undefined || anyData.currency_prices_json !== undefined) {
+      setIfCol("currency_prices_json", JSON.stringify(anyData.currency_prices || anyData.currency_prices_json || {}));
+    }
     if (anyData.metadata !== undefined) {
       setIfCol("metadata_json", JSON.stringify(anyData.metadata && typeof anyData.metadata === "object" ? anyData.metadata : {}));
     }
@@ -1240,6 +1246,7 @@ export class ProductsService {
     const serviceConfig = this.parseJsonValue<Record<string, any>>(row.service_config_json, {});
     const configurator = this.parseJsonValue<Record<string, any>>(row.configurator_json, {});
     const bundleItems = this.parseJsonValue<any[]>(row.bundle_items_json, []);
+    const currencyPrices = this.parseJsonValue<Record<string, any>>(row.currency_prices_json, metadata?.currency_prices || {});
     const galleryImages = this.extractGalleryImages(metadata);
     const imageUrl = row.image_url || row.image || galleryImages[0] || undefined;
     const images = this.normalizeImageList([imageUrl, ...galleryImages]);
@@ -1272,6 +1279,7 @@ export class ProductsService {
       service_config: serviceConfig as any,
       configurator: configurator as any,
       bundle_items: Array.isArray(bundleItems) ? (bundleItems as any) : [],
+      currency_prices: currencyPrices,
       /* Inventory (Fase 12) */
       stock_quantity: row.stock_quantity === null || row.stock_quantity === undefined ? null : Number(row.stock_quantity),
       stock_status: (row.stock_status as any) || (row.stock_quantity === null || row.stock_quantity === undefined ? "unlimited" : "in_stock"),

@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect, type FormEvent } from 'react'
-import { createPortal } from 'react-dom'
 import { AICampaignWizardModal } from '@/components/AICampaignWizardModal'
 import { SkillTrainerWizardModal } from '@/components/SkillTrainerWizardModal'
 import {
@@ -956,7 +955,7 @@ export function WorkspaceChat({
         {error && <p className="workspace-chat__error">{error}</p>}
       </div>
 
-      <div className="workspace-chat__footer">
+      <div className={`workspace-chat__footer${menuOpen ? ' is-menu-open' : ''}`}>
         {messages.length > 0 && messages.length < 6 && !prospectModuleOpen && !inboxModuleOpen && !catalogModuleOpen && (
           <div className="workspace-chat__objectives" aria-label="Atalhos rápidos">
             {QUICK_STARTERS.map((chip) => (
@@ -1007,7 +1006,7 @@ export function WorkspaceChat({
             {menuOpen ? <X size={16} /> : <LayoutGrid size={16} />}
           </button>
 
-          {menuOpen && createPortal((
+          {menuOpen && (
             <>
             <button
               type="button"
@@ -1133,7 +1132,7 @@ export function WorkspaceChat({
               ))}
             </div>
             </>
-          ), document.body)}
+          )}
         </div>
 
         {showCanvasBtn && (

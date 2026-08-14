@@ -27,7 +27,6 @@ type AccountUser = {
 function BrandEditForm({ brand, onSave, onCancel, showToast, onOpenStore }: any) {
   const [form, setForm] = useState({
     name: brand.name,
-    slug: brand.slug,
   })
   const [saving, setSaving] = useState(false)
 
@@ -43,7 +42,6 @@ function BrandEditForm({ brand, onSave, onCancel, showToast, onOpenStore }: any)
         headers: getHeaders(),
         body: JSON.stringify({
           name: form.name,
-          slug: form.slug || undefined,
         }),
       })
       if (!r.ok) {
@@ -69,17 +67,6 @@ function BrandEditForm({ brand, onSave, onCancel, showToast, onOpenStore }: any)
           onChange={(e) => setForm({ ...form, name: e.target.value })}
           autoFocus
           className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-gray-900/20 focus:border-gray-400 outline-none"
-        />
-      </div>
-
-      <div>
-        <label className="block text-xs font-semibold text-gray-700 mb-1">Slug (URL pública)</label>
-        <input
-          type="text"
-          value={form.slug || ''}
-          onChange={(e) => setForm({ ...form, slug: e.target.value })}
-          placeholder="minha-loja"
-          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
         />
       </div>
 
@@ -777,4 +764,3 @@ export function SettingsView({
     </div>
   )
 }
-

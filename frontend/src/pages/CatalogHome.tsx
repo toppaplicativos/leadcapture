@@ -24,6 +24,7 @@ import {
 } from '@/lib/affiliate-tracking'
 import { productPath } from '@/lib/product-url'
 import { getStoreSlug } from '@/lib/store-context'
+import { localizeProducts } from '@/lib/product-localization'
 import {
   aggregateStoreReviews,
   buildAnnouncementText,
@@ -141,9 +142,11 @@ function applyCatalogData(
   },
 ) {
   opts.setStore(data.store)
+  const detected = String(data.detected_currency?.currency || '').toUpperCase()
+  if (detected === 'BRL' || detected === 'EUR' || detected === 'USD') window.sessionStorage.setItem('storefront_currency', detected)
   const slug = String((data.store as any)?.slug || getStoreSlug()).trim()
   if (slug) opts.setCatalogSlug(slug)
-  const list = data.all_products || []
+  const list = localizeProducts(data.all_products || [], data.detected_currency?.country)
   opts.setProducts(list)
   opts.setRecentReviews(
     Array.isArray((data as any).recent_reviews)
@@ -371,8 +374,10 @@ export function CatalogHome({ onStoreLoaded, onProductsLoaded }: CatalogHomeProp
   }, [catalogSlug, products, searchParams, navigate])
 
   function handleQuickAdd(productId: string) {
-    addItem(productId)
     const p = products.find((x) => x.id === productId)
+    const currency = String(window.sessionStorage.getItem('storefront_currency') || 'BRL')
+    const entry = p?.currency_prices?.[currency]
+    addItem({ productId, unitPrice: Number(typeof entry === 'object' ? entry?.price : entry ?? p?.price ?? 0) })
     showToast((p?.name || 'Produto') + ' adicionado')
   }
 
@@ -521,12 +526,7 @@ export function CatalogHome({ onStoreLoaded, onProductsLoaded }: CatalogHomeProp
         />
       )}
 
-      {/* Único lugar de frete/pagamento — sem chips no card de identidade */}
-      {!loading && conversion.trust_strip.enabled && trustItems.length > 0 && (
-        <div className="max-w-[var(--store-max)] mx-auto px-4 -mt-1 mb-2">
-          <StoreTrustStrip items={trustItems} />
-        </div>
-      )}
+        {/* Trust strip removed from catalog grid – now only on product page */}
 
       {/* Clube de Assinantes — banner de convite (quando habilitado na organização) */}
       {!loading && showHomeExtras && (

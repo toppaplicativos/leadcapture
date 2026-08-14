@@ -64,7 +64,7 @@ const PHASE_META: Record<string, { bg: string; color: string; label: string }> =
   new: { bg: 'bg-orange-50', color: 'text-orange-800', label: 'Fila' },
   to_contact: { bg: 'bg-orange-50', color: 'text-orange-800', label: 'Fila' },
   contacted: { bg: 'bg-emerald-50', color: 'text-emerald-800', label: 'Enviado' },
-  engaged: { bg: 'bg-violet-50', color: 'text-violet-800', label: 'Conversa' },
+  engaged: { bg: 'bg-blue-50', color: 'text-blue-800', label: 'Conversa' },
   closed: { bg: 'bg-neutral-100', color: 'text-neutral-600', label: 'Excluído' },
 }
 

@@ -67,6 +67,7 @@ type QueuedProgress = {
     reason?: string
     followup_days?: number
     task_id?: string
+    client_event_id?: string
   }
   created_at: string
   attempts: number
@@ -92,7 +93,9 @@ export function patchFromAction(
   action: string,
   opts?: { note?: string },
 ): ProgressPatch {
-  const exit = new Set(['lost', 'dismiss', 'channel_unavailable', 'not_matching', 'convert'])
+  /* Canal indisponÃ­vel sÃ³ remove depois da resposta canÃ´nica do servidor:
+   * ainda pode existir telefone/WhatsApp remanescente. */
+  const exit = new Set(['lost', 'dismiss', 'not_matching', 'convert'])
   const removed = exit.has(action)
   let operational_phase = 'to_contact'
   let status_code = action
@@ -288,17 +291,26 @@ export function enqueueProgress(
   refId: string,
   payload: QueuedProgress['payload'],
 ): QueuedProgress {
+  const eventPayload = payload.client_event_id
+    ? payload
+    : {
+        ...payload,
+        client_event_id:
+          typeof globalThis.crypto?.randomUUID === 'function'
+            ? globalThis.crypto.randomUUID()
+            : uid(),
+      }
   const event: QueuedProgress = {
     id: uid(),
     ref_type: refType,
     ref_id: refId,
-    payload,
+    payload: eventPayload,
     created_at: new Date().toISOString(),
     attempts: 0,
     last_error: null,
   }
   const all = readQueue().filter(
-    (e) => !(e.ref_type === refType && e.ref_id === refId && e.payload.action === payload.action),
+    (e) => !(eventPayload.client_event_id && e.payload.client_event_id === eventPayload.client_event_id),
   )
   all.push(event)
   writeQueue(all)

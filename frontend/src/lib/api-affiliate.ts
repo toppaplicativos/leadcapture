@@ -517,6 +517,7 @@ export const affiliateApi = {
         | 'voicemail'
         | 'busy'
         | 'callback_requested'
+        | 'convert'
         | 'post_sale_completed'
       /** Canal da tentativa: whatsapp | phone | instagram | note */
       channel?: 'whatsapp' | 'phone' | 'instagram' | 'note' | 'system'
@@ -529,9 +530,22 @@ export const affiliateApi = {
       followup_days?: number
       /** ID da tarefa de cadência sendo executada (conclui como done) */
       task_id?: string
+      client_event_id?: string
+      order_id?: string
+      order_total?: number
     },
-  ) =>
-    affiliateFetch<{
+  ) => {
+    const eventPayload = payload.client_event_id
+      ? payload
+      : {
+          ...payload,
+          client_event_id:
+            typeof globalThis.crypto?.randomUUID === 'function'
+              ? globalThis.crypto.randomUUID()
+              : `aff_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`,
+        }
+    if (!payload.client_event_id) payload.client_event_id = eventPayload.client_event_id
+    return affiliateFetch<{
       success: boolean
       action: string
       channel?: string
@@ -551,13 +565,16 @@ export const affiliateApi = {
         template_id?: string | null
         contact_channel?: 'whatsapp' | 'phone' | 'instagram' | 'note' | 'system' | null
         is_due?: boolean
-      } | null
-    }>(`/api/affiliate-app/opportunities/${encodeURIComponent(refType)}/${encodeURIComponent(refId)}/progress`, {
-      method: 'PATCH',
-      body: JSON.stringify(payload),
-      timeoutMs: 20_000,
-      retries: 1,
-    }),
+       } | null
+       converted_customer_id?: string | null
+       commission_recorded?: boolean
+     }>(`/api/affiliate-app/opportunities/${encodeURIComponent(refType)}/${encodeURIComponent(refId)}/progress`, {
+       method: 'PATCH',
+       body: JSON.stringify(eventPayload),
+       timeoutMs: 20_000,
+       retries: 1,
+     })
+  },
 
   updateOpportunityContact: (
     refType: string,

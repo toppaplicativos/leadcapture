@@ -852,6 +852,8 @@ export class StorefrontService {
         configurator: offerConfigurator,
         /* Bundle items (Fase 11) — stored with source-catalog product IDs */
         bundle_items: offerBundleItems,
+        /* Dynamic locale prices (BRL, EUR, USD) */
+        currency_prices: (product as any).currency_prices || (product as any).currency_prices_json || null,
         /* Inventory (Fase 12) */
         stock_quantity: stockQuantity,
         stock_status: stockStatus,
@@ -959,8 +961,24 @@ export class StorefrontService {
     const store = await this.ensureSingleStoreForBrand(userId, normalizedBrandId);
     if (!store) return null;
 
-    const storeRow = await this.getOwnedStoreRow(userId, String(store.id), normalizedBrandId);
+    let storeRow = await this.getOwnedStoreRow(userId, String(store.id), normalizedBrandId);
     if (!storeRow) return store;
+
+    const brandSlugRow = await queryOne<{ slug: string }>(`SELECT slug FROM brand_units WHERE id = ? AND user_id = ? LIMIT 1`, [normalizedBrandId, userId]);
+    const desiredStoreSlug = toSlug(String(brandSlugRow?.slug || ""));
+    if (desiredStoreSlug && desiredStoreSlug !== toSlug(String(storeRow.slug || ""))) {
+      const slugConflict = await queryOne<{ id: string }>(`SELECT id FROM storefront_stores WHERE slug = ? AND id <> ? LIMIT 1`, [desiredStoreSlug, storeRow.id]);
+      if (!slugConflict) {
+        const oldSlug = toSlug(String(storeRow.slug || ""));
+        if (oldSlug) {
+          await query(`INSERT INTO storefront_slug_aliases (slug, store_id) VALUES (?, ?)
+            ON DUPLICATE KEY UPDATE store_id = VALUES(store_id)`, [oldSlug, storeRow.id]);
+        }
+        await update(`UPDATE storefront_stores SET slug = ?, updated_at = NOW() WHERE id = ?`, [desiredStoreSlug, storeRow.id]);
+        const refreshedSlugStore = await this.getOwnedStoreRow(userId, String(store.id), normalizedBrandId);
+        if (refreshedSlugStore) storeRow = refreshedSlugStore;
+      }
+    }
 
     await this.synchronizeStoreBrandIdentity(storeRow);
     if (options?.syncProducts !== false) {
@@ -1027,6 +1045,15 @@ export class StorefrontService {
           updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
           UNIQUE KEY uq_storefront_domain (domain),
           KEY idx_storefront_domain_store (store_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+
+      await query(`
+        CREATE TABLE IF NOT EXISTS storefront_slug_aliases (
+          slug VARCHAR(180) PRIMARY KEY,
+          store_id VARCHAR(36) NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          KEY idx_storefront_slug_alias_store (store_id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
       `);
 
@@ -2730,7 +2757,9 @@ export class StorefrontService {
             `SELECT s.*, d.domain AS primary_domain
              FROM storefront_stores s
              LEFT JOIN storefront_domains d ON d.store_id = s.id AND d.is_primary = TRUE
-             WHERE s.slug = ?
+             WHERE (s.slug = ? OR EXISTS (
+               SELECT 1 FROM storefront_slug_aliases sa WHERE sa.store_id = s.id AND sa.slug = ?
+             ))
                AND (
                  s.status = 'active'
                  OR EXISTS (
@@ -2742,7 +2771,7 @@ export class StorefrontService {
                  )
                )
              LIMIT 1`,
-            [slug]
+            [slug, slug]
           )) || null;
 
         if (!store) {
@@ -2826,7 +2855,9 @@ export class StorefrontService {
         `SELECT s.*, d.domain AS primary_domain
          FROM storefront_stores s
          LEFT JOIN storefront_domains d ON d.store_id = s.id AND d.is_primary = TRUE
-         WHERE s.slug = ?
+         WHERE (s.slug = ? OR EXISTS (
+           SELECT 1 FROM storefront_slug_aliases sa WHERE sa.store_id = s.id AND sa.slug = ?
+         ))
            AND (
              s.status = 'active'
              OR EXISTS (
@@ -2838,7 +2869,7 @@ export class StorefrontService {
              )
            )
          LIMIT 1`,
-        [slug]
+        [slug, slug]
       )) || null;
     if (!store) return null;
 
@@ -2879,7 +2910,9 @@ export class StorefrontService {
         `SELECT s.*, d.domain AS primary_domain
          FROM storefront_stores s
          LEFT JOIN storefront_domains d ON d.store_id = s.id AND d.is_primary = TRUE
-         WHERE s.slug = ?
+         WHERE (s.slug = ? OR EXISTS (
+           SELECT 1 FROM storefront_slug_aliases sa WHERE sa.store_id = s.id AND sa.slug = ?
+         ))
            AND (
              s.status = 'active'
              OR EXISTS (
@@ -2891,7 +2924,7 @@ export class StorefrontService {
              )
            )
          LIMIT 1`,
-        [slug]
+        [slug, slug]
       )) || null;
     if (!store) return null;
 

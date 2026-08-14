@@ -27,6 +27,8 @@ import {
   getUsage,
 } from "../services/planEntitlements"
 import { getPlatformVersion } from "../config/platformVersion"
+import { StorefrontService } from "../services/storefront"
+import { invalidateCatalogCacheByBrand } from "../services/storefrontCache"
 
 const GLOBAL_PROVIDER_SCOPE = { accountId: "__global__" as const }
 
@@ -779,11 +781,42 @@ router.patch("/organizations/:id", async (req: AuthRequest, res: Response) => {
     fields.push("name = ?")
     values.push(String(req.body.name || "").trim())
   }
+  if ("slug" in req.body) {
+    const slug = String(req.body.slug || "").trim().toLowerCase()
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")
+    if (!slug || slug.length < 3) return res.status(400).json({ error: "invalid_slug" })
+    const conflict = await queryOne<any>(`SELECT id FROM brand_units WHERE slug = ? AND id <> ? LIMIT 1`, [slug, id])
+    if (conflict) return res.status(409).json({ error: "slug_already_in_use" })
+    fields.push("slug = ?")
+    values.push(slug)
+  }
   if (fields.length === 0) return res.status(400).json({ error: "no_fields" })
 
   fields.push("updated_at = NOW()")
   values.push(id)
   await query(`UPDATE brand_units SET ${fields.join(", ")} WHERE id = ?`, values)
+
+  const changed = await queryOne<any>(`SELECT id, user_id, slug FROM brand_units WHERE id = ? LIMIT 1`, [id])
+  if (changed?.user_id) {
+    const storefront = new StorefrontService()
+    await storefront.synchronizeBrandStructure(String(changed.user_id), id, { syncProducts: false })
+    if ("slug" in req.body) {
+      const store = await queryOne<any>(`SELECT id, slug FROM storefront_stores WHERE brand_id = ? ORDER BY updated_at DESC LIMIT 1`, [id])
+      if (store && String(store.slug) !== String(changed.slug)) {
+        const storeConflict = await queryOne<any>(`SELECT id FROM storefront_stores WHERE slug = ? AND id <> ? LIMIT 1`, [changed.slug, store.id])
+        if (storeConflict) return res.status(409).json({ error: "store_slug_already_in_use" })
+        await query(`CREATE TABLE IF NOT EXISTS storefront_slug_aliases (
+          slug VARCHAR(180) PRIMARY KEY, store_id VARCHAR(64) NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          KEY idx_storefront_slug_alias_store (store_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`)
+        await query(`INSERT INTO storefront_slug_aliases (slug, store_id) VALUES (?, ?)
+          ON DUPLICATE KEY UPDATE store_id = VALUES(store_id)`, [String(store.slug), String(store.id)])
+        await query(`UPDATE storefront_stores SET slug = ?, updated_at = NOW() WHERE id = ?`, [String(changed.slug), String(store.id)])
+      }
+    }
+    await invalidateCatalogCacheByBrand(id)
+  }
 
   await masterService.log({
     actor_user_id: req.userId!,

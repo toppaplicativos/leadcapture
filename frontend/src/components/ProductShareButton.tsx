@@ -3,6 +3,7 @@ import { Share2, Link2, Check } from 'lucide-react'
 import type { Product } from '@/lib/api'
 import { absoluteProductUrl, type ProductUrlOptions } from '@/lib/product-url'
 import { useToast } from '@/components/Toast'
+import { stripProductDescriptionFormatting } from '@/lib/product-description'
 
 type Props = {
   product: Pick<Product, 'slug' | 'name' | 'id' | 'description'>
@@ -40,7 +41,7 @@ export function ProductShareButton({
 
   const share = useCallback(async () => {
     const text = product.description
-      ? truncateShareText(product.description, 120)
+      ? truncateShareText(stripProductDescriptionFormatting(product.description), 120)
       : `Confira ${product.name}`
 
     if (typeof navigator !== 'undefined' && navigator.share) {

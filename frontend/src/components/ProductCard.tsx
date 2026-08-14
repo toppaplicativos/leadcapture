@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Plus, ImageOff, Star } from 'lucide-react'
 import type { Product } from '@/lib/api'
-import { money } from '@/lib/store-context'
+import { money, resolveProductPrice, resolveProductPromoPrice, getStoreCurrency } from '@/lib/store-context'
 import { productUrl } from '@/lib/product-url'
 import { optimizedImage, optimizedSrcset } from '@/lib/image'
 import { resolveProductBadges } from '@/lib/store-conversion'
@@ -48,19 +48,22 @@ export function ProductCard({
   const badges = resolveProductBadges(product, { bestSellerIds, showBadges })
   const volumeEnabled = isProductVolumePricingEnabled(product)
   const volumeFrom = volumeEnabled ? getProductVolumePricingFromPrice(product) : null
+  const currency = getStoreCurrency()
+  const localizedPrice = resolveProductPrice(product, currency)
+  const localizedPromo = resolveProductPromoPrice(product, currency)
   const displayPrice =
     volumeFrom != null && Number.isFinite(volumeFrom)
       ? volumeFrom
-      : Number(product.price || 0)
+      : (localizedPromo && localizedPromo < localizedPrice ? localizedPromo : localizedPrice)
 
   return (
     <Link
       to={href}
       state={{ fromCatalog: true }}
-      className="group relative cursor-pointer flex flex-col no-underline text-inherit"
+      className="group relative cursor-pointer flex h-full flex-col rounded-[20px] border border-gray-200 bg-white p-2.5 no-underline text-inherit transition-[box-shadow,transform,border-color] duration-200 md:hover:-translate-y-1 md:hover:border-gray-300 md:hover:shadow-[var(--shadow-elevated)]"
       aria-label={`Ver ${product.name || 'produto'}`}
     >
-      <div className="relative aspect-[4/5] rounded-2xl overflow-hidden bg-gray-100 ring-1 ring-black/[0.04] transition-[box-shadow,transform] duration-200 md:group-hover:shadow-[var(--shadow-elevated)] md:group-hover:-translate-y-0.5">
+      <div className="relative aspect-[4/5] rounded-[16px] overflow-hidden bg-gray-100 ring-1 ring-black/[0.04]">
         {imgSrc && imgState !== 'error' && (
           <img
             src={imgSrc}
@@ -121,12 +124,23 @@ export function ProductCard({
         )}
       </div>
 
-      <div className="pt-2.5 space-y-1">
+      <div className="flex flex-1 flex-col px-1 pb-1 pt-3">
+        {(product.category_name || product.category) && <p className="mb-1 text-[10px] font-bold uppercase tracking-[0.08em] text-brand line-clamp-1">{product.category_name || product.category}</p>}
         <h3 className="text-[13px] font-semibold text-gray-900 leading-snug line-clamp-2 tracking-tight">
           {product.name || 'Produto'}
         </h3>
+        {product.subtitle && (
+          <p className="text-[11px] text-gray-600 mt-1 line-clamp-2">{product.subtitle}</p>
+        )}
+        {product.features?.length ? (
+          <ul className="mt-2 space-y-0.5 text-[11px] text-gray-600">
+            {product.features.slice(0, 2).map((f, i) => (
+              <li key={i} className="line-clamp-1">✓ {f}</li>
+            ))}
+          </ul>
+        ) : null}
 
-        <div className="flex items-baseline gap-1.5 flex-wrap">
+        <div className="mt-auto flex items-baseline gap-1.5 flex-wrap pt-3">
           {volumeEnabled && volumeFrom != null ? (
             <>
               <span className="text-[11px] font-semibold text-emerald-800">A partir de</span>
@@ -136,15 +150,17 @@ export function ProductCard({
             </>
           ) : (
             <span className="text-[15px] font-bold text-gray-900 tabular-nums tracking-tight">
-              {money(product.price)}
+                {money(displayPrice, currency)}
             </span>
           )}
           {hasCompare && !volumeEnabled && (
             <span className="text-[11px] font-medium text-gray-500 line-through tabular-nums">
-              {money(product.compare_at_price)}
+              {money(localizedPrice, currency)}
             </span>
           )}
         </div>
+        {product.unit && <p className="mt-0.5 text-[10px] font-medium text-gray-500">por {product.unit}</p>}
+        <span className="mt-3 inline-flex min-h-9 items-center justify-center rounded-xl bg-gray-950 px-3 text-[11px] font-bold text-white transition group-hover:bg-brand">Ver detalhes</span>
         {volumeEnabled && (
           <p className="text-[11px] font-medium text-emerald-800/90 leading-snug">
             Preço progressivo · mais volume, menos por unidade

@@ -23,6 +23,7 @@ import { generateSlotsForDay, loadBookedSlotsCount } from "../services/serviceBo
 import { resolveConfigurator, ConfiguratorValidationError } from "../services/configuratorEngine";
 import { ProductsService } from "../services/products";
 import { PaymentConfigService } from "../services/paymentConfig";
+import { detectVisitorCurrencyFromReq } from "../utils/currencyResolver";
 import { ProspectionMatchService } from "../services/prospectionMatch";
 import { query, queryOne } from "../config/database";
 import { logger } from "../utils/logger";
@@ -2246,12 +2247,16 @@ publicRouter.get("/stores/:slug/catalog", async (req, res) => {
   try {
     const slug = String(req.params.slug || "").trim();
 
+    /* Detect visitor currency from IP-based headers (Cloudflare / Vercel / custom proxy).
+     * This is per-request so we do it before the cache branch and inject into response. */
+    const detectedCurrency = detectVisitorCurrencyFromReq(req);
+
     /* Fresh cache → instant response */
     const cached = getCatalogCacheEntry(slug, { allowStale: true });
     if (cached && !cached.stale) {
       res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
       res.set("X-Catalog-Cache", "hit");
-      return res.json(cached.data);
+      return res.json({ ...cached.data, detected_currency: detectedCurrency });
     }
 
     /*
@@ -2261,7 +2266,7 @@ publicRouter.get("/stores/:slug/catalog", async (req, res) => {
     if (cached?.stale) {
       res.set("Cache-Control", "public, max-age=15, stale-while-revalidate=300");
       res.set("X-Catalog-Cache", "stale");
-      res.json(cached.data);
+      res.json({ ...cached.data, detected_currency: detectedCurrency });
       if (catalogRebuildLocks.has(slug)) return;
       catalogRebuildLocks.add(slug);
       rebuildLockHeld = true;
@@ -2390,9 +2395,19 @@ publicRouter.get("/stores/:slug/catalog", async (req, res) => {
       const md = parseJson<Record<string, any>>(item?.metadata_json, {});
       const ownSourceId = String(md?.source_product_id || md?.source_product_id_legacy || "").trim();
       const rawRelations = ownSourceId ? (relationsBySourceId.get(ownSourceId) || []) : [];
-      const relatedStorefrontIds = rawRelations
+      const relationTableIds = rawRelations
         .map((r: any) => sourceToStorefrontId.get(String(r.related_product_id)))
         .filter((x: string | undefined): x is string => !!x);
+      const storefrontIds = new Set(productsRaw.map((p: any) => String(p.id)));
+      const metadataRelationIds = (Array.isArray(md?.related_product_ids) ? md.related_product_ids : [])
+        .map((id: any) => {
+          const raw = String(id || "").trim();
+          if (!raw) return null;
+          return storefrontIds.has(raw) ? raw : (sourceToStorefrontId.get(raw) || null);
+        })
+        .filter((id: string | null): id is string => Boolean(id));
+      const relatedStorefrontIds = Array.from(new Set([...relationTableIds, ...metadataRelationIds]))
+        .filter((id) => id !== String(item.id));
 
       /* Bundle items (Fase 11) — translate source IDs to storefront IDs the frontend can resolve */
       const rawBundleItems = Array.isArray(md?.bundle_items) ? md.bundle_items : [];
@@ -2740,13 +2755,13 @@ publicRouter.get("/stores/:slug/catalog", async (req, res) => {
       },
     };
 
-    /* Persist in cache */
+    /* Persist in cache (without detected_currency — it's per-visitor) */
     setCatalogCacheEntry(slug, catalogResponse);
 
     if (!res.headersSent) {
       res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
       res.set("X-Catalog-Cache", "miss");
-      res.json(catalogResponse);
+      res.json({ ...catalogResponse, detected_currency: detectedCurrency });
     }
   } catch (error: any) {
     if (!res.headersSent) {

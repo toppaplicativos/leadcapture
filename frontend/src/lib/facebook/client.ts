@@ -33,6 +33,12 @@ export async function facebookApi<T = any>(path: string, opts?: RequestInit): Pr
 }
 
 export async function fetchFacebookSnapshot() {
+  const brandId = typeof localStorage !== 'undefined'
+    ? localStorage.getItem('lead-system:active-brand-id') || ''
+    : ''
+  if (!brandId.trim()) {
+    return { connection: null, profile: null, connected: false, feed: [] as FacebookFeedItem[] }
+  }
   const [connRes, profRes] = await Promise.all([
     facebookApi('/connection').catch(() => ({ success: false, connection: null })),
     facebookApi('/profile').catch(() => ({ success: false, profile: null })),

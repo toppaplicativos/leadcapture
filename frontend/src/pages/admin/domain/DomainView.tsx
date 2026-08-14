@@ -41,6 +41,11 @@ export function DomainView({ showToast }: { showToast: (t: string, tp?: 'ok' | '
   const [selectedDomain, setSelectedDomain] = useState<any>(null)
   const [domainConfirmation, setDomainConfirmation] = useState('')
   const [registeringDomain, setRegisteringDomain] = useState(false)
+  const [editingDomain, setEditingDomain] = useState<string | null>(null);
+  const [editDomainValue, setEditDomainValue] = useState<string>('');
+  const [publicSlug, setPublicSlug] = useState('')
+  const [savingSlug, setSavingSlug] = useState(false)
+  const { confirm: confirmAction } = useConfirm()
 
   function load() {
     setLoading(true)
@@ -50,6 +55,7 @@ export function DomainView({ showToast }: { showToast: (t: string, tp?: 'ok' | '
         if (!stores.length) { setLoading(false); return }
         const s = stores[0]
         setStore(s)
+        setPublicSlug(String(s.slug || ''))
         const dr = await fetch(`/api/storefront/stores/${s.id}/domains`, { headers: getHeaders() })
         const dd = await dr.json()
         setDomains(dd.domains || [])
@@ -171,6 +177,41 @@ export function DomainView({ showToast }: { showToast: (t: string, tp?: 'ok' | '
     } catch (e: any) { showToast(e.message, 'err') }
   }
 
+  async function savePublicSlug() {
+    if (!store?.brand_id) return
+    const normalized = publicSlug.trim().toLowerCase().normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+    if (normalized.length < 3) {
+      showToast('Use pelo menos 3 letras ou números no endereço.', 'err')
+      return
+    }
+    if (normalized === String(store.slug || '')) return
+    const approved = await confirmAction({
+      title: 'Alterar endereço público?',
+      message: `O catálogo passará a usar /catalogo/${normalized}. O endereço atual continuará funcionando como link de compatibilidade.`,
+      confirmLabel: 'Alterar endereço',
+    })
+    if (!approved) return
+    setSavingSlug(true)
+    try {
+      const r = await fetch(`/api/brands/${store.brand_id}`, {
+        method: 'PATCH', headers: getHeaders(), body: JSON.stringify({ slug: normalized }),
+      })
+      const data = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(data.error || 'Não foi possível alterar o endereço')
+      setPublicSlug(normalized)
+      showToast('Endereço público atualizado!')
+      load()
+    } catch (e: any) {
+      const message = /duplicate|already|unique/i.test(String(e.message || ''))
+        ? 'Esse endereço já está sendo usado por outra organização.'
+        : (e.message || 'Não foi possível alterar o endereço')
+      showToast(message, 'err')
+    } finally {
+      setSavingSlug(false)
+    }
+  }
+
   async function removeDomain(domain: string) {
     if (!confirm(`Remover dominio ${domain}?`)) return
     try {
@@ -254,6 +295,29 @@ export function DomainView({ showToast }: { showToast: (t: string, tp?: 'ok' | '
               </div>
             ))}
           </div>
+          {!primaryDomain && (
+            <div className="mt-4 rounded-2xl border border-gray-200 bg-gray-50 p-3 sm:p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                <label className="min-w-0 flex-1">
+                  <span className="text-[11px] font-semibold text-gray-700">Endereço do catálogo</span>
+                  <span className="mt-1 flex h-11 items-center overflow-hidden rounded-xl border border-gray-200 bg-white focus-within:border-gray-900 focus-within:ring-4 focus-within:ring-gray-900/5">
+                    <span className="shrink-0 border-r border-gray-200 bg-gray-50 px-3 text-[12px] text-gray-500">/catalogo/</span>
+                    <input value={publicSlug}
+                      onChange={event => setPublicSlug(event.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-'))}
+                      onKeyDown={event => { if (event.key === 'Enter') savePublicSlug() }}
+                      aria-label="Endereço público do catálogo"
+                      className="h-full min-w-0 flex-1 border-0 bg-white px-3 text-[13px] font-semibold text-gray-900 outline-none" />
+                  </span>
+                </label>
+                <button type="button" onClick={savePublicSlug} disabled={savingSlug || publicSlug === String(store.slug || '')}
+                  className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-gray-950 px-4 text-xs font-semibold text-white transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-40">
+                  {savingSlug ? <Loader2 size={15} className="animate-spin" /> : <Link2 size={15} />}
+                  Salvar endereço
+                </button>
+              </div>
+              <p className="mt-2 text-[10px] leading-relaxed text-gray-500">Use um nome curto e fácil de compartilhar. Links antigos continuam válidos automaticamente.</p>
+            </div>
+          )}
           <p className="mt-3 text-[11px] leading-relaxed text-gray-500">
             Links antigos permanecem válidos e redirecionam para o endereço principal sem perder cupom ou rastreamento.
           </p>
@@ -521,20 +585,83 @@ export function DomainView({ showToast }: { showToast: (t: string, tp?: 'ok' | '
                         {verifying === d.domain ? 'Verificando...' : 'Verificar'}
                       </button>
                     )}
-                    <button onClick={() => loadInstructions(d.domain)}
-                      className="px-3 py-1.5 rounded-lg bg-gray-50 text-gray-600 text-[11px] font-semibold hover:bg-gray-100 transition">
-                      DNS
-                    </button>
-                    {!isPrimary && verified && (
-                      <button onClick={() => setPrimary(d.domain)}
-                        className="px-3 py-1.5 rounded-lg bg-violet-50 text-violet-700 text-[11px] font-semibold hover:bg-violet-100 transition">
-                        Primario
+                    {/* Edit button */}
+                    {editingDomain !== d.domain && (
+                      <button
+                        type="button"
+                        className="px-2 py-1.5 rounded-lg text-blue-600 hover:bg-blue-50"
+                        onClick={() => {
+                          setEditingDomain(d.domain);
+                          setEditDomainValue(d.domain);
+                        }}
+                      >
+                        Editar
                       </button>
                     )}
-                    <button onClick={() => removeDomain(d.domain)}
-                      className="px-2 py-1.5 rounded-lg text-red-400 hover:bg-red-50 hover:text-red-600 transition">
-                      <X size={14} />
-                    </button>
+                    {/* Save/Cancel UI when editing this domain */}
+                    {editingDomain === d.domain && (
+                      <>
+                        <input
+                          type="text"
+                          value={editDomainValue}
+                          onChange={(e) => setEditDomainValue(e.target.value)}
+                          className="h-9 rounded-md border border-gray-300 px-2 text-sm"
+                        />
+                        <button
+                          type="button"
+                          className="px-2 py-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50"
+                          onClick={async () => {
+                            const trimmed = editDomainValue.trim().toLowerCase();
+                            if (!trimmed) return;
+                            // duplicate check
+                            if (domains.some((dd) => dd.domain === trimmed && dd.domain !== d.domain)) {
+                              showToast('Domínio já existente', 'err');
+                              return;
+                            }
+                            try {
+                              await fetch(`/api/storefront/stores/${store.id}/domains/${d.domain}`, {
+                                method: 'PATCH',
+                                headers: getHeaders(),
+                                body: JSON.stringify({ domain: trimmed }),
+                              });
+                              showToast('Domínio atualizado');
+                              setEditingDomain(null);
+                              load();
+                            } catch (e: any) {
+                              showToast(e.message || 'Erro ao atualizar', 'err');
+                            }
+                          }}
+                        >
+                          Salvar
+                        </button>
+                        <button
+                          type="button"
+                          className="px-2 py-1.5 rounded-lg text-gray-600 hover:bg-gray-100"
+                          onClick={() => setEditingDomain(null)}
+                        >
+                          Cancelar
+                        </button>
+                      </>
+                    )}
+                    {/* Original actions when not editing */}
+                    {editingDomain !== d.domain && (
+                      <>
+                        <button onClick={() => loadInstructions(d.domain)}
+                          className="px-3 py-1.5 rounded-lg bg-gray-50 text-gray-600 text-[11px] font-semibold hover:bg-gray-100 transition">
+                          DNS
+                        </button>
+                        {!isPrimary && verified && (
+                          <button onClick={() => setPrimary(d.domain)}
+                            className="px-3 py-1.5 rounded-lg bg-violet-50 text-violet-700 text-[11px] font-semibold hover:bg-violet-100 transition">
+                            Primario
+                          </button>
+                        )}
+                        <button onClick={() => removeDomain(d.domain)}
+                          className="px-2 py-1.5 rounded-lg text-red-400 hover:bg-red-50 hover:text-red-600 transition">
+                          <X size={14} />
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>

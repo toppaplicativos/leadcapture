@@ -226,6 +226,13 @@ async function initializeDistributionSchema(): Promise<void> {
       KEY idx_pa_owner (owner_user_id, brand_id, assigned_at DESC)
     )
   `);
+  /* Garantia de banco para o caso de dois claims vencerem o mesmo check
+   * simultaneamente. A posse aberta de um prospect por marca Ã© Ãºnica. */
+  await query(
+    `CREATE UNIQUE INDEX IF NOT EXISTS uq_pa_open_prospect
+     ON prospect_assignments (prospect_id, brand_id)
+     WHERE conversion_status = 'open'`,
+  ).catch(() => undefined);
 
   await query(`
     CREATE TABLE IF NOT EXISTS lead_distribution_queue (
@@ -2211,6 +2218,14 @@ export class AffiliateDistributionService {
 
   async processQueue(ownerUserId: string, brandId: string, maxItems = 5) {
     await this.ensureSchema();
+    await query(
+      `UPDATE lead_distribution_queue
+       SET queue_status = 'pending', error_message = 'processing_expired'
+       WHERE owner_user_id = ? AND brand_id = ? AND queue_status = 'processing'
+         AND assigned_at IS NULL
+         AND queued_at < CURRENT_TIMESTAMP - INTERVAL '15 minutes'`,
+      [ownerUserId, brandId],
+    ).catch(() => undefined);
     await this.refreshAllDistributionStatuses(ownerUserId, brandId);
 
     const pending = await query<any[]>(
@@ -2838,6 +2853,14 @@ export class AffiliateDistributionService {
     queueId: string;
   }) {
     await this.ensureSchema();
+    await query(
+      `UPDATE lead_distribution_queue
+       SET queue_status = 'pending', error_message = 'processing_expired'
+       WHERE owner_user_id = ? AND brand_id = ? AND queue_status = 'processing'
+         AND assigned_at IS NULL
+         AND queued_at < CURRENT_TIMESTAMP - INTERVAL '15 minutes'`,
+      [input.ownerUserId, input.brandId],
+    ).catch(() => undefined);
     const eligibility = await this.syncAffiliateDistributionStatus({
       ownerUserId: input.ownerUserId,
       brandId: input.brandId,

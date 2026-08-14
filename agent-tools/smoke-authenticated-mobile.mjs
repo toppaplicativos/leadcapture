@@ -58,10 +58,10 @@ await context.addInitScript(() => {
 const page = await context.newPage()
 
 async function dismissPwaBanner() {
-  const dialog = page.locator('[aria-label="Instalar app"]')
+  const dialog = page.locator('[role="dialog"]').filter({ hasText: /Lembrar depois|Instalar app|Como instalar/i }).last()
   if (await dialog.isVisible().catch(() => false)) {
-    await page.locator('[aria-label="Instalar app"] button[aria-label="Fechar"]').click({ timeout: 3000 }).catch(() => null)
-    await page.locator('[aria-label="Instalar app"]').waitFor({ state: 'hidden', timeout: 5000 }).catch(() => null)
+    await dialog.locator('button').filter({ hasText: /Lembrar depois|Agora n[aã]o|Fechar/i }).first().click({ force: true, timeout: 3000 }).catch(() => null)
+    await dialog.waitFor({ state: 'hidden', timeout: 5000 }).catch(() => null)
   }
 }
 

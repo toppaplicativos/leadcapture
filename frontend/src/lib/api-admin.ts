@@ -686,8 +686,13 @@ export const adminApi = {
   orderAnalytics: () =>
     authFetch<any>('/api/orders/oms/analytics', getAdminHeaders()),
 
-  affiliateStats: () =>
-    authFetch<any>('/api/affiliates/stats', getAdminHeaders()),
+  affiliateStats: () => {
+    const brandId = typeof localStorage !== 'undefined'
+      ? localStorage.getItem('lead-system:active-brand-id') || ''
+      : ''
+    if (!brandId.trim()) return Promise.resolve({ stats: null })
+    return authFetch<any>('/api/affiliates/stats', getAdminHeaders())
+  },
 
   updateAutomationRule: (ruleCode: string, body: Record<string, unknown>) =>
     authFetch<any>(`/api/automations/${ruleCode}`, getAdminHeaders(), {

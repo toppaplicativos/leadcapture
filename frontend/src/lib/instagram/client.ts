@@ -258,6 +258,24 @@ export async function fetchInstagramSnapshot(opts?: { force?: boolean }): Promis
   const brandId = activeBrandId()
   const now = Date.now()
 
+  // O super-admin pode abrir o workspace antes de selecionar uma marca.
+  // Nesse estado, o vazio é válido e não devemos chamar endpoints por marca
+  // com um identificador ausente.
+  if (!brandId) {
+    const empty: InstagramSnapshotResult = {
+      connection: null,
+      profile: null,
+      connected: false,
+      media: [],
+      analytics: null,
+      dashboard: null,
+      blockedByPlan: false,
+      brandId: '',
+    }
+    snapshotCache = { at: now, brandId: '', data: empty }
+    return empty
+  }
+
   if (
     !opts?.force
     && snapshotCache
